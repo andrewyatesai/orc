@@ -10,6 +10,7 @@ import type { SerializeAddon } from '@xterm/addon-serialize'
 import type { GlobalSettings } from '../../../../shared/types'
 import type { TerminalLeafId } from '../../../../shared/stable-pane-id'
 import type { TerminalWebglAutoDecision } from './terminal-webgl-auto-policy'
+import type { RainOverlayController, RainOverlayEngineFactory } from './pane-rain-overlay-types'
 
 // ---------------------------------------------------------------------------
 // Public interfaces
@@ -66,6 +67,9 @@ export type PaneManagerOptions = {
   ) => string | null | undefined | Promise<string | null | undefined>
   initialRenderingSuspended?: boolean
   terminalGpuAcceleration?: GlobalSettings['terminalGpuAcceleration']
+  /** Optional injection point for the aterm WASM adapter. No factory means
+   *  Orca creates no overlay canvas or terminal subscriptions. */
+  createRainOverlayEngine?: RainOverlayEngineFactory
   // Why: diagnostic label for log correlation. safeFit and other internal
   // helpers log warnings that are hard to correlate without knowing which
   // tab/worktree the PaneManager belongs to.
@@ -175,6 +179,8 @@ export type ManagedPaneInternal = {
   // deferred alt-screen buffer listener instead of stacking callbacks.
   pendingSplitScrollBufferDisposable?: IDisposable | null
   debugLabel: string | null
+  rainOverlayController?: RainOverlayController | null
+  rainOverlayEngineFactory?: RainOverlayEngineFactory
 } & ManagedPane
 
 export type DropZone = 'top' | 'bottom' | 'left' | 'right'

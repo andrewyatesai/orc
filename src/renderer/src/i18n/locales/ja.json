@@ -6759,7 +6759,9 @@
             "fastDescription": "修飾キーを押しながらスクロールするときの追加倍率。",
             "tui": "TUI",
             "tuiDescription": "全画面ターミナルアプリ向けの離散的なホイール通知。"
-          }
+          },
+          "94e1ef023b": "エフェクト",
+          "df05e8da41": "ライブターミナルペイン向けのオプションの視覚エフェクト。"
         },
         "TerminalSettingsPreview": {
           "a63953a48a": "{{value0}} テーマのプレビュー",
@@ -8453,7 +8455,16 @@
               "title": "テーマモード",
               "keyword_target": "対象",
               "keyword_editing": "編集"
-            }
+            },
+            "3a8eea7a8d": "マトリックスレイン",
+            "8a74d7040b": "ライブのターミナル出力から取得した文字を、空いている領域に流します。",
+            "8e55a69e08": "マトリックス",
+            "f4366d3a1f": "レイン",
+            "ec701daf77": "ライブ出力",
+            "3887712430": "文字",
+            "12506f3370": "グリフ",
+            "2eda3ff03f": "アニメーション",
+            "cda760c9e7": "エフェクト"
           },
           "windows": {
             "search": {
@@ -12877,7 +12888,7 @@
         "pastedImageLabel": "貼り付けた画像",
         "imagePasteFailed": "画像の貼り付けに失敗しました。",
         "worktreeNotReady": "Worktreeが準備できていません — しばらくしてから再試行してください。",
-        "uploadingAttachments": "{{value0}}個のファイルをリモートにアップロード中…"
+        "uploadingAttachments": "Uploading {{value0}} file{{value1}} to remote…"
       },
       "tool": {
         "running": "実行中…",

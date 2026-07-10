@@ -19,12 +19,21 @@ import { attachDomRendererFocusClassSync } from './pane-dom-focus-class-sync'
 import { attachWebgl, cancelPendingWebglRefresh, disposeWebgl } from './pane-webgl-renderer'
 import { registerArabicShapingJoiner } from './terminal-arabic-shaping-joiner'
 import { resolveCursorAgentImeAnchor } from './terminal-ime-anchor'
+import { attachPaneRainOverlay, detachPaneRainOverlay } from './pane-rain-overlay-lifecycle'
+import { createPaneDOM as createPaneDOMBase } from './pane-dom-creation'
 
 // ---------------------------------------------------------------------------
 // Pane creation, terminal open/close, addon management
 // ---------------------------------------------------------------------------
 
-export { createPaneDOM } from './pane-dom-creation'
+export function createPaneDOM(
+  ...args: Parameters<typeof createPaneDOMBase>
+): ReturnType<typeof createPaneDOMBase> {
+  const pane = createPaneDOMBase(...args)
+  pane.rainOverlayController = null
+  pane.rainOverlayEngineFactory = args[2].createRainOverlayEngine
+  return pane
+}
 
 /** Open terminal into its container and load addons. Must be called after the container is in the DOM. */
 export function openTerminal(pane: ManagedPaneInternal): void {
@@ -147,6 +156,8 @@ export function openTerminal(pane: ManagedPaneInternal): void {
 
   attachPaneFitResizeObserver(pane)
 
+  attachPaneRainOverlay(pane)
+
   // Initial fit (deferred to ensure layout has settled)
   if (pane.pendingInitialFitRafId != null) {
     cancelAnimationFrame(pane.pendingInitialFitRafId)
@@ -221,6 +232,7 @@ export function disposePane(
   }
   cancelPendingWebglRefresh(pane)
   detachPaneFitResizeObserver(pane)
+  detachPaneRainOverlay(pane)
   if (pane.panePointerDownHandler) {
     pane.container.removeEventListener('pointerdown', pane.panePointerDownHandler)
     pane.panePointerDownHandler = null

@@ -6722,7 +6722,9 @@
             "fastDescription": "수정 키로 스크롤할 때 적용되는 추가 배율.",
             "tui": "TUI",
             "tuiDescription": "전체 화면 터미널 앱을 위한 개별 휠 보고."
-          }
+          },
+          "94e1ef023b": "효과",
+          "df05e8da41": "활성 터미널 창을 위한 선택적 시각 효과입니다."
         },
         "TerminalSettingsPreview": {
           "a63953a48a": "{{value0}} 테마 미리보기",
@@ -8416,7 +8418,16 @@
               "title": "테마 모드",
               "keyword_target": "대상",
               "keyword_editing": "편집"
-            }
+            },
+            "3a8eea7a8d": "매트릭스 레인",
+            "8a74d7040b": "실시간 터미널 출력의 문자가 비어 있는 터미널 공간을 따라 흐르게 합니다.",
+            "8e55a69e08": "매트릭스",
+            "f4366d3a1f": "비",
+            "ec701daf77": "실시간 출력",
+            "3887712430": "문자",
+            "12506f3370": "글리프",
+            "2eda3ff03f": "애니메이션",
+            "cda760c9e7": "효과"
           },
           "windows": {
             "search": {
@@ -12877,7 +12888,7 @@
         "pastedImageLabel": "붙여넣은 이미지",
         "imagePasteFailed": "이미지 붙여넣기 실패.",
         "worktreeNotReady": "워크트리가 준비되지 않았습니다 — 잠시 후 다시 시도하세요.",
-        "uploadingAttachments": "{{value0}}개 파일을 원격으로 업로드 중…"
+        "uploadingAttachments": "Uploading {{value0}} file{{value1}} to remote…"
       },
       "tool": {
         "running": "실행 중…",

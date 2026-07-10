@@ -81,6 +81,16 @@ describe('getTerminalPaneSearchEntries', () => {
     expect(entries.some((entry) => entry.title === 'Scrollback Size')).toBe(false)
   })
 
+  it('includes Matrix Rain on all platforms', () => {
+    const entriesWindows = getTerminalPaneSearchEntries({ isWindows: true, isMac: false })
+    const entriesMac = getTerminalPaneSearchEntries({ isWindows: false, isMac: true })
+    const entriesLinux = getTerminalPaneSearchEntries({ isWindows: false, isMac: false })
+
+    expect(entriesWindows.some((entry) => entry.title === 'Matrix Rain')).toBe(true)
+    expect(entriesMac.some((entry) => entry.title === 'Matrix Rain')).toBe(true)
+    expect(entriesLinux.some((entry) => entry.title === 'Matrix Rain')).toBe(true)
+  })
+
   it('includes the OSC 52 clipboard setting on all platforms', () => {
     const entriesWindows = getTerminalPaneSearchEntries({ isWindows: true, isMac: false })
     const entriesMac = getTerminalPaneSearchEntries({ isWindows: false, isMac: true })

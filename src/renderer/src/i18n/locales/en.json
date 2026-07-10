@@ -6774,7 +6774,9 @@
             "fastDescription": "Extra multiplier while scrolling with a modifier key.",
             "tui": "TUI",
             "tuiDescription": "Discrete wheel reports for full-screen terminal apps."
-          }
+          },
+          "94e1ef023b": "Effects",
+          "df05e8da41": "Optional visual effects for live terminal panes."
         },
         "TerminalSettingsPreview": {
           "a63953a48a": "Preview {{value0}} theme",
@@ -8468,7 +8470,16 @@
               "title": "Theme Mode",
               "keyword_target": "target",
               "keyword_editing": "editing"
-            }
+            },
+            "3a8eea7a8d": "Matrix Rain",
+            "8a74d7040b": "Let characters from live terminal output flow through unoccupied terminal space.",
+            "8e55a69e08": "matrix",
+            "f4366d3a1f": "rain",
+            "ec701daf77": "live output",
+            "3887712430": "characters",
+            "12506f3370": "glyphs",
+            "2eda3ff03f": "animation",
+            "cda760c9e7": "effect"
           },
           "windows": {
             "search": {

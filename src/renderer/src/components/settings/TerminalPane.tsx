@@ -1,5 +1,7 @@
 import type { GlobalSettings } from '../../../../shared/types'
 import { Separator } from '../ui/separator'
+import { SettingsSubsectionHeader, SettingsSwitchRow } from './SettingsFormControls'
+import { SearchableSetting } from './SearchableSetting'
 import { matchesSettingsSearch } from './settings-search'
 import { useAppStore } from '../../store'
 import { isMacUserAgent, isWindowsUserAgent } from '@/components/terminal-pane/pane-helpers'
@@ -7,6 +9,7 @@ import {
   getManageSessionsSearchEntries,
   getTerminalAdvancedSearchEntries,
   getTerminalMacOptionSearchEntries,
+  getTerminalMatrixRainSearchEntry,
   getTerminalMacYenSearchEntries,
   getTerminalPaneInteractionSearchEntries,
   getTerminalRenderingSearchEntries,
@@ -23,6 +26,7 @@ import { TerminalInteractionSection } from './TerminalInteractionSection'
 import { TerminalRenderingSection } from './TerminalRenderingSection'
 import { TerminalSetupScriptSection } from './TerminalSetupScriptSection'
 import { TerminalWindowsShellSection } from './TerminalWindowsShellSection'
+import { translate } from '@/i18n/i18n'
 
 type TerminalPaneProps = {
   settings: GlobalSettings
@@ -41,6 +45,42 @@ type TerminalPaneProps = {
   gitBashAvailable?: boolean
   /** Whether the active terminal host is Windows, even if the client is not. */
   isWindowsTerminalHost?: boolean
+}
+
+type TerminalEffectsSectionProps = Pick<TerminalPaneProps, 'settings' | 'updateSettings'>
+
+function TerminalEffectsSection({
+  settings,
+  updateSettings
+}: TerminalEffectsSectionProps): React.JSX.Element {
+  const matrixRainSearchEntry = getTerminalMatrixRainSearchEntry()
+
+  return (
+    <section className="space-y-3">
+      <SettingsSubsectionHeader
+        title={translate('auto.components.settings.TerminalPane.94e1ef023b', 'Effects')}
+        description={translate(
+          'auto.components.settings.TerminalPane.df05e8da41',
+          'Optional visual effects for live terminal panes.'
+        )}
+      />
+
+      <div className="divide-y divide-border/40">
+        <SearchableSetting {...matrixRainSearchEntry}>
+          <SettingsSwitchRow
+            label={matrixRainSearchEntry.title}
+            description={matrixRainSearchEntry.description}
+            checked={settings.terminalMatrixRainEnabled ?? false}
+            onChange={() =>
+              updateSettings({
+                terminalMatrixRainEnabled: !(settings.terminalMatrixRainEnabled ?? false)
+              })
+            }
+          />
+        </SearchableSetting>
+      </div>
+    </section>
+  )
 }
 
 export function TerminalPane({
@@ -77,6 +117,9 @@ export function TerminalPane({
         settings={settings}
         updateSettings={updateSettings}
       />
+    ) : null,
+    matchesSettingsSearch(searchQuery, getTerminalMatrixRainSearchEntry()) ? (
+      <TerminalEffectsSection key="effects" settings={settings} updateSettings={updateSettings} />
     ) : null,
     matchesSettingsSearch(searchQuery, getTerminalPaneInteractionSearchEntries()) ||
     (isWindows && matchesSettingsSearch(searchQuery, getTerminalRightClickToPasteSearchEntry())) ? (

@@ -2526,6 +2526,9 @@ export type GlobalSettings = {
    *  - 'on': always try xterm WebGL.
    *  - 'off': keep terminal rendering on xterm's DOM renderer. */
   terminalGpuAcceleration: 'auto' | 'on' | 'off'
+  /** Whether terminal panes may animate supported characters from their live
+   *  output as Matrix Rain. Optional so pre-feature profiles remain off. */
+  terminalMatrixRainEnabled?: boolean
   /** Whether to enable programming-ligatures rendering via
    *  `@xterm/addon-ligatures`.
    *  - `'auto'` (default): enabled only when the configured font is known to

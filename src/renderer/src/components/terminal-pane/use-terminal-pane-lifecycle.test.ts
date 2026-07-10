@@ -9,9 +9,18 @@ import {
   resolvePaneSeedCwd,
   resolveQueuedInitialCwd,
   shouldDetachPaneTransportOnUnmount,
+  resolveTerminalMatrixRainFactory,
   splitPaneWithOneShotStartup,
   suppressIntentionalPaneCloseExit
 } from './use-terminal-pane-lifecycle'
+
+describe('resolveTerminalMatrixRainFactory', () => {
+  it('keeps the default path absent and returns one stable lazy factory when enabled', () => {
+    expect(resolveTerminalMatrixRainFactory(undefined)).toBeUndefined()
+    expect(resolveTerminalMatrixRainFactory(false)).toBeUndefined()
+    expect(resolveTerminalMatrixRainFactory(true)).toBe(resolveTerminalMatrixRainFactory(true))
+  })
+})
 
 describe('splitPaneWithOneShotStartup', () => {
   it('only exposes startup to the intentional split and clears it afterwards', () => {

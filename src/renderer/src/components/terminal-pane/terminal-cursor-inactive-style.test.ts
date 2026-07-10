@@ -15,10 +15,12 @@ describe('terminal inactive cursor style', () => {
       rows: 24
     } as unknown as ManagedPane['terminal']
     const pane = { id: 1, terminal } as ManagedPane
+    const invalidateRainOverlays = vi.fn()
     const manager = {
       getPanes: () => [pane],
       setPaneLigaturesEnabled: vi.fn(),
-      setPaneStyleOptions: vi.fn()
+      setPaneStyleOptions: vi.fn(),
+      invalidateRainOverlays
     } as unknown as PaneManager
     const settings = {
       ...getDefaultSettings('/tmp'),
@@ -38,5 +40,6 @@ describe('terminal inactive cursor style', () => {
 
     expect(options.cursorStyle).toBe('bar')
     expect(options.cursorInactiveStyle).toBe('bar')
+    expect(invalidateRainOverlays).toHaveBeenCalledOnce()
   })
 })

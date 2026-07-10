@@ -123,6 +123,19 @@ import { acquireWebviewsDragPassthrough } from '../browser-pane/webview-registry
 import { recordCreatedTerminalPaneSplit } from './terminal-pane-split-completion'
 import { closeTerminalTab } from '../terminal/terminal-tab-actions'
 import { seedStartupSessionRestoredBanner } from './session-restored-banner-pane-state'
+import type { RainOverlayEngineFactory } from '@/lib/pane-manager/pane-rain-overlay-types'
+
+const TERMINAL_MATRIX_RAIN_FACTORY: RainOverlayEngineFactory = async (args) => {
+  const { vendoredAtermRainOverlayEngineFactory } =
+    await import('@/lib/pane-manager/pane-rain-overlay-vendor-loader')
+  return vendoredAtermRainOverlayEngineFactory(args)
+}
+
+export function resolveTerminalMatrixRainFactory(
+  enabled: boolean | undefined
+): RainOverlayEngineFactory | undefined {
+  return enabled === true ? TERMINAL_MATRIX_RAIN_FACTORY : undefined
+}
 
 export function recordRuntimeCreatedTerminalPaneSplit(
   createdPane: unknown,
@@ -1447,6 +1460,9 @@ export function useTerminalPaneLifecycle({
       // that arrive after WebGL attaches are handled by the post-replay
       // rebuildPaneWebgl in pty-connection's replay callback.
       terminalGpuAcceleration: settingsRef.current?.terminalGpuAcceleration ?? 'auto',
+      createRainOverlayEngine: resolveTerminalMatrixRainFactory(
+        settingsRef.current?.terminalMatrixRainEnabled
+      ),
       debugLabel: `tab:${tabId}/wt:${worktreeId}`
     })
 
@@ -1830,6 +1846,12 @@ export function useTerminalPaneLifecycle({
   useEffect(() => {
     managerRef.current?.setTerminalGpuAcceleration(settings?.terminalGpuAcceleration ?? 'auto')
   }, [settings?.terminalGpuAcceleration, managerRef])
+
+  useEffect(() => {
+    managerRef.current?.setRainOverlayEngineFactory(
+      resolveTerminalMatrixRainFactory(settings?.terminalMatrixRainEnabled)
+    )
+  }, [settings?.terminalMatrixRainEnabled, managerRef])
 
   useEffect(() => {
     const manager = managerRef.current

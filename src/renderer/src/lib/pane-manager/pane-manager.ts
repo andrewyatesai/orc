@@ -50,6 +50,7 @@ import {
 } from './pane-split-close'
 import { FIRST_PANE_ID } from '../../../../shared/pane-key'
 import { splitPaneAroundMountedSubtree } from './pane-subtree-split'
+import { setPaneRainOverlayEngineFactory } from './pane-rain-overlay-lifecycle'
 
 export type {
   PaneManagerOptions,
@@ -60,6 +61,33 @@ export type {
   PaneExternalDropResolver,
   PaneExternalDropHandler
 }
+export type {
+  RainOverlayEngine,
+  RainOverlayEngineFactory,
+  RainOverlaySnapshot,
+  RainOverlayViewport
+} from './pane-rain-overlay-types'
+export { createAtermRainOverlayEngineFactory } from './pane-rain-overlay-wasm-factory'
+export type {
+  AtermEffectsWebModule,
+  AtermEffectsWebModuleLoader,
+  AtermRainOverlayBinding
+} from './pane-rain-overlay-wasm-types'
+export {
+  RAIN_CELL_BOLD,
+  RAIN_CELL_DIM,
+  RAIN_CELL_INVERSE,
+  RAIN_CELL_INVISIBLE,
+  RAIN_CELL_ITALIC,
+  RAIN_CELL_OVERLINE,
+  RAIN_CELL_STRIKETHROUGH,
+  RAIN_CELL_UNDERLINE,
+  RAIN_COLOR_DEFAULT,
+  RAIN_COLOR_MODE_MASK,
+  RAIN_COLOR_PALETTE,
+  RAIN_COLOR_RGB,
+  RAIN_COLOR_VALUE_MASK
+} from './pane-rain-overlay-types'
 
 export class PaneManager {
   private root: HTMLElement
@@ -304,6 +332,25 @@ export class PaneManager {
 
   setTerminalGpuAcceleration(mode: PaneManagerOptions['terminalGpuAcceleration']): void {
     applyTerminalGpuAcceleration(this.panes.values(), this.options, mode)
+  }
+
+  setRainOverlayEngineFactory(factory: PaneManagerOptions['createRainOverlayEngine']): void {
+    if (this.destroyed) {
+      return
+    }
+    this.options.createRainOverlayEngine = factory
+    for (const pane of this.panes.values()) {
+      setPaneRainOverlayEngineFactory(pane, factory)
+    }
+  }
+
+  invalidateRainOverlays(): void {
+    if (this.destroyed) {
+      return
+    }
+    for (const pane of this.panes.values()) {
+      pane.rainOverlayController?.invalidate()
+    }
   }
 
   markPaneHasComplexScriptOutput(paneId: number): void {

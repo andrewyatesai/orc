@@ -6737,7 +6737,9 @@
             "fastDescription": "Multiplicador adicional al desplazarse con una tecla modificadora.",
             "tui": "TUI",
             "tuiDescription": "Eventos discretos de rueda para apps de terminal de pantalla completa."
-          }
+          },
+          "94e1ef023b": "Efectos",
+          "df05e8da41": "Efectos visuales opcionales para paneles de terminal activos."
         },
         "TerminalSettingsPreview": {
           "a63953a48a": "Vista previa del tema {{value0}}",
@@ -8431,7 +8433,16 @@
               "title": "Modo del tema",
               "keyword_target": "destino",
               "keyword_editing": "edición"
-            }
+            },
+            "3a8eea7a8d": "Lluvia Matrix",
+            "8a74d7040b": "Haz que los caracteres de la salida activa del terminal fluyan por el espacio desocupado.",
+            "8e55a69e08": "matrix",
+            "f4366d3a1f": "lluvia",
+            "ec701daf77": "salida activa",
+            "3887712430": "caracteres",
+            "12506f3370": "glifos",
+            "2eda3ff03f": "animación",
+            "cda760c9e7": "efecto"
           },
           "windows": {
             "search": {

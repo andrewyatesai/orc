@@ -289,4 +289,7 @@ export function applyTerminalAppearance(
     paddingX: settings.terminalPaddingX,
     paddingY: settings.terminalPaddingY
   })
+  // The rain engine owns a color-resolved snapshot separate from xterm's
+  // renderer, so theme changes must explicitly refresh that borrowed grid.
+  manager.invalidateRainOverlays()
 }

@@ -221,6 +221,7 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     // Why: "auto" should use WebGL when supported while keeping DOM fallback
     // for renderer failures and Linux software/unknown GPU renderers.
     terminalGpuAcceleration: 'auto',
+    terminalMatrixRainEnabled: false,
     // Why 'auto': when the user has picked a known ligature font we want the
     // feature enabled by default, but we never force it if they pick a font
     // that lacks ligatures or if they've explicitly opted out. The resolver

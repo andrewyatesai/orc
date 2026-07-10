@@ -45,6 +45,7 @@ export function markPaneComplexScriptOutput(
 export function suspendPaneRendering(panes: Iterable<ManagedPaneInternal>): void {
   for (const pane of panes) {
     pane.webglAttachmentDeferred = true
+    pane.rainOverlayController?.setSuspended(true)
     disposeWebgl(pane)
   }
 }
@@ -57,6 +58,7 @@ export function resumePaneRendering(panes: Iterable<ManagedPaneInternal>): void 
   for (const pane of panes) {
     pane.webglAttachmentDeferred = false
     pane.webglDisabledAfterContextLoss = false
+    pane.rainOverlayController?.setSuspended(false)
     reattachWebglIfNeeded(pane)
   }
 }

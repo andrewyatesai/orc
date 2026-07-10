@@ -99,5 +99,10 @@
       }
     }
   ],
-  "ignorePatterns": ["**/node_modules", "**/dist", "**/out"]
+  "ignorePatterns": [
+    "**/node_modules",
+    "**/dist",
+    "**/out",
+    "src/renderer/public/vendor/aterm-effects-web/**"
+  ]
 }
