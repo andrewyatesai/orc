@@ -45,6 +45,26 @@ describe('Gitea pull request mappers', () => {
     expect(deriveGiteaCommitStatus({ statuses: [] })).toBe('neutral')
   })
 
+  it('tolerates a non-array statuses field from a malformed forge response', () => {
+    // Regression: a self-hosted/older/malicious Gitea returning a non-array
+    // `statuses` (with a non-keyword `state`) must not throw when iterated.
+    expect(deriveGiteaCommitStatus({ state: 'custom', statuses: {} as unknown as [] })).toBe(
+      'neutral'
+    )
+    expect(deriveGiteaCommitStatus({ statuses: 'nope' as unknown as [] })).toBe('neutral')
+    expect(
+      mapGiteaPullRequest(
+        {
+          number: 7,
+          title: 'Malformed status',
+          html_url: 'https://git.example.com/team/project/pulls/7',
+          statuses: {}
+        } as unknown as Parameters<typeof mapGiteaPullRequest>[0],
+        deriveGiteaCommitStatus({ state: 'custom', statuses: {} as unknown as [] })
+      )
+    ).not.toBeNull()
+  })
+
   it('maps a raw pull request to the hosted review shape', () => {
     expect(
       mapGiteaPullRequest(

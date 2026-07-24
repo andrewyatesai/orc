@@ -186,6 +186,114 @@ describe('Gitea client', () => {
     )
   })
 
+  it('never attaches the PAT to a cleartext http remote-derived host (SSRF / token exfil)', async () => {
+    // Token set for the real instance, no configured base URL: the request host is
+    // derived from the git remote, which an attacker (or a metadata literal) controls.
+    gitExecFileAsyncMock.mockResolvedValue({
+      stdout: 'http://169.254.169.254/o/r.git\n',
+      stderr: ''
+    })
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => Response.json([]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getGiteaPullRequestForBranch('/repo', 'feature/x')).resolves.toBeNull()
+
+    expect(fetchMock).toHaveBeenCalled()
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string> | undefined
+    expect(headers?.Authorization).toBeUndefined()
+  })
+
+  it('never attaches the PAT to an https internal/metadata remote-derived host in token-only mode', async () => {
+    // Token-only mode (no configured base URL): the request host is derived from
+    // the untrusted git remote. Requiring https alone is not enough — a malicious
+    // remote could still point at an internal/metadata literal over https and
+    // exfiltrate the PAT. The token must never follow it to internal infra.
+    for (const remote of [
+      'https://169.254.169.254/o/r.git',
+      'https://10.0.0.5/o/r.git',
+      'https://192.168.1.10/o/r.git'
+    ]) {
+      gitExecFileAsyncMock.mockResolvedValue({ stdout: `${remote}\n`, stderr: '' })
+      _resetGiteaRepoRefCache()
+      _resetGiteaPullRequestScanCache()
+      const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => Response.json([]))
+      vi.stubGlobal('fetch', fetchMock)
+
+      await expect(getGiteaPullRequestForBranch('/repo', 'feature/x')).resolves.toBeNull()
+
+      // The lookup still runs (anonymously); it just must not carry the PAT.
+      expect(fetchMock).toHaveBeenCalled()
+      const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string> | undefined
+      expect(headers?.Authorization).toBeUndefined()
+    }
+  })
+
+  it('attaches the PAT to a loopback remote-derived host (SSH-tunnel / local instance)', async () => {
+    // Loopback never leaves the machine, so a forwarded-port / local Gitea over http
+    // (or ::1) is a trusted recipient — the fork's SSH-tunnel and local-dev flows.
+    for (const remote of ['http://127.0.0.1:3000/o/r.git', 'https://[::1]/o/r.git']) {
+      gitExecFileAsyncMock.mockResolvedValue({ stdout: `${remote}\n`, stderr: '' })
+      _resetGiteaRepoRefCache()
+      _resetGiteaPullRequestScanCache()
+      const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => Response.json([]))
+      vi.stubGlobal('fetch', fetchMock)
+
+      await getGiteaPullRequestForBranch('/repo', 'feature/x')
+
+      const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string> | undefined
+      expect(headers?.Authorization).toBe('token gitea-token')
+    }
+  })
+
+  it('does not send the PAT over a cleartext http configured base URL (finding 2)', async () => {
+    process.env.ORCA_GITEA_API_BASE_URL = 'http://gitea.internal'
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => Response.json([]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getGiteaPullRequestForBranch('/repo', 'feature/x')
+
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string> | undefined
+    expect(headers?.Authorization).toBeUndefined()
+  })
+
+  it('binds the PAT to the configured instance host and keeps sending it there', async () => {
+    // Regression guard: the host-binding must not drop the token for a legitimate
+    // https request whose host matches the configured ORCA_GITEA_API_BASE_URL.
+    process.env.ORCA_GITEA_API_BASE_URL = 'https://git.example.com'
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      const parsed = new URL(url)
+      if (parsed.pathname.endsWith('/status')) {
+        return Response.json({ state: 'success' })
+      }
+      return Response.json([giteaPr()])
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getGiteaPullRequestForBranch('/repo', 'feature/gitea')).resolves.toMatchObject({
+      number: 7
+    })
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string> | undefined
+    expect(headers?.Authorization).toBe('token gitea-token')
+  })
+
+  it('reports a page-cap-truncated scan as unavailable in the strict lookup (duplicate-PR guard)', async () => {
+    // Gitea has no head-branch filter: every page is full up to the cap and the
+    // branch's older PR is beyond it, so the scan misses without confirming absence.
+    const fullPage = Array.from({ length: 50 }, (_, index) =>
+      giteaPr(index + 100, `other/${index}`)
+    )
+    const fetchMock = vi.fn(async () => Response.json(fullPage))
+    vi.stubGlobal('fetch', fetchMock)
+
+    // Display refresh (swallowing) stays null under truncation.
+    await expect(getGiteaPullRequestForBranch('/repo', 'feature/absent')).resolves.toBeNull()
+    // Create preflight (strict) must not treat a truncated miss as a definitive
+    // not_found, or it would open a duplicate PR for a branch that already has one.
+    await expect(getGiteaPullRequestForBranchOrThrow('/repo', 'feature/absent')).rejects.toThrow(
+      /page cap/
+    )
+  })
+
   it('expires successful scans and bounds retained repository listings', async () => {
     vi.useFakeTimers()
     try {

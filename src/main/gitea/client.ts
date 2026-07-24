@@ -57,8 +57,44 @@ function getAuthConfig(): GiteaAuthConfig {
   }
 }
 
-function authHeaders(config: Pick<GiteaAuthConfig, 'token'>): Record<string, string> {
-  return config.token ? { Authorization: `token ${config.token}` } : {}
+// Why: loopback is the SSH-tunnel / local-instance case — a forwarded port on
+// 127.0.0.1 / ::1 (or localhost). The connection never leaves the machine, so the
+// PAT may be attached even over cleartext http, keeping the fork's SSH-tunnel and
+// local-dev flows working. Non-loopback internal/metadata literals are refused below.
+// hostname keeps brackets for IPv6 literals (e.g. "[::1]").
+const LOOPBACK_HOST = /^(localhost$|127\.|\[::1\]$|\[::ffff:127\.)/i
+
+// Why: in token-only mode the request host is derived from the untrusted git remote,
+// so besides requiring https we refuse the PAT to NON-loopback internal/metadata
+// literals — a malicious remote must not exfiltrate it to internal infrastructure
+// (169.254.169.254, 10.x, 192.168.x, 172.16-31.x, ::, fe80::, fc00::/7).
+const INTERNAL_HOST =
+  /^(0\.|10\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[(::\]|::ffff:|fe80:|f[cd]))/i
+
+// Why: the token host is derived from the git remote when ORCA_GITEA_API_BASE_URL
+// is unset, so an attacker-controlled remote (crash 89/64) could otherwise
+// exfiltrate the PAT (over cleartext http, or over https to an internal/metadata
+// host). Loopback is trusted (local/tunnel); otherwise never attach over http, and
+// in token-only mode refuse non-loopback internal literals; when an instance base
+// URL is configured bind to that exact host (https, or loopback for a tunnelled one).
+function tokenAllowedForHost(url: URL, configuredApiBaseUrl: string | null): boolean {
+  if (!LOOPBACK_HOST.test(url.hostname) && url.protocol !== 'https:') {
+    return false
+  }
+  if (!configuredApiBaseUrl) {
+    return LOOPBACK_HOST.test(url.hostname) || !INTERNAL_HOST.test(url.hostname)
+  }
+  try {
+    return url.host === new URL(configuredApiBaseUrl).host
+  } catch {
+    return false
+  }
+}
+
+function authHeaders(config: GiteaAuthConfig, requestUrl: URL): Record<string, string> {
+  return config.token && tokenAllowedForHost(requestUrl, config.apiBaseUrl)
+    ? { Authorization: `token ${config.token}` }
+    : {}
 }
 
 function configuredApiBaseUrl(repo: GiteaRepoRef): string {
@@ -86,10 +122,11 @@ async function requestJsonAtBase<T>(
 ): Promise<T | null> {
   const config = getAuthConfig()
   try {
-    const response = await fetch(apiUrl(baseUrl, path, options.searchParams), {
+    const url = apiUrl(baseUrl, path, options.searchParams)
+    const response = await fetch(url, {
       headers: {
         Accept: 'application/json',
-        ...authHeaders(config)
+        ...authHeaders(config, url)
       },
       signal: AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS)
     })
@@ -282,6 +319,14 @@ export async function getGiteaPullRequestForBranch(
     const raw = pullRequests.find((item) => matchesBranch(item, branchName))
     if (raw) {
       return normalizePullRequest(repo, raw)
+    }
+    // Why: Gitea has no head-branch filter, so we scan recent /pulls pages. A scan
+    // that filled every page up to the cap may have hidden an older PR; in the
+    // strict lookup treat that as unavailable (not a definitive miss) so
+    // createHostedReview cannot open a duplicate PR (design invariant 8).
+    const scanTruncated = pullRequests.length >= PULL_REQUEST_PAGE_LIMIT * MAX_PULL_REQUEST_PAGES
+    if (throwOnFailure && typeof linkedPRNumber !== 'number' && scanTruncated) {
+      throw new Error('Gitea pull request scan hit the page cap without matching the branch')
     }
   }
 

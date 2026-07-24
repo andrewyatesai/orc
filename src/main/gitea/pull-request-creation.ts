@@ -7,6 +7,10 @@ import {
   HostedReviewApiRequestError,
   requestHostedReviewJson
 } from '../source-control/hosted-review-api-request'
+import {
+  getHostedReviewLocalGitOptions,
+  type HostedReviewExecutionOptions
+} from '../source-control/hosted-review-git-options'
 import { readHostedPullRequestTemplate } from '../source-control/pull-request-template'
 import { getGiteaPullRequestForBranch, invalidateGiteaPullRequestScanForRepo } from './client'
 import { mapGiteaPullRequest, type RawGiteaPullRequest } from './pull-request-mappers'
@@ -40,6 +44,35 @@ function authHeaders(): Record<string, string> {
 
 function apiUrl(repo: GiteaRepoRef, path: string): URL {
   return new URL(`${configuredApiBaseUrl(repo).replace(/\/+$/, '')}${path}`)
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  return (
+    host === 'localhost' ||
+    host === '::1' ||
+    host === '0:0:0:0:0:0:0:1' ||
+    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)
+  )
+}
+
+// Why: the API host is derived from the untrusted git remote, and creation attaches
+// ORCA_GITEA_TOKEN. Refuse to POST the token over cleartext http to any non-loopback
+// host — an http remote pointing at an internal/attacker address would otherwise
+// exfiltrate the PAT. https (any host) and local http instances stay allowed.
+function insecureTokenTransportError(url: URL): CreateHostedReviewResult | null {
+  if (envValue('ORCA_GITEA_TOKEN') === null) {
+    return null
+  }
+  if (url.protocol === 'https:' || (url.protocol === 'http:' && isLoopbackHost(url.hostname))) {
+    return null
+  }
+  return {
+    ok: false,
+    code: 'validation',
+    error:
+      'Create PR failed: refusing to send the Gitea token over an insecure connection. Next step: use an https Gitea remote or set ORCA_GITEA_API_BASE_URL to an https URL.'
+  }
 }
 
 function encodedRepoPath(repo: GiteaRepoRef): string {
@@ -103,22 +136,28 @@ function classifyCreateError(error: unknown): CreateHostedReviewResult {
 async function findExistingPullRequest(
   repoPath: string,
   head: string,
-  connectionId?: string | null
+  connectionId?: string | null,
+  options: HostedReviewExecutionOptions = {}
 ): Promise<{ number: number; url: string } | null> {
   // Why: only called after a create attempt, which may have just mutated the
   // remote — a cached /pulls scan from before the POST would miss the new PR.
-  const repo = await getGiteaRepoRef(repoPath, connectionId)
+  const repo = await getGiteaRepoRef(
+    repoPath,
+    connectionId,
+    getHostedReviewLocalGitOptions(options)
+  )
   if (repo) {
     invalidateGiteaPullRequestScanForRepo(repo)
   }
-  const existing = await getGiteaPullRequestForBranch(repoPath, head, null, connectionId)
+  const existing = await getGiteaPullRequestForBranch(repoPath, head, null, connectionId, options)
   return existing ? { number: existing.number, url: existing.url } : null
 }
 
 export async function createGiteaPullRequest(
   repoPath: string,
   input: CreateHostedReviewInput,
-  connectionId?: string | null
+  connectionId?: string | null,
+  options: HostedReviewExecutionOptions = {}
 ): Promise<CreateHostedReviewResult> {
   if (input.provider !== 'gitea') {
     return {
@@ -128,13 +167,23 @@ export async function createGiteaPullRequest(
     }
   }
 
-  const repo = await getGiteaRepoRef(repoPath, connectionId)
+  const repo = await getGiteaRepoRef(
+    repoPath,
+    connectionId,
+    getHostedReviewLocalGitOptions(options)
+  )
   if (!repo) {
     return {
       ok: false,
       code: 'unsupported_provider',
       error: 'Creating pull requests requires a Gitea remote.'
     }
+  }
+
+  const createUrl = apiUrl(repo, `/repos/${encodedRepoPath(repo)}/pulls`)
+  const transportError = insecureTokenTransportError(createUrl)
+  if (transportError) {
+    return transportError
   }
 
   const base = normalizeHostedReviewBaseRef(input.base)
@@ -169,7 +218,7 @@ export async function createGiteaPullRequest(
 
   try {
     const raw = await requestHostedReviewJson<RawGiteaPullRequest>(
-      apiUrl(repo, `/repos/${encodedRepoPath(repo)}/pulls`),
+      createUrl,
       {
         method: 'POST',
         headers: {
@@ -186,7 +235,9 @@ export async function createGiteaPullRequest(
       invalidateGiteaPullRequestScanForRepo(repo)
       return { ok: true, number: created.number, url: created.url }
     }
-    const found = await findExistingPullRequest(repoPath, head, connectionId).catch(() => null)
+    const found = await findExistingPullRequest(repoPath, head, connectionId, options).catch(
+      () => null
+    )
     return found
       ? { ok: true, ...found }
       : {
@@ -200,7 +251,9 @@ export async function createGiteaPullRequest(
       !classified.ok &&
       (classified.code === 'already_exists' || classified.code === 'unknown_completion')
     ) {
-      const existing = await findExistingPullRequest(repoPath, head, connectionId).catch(() => null)
+      const existing = await findExistingPullRequest(repoPath, head, connectionId, options).catch(
+        () => null
+      )
       if (existing) {
         return {
           ok: false,

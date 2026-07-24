@@ -62,7 +62,10 @@ export function deriveGiteaCommitStatus(rollup: RawGiteaCombinedStatus | null): 
   if (combined !== 'neutral') {
     return combined
   }
-  const statuses = rollup.statuses ?? []
+  // Defensive: a self-hosted/older/malicious Gitea can send a non-array `statuses`
+  // (e.g. {}); `?? []` only guards null/undefined, so a wrong type would make
+  // `for...of` throw and crash the uncaught hosted-review lookup.
+  const statuses = Array.isArray(rollup.statuses) ? rollup.statuses : []
   if (statuses.length === 0) {
     return 'neutral'
   }
