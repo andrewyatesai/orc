@@ -6,6 +6,10 @@ import { PassThrough } from 'node:stream'
 import { SshFilesystemProvider } from './ssh-filesystem-provider'
 import { JsonRpcErrorCode } from '../ssh/relay-protocol'
 
+// A real ssh2 SFTPWrapper resolves rename/unlink via a trailing node-style callback;
+// the atomic temp+rename path in sftp-upload's uploadFile needs them on the mock.
+const resolveSftpCb = (...args: unknown[]): void => (args.at(-1) as () => void)()
+
 type MockMultiplexer = {
   request: ReturnType<typeof vi.fn>
   notify: ReturnType<typeof vi.fn>
@@ -300,7 +304,8 @@ describe('SshFilesystemProvider', () => {
         stream.resume()
         return stream
       })
-      const sftp = { createWriteStream, end: vi.fn() }
+      // Stage-then-rename upload (exclusive) drives sftp.rename; mock it to succeed.
+      const sftp = { createWriteStream, end: vi.fn(), rename: vi.fn(resolveSftpCb) }
       const createSftp = vi.fn().mockResolvedValue(sftp)
       provider = new SshFilesystemProvider('conn-1', mux as never, createSftp as never)
       const dir = mkdtempSync(join(tmpdir(), 'orca-sftp-upload-session-'))
