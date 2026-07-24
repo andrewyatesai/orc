@@ -1,6 +1,5 @@
 /* eslint-disable max-lines -- Why: preload is the audited renderer/Electron IPC contract; co-locating the surface eases security and type-drift review. */
 import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
 import { preloadE2EConfig } from './e2e-config'
 import { glApi } from './gitlab'
 import type { AppIdentity } from '../shared/app-identity'
@@ -227,7 +226,7 @@ import type {
   ReactErrorBoundaryReportArgs,
   ReactErrorBoundaryReportResult
 } from '../shared/crash-reporting'
-import type { PreloadApi } from './api-types'
+import type { MinimalElectronBridge, PreloadApi } from './api-types'
 import {
   createUpdaterQuitAbortRelay,
   prepareRendererForAppRestart
@@ -4515,17 +4514,25 @@ const api = {
   }
 }
 
+// Why: expose only a frozen platform/versions snapshot on window.electron — never the toolkit
+// electronAPI, whose ipcRenderer is a generic channel passthrough and whose process.env copies the
+// full main-process environment into the renderer (audit: no generic passthrough / no env leak).
+const electronBridge: MinimalElectronBridge = Object.freeze({
+  platform: process.platform,
+  versions: Object.freeze({ ...process.versions })
+})
+
 // Expose Electron APIs via contextBridge when context-isolated, otherwise attach to the DOM global.
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
+    contextBridge.exposeInMainWorld('electron', electronBridge)
     contextBridge.exposeInMainWorld('api', api)
   } catch (error) {
     console.error(error)
   }
 } else {
   // @ts-ignore (define in dts)
-  window.electron = electronAPI
+  window.electron = electronBridge
   // @ts-ignore (define in dts)
   window.api = api
 }

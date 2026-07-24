@@ -1,4 +1,9 @@
 /* eslint-disable max-lines -- Why: the preload contract is intentionally centralized in one declaration file so renderer and preload stay in lockstep when IPC surfaces change. */
+// Why: type-only anchor for the `electron` package's ambient `Electron` namespace, which
+// renderer browser-pane files reference (Electron.FoundInPageResult, etc). This file is the
+// sole include that pulls those globals into the web tsconfig graph; without it 29 files fail
+// TS2503. Purely a type reference — reintroduces NO runtime electronAPI/ipcRenderer/process.env.
+import type {} from 'electron'
 import type {
   CreateHostedReviewArgs,
   CreateHostedReviewResult,
@@ -301,7 +306,6 @@ import type {
   BrowserPermissionDeniedEvent,
   BrowserPopupEvent
 } from '../shared/browser-guest-events'
-import type { ElectronAPI } from '@electron-toolkit/preload'
 import type { BrowserSetAnnotationViewportBridgeArgs } from '../shared/browser-annotation-viewport-bridge'
 import type { CliInstallStatus } from '../shared/cli-install-types'
 import type { E2EConfig } from '../shared/e2e-config'
@@ -3380,10 +3384,20 @@ export type PreloadApi = {
   }
 }
 
+/**
+ * Minimal, safe replacement for @electron-toolkit/preload's ElectronAPI on window.electron.
+ * Why: the toolkit object exposes a generic ipcRenderer channel passthrough and a full
+ * process.env copy to the renderer (audit); we expose only a frozen platform/versions snapshot.
+ */
+export type MinimalElectronBridge = {
+  readonly platform: string
+  readonly versions: Readonly<Record<string, string | undefined>>
+}
+
 declare global {
   // oxlint-disable-next-line typescript-eslint/consistent-type-definitions -- declaration merging requires interface
   interface Window {
-    electron: ElectronAPI
+    electron: MinimalElectronBridge
     api: PreloadApi
   }
 }
