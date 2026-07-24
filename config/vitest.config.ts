@@ -17,7 +17,13 @@ export default defineConfig({
     alias: {
       '@renderer': resolve('src/renderer/src'),
       '@': resolve('src/renderer/src')
-    }
+    },
+    // Why: prefer TypeScript source over an emitted sibling .js. A `tsc --build`,
+    // an IDE tsserver, or an aborted build can drop a compiled `.js` next to its
+    // `.ts` under src/; Vite's default extension order resolves `.js` first, so
+    // vitest would silently test the stale artifact instead of source. Listing
+    // `.ts`/`.tsx` first makes source win (no-op when no such sibling exists).
+    extensions: ['.ts', '.tsx', '.mts', '.mjs', '.js', '.jsx', '.json']
   },
   test: {
     environment: 'node',
