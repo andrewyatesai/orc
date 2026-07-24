@@ -7,7 +7,7 @@
 // upload body-size cap, token-handling discipline).
 
 import { randomBytes } from 'node:crypto'
-import { lstatSync, readFileSync } from 'node:fs'
+import { closeSync, constants as fsConstants, fstatSync, openSync, readFileSync } from 'node:fs'
 import { MAX_BUNDLE_BYTES } from './diagnostic-bundle-limits'
 import { listRotatedFiles } from './local-file-sink'
 import { redactValue } from './redactor'
@@ -66,6 +66,32 @@ function* readLinesNewestFirst(text: string): Iterable<string> {
   }
 }
 
+/** 50 MB read ceiling: the sink caps files at 10 MB, so a larger slot is tampered and could panic-allocate. */
+const MAX_SLOT_BYTES = 50 * 1024 * 1024
+
+/**
+ * Read a rotated slot with validation bound to the OPENED file descriptor — never stat one path and
+ * read another. O_NOFOLLOW makes open() fail on a final-component symlink (closes the lstat→read TOCTOU
+ * race where a slot is swapped for a link mid-check). fstat on that same fd then rejects non-regular
+ * files, hardlinks (nlink !== 1, which are regular files an isFile() check would pass), and oversize
+ * slots. Reading from the fd — not the path — guarantees the validated inode is the one we read.
+ * Throws on any open/validation failure so the caller skips the slot.
+ */
+function readRotatedSlot(file: string): string {
+  // O_NOFOLLOW is undefined on Windows (NTFS reparse points differ); fall back to 0 so the fd-bound
+  // fstat/nlink checks still run everywhere, and rely on the 0700 dir + fstat on POSIX for the race.
+  const fd = openSync(file, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0))
+  try {
+    const stat = fstatSync(fd)
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size > MAX_SLOT_BYTES) {
+      throw new Error('rotated slot failed fd-bound validation')
+    }
+    return readFileSync(fd, 'utf8')
+  } finally {
+    closeSync(fd)
+  }
+}
+
 /**
  * Read the last N minutes of NDJSON across the rotated family into a redacted bundle payload.
  * Main keeps the uploadable payload so a compromised renderer can't substitute bytes after preview.
@@ -103,18 +129,7 @@ export function collectBundle(opts: CollectBundleOptions): CollectedBundle {
   outer: for (const file of files) {
     let text: string
     try {
-      // lstat (never stat): a rotated slot swapped for a symlink would otherwise dereference out of
-      // the 0700 logs dir, folding an arbitrary readable file into the uploaded bundle. Refuse links
-      // and any non-regular file so the collector only ever reads the real rotated slots.
-      const stat = lstatSync(file)
-      if (!stat.isFile()) {
-        continue
-      }
-      // The sink caps at 10 MB/file, so a tampered oversize file could panic-allocate on read.
-      if (stat.size > 50 * 1024 * 1024) {
-        continue
-      }
-      text = readFileSync(file, 'utf8')
+      text = readRotatedSlot(file)
     } catch {
       continue
     }

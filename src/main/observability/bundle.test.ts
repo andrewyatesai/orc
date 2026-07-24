@@ -1,7 +1,7 @@
 // Bundle collection + upload tests. Upload helpers live outside bundle.ts, but
 // this suite keeps the diagnostic bundle contract in one place.
 
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { linkSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createServer, type RequestListener, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -364,6 +364,45 @@ describe('bundle — collection', () => {
     // The symlinked slot must never be dereferenced into the uploaded payload.
     expect(bundle.payload).not.toContain(secret)
     expect(bundle.payload).not.toContain('"name":"stolen"')
+    // Only the real slot's span is collected.
+    expect(bundle.spanCount).toBe(1)
+    expect(bundle.payload).toContain('"name":"real"')
+  })
+
+  it('refuses a rotated slot that is a hard link to a file outside the logs dir', () => {
+    // A hard link is a real regular file, so an isFile() check passes it; only an nlink !== 1
+    // guard on the opened fd rejects it. Its content must never enter the uploaded bundle.
+    writeFileSync(traceFile, makeNDJSON([makeSpan({ name: 'real' })]))
+    const outsideDir = mkdtempSync(join(tmpdir(), 'orca-bundle-outside-'))
+    const outsideFile = join(outsideDir, 'stolen.ndjson')
+    const secret = 'EXFIL-hardlink-file-read-marker-42'
+    writeFileSync(
+      outsideFile,
+      makeNDJSON([makeSpan({ name: 'stolen-hardlink', attributes: { data: secret } })])
+    )
+    // Hard-link rotated slot .1 to the outside file (same inode, nlink === 2).
+    try {
+      linkSync(outsideFile, `${traceFile}.1`)
+    } catch {
+      // Platforms/CI without hard-link support (e.g. cross-device tmp) can't exercise this.
+      rmSync(outsideDir, { recursive: true, force: true })
+      return
+    }
+
+    const bundle = collectBundle({
+      traceFilePath: traceFile,
+      maxFiles: 10,
+      appVersion: '1',
+      platform: 'darwin',
+      arch: 'arm64',
+      osRelease: '24',
+      orcaChannel: 'dev'
+    })
+    rmSync(outsideDir, { recursive: true, force: true })
+
+    // The hard-linked slot must never be dereferenced into the uploaded payload.
+    expect(bundle.payload).not.toContain(secret)
+    expect(bundle.payload).not.toContain('"name":"stolen-hardlink"')
     // Only the real slot's span is collected.
     expect(bundle.spanCount).toBe(1)
     expect(bundle.payload).toContain('"name":"real"')
