@@ -20,6 +20,14 @@ describe('Bitbucket pull request mappers', () => {
     expect(deriveBitbucketBuildStatus([{ state: 'FAILED' }])).toBe('failure')
   })
 
+  it('tolerates a non-array statuses value from a malformed forge response', () => {
+    // Why: a self-hosted/older/malicious Bitbucket returning `{"values":{}}` reaches getBuildStatus
+    // (no try/catch); a wrong-typed `values` must not throw and crash the hosted-review lookup.
+    expect(deriveBitbucketBuildStatus({} as never)).toBe('neutral')
+    expect(deriveBitbucketBuildStatus('nope' as never)).toBe('neutral')
+    expect(deriveBitbucketBuildStatus(null as never)).toBe('neutral')
+  })
+
   it('maps raw pull request JSON into the shared PR-like shape', () => {
     expect(
       mapBitbucketPullRequest(

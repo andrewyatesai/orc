@@ -59,10 +59,12 @@ export function mapBitbucketPullRequestState(
 export function deriveBitbucketBuildStatus(
   statuses: readonly RawBitbucketBuildStatus[]
 ): CheckStatus {
-  if (statuses.length === 0) {
+  // Why: a malformed/older/self-hosted Bitbucket can send a non-array `values`; coalesce so .map can't throw and crash the hosted-review lookup.
+  const list = Array.isArray(statuses) ? statuses : []
+  if (list.length === 0) {
     return 'neutral'
   }
-  const states = statuses.map((status) => status.state?.trim().toUpperCase() ?? '')
+  const states = list.map((status) => status.state?.trim().toUpperCase() ?? '')
   if (states.some((state) => state === 'FAILED' || state === 'STOPPED' || state === 'ERROR')) {
     return 'failure'
   }
