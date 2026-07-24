@@ -33,8 +33,8 @@ const HOME_DIR_RE =
     ? new RegExp(escapeRegExp(HOME_DIR), process.platform === 'linux' ? 'g' : 'gi')
     : null
 
-// `authorization`/`bearer` carry a scheme word (`Basic`/`Digest`/`Negotiate`) plus a possibly multi-token credential (Digest `realm=…, response=…`), so redact the value to end-of-line — fail-closed over-redaction beats leaking a Digest/Basic tail. `.` excludes `\n`, so multi-line stays bounded per line.
-const AUTH_HEADER_KV = /\b(?:authorization|bearer)\b\s*[:=]\s*\S.*/gi
+// `authorization`/`bearer` carry a scheme word (`Basic`/`Digest`/`Negotiate`) plus a possibly multi-token credential (Digest `realm=…, response=…`), so redact the value to end-of-line — fail-closed over-redaction beats leaking a Digest/Basic tail. `.` excludes `\n`, so multi-line stays bounded per line. Delimiter whitespace is horizontal-only (`[^\S\r\n]`): plain `\s` would let an empty `Authorization:` line's second run cross the newline and eat the next diagnostic line.
+const AUTH_HEADER_KV = /\b(?:authorization|bearer)\b[^\S\r\n]*[:=][^\S\r\n]*\S.*/gi
 
 // `\b` stops this from stealing rule-4's `FOO_SECRET=` matches; the optional scheme word (Bearer/Token/Basic/Digest/Negotiate) is consumed before the single-token credential so a bare scheme like `Basic <cred>` can't leak its tail. Single quantifiers keep it linear-time.
 const LABELED_KV =

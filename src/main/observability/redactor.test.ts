@@ -146,6 +146,26 @@ describe('redactor — non-Bearer Authorization schemes', () => {
   })
 })
 
+describe('redactor — auth-header redaction stays on its line (cxo2)', () => {
+  // Regression: AUTH_HEADER_KV used `\s*` around the delimiter, and `\s` matches
+  // `\n`. On an empty auth line the second run crossed the newline, so `\S.*`
+  // anchored on the NEXT line and erased an unrelated diagnostic line.
+  it('does not consume the line after an empty Authorization header', () => {
+    const out = redactString('Authorization:\nX-Request-ID: keep-me')
+    expect(out).toContain('X-Request-ID: keep-me')
+  })
+  it('does not consume the line after a whitespace-only Authorization value', () => {
+    const out = redactString('Authorization:  \nX-Request-ID: keep-me')
+    expect(out).toContain('X-Request-ID: keep-me')
+  })
+  it('still fully redacts a real single-line auth header value', () => {
+    const out = redactString('Authorization: Basic AAAABBBBCCCC\nX-Request-ID: keep-me')
+    expect(out).not.toContain('AAAABBBBCCCC')
+    expect(out).toContain('[redacted:labeled-kv]')
+    expect(out).toContain('X-Request-ID: keep-me')
+  })
+})
+
 describe('redactor — GitLab/Google provider fingerprints', () => {
   it('redacts a bare glpat- token in git stderr', () => {
     // Built at runtime (like the AIza fixture below) so no literal glpat- token
