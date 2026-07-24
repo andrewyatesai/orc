@@ -102,8 +102,9 @@ async function fetchSameOrigin(
   signal: AbortSignal
 ): Promise<Response> {
   let currentUrl = url
+  let currentInit: RequestInit = { ...init }
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    const response = await fetch(currentUrl, { ...init, signal, redirect: 'manual' })
+    const response = await fetch(currentUrl, { ...currentInit, signal, redirect: 'manual' })
     if (!REDIRECT_STATUSES.has(response.status)) {
       return response
     }
@@ -126,10 +127,27 @@ async function fetchSameOrigin(
         status: response.status
       })
     }
+    currentInit = rewriteRedirectedInit(currentInit, response.status)
     await cancelBody(response)
     currentUrl = next
   }
   throw new HostedReviewApiRequestError('Too many redirects')
+}
+
+// Why: match fetch/HTTP redirect semantics — 303 rewrites any non-HEAD method to GET,
+// and 301/302 rewrite POST to GET; all drop the body. Without this the same-origin loop
+// would REPLAY a create POST against the Location (a Post/Redirect/Get response would
+// open a duplicate PR, or report failure after the PR was created). 307/308 preserve.
+function rewriteRedirectedInit(init: RequestInit, status: number): RequestInit {
+  const method = (init.method ?? 'GET').toUpperCase()
+  const toGet =
+    (status === 303 && method !== 'HEAD') ||
+    ((status === 301 || status === 302) && method === 'POST')
+  if (!toGet) {
+    return init
+  }
+  const { body: _body, ...rest } = init
+  return { ...rest, method: 'GET' }
 }
 
 export async function requestHostedReviewJson<T>(

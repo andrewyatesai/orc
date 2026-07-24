@@ -81,6 +81,33 @@ describe('requestHostedReviewJson', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it('rewrites POST to GET and drops the body on a 303 same-origin redirect (no replay)', async () => {
+    const calls: { method?: string; hadBody: boolean }[] = []
+    const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      calls.push({ method: init?.method, hadBody: init?.body != null })
+      if (calls.length === 1) {
+        return new Response(null, {
+          status: 303,
+          headers: { location: 'https://forge.example.com/api/v1/pulls/9' }
+        })
+      }
+      return Response.json({ number: 9 })
+    })
+    globalThis.fetch = fetchMock as never
+
+    await expect(
+      requestHostedReviewJson<{ number: number }>(
+        new URL('https://forge.example.com/api/v1/pulls'),
+        { method: 'POST', body: '{"title":"x"}' },
+        5000
+      )
+    ).resolves.toEqual({ number: 9 })
+    // The create POST must not be replayed as a mutation against the redirect target.
+    expect(calls[0]?.method).toBe('POST')
+    expect(calls[1]?.method).toBe('GET')
+    expect(calls[1]?.hadBody).toBe(false)
+  })
+
   it('rejects a response whose Content-Length exceeds the cap without buffering it', async () => {
     globalThis.fetch = vi.fn(
       async () =>
