@@ -15,6 +15,7 @@ import { readHostedPullRequestTemplate } from '../source-control/pull-request-te
 import { getGiteaPullRequestForBranch, invalidateGiteaPullRequestScanForRepo } from './client'
 import { mapGiteaPullRequest, type RawGiteaPullRequest } from './pull-request-mappers'
 import { getGiteaRepoRef, type GiteaRepoRef } from './repository-ref'
+import { giteaTokenAllowedForHost } from './token-host-policy'
 
 const CREATE_REQUEST_TIMEOUT_MS = 60_000
 
@@ -46,32 +47,23 @@ function apiUrl(repo: GiteaRepoRef, path: string): URL {
   return new URL(`${configuredApiBaseUrl(repo).replace(/\/+$/, '')}${path}`)
 }
 
-function isLoopbackHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '')
-  return (
-    host === 'localhost' ||
-    host === '::1' ||
-    host === '0:0:0:0:0:0:0:1' ||
-    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)
-  )
-}
-
 // Why: the API host is derived from the untrusted git remote, and creation attaches
-// ORCA_GITEA_TOKEN. Refuse to POST the token over cleartext http to any non-loopback
-// host — an http remote pointing at an internal/attacker address would otherwise
-// exfiltrate the PAT. https (any host) and local http instances stay allowed.
+// ORCA_GITEA_TOKEN. Use the SAME host policy as the read path (giteaTokenAllowedForHost):
+// loopback is trusted (SSH-tunnel/local, any scheme); otherwise require https AND refuse
+// non-loopback internal/metadata literals — so an http remote, or an https remote
+// pointing at 169.254.169.254 / a private address, cannot exfiltrate the PAT.
 function insecureTokenTransportError(url: URL): CreateHostedReviewResult | null {
   if (envValue('ORCA_GITEA_TOKEN') === null) {
     return null
   }
-  if (url.protocol === 'https:' || (url.protocol === 'http:' && isLoopbackHost(url.hostname))) {
+  if (giteaTokenAllowedForHost(url, envValue('ORCA_GITEA_API_BASE_URL'))) {
     return null
   }
   return {
     ok: false,
     code: 'validation',
     error:
-      'Create PR failed: refusing to send the Gitea token over an insecure connection. Next step: use an https Gitea remote or set ORCA_GITEA_API_BASE_URL to an https URL.'
+      'Create PR failed: refusing to send the Gitea token to an untrusted host. Next step: use an https remote to your Gitea instance, or set ORCA_GITEA_API_BASE_URL.'
   }
 }
 

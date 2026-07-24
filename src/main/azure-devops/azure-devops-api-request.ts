@@ -72,7 +72,15 @@ function isTrustedCloudHost(hostname: string): boolean {
 // a forwarded port that never leaves the machine — so it is a valid token recipient
 // even over cleartext http, keeping a tunnelled self-hosted Azure DevOps Server working.
 function isLoopbackHost(hostname: string): boolean {
-  return /^(localhost$|127\.|\[::1\]$|\[::ffff:127\.)/i.test(hostname)
+  // Why: match a COMPLETE 127/8 address (not a `127.` prefix), so a DNS host like
+  // "127.attacker.example" is not mistaken for loopback and sent the token in cleartext.
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  return (
+    host === 'localhost' ||
+    host === '::1' ||
+    host === '0:0:0:0:0:0:0:1' ||
+    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)
+  )
 }
 
 function configuredApiHost(config: AzureDevOpsAuthConfig): string | null {

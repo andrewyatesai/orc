@@ -7,6 +7,7 @@ import {
 } from './pull-request-mappers'
 import { getGiteaRepoRef, type GiteaRepoRef } from './repository-ref'
 import { invalidateGiteaPullRequestScan, scanGiteaPullRequests } from './pull-request-scan-cache'
+import { giteaTokenAllowedForHost } from './token-host-policy'
 import {
   getHostedReviewLocalGitOptions,
   type HostedReviewExecutionOptions
@@ -57,42 +58,8 @@ function getAuthConfig(): GiteaAuthConfig {
   }
 }
 
-// Why: loopback is the SSH-tunnel / local-instance case — a forwarded port on
-// 127.0.0.1 / ::1 (or localhost). The connection never leaves the machine, so the
-// PAT may be attached even over cleartext http, keeping the fork's SSH-tunnel and
-// local-dev flows working. Non-loopback internal/metadata literals are refused below.
-// hostname keeps brackets for IPv6 literals (e.g. "[::1]").
-const LOOPBACK_HOST = /^(localhost$|127\.|\[::1\]$|\[::ffff:127\.)/i
-
-// Why: in token-only mode the request host is derived from the untrusted git remote,
-// so besides requiring https we refuse the PAT to NON-loopback internal/metadata
-// literals — a malicious remote must not exfiltrate it to internal infrastructure
-// (169.254.169.254, 10.x, 192.168.x, 172.16-31.x, ::, fe80::, fc00::/7).
-const INTERNAL_HOST =
-  /^(0\.|10\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[(::\]|::ffff:|fe80:|f[cd]))/i
-
-// Why: the token host is derived from the git remote when ORCA_GITEA_API_BASE_URL
-// is unset, so an attacker-controlled remote (crash 89/64) could otherwise
-// exfiltrate the PAT (over cleartext http, or over https to an internal/metadata
-// host). Loopback is trusted (local/tunnel); otherwise never attach over http, and
-// in token-only mode refuse non-loopback internal literals; when an instance base
-// URL is configured bind to that exact host (https, or loopback for a tunnelled one).
-function tokenAllowedForHost(url: URL, configuredApiBaseUrl: string | null): boolean {
-  if (!LOOPBACK_HOST.test(url.hostname) && url.protocol !== 'https:') {
-    return false
-  }
-  if (!configuredApiBaseUrl) {
-    return LOOPBACK_HOST.test(url.hostname) || !INTERNAL_HOST.test(url.hostname)
-  }
-  try {
-    return url.host === new URL(configuredApiBaseUrl).host
-  } catch {
-    return false
-  }
-}
-
 function authHeaders(config: GiteaAuthConfig, requestUrl: URL): Record<string, string> {
-  return config.token && tokenAllowedForHost(requestUrl, config.apiBaseUrl)
+  return config.token && giteaTokenAllowedForHost(requestUrl, config.apiBaseUrl)
     ? { Authorization: `token ${config.token}` }
     : {}
 }

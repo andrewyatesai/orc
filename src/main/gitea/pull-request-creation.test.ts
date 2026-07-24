@@ -191,6 +191,27 @@ describe('Gitea pull request creation', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('refuses to POST the token to an internal/metadata host even over https', async () => {
+    // cxsc1: the old write-path check trusted any https origin, so a remote at
+    // https://169.254.169.254 would carry the PAT to cloud metadata. Must fail closed.
+    gitExecFileAsyncMock.mockResolvedValue({
+      stdout: 'https://169.254.169.254/team/repo.git\n',
+      stderr: ''
+    })
+    const fetchMock = vi.fn()
+    globalThis.fetch = fetchMock as never
+
+    await expect(
+      createGiteaPullRequest('/repo', {
+        provider: 'gitea',
+        base: 'main',
+        head: 'feature/gitea',
+        title: 'Add Gitea create'
+      })
+    ).resolves.toMatchObject({ ok: false, code: 'validation' })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('still allows http creation against a loopback Gitea instance', async () => {
     gitExecFileAsyncMock.mockResolvedValue({
       stdout: 'http://localhost:3000/team/repo.git\n',
