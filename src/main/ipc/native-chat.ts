@@ -88,7 +88,10 @@ const liveSubscriptions = new Map<number, Map<string, LiveSubscription>>()
 // Why: unsubscribe and renderer destruction must invalidate async watcher setup
 // before it can publish a late subscription into the live map.
 const pendingSubscriptions = new Map<number, Map<string, symbol>>()
-const senderCleanupRegistered = new Set<number>()
+// Why: keyed by webContents.id; the value removes every lifecycle listener this module
+// attached to that sender. A reload REUSES the WebContents (id unchanged), so the entry
+// survives reloads and is only disposed on 'destroyed'.
+const senderCleanupDisposers = new Map<number, () => void>()
 
 function teardownSubscription(senderId: number, subscriptionId: string): void {
   const pendingBySubId = pendingSubscriptions.get(senderId)
@@ -109,8 +112,9 @@ function teardownSubscription(senderId: number, subscriptionId: string): void {
 }
 
 function teardownAllForSender(senderId: number): void {
+  // Why: only drops watchers/pending state; the lifecycle listeners stay armed (disposer
+  // untouched) so a reload — which reuses the sender — re-triggers this on the next reload.
   // The destroyed event can arrive before async subscription setup stores a watcher.
-  senderCleanupRegistered.delete(senderId)
   pendingSubscriptions.delete(senderId)
   const bySubId = liveSubscriptions.get(senderId)
   if (!bySubId) {
@@ -122,13 +126,41 @@ function teardownAllForSender(senderId: number): void {
   liveSubscriptions.delete(senderId)
 }
 
+function disposeSenderCleanup(senderId: number): void {
+  senderCleanupDisposers.get(senderId)?.()
+}
+
 function registerSenderCleanup(sender: WebContents): void {
-  if (senderCleanupRegistered.has(sender.id)) {
+  if (senderCleanupDisposers.has(sender.id)) {
     return
   }
-  senderCleanupRegistered.add(sender.id)
-  // Strict teardown: a closed/reloaded window releases every watcher it owns.
-  sender.once('destroyed', () => teardownAllForSender(sender.id))
+  const senderId = sender.id
+  // Why: 'destroyed' alone leaks every transcript file-watch on a renderer RELOAD (Cmd+R,
+  // crash-recovery), which reuses the WebContents so 'destroyed' never fires; mirror pty.ts
+  // and also release on render-process-gone + a main-frame reload. The re-subscribe path
+  // can't reclaim orphans (ids embed Date.now()), so teardown must be lifecycle-driven.
+  const onReloadOrGone = (): void => teardownAllForSender(senderId)
+  const onDidStartLoading = (): void => {
+    // did-start-loading also fires for in-page subframe loads (srcDoc iframes); only a
+    // main-frame load is a real reload that replaces the renderer owning these watchers.
+    if (sender.isLoadingMainFrame()) {
+      teardownAllForSender(senderId)
+    }
+  }
+  const onDestroyed = (): void => {
+    teardownAllForSender(senderId)
+    disposeSenderCleanup(senderId)
+  }
+  const dispose = (): void => {
+    sender.removeListener('did-start-loading', onDidStartLoading)
+    sender.removeListener('render-process-gone', onReloadOrGone)
+    sender.removeListener('destroyed', onDestroyed)
+    senderCleanupDisposers.delete(senderId)
+  }
+  sender.on('did-start-loading', onDidStartLoading)
+  sender.on('render-process-gone', onReloadOrGone)
+  sender.once('destroyed', onDestroyed)
+  senderCleanupDisposers.set(senderId, dispose)
 }
 
 function beginPendingSubscription(senderId: number, subscriptionId: string): symbol {
@@ -257,12 +289,17 @@ export function clearNativeChatSubscriptions(): void {
   for (const senderId of senderIds) {
     teardownAllForSender(senderId)
   }
+  // dispose() deletes only its own (current) entry, which Map iteration tolerates.
+  for (const dispose of senderCleanupDisposers.values()) {
+    dispose()
+  }
+  senderCleanupDisposers.clear()
   pendingSubscriptions.clear()
-  senderCleanupRegistered.clear()
+  liveSubscriptions.clear()
 }
 
 export function _getNativeChatSenderCleanupCountForTest(): number {
-  return senderCleanupRegistered.size
+  return senderCleanupDisposers.size
 }
 
 export function _getNativeChatPendingSubscriptionCountForTest(): number {

@@ -4486,6 +4486,60 @@ describe('registerPtyHandlers', () => {
     expect(store.markSshRemotePtyLease).toHaveBeenCalledWith('ssh-1', 'remote-pty', 'terminated')
   })
 
+  // Why: these are ipcMain.on (fire-and-forget), so a synchronous TypeError from an id deref
+  // surfaces as uncaughtException and installUncaughtPipeErrorGuard re-throws it, killing main.
+  // A malformed renderer payload (missing/empty/non-string id, or no payload at all) must be
+  // dropped, exactly like the guarded pty:set* siblings.
+  it('guards fire-and-forget pty:* listeners against malformed args (no main-process crash)', () => {
+    const sendSignal = vi.fn(async () => {})
+    setLocalPtyProvider({
+      spawn: vi.fn(async (opts: { sessionId?: string }) => ({ id: opts.sessionId ?? 'guard-pty' })),
+      write: vi.fn(),
+      resize: vi.fn(),
+      kill: vi.fn(),
+      shutdown: vi.fn(),
+      sendSignal,
+      clearBuffer: vi.fn(async () => {}),
+      onData: vi.fn(() => vi.fn()),
+      onExit: vi.fn(() => vi.fn()),
+      listProcesses: vi.fn(async () => []),
+      getForegroundProcess: vi.fn(async () => null)
+    } as never)
+    registerPtyHandlers(mainWindow as never)
+
+    const listenerFor = (channel: string): ((event: unknown, args: unknown) => void) => {
+      const call = onMock.mock.calls.find((entry: unknown[]) => entry[0] === channel)
+      if (!call) {
+        throw new Error(`missing ${channel} listener`)
+      }
+      return call[1] as (event: unknown, args: unknown) => void
+    }
+
+    const guardedChannels = [
+      'pty:signal',
+      'pty:clearBuffer',
+      'pty:ackColdRestore',
+      'pty:reportGeometry',
+      'pty:resize',
+      'pty:ackData'
+    ]
+    const malformedArgs = [undefined, null, 'x', 42, {}, { id: '' }, { id: 42 }]
+    for (const channel of guardedChannels) {
+      const listener = listenerFor(channel)
+      for (const args of malformedArgs) {
+        expect(
+          () => listener(mainWindowIpcEvent, args),
+          `${channel} with ${JSON.stringify(args) ?? String(args)}`
+        ).not.toThrow()
+      }
+    }
+
+    // A well-formed payload still reaches the provider sink (the guard must not over-reject).
+    expect(sendSignal).not.toHaveBeenCalled()
+    listenerFor('pty:signal')(mainWindowIpcEvent, { id: 'guard-pty', signal: 'SIGINT' })
+    expect(sendSignal).toHaveBeenCalledWith('guard-pty', 'SIGINT')
+  })
+
   it('returns idle process inspection results for detached SSH PTYs without a provider', async () => {
     const provider = {
       spawn: vi.fn(),

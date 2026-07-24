@@ -818,6 +818,8 @@ describe('registerRuntimeEnvironmentHandlers', () => {
         sender: {
           id: 1,
           isDestroyed: () => false,
+          isLoadingMainFrame: () => true,
+          on: vi.fn(),
           send: vi.fn(),
           once: vi.fn(),
           removeListener: vi.fn()
@@ -830,6 +832,8 @@ describe('registerRuntimeEnvironmentHandlers', () => {
         sender: {
           id: 1,
           isDestroyed: () => false,
+          isLoadingMainFrame: () => true,
+          on: vi.fn(),
           send: vi.fn(),
           once: vi.fn(),
           removeListener: vi.fn()
@@ -888,6 +892,8 @@ describe('registerRuntimeEnvironmentHandlers', () => {
           sender: {
             id: 1,
             isDestroyed: () => false,
+            isLoadingMainFrame: () => true,
+            on: vi.fn(),
             send: vi.fn(),
             once: vi.fn(),
             removeListener: vi.fn()
@@ -943,6 +949,8 @@ describe('registerRuntimeEnvironmentHandlers', () => {
         sender: {
           id: 1,
           isDestroyed: () => false,
+          isLoadingMainFrame: () => true,
+          on: vi.fn(),
           send: senderSend,
           once: vi.fn(),
           removeListener: destroyedListenerRemoved
@@ -1017,6 +1025,8 @@ describe('registerRuntimeEnvironmentHandlers', () => {
           sender: {
             id: 1,
             isDestroyed: () => false,
+            isLoadingMainFrame: () => true,
+            on: vi.fn(),
             send: vi.fn(),
             once: vi.fn(),
             removeListener: vi.fn()
@@ -1351,6 +1361,8 @@ describe('registerRuntimeEnvironmentHandlers', () => {
         sender: {
           id: 1,
           isDestroyed: () => false,
+          isLoadingMainFrame: () => true,
+          on: vi.fn(),
           send: (_channel: string, payload: unknown) => sent.push(payload),
           once: vi.fn(),
           removeListener: destroyedListenerRemoved
@@ -1432,6 +1444,8 @@ describe('registerRuntimeEnvironmentHandlers', () => {
         sender: {
           id: 1,
           isDestroyed: () => false,
+          isLoadingMainFrame: () => true,
+          on: vi.fn(),
           send: vi.fn(),
           once: vi.fn(),
           removeListener: destroyedListenerRemoved
@@ -1495,6 +1509,8 @@ describe('registerRuntimeEnvironmentHandlers', () => {
         sender: {
           id: 1,
           isDestroyed: () => false,
+          isLoadingMainFrame: () => true,
+          on: vi.fn(),
           send: vi.fn(),
           once: vi.fn(),
           removeListener: vi.fn()
@@ -1573,6 +1589,8 @@ describe('registerRuntimeEnvironmentHandlers', () => {
         sender: {
           id: 1,
           isDestroyed: () => destroyed,
+          isLoadingMainFrame: () => true,
+          on: vi.fn(),
           send: vi.fn(),
           once: vi.fn((_event: string, handler: () => void) => {
             destroyedHandler = () => {
@@ -1640,6 +1658,8 @@ describe('registerRuntimeEnvironmentHandlers', () => {
           sender: {
             id: 1,
             isDestroyed: () => false,
+            isLoadingMainFrame: () => true,
+            on: vi.fn(),
             send: vi.fn(),
             once: vi.fn(),
             removeListener: destroyedListenerRemoved
@@ -1655,5 +1675,116 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     ).rejects.toThrow('connect failed')
 
     expect(destroyedListenerRemoved).toHaveBeenCalledWith('destroyed', expect.any(Function))
+  })
+
+  // Why: a renderer reload REUSES the WebContents (id unchanged) so 'destroyed' never fires;
+  // without a reload hook every remote subscription stream leaks open per reload.
+  function reloadableSender(id: number): {
+    fire: (event: string) => void
+    setMainFrame: (value: boolean) => void
+    sender: Record<string, unknown>
+  } {
+    const listeners = new Map<string, Set<() => void>>()
+    let loadingMainFrame = true
+    const add = (event: string, cb: () => void): void => {
+      const set = listeners.get(event) ?? new Set<() => void>()
+      set.add(cb)
+      listeners.set(event, set)
+    }
+    return {
+      fire: (event) => [...(listeners.get(event) ?? [])].forEach((cb) => cb()),
+      setMainFrame: (value) => {
+        loadingMainFrame = value
+      },
+      sender: {
+        id,
+        isDestroyed: () => false,
+        isLoadingMainFrame: () => loadingMainFrame,
+        on: add,
+        once: add,
+        removeListener: (event: string, cb: () => void) => listeners.get(event)?.delete(cb),
+        send: vi.fn()
+      }
+    }
+  }
+
+  async function subscribeStream(
+    subscribe: (event: unknown, args: unknown) => Promise<{ subscriptionId: string }>,
+    sender: Record<string, unknown>,
+    subscriptionId: string,
+    close: () => void
+  ): Promise<string> {
+    subscribeRemoteRuntimeRequestMock.mockResolvedValueOnce({
+      requestId: `req-${subscriptionId}`,
+      close,
+      sendBinary: vi.fn()
+    })
+    const result = await subscribe(
+      { sender },
+      { selector: 'desk', method: 'terminal.subscribe', params: { terminal: 't1' }, subscriptionId }
+    )
+    return result.subscriptionId
+  }
+
+  it('closes every owned subscription stream on render-process-gone (reused WebContents)', async () => {
+    registerRuntimeEnvironmentHandlers(store as never)
+    const add = handler<
+      { name: string; pairingCode: string },
+      { environment: { id: string; name: string } }
+    >('runtimeEnvironments:addFromPairingCode')
+    await add(null, { name: 'desk', pairingCode: pairingCode() })
+
+    const subscribe = handler<unknown, { subscriptionId: string }>(
+      'runtimeEnvironments:subscribe'
+    ) as (event: unknown, args: unknown) => Promise<{ subscriptionId: string }>
+    const unsubscribe = handler<{ subscriptionId: string }, { unsubscribed: boolean }>(
+      'runtimeEnvironments:unsubscribe'
+    )
+
+    const owner = reloadableSender(1)
+    const closeA = vi.fn()
+    const closeB = vi.fn()
+    const subA = await subscribeStream(subscribe, owner.sender, 'sub-a', closeA)
+    const subB = await subscribeStream(subscribe, owner.sender, 'sub-b', closeB)
+
+    // A crash reuses the WebContents: 'destroyed' won't fire, so render-process-gone must
+    // close BOTH streams and drop them from the registry.
+    owner.fire('render-process-gone')
+
+    expect(closeA).toHaveBeenCalledTimes(1)
+    expect(closeB).toHaveBeenCalledTimes(1)
+    expect(await unsubscribe({ sender: { id: 1 } }, { subscriptionId: subA })).toEqual({
+      unsubscribed: false
+    })
+    expect(await unsubscribe({ sender: { id: 1 } }, { subscriptionId: subB })).toEqual({
+      unsubscribed: false
+    })
+  })
+
+  it('closes owned subscription streams on a main-frame reload but not a subframe load', async () => {
+    registerRuntimeEnvironmentHandlers(store as never)
+    const add = handler<
+      { name: string; pairingCode: string },
+      { environment: { id: string; name: string } }
+    >('runtimeEnvironments:addFromPairingCode')
+    await add(null, { name: 'desk', pairingCode: pairingCode() })
+
+    const subscribe = handler<unknown, { subscriptionId: string }>(
+      'runtimeEnvironments:subscribe'
+    ) as (event: unknown, args: unknown) => Promise<{ subscriptionId: string }>
+
+    const owner = reloadableSender(1)
+    const close = vi.fn()
+    await subscribeStream(subscribe, owner.sender, 'sub-frame', close)
+
+    // A subframe (srcDoc iframe) load must NOT tear down the alive page's stream.
+    owner.setMainFrame(false)
+    owner.fire('did-start-loading')
+    expect(close).not.toHaveBeenCalled()
+
+    // A main-frame load IS a reload that replaces the renderer — release the stream.
+    owner.setMainFrame(true)
+    owner.fire('did-start-loading')
+    expect(close).toHaveBeenCalledTimes(1)
   })
 })

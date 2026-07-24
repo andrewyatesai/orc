@@ -41,7 +41,7 @@ const RUNTIME_ENVIRONMENT_HANDLER_CHANNELS = [
 type RetainedRemoteRuntimeSubscription = RemoteRuntimeSubscription & {
   environmentId: string
   ownerWebContentsId: number
-  removeDestroyedListener: () => void
+  removeLifecycleListeners: () => void
 }
 const remoteRuntimeSubscriptions = new Map<string, RetainedRemoteRuntimeSubscription>()
 
@@ -180,13 +180,25 @@ export function registerRuntimeEnvironmentHandlers(store: Store): void {
       const ownerWebContentsId = sender.id
       let senderDestroyed = sender.isDestroyed()
       let subscription: RemoteRuntimeSubscription | null = null
-      let destroyedListenerAttached = false
-      const removeDestroyedListener = (): void => {
-        if (!destroyedListenerAttached) {
+      let lifecycleListenersAttached = false
+      // Why: a renderer reload REUSES the WebContents (id unchanged), so 'destroyed' never
+      // fires and the remote RPC stream would stay open forever, leaking one per reload;
+      // mirror pty.ts and also close on render-process-gone + a main-frame reload.
+      const onSenderReloadOrGone = (): void => closeSubscription()
+      const onSenderDidStartLoading = (): void => {
+        // did-start-loading also fires for in-page subframe loads; only a main-frame load is a reload.
+        if (sender.isLoadingMainFrame()) {
+          closeSubscription()
+        }
+      }
+      const removeLifecycleListeners = (): void => {
+        if (!lifecycleListenersAttached) {
           return
         }
-        destroyedListenerAttached = false
+        lifecycleListenersAttached = false
         sender.removeListener('destroyed', closeSubscription)
+        sender.removeListener('render-process-gone', onSenderReloadOrGone)
+        sender.removeListener('did-start-loading', onSenderDidStartLoading)
       }
       const closeSubscription = (): void => {
         senderDestroyed = true
@@ -196,11 +208,13 @@ export function registerRuntimeEnvironmentHandlers(store: Store): void {
           retained.close()
           return
         }
-        removeDestroyedListener()
+        removeLifecycleListeners()
         subscription?.close()
       }
       sender.once('destroyed', closeSubscription)
-      destroyedListenerAttached = true
+      sender.on('render-process-gone', onSenderReloadOrGone)
+      sender.on('did-start-loading', onSenderDidStartLoading)
+      lifecycleListenersAttached = true
       try {
         subscription = await subscribeRuntimeEnvironment(
           getUserDataPath(),
@@ -219,17 +233,17 @@ export function registerRuntimeEnvironmentHandlers(store: Store): void {
             },
             onClose: () => {
               const retained = remoteRuntimeSubscriptions.get(subscriptionId) ?? null
-              retained?.removeDestroyedListener()
+              retained?.removeLifecycleListeners()
               remoteRuntimeSubscriptions.delete(subscriptionId)
             }
           }
         )
       } catch (error) {
-        removeDestroyedListener()
+        removeLifecycleListeners()
         throw error
       }
       if (senderDestroyed || sender.isDestroyed()) {
-        removeDestroyedListener()
+        removeLifecycleListeners()
         subscription.close()
         return { subscriptionId, requestId: subscription.requestId }
       }
@@ -237,10 +251,10 @@ export function registerRuntimeEnvironmentHandlers(store: Store): void {
         requestId: subscription.requestId,
         environmentId: environment.id,
         ownerWebContentsId,
-        removeDestroyedListener,
+        removeLifecycleListeners,
         sendBinary: (bytes) => subscription?.sendBinary(bytes) ?? false,
         close: () => {
-          removeDestroyedListener()
+          removeLifecycleListeners()
           subscription?.close()
         }
       })

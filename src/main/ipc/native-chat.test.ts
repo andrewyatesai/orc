@@ -192,11 +192,14 @@ describe('nativeChat:readSession handler', () => {
     const sender = {
       id: 1,
       isDestroyed: () => false,
+      isLoadingMainFrame: () => true,
+      on: vi.fn(),
       once: (event: string, cb: () => void) => {
         if (event === 'destroyed') {
           destroyedCb = cb
         }
       },
+      removeListener: vi.fn(),
       send: (channel: string, payload: unknown) => sent.push({ channel, payload })
     }
 
@@ -278,11 +281,14 @@ describe('nativeChat:readSession handler', () => {
     const sender = {
       id: 41,
       isDestroyed: () => destroyed,
+      isLoadingMainFrame: () => true,
+      on: vi.fn(),
       once: (event: string, cb: () => void) => {
         if (event === 'destroyed') {
           destroyedCb = cb
         }
       },
+      removeListener: vi.fn(),
       send: vi.fn()
     }
 

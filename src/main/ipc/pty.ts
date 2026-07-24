@@ -4429,6 +4429,10 @@ export function registerPtyHandlers(
   // Why: resize is fire-and-forget — ipcMain.on (not .handle) halves IPC traffic by skipping the empty acknowledgement reply.
   ipcMain.removeAllListeners('pty:resize')
   ipcMain.on('pty:resize', (_event, args: { id: string; cols: number; rows: number }) => {
+    // Why: fire-and-forget ipcMain.on rethrows a synchronous TypeError as uncaughtException (kills main); guard the id deref like the pty:set* siblings.
+    if (typeof args?.id !== 'string' || !args.id) {
+      return
+    }
     // Why: after a desktop-fit override change the renderer's safeFit cascade re-measures ALL panes (background ones at full width), so suppress every pty:resize in this window to avoid corrupting PTY dimensions.
     if (runtime?.isResizeSuppressed()) {
       return
@@ -4470,11 +4474,19 @@ export function registerPtyHandlers(
   // Why: pty:reportGeometry is a measurement-only sibling of pty:resize — it refreshes the restore-target cache (never resizes) so mobile-fit hold learns real desktop dims even while resize is blocked. See docs/mobile-fit-hold.md.
   ipcMain.removeAllListeners('pty:reportGeometry')
   ipcMain.on('pty:reportGeometry', (_event, args: { id: string; cols: number; rows: number }) => {
+    // Why: fire-and-forget ipcMain.on rethrows a synchronous TypeError as uncaughtException; guard the id deref.
+    if (typeof args?.id !== 'string' || !args.id) {
+      return
+    }
     runtime?.recordRendererGeometry(args.id, args.cols, args.rows)
   })
 
   // Why: fire-and-forget — clears the DaemonPtyAdapter's sticky cold-restore cache after the renderer consumed it; no-op for non-daemon providers.
   ipcMain.on('pty:ackColdRestore', (_event, args: { id: string }) => {
+    // Why: fire-and-forget ipcMain.on rethrows a synchronous TypeError as uncaughtException; guard the id deref.
+    if (typeof args?.id !== 'string' || !args.id) {
+      return
+    }
     const provider = tryGetProviderForPty(args.id)
     if (provider && 'ackColdRestore' in provider && typeof provider.ackColdRestore === 'function') {
       provider.ackColdRestore(args.id)
@@ -4485,6 +4497,10 @@ export function registerPtyHandlers(
   ipcMain.on(
     'pty:ackData',
     (_event, args: { id: string; charCount?: number; processedChars?: number }) => {
+      // Why: fire-and-forget ipcMain.on rethrows a synchronous TypeError as uncaughtException; guard the id deref.
+      if (typeof args?.id !== 'string' || !args.id) {
+        return
+      }
       lastAckReceivedAtMs = Date.now()
       // Why: a live ACK channel means a future unanswered probe is a fresh diagnostic event, not a continuation of the last silent streak.
       deliveryResyncUnansweredWarnLogged = false
@@ -4686,6 +4702,10 @@ export function registerPtyHandlers(
 
   ipcMain.removeAllListeners('pty:signal')
   ipcMain.on('pty:signal', (_event, args: { id: string; signal: string }) => {
+    // Why: fire-and-forget ipcMain.on rethrows a synchronous TypeError as uncaughtException; guard the id deref.
+    if (typeof args?.id !== 'string' || !args.id) {
+      return
+    }
     tryGetProviderForPty(args.id)
       ?.sendSignal(args.id, args.signal)
       .catch(() => {})
@@ -4693,6 +4713,10 @@ export function registerPtyHandlers(
 
   ipcMain.removeAllListeners('pty:clearBuffer')
   ipcMain.on('pty:clearBuffer', (_event, args: { id: string }) => {
+    // Why: fire-and-forget ipcMain.on rethrows a synchronous TypeError as uncaughtException; guard the id deref.
+    if (typeof args?.id !== 'string' || !args.id) {
+      return
+    }
     // Why: clear PTY-side state (ConPTY/daemon/SSH buffer) so the next prompt repaint doesn't land at a stale cursor row.
     tryGetProviderForPty(args.id)
       ?.clearBuffer(args.id)

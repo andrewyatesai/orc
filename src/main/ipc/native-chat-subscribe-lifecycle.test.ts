@@ -43,11 +43,18 @@ type DeferredSubscription = {
 
 type SenderHarness = {
   destroy: () => void
+  /** Fire a main-frame (or subframe) load, modelling a renderer reload keeping the WebContents. */
+  emitReload: (kind?: 'main-frame' | 'subframe') => void
+  /** Fire render-process-gone (crash), modelling a reused-but-reloaded WebContents. */
+  emitProcessGone: () => void
   registeredCleanupCount: () => number
   sender: {
     id: number
     isDestroyed: () => boolean
+    isLoadingMainFrame: () => boolean
+    on: (event: string, callback: () => void) => void
     once: (event: string, callback: () => void) => void
+    removeListener: (event: string, callback: () => void) => void
     send: ReturnType<typeof vi.fn>
   }
 }
@@ -78,22 +85,48 @@ function deferredSubscription(): DeferredSubscription {
 
 function createSender(id: number): SenderHarness {
   let destroyed = false
-  const destroyedCallbacks: (() => void)[] = []
+  let loadingMainFrame = true
+  const listeners = new Map<string, Set<() => void>>()
+  const add = (event: string, callback: () => void): void => {
+    const set = listeners.get(event) ?? new Set<() => void>()
+    set.add(callback)
+    listeners.set(event, set)
+  }
+  const fire = (event: string): void => {
+    // Snapshot into an array so a callback that removes its own listener mid-fire can't
+    // perturb iteration (a real WebContents emit already sees a stable listener list).
+    const callbacks = Array.from(listeners.get(event) ?? [])
+    for (const callback of callbacks) {
+      callback()
+    }
+  }
   return {
     destroy: () => {
       destroyed = true
-      for (const callback of destroyedCallbacks) {
-        callback()
-      }
+      fire('destroyed')
     },
-    registeredCleanupCount: () => destroyedCallbacks.length,
+    emitReload: (kind = 'main-frame') => {
+      loadingMainFrame = kind === 'main-frame'
+      fire('did-start-loading')
+    },
+    emitProcessGone: () => fire('render-process-gone'),
+    // Only 'destroyed' registrations count as strict-cleanup registrations for the legacy assertions.
+    registeredCleanupCount: () => listeners.get('destroyed')?.size ?? 0,
     sender: {
       id,
       isDestroyed: () => destroyed,
+      isLoadingMainFrame: () => loadingMainFrame,
+      on: add,
       once: (event, callback) => {
-        if (event === 'destroyed') {
-          destroyedCallbacks.push(callback)
+        // once self-removes after firing so a reused sender doesn't double-fire 'destroyed'.
+        const wrapped = (): void => {
+          listeners.get(event)?.delete(wrapped)
+          callback()
         }
+        add(event, wrapped)
+      },
+      removeListener: (event, callback) => {
+        listeners.get(event)?.delete(callback)
       },
       send: vi.fn()
     }
@@ -283,6 +316,83 @@ describe('nativeChat subscribe lifecycle', () => {
         hasMore: false
       }
     })
+  })
+
+  it('tears down live watchers on a main-frame renderer reload (WebContents reused)', async () => {
+    const pending = deferredSubscription()
+    subscribeTranscript.mockReturnValueOnce(pending.promise)
+    const renderer = createSender(70)
+
+    subscribe(renderer.sender, 'reload')
+    pending.resolve()
+    // Wait until the watcher is published into the live map (pending drains to 0).
+    await waitFor(() => _getNativeChatPendingSubscriptionCountForTest() === 0)
+    expect(pending.unsubscribe).not.toHaveBeenCalled()
+
+    // A reload reuses the WebContents, so 'destroyed' never fires — the reload event must
+    // release the orphaned transcript watcher instead.
+    renderer.emitReload('main-frame')
+    expect(pending.unsubscribe).toHaveBeenCalledOnce()
+    // Disposer stays armed (sender still alive) so the NEXT reload also tears down.
+    expect(_getNativeChatSenderCleanupCountForTest()).toBe(1)
+    expect(renderer.sender.isDestroyed()).toBe(false)
+
+    renderer.destroy()
+    expect(_getNativeChatSenderCleanupCountForTest()).toBe(0)
+  })
+
+  it('tears down live watchers on render-process-gone (renderer crash)', async () => {
+    const pending = deferredSubscription()
+    subscribeTranscript.mockReturnValueOnce(pending.promise)
+    const renderer = createSender(71)
+
+    subscribe(renderer.sender, 'crash')
+    pending.resolve()
+    await waitFor(() => _getNativeChatPendingSubscriptionCountForTest() === 0)
+
+    renderer.emitProcessGone()
+    expect(pending.unsubscribe).toHaveBeenCalledOnce()
+  })
+
+  it('does NOT tear down watchers on an in-page subframe load', async () => {
+    const pending = deferredSubscription()
+    subscribeTranscript.mockReturnValueOnce(pending.promise)
+    const renderer = createSender(72)
+
+    subscribe(renderer.sender, 'subframe')
+    pending.resolve()
+    await waitFor(() => _getNativeChatPendingSubscriptionCountForTest() === 0)
+
+    // isLoadingMainFrame() === false: a srcDoc iframe load must not drop the alive page's watcher.
+    renderer.emitReload('subframe')
+    expect(pending.unsubscribe).not.toHaveBeenCalled()
+
+    renderer.destroy()
+    expect(pending.unsubscribe).toHaveBeenCalledOnce()
+  })
+
+  it('does not re-arm (duplicate) lifecycle listeners across a reload+resubscribe', async () => {
+    const first = deferredSubscription()
+    const second = deferredSubscription()
+    subscribeTranscript.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    const renderer = createSender(73)
+
+    subscribe(renderer.sender, 'first')
+    first.resolve()
+    await waitFor(() => _getNativeChatPendingSubscriptionCountForTest() === 0)
+    renderer.emitReload('main-frame')
+    expect(first.unsubscribe).toHaveBeenCalledOnce()
+
+    // The reloaded page re-subscribes under a fresh id; the disposer must still be a single
+    // registration (no listener accumulation across reloads).
+    subscribe(renderer.sender, 'second')
+    expect(renderer.registeredCleanupCount()).toBe(1)
+    second.resolve()
+    await waitFor(() => _getNativeChatPendingSubscriptionCountForTest() === 0)
+
+    renderer.destroy()
+    expect(second.unsubscribe).toHaveBeenCalledOnce()
+    expect(_getNativeChatSenderCleanupCountForTest()).toBe(0)
   })
 
   it('forwards replayable lifecycle on the initial snapshot', () => {
