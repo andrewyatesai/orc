@@ -48,6 +48,20 @@ export function openCoordinatorWindow(): void {
     coordinatorWindow = null
     closeAllTunnelSockets()
   })
+  // Why: 'closed' never fires on a same-WebContents renderer reload (Cmd+R / dev
+  // HMR / a crash-recovered process), so tie socket teardown to the webContents
+  // lifecycle too — otherwise each reload strands a live, token-bearing daemon
+  // socket in the map still firing webContents.send under a socketId the fresh
+  // renderer ignores.
+  window.webContents.on('render-process-gone', () => {
+    closeAllTunnelSockets()
+  })
+  window.webContents.on('did-start-navigation', (_e, _url, isInPlace, isMainFrame) => {
+    // Close before the new page opens its own sockets; skip in-page (hash) navs.
+    if (isMainFrame && !isInPlace) {
+      closeAllTunnelSockets()
+    }
+  })
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
     void window.loadURL(`${process.env.ELECTRON_RENDERER_URL}/coordinator.html`)
   } else {
