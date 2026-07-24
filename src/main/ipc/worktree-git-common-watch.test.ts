@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendFile, mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
+import { rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { subscribeViaWatcherProcess } from './parcel-watcher-process'
@@ -362,8 +363,12 @@ describe('worktree git-common polling gate (non-darwin)', () => {
 
     await new Promise((resolve) => setTimeout(resolve, POLL_MS * 2))
     const worktreesDir = join(commonDir, 'worktrees')
-    await rm(worktreesDir, { recursive: true, force: true })
-    await writeFile(worktreesDir, 'not-a-dir')
+    // Why: swap dir→file SYNCHRONOUSLY with no await between the two ops — an async rm+writeFile
+    // yields the event loop, letting a poll tick observe the momentary ENOENT (dir absent) and
+    // fabricate an "every worktree removed" delete. The synchronous swap gives no such window,
+    // so readdir only ever sees the file (ENOTDIR), which is the transient failure under test.
+    rmSync(worktreesDir, { recursive: true, force: true })
+    writeFileSync(worktreesDir, 'not-a-dir')
     await new Promise((resolve) => setTimeout(resolve, POLL_MS * 4))
 
     expect(received.flat()).not.toContainEqual({ type: 'delete', path: entry })
