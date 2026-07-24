@@ -4,6 +4,13 @@ import { URL } from 'node:url'
 
 export const MAX_RESPONSE_BYTES = 1024 * 1024
 
+// Why: `timeout` is a per-socket INACTIVITY timeout — a compromised but host-pinned
+// server can drip one byte just under the window to reset it indefinitely and keep a
+// single upload hung for hours. Bound the whole connect+write+read with an absolute
+// wall-clock deadline as a multiple of the inactivity timeout (headroom for legit
+// slow-but-progressing links while still guaranteeing termination).
+export const ABSOLUTE_DEADLINE_MULTIPLIER = 4
+
 export function postJsonForJson(url: string, body: unknown, timeoutMs: number): Promise<unknown> {
   return postRaw(
     url,
@@ -42,7 +49,12 @@ function postRaw(
     let res: IncomingMessage | null = null
     const chunks: Buffer[] = []
     let responseBytes = 0
+    let deadlineTimer: ReturnType<typeof setTimeout> | null = null
     function cleanupListeners(): void {
+      if (deadlineTimer !== null) {
+        clearTimeout(deadlineTimer)
+        deadlineTimer = null
+      }
       req?.off('error', onRequestError)
       req?.off('timeout', onRequestTimeout)
       res?.off('data', onResponseData)
@@ -113,6 +125,13 @@ function postRaw(
     function onRequestTimeout(): void {
       rejectOnce(new Error('diagnostic network request timed out'), { destroyRequest: true })
     }
+    function onDeadlineExceeded(): void {
+      deadlineTimer = null
+      rejectOnce(new Error('diagnostic upload deadline exceeded'), {
+        destroyRequest: true,
+        destroyResponse: true
+      })
+    }
     let parsed: URL
     try {
       parsed = new URL(url)
@@ -147,6 +166,10 @@ function postRaw(
     )
     req.on('error', onRequestError)
     req.on('timeout', onRequestTimeout)
+    // Absolute deadline covering connect + write + full response read, independent
+    // of the resettable per-socket inactivity timeout above.
+    deadlineTimer = setTimeout(onDeadlineExceeded, timeoutMs * ABSOLUTE_DEADLINE_MULTIPLIER)
+    deadlineTimer.unref?.()
     req.write(body)
     req.end()
   })

@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const { httpRequestMock, httpsRequestMock } = vi.hoisted(() => ({
   httpRequestMock: vi.fn(),
@@ -9,7 +9,11 @@ const { httpRequestMock, httpsRequestMock } = vi.hoisted(() => ({
 vi.mock('node:http', () => ({ request: httpRequestMock }))
 vi.mock('node:https', () => ({ request: httpsRequestMock }))
 
-import { MAX_RESPONSE_BYTES, postJsonForJson } from './diagnostic-upload-http'
+import {
+  ABSOLUTE_DEADLINE_MULTIPLIER,
+  MAX_RESPONSE_BYTES,
+  postJsonForJson
+} from './diagnostic-upload-http'
 
 class FakeRequest extends EventEmitter {
   destroy = vi.fn()
@@ -23,6 +27,42 @@ class FakeResponse extends EventEmitter {
 }
 
 describe('diagnostic upload HTTP', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('rejects and destroys req/res when a slow-drip server exceeds the absolute deadline', async () => {
+    vi.useFakeTimers()
+    const request = new FakeRequest()
+    const response = new FakeResponse()
+    httpRequestMock.mockImplementationOnce((_options, callback) => {
+      callback(response)
+      return request
+    })
+
+    const timeoutMs = 1000
+    const result = postJsonForJson('http://diagnostics.example/upload', { ok: true }, timeoutMs)
+    const rejection = expect(result).rejects.toThrow('diagnostic upload deadline exceeded')
+
+    // Server dribbles bytes forever without ever ending — each chunk stays under the
+    // response cap and would reset a per-socket inactivity timeout, but must NOT
+    // survive the absolute wall-clock deadline.
+    for (let i = 0; i < 10; i += 1) {
+      response.emit('data', Buffer.from('x'))
+      await vi.advanceTimersByTimeAsync(timeoutMs)
+    }
+    await vi.advanceTimersByTimeAsync(timeoutMs * ABSOLUTE_DEADLINE_MULTIPLIER)
+
+    await rejection
+    expect(request.destroy).toHaveBeenCalledTimes(1)
+    expect(response.destroy).toHaveBeenCalledTimes(1)
+    expect(request.listenerCount('error')).toBe(0)
+    expect(request.listenerCount('timeout')).toBe(0)
+    expect(response.listenerCount('data')).toBe(0)
+    expect(response.listenerCount('end')).toBe(0)
+    expect(response.listenerCount('error')).toBe(0)
+  })
+
   it('removes request and response listeners after a successful response', async () => {
     const request = new FakeRequest()
     const response = new FakeResponse()
