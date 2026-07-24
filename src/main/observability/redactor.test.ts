@@ -100,6 +100,126 @@ describe('redactor — provider-key fingerprints', () => {
   }
 })
 
+describe('redactor — connection-string userinfo (any URI scheme)', () => {
+  // URL_USERINFO used to anchor on the literal http(s) scheme, so DB/broker
+  // connection-string passwords in failing-driver errors leaked verbatim.
+  it('redacts postgres/mongodb/redis/amqp connection-string credentials', () => {
+    const cases = [
+      { raw: 'postgres://admin:s3cr3tpass@db.internal:5432/prod', user: 'admin', pw: 's3cr3tpass' },
+      { raw: 'mongodb://user:p4ssw0rd@cluster0.example.net/db', user: 'user', pw: 'p4ssw0rd' },
+      { raw: 'redis://:mypassword@127.0.0.1:6379', user: '', pw: 'mypassword' },
+      { raw: 'amqp://guest:guestpw@broker.local:5672', user: 'guest', pw: 'guestpw' }
+    ]
+    for (const { raw, user, pw } of cases) {
+      const out = redactString(raw)
+      expect(out).not.toContain(pw)
+      if (user) {
+        expect(out).not.toContain(`${user}:`)
+      }
+      expect(out).toContain('[redacted]@')
+    }
+  })
+  it('still strips https userinfo (no regression)', () => {
+    const out = redactString('clone failed: https://ghp_xxxxxxxxxx@github.com/foo/bar')
+    expect(out).not.toContain('ghp_xxxxxxxxxx@')
+    expect(out).toContain('[redacted]@')
+    expect(out).toContain('github.com/foo/bar')
+  })
+})
+
+describe('redactor — non-Bearer Authorization schemes', () => {
+  // The value alternation used to special-case only Bearer/Token, so a bare
+  // scheme word (Basic/Negotiate/Digest) leaked its credential tail.
+  it('redacts Basic/Negotiate/Digest credential tails', () => {
+    const cases = [
+      { input: 'Authorization: Basic dXNlcjpwYXNzd29yZA==', secret: 'dXNlcjpwYXNzd29yZA==' },
+      { input: 'authorization: Negotiate YIIZ-tokenvalue987', secret: 'YIIZ-tokenvalue987' },
+      {
+        input: 'Authorization: Digest realm="x", response="deadbeefcafe1234"',
+        secret: 'deadbeefcafe1234'
+      }
+    ]
+    for (const { input, secret } of cases) {
+      const out = redactString(input)
+      expect(out).not.toContain(secret)
+    }
+  })
+})
+
+describe('redactor — GitLab/Google provider fingerprints', () => {
+  it('redacts a bare glpat- token in git stderr', () => {
+    // Built at runtime (like the AIza fixture below) so no literal glpat- token
+    // sits in source to trip GitHub push-protection secret scanning; still exercises
+    // the glpat-[A-Za-z0-9_-]{20} rule.
+    const token = `glpat-${'a'.repeat(20)}`
+    const out = redactString(`git push failed for ${token}`)
+    expect(out).not.toContain(token)
+    expect(out).toContain('[redacted:gitlab-pat]')
+  })
+  it('redacts a bare AIza… Google API key', () => {
+    const key = `AIza${'b'.repeat(35)}`
+    const out = redactString(`key ${key}`)
+    expect(out).not.toContain(key)
+    expect(out).toContain('[redacted:google-api-key]')
+  })
+})
+
+describe('redactor — binary values fail closed', () => {
+  it('redacts a Buffer instead of emitting reconstructable bytes', () => {
+    const out = redactValue(Buffer.from('sk-ant-topsecretkeymaterial'))
+    expect(out).toBe('[redacted:binary]')
+    // No index→byte map that String.fromCharCode could rebuild.
+    expect(JSON.stringify(out)).not.toContain('115')
+  })
+  it('redacts a Uint8Array / TypedArray', () => {
+    const out = redactValue(new Uint8Array([115, 107, 45, 97]))
+    expect(out).toBe('[redacted:binary]')
+  })
+  it('redacts a bare ArrayBuffer', () => {
+    expect(redactValue(new ArrayBuffer(8))).toBe('[redacted:binary]')
+  })
+})
+
+describe('redactor — value-shaped object KEYS are redacted', () => {
+  it('scrubs secrets that appear in key position', () => {
+    const out = redactValue(
+      {
+        'https://alice:s3cr3t@example.com/x': 1,
+        [`sk-ant-${'a'.repeat(45)}`]: 2
+      },
+      'server'
+    )
+    const serialized = JSON.stringify(out)
+    expect(serialized).not.toContain('alice:s3cr3t')
+    expect(serialized).not.toContain('s3cr3t@')
+    expect(serialized).not.toContain(`sk-ant-${'a'.repeat(45)}`)
+    expect(serialized).toContain('[redacted]@')
+    expect(serialized).toContain('[redacted:anthropic-key]')
+  })
+  it('leaves constant keys unchanged (idempotent redactString on keys)', () => {
+    const out = redactValue({ 'git.subcommand': 'push', method: 'GET' }) as Record<string, unknown>
+    expect(out).toHaveProperty('git.subcommand')
+    expect(out).toHaveProperty('method')
+  })
+})
+
+describe('redactor — adversarial input completes in linear time', () => {
+  it('does not backtrack on long crafted strings (URL/auth/env rules)', () => {
+    const inputs = [
+      `postgres://${'a:'.repeat(50_000)}x`, // userinfo with no closing @
+      `Authorization: Basic ${'A'.repeat(200_000)}`,
+      `FOO=${'x'.repeat(200_000)}`,
+      `glpat-${'a'.repeat(200_000)}`
+    ]
+    const start = Date.now()
+    for (const input of inputs) {
+      redactString(input)
+    }
+    // Pin linearity: a backtracking blowup would take seconds; linear finishes fast.
+    expect(Date.now() - start).toBeLessThan(1000)
+  })
+})
+
 describe('redactor — home-directory collapse', () => {
   it('folds the running user home dir to ~ so the OS username never egresses', () => {
     const home = os.homedir()

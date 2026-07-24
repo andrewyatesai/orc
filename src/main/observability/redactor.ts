@@ -33,15 +33,21 @@ const HOME_DIR_RE =
     ? new RegExp(escapeRegExp(HOME_DIR), process.platform === 'linux' ? 'g' : 'gi')
     : null
 
-// `\b` stops this from stealing rule-4's `FOO_SECRET=` matches; the value alternation eats the whole `Bearer <jwt>`/`Token <pat>` segment.
+// `authorization`/`bearer` carry a scheme word (`Basic`/`Digest`/`Negotiate`) plus a possibly multi-token credential (Digest `realm=…, response=…`), so redact the value to end-of-line — fail-closed over-redaction beats leaking a Digest/Basic tail. `.` excludes `\n`, so multi-line stays bounded per line.
+const AUTH_HEADER_KV = /\b(?:authorization|bearer)\b\s*[:=]\s*\S.*/gi
+
+// `\b` stops this from stealing rule-4's `FOO_SECRET=` matches; the optional scheme word (Bearer/Token/Basic/Digest/Negotiate) is consumed before the single-token credential so a bare scheme like `Basic <cred>` can't leak its tail. Single quantifiers keep it linear-time.
 const LABELED_KV =
-  /\b(?:api[-_]?key|token|secret|password|bearer|authorization)\b\s*[:=]\s*(?:Bearer\s+\S+|Token\s+\S+|\S+)/gi
+  /\b(?:api[-_]?key|token|secret|password)\b\s*[:=]\s*(?:(?:Bearer|Token|Basic|Digest|Negotiate)\s+)?\S+/gi
 
 // Tagged tokens let triage see what was redacted without the key. Order is most-specific-first: `sk-ant-` before `sk-`, or the Anthropic tag is lost.
 const PROVIDER_PATTERNS: { tag: string; re: RegExp }[] = [
   { tag: 'anthropic-key', re: /sk-ant-[a-zA-Z0-9_-]{40,}/g },
   { tag: 'openai-key', re: /sk-(?:proj-)?[a-zA-Z0-9_-]{32,}/g },
   { tag: 'github-token', re: /gh[pousr]_[A-Za-z0-9]{36,}/g },
+  // GitLab PATs (`glpat-` + 20 chars) and Google API keys (`AIza` + 35 chars) appear bare in git stderr / `?key=` query params — no `user:pass@` or ENV-line shape catches them. Fixed-length, literal-prefix-anchored → linear-time.
+  { tag: 'gitlab-pat', re: /glpat-[A-Za-z0-9_-]{20}/g },
+  { tag: 'google-api-key', re: /AIza[0-9A-Za-z_-]{35}/g },
   { tag: 'aws-access-key-id', re: /AKIA[0-9A-Z]{16}/g },
   {
     tag: 'aws-secret-access-key',
@@ -59,8 +65,8 @@ const PROVIDER_PATTERNS: { tag: string; re: RegExp }[] = [
   }
 ]
 
-// Strip URL userinfo — both `user:pass@` and bare-token `<pat>@` (seen in failing git stderr); keep host+path for debug context.
-const URL_USERINFO = /(https?:\/\/)([^/@\s]+)@/g
+// Strip URL userinfo — both `user:pass@` and bare-token `<pat>@` (seen in failing git stderr); keep host+path for debug context. Any URI scheme (not just http) so DB/broker connection-string passwords (`postgres://user:pw@…`, `redis://:pw@…`) don't leak. Scheme is length-bounded ({0,31}) so a long alphanumeric run without `://` can't trigger a quadratic backtracking scan; real schemes are short.
+const URL_USERINFO = /([a-zA-Z][a-zA-Z0-9+.-]{0,31}:\/\/)([^/@\s]+)@/g
 
 // Per-line .env shape. `m` anchors `^` in multi-line strings; `\S.*` redacts the whole value (so `FOO=Bearer <jwt>` can't leak its tail), leading `\S` skips empty `FOO=`.
 const ENV_LINE = /^\s*([A-Z_][A-Z0-9_]*)\s*=\s*\S.*/gm
@@ -128,7 +134,8 @@ export function redactString(input: string): string {
     out = out.replace(HOME_DIR_RE, '~')
   }
 
-  // Rule 1 — labeled key-value. Drop the key alongside the value; the label name adds no debug context once the value is gone.
+  // Rule 1 — labeled key-value. Drop the key alongside the value; the label name adds no debug context once the value is gone. Auth-header form (redacts to end-of-line) runs first so its greedier match wins.
+  out = out.replace(AUTH_HEADER_KV, '[redacted:labeled-kv]')
   out = out.replace(LABELED_KV, '[redacted:labeled-kv]')
 
   // Rule 2 — provider-key fingerprints. Tag names (`anthropic-key`) are stable wire identifiers third-party NDJSON tools grep for.
@@ -174,6 +181,11 @@ export function redactValue(
   if (value instanceof Date) {
     return value
   }
+  // Binary carries reconstructable secret bytes (`Object.entries(Buffer)` → index→byte
+  // number pairs that pass through as primitives); fail closed rather than leak them.
+  if (Buffer.isBuffer(value) || ArrayBuffer.isView(value) || value instanceof ArrayBuffer) {
+    return '[redacted:binary]'
+  }
   if (typeof value === 'object') {
     if (seen.has(value)) {
       return '[Circular]'
@@ -185,7 +197,8 @@ export function redactValue(
       if (shouldDropAttributeKey(k, mode)) {
         continue
       }
-      out[k] = redactValue(v, mode, seen)
+      // Redact the key too: a value-shaped secret (`https://u:pw@…`, `sk-ant-…`) in KEY position must not egress. redactString is idempotent, so constant keys are unchanged.
+      out[redactString(k)] = redactValue(v, mode, seen)
     }
     return out
   }
@@ -203,7 +216,8 @@ export function redactAttributes(
     if (shouldDropAttributeKey(k, mode)) {
       continue
     }
-    out[k] = redactValue(v, mode)
+    // Redact the key too (see redactValue): a value-shaped secret in KEY position must not egress.
+    out[redactString(k)] = redactValue(v, mode)
   }
   return out
 }
@@ -271,6 +285,7 @@ export const _internalsForTests = {
   PROVIDER_PATTERNS,
   CLIENT_ATTR_BLOCKLIST,
   SERVER_ATTR_BLOCKLIST_EXTRA,
+  AUTH_HEADER_KV,
   LABELED_KV,
   URL_USERINFO,
   ENV_LINE
