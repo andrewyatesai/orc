@@ -1,7 +1,7 @@
 // Bundle collection + upload tests. Upload helpers live outside bundle.ts, but
 // this suite keeps the diagnostic bundle contract in one place.
 
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createServer, type RequestListener, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -327,6 +327,46 @@ describe('bundle — collection', () => {
     expect(bundle.payload).toContain('"name":"newest-useful"')
     expect(bundle.payload).toContain('"name":"older-useful"')
     expect(bundle.payload).not.toContain('"name":"oversized-middle"')
+  })
+
+  it('refuses a rotated slot that is a symlink, so it cannot exfiltrate a file outside the logs dir', () => {
+    // Real trace slot 0 has one benign span.
+    writeFileSync(traceFile, makeNDJSON([makeSpan({ name: 'real' })]))
+    // Attacker-controlled NDJSON *outside* the logs dir, carrying content the redactor would NOT
+    // strip (arbitrary value under an unknown key survives server-mode redaction).
+    const outsideDir = mkdtempSync(join(tmpdir(), 'orca-bundle-outside-'))
+    const outsideFile = join(outsideDir, 'stolen.ndjson')
+    const secret = 'EXFIL-arbitrary-file-read-marker-42'
+    writeFileSync(
+      outsideFile,
+      makeNDJSON([makeSpan({ name: 'stolen', attributes: { data: secret } })])
+    )
+    // Swap rotated slot .1 for a symlink pointing at the outside file.
+    try {
+      symlinkSync(outsideFile, `${traceFile}.1`)
+    } catch {
+      // Platforms/CI without symlink privilege can't exercise this; skip silently.
+      rmSync(outsideDir, { recursive: true, force: true })
+      return
+    }
+
+    const bundle = collectBundle({
+      traceFilePath: traceFile,
+      maxFiles: 10,
+      appVersion: '1',
+      platform: 'darwin',
+      arch: 'arm64',
+      osRelease: '24',
+      orcaChannel: 'dev'
+    })
+    rmSync(outsideDir, { recursive: true, force: true })
+
+    // The symlinked slot must never be dereferenced into the uploaded payload.
+    expect(bundle.payload).not.toContain(secret)
+    expect(bundle.payload).not.toContain('"name":"stolen"')
+    // Only the real slot's span is collected.
+    expect(bundle.spanCount).toBe(1)
+    expect(bundle.payload).toContain('"name":"real"')
   })
 
   it('skips malformed (non-JSON) lines without throwing', () => {

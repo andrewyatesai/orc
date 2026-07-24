@@ -7,7 +7,7 @@
 // upload body-size cap, token-handling discipline).
 
 import { randomBytes } from 'node:crypto'
-import { readFileSync, statSync } from 'node:fs'
+import { lstatSync, readFileSync } from 'node:fs'
 import { MAX_BUNDLE_BYTES } from './diagnostic-bundle-limits'
 import { listRotatedFiles } from './local-file-sink'
 import { redactValue } from './redactor'
@@ -103,9 +103,15 @@ export function collectBundle(opts: CollectBundleOptions): CollectedBundle {
   outer: for (const file of files) {
     let text: string
     try {
-      // stat first: the sink caps at 10 MB/file, so a tampered oversize file could panic-allocate on read.
-      const size = statSync(file).size
-      if (size > 50 * 1024 * 1024) {
+      // lstat (never stat): a rotated slot swapped for a symlink would otherwise dereference out of
+      // the 0700 logs dir, folding an arbitrary readable file into the uploaded bundle. Refuse links
+      // and any non-regular file so the collector only ever reads the real rotated slots.
+      const stat = lstatSync(file)
+      if (!stat.isFile()) {
+        continue
+      }
+      // The sink caps at 10 MB/file, so a tampered oversize file could panic-allocate on read.
+      if (stat.size > 50 * 1024 * 1024) {
         continue
       }
       text = readFileSync(file, 'utf8')
