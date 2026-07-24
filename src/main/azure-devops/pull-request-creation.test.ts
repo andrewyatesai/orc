@@ -132,6 +132,93 @@ describe('Azure DevOps pull request creation', () => {
     expect(gitExecFileAsyncMock).not.toHaveBeenCalled()
   })
 
+  it('threads WSL localGitExecOptions into the origin remote lookup for local projects', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      Response.json({
+        pullRequestId: 39,
+        title: 'WSL Azure create',
+        status: 'active',
+        creationDate: '2026-06-01T00:00:00Z'
+      })
+    ) as never
+
+    await expect(
+      createAzureDevOpsPullRequest(
+        '/repo',
+        {
+          provider: 'azure-devops',
+          base: 'main',
+          head: 'feature/azure',
+          title: 'WSL Azure create'
+        },
+        null,
+        { localGitExecOptions: { wslDistro: 'Ubuntu' } }
+      )
+    ).resolves.toMatchObject({ ok: true, number: 39 })
+    // Why: pins the parity gap — a dropped options param resolves origin on the
+    // Windows host instead of the WSL distro, yielding a false unsupported_provider.
+    expect(gitExecFileAsyncMock).toHaveBeenCalledWith(['remote', 'get-url', 'origin'], {
+      cwd: '/repo',
+      wslDistro: 'Ubuntu'
+    })
+  })
+
+  describe('write-path token-to-host binding', () => {
+    function stubFetchCapturingAuth(): { authorizations: (string | null)[] } {
+      const authorizations: (string | null)[] = []
+      globalThis.fetch = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+        authorizations.push(new Headers(init?.headers).get('authorization'))
+        return Response.json({
+          pullRequestId: 7,
+          title: 'PR',
+          status: 'active',
+          creationDate: '2026-06-01T00:00:00Z'
+        })
+      }) as never
+      return { authorizations }
+    }
+
+    async function createOnRemote(remoteUrl: string): Promise<(string | null)[]> {
+      gitExecFileAsyncMock.mockResolvedValue({ stdout: `${remoteUrl}\n`, stderr: '' })
+      _resetAzureDevOpsRepoRefCache()
+      const { authorizations } = stubFetchCapturingAuth()
+      await createAzureDevOpsPullRequest('/repo', {
+        provider: 'azure-devops',
+        base: 'main',
+        head: 'feature/azure',
+        title: 'PR'
+      })
+      return authorizations
+    }
+
+    it('does not attach the PAT over cleartext http to a repo-derived Server host', async () => {
+      delete process.env.ORCA_AZURE_DEVOPS_API_BASE_URL
+      const auths = await createOnRemote('http://attacker.internal/col/proj/_git/repo')
+      expect(auths.length).toBeGreaterThan(0)
+      // The PAT must never be POSTed in cleartext to a remote-controlled host.
+      expect(auths.every((a) => a === null)).toBe(true)
+    })
+
+    it('does not attach the PAT to an unconfigured https Server host (wrong-host exfil)', async () => {
+      delete process.env.ORCA_AZURE_DEVOPS_API_BASE_URL
+      const auths = await createOnRemote('https://attacker.example/proj/_git/repo')
+      expect(auths.length).toBeGreaterThan(0)
+      expect(auths.every((a) => a === null)).toBe(true)
+    })
+
+    it('attaches Basic auth over https to a Microsoft cloud host', async () => {
+      delete process.env.ORCA_AZURE_DEVOPS_API_BASE_URL
+      const auths = await createOnRemote('https://dev.azure.com/acme/Project/_git/repo')
+      expect(auths[0]).toMatch(/^Basic /)
+    })
+
+    it('attaches auth to an explicitly configured https base URL that matches the request host', async () => {
+      process.env.ORCA_AZURE_DEVOPS_API_BASE_URL = 'https://tfs.corp.example/tfs/col/proj'
+      const auths = await createOnRemote('https://tfs.corp.example/tfs/col/proj/_git/repo')
+      expect(auths[0]).toMatch(/^Basic /)
+    })
+  })
+
   it('classifies auth failures without retrying shell commands', async () => {
     globalThis.fetch = vi.fn(async () =>
       Response.json({ message: 'Unauthorized' }, { status: 401 })

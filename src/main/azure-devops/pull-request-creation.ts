@@ -1,5 +1,5 @@
-import { Buffer } from 'node:buffer'
 import type { CreateHostedReviewInput, CreateHostedReviewResult } from '../../shared/hosted-review'
+import { azureDevOpsAuthHeadersForUrl } from './azure-devops-api-request'
 import {
   normalizeHostedReviewBaseRef,
   normalizeHostedReviewHeadRef
@@ -8,6 +8,10 @@ import {
   HostedReviewApiRequestError,
   requestHostedReviewJson
 } from '../source-control/hosted-review-api-request'
+import {
+  getHostedReviewLocalGitOptions,
+  type HostedReviewExecutionOptions
+} from '../source-control/hosted-review-git-options'
 import { readHostedPullRequestTemplate } from '../source-control/pull-request-template'
 import { getAzureDevOpsPullRequestForBranch } from './client'
 import { mapAzureDevOpsPullRequest, type RawAzureDevOpsPullRequest } from './pull-request-mappers'
@@ -46,17 +50,6 @@ function getAuthConfig(): AzureDevOpsCreateAuthConfig {
 export function isAzureDevOpsReviewCreationAuthenticated(): boolean {
   const config = getAuthConfig()
   return Boolean(config.pat || config.accessToken)
-}
-
-function authHeaders(config: AzureDevOpsCreateAuthConfig): Record<string, string> {
-  if (config.accessToken) {
-    return { Authorization: `Bearer ${config.accessToken}` }
-  }
-  if (config.pat) {
-    const encoded = Buffer.from(`${config.username ?? ''}:${config.pat}`).toString('base64')
-    return { Authorization: `Basic ${encoded}` }
-  }
-  return {}
 }
 
 function apiUrl(repo: AzureDevOpsRepoRef, path: string): URL {
@@ -133,16 +126,24 @@ function classifyCreateError(error: unknown): CreateHostedReviewResult {
 async function findExistingPullRequest(
   repoPath: string,
   head: string,
-  connectionId?: string | null
+  connectionId?: string | null,
+  options: HostedReviewExecutionOptions = {}
 ): Promise<{ number: number; url: string } | null> {
-  const existing = await getAzureDevOpsPullRequestForBranch(repoPath, head, null, connectionId)
+  const existing = await getAzureDevOpsPullRequestForBranch(
+    repoPath,
+    head,
+    null,
+    connectionId,
+    options
+  )
   return existing ? { number: existing.number, url: existing.url } : null
 }
 
 export async function createAzureDevOpsPullRequest(
   repoPath: string,
   input: CreateHostedReviewInput,
-  connectionId?: string | null
+  connectionId?: string | null,
+  options: HostedReviewExecutionOptions = {}
 ): Promise<CreateHostedReviewResult> {
   if (input.provider !== 'azure-devops') {
     return {
@@ -152,7 +153,11 @@ export async function createAzureDevOpsPullRequest(
     }
   }
 
-  const repo = await getAzureDevOpsRepoRef(repoPath, connectionId)
+  const repo = await getAzureDevOpsRepoRef(
+    repoPath,
+    connectionId,
+    getHostedReviewLocalGitOptions(options)
+  )
   if (!repo) {
     return {
       ok: false,
@@ -192,14 +197,20 @@ export async function createAzureDevOpsPullRequest(
   }
 
   try {
+    const requestUrl = apiUrl(
+      repo,
+      `/_apis/git/repositories/${encodePathSegment(repo.repository)}/pullRequests`
+    )
     const raw = await requestHostedReviewJson<RawAzureDevOpsPullRequest>(
-      apiUrl(repo, `/_apis/git/repositories/${encodePathSegment(repo.repository)}/pullRequests`),
+      requestUrl,
       {
         method: 'POST',
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/json',
-          ...authHeaders(getAuthConfig())
+          // Why: gate the token with the same https + trusted-host binding as the
+          // read path so a repo-remote-derived http/wrong-host base never gets the PAT.
+          ...azureDevOpsAuthHeadersForUrl(requestUrl)
         },
         body: JSON.stringify(requestBody)
       },
@@ -209,7 +220,9 @@ export async function createAzureDevOpsPullRequest(
     if (created) {
       return { ok: true, number: created.number, url: created.url }
     }
-    const found = await findExistingPullRequest(repoPath, head, connectionId).catch(() => null)
+    const found = await findExistingPullRequest(repoPath, head, connectionId, options).catch(
+      () => null
+    )
     return found
       ? { ok: true, ...found }
       : {
@@ -223,7 +236,9 @@ export async function createAzureDevOpsPullRequest(
       !classified.ok &&
       (classified.code === 'already_exists' || classified.code === 'unknown_completion')
     ) {
-      const existing = await findExistingPullRequest(repoPath, head, connectionId).catch(() => null)
+      const existing = await findExistingPullRequest(repoPath, head, connectionId, options).catch(
+        () => null
+      )
       if (existing) {
         return {
           ok: false,

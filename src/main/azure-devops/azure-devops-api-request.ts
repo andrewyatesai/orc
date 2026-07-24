@@ -57,6 +57,66 @@ function configuredApiBaseUrl(repo: AzureDevOpsRepoRef): string {
   return configured ? normalizeAzureDevOpsApiBaseUrl(configured) : repo.apiBaseUrl
 }
 
+// Why: cloud hosts are Microsoft-owned and always https, so the token may go to
+// them without an explicitly configured base URL.
+function isTrustedCloudHost(hostname: string): boolean {
+  const host = hostname.toLowerCase()
+  return (
+    host === 'dev.azure.com' ||
+    host.endsWith('.dev.azure.com') ||
+    host.endsWith('.visualstudio.com')
+  )
+}
+
+// Why: loopback (127.0.0.1 / ::1 / localhost) is the SSH-tunnel / local Server case —
+// a forwarded port that never leaves the machine — so it is a valid token recipient
+// even over cleartext http, keeping a tunnelled self-hosted Azure DevOps Server working.
+function isLoopbackHost(hostname: string): boolean {
+  return /^(localhost$|127\.|\[::1\]$|\[::ffff:127\.)/i.test(hostname)
+}
+
+function configuredApiHost(config: AzureDevOpsAuthConfig): string | null {
+  if (!config.apiBaseUrl) {
+    return null
+  }
+  try {
+    const url = new URL(normalizeAzureDevOpsApiBaseUrl(config.apiBaseUrl))
+    // Why: a configured base URL host is a valid recipient over https, or over http
+    // when loopback (a tunnelled/local Server); never a cleartext non-loopback host.
+    return url.protocol === 'https:' || isLoopbackHost(url.hostname)
+      ? url.hostname.toLowerCase()
+      : null
+  } catch {
+    return null
+  }
+}
+
+// Why: the PAT/access token is a bearer credential. Attach it only over https (or
+// loopback) and only to a trusted host — a Microsoft cloud host or the exact host the
+// user explicitly configured via ORCA_AZURE_DEVOPS_API_BASE_URL. A repo-remote-derived
+// Server base URL is attacker-controllable (crafted `.git/config`) and may be a
+// cleartext non-loopback host, so it must never receive the token (cleartext/wrong-host exfil).
+function mayReceiveToken(requestUrl: URL, config: AzureDevOpsAuthConfig): boolean {
+  const host = requestUrl.hostname.toLowerCase()
+  if (requestUrl.protocol !== 'https:' && !isLoopbackHost(host)) {
+    return false
+  }
+  if (isTrustedCloudHost(host)) {
+    return true
+  }
+  const configuredHost = configuredApiHost(config)
+  return configuredHost !== null && host === configuredHost
+}
+
+// Why: single choke point for both read and write paths — the token-bearing
+// Authorization header is returned only when `requestUrl` passes the https +
+// trusted-host binding, so no caller (e.g. PR creation) can re-derive an
+// ungated header and leak the PAT to a remote-controlled http/wrong host.
+export function azureDevOpsAuthHeadersForUrl(requestUrl: URL): Record<string, string> {
+  const config = getAzureDevOpsAuthConfig()
+  return mayReceiveToken(requestUrl, config) ? authHeaders(config) : {}
+}
+
 function apiUrl(
   baseUrl: string,
   path: string,
@@ -81,11 +141,13 @@ export async function requestAzureDevOpsJsonAtBase<T>(
 ): Promise<T | null> {
   const config = getAzureDevOpsAuthConfig()
   try {
-    const response = await fetch(apiUrl(baseUrl, path, options.searchParams), {
-      headers: {
-        Accept: 'application/json',
-        ...authHeaders(config)
-      },
+    const url = apiUrl(baseUrl, path, options.searchParams)
+    const headers: Record<string, string> = { Accept: 'application/json' }
+    if (mayReceiveToken(url, config)) {
+      Object.assign(headers, authHeaders(config))
+    }
+    const response = await fetch(url, {
+      headers,
       signal: AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS)
     })
     if (!response.ok) {
