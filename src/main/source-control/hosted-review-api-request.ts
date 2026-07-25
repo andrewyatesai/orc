@@ -84,10 +84,18 @@ async function readBoundedBytes(
   return Buffer.concat(chunks)
 }
 
+// Why: reading bounded bytes ourselves replaced response.json()/text(), which decode via the
+// Encoding spec's "UTF-8 decode" and therefore STRIP a leading BOM. Buffer.toString('utf-8')
+// keeps U+FEFF, which makes JSON.parse reject otherwise-valid BOM-prefixed forge responses
+// (self-hosted Azure DevOps Server in particular). TextDecoder restores the stripping.
+function decodeUtf8(buffer: Buffer): string {
+  return new TextDecoder('utf-8').decode(buffer)
+}
+
 async function readResponseText(response: Response): Promise<string> {
   try {
     const buffer = await readBoundedBytes(response, MAX_RESPONSE_BYTES, 'truncate')
-    return buffer.toString('utf-8')
+    return decodeUtf8(buffer)
   } catch {
     return ''
   }
@@ -163,7 +171,7 @@ function rewriteRedirectedInit(init: RequestInit, status: number): RequestInit {
  */
 export async function readHostedReviewJsonBody<T>(response: Response): Promise<T> {
   const buffer = await readBoundedBytes(response, MAX_RESPONSE_BYTES, 'throw')
-  return JSON.parse(buffer.toString('utf-8')) as T
+  return JSON.parse(decodeUtf8(buffer)) as T
 }
 
 export async function requestHostedReviewJson<T>(

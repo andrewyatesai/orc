@@ -34,6 +34,43 @@ describe('requestHostedReviewJson', () => {
     ).resolves.toEqual({ number: 7 })
   })
 
+  it('parses a BOM-prefixed JSON body (Codex second lens)', async () => {
+    // Reading bounded bytes replaced response.json(), which strips a leading BOM during
+    // UTF-8 decode; Buffer.toString('utf-8') keeps U+FEFF and JSON.parse then rejects a
+    // valid body. Self-hosted forges (Azure DevOps Server especially) do emit one.
+    const bom = new Uint8Array([0xef, 0xbb, 0xbf])
+    const payload = new TextEncoder().encode(JSON.stringify({ number: 7 }))
+    const body = new Uint8Array(bom.length + payload.length)
+    body.set(bom)
+    body.set(payload, bom.length)
+    globalThis.fetch = vi.fn(async () => new Response(body)) as never
+
+    await expect(
+      requestHostedReviewJson<{ number: number }>(
+        new URL('https://forge.example.com/api/pulls'),
+        { method: 'GET' },
+        5000
+      )
+    ).resolves.toEqual({ number: 7 })
+  })
+
+  it('strips the BOM from an error body used as the thrown message', async () => {
+    const bom = new Uint8Array([0xef, 0xbb, 0xbf])
+    const payload = new TextEncoder().encode('forbidden')
+    const body = new Uint8Array(bom.length + payload.length)
+    body.set(bom)
+    body.set(payload, bom.length)
+    globalThis.fetch = vi.fn(async () => new Response(body, { status: 403 })) as never
+
+    await expect(
+      requestHostedReviewJson(
+        new URL('https://forge.example.com/api/pulls'),
+        { method: 'GET' },
+        5000
+      )
+    ).rejects.toMatchObject({ message: 'forbidden' })
+  })
+
   it('refuses to follow a redirect to a different host and never re-issues the request there', async () => {
     const contactedHosts: string[] = []
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
