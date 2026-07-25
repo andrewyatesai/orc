@@ -6,9 +6,9 @@ independently re-reviewed by **Codex CLI** (`gpt-5.6-sol`) as a second lens, wit
 regressions in the fixes themselves fixed-forward. All work is on `main` and
 pushed to origin.
 
-**Result:** 5 services fully closed · **45 Claude + 11 Codex findings** fixed,
+**Result:** 5 services fully closed · **49 Claude + 11 Codex findings** fixed,
 verified, and pushed · 1 self-inflicted regression caught and repaired ·
-1 infrastructure fix.
+1 infrastructure fix. A sixth, follow-up round is recorded at the end.
 
 ---
 
@@ -136,13 +136,49 @@ each was caught before or shortly after landing:
 
 ---
 
+## Round 6 — provider read paths (post-report)
+
+Landed after this report in the same dual-lens shape, as `3a9061ddd` (fix) and
+`f1c459366` (Codex fix-forward).
+
+**Read-path parity — closed.** The `gitea` / `bitbucket` / `azure-devops` *read*
+helpers used bare `fetch` (default `redirect: 'follow'`) plus unbounded
+`response.json()`, while the *write* path already had both guards. All three now
+share `fetchHostedReviewSameOrigin` + `readHostedReviewJsonBody` with the write
+path, so the two cannot drift apart again; the three clients have **zero**
+remaining bare-`fetch` call sites and dropped out of the global-fetch audit
+entirely. One correction to how this was framed above: fetch strips
+`Authorization` on a cross-origin redirect, so the open legs were SSRF *reach*
+and an unbounded body decoded into main — not token egress.
+
+**A gap this report missed — closed.** Bitbucket had *no* token-host policy at
+all. Gitea got `giteaTokenAllowedForHost` and Azure DevOps got `mayReceiveToken`,
+but Bitbucket attached its Bearer/Basic credential to whatever
+`ORCA_BITBUCKET_API_BASE_URL` named, including cleartext `http://`. Now gated on
+https-or-loopback + the configured host. Lower severity than the other two — that
+base URL is env-only and never git-remote-derived — but it was the last provider
+without the guard. The loopback predicate all three policies had each copied is
+now one shared module, since a divergent copy of a security check is exactly the
+drift this campaign kept finding.
+
+**Codex second lens: 1 finding, again inside my own fix.** Replacing
+`response.json()` with a bounded read silently dropped BOM handling —
+`Response.json()` strips a leading BOM during the Encoding spec's UTF-8 decode,
+while `Buffer.toString('utf-8')` preserves U+FEFF and `JSON.parse` then rejects an
+otherwise-valid body (self-hosted Azure DevOps Server is the likely emitter).
+Verified empirically before fixing, and both regression tests were confirmed to
+fail against the pre-fix parser. It predated the round — the write path had it
+from the moment the campaign introduced the bounded reader — but the round
+extended the blast radius to every provider read path.
+
+**That makes 5 of 6 rounds in which Codex found a real defect in a landed Claude
+fix.** The one clean round remains Preload / IPC.
+
+---
+
 ## Open follow-ups
 
-1. **Read-path parity gap** — the `gitea` / `bitbucket` / `azure-devops` *read*
-   helpers still use unbounded `response.json()` + default follow-redirect (the
-   *write* path got both). Lower severity (GET paths); Codex did not rate it
-   must-fix.
-2. **Next-service candidates** — computer-use (screenshots / input injection /
+1. **Next-service candidates** — computer-use (screenshots / input injection /
    emulator), runtime-RPC, automations, skills.
 
 ---
