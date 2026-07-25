@@ -120,6 +120,74 @@ describe('requestAzureDevOpsJsonAtBase token-to-host binding', () => {
     expect(calls[0].authorization).toBe('Bearer oauth-access-token')
   })
 
+  it('refuses to follow a cross-origin redirect on the read path (SSRF)', async () => {
+    // Read-path parity with the write path: a Server base URL is repo-derived, so a 30x
+    // must not steer the request onto a foreign host.
+    const contactedHosts: string[] = []
+    globalThis.fetch = vi.fn(async (input: string | URL | Request) => {
+      contactedHosts.push(new URL(String(input)).host)
+      return new Response(null, {
+        status: 302,
+        headers: { location: 'http://169.254.169.254/latest/meta-data' }
+      })
+    }) as never
+
+    await expect(
+      requestAzureDevOpsJsonAtBase(
+        'https://tfs.corp.example/tfs/col',
+        '/_apis/git/repositories/repo',
+        {},
+        true
+      )
+    ).rejects.toThrow(/cross-origin redirect/)
+
+    expect(contactedHosts).toEqual(['tfs.corp.example'])
+  })
+
+  it('rejects a read response that streams past the byte cap (main-process OOM)', async () => {
+    // 32 x 1 MiB (reused buffer keeps the test light) overruns the 16 MiB cap.
+    const chunk = new Uint8Array(1024 * 1024)
+    let emitted = 0
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              if (emitted >= 32) {
+                controller.close()
+                return
+              }
+              emitted += 1
+              controller.enqueue(chunk)
+            }
+          })
+        )
+    ) as never
+
+    await expect(
+      requestAzureDevOpsJsonAtBase(
+        'https://tfs.corp.example/tfs/col',
+        '/_apis/git/repositories/repo',
+        {},
+        true
+      )
+    ).rejects.toThrow(/exceeds maximum allowed size/)
+  })
+
+  it('swallows a transport failure to null when throwOnFailure is off', async () => {
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(null, { status: 302, headers: { location: 'https://attacker.example/x' } })
+    ) as never
+
+    await expect(
+      requestAzureDevOpsJsonAtBase(
+        'https://tfs.corp.example/tfs/col',
+        '/_apis/git/repositories/repo'
+      )
+    ).resolves.toBeNull()
+  })
+
   it('does not attach auth when the configured self-hosted base URL is cleartext http', async () => {
     process.env.ORCA_AZURE_DEVOPS_TOKEN = 'super-secret-pat'
     process.env.ORCA_AZURE_DEVOPS_API_BASE_URL = 'http://tfs.corp.example/tfs/col'

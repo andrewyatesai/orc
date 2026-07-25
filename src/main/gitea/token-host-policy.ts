@@ -3,18 +3,7 @@
 // cannot drift. In token-only mode the request host is derived from the untrusted
 // git remote, so a malicious/mistyped remote must not exfiltrate the PAT.
 
-// Why: loopback (127/8, ::1, localhost) is the SSH-tunnel / local-instance case — the
-// connection never leaves the machine — so the PAT may be attached even over http.
-// Match a COMPLETE 127/8 address, not a `127.` prefix, so `127.attacker.example`
-// (a DNS host) is NOT mistaken for loopback.
-function isLoopbackHost(host: string): boolean {
-  return (
-    host === 'localhost' ||
-    host === '::1' ||
-    host === '0:0:0:0:0:0:0:1' ||
-    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)
-  )
-}
+import { isLoopbackHost } from '../source-control/loopback-host'
 
 // Why: non-loopback internal / link-local / metadata literals the PAT must never
 // follow (169.254.169.254 cloud metadata, 10.x, 192.168.x, 172.16-31.x, ::, fe80::,

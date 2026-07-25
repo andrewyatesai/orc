@@ -93,10 +93,15 @@ async function readResponseText(response: Response): Promise<string> {
   }
 }
 
-// Follow only same-origin redirects. A base URL is remote/config-derived for self-hosted
-// forges, so a 30x to a different host is an SSRF vector (and would risk carrying the forge
-// token onward); fail closed instead of letting fetch's default 'follow' chase a new host.
-async function fetchSameOrigin(
+/**
+ * Follow only same-origin redirects. A base URL is remote/config-derived for self-hosted
+ * forges, so a 30x to a different host is an SSRF vector (and would risk carrying the forge
+ * token onward); fail closed instead of letting fetch's default 'follow' chase a new host.
+ *
+ * Shared with the provider READ paths (gitea/bitbucket/azure-devops clients) so a
+ * token-host policy evaluated against the initial URL stays valid for every hop.
+ */
+export async function fetchHostedReviewSameOrigin(
   url: URL,
   init: Omit<RequestInit, 'signal' | 'redirect'>,
   signal: AbortSignal
@@ -150,6 +155,17 @@ function rewriteRedirectedInit(init: RequestInit, status: number): RequestInit {
   return { ...rest, method: 'GET' }
 }
 
+/**
+ * Parse an OK response's JSON body under the shared byte cap, instead of `response.json()`.
+ *
+ * Shared with the provider READ paths: a self-hosted forge base URL is remote/config-derived,
+ * so an unbounded body would let a hostile instance OOM-kill the Electron main process.
+ */
+export async function readHostedReviewJsonBody<T>(response: Response): Promise<T> {
+  const buffer = await readBoundedBytes(response, MAX_RESPONSE_BYTES, 'throw')
+  return JSON.parse(buffer.toString('utf-8')) as T
+}
+
 export async function requestHostedReviewJson<T>(
   url: URL,
   init: Omit<RequestInit, 'signal'>,
@@ -157,15 +173,18 @@ export async function requestHostedReviewJson<T>(
 ): Promise<T> {
   try {
     const { redirect: _ignoredRedirect, ...safeInit } = init
-    const response = await fetchSameOrigin(url, safeInit, AbortSignal.timeout(timeoutMs))
+    const response = await fetchHostedReviewSameOrigin(
+      url,
+      safeInit,
+      AbortSignal.timeout(timeoutMs)
+    )
     if (!response.ok) {
       const body = await readResponseText(response)
       throw new HostedReviewApiRequestError(body || response.statusText, {
         status: response.status
       })
     }
-    const buffer = await readBoundedBytes(response, MAX_RESPONSE_BYTES, 'throw')
-    return JSON.parse(buffer.toString('utf-8')) as T
+    return await readHostedReviewJsonBody<T>(response)
   } catch (error) {
     if (error instanceof HostedReviewApiRequestError) {
       throw error

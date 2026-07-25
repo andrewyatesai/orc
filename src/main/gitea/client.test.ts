@@ -439,4 +439,49 @@ describe('Gitea client', () => {
     expect(fetchMock).toHaveBeenCalled()
     expect(cancelledBodies).toBe(fetchMock.mock.calls.length)
   })
+
+  it('refuses to follow a cross-origin redirect on the read path (SSRF)', async () => {
+    // Read-path parity with the write path: the base URL falls back to the untrusted
+    // git remote, so a 30x must not steer the request onto a foreign host.
+    const contactedHosts: string[] = []
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      contactedHosts.push(new URL(String(url)).host)
+      return new Response(null, {
+        status: 302,
+        headers: { location: 'http://169.254.169.254/latest/meta-data' }
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getGiteaPullRequestForBranch('/repo', 'feature/gitea')).resolves.toBeNull()
+
+    expect(fetchMock).toHaveBeenCalled()
+    expect([...new Set(contactedHosts)]).toEqual(['git.example.com'])
+  })
+
+  it('rejects a read response that streams past the byte cap (main-process OOM)', async () => {
+    // 32 x 1 MiB (reused buffer keeps the test light) overruns the 16 MiB cap.
+    const chunk = new Uint8Array(1024 * 1024)
+    let emitted = 0
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              if (emitted >= 32) {
+                controller.close()
+                return
+              }
+              emitted += 1
+              controller.enqueue(chunk)
+            }
+          })
+        )
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getGiteaPullRequestForBranchOrThrow('/repo', 'feature/gitea')).rejects.toThrow(
+      /exceeds maximum allowed size/
+    )
+  })
 })

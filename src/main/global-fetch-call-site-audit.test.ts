@@ -14,10 +14,10 @@ import { describe, expect, it } from 'vitest'
 // change means a call site was added, removed, or moved: re-audit the file
 // and update the count.
 const AUDITED_GLOBAL_FETCH_LINES = new Map<string, number>([
-  // HTTP call sites — body consumed or cancelled on every path, including !ok
-  ['main/azure-devops/azure-devops-api-request.ts', 1],
-  ['main/bitbucket/client.ts', 1],
-  ['main/gitea/client.ts', 1],
+  // HTTP call sites — body consumed or cancelled on every path, including !ok.
+  // The gitea/bitbucket/azure-devops clients deliberately have no entry: they route
+  // through hosted-review-api-request.ts so read and write share one bounded,
+  // same-origin transport.
   ['main/orca-profiles/profile-cloud-client.ts', 1],
   ['main/orca-profiles/profile-cloud-org-members-client.ts', 1],
   ['main/rate-limits/codex-fetcher.ts', 3],

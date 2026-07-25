@@ -1,6 +1,11 @@
 import { Buffer } from 'node:buffer'
 import type { AzureDevOpsRepoRef } from './repository-ref'
 import { cancelUnreadResponseBody } from '../lib/unread-response-body'
+import { isLoopbackHost } from '../source-control/loopback-host'
+import {
+  fetchHostedReviewSameOrigin,
+  readHostedReviewJsonBody
+} from '../source-control/hosted-review-api-request'
 
 const REQUEST_TIMEOUT_MS = 5000
 
@@ -65,21 +70,6 @@ function isTrustedCloudHost(hostname: string): boolean {
     host === 'dev.azure.com' ||
     host.endsWith('.dev.azure.com') ||
     host.endsWith('.visualstudio.com')
-  )
-}
-
-// Why: loopback (127.0.0.1 / ::1 / localhost) is the SSH-tunnel / local Server case —
-// a forwarded port that never leaves the machine — so it is a valid token recipient
-// even over cleartext http, keeping a tunnelled self-hosted Azure DevOps Server working.
-function isLoopbackHost(hostname: string): boolean {
-  // Why: match a COMPLETE 127/8 address (not a `127.` prefix), so a DNS host like
-  // "127.attacker.example" is not mistaken for loopback and sent the token in cleartext.
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '')
-  return (
-    host === 'localhost' ||
-    host === '::1' ||
-    host === '0:0:0:0:0:0:0:1' ||
-    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)
   )
 }
 
@@ -154,10 +144,13 @@ export async function requestAzureDevOpsJsonAtBase<T>(
     if (mayReceiveToken(url, config)) {
       Object.assign(headers, authHeaders(config))
     }
-    const response = await fetch(url, {
-      headers,
-      signal: AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS)
-    })
+    // Why: same-origin-only redirects keep the mayReceiveToken decision above valid for
+    // every hop, and the bounded read stops a hostile Server from OOM-killing main.
+    const response = await fetchHostedReviewSameOrigin(
+      url,
+      { headers },
+      AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS)
+    )
     if (!response.ok) {
       await cancelUnreadResponseBody(response)
       if (throwOnFailure) {
@@ -165,7 +158,7 @@ export async function requestAzureDevOpsJsonAtBase<T>(
       }
       return null
     }
-    return (await response.json()) as T
+    return await readHostedReviewJsonBody<T>(response)
   } catch (error) {
     if (throwOnFailure) {
       throw error

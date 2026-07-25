@@ -13,6 +13,11 @@ import {
   type HostedReviewExecutionOptions
 } from '../source-control/hosted-review-git-options'
 import { cancelUnreadResponseBody } from '../lib/unread-response-body'
+import { bitbucketTokenAllowedForHost } from './token-host-policy'
+import {
+  fetchHostedReviewSameOrigin,
+  readHostedReviewJsonBody
+} from '../source-control/hosted-review-api-request'
 
 const DEFAULT_API_BASE_URL = 'https://api.bitbucket.org/2.0'
 const REQUEST_TIMEOUT_MS = 5000
@@ -54,7 +59,13 @@ function hasAuth(config: BitbucketAuthConfig): boolean {
   return Boolean(config.accessToken || (config.email && config.apiToken))
 }
 
-function authHeaders(config: BitbucketAuthConfig): Record<string, string> {
+// Why: single choke point — the credential is returned only when `requestUrl` passes the
+// https-or-loopback + configured-host binding, so a cleartext or repointed
+// ORCA_BITBUCKET_API_BASE_URL cannot exfiltrate it.
+function authHeaders(config: BitbucketAuthConfig, requestUrl: URL): Record<string, string> {
+  if (!bitbucketTokenAllowedForHost(requestUrl, config.baseUrl)) {
+    return {}
+  }
   if (config.accessToken) {
     return { Authorization: `Bearer ${config.accessToken}` }
   }
@@ -69,7 +80,7 @@ function isStringArray(value: string | readonly string[]): value is readonly str
   return Array.isArray(value)
 }
 
-function apiUrl(path: string, searchParams?: RequestOptions['searchParams']): string {
+function apiUrl(path: string, searchParams?: RequestOptions['searchParams']): URL {
   const config = getAuthConfig()
   const base = config.baseUrl.replace(/\/+$/, '')
   const url = new URL(`${base}${path}`)
@@ -84,7 +95,7 @@ function apiUrl(path: string, searchParams?: RequestOptions['searchParams']): st
       }
     }
   }
-  return url.toString()
+  return url
 }
 
 async function requestJson<T>(
@@ -97,13 +108,19 @@ async function requestJson<T>(
 ): Promise<T | null> {
   const config = getAuthConfig()
   try {
-    const response = await fetch(apiUrl(path, options.searchParams), {
-      headers: {
-        Accept: 'application/json',
-        ...authHeaders(config)
+    const url = apiUrl(path, options.searchParams)
+    // Why: same-origin-only redirects keep the credential bound to the configured host for
+    // every hop, and the bounded read stops a hostile instance from OOM-killing main.
+    const response = await fetchHostedReviewSameOrigin(
+      url,
+      {
+        headers: {
+          Accept: 'application/json',
+          ...authHeaders(config, url)
+        }
       },
-      signal: AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS)
-    })
+      AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS)
+    )
     if (!response.ok) {
       await cancelUnreadResponseBody(response)
       if (throwOnFailure) {
@@ -111,7 +128,7 @@ async function requestJson<T>(
       }
       return null
     }
-    return (await response.json()) as T
+    return await readHostedReviewJsonBody<T>(response)
   } catch (error) {
     if (throwOnFailure) {
       throw error

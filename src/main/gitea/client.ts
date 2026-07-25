@@ -13,6 +13,10 @@ import {
   type HostedReviewExecutionOptions
 } from '../source-control/hosted-review-git-options'
 import { cancelUnreadResponseBody } from '../lib/unread-response-body'
+import {
+  fetchHostedReviewSameOrigin,
+  readHostedReviewJsonBody
+} from '../source-control/hosted-review-api-request'
 
 const REQUEST_TIMEOUT_MS = 5000
 // Why: self-hosted Forgejo can take ~5s to serve one /pulls page (it loads
@@ -90,13 +94,19 @@ async function requestJsonAtBase<T>(
   const config = getAuthConfig()
   try {
     const url = apiUrl(baseUrl, path, options.searchParams)
-    const response = await fetch(url, {
-      headers: {
-        Accept: 'application/json',
-        ...authHeaders(config, url)
+    // Why: the base URL falls back to the untrusted git remote, so follow only
+    // same-origin redirects (a 30x to a foreign host is SSRF, and would outlive the
+    // authHeaders host check above) and cap the body a hostile instance can stream.
+    const response = await fetchHostedReviewSameOrigin(
+      url,
+      {
+        headers: {
+          Accept: 'application/json',
+          ...authHeaders(config, url)
+        }
       },
-      signal: AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS)
-    })
+      AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS)
+    )
     if (!response.ok) {
       await cancelUnreadResponseBody(response)
       if (throwOnFailure) {
@@ -104,7 +114,7 @@ async function requestJsonAtBase<T>(
       }
       return null
     }
-    return (await response.json()) as T
+    return await readHostedReviewJsonBody<T>(response)
   } catch (error) {
     if (throwOnFailure) {
       throw error

@@ -54,8 +54,8 @@ describe('Bitbucket client', () => {
   })
 
   it('fetches a branch pull request and commit build status', async () => {
-    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
-      if (url.includes('/statuses/build')) {
+    const fetchMock = vi.fn(async (url: string | URL, _init?: RequestInit) => {
+      if (String(url).includes('/statuses/build')) {
         return Response.json({ values: [{ state: 'SUCCESSFUL' }] })
       }
       return Response.json({ values: [bitbucketPr()] })
@@ -111,11 +111,11 @@ describe('Bitbucket client', () => {
   })
 
   it('falls back to a linked PR number when branch lookup misses', async () => {
-    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
-      if (url.includes('/statuses/build')) {
+    const fetchMock = vi.fn(async (url: string | URL, _init?: RequestInit) => {
+      if (String(url).includes('/statuses/build')) {
         return Response.json({ values: [] })
       }
-      if (url.endsWith('/pullrequests/42')) {
+      if (String(url).endsWith('/pullrequests/42')) {
         return Response.json(bitbucketPr(42))
       }
       return Response.json({ values: [] })
@@ -154,5 +154,79 @@ describe('Bitbucket client', () => {
 
     expect(fetchMock).toHaveBeenCalled()
     expect(cancelledBodies).toBe(fetchMock.mock.calls.length)
+  })
+
+  it('refuses to follow a cross-origin redirect on the read path (SSRF)', async () => {
+    const contactedHosts: string[] = []
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      contactedHosts.push(new URL(String(url)).host)
+      return new Response(null, {
+        status: 302,
+        headers: { location: 'http://169.254.169.254/latest/meta-data' }
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getBitbucketPullRequestForBranch('/repo', 'feature/bitbucket')).resolves.toBeNull()
+
+    expect(fetchMock).toHaveBeenCalled()
+    expect([...new Set(contactedHosts)]).toEqual(['api.test.local'])
+  })
+
+  it('rejects a read response that streams past the byte cap (main-process OOM)', async () => {
+    // 32 x 1 MiB (reused buffer keeps the test light) overruns the 16 MiB cap.
+    const chunk = new Uint8Array(1024 * 1024)
+    let emitted = 0
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              if (emitted >= 32) {
+                controller.close()
+                return
+              }
+              emitted += 1
+              controller.enqueue(chunk)
+            }
+          })
+        )
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      getBitbucketPullRequestForBranchOrThrow('/repo', 'feature/bitbucket')
+    ).rejects.toThrow(/exceeds maximum allowed size/)
+  })
+
+  it('does not attach the credential when the configured base URL is cleartext http', async () => {
+    // The gap this closes: ORCA_BITBUCKET_API_BASE_URL had no host/scheme policy, so the
+    // app password travelled in the clear to whatever host it named.
+    process.env.ORCA_BITBUCKET_API_BASE_URL = 'http://bitbucket.internal/2.0'
+    const fetchMock = vi.fn(async (_url: string | URL, _init?: RequestInit) =>
+      Response.json({ values: [] })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getBitbucketPullRequestForBranch('/repo', 'feature/bitbucket')
+
+    expect(fetchMock).toHaveBeenCalled()
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string> | undefined
+    expect(headers?.Authorization).toBeUndefined()
+  })
+
+  it('still attaches the credential to a loopback base URL over http (tunnelled instance)', async () => {
+    process.env.ORCA_BITBUCKET_API_BASE_URL = 'http://127.0.0.1:7990/2.0'
+    const fetchMock = vi.fn(async (_url: string | URL, _init?: RequestInit) =>
+      Response.json({ values: [] })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getBitbucketPullRequestForBranch('/repo', 'feature/bitbucket')
+
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string> | undefined
+    expect(headers?.Authorization).toBe(
+      `Basic ${Buffer.from('user@example.com:token').toString('base64')}`
+    )
   })
 })
