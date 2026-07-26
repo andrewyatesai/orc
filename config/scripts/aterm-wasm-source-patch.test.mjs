@@ -43,11 +43,19 @@ describe('aterm wasm source patch', () => {
           const source = readFileSync(resolve(worktree, 'crates/aterm-gpu/src/renderer.rs'), 'utf8')
           expect(source.match(/let work_started = web_time::Instant::now\(\);/g)).toHaveLength(2)
           expect(source.match(/let work_started = std::time::Instant::now\(\);/g)).toBeNull()
+          // Both files the patch targets, and only those. Compared per-line so
+          // porcelain's leading status column can't make this brittle.
           expect(
             execFileSync('git', ['-C', worktree, 'status', '--porcelain'], {
               encoding: 'utf8'
-            }).trim()
-          ).toBe('M crates/aterm-gpu/src/renderer.rs')
+            })
+              .split('\n')
+              .map((line) => line.trim())
+              .filter(Boolean)
+          ).toEqual([
+            'M crates/aterm-core/src/terminal/handler_csi.rs',
+            'M crates/aterm-gpu/src/renderer.rs'
+          ])
           throw new Error('intentional cleanup probe')
         }
       )

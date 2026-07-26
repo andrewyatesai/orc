@@ -53,7 +53,7 @@ describe('keybinding-file', () => {
         platforms: {
           linux: {
             'terminal.paste': ['Ctrl+Shift+V', 'Shift+Insert'],
-            'terminal.search': 'Ctrl+Shift+F'
+            'terminal.search': 'Ctrl+Shift+Y'
           },
           darwin: {
             'terminal.search': 'Mod+F'
@@ -69,7 +69,7 @@ describe('keybinding-file', () => {
         'worktree.quickOpen': ['Mod+Shift+P'],
         'view.tasks': [],
         'terminal.paste': ['Ctrl+Shift+V', 'Shift+Insert'],
-        'terminal.search': ['Ctrl+Shift+F']
+        'terminal.search': ['Ctrl+Shift+Y']
       },
       diagnostics: []
     })
@@ -134,7 +134,7 @@ describe('keybinding-file', () => {
       'utf8'
     )
 
-    writeKeybindingOverride(filePath, 'linux', 'terminal.search', ['Ctrl+Shift+F'])
+    writeKeybindingOverride(filePath, 'linux', 'terminal.search', ['Ctrl+Shift+Y'])
 
     const written = JSON.parse(readFileSync(filePath, 'utf8')) as {
       keybindings: Record<string, unknown>
@@ -142,7 +142,7 @@ describe('keybinding-file', () => {
     }
     expect(written.keybindings['worktree.quickOpen']).toBe('Mod+Shift+P')
     expect(written.platforms.darwin['terminal.search']).toBe('Mod+F')
-    expect(written.platforms.linux['terminal.search']).toEqual(['Ctrl+Shift+F'])
+    expect(written.platforms.linux['terminal.search']).toEqual(['Ctrl+Shift+Y'])
   })
 
   it('migrates root-level legacy overrides before writing settings edits', () => {
@@ -160,7 +160,7 @@ describe('keybinding-file', () => {
       'utf8'
     )
 
-    writeKeybindingOverride(filePath, 'linux', 'terminal.search', ['Ctrl+Shift+F'])
+    writeKeybindingOverride(filePath, 'linux', 'terminal.search', ['Ctrl+Shift+Y'])
 
     const written = JSON.parse(readFileSync(filePath, 'utf8')) as {
       keybindings: Record<string, unknown>
@@ -172,7 +172,7 @@ describe('keybinding-file', () => {
     expect(written.platforms.darwin['terminal.search']).toBe('Mod+F')
     expect(readKeybindingFile(filePath, 'linux').overrides).toEqual({
       'worktree.quickOpen': ['Mod+Shift+P'],
-      'terminal.search': ['Ctrl+Shift+F']
+      'terminal.search': ['Ctrl+Shift+Y']
     })
   })
 
@@ -201,7 +201,7 @@ describe('keybinding-file', () => {
         },
         platforms: {
           linux: {
-            'terminal.search': 'Ctrl+Shift+F'
+            'terminal.search': 'Ctrl+Shift+Y'
           }
         }
       }),
@@ -325,7 +325,7 @@ describe('keybinding-file', () => {
   })
 
   it('leaves unrelated overrides intact and stays idempotent when seeding', () => {
-    writeKeybindingOverride(filePath, 'darwin', 'terminal.search', ['Mod+Shift+F'])
+    writeKeybindingOverride(filePath, 'darwin', 'terminal.search', ['Mod+Shift+Y'])
 
     const first = seedLegacyTabSwitchBindings(filePath, 'darwin', LEGACY_TAB_SWITCH_BINDINGS)
     const second = seedLegacyTabSwitchBindings(filePath, 'darwin', LEGACY_TAB_SWITCH_BINDINGS)
@@ -334,7 +334,7 @@ describe('keybinding-file', () => {
     // A second pass is a no-op: the pins now read as existing customization.
     expect(second.seeded).toBe(false)
     const snapshot = readKeybindingFile(filePath, 'darwin')
-    expect(snapshot.overrides['terminal.search']).toEqual(['Mod+Shift+F'])
+    expect(snapshot.overrides['terminal.search']).toEqual(['Mod+Shift+Y'])
     expect(snapshot.overrides['tab.nextAllTypes']).toEqual(['Mod+Alt+BracketRight'])
   })
 
@@ -539,7 +539,10 @@ describe('keybinding-file', () => {
         JSON.stringify({
           version: 1,
           keybindings: {},
-          custom: [clashing('custom.first0000001', 'First'), clashing('custom.second000001', 'Second')]
+          custom: [
+            clashing('custom.first0000001', 'First'),
+            clashing('custom.second000001', 'Second')
+          ]
         }),
         'utf8'
       )
@@ -669,7 +672,7 @@ describe('keybinding-file', () => {
         JSON.stringify({ version: 1, keybindings: {}, custom: [validEntry] }),
         'utf8'
       )
-      writeKeybindingOverride(filePath, 'darwin', 'terminal.search', ['Mod+Shift+F'])
+      writeKeybindingOverride(filePath, 'darwin', 'terminal.search', ['Mod+Shift+Y'])
       const written = JSON.parse(readFileSync(filePath, 'utf8')) as Record<string, unknown>
       expect(written.custom).toEqual([validEntry])
     })
