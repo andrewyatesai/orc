@@ -21,7 +21,11 @@ const COPILOT_SESSIONS_DIR = join(
   'session-state'
 )
 const CURSOR_PROJECTS_DIR = join(homedir(), '.cursor', 'projects')
-const GROK_SESSIONS_DIR = resolveGrokSessionsDir()
+// Why: deferred, not module-scope — the bundler routes this import through a
+// circular-import namespace that isn't initialized when this module body runs,
+// so an eager call crashes main-process load ("resolveGrokSessionsDir is not a
+// function"). Every sibling here is a pure `join`, which is why only this one bit.
+const grokSessionsDir = (): string => resolveGrokSessionsDir()
 const HERMES_SESSIONS_DIR = join(homedir(), '.hermes', 'sessions')
 const ROVO_SESSIONS_DIR = join(homedir(), '.rovodev', 'sessions')
 const OPENCLAW_STATE_DIR = process.env.OPENCLAW_STATE_DIR?.trim() || join(homedir(), '.openclaw')
@@ -175,7 +179,7 @@ function grokDiscoveries(
   limit: number,
   issues: AiVaultScanIssue[]
 ): Promise<SessionFileDiscovery>[] {
-  return sessionRootDirs(options.grokSessionsDir ?? GROK_SESSIONS_DIR, wslHomeDirs, [
+  return sessionRootDirs(options.grokSessionsDir ?? grokSessionsDir(), wslHomeDirs, [
     '.grok',
     'sessions'
   ]).map((rootDir) =>
