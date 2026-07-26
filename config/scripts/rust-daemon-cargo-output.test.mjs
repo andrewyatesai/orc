@@ -249,9 +249,18 @@ setInterval(() => {}, 1000)
           wrapper.once('close', (status, signal) => resolveClose({ status, signal }))
         })
         await new Promise((resolveReady, rejectReady) => {
+          // Why 15s, not 2s: reaching "cargo-ready" costs FIVE Node startups
+          // (this wrapper -> build-rust-daemon -> fake cargo -> its two children)
+          // plus marker-file polling. That is process-startup latency, which this
+          // test does not assert — it asserts SIGTSTP/SIGCONT/SIGQUIT job control.
+          // A 2s budget held when run alone and flaked inside the full parallel
+          // suite, failing as "fake Cargo did not start" rather than anything
+          // about job control. 15s is generous enough never to be the thing under
+          // test, and stays inside the 30s testTimeout so THIS message survives
+          // rather than being masked by a bare vitest timeout.
           const timeout = setTimeout(
             () => rejectReady(new Error(`fake Cargo did not start; stderr=${stderr}`)),
-            2_000
+            15_000
           )
           wrapper.stderr.on('data', (chunk) => {
             stderr += chunk
