@@ -3,6 +3,7 @@ import { chmodSync, copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:
 import path from 'node:path'
 import { resolveMacComputerUseBundleId } from './mac-computer-use-bundle-id.mjs'
 import { prepareSwiftPmManifestApiWorkaround } from './swiftpm-manifest-api-workaround.mjs'
+import { clearStaleSwiftBuildCache } from './swift-build-cache-staleness.mjs'
 
 const repoRoot = path.resolve(import.meta.dirname, '../..')
 const packagePath = path.join(repoRoot, 'native', 'computer-use-macos')
@@ -20,6 +21,10 @@ const universalTriples = ['arm64-apple-macosx', 'x86_64-apple-macosx']
 if (process.platform !== 'darwin') {
   process.exit(0)
 }
+
+// Before anything reads `.build`: a cache built under the repo's OLD path fails
+// mid-compile on a dangling module cache, naming neither the rename nor the fix.
+clearStaleSwiftBuildCache(packagePath, 'build-computer-macos')
 
 const swiftPmWorkaround = process.env.SWIFTPM_CUSTOM_LIBS_DIR
   ? null

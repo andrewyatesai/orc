@@ -119,6 +119,7 @@
     "parity": "node config/scripts/run-parity.mjs",
     "parity:daemon": "node tools/daemon-parity/run.mjs",
     "check:aterm-pin": "node config/scripts/check-aterm-artifact-pin.mjs",
+    "smoke:launch": "node config/scripts/smoke-launch-app.mjs",
     "check:wasm-pins": "node config/scripts/check-orca-wasm-pins.mjs",
     "build:terminal-addon": "node config/scripts/build-terminal-addon.mjs",
     "build:rust-daemon": "node config/scripts/build-rust-daemon.mjs",
