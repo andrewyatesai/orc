@@ -7,8 +7,7 @@ import {
   nativeTheme,
   Notification,
   powerMonitor,
-  screen,
-  shell
+  screen
 } from 'electron'
 import { join } from 'node:path'
 import { is } from '@electron-toolkit/utils'
@@ -17,10 +16,7 @@ import { getAppIconPath } from '../app-icon'
 import { browserManager } from '../browser/browser-manager'
 import { browserSessionRegistry } from '../browser/browser-session-registry'
 import { translateMain } from '../i18n/main-i18n'
-import {
-  normalizeBrowserNavigationUrl,
-  normalizeExternalBrowserUrl
-} from '../../shared/browser-url'
+import { normalizeBrowserNavigationUrl } from '../../shared/browser-url'
 import { ORCA_BROWSER_GUEST_WEB_PREFERENCES } from '../../shared/browser-guest-web-preferences'
 import { isCrashReportReason } from '../../shared/crash-reporting'
 import { trackRendererProcessGone } from '../telemetry/fork-reliability-events'
@@ -50,9 +46,15 @@ import { getMainE2EConfig } from '../e2e-config'
 import { buildEditableContextMenuTemplate } from './editable-context-menu'
 import { clearTrustedUIRendererWebContentsId, setTrustedUIRendererWebContentsId } from '../ipc/ui'
 import { resolveWindowCloseAction } from './window-close-decision'
+import { rectHasVisibleAreaOnAnyDisplay } from './window-bounds-validation'
+import { closeDashboardPopout } from './dashboard-popout-window'
+import { installPrivilegedWindowNavigationPolicy } from './privileged-window-navigation'
+import { isMacosTahoeOrNewer } from './macos-tahoe-release'
+import { reflowRendererViewport } from './renderer-viewport-reflow'
 
 // Why: show/restore/resume can overlap before the size nudge resets; never capture the temporary width as the next baseline.
 const activeRepaintJiggles = new WeakSet<BrowserWindow>()
+export const WINDOW_QUIT_RENDERER_ACK_TIMEOUT_MS = 10_000
 
 function forceRepaint(window: BrowserWindow): void {
   // Why: webContents can be destroyed a beat before the BrowserWindow during close, and this runs from timers/focus events in that gap.
@@ -60,18 +62,47 @@ function forceRepaint(window: BrowserWindow): void {
     return
   }
   window.webContents.invalidate()
+  // Why: macOS 26 scene-backed windows deadlock the main thread on frame mutation, but invalidate
+  // alone never reflows the dvh root (STA-2383); emulation reflows without touching the frame.
+  // Runs before the maximized/fullscreen bail-out below, which only exists to protect setSize —
+  // emulation leaves those states intact, and a maximized window goes stale just the same.
+  if (isMacosTahoeOrNewer()) {
+    reflowRendererViewport(window)
+    return
+  }
   if (window.isMaximized() || window.isFullScreen() || activeRepaintJiggles.has(window)) {
     return
   }
   activeRepaintJiggles.add(window)
-  const [width, height] = window.getSize()
-  window.setSize(width + 1, height)
+  // Why: show/restore fire from inside AppKit's window-state dispatch; mutating the frame there re-enters scene handling, so nudge on a fresh turn.
   setTimeout(() => {
-    if (!window.isDestroyed()) {
-      window.setSize(width, height)
+    if (window.isDestroyed()) {
+      activeRepaintJiggles.delete(window)
+      return
     }
-    activeRepaintJiggles.delete(window)
-  }, 32)
+    const [width, height] = window.getSize()
+    // Why: if the nudge throws mid-flight the WeakSet entry must still clear, or this window
+    // never repaints again.
+    try {
+      window.setSize(width + 1, height)
+    } catch {
+      activeRepaintJiggles.delete(window)
+      return
+    }
+    setTimeout(() => {
+      try {
+        if (!window.isDestroyed()) {
+          const [currentWidth, currentHeight] = window.getSize()
+          // Why: a real user resize during the jiggle owns the final bounds.
+          if (currentWidth === width + 1 && currentHeight === height) {
+            window.setSize(width, height)
+          }
+        }
+      } finally {
+        activeRepaintJiggles.delete(window)
+      }
+    }, 32)
+  }, 0)
 }
 
 function installMacosVisibilityRepaint(window: BrowserWindow): void {
@@ -94,15 +125,33 @@ function installMacosVisibilityRepaint(window: BrowserWindow): void {
     }
   }
 
+  // Why (STA-2383): occlusion-uncover fires no restore/show, so the renderer relays its genuine
+  // hidden→visible reveal instead. Unlike a bare focus (every Cmd+Tab, window never hidden), this
+  // only fires when the window was actually occluded/throttled — exactly when the stale dvh layout
+  // stranded the bottom status bar off-screen — so the full repaint's size jiggle is warranted.
+  const onRendererRevealed = (event: Electron.IpcMainEvent): void => {
+    if (window.isDestroyed() || window.webContents.isDestroyed()) {
+      return
+    }
+    if (event.sender !== window.webContents) {
+      return
+    }
+    forceRepaint(window)
+  }
+  ipcMain.on('ui:window-revealed', onRendererRevealed)
+
   window.on('restore', repaintAfterVisibilityTransition)
   window.on('show', repaintAfterVisibilityTransition)
-  // Why: occlusion-uncover fires no restore/show, only focus; invalidate only — the setSize jiggle would SIGWINCH every terminal on Cmd+Tab.
+  // Why: occlusion-uncover fires no restore/show, only focus; invalidate only — the setSize jiggle would SIGWINCH every terminal on Cmd+Tab. The renderer-reveal relay above covers the stale-layout recovery that invalidate alone misses.
   window.on('focus', () => {
     if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
       window.webContents.invalidate()
     }
   })
-  window.on('closed', clearDelayedRepaint)
+  window.on('closed', () => {
+    clearDelayedRepaint()
+    ipcMain.removeListener('ui:window-revealed', onRendererRevealed)
+  })
 }
 
 function isMacAppPasteInput(input: Electron.Input): boolean {
@@ -174,34 +223,12 @@ export function createMainWindow(
   opts?: CreateMainWindowOptions
 ): BrowserWindow {
   const rawSavedBounds = store?.getUI().windowBounds
-  // Why: discard persisted bounds that are shrink-to-min (corrupt, see freezeBoundsOnQuit) or off-screen, falling back to defaultBounds.
-  // Require ~half MIN_WIDTH/HEIGHT of workArea overlap so a 1px sliver or dock-hidden rect isn't treated as visible.
-  const rectHasVisibleAreaOnAnyDisplay = (b: {
-    x: number
-    y: number
-    width: number
-    height: number
-  }): boolean => {
-    try {
-      return screen.getAllDisplays().some((d) => {
-        const wa = d.workArea
-        const overlapX = Math.max(0, Math.min(b.x + b.width, wa.x + wa.width) - Math.max(b.x, wa.x))
-        const overlapY = Math.max(
-          0,
-          Math.min(b.y + b.height, wa.y + wa.height) - Math.max(b.y, wa.y)
-        )
-        return overlapX >= MIN_WIDTH / 2 && overlapY >= MIN_HEIGHT / 2
-      })
-    } catch (err) {
-      console.warn('[window] screen.getAllDisplays() threw; treating bounds as off-screen', err)
-      return false
-    }
-  }
+  // Why: reject min-size or substantially off-screen bounds so the titlebar stays reachable after display changes.
   const savedBounds =
     rawSavedBounds &&
     rawSavedBounds.width > MIN_WIDTH &&
     rawSavedBounds.height > MIN_HEIGHT &&
-    rectHasVisibleAreaOnAnyDisplay(rawSavedBounds)
+    rectHasVisibleAreaOnAnyDisplay(rawSavedBounds, MIN_WIDTH / 2, MIN_HEIGHT / 2)
       ? rawSavedBounds
       : undefined
   if (rawSavedBounds && !savedBounds) {
@@ -227,14 +254,10 @@ export function createMainWindow(
     return false
   })
   const blur = settings?.windowBackgroundBlur ?? false
-  // Why: blur uses platform APIs (macOS vibrancy+transparent, Windows backgroundMaterial, Linux none) and only applies at creation, needs restart.
-  const platformBlurOptions = blur
-    ? process.platform === 'darwin'
-      ? { vibrancy: 'under-window' as const, transparent: true }
-      : process.platform === 'win32'
-        ? { backgroundMaterial: 'acrylic' as const }
-        : {}
-    : {}
+  // Why: only Windows acrylic is ever visible; macOS vibrancy+transparent sat behind our opaque background yet
+  // forced per-frame WindowServer alpha compositing (#8482). Applies at creation only, so it needs a restart.
+  const platformBlurOptions =
+    blur && process.platform === 'win32' ? { backgroundMaterial: 'acrylic' as const } : {}
 
   const mainWindow = new BrowserWindow({
     width: savedBounds?.width ?? defaultBounds.width,
@@ -434,13 +457,7 @@ export function createMainWindow(
     mainWindow.webContents.send('window:minimized-changed', false)
   })
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
-    const externalUrl = normalizeExternalBrowserUrl(details.url)
-    if (externalUrl) {
-      shell.openExternal(externalUrl)
-    }
-    return { action: 'deny' }
-  })
+  installPrivilegedWindowNavigationPolicy(mainWindow.webContents)
 
   mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
     const src = typeof params.src === 'string' ? params.src : ''
@@ -473,29 +490,6 @@ export function createMainWindow(
   mainWindow.webContents.on('did-attach-webview', (_event, guest) => {
     // Why: attach guest popup/nav policy at creation; waiting for renderer registration races target=_blank/early redirects past it.
     browserManager.attachGuestPolicies(guest)
-  })
-
-  // Why: block in-window navigations so remote pages can't inherit the privileged preload bridge (dev server allowed for HMR).
-  mainWindow.webContents.on('will-navigate', (event, url) => {
-    const externalUrl = normalizeExternalBrowserUrl(url)
-
-    if (externalUrl) {
-      const target = new URL(externalUrl)
-      if (is.dev && process.env.ELECTRON_RENDERER_URL) {
-        try {
-          const allowed = new URL(process.env.ELECTRON_RENDERER_URL)
-          if (target.origin === allowed.origin) {
-            return // allow dev server navigations (HMR, etc.)
-          }
-        } catch {
-          // fall through to prevent
-        }
-      }
-
-      shell.openExternal(externalUrl)
-    }
-
-    event.preventDefault()
   })
 
   // Why: mirror markdown-editor focus so before-input-event skips Cmd/Ctrl+B while TipTap owns focus (docs/markdown-cmd-b-bold-design.md).
@@ -921,6 +915,41 @@ export function createMainWindow(
   // Intercept close so the renderer can confirm killing running-process terminals (replies window:confirm-close to proceed).
   let windowCloseConfirmed = false
   const confirmCloseChannel = 'window:confirm-close'
+  const closeRequestReceivedChannel = 'window:close-request-received'
+  let closeRequestSequence = 0
+  let quitRendererAckRequestId: number | null = null
+  let quitRendererAckTimer: ReturnType<typeof setTimeout> | null = null
+  const clearQuitRendererAckTimer = (): void => {
+    quitRendererAckRequestId = null
+    if (quitRendererAckTimer) {
+      clearTimeout(quitRendererAckTimer)
+      quitRendererAckTimer = null
+    }
+  }
+  const armQuitRendererAckTimer = (requestId: number): void => {
+    quitRendererAckRequestId = requestId
+    if (quitRendererAckTimer) {
+      return
+    }
+    // Why: will-quit cannot run until the renderer-backed window closes; an
+    // already-frozen renderer otherwise makes Force Quit the only escape.
+    quitRendererAckTimer = setTimeout(() => {
+      quitRendererAckTimer = null
+      quitRendererAckRequestId = null
+      if (mainWindow.isDestroyed()) {
+        return
+      }
+      console.warn('[window] Renderer did not acknowledge quit; destroying unresponsive window')
+      freezeBoundsOnQuit()
+      mainWindow.destroy()
+    }, WINDOW_QUIT_RENDERER_ACK_TIMEOUT_MS)
+    quitRendererAckTimer.unref?.()
+  }
+  const onCloseRequestReceived = (event: Electron.IpcMainEvent, requestId: number): void => {
+    if (event.sender.id === rendererWebContentsId && requestId === quitRendererAckRequestId) {
+      clearQuitRendererAckTimer()
+    }
+  }
 
   // Windows minimize-to-tray: hide instead of close when enabled; returns true when it hid so callers skip their close path.
   const hideToTrayIfEnabled = (): boolean => {
@@ -981,19 +1010,27 @@ export function createMainWindow(
       return
     }
     e.preventDefault()
+    const isQuitting = opts?.getIsQuitting?.() ?? false
+    const requestId = ++closeRequestSequence
+    if (isQuitting) {
+      armQuitRendererAckTimer(requestId)
+    }
     // Why: renderer owns the close decision; the always-mounted App root subscription lets even pre-workspace states reply (#5144).
     mainWindow.webContents.send('window:close-requested', {
-      isQuitting: opts?.getIsQuitting?.() ?? false
+      isQuitting,
+      requestId
     })
   })
   mainWindow.webContents.on('will-prevent-unload', () => {
     // Why: a prevented beforeunload cancels the quit; release the bounds-persistence freeze so later resizing still saves.
     windowClosing = false
+    clearQuitRendererAckTimer()
     opts?.onQuitAborted?.()
     mainWindow.webContents.send('window:unload-prevented')
   })
 
   const onConfirmClose = (): void => {
+    clearQuitRendererAckTimer()
     windowCloseConfirmed = true
     if (!mainWindow.isDestroyed()) {
       mainWindow.close()
@@ -1052,8 +1089,14 @@ export function createMainWindow(
   ipcMain.handle(isMaximizedChannel, onIsMaximized)
 
   ipcMain.on(confirmCloseChannel, onConfirmClose)
+  ipcMain.on(closeRequestReceivedChannel, onCloseRequestReceived)
   mainWindow.on('closed', () => {
+    // Why: the dashboard pop-out is a companion of the main window — close it
+    // alongside so it never orphans as a lone window after the app window is
+    // gone (e.g. on macOS where the app stays alive after the window closes).
+    closeDashboardPopout()
     clearInitialRevealFallbackTimer()
+    clearQuitRendererAckTimer()
     // Why: default-deny the Cmd+B carve-out after the window is gone so a stale-true flag can't leak into later state.
     markdownEditorFocused = false
     terminalInputFocused = false
@@ -1068,6 +1111,7 @@ export function createMainWindow(
     ipcMain.removeListener(popupMenuChannel, onPopupMenu)
     ipcMain.removeHandler(isMaximizedChannel)
     ipcMain.removeListener(confirmCloseChannel, onConfirmClose)
+    ipcMain.removeListener(closeRequestReceivedChannel, onCloseRequestReceived)
     ipcMain.removeListener(markdownFocusChannel, onMarkdownEditorFocused)
     ipcMain.removeListener(terminalInputFocusChannel, onTerminalInputFocused)
     ipcMain.removeListener(floatingTerminalInputFocusChannel, onFloatingTerminalInputFocused)

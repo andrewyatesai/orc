@@ -117,11 +117,14 @@ export type WorktreeSlice = {
    * sessions (design §4.4). Session-only; never persisted.
    */
   hasHydratedWorktreePurge: boolean
+  /** Startup owns the initial all-host refresh; sidebar repo-change refreshes stay gated until it finishes. */
+  startupWorktreeRefreshCompleted: boolean
   fetchDetectedWorktrees: (repoId: string) => Promise<DetectedWorktreeListResult | null>
   fetchWorktrees: (
     repoId: string,
     options?: {
       requireAuthoritative?: boolean
+      /** Owning host for this refresh; disambiguates a repo id duplicated across hosts. */
       ownerHostId?: ExecutionHostId
       // Why: pin an unbound repo's refresh to the local host so a local
       // worktrees:changed under an active runtime lists local rows (#6628).

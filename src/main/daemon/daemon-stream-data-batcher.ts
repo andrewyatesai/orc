@@ -6,12 +6,13 @@ import {
   encodeStreamDataEvent,
   writeStreamDataEvents
 } from './daemon-stream-data-split'
-import {
-  applyBackgroundSessionDropCaps,
-  type PendingStreamDataBatch
-} from './daemon-stream-keep-tail-drop'
+import type { PendingStreamDataBatch } from './daemon-stream-keep-tail-drop'
 import type { DaemonEvent } from './types'
 import { appendDaemonStreamData, type DaemonStreamEnqueueOptions } from './daemon-stream-data-entry'
+import {
+  evaluateDroppableEnqueue,
+  refreshDroppableSessionMembership
+} from './daemon-stream-droppable-membership'
 
 type StreamDataClient = {
   streamSocket: Socket | null
@@ -89,17 +90,17 @@ export class DaemonStreamDataBatcher {
     ) {
       batch.queue.push({ sessionId, data: '' })
     }
-    appendDaemonStreamData(batch, sessionId, data, options)
-
-    if (this.isSessionDroppable(sessionId)) {
-      // Keep-tail scales down as more backgrounded sessions queue, bounding the aggregate a reveal must drain (see daemon-stream-keep-tail-drop).
-      applyBackgroundSessionDropCaps(
-        batch,
-        sessionId,
-        this.isSessionDroppable,
-        this.salvageDroppedData
-      )
-    }
+    const queuedAfter = appendDaemonStreamData(batch, sessionId, data, options)
+    const queuedBefore = queuedAfter - data.length
+    // Keep-tail scales down as more backgrounded sessions queue, bounding the aggregate a reveal must drain (see daemon-stream-keep-tail-drop).
+    evaluateDroppableEnqueue(
+      batch,
+      sessionId,
+      queuedBefore,
+      queuedAfter,
+      this.isSessionDroppable,
+      this.salvageDroppedData
+    )
 
     if (
       options.flushImmediately === true &&
@@ -127,10 +128,21 @@ export class DaemonStreamDataBatcher {
     }
   }
 
+  refreshSessionDroppability(sessionId: string): void {
+    const droppable = this.isSessionDroppable(sessionId)
+    refreshDroppableSessionMembership(this.pendingByClient.values(), sessionId, droppable)
+  }
+
   private getOrCreateBatch(clientId: string): PendingStreamDataBatch {
     let batch = this.pendingByClient.get(clientId)
     if (!batch) {
-      batch = { timer: null, queue: [], queuedChars: 0, queuedCharsBySession: new Map() }
+      batch = {
+        timer: null,
+        queue: [],
+        queuedChars: 0,
+        queuedCharsBySession: new Map(),
+        droppableQueuedSessionIds: new Set()
+      }
       this.pendingByClient.set(clientId, batch)
     }
     return batch
@@ -217,6 +229,7 @@ export class DaemonStreamDataBatcher {
         (batch.queuedCharsBySession.get(entry.sessionId) ?? slice.length) - slice.length
       if (sessionHeldAfter <= 0) {
         batch.queuedCharsBySession.delete(entry.sessionId)
+        batch.droppableQueuedSessionIds.delete(entry.sessionId)
       } else {
         batch.queuedCharsBySession.set(entry.sessionId, sessionHeldAfter)
       }
@@ -288,6 +301,7 @@ export class DaemonStreamDataBatcher {
     batch.queue = retained
     batch.queuedChars -= flushedChars
     batch.queuedCharsBySession.delete(sessionId)
+    batch.droppableQueuedSessionIds.delete(sessionId)
     if (batch.queue.length === 0) {
       if (batch.timer) {
         clearTimeout(batch.timer)

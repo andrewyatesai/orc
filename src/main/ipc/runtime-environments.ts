@@ -1,5 +1,4 @@
 import { app, ipcMain } from 'electron'
-import { randomUUID } from 'node:crypto'
 import {
   addEnvironmentFromPairingCode,
   listEnvironments,
@@ -13,17 +12,19 @@ import {
 import { toRuntimeExecutionHostId } from '../../shared/execution-host'
 import type { RuntimeStatus } from '../../shared/runtime-types'
 import type { RuntimeRpcResponse } from '../../shared/runtime-rpc-envelope'
-import type { RemoteRuntimeSubscription } from '../../shared/remote-runtime-client'
 import type { Store } from '../persistence'
-import { clearActiveRuntimeEnvironmentFocusIfMatches } from '../runtime-environment-focus-self-heal'
 import { registerRuntimeHostPtyBindingChurnPruneStore } from '../runtime-host-pty-binding-churn-prune'
 import { closeRemoteRuntimeRequestConnection } from './runtime-environment-request-connections'
+import { advanceRuntimeEnvironmentTransportGeneration } from './runtime-environment-transport-generation'
+import {
+  closeSubscriptionsForEnvironment,
+  registerRuntimeEnvironmentSubscriptionHandlers
+} from './runtime-environment-subscriptions'
 import {
   callRuntimeEnvironment,
   clearSharedControlSupport,
   getRuntimeEnvironmentStatus,
-  resetSharedControlSupport,
-  subscribeRuntimeEnvironment
+  resetSharedControlSupport
 } from './runtime-environment-transport-routing'
 
 const RUNTIME_ENVIRONMENT_HANDLER_CHANNELS = [
@@ -38,32 +39,18 @@ const RUNTIME_ENVIRONMENT_HANDLER_CHANNELS = [
   'runtimeEnvironments:unsubscribe'
 ] as const
 
-type RetainedRemoteRuntimeSubscription = RemoteRuntimeSubscription & {
-  environmentId: string
-  ownerWebContentsId: number
-  removeLifecycleListeners: () => void
-}
-const remoteRuntimeSubscriptions = new Map<string, RetainedRemoteRuntimeSubscription>()
+const getUserDataPath = (): string => app.getPath('userData')
 
-function getUserDataPath(): string {
-  return app.getPath('userData')
-}
-
-function closeSubscriptionsForEnvironment(environmentId: string): void {
-  // Why: removing a saved runtime invalidates its streaming WebSockets too;
-  // otherwise terminal/browser subscriptions stay alive until renderer teardown.
-  for (const [subscriptionId, subscription] of remoteRuntimeSubscriptions) {
-    if (subscription.environmentId !== environmentId) {
-      continue
-    }
-    remoteRuntimeSubscriptions.delete(subscriptionId)
-    subscription.close()
-  }
+export function invalidateRuntimeEnvironmentTransport(environmentId: string): void {
+  // Why: a same-id re-pair must retire every transport that still authenticates as the old peer.
+  advanceRuntimeEnvironmentTransportGeneration(environmentId)
+  closeRemoteRuntimeRequestConnection(environmentId)
+  clearSharedControlSupport(environmentId)
+  closeSubscriptionsForEnvironment(environmentId)
 }
 
 function listPublicRuntimeEnvironments(): PublicKnownRuntimeEnvironment[] {
-  // Why: `source` is persisted on the env record, so read it directly instead of
-  // joining the VM store — a corrupt VM store must not break listing all envs.
+  // Why: a corrupt VM store must not break persisted environment listing.
   return listEnvironments(getUserDataPath()).map(redactRuntimeEnvironment)
 }
 
@@ -79,9 +66,7 @@ export function registerRuntimeEnvironmentHandlers(store: Store): void {
   }
   ipcMain.removeAllListeners('runtimeEnvironments:subscriptionBinary')
 
-  ipcMain.handle('runtimeEnvironments:list', (): PublicKnownRuntimeEnvironment[] =>
-    listPublicRuntimeEnvironments()
-  )
+  ipcMain.handle('runtimeEnvironments:list', listPublicRuntimeEnvironments)
   ipcMain.handle(
     'runtimeEnvironments:addFromPairingCode',
     (
@@ -91,23 +76,22 @@ export function registerRuntimeEnvironmentHandlers(store: Store): void {
       environment: redactRuntimeEnvironment(addEnvironmentFromPairingCode(getUserDataPath(), args))
     })
   )
-  ipcMain.handle(
-    'runtimeEnvironments:resolve',
-    (_event, args: { selector: string }): PublicKnownRuntimeEnvironment =>
-      redactRuntimeEnvironment(resolveEnvironment(getUserDataPath(), args.selector))
+  ipcMain.handle('runtimeEnvironments:resolve', (_event, args: { selector: string }) =>
+    redactRuntimeEnvironment(resolveEnvironment(getUserDataPath(), args.selector))
   )
   ipcMain.handle(
     'runtimeEnvironments:remove',
     (_event, args: { selector: string }): { removed: PublicKnownRuntimeEnvironment } => {
+      const environment = resolveEnvironment(getUserDataPath(), args.selector)
+      if (store.getSettings().activeRuntimeEnvironmentId === environment.id) {
+        throw new Error('Choose another Active Server in Advanced before removing this server.')
+      }
       const removed = removeEnvironment(getUserDataPath(), args.selector)
-      closeRemoteRuntimeRequestConnection(removed.id)
-      clearSharedControlSupport(removed.id)
+      invalidateRuntimeEnvironmentTransport(removed.id)
       if (args.selector !== removed.id) {
         closeRemoteRuntimeRequestConnection(args.selector)
         clearSharedControlSupport(args.selector)
       }
-      clearActiveRuntimeEnvironmentFocusIfMatches(store, removed.id)
-      closeSubscriptionsForEnvironment(removed.id)
       // Why: drop the persisted terminal host partition so a later boot never
       // restores tabs that resubscribe against the now-removed environment and
       // flood 'Unknown environment'. Key on removed.id (the canonical env id):
@@ -122,13 +106,11 @@ export function registerRuntimeEnvironmentHandlers(store: Store): void {
       const environment = resolveEnvironment(getUserDataPath(), args.selector)
       // Why: disconnect is intentionally non-destructive; it drops live
       // transport state while keeping the paired server available for later.
-      closeRemoteRuntimeRequestConnection(environment.id)
-      clearSharedControlSupport(environment.id)
+      invalidateRuntimeEnvironmentTransport(environment.id)
       if (args.selector !== environment.id) {
         closeRemoteRuntimeRequestConnection(args.selector)
         clearSharedControlSupport(args.selector)
       }
-      closeSubscriptionsForEnvironment(environment.id)
       return { disconnected: redactRuntimeEnvironment(environment) }
     }
   )
@@ -145,161 +127,23 @@ export function registerRuntimeEnvironmentHandlers(store: Store): void {
     'runtimeEnvironments:call',
     async (
       _event,
-      args: { selector: string; method: string; params?: unknown; timeoutMs?: number }
+      args: {
+        selector: string
+        method: string
+        params?: unknown
+        timeoutMs?: number
+        expectedEnvironmentPairingRevision?: number
+      }
     ): Promise<RuntimeRpcResponse<unknown>> => {
       return callRuntimeEnvironment(
         getUserDataPath(),
         args.selector,
         args.method,
         args.params,
-        args.timeoutMs
+        args.timeoutMs,
+        args.expectedEnvironmentPairingRevision
       )
     }
   )
-  ipcMain.handle(
-    'runtimeEnvironments:subscribe',
-    async (
-      event,
-      args: {
-        selector: string
-        method: string
-        params?: unknown
-        timeoutMs?: number
-        subscriptionId?: string
-      }
-    ): Promise<{ subscriptionId: string; requestId: string }> => {
-      const subscriptionId =
-        typeof args.subscriptionId === 'string' && args.subscriptionId.length > 0
-          ? args.subscriptionId
-          : randomUUID()
-      if (remoteRuntimeSubscriptions.has(subscriptionId)) {
-        throw new Error('Runtime environment subscription id already exists')
-      }
-      const environment = resolveEnvironment(getUserDataPath(), args.selector)
-      const sender = event.sender
-      const ownerWebContentsId = sender.id
-      let senderDestroyed = sender.isDestroyed()
-      let subscription: RemoteRuntimeSubscription | null = null
-      let lifecycleListenersAttached = false
-      // Why: a renderer reload REUSES the WebContents (id unchanged), so 'destroyed' never
-      // fires and the remote RPC stream would stay open forever, leaking one per reload;
-      // mirror pty.ts and also close on render-process-gone + a main-frame reload.
-      const onSenderReloadOrGone = (): void => closeSubscription()
-      const onSenderDidStartLoading = (): void => {
-        // did-start-loading also fires for in-page subframe loads; only a main-frame load is a reload.
-        if (sender.isLoadingMainFrame()) {
-          closeSubscription()
-        }
-      }
-      const removeLifecycleListeners = (): void => {
-        if (!lifecycleListenersAttached) {
-          return
-        }
-        lifecycleListenersAttached = false
-        sender.removeListener('destroyed', closeSubscription)
-        sender.removeListener('render-process-gone', onSenderReloadOrGone)
-        sender.removeListener('did-start-loading', onSenderDidStartLoading)
-      }
-      const closeSubscription = (): void => {
-        senderDestroyed = true
-        const retained = remoteRuntimeSubscriptions.get(subscriptionId) ?? null
-        remoteRuntimeSubscriptions.delete(subscriptionId)
-        if (retained) {
-          retained.close()
-          return
-        }
-        removeLifecycleListeners()
-        subscription?.close()
-      }
-      sender.once('destroyed', closeSubscription)
-      sender.on('render-process-gone', onSenderReloadOrGone)
-      sender.on('did-start-loading', onSenderDidStartLoading)
-      lifecycleListenersAttached = true
-      try {
-        subscription = await subscribeRuntimeEnvironment(
-          getUserDataPath(),
-          environment.id,
-          args.method,
-          args.params,
-          args.timeoutMs,
-          {
-            onEvent: (payload) => {
-              if (!sender.isDestroyed()) {
-                sender.send('runtimeEnvironments:subscriptionEvent', {
-                  subscriptionId,
-                  ...payload
-                })
-              }
-            },
-            onClose: () => {
-              const retained = remoteRuntimeSubscriptions.get(subscriptionId) ?? null
-              retained?.removeLifecycleListeners()
-              remoteRuntimeSubscriptions.delete(subscriptionId)
-            }
-          }
-        )
-      } catch (error) {
-        removeLifecycleListeners()
-        throw error
-      }
-      if (senderDestroyed || sender.isDestroyed()) {
-        removeLifecycleListeners()
-        subscription.close()
-        return { subscriptionId, requestId: subscription.requestId }
-      }
-      remoteRuntimeSubscriptions.set(subscriptionId, {
-        requestId: subscription.requestId,
-        environmentId: environment.id,
-        ownerWebContentsId,
-        removeLifecycleListeners,
-        sendBinary: (bytes) => subscription?.sendBinary(bytes) ?? false,
-        close: () => {
-          removeLifecycleListeners()
-          subscription?.close()
-        }
-      })
-      return { subscriptionId, requestId: subscription.requestId }
-    }
-  )
-  ipcMain.handle(
-    'runtimeEnvironments:unsubscribe',
-    (event, args: { subscriptionId: string }): { unsubscribed: boolean } => {
-      const subscription = remoteRuntimeSubscriptions.get(args.subscriptionId)
-      if (!subscription || subscription.ownerWebContentsId !== event.sender.id) {
-        return { unsubscribed: false }
-      }
-      remoteRuntimeSubscriptions.delete(args.subscriptionId)
-      subscription.close()
-      return { unsubscribed: true }
-    }
-  )
-  ipcMain.on(
-    'runtimeEnvironments:subscriptionBinary',
-    (event, args: { subscriptionId?: unknown; bytes?: unknown }) => {
-      if (typeof args.subscriptionId !== 'string') {
-        return
-      }
-      const bytes = toBinaryPayload(args.bytes)
-      if (!bytes) {
-        return
-      }
-      const subscription = remoteRuntimeSubscriptions.get(args.subscriptionId)
-      if (subscription?.ownerWebContentsId === event.sender.id) {
-        subscription.sendBinary(bytes)
-      }
-    }
-  )
-}
-
-function toBinaryPayload(value: unknown): Uint8Array<ArrayBufferLike> | null {
-  if (value instanceof Uint8Array) {
-    return value
-  }
-  if (value instanceof ArrayBuffer) {
-    return new Uint8Array(value)
-  }
-  if (ArrayBuffer.isView(value)) {
-    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
-  }
-  return null
+  registerRuntimeEnvironmentSubscriptionHandlers()
 }

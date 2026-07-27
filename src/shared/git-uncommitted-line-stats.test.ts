@@ -5,7 +5,14 @@ const { lstatMock, readFileMock } = vi.hoisted(() => ({
   readFileMock: vi.fn()
 }))
 
-vi.mock('fs/promises', () => ({ lstat: lstatMock, readFile: readFileMock }))
+vi.mock('fs/promises', () => ({ lstat: lstatMock }))
+
+vi.mock('./node-bounded-file-reader', () => ({
+  readNodeFileWithinLimit: async (path: string) => ({
+    buffer: await readFileMock(path),
+    stats: mockFileStat(0)
+  })
+}))
 
 import {
   applyLineStats,
@@ -13,6 +20,7 @@ import {
   MAX_UNTRACKED_LINE_COUNT_BYTES,
   MAX_UNTRACKED_LINE_COUNT_FILES
 } from './git-uncommitted-line-stats'
+import { DEFAULT_GIT_STATUS_LIMIT } from './git-status-limit'
 
 function mockFileStat(size: number, mtimeMs = 1) {
   return {
@@ -174,6 +182,20 @@ describe('collectUntrackedAdditions', () => {
     expect(lstatMock).not.toHaveBeenCalled()
     expect(readFileMock).not.toHaveBeenCalled()
     expect(countAdditions).not.toHaveBeenCalled()
+  })
+
+  it('costs no IO for a full status-limit-sized untracked set', async () => {
+    // Why: upstream sized the #8013 cache scenario at DEFAULT_GIT_STATUS_LIMIT.
+    // The fork caps counting at MAX_UNTRACKED_LINE_COUNT_FILES, so that worst
+    // case is free rather than merely cache-effective.
+    const paths = Array.from(
+      { length: DEFAULT_GIT_STATUS_LIMIT },
+      (_, i) => `status-limit/file-${i}.ts`
+    )
+    const stats = await collectUntrackedAdditions('/repo', paths, countAdditions)
+    expect(stats.size).toBe(0)
+    expect(lstatMock).not.toHaveBeenCalled()
+    expect(readFileMock).not.toHaveBeenCalled()
   })
 })
 

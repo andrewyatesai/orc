@@ -45,6 +45,7 @@ import {
   type ResolvedSourceControlAiGenerationParams
 } from '../../shared/source-control-ai'
 import type { SourceControlAiOperation } from '../../shared/source-control-ai-types'
+import { formatLinkedIssueTemplateValue } from '../../shared/source-control-ai-action-variables'
 import { renderSourceControlActionCommandTemplate } from '../../shared/source-control-ai-actions'
 import { resolveCliCommand } from '../codex-cli/command'
 import {
@@ -880,7 +881,9 @@ export async function generateCommitMessageFromContext(
           basePrompt,
           branch: context.branch ?? '(detached)',
           stagedFiles: context.stagedSummary,
-          stagedPatch: context.stagedPatch
+          stagedPatch: context.stagedPatch,
+          // Why: always pass the key so `{linkedIssue}` never survives as a literal token.
+          linkedIssue: formatLinkedIssueTemplateValue(context.linkedIssue)
         })
       : buildCommitMessagePrompt(context, params.customPrompt ?? '')
   const planned = planCommitMessageGeneration(params, prompt)
@@ -951,7 +954,9 @@ export async function generatePullRequestFieldsFromContext(
           currentBody: context.currentBody,
           commitSummary: context.commitSummary,
           changedFiles: context.changeSummary,
-          patch: context.patch
+          patch: context.patch,
+          // Why: always pass the key so `{linkedIssue}` never survives as a literal token.
+          linkedIssue: formatLinkedIssueTemplateValue(context.linkedIssue)
         })
       : buildPullRequestFieldsPrompt(context, params.customPrompt ?? '')
   const planned = planCommitMessageGeneration(params, prompt)

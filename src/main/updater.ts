@@ -2,6 +2,11 @@
 import { app, BrowserWindow, powerMonitor, shell } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import type { UpdateCheckOptions, UpdateStatus } from '../shared/types'
+import type {
+  RemoteServerUpdateInstallResult,
+  RemoteServerUpdaterSnapshot,
+  RemoteServerUpdateSupport
+} from '../shared/remote-server-update'
 import { isWindowsSignatureCheckUnavailableFailure } from '../shared/updater-windows-signature-check'
 import { killAllPty } from './ipc/pty'
 import { withUpdaterSpan } from './observability/instrumentation'
@@ -45,12 +50,22 @@ import {
   isUpdateFeedConfigured
 } from './updater-feed-endpoints'
 import { getUpdateInstallMode } from './updater-install-policy'
+import {
+  failServeUpdateHandoff,
+  getServeUpdateHandoffFailure,
+  hasServeUpdateSupervisor,
+  requestServeUpdateHandoff
+} from './serve-update-handoff'
 
 type CheckFailureSource = 'event' | 'promise' | 'fallback-promise'
 type MissingManifestPrereleaseFallbackResult = { userInitiated: boolean }
 type PrimaryEventSuppression = { failureKey: string; error: unknown }
 type UpdateCheckVariant = 'default' | 'prerelease' | 'perf'
 type ReleaseFeedPreflightResult = 'ready' | 'not-available'
+export type UpdateInstallMode =
+  | 'interactive'
+  | 'supervised-headless-serve'
+  | 'unsupported-headless-serve'
 
 const AUTO_UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000
 const AUTO_UPDATE_RETRY_INTERVAL_MS = 60 * 60 * 1000
@@ -78,6 +93,8 @@ let autoUpdateCheckTimer: ReturnType<typeof setTimeout> | null = null
 let nudgeCheckTimer: ReturnType<typeof setTimeout> | null = null
 let pendingQuitAndInstallTimer: ReturnType<typeof setTimeout> | null = null
 let quitAndInstallInProgress = false
+let updateInstallMode: UpdateInstallMode = 'interactive'
+let lastInstallDeferralVersion = { download: null as string | null, install: null as string | null }
 // Why: once install has committed, late 'error' events must not clear quittingForUpdate — that would re-enable dock activate mid-installer.
 let updateInstallCommitted = false
 // Why: recovery must only run after the native quitAndInstall call; pre-native errors must not clear quittingForUpdate or look like install recovery.
@@ -537,6 +554,36 @@ function getPendingInstallVersion(): string {
   return ''
 }
 
+function deferHeadlessServeInstall(phase: 'download' | 'install', version: string): boolean {
+  if (updateInstallMode !== 'unsupported-headless-serve') {
+    return false
+  }
+  const diagnosticVersion = version || 'unknown'
+  if (lastInstallDeferralVersion[phase] !== diagnosticVersion) {
+    lastInstallDeferralVersion[phase] = diagnosticVersion
+    recordUpdaterLifecycle(
+      'headless_serve_install_deferred',
+      { phase, version: version || null },
+      {
+        level: 'warn',
+        message: 'Update install deferred while hosting orca serve'
+      }
+    )
+  }
+  sendErrorStatus(
+    'This orca serve process was not started by an update-capable supervisor. Keep it running and update Orca through its service manager.',
+    true
+  )
+  return true
+}
+
+export function resolveUpdateInstallMode(isServeMode: boolean): UpdateInstallMode {
+  if (!isServeMode) {
+    return 'interactive'
+  }
+  return hasServeUpdateSupervisor() ? 'supervised-headless-serve' : 'unsupported-headless-serve'
+}
+
 function getCheckFailureKey(message: string, userInitiated?: boolean): string {
   return `${userInitiated ? 'user' : 'auto'}:${message}`
 }
@@ -558,19 +605,23 @@ async function performQuitAndInstall(): Promise<void> {
     recordUpdaterLifecycle('quit_and_install_ignored', { reason: 'already-in-progress' })
     return
   }
-  quitAndInstallInProgress = true
 
   if (pendingQuitAndInstallTimer) {
     clearTimeout(pendingQuitAndInstallTimer)
     pendingQuitAndInstallTimer = null
   }
 
+  const pendingVersion = getPendingInstallVersion()
+  if (deferHeadlessServeInstall('install', pendingVersion)) {
+    return
+  }
+  quitAndInstallInProgress = true
+
   markMacQuitAndInstallInFlight()
 
   // Set BEFORE anything else so the `activate` handler doesn't reopen the old version while ShipIt replaces the .app bundle.
   quittingForUpdate = true
 
-  const pendingVersion = getPendingInstallVersion()
   try {
     await withUpdaterSpan({ stage: 'install' }, async (span) => {
       span.setAttribute('updater.version', pendingVersion || 'unknown')
@@ -615,6 +666,28 @@ async function performQuitAndInstall(): Promise<void> {
         return
       }
 
+      // Why: run after the conflict gate so a blocked install never leaves a
+      // supervised serve handoff request behind for the supervisor to act on.
+      if (
+        updateInstallMode === 'supervised-headless-serve' &&
+        !requestServeUpdateHandoff(pendingVersion)
+      ) {
+        recordUpdaterLifecycle(
+          'headless_serve_handoff_failed',
+          { version: pendingVersion || null },
+          {
+            level: 'warn',
+            message: 'Could not persist supervised serve update handoff'
+          }
+        )
+        sendErrorStatus(
+          'Could not prepare the supervised server restart. Orca remains running.',
+          true
+        )
+        resetQuitForUpdateState()
+        return
+      }
+
       recordUpdaterLifecycle('quit_and_install_invoking_native', {
         version: pendingVersion || null
       })
@@ -625,7 +698,8 @@ async function performQuitAndInstall(): Promise<void> {
       // Why: mark before the call so a sync 'error' during quitAndInstall can recover; pre-native errors must not look like install failure.
       quitAndInstallNativeInvoked = true
       // Why: invoke before killAllPty/removing close listeners so a sync 'error' (the "no filepath" path) can recover while windows and PTYs are intact.
-      getAutoUpdater().quitAndInstall(false, true)
+      const supervisorOwnsRelaunch = updateInstallMode === 'supervised-headless-serve'
+      getAutoUpdater().quitAndInstall(supervisorOwnsRelaunch, !supervisorOwnsRelaunch)
       span.addEvent('native_quit_and_install_invoked')
 
       // Why: quitAndInstall can synchronously clear quitAndInstallInProgress via recovery (Win/Linux dispatchError); skip destructive prep if it already ran.
@@ -651,6 +725,7 @@ async function performQuitAndInstall(): Promise<void> {
       }
     })
   } catch (error) {
+    failServeUpdateHandoff('Could not invoke the native updater.')
     resetQuitForUpdateState()
     recordUpdaterLifecycle(
       'quit_and_install_failed',
@@ -683,6 +758,7 @@ function handleQuitAndInstallFailure(): boolean {
   if (!quitAndInstallInProgress || !quitAndInstallNativeInvoked || updateInstallCommitted) {
     return false
   }
+  failServeUpdateHandoff('The native updater rejected the install request.')
   resetQuitForUpdateState()
   recordUpdaterLifecycle('quit_and_install_failed_via_event', undefined, {
     level: 'warn',
@@ -816,6 +892,82 @@ async function sendCheckFailureStatus(
 
 export function getUpdateStatus(): UpdateStatus {
   return currentStatus
+}
+
+export function getRemoteServerUpdateSupport(): RemoteServerUpdateSupport {
+  if (!app.isPackaged || is.dev) {
+    return {
+      installMode: updateInstallMode,
+      automatic: false,
+      reason: 'unpackaged-build'
+    }
+  }
+  if (!autoUpdaterInitialized || getUpdateInstallMode() === 'manual') {
+    // Why: manual-release platforms mark the updater initialized but never wire
+    // the native updater, so a remote caller must not be told installs are automatic.
+    return {
+      installMode: updateInstallMode,
+      automatic: false,
+      reason: 'updater-unavailable'
+    }
+  }
+  if (updateInstallMode === 'unsupported-headless-serve') {
+    return {
+      installMode: updateInstallMode,
+      automatic: false,
+      reason: 'manual-service-update-required'
+    }
+  }
+  return { installMode: updateInstallMode, automatic: true, reason: 'available' }
+}
+
+export function getRemoteServerUpdaterSnapshot(runtimeId: string): RemoteServerUpdaterSnapshot {
+  return {
+    appVersion: app.getVersion(),
+    runtimeId,
+    support: getRemoteServerUpdateSupport(),
+    status: getUpdateStatus()
+  }
+}
+
+function assertRemoteServerUpdateAvailable(): void {
+  if (!getRemoteServerUpdateSupport().automatic) {
+    throw new Error('remote_update_manual_required')
+  }
+}
+
+export function checkForRemoteServerUpdate(
+  runtimeId: string,
+  options?: UpdateCheckOptions
+): RemoteServerUpdaterSnapshot {
+  assertRemoteServerUpdateAvailable()
+  checkForUpdatesFromMenu(options)
+  return getRemoteServerUpdaterSnapshot(runtimeId)
+}
+
+export function downloadRemoteServerUpdate(runtimeId: string): RemoteServerUpdaterSnapshot {
+  assertRemoteServerUpdateAvailable()
+  if (currentStatus.state !== 'available') {
+    throw new Error('remote_update_not_available')
+  }
+  downloadUpdate()
+  return getRemoteServerUpdaterSnapshot(runtimeId)
+}
+
+export function installRemoteServerUpdate(runtimeId: string): RemoteServerUpdateInstallResult {
+  assertRemoteServerUpdateAvailable()
+  if (currentStatus.state !== 'downloaded') {
+    throw new Error('remote_update_not_downloaded')
+  }
+  const targetVersion = currentStatus.version
+  const result: RemoteServerUpdateInstallResult = {
+    accepted: true,
+    fromVersion: app.getVersion(),
+    targetVersion,
+    runtimeId
+  }
+  quitAndInstall()
+  return result
 }
 
 let consecutiveAutomaticRetrySchedules = 0
@@ -1342,6 +1494,10 @@ export function quitAndInstall(): void {
     return
   }
 
+  if (deferHeadlessServeInstall('install', getPendingInstallVersion())) {
+    return
+  }
+
   if (
     deferMacQuitUntilInstallerReady(
       currentStatus,
@@ -1434,6 +1590,7 @@ export function setupAutoUpdater(
     getDismissedUpdateNudgeId?: () => string | null
     setPendingUpdateNudgeId?: (id: string | null) => void
     setDismissedUpdateNudgeId?: (id: string | null) => void
+    installMode?: UpdateInstallMode
   }
 ): void {
   mainWindowRef = mainWindow
@@ -1444,6 +1601,18 @@ export function setupAutoUpdater(
   _getDismissedUpdateNudgeId = opts?.getDismissedUpdateNudgeId ?? null
   _setPendingUpdateNudgeId = opts?.setPendingUpdateNudgeId ?? null
   _setDismissedUpdateNudgeId = opts?.setDismissedUpdateNudgeId ?? null
+  updateInstallMode = opts?.installMode ?? 'interactive'
+  lastInstallDeferralVersion = { download: null, install: null }
+
+  const serveHandoffFailure = getServeUpdateHandoffFailure()
+  if (serveHandoffFailure) {
+    recordUpdaterLifecycle(
+      'headless_serve_handoff_failed',
+      { reason: serveHandoffFailure },
+      { level: 'warn', message: 'Supervised serve update did not complete' }
+    )
+    sendErrorStatus(`The server update did not complete: ${serveHandoffFailure}`, true)
+  }
 
   if (!app.isPackaged && !is.dev) {
     return
@@ -1472,7 +1641,10 @@ export function setupAutoUpdater(
   } else {
     const autoUpdater = getAutoUpdater()
     autoUpdater.autoDownload = false
-    autoUpdater.autoInstallOnAppQuit = true
+    // Why: supervised serve installs require an explicit handoff; ordinary service quits must never install implicitly.
+    autoUpdater.autoInstallOnAppQuit = updateInstallMode === 'interactive'
+    // Why: MacUpdater ignores quitAndInstall arguments; the surviving CLI supervisor must be the only serve relaunch owner.
+    autoUpdater.autoRunAppAfterInstall = updateInstallMode === 'interactive'
 
     // Why: our only on-machine window into electron-updater; otherwise an unexpected update-not-available or failed fetch is invisible.
     autoUpdater.logger = {
@@ -1481,6 +1653,8 @@ export function setupAutoUpdater(
       error: (m: unknown) => console.error('[autoUpdater]', m),
       debug: (m: unknown) => console.debug('[autoUpdater]', m)
     } as never
+
+    // Security: never re-add a verifyUpdateCodeSignature override — a no-op disables electron-updater's built-in Authenticode check and accepts any installer.
 
     // Why: generic provider avoids the native GitHub provider's RC-channel filtering; per-check repinning to a concrete /releases/download/<tag>/ URL avoids /latest redirect drift between check and download.
     autoUpdater.setFeedURL({
@@ -1511,6 +1685,7 @@ export function setupAutoUpdater(
       sendCheckFailureStatus,
       sendErrorStatus,
       markMissingManifestPrereleaseFallbackChecking,
+      shouldDeferMacQuitForInstall: () => updateInstallMode === 'interactive',
       shouldSuppressMissingManifestPrereleaseFallbackEvent,
       suppressMissingManifestPrereleaseFallbackPromiseFailure,
       recordCompletedUpdateCheck,
@@ -1588,6 +1763,9 @@ export function downloadUpdate(): void {
   }
   const version = currentStatus.state === 'available' ? currentStatus.version : availableVersion
   if (!version) {
+    return
+  }
+  if (deferHeadlessServeInstall('download', version)) {
     return
   }
   downloadInFlight = true

@@ -9,6 +9,12 @@
 //! this stays pure and testable.
 
 use crate::setup_script_import_codex_environment::inspect_codex_environment_config;
+use crate::setup_script_import_limits::{
+    is_setup_script_import_field_within_limit, join_setup_script_import_commands,
+    normalize_setup_script_import_command_string, push_setup_script_import_unsupported_field,
+    SETUP_SCRIPT_IMPORT_MAX_CMUX_COMMANDS, SETUP_SCRIPT_IMPORT_MAX_COMMAND_PARTS,
+    SETUP_SCRIPT_IMPORT_MAX_KEYWORDS, SETUP_SCRIPT_IMPORT_MAX_UNSUPPORTED_FIELDS,
+};
 use crate::setup_script_package_manager::{
     inspect_package_manager_setup_candidate, SetupScriptImportCandidate as PackageManagerCandidate,
 };
@@ -170,15 +176,24 @@ fn parse_json_object(content: Option<String>) -> Option<Map<String, Value>> {
     value.as_object().cloned()
 }
 
+/// `normalizeSetupScriptImportCommand`. Over-cardinality arrays and over-size
+/// fields collapse to `""` — the caller then reports no candidate at all.
 fn normalize_command_value(value: Option<&Value>) -> String {
     match value {
-        Some(Value::String(text)) => text.trim().to_string(),
-        Some(Value::Array(items)) => items
-            .iter()
-            .map(|item| item.as_str().map(str::trim).unwrap_or(""))
-            .filter(|command| !command.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n"),
+        Some(Value::String(text)) => normalize_setup_script_import_command_string(text),
+        Some(Value::Array(items)) => {
+            if items.len() > SETUP_SCRIPT_IMPORT_MAX_COMMAND_PARTS {
+                return String::new();
+            }
+            let parts: Vec<String> = items
+                .iter()
+                .map(|item| {
+                    item.as_str().map(normalize_setup_script_import_command_string).unwrap_or_default()
+                })
+                .filter(|command| !command.is_empty())
+                .collect();
+            join_setup_script_import_commands(&parts)
+        }
         _ => String::new(),
     }
 }
@@ -198,23 +213,32 @@ fn resolve_superset_script_value(
         return normalize_command_value(Some(local));
     }
     let Some(local_record) = local.as_object() else {
-        unsupported_fields.push(format!("config.local.{key}"));
+        push_setup_script_import_unsupported_field(
+            unsupported_fields,
+            format!("config.local.{key}"),
+        );
         return base_command;
     };
 
     for field in local_record.keys() {
         if field != "before" && field != "after" {
-            unsupported_fields.push(format!("config.local.{key}.{field}"));
+            push_setup_script_import_unsupported_field(
+                unsupported_fields,
+                format!("config.local.{key}.{field}"),
+            );
+            if unsupported_fields.len() >= SETUP_SCRIPT_IMPORT_MAX_UNSUPPORTED_FIELDS {
+                break;
+            }
         }
     }
 
     let before_command = normalize_command_value(local_record.get("before"));
     let after_command = normalize_command_value(local_record.get("after"));
-    [before_command, base_command, after_command]
+    let parts: Vec<String> = [before_command, base_command, after_command]
         .into_iter()
         .filter(|command| !command.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n")
+        .collect();
+    join_setup_script_import_commands(&parts)
 }
 
 fn build_cmux_setup_candidate(
@@ -223,6 +247,11 @@ fn build_cmux_setup_candidate(
 ) -> Option<SetupScriptImportCandidate> {
     // A missing / non-array `commands` yields no iterations, hence no candidate.
     let commands = config.get("commands").and_then(Value::as_array)?;
+    // Bail before scanning rather than bounding the scan: an over-long command
+    // list is not partially imported.
+    if commands.len() > SETUP_SCRIPT_IMPORT_MAX_CMUX_COMMANDS {
+        return None;
+    }
     for (index, raw) in commands.iter().enumerate() {
         let Some(command) = raw.as_object() else {
             continue;
@@ -248,7 +277,11 @@ fn build_cmux_setup_candidate(
 
 fn is_cmux_setup_command(command: &Map<String, Value>) -> bool {
     let command_text = match command.get("command").and_then(Value::as_str) {
-        Some(text) if !text.trim().is_empty() => text,
+        Some(text)
+            if is_setup_script_import_field_within_limit(text) && !text.trim().is_empty() =>
+        {
+            text
+        }
         _ => return false,
     };
 
@@ -262,7 +295,7 @@ fn is_cmux_setup_command(command: &Map<String, Value>) -> bool {
 
     let keywords: Vec<String> = get_string_array(command.get("keywords"))
         .into_iter()
-        .map(normalize_match_str)
+        .map(normalize_match_str_within_limit)
         .collect();
     const SETUP_KEYWORDS: [&str; 4] = ["setup", "init", "initialize", "install"];
     let has_setup_keyword = keywords.iter().any(|keyword| SETUP_KEYWORDS.contains(&keyword.as_str()));
@@ -275,7 +308,17 @@ fn is_cmux_setup_command(command: &Map<String, Value>) -> bool {
 }
 
 fn normalize_match_text(value: Option<&Value>) -> String {
-    value.and_then(Value::as_str).map(normalize_match_str).unwrap_or_default()
+    value.and_then(Value::as_str).map(normalize_match_str_within_limit).unwrap_or_default()
+}
+
+/// `normalizeMatchText` — an over-size label/keyword matches nothing rather than
+/// being lowercased and whitespace-collapsed into a fresh allocation.
+fn normalize_match_str_within_limit(value: &str) -> String {
+    if is_setup_script_import_field_within_limit(value) {
+        normalize_match_str(value)
+    } else {
+        String::new()
+    }
 }
 
 /// `value.trim().toLowerCase().replace(/\s+/g, ' ')`.
@@ -319,8 +362,10 @@ fn is_word_char(c: char) -> bool {
 
 fn get_string_array(value: Option<&Value>) -> Vec<&str> {
     match value.and_then(Value::as_array) {
-        Some(items) => items.iter().filter_map(Value::as_str).collect(),
-        None => Vec::new(),
+        Some(items) if items.len() <= SETUP_SCRIPT_IMPORT_MAX_KEYWORDS => {
+            items.iter().filter_map(Value::as_str).collect()
+        }
+        _ => Vec::new(),
     }
 }
 
@@ -329,11 +374,20 @@ fn collect_unsupported_cmux_command_fields(
     command_index: usize,
 ) -> Vec<String> {
     const SUPPORTED_FIELDS: [&str; 5] = ["name", "title", "description", "keywords", "command"];
-    command
-        .keys()
-        .filter(|field| !SUPPORTED_FIELDS.contains(&field.as_str()))
-        .map(|field| format!("commands.{command_index}.{field}"))
-        .collect()
+    let mut unsupported_fields: Vec<String> = Vec::new();
+    for field in command.keys() {
+        if SUPPORTED_FIELDS.contains(&field.as_str()) {
+            continue;
+        }
+        push_setup_script_import_unsupported_field(
+            &mut unsupported_fields,
+            format!("commands.{command_index}.{field}"),
+        );
+        if unsupported_fields.len() >= SETUP_SCRIPT_IMPORT_MAX_UNSUPPORTED_FIELDS {
+            break;
+        }
+    }
+    unsupported_fields
 }
 
 fn collect_unsupported_fields(source: &Map<String, Value>, field_names: &[&str]) -> Vec<String> {
@@ -354,7 +408,10 @@ fn collect_unsupported_script_object_fields(
     };
     for field in ["before", "after"] {
         if record.contains_key(field) {
-            unsupported_fields.push(format!("{prefix}.{field}"));
+            push_setup_script_import_unsupported_field(
+                unsupported_fields,
+                format!("{prefix}.{field}"),
+            );
         }
     }
 }
@@ -362,6 +419,9 @@ fn collect_unsupported_script_object_fields(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::setup_script_import_limits::{
+        SETUP_SCRIPT_IMPORT_MAX_FIELD_BYTES, SETUP_SCRIPT_IMPORT_MAX_FIELD_CODE_UNITS,
+    };
     use serde_json::json;
 
     fn reader(files: Vec<(&'static str, String)>) -> impl Fn(&str) -> Option<String> {
@@ -577,6 +637,87 @@ mod tests {
                 archive: Some("pnpm clean".to_string()),
                 unsupported_fields: strings(&["[actions.test]"]),
             }]
+        );
+    }
+
+    // Boundary cases mirroring `setup-script-imports.test.ts`: each cap admits
+    // its exact value and drops the whole candidate at +1.
+    #[test]
+    fn admits_the_exact_command_part_cardinality_and_rejects_plus_one() {
+        let parts = |count: usize| -> String {
+            json!({ "setup": vec!["x"; count] }).to_string()
+        };
+        let exact = inspect(vec![(
+            ".superset/config.json",
+            parts(SETUP_SCRIPT_IMPORT_MAX_COMMAND_PARTS),
+        )]);
+        assert_eq!(
+            exact.first().map(|candidate| candidate.setup.as_str()),
+            Some(vec!["x"; SETUP_SCRIPT_IMPORT_MAX_COMMAND_PARTS].join("\n").as_str())
+        );
+        assert_eq!(
+            inspect(vec![(
+                ".superset/config.json",
+                parts(SETUP_SCRIPT_IMPORT_MAX_COMMAND_PARTS + 1),
+            )]),
+            Vec::new()
+        );
+    }
+
+    #[test]
+    fn admits_an_exact_size_script_field_and_rejects_plus_one() {
+        let config = |setup: &str| json!({ "setup": setup }).to_string();
+        let exact = "x".repeat(SETUP_SCRIPT_IMPORT_MAX_FIELD_CODE_UNITS);
+        assert_eq!(
+            inspect(vec![(".superset/config.json", config(&exact))])
+                .first()
+                .map(|candidate| candidate.setup.clone()),
+            Some(exact.clone())
+        );
+        assert_eq!(
+            inspect(vec![(".superset/config.json", config(&format!("{exact}x")))]),
+            Vec::new()
+        );
+
+        // Multibyte: the byte cap bites before the code-unit cap.
+        let exact_utf8 = "é".repeat(SETUP_SCRIPT_IMPORT_MAX_FIELD_BYTES / 2);
+        assert_eq!(
+            inspect(vec![(".superset/config.json", config(&exact_utf8))])
+                .first()
+                .map(|candidate| candidate.setup.clone()),
+            Some(exact_utf8.clone())
+        );
+        assert_eq!(
+            inspect(vec![(".superset/config.json", config(&format!("{exact_utf8}é")))]),
+            Vec::new()
+        );
+    }
+
+    #[test]
+    fn bounds_cmux_command_scans_at_the_exact_cardinality() {
+        let commands = |count: usize| -> String {
+            let items: Vec<Value> = (0..count)
+                .map(|index| {
+                    json!({
+                        "name": if index == count - 1 { "Setup" } else { "Build" },
+                        "command": "pnpm install"
+                    })
+                })
+                .collect();
+            json!({ "commands": items }).to_string()
+        };
+        assert_eq!(
+            inspect(vec![(".cmux/cmux.json", commands(SETUP_SCRIPT_IMPORT_MAX_CMUX_COMMANDS))])
+                .first()
+                .map(|candidate| candidate.provider.clone()),
+            Some("cmux".to_string())
+        );
+        assert_eq!(
+            inspect(vec![(
+                ".cmux/cmux.json",
+                commands(SETUP_SCRIPT_IMPORT_MAX_CMUX_COMMANDS + 1)
+            )]),
+            Vec::new()
         );
     }
 

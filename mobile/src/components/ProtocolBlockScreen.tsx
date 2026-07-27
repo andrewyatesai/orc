@@ -12,6 +12,7 @@ type Props = {
 
 export function ProtocolBlockScreen({ verdict }: Props) {
   const isMobileTooOld = verdict.reason === 'mobile-too-old'
+  // Why: Android APKs ship through GitHub Releases until a Play Store listing exists.
   const mobileUpdateTarget =
     Platform.OS === 'ios'
       ? {
@@ -19,11 +20,13 @@ export function ProtocolBlockScreen({ verdict }: Props) {
           url: IOS_APP_STORE_URL,
           storeName: 'the compatible upstream App Store listing'
         }
-      : { label: null, url: null, storeName: 'your mobile app store' }
+      : {
+          label: 'Open GitHub Releases',
+          url: ORCA_ALAB_PUBLIC_RELEASES_URL,
+          storeName: 'GitHub Releases'
+        }
   const primaryAction = isMobileTooOld
-    ? mobileUpdateTarget.url && mobileUpdateTarget.label
-      ? { label: mobileUpdateTarget.label, url: mobileUpdateTarget.url }
-      : null
+    ? { label: mobileUpdateTarget.label, url: mobileUpdateTarget.url }
     : { label: 'Open GitHub Releases', url: ORCA_ALAB_PUBLIC_RELEASES_URL }
 
   const title = isMobileTooOld ? 'Update Orca Mobile' : 'Update Orca on your computer'
@@ -38,18 +41,14 @@ export function ProtocolBlockScreen({ verdict }: Props) {
       <View style={styles.card}>
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.body}>{body}</Text>
-        {/* Why: desktop updates come from GitHub; mobile update links depend
-            on the native store available for this platform. */}
-        {primaryAction ? (
-          <Pressable
-            style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
-            onPress={() => {
-              void Linking.openURL(primaryAction.url)
-            }}
-          >
-            <Text style={styles.primaryButtonText}>{primaryAction.label}</Text>
-          </Pressable>
-        ) : null}
+        <Pressable
+          style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+          onPress={() => {
+            void Linking.openURL(primaryAction.url)
+          }}
+        >
+          <Text style={styles.primaryButtonText}>{primaryAction.label}</Text>
+        </Pressable>
         <Pressable
           style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
           onPress={() => {

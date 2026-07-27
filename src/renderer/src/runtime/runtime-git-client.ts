@@ -654,6 +654,8 @@ export async function generateRuntimeCommitMessage(
   if (target.kind === 'local' || !context.worktreeId) {
     return window.api.git.generateCommitMessage({
       worktreePath: resolveLocalWorktreePath(context),
+      // Why: raw id — the `::workspace:<uuid>` suffix is part of the worktree meta key.
+      ...(context.worktreeId ? { worktreeId: context.worktreeId } : {}),
       repoId: context.worktreeId ? getRepoIdFromWorktreeId(context.worktreeId) : undefined,
       connectionId: context.connectionId,
       ...(overrides?.sourceControlAiResolvedParams
@@ -733,6 +735,8 @@ export async function generateRuntimePullRequestFields(
   if (target.kind === 'local' || !context.worktreeId) {
     return window.api.git.generatePullRequestFields({
       worktreePath: resolveLocalWorktreePath(context),
+      // Why: raw id — the `::workspace:<uuid>` suffix is part of the worktree meta key.
+      ...(context.worktreeId ? { worktreeId: context.worktreeId } : {}),
       repoId: context.worktreeId ? getRepoIdFromWorktreeId(context.worktreeId) : undefined,
       connectionId: context.connectionId,
       ...input,

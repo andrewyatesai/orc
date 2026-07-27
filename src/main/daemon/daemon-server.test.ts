@@ -184,6 +184,9 @@ describe('DaemonServer', () => {
         isNew: true,
         pid: 55555
       })
+      await expect(
+        c.request('closeStartupQueryAuthority', { sessionId: 'test-session' })
+      ).resolves.toEqual({ appliedSeq: 0 })
     })
 
     it('keeps RPC responsive and creates one subprocess while spawn preparation is pending', async () => {
@@ -314,7 +317,7 @@ describe('DaemonServer', () => {
       expect(spawnSubprocess).not.toHaveBeenCalled()
     })
 
-    it('cancels a pending subprocess when its control client disconnects', async () => {
+    it('cancels a disconnecting client’s pending preparation to avoid an orphan PTY (F4)', async () => {
       let finishPreparation!: () => void
       const preparation = new Promise<void>((resolve) => {
         finishPreparation = resolve
@@ -360,6 +363,17 @@ describe('DaemonServer', () => {
       } finally {
         keepAlive.disconnect()
       }
+    })
+
+    it('kill with no pending preparation still surfaces SessionNotFoundError (F7)', async () => {
+      await startServer()
+      const c = await connectClient()
+
+      // No preparation was canceled, so the host's not-found verdict must propagate
+      // rather than be swallowed by the pending-spawn kill reconciliation.
+      await expect(
+        c.request('kill', { sessionId: 'never-created', immediate: true })
+      ).rejects.toThrow('Session not found: never-created')
     })
 
     it('persists only an allowlisted launch identity across reattach', async () => {

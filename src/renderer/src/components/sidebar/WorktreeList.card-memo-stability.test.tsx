@@ -92,8 +92,17 @@ vi.mock('@/components/ui/dropdown-menu', () => ({
   DropdownMenuTrigger: ({ children }: { children: ReactNode }) => <>{children}</>
 }))
 
+vi.mock('@/lib/sidebar-worktree-activation', () => ({
+  activateWorktreeFromSidebar: mockStore.activateWorktreeFromSidebar
+}))
+
 vi.mock('@/lib/worktree-activation', () => ({
   activateAndRevealWorktree: vi.fn()
+}))
+
+vi.mock('@/runtime/runtime-rpc-client', () => ({
+  getActiveRuntimeTarget: () => ({ kind: 'local' }),
+  callRuntimeRpc: vi.fn()
 }))
 
 vi.mock('./WorktreeCardAgents', () => ({

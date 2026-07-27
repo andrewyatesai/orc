@@ -48,7 +48,7 @@ describe('buildDefaultTerminalOptions', () => {
     expect(normalizeTerminalFastScrollSensitivity(25)).toBe(20)
   })
 
-  it('enables xterm contrast correction for low-contrast CLI colors', () => {
+  it('defaults minimumContrastRatio to the light-background value (applyTerminalAppearance re-gates it)', () => {
     expect(buildDefaultTerminalOptions().minimumContrastRatio).toBe(4.5)
   })
 
@@ -145,4 +145,6 @@ describe('buildDefaultTerminalOptions', () => {
 // to assert; RTL/Arabic shaping is handled natively by aterm-bidi in the engine,
 // so there is no renderer-side character-joiner to cover. Upstream's
 // streamed-output linkifier hover-reset wiring test (#9320) is also out: the
-// aterm facade exposes no onWriteParsed seam to install it against.
+// aterm facade exposes no onWriteParsed seam to install it against. Same for
+// upstream's two offscreen webglRebuildDeferred ligature cases — aterm toggles
+// ligatures on the live engine with no atlas rebuild to defer.

@@ -6,21 +6,19 @@ import {
   release,
   extractExecError,
   ghExecFileAsync,
-  rateLimitGuard,
-  noteRateLimitSpend,
-  classifyProjectError,
-  rateLimitedError,
+  repositoryRateLimitGuard,
+  noteRepositoryRateLimitSpend,
   runGraphql,
   runRest,
   validateSlugArgs,
   assertPositiveInt,
+  projectHostAuthenticationError,
+  projectGhExecOptions,
   type GraphqlVars
 } from './internals'
-import {
-  projectsGhHostArgs,
-  projectsGhHostForProject,
-  resolveProjectsGhHost
-} from '../projects-gh-host'
+import { classifyProjectError, rateLimitedError } from './project-error-classification'
+import { githubProjectHost } from '../../../shared/github-project-identity'
+import { projectsGhHostForProject, resolveProjectsGhHost } from '../projects-gh-host'
 import type { GitHubAssignableUser, GitHubWorkItemDetails, PRComment } from '../../../shared/types'
 import type {
   AddIssueCommentBySlugArgs,
@@ -43,6 +41,25 @@ import type {
   UpdatePullRequestBySlugArgs,
   UpdateProjectItemFieldArgs
 } from '../../../shared/github-project-types'
+
+// Why: an explicit `args.host` wins; a host-less persisted project still routes
+// off github.com when the owner's workspace remotes pin one GHES host (#1715).
+function selectedSlugHost(args: { owner: string; host?: string }): string | undefined {
+  return args.host ?? resolveProjectsGhHost(args.owner) ?? undefined
+}
+
+function githubHostExecOptions(args: { owner: string; host?: string }): { host: string } {
+  return { host: githubProjectHost(selectedSlugHost(args)) }
+}
+
+// Why: node-id mutations carry no owner; the project's host was stamped when
+// its table loaded, so fall back to that before pinning github.com.
+function projectItemExecOptions(args: { projectId: string; host?: string }): {
+  cwd?: string
+  host?: string
+} {
+  return projectGhExecOptions(args.host ?? projectsGhHostForProject(args.projectId) ?? undefined)
+}
 
 // ─── Project field mutations ──────────────────────────────────────────
 
@@ -127,9 +144,7 @@ export async function updateProjectItemFieldValue(
     fieldId: args.fieldId,
     value: valVar.val
   }
-  // Why: node-id mutations carry no owner; the project's host was stamped when
-  // its table loaded (#1715 multi-host routing).
-  const res = await runGraphql<unknown>(query, vars, undefined, projectsGhHostForProject(args.projectId))
+  const res = await runGraphql<unknown>(query, vars, projectItemExecOptions(args))
   if (!res.ok) {
     return { ok: false, error: res.error }
   }
@@ -158,8 +173,7 @@ export async function clearProjectItemFieldValue(
       itemId: args.itemId,
       fieldId: args.fieldId
     },
-    undefined,
-    projectsGhHostForProject(args.projectId)
+    projectItemExecOptions(args)
   )
   if (!res.ok) {
     return { ok: false, error: res.error }
@@ -219,21 +233,30 @@ export async function updateIssueBySlug(
       return { ok: false, error: duplicate.error }
     }
   }
+  const authError = await projectHostAuthenticationError(selectedSlugHost(args))
+  if (authError) {
+    return { ok: false, error: authError }
+  }
 
   // Title/body go through PATCH /repos/{owner}/{repo}/issues/{n}.
   // State uses gh issue close/reopen so duplicate closes can record a target.
   // Labels/assignees go through their dedicated endpoints.
   const base = `repos/${args.owner}/${args.repo}/issues/${args.number}`
-  const host = resolveProjectsGhHost(args.owner)
-  // Why: gh --repo accepts [HOST/]OWNER/REPO — prefix so GHES issues don't
-  // route to github.com in multi-host setups (#1715).
-  const repoSlug = host ? `${host}/${args.owner}/${args.repo}` : `${args.owner}/${args.repo}`
 
   if (state !== undefined) {
+    // Why: the quota scope must name the host actually contacted. With a
+    // host-less arg routed to a workspace-derived GHES host (#1715), scoping on
+    // the raw `args.host` would gate — and charge — the call against the shared
+    // github.com breaker it never touches.
+    const quotaScope = { ...args, host: selectedSlugHost(args) }
+    const guard = repositoryRateLimitGuard(quotaScope, 'core')
+    if (guard.blocked) {
+      return { ok: false, error: rateLimitedError(guard) }
+    }
     const stateArgs =
       state === 'closed'
-        ? ['issue', 'close', String(args.number), '--repo', repoSlug]
-        : ['issue', 'reopen', String(args.number), '--repo', repoSlug]
+        ? ['issue', 'close', String(args.number), '--repo', `${args.owner}/${args.repo}`]
+        : ['issue', 'reopen', String(args.number), '--repo', `${args.owner}/${args.repo}`]
     if (state === 'closed') {
       if (stateReason === 'completed') {
         stateArgs.push('--reason', 'completed')
@@ -244,11 +267,12 @@ export async function updateIssueBySlug(
       }
     }
     await acquire()
+    noteRepositoryRateLimitSpend(quotaScope, 'core')
     try {
-      await ghExecFileAsync(stateArgs, { encoding: 'utf-8' })
+      await ghExecFileAsync(stateArgs, { encoding: 'utf-8', ...githubHostExecOptions(args) })
     } catch (err) {
       const { stderr, stdout } = extractExecError(err)
-      return { ok: false, error: classifyProjectError(stderr, stdout) }
+      return { ok: false, error: classifyProjectError(stderr, stdout, selectedSlugHost(args)) }
     } finally {
       release()
     }
@@ -263,7 +287,7 @@ export async function updateIssueBySlug(
     if (body !== undefined) {
       patchArgs.push('--raw-field', `body=${body}`)
     }
-    const r = await runRest<unknown>(patchArgs, undefined, 'core', { host })
+    const r = await runRest<unknown>(patchArgs, undefined, 'core', githubHostExecOptions(args))
     if (!r.ok) {
       return { ok: false, error: r.error }
     }
@@ -279,9 +303,12 @@ export async function updateIssueBySlug(
   const addCount = addLabels?.length ?? 0
   if (removeCount > 1) {
     type RawLabelResp = { name?: string }[]
-    const fetched = await runRest<RawLabelResp>(['-X', 'GET', `${base}/labels`], undefined, 'core', {
-      host
-    })
+    const fetched = await runRest<RawLabelResp>(
+      ['-X', 'GET', `${base}/labels`],
+      undefined,
+      'core',
+      githubHostExecOptions(args)
+    )
     if (!fetched.ok) {
       return { ok: false, error: fetched.error }
     }
@@ -301,7 +328,7 @@ export async function updateIssueBySlug(
       // labels in a single call.
       const r = await runRest<unknown>(['-X', 'DELETE', `${base}/labels`], undefined, 'core', {
         expectEmpty: true,
-        host
+        ...githubHostExecOptions(args)
       })
       if (!r.ok && r.error.type !== 'not_found') {
         return { ok: false, error: r.error }
@@ -311,7 +338,7 @@ export async function updateIssueBySlug(
       for (const name of currentNames) {
         putArgs.push('--raw-field', `labels[]=${name}`)
       }
-      const r = await runRest<unknown>(putArgs, undefined, 'core', { host })
+      const r = await runRest<unknown>(putArgs, undefined, 'core', githubHostExecOptions(args))
       if (!r.ok) {
         return { ok: false, error: r.error }
       }
@@ -322,7 +349,7 @@ export async function updateIssueBySlug(
       for (const l of addLabels ?? []) {
         restArgs.push('--raw-field', `labels[]=${l}`)
       }
-      const r = await runRest<unknown>(restArgs, undefined, 'core', { host })
+      const r = await runRest<unknown>(restArgs, undefined, 'core', githubHostExecOptions(args))
       if (!r.ok) {
         return { ok: false, error: r.error }
       }
@@ -332,7 +359,7 @@ export async function updateIssueBySlug(
         ['-X', 'DELETE', `${base}/labels/${encodeURIComponent(removeLabels![0])}`],
         undefined,
         'core',
-        { expectEmpty: true, host }
+        { expectEmpty: true, ...githubHostExecOptions(args) }
       )
       if (!r.ok && r.error.type !== 'not_found') {
         return { ok: false, error: r.error }
@@ -347,7 +374,7 @@ export async function updateIssueBySlug(
     for (const u of addAssignees) {
       restArgs.push('--raw-field', `assignees[]=${u}`)
     }
-    const r = await runRest<unknown>(restArgs, undefined, 'core', { host })
+    const r = await runRest<unknown>(restArgs, undefined, 'core', githubHostExecOptions(args))
     if (!r.ok) {
       return { ok: false, error: r.error }
     }
@@ -357,7 +384,7 @@ export async function updateIssueBySlug(
     for (const u of removeAssignees) {
       restArgs.push('--raw-field', `assignees[]=${u}`)
     }
-    const r = await runRest<unknown>(restArgs, undefined, 'core', { host })
+    const r = await runRest<unknown>(restArgs, undefined, 'core', githubHostExecOptions(args))
     if (!r.ok) {
       return { ok: false, error: r.error }
     }
@@ -403,9 +430,7 @@ export async function updatePullRequestBySlug(
     // No fields to update — nothing to do.
     return { ok: true }
   }
-  const r = await runRest<unknown>(patchArgs, undefined, 'core', {
-    host: resolveProjectsGhHost(args.owner)
-  })
+  const r = await runRest<unknown>(patchArgs, undefined, 'core', githubHostExecOptions(args))
   if (!r.ok) {
     return { ok: false, error: r.error }
   }
@@ -456,7 +481,7 @@ export async function addIssueCommentBySlug(
     ],
     undefined,
     'core',
-    { host: resolveProjectsGhHost(args.owner) }
+    githubHostExecOptions(args)
   )
   if (!r.ok) {
     return { ok: false, error: r.error }
@@ -488,7 +513,7 @@ export async function updateIssueCommentBySlug(
     ],
     undefined,
     'core',
-    { host: resolveProjectsGhHost(args.owner) }
+    githubHostExecOptions(args)
   )
   if (!r.ok) {
     return { ok: false, error: r.error }
@@ -511,7 +536,7 @@ export async function deleteIssueCommentBySlug(
     ['-X', 'DELETE', `repos/${args.owner}/${args.repo}/issues/comments/${args.commentId}`],
     undefined,
     'core',
-    { expectEmpty: true, host: resolveProjectsGhHost(args.owner) }
+    { expectEmpty: true, ...githubHostExecOptions(args) }
   )
   if (!r.ok) {
     return { ok: false, error: r.error }
@@ -528,25 +553,25 @@ export async function listLabelsBySlug(
   if (!v.ok) {
     return v
   }
-  const guard = rateLimitGuard('core')
+  const authError = await projectHostAuthenticationError(selectedSlugHost(args))
+  if (authError) {
+    return { ok: false, error: authError }
+  }
+  // Why: scope the quota on the host actually contacted, not the raw arg — a
+  // remote-derived GHES host (#1715) does not spend the github.com budget.
+  const quotaScope = { ...args, host: selectedSlugHost(args) }
+  const guard = repositoryRateLimitGuard(quotaScope, 'core')
   if (guard.blocked) {
     return { ok: false, error: rateLimitedError(guard) }
   }
   await acquire()
   // Why: `--paginate` may fan out to multiple pages; we can only reasonably
   // estimate a 1-call spend up front. The next probe will reconcile.
-  noteRateLimitSpend('core')
+  noteRepositoryRateLimitSpend(quotaScope, 'core')
   try {
     const { stdout } = await ghExecFileAsync(
-      [
-        'api',
-        ...projectsGhHostArgs(resolveProjectsGhHost(args.owner)),
-        '--paginate',
-        `repos/${args.owner}/${args.repo}/labels`,
-        '--jq',
-        '.[].name'
-      ],
-      { encoding: 'utf-8' }
+      ['api', '--paginate', `repos/${args.owner}/${args.repo}/labels`, '--jq', '.[].name'],
+      { encoding: 'utf-8', ...githubHostExecOptions(args) }
     )
     return {
       ok: true,
@@ -557,7 +582,7 @@ export async function listLabelsBySlug(
     }
   } catch (err) {
     const { stderr, stdout: maybeStdout } = extractExecError(err)
-    return { ok: false, error: classifyProjectError(stderr, maybeStdout) }
+    return { ok: false, error: classifyProjectError(stderr, maybeStdout, selectedSlugHost(args)) }
   } finally {
     release()
   }
@@ -570,26 +595,32 @@ export async function listAssignableUsersBySlug(
   if (!v.ok) {
     return v
   }
+  const authError = await projectHostAuthenticationError(selectedSlugHost(args))
+  if (authError) {
+    return { ok: false, error: authError }
+  }
   // Seed logins merge after the fetch so callers can include currently-visible
   // assignees even if the repo participant search is sparse.
   const result: GitHubAssignableUser[] = []
-  const guard = rateLimitGuard('core')
+  // Why: scope the quota on the host actually contacted, not the raw arg — a
+  // remote-derived GHES host (#1715) does not spend the github.com budget.
+  const quotaScope = { ...args, host: selectedSlugHost(args) }
+  const guard = repositoryRateLimitGuard(quotaScope, 'core')
   if (guard.blocked) {
     return { ok: false, error: rateLimitedError(guard) }
   }
   await acquire()
-  noteRateLimitSpend('core')
+  noteRepositoryRateLimitSpend(quotaScope, 'core')
   try {
     const { stdout } = await ghExecFileAsync(
       [
         'api',
-        ...projectsGhHostArgs(resolveProjectsGhHost(args.owner)),
         '--paginate',
         `repos/${args.owner}/${args.repo}/assignees`,
         '--jq',
         '.[] | {login: .login, name: null, avatarUrl: .avatar_url}'
       ],
-      { encoding: 'utf-8' }
+      { encoding: 'utf-8', ...githubHostExecOptions(args) }
     )
     for (const line of stdout
       .trim()
@@ -606,7 +637,7 @@ export async function listAssignableUsersBySlug(
     }
   } catch (err) {
     const { stderr } = extractExecError(err)
-    return { ok: false, error: classifyProjectError(stderr, '') }
+    return { ok: false, error: classifyProjectError(stderr, '', selectedSlugHost(args)) }
   } finally {
     release()
   }
@@ -653,7 +684,7 @@ export async function listIssueTypesBySlug(
         } | null)[]
       } | null
     } | null
-  }>(query, { owner: args.owner, repo: args.repo }, undefined, resolveProjectsGhHost(args.owner))
+  }>(query, { owner: args.owner, repo: args.repo }, githubHostExecOptions(args))
   if (!res.ok) {
     // Why: repos without issue types respond with a GraphQL error claiming the
     // `issueTypes` field is unknown. Map that to an empty list so the UI shows
@@ -699,8 +730,7 @@ export async function updateIssueTypeBySlug(
        repository(owner:$owner, name:$repo) { issue(number:$num) { id } }
      }`,
     { owner: args.owner, repo: args.repo, num: args.number },
-    undefined,
-    resolveProjectsGhHost(args.owner)
+    githubHostExecOptions(args)
   )
   if (!lookup.ok) {
     return { ok: false, error: lookup.error }
@@ -730,7 +760,7 @@ export async function updateIssueTypeBySlug(
   const vars: GraphqlVars = args.issueTypeId
     ? { issueId, issueTypeId: args.issueTypeId }
     : { issueId }
-  const res = await runGraphql<unknown>(query, vars, undefined, resolveProjectsGhHost(args.owner))
+  const res = await runGraphql<unknown>(query, vars, githubHostExecOptions(args))
   if (!res.ok) {
     return { ok: false, error: res.error }
   }
@@ -851,12 +881,7 @@ export async function getWorkItemDetailsBySlug(
           })
         | null
     } | null
-  }>(
-    query,
-    { owner: args.owner, repo: args.repo, num: args.number },
-    undefined,
-    resolveProjectsGhHost(args.owner)
-  )
+  }>(query, { owner: args.owner, repo: args.repo, num: args.number }, githubHostExecOptions(args))
   if (!res.ok) {
     return { ok: false, error: res.error }
   }

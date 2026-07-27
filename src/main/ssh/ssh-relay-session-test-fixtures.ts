@@ -22,6 +22,7 @@ export function createMockDeps(): SshRelaySessionTestDeps {
     // occurred; reattach uses that to decide on the single trailing flush.
     markSshRemotePtyLease: vi.fn().mockReturnValue(true),
     markSshRemotePtyLeases: vi.fn(),
+    persistPtyBinding: vi.fn(),
     flush: vi.fn()
   } as unknown as Store
   const mockPortForward = {

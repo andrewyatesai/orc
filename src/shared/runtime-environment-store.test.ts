@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -6,8 +6,11 @@ import { encodePairingOffer } from './pairing'
 import {
   RuntimeEnvironmentStoreError,
   addEnvironmentFromPairingCode,
+  getEnvironmentStorePath,
   listEnvironments,
-  markEnvironmentUsed
+  MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES,
+  markEnvironmentUsed,
+  updateEnvironmentFromPairingCode
 } from './runtime-environment-store'
 
 function pairingCode(endpoint = 'ws://127.0.0.1:6768'): string {
@@ -53,6 +56,35 @@ describe('runtime environment store', () => {
       })
     ).toThrow(RuntimeEnvironmentStoreError)
     expect(listEnvironments(userDataPath)).toEqual([first])
+  })
+
+  it('advances pairing revisions across equal and backward clock readings', () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
+    tempDirs.push(userDataPath)
+    const environment = addEnvironmentFromPairingCode(userDataPath, {
+      name: 'dev box',
+      pairingCode: pairingCode(),
+      now: 100
+    })
+
+    const sameClock = updateEnvironmentFromPairingCode(userDataPath, environment.id, {
+      pairingCode: pairingCode('ws://192.0.2.10:6768'),
+      now: 100
+    })
+    const backwardClock = updateEnvironmentFromPairingCode(userDataPath, environment.id, {
+      pairingCode: pairingCode('ws://192.0.2.11:6768'),
+      now: 50
+    })
+    const laterClock = updateEnvironmentFromPairingCode(userDataPath, environment.id, {
+      pairingCode: pairingCode('ws://192.0.2.12:6768'),
+      now: 200
+    })
+
+    expect([
+      sameClock.pairingRevision,
+      backwardClock.pairingRevision,
+      laterClock.pairingRevision
+    ]).toEqual([101, 102, 200])
   })
 
   it('throttles lastUsedAt writes so it does not rewrite the store on every runtime call', () => {
@@ -113,7 +145,37 @@ describe('runtime environment store', () => {
     expect(same.runtimeInstanceChanged).toBe(false)
 
     // Host restarted: a different runtimeId replaces the known one.
-    const churned = markEnvironmentUsed(userDataPath, env.id, { runtimeId: 'runtime-2', now: 3_000 })
+    const churned = markEnvironmentUsed(userDataPath, env.id, {
+      runtimeId: 'runtime-2',
+      now: 3_000
+    })
     expect(churned).toEqual({ environmentId: env.id, runtimeInstanceChanged: true })
+  })
+
+  it('rejects an oversized sparse environment store before parsing it', () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-bound-'))
+    tempDirs.push(userDataPath)
+    const path = getEnvironmentStorePath(userDataPath)
+    writeFileSync(path, '{"version":1,"environments":[]}')
+    truncateSync(path, MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES + 1)
+
+    expect(() => listEnvironments(userDataPath)).toThrow(RuntimeEnvironmentStoreError)
+  })
+
+  it('rejects an oversized write without replacing the durable environment list', () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-write-bound-'))
+    tempDirs.push(userDataPath)
+    const first = addEnvironmentFromPairingCode(userDataPath, {
+      name: 'dev box',
+      pairingCode: pairingCode()
+    })
+
+    expect(() =>
+      addEnvironmentFromPairingCode(userDataPath, {
+        name: 'x'.repeat(MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES),
+        pairingCode: pairingCode('ws://192.0.2.10:6768')
+      })
+    ).toThrow(RuntimeEnvironmentStoreError)
+    expect(listEnvironments(userDataPath)).toEqual([first])
   })
 })

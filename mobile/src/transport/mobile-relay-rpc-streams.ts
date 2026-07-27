@@ -70,10 +70,13 @@ export class MobileRelayRpcStreams {
         if (this.options.sendFrame({ id, method, params: stream.params })) {
           stream.sent = true
         } else {
-          this.remove(id)
+          this.fail(id, stream, 'Connection interrupted')
         }
       })
-      .catch(() => this.remove(id))
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : 'Connection interrupted'
+        this.fail(id, stream, message, error)
+      })
     return () => this.cancel(id)
   }
 
@@ -101,7 +104,7 @@ export class MobileRelayRpcStreams {
       return false
     }
     if (!response.ok) {
-      this.remove(response.id)
+      this.fail(response.id, stream, response.error.message, response.error)
       return true
     }
     const result = (response as RpcSuccess).result
@@ -150,6 +153,9 @@ export class MobileRelayRpcStreams {
   }
 
   clear(): void {
+    for (const stream of this.streams.values()) {
+      stream.cancelled = true
+    }
     this.streams.clear()
     this.terminalListeners.clear()
     this.terminalSnapshots.clear()
@@ -226,5 +232,22 @@ export class MobileRelayRpcStreams {
       this.activeBrowserStream = null
     }
     this.streams.delete(id)
+  }
+
+  private fail(id: string, stream: StreamRecord, message: string, error?: unknown): void {
+    if (this.streams.get(id) !== stream) {
+      return
+    }
+    // Why: a cancelled stream's listener already unsubscribed, but a tombstone must
+    // still be dropped — a failed subscribe left the host nothing to unsubscribe from.
+    if (stream.cancelled) {
+      this.remove(id)
+      return
+    }
+    try {
+      stream.listener({ type: 'error', message, error })
+    } finally {
+      this.remove(id)
+    }
   }
 }

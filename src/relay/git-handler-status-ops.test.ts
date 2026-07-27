@@ -4,12 +4,24 @@ import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GitExec } from './git-handler-ops'
+import type { RelayGitStreamExec } from './git-stdout-stream'
 import { collectNumstatPathspecs, getStatusOp } from './git-handler-status-ops'
 import { clearNoEffectiveUpstreamStatusCache } from './git-status-upstream-negative-cache'
 import type { GitStatusEntry } from '../shared/types'
 import { clearGitStatusLineStatsCache } from '../shared/git-status-line-stats-cache'
+import { DEFAULT_GIT_STATUS_LIMIT } from '../shared/git-status-limit'
 
 const LARGE_STATUS_ENTRY_COUNT = 150_000
+
+function streamGitFromCapture(git: GitExec): RelayGitStreamExec {
+  return async (args, cwd, options) => {
+    const { stdout } = await git(args, cwd, {
+      disableOptionalLocks: options.disableOptionalLocks,
+      signal: options.signal
+    })
+    return { stoppedEarly: options.onStdout(stdout) === true }
+  }
+}
 
 function buildLargeStatusOutput(count: number): string {
   const lines: string[] = []
@@ -39,22 +51,35 @@ describe('getStatusOp', () => {
   })
 
   it('truncates huge status lists at the limit and flags didHitLimit', async () => {
-    const statusOutput = buildLargeStatusOutput(LARGE_STATUS_ENTRY_COUNT)
+    let emittedEntries = 0
     const git = vi.fn<GitExec>(async (args) => {
-      if (args.includes('status')) {
-        return { stdout: statusOutput, stderr: '' }
-      }
-      if (args.includes('diff')) {
-        return { stdout: '', stderr: '' }
-      }
       throw new Error(`Unexpected git command: ${args.join(' ')}`)
     })
+    const streamGit = vi.fn<RelayGitStreamExec>(async (_args, _cwd, options) => {
+      for (let index = 0; index < LARGE_STATUS_ENTRY_COUNT; index += 1) {
+        emittedEntries += 1
+        if (
+          options.onStdout(
+            `1 A. N... 100644 100644 100644 000000 111111 generated-${index}.txt\n`
+          ) === true
+        ) {
+          return { stoppedEarly: true }
+        }
+      }
+      return { stoppedEarly: false }
+    })
 
-    const result = await getStatusOp(git, { worktreePath: tmpDir, limit: 10_000 })
+    const result = await getStatusOp(git, streamGit, { worktreePath: tmpDir })
 
     expect(result.didHitLimit).toBe(true)
-    expect(result.statusLength).toBe(LARGE_STATUS_ENTRY_COUNT)
-    expect(result.entries).toHaveLength(10_000)
+    expect(result.statusLength).toBe(DEFAULT_GIT_STATUS_LIMIT + 1)
+    expect(result.entries).toHaveLength(DEFAULT_GIT_STATUS_LIMIT)
+    expect(emittedEntries).toBe(DEFAULT_GIT_STATUS_LIMIT + 1)
+    expect(streamGit).toHaveBeenCalledWith(
+      expect.arrayContaining(['status', '--porcelain=v2']),
+      tmpDir,
+      expect.objectContaining({ disableOptionalLocks: true })
+    )
     expect(result.entries[0]).toEqual({
       path: 'generated-0.txt',
       status: 'added',
@@ -76,7 +101,10 @@ describe('getStatusOp', () => {
       throw new Error(`Unexpected git command: ${args.join(' ')}`)
     })
 
-    const result = await getStatusOp(git, { worktreePath: tmpDir, limit: 10_000 })
+    const result = await getStatusOp(git, streamGitFromCapture(git), {
+      worktreePath: tmpDir,
+      limit: 10_000
+    })
 
     expect(result.didHitLimit).toBeUndefined()
     expect(result.entries).toHaveLength(5)
@@ -103,7 +131,7 @@ describe('getStatusOp', () => {
       throw new Error(`Unexpected git command: ${args.join(' ')}`)
     })
 
-    const result = await getStatusOp(git, { worktreePath: tmpDir })
+    const result = await getStatusOp(git, streamGitFromCapture(git), { worktreePath: tmpDir })
 
     // Each area scans only its own path — no full-worktree rescan over SSH.
     expect(numstatCalls).toContainEqual([
@@ -148,7 +176,7 @@ describe('getStatusOp', () => {
       throw new Error(`Unexpected git command: ${args.join(' ')}`)
     })
 
-    const result = await getStatusOp(git, { worktreePath: tmpDir })
+    const result = await getStatusOp(git, streamGitFromCapture(git), { worktreePath: tmpDir })
 
     // Why: -M rename detection needs BOTH sides in the pathspec, or the new path
     // is mis-reported as a plain add — so the staged scan scopes to old + new.
@@ -183,11 +211,98 @@ describe('getStatusOp', () => {
       throw new Error(`Unexpected git command: ${args.join(' ')}`)
     })
 
-    await getStatusOp(git, { worktreePath: tmpDir })
+    await getStatusOp(git, streamGitFromCapture(git), { worktreePath: tmpDir })
 
     // Only the single status read — attachLineStats short-circuits on no entries.
     expect(git).toHaveBeenCalledTimes(1)
     expect(git.mock.calls.some(([args]) => args.includes('diff'))).toBe(false)
+  })
+
+  it('returns exactly the cap without a false limit signal', async () => {
+    const git = vi.fn<GitExec>(async (args) => {
+      if (args.includes('status')) {
+        return { stdout: buildLargeStatusOutput(3), stderr: '' }
+      }
+      if (args.includes('diff')) {
+        return { stdout: '', stderr: '' }
+      }
+      throw new Error(`Unexpected git command: ${args.join(' ')}`)
+    })
+
+    const result = await getStatusOp(git, streamGitFromCapture(git), {
+      worktreePath: tmpDir,
+      limit: 3
+    })
+
+    expect(result.entries).toHaveLength(3)
+    expect(result.didHitLimit).toBeUndefined()
+    expect(result.statusLength).toBeUndefined()
+  })
+
+  it('keeps every conflict row past the cap and skips submodule conflicts', async () => {
+    const lines = [
+      'u UU S... 160000 160000 160000 160000 aa bb cc vendor/submodule',
+      ...Array.from(
+        { length: 3 },
+        (_, i) => `u UU N... 100644 100644 100644 100644 aa bb cc conflict-${i}.ts`
+      )
+    ].join('\n')
+    const git = vi.fn<GitExec>(async (args) => {
+      if (args.includes('status')) {
+        return { stdout: `${lines}\n`, stderr: '' }
+      }
+      if (args.includes('diff')) {
+        return { stdout: '', stderr: '' }
+      }
+      throw new Error(`Unexpected git command: ${args.join(' ')}`)
+    })
+
+    const result = await getStatusOp(git, streamGitFromCapture(git), {
+      worktreePath: tmpDir,
+      limit: 2
+    })
+
+    // Why: unmerged records need per-file lookups and never count toward the entry
+    // cap, so a cap of 2 cannot hide the third conflict (#9477).
+    expect(result.didHitLimit).toBeUndefined()
+    expect(result.statusLength).toBeUndefined()
+    expect(result.entries.map((entry) => entry.path)).toEqual([
+      'conflict-0.ts',
+      'conflict-1.ts',
+      'conflict-2.ts'
+    ])
+    expect(result.entries.every((entry) => entry.conflictStatus === 'unresolved')).toBe(true)
+  })
+
+  it('keeps an early conflict ahead of later ordinary rows at the cap', async () => {
+    const lines = [
+      '? before.ts',
+      'u UU N... 100644 100644 100644 100644 aa bb cc conflict.ts',
+      '? middle.ts',
+      '? after.ts'
+    ].join('\n')
+    const git = vi.fn<GitExec>(async (args) => {
+      if (args.includes('status')) {
+        return { stdout: `${lines}\n`, stderr: '' }
+      }
+      throw new Error(`Unexpected git command: ${args.join(' ')}`)
+    })
+
+    const result = await getStatusOp(git, streamGitFromCapture(git), {
+      worktreePath: tmpDir,
+      limit: 2
+    })
+
+    // Why: the conflict is resolved even though the cap stopped the scan, and it
+    // is surfaced ahead of the capped ordinary rows so it can never be hidden.
+    expect(result.didHitLimit).toBe(true)
+    expect(result.statusLength).toBe(3)
+    expect(result.entries.map((entry) => entry.path)).toEqual(['conflict.ts', 'before.ts'])
+    expect(result.entries[0]).toMatchObject({
+      conflictKind: 'both_modified',
+      conflictStatus: 'unresolved'
+    })
+    expect(git).toHaveBeenCalledTimes(1)
   })
 
   it('reuses unchanged line stats only for hinted safety reads', async () => {
@@ -202,9 +317,12 @@ describe('getStatusOp', () => {
       throw new Error(`Unexpected git command: ${args.join(' ')}`)
     })
 
-    await getStatusOp(git, { worktreePath: tmpDir })
-    const reused = await getStatusOp(git, { worktreePath: tmpDir, reuseLineStats: true })
-    await getStatusOp(git, { worktreePath: tmpDir })
+    await getStatusOp(git, streamGitFromCapture(git), { worktreePath: tmpDir })
+    const reused = await getStatusOp(git, streamGitFromCapture(git), {
+      worktreePath: tmpDir,
+      reuseLineStats: true
+    })
+    await getStatusOp(git, streamGitFromCapture(git), { worktreePath: tmpDir })
 
     expect(reused.entries).toContainEqual(
       expect.objectContaining({ path: 'src/a.ts', added: 3, removed: 2 })
@@ -227,7 +345,12 @@ describe('getStatusOp', () => {
       throw new Error(`Unexpected git command: ${args.join(' ')}`)
     })
 
-    await getStatusOp(git, { worktreePath: tmpDir }, { signal: controller.signal })
+    await getStatusOp(
+      git,
+      streamGitFromCapture(git),
+      { worktreePath: tmpDir },
+      { signal: controller.signal }
+    )
 
     expect(git.mock.calls).not.toHaveLength(0)
     for (const [, , options] of git.mock.calls) {
@@ -249,9 +372,9 @@ describe('getStatusOp', () => {
       throw new Error(`No upstream fixture for git ${args.join(' ')}`)
     })
 
-    const first = await getStatusOp(git, { worktreePath: tmpDir })
+    const first = await getStatusOp(git, streamGitFromCapture(git), { worktreePath: tmpDir })
     const firstCallCount = git.mock.calls.length
-    const second = await getStatusOp(git, { worktreePath: tmpDir })
+    const second = await getStatusOp(git, streamGitFromCapture(git), { worktreePath: tmpDir })
 
     expect(first.upstreamStatus).toEqual({ hasUpstream: false, ahead: 0, behind: 0 })
     expect(second.upstreamStatus).toEqual(first.upstreamStatus)
@@ -285,9 +408,9 @@ describe('getStatusOp', () => {
       throw new Error(`No upstream fixture for git ${args.join(' ')}`)
     })
 
-    await getStatusOp(git, { worktreePath: tmpDir })
+    await getStatusOp(git, streamGitFromCapture(git), { worktreePath: tmpDir })
     vi.setSystemTime(31_000)
-    await getStatusOp(git, { worktreePath: tmpDir })
+    await getStatusOp(git, streamGitFromCapture(git), { worktreePath: tmpDir })
 
     expect(
       git.mock.calls.filter(([args]) => args[0] === 'rev-parse' && args.includes('HEAD@{u}'))
@@ -314,9 +437,9 @@ describe('getStatusOp', () => {
     })
 
     await Promise.all([
-      getStatusOp(git, { worktreePath: tmpDir }),
-      getStatusOp(git, { worktreePath: tmpDir }),
-      getStatusOp(git, { worktreePath: tmpDir })
+      getStatusOp(git, streamGitFromCapture(git), { worktreePath: tmpDir }),
+      getStatusOp(git, streamGitFromCapture(git), { worktreePath: tmpDir }),
+      getStatusOp(git, streamGitFromCapture(git), { worktreePath: tmpDir })
     ])
 
     expect(
@@ -347,9 +470,9 @@ describe('getStatusOp', () => {
       throw new Error(`No upstream fixture for git ${args.join(' ')}`)
     })
 
-    await getStatusOp(git, { worktreePath: tmpDir })
+    await getStatusOp(git, streamGitFromCapture(git), { worktreePath: tmpDir })
     branch = 'other-feature'
-    await getStatusOp(git, { worktreePath: tmpDir })
+    await getStatusOp(git, streamGitFromCapture(git), { worktreePath: tmpDir })
 
     expect(
       git.mock.calls
@@ -393,8 +516,8 @@ describe('getStatusOp', () => {
       throw new Error(`No upstream fixture for git ${args.join(' ')}`)
     })
 
-    await getStatusOp(git, { worktreePath: tmpDir })
-    await getStatusOp(git, { worktreePath: tmpDir })
+    await getStatusOp(git, streamGitFromCapture(git), { worktreePath: tmpDir })
+    await getStatusOp(git, streamGitFromCapture(git), { worktreePath: tmpDir })
 
     expect(
       git.mock.calls.filter(([args]) => args[0] === 'rev-parse' && args.includes('HEAD@{u}'))

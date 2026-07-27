@@ -126,7 +126,13 @@ describe('repo slice project host setup lifecycle', () => {
       })
     ).resolves.toEqual({
       project,
-      setup: { ...runtimeSetup, displayName: 'GPU VM renamed' },
+      setup: {
+        ...runtimeSetup,
+        displayName: 'GPU VM renamed',
+        executionHostId: 'runtime:env-1',
+        runtimeOwnerEnvironmentId: 'env-1',
+        connectionId: null
+      },
       repo: undefined
     })
 
@@ -172,7 +178,13 @@ describe('repo slice project host setup lifecycle', () => {
       })
     ).resolves.toEqual({
       project,
-      setup: { ...runtimeSetup, displayName: 'GPU VM renamed' },
+      setup: {
+        ...runtimeSetup,
+        displayName: 'GPU VM renamed',
+        executionHostId: 'runtime:env-1',
+        runtimeOwnerEnvironmentId: 'env-1',
+        connectionId: null
+      },
       repo: undefined
     })
 
@@ -189,7 +201,13 @@ describe('repo slice project host setup lifecycle', () => {
     })
     expect(store.getState().projectHostSetups).toEqual([
       localSetup,
-      { ...runtimeSetup, displayName: 'GPU VM renamed' }
+      {
+        ...runtimeSetup,
+        displayName: 'GPU VM renamed',
+        executionHostId: 'runtime:env-1',
+        runtimeOwnerEnvironmentId: 'env-1',
+        connectionId: null
+      }
     ])
   })
 

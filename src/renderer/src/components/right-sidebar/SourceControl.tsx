@@ -45,7 +45,8 @@ import { WORKSPACE_FILE_PATH_MIME } from '@/lib/workspace-file-drag'
 import { isFolderRepo } from '../../../../shared/repo-kind'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
-import { DetachedHeadBadge } from '@/components/DetachedHeadBadge'
+import { ShortcutKeyCombo } from '@/components/ShortcutKeyCombo'
+import { getScreenSubmitModifierLabel, isScreenSubmitShortcut } from '@/lib/screen-submit-shortcut'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -542,6 +543,7 @@ const SOURCE_CONTROL_ROW_ACTION_OVERLAY_CLASS =
 const SOURCE_CONTROL_TREE_INDENT_PX = 12
 const SOURCE_CONTROL_TREE_DIRECTORY_PADDING_PX = 8
 const SOURCE_CONTROL_TREE_FILE_PADDING_PX = 20
+const CAPPED_STATUS_RETRY_TIMEOUT_MS = 15_000
 const EMPTY_GIT_HISTORY_STATE: GitHistoryPanelState = { status: 'idle' }
 const SUBMODULE_WORKTREE_ONLY_LABEL = 'Stage inside submodule'
 const SUBMODULE_WORKTREE_ONLY_TOOLTIP =
@@ -814,7 +816,6 @@ function SourceControlInner(): React.JSX.Element {
   const activeRepoConnectionId = activeRepo?.connectionId ?? null
   const activeRepoExecutionHostId = activeRepo?.executionHostId ?? null
   const gitIdentityDisplay = activeWorktree ? getWorktreeGitIdentityDisplay(activeWorktree) : null
-  const detachedHeadDisplay = gitIdentityDisplay?.kind === 'detached' ? gitIdentityDisplay : null
   const branchName = gitIdentityDisplay?.kind === 'branch' ? gitIdentityDisplay.branchName : ''
   const entries = useAppStore((s) =>
     activeWorktreeId
@@ -1268,36 +1269,40 @@ function SourceControlInner(): React.JSX.Element {
   // Why: the sidebar stays mounted when closed, so gate polling on tab AND open or branchCompare/PR fetch would run with no visible consumer.
   const isBranchVisible = rightSidebarTab === 'source-control' && rightSidebarOpen
 
-  const refreshActiveGitStatus = useCallback(async (): Promise<void> => {
-    if (!activeWorktreeId || !worktreePath || isFolder) {
-      return
-    }
-    const connectionId = getConnectionId(activeWorktreeId) ?? undefined
-    await refreshGitStatusForWorktree({
-      // Why: route git status by the repo OWNER host, not the focused runtime.
-      settings: activeRepoSettings,
-      worktreeId: activeWorktreeId,
-      worktreePath,
-      connectionId,
-      pushTarget: activeWorktree?.pushTarget,
-      deps: {
-        setGitStatus,
-        updateWorktreeGitIdentity,
-        setUpstreamStatus,
-        fetchUpstreamStatus
+  const refreshActiveGitStatus = useCallback(
+    async (signal?: AbortSignal): Promise<void> => {
+      if (!activeWorktreeId || !worktreePath || isFolder) {
+        return
       }
-    })
-  }, [
-    activeRepoSettings,
-    activeWorktreeId,
-    activeWorktree?.pushTarget,
-    fetchUpstreamStatus,
-    isFolder,
-    setGitStatus,
-    setUpstreamStatus,
-    updateWorktreeGitIdentity,
-    worktreePath
-  ])
+      const connectionId = getConnectionId(activeWorktreeId) ?? undefined
+      await refreshGitStatusForWorktree({
+        // Why: route git status by the repo OWNER host, not the focused runtime.
+        settings: activeRepoSettings,
+        worktreeId: activeWorktreeId,
+        worktreePath,
+        connectionId,
+        pushTarget: activeWorktree?.pushTarget,
+        deps: {
+          setGitStatus,
+          updateWorktreeGitIdentity,
+          setUpstreamStatus,
+          fetchUpstreamStatus
+        },
+        ...(signal ? { request: { signal } } : {})
+      })
+    },
+    [
+      activeRepoSettings,
+      activeWorktreeId,
+      activeWorktree?.pushTarget,
+      fetchUpstreamStatus,
+      isFolder,
+      setGitStatus,
+      setUpstreamStatus,
+      updateWorktreeGitIdentity,
+      worktreePath
+    ]
+  )
 
   const refreshActiveGitStatusAfterMutation = useCallback(async (): Promise<void> => {
     try {
@@ -4730,6 +4735,13 @@ function SourceControlInner(): React.JSX.Element {
     runCreatePrIntent
   ])
 
+  const handleSourceControlKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>): void => {
+      handleSourceControlCommitShortcut(event, primaryAction, handlePrimaryClick)
+    },
+    [handlePrimaryClick, primaryAction]
+  )
+
   const handleCreatePrHeaderClick = useCallback((): void => {
     if (!createPrHeaderAction || createPrHeaderAction.disabled) {
       return
@@ -5484,7 +5496,11 @@ function SourceControlInner(): React.JSX.Element {
 
   return (
     <>
-      <div ref={setSourceControlRoot} className="relative flex h-full flex-col overflow-hidden">
+      <div
+        ref={setSourceControlRoot}
+        className="relative flex h-full flex-col overflow-hidden"
+        onKeyDown={handleSourceControlKeyDown}
+      >
         <SourceControlHeaderToolbar
           filterQuery={filterQuery}
           filterExpanded={filterExpanded}
@@ -5506,15 +5522,10 @@ function SourceControlInner(): React.JSX.Element {
           onExpandNotes={() => setDiffCommentsExpanded(true)}
           branchSummary={branchSummary}
           compareBaseRef={compareBaseRef}
+          headDisplay={gitIdentityDisplay}
           upstreamStatus={remoteStatus}
           manualReviewUrl={manualReviewUrl}
         />
-
-        {detachedHeadDisplay && (
-          <div className="border-b border-border px-3 py-2">
-            <DetachedHeadBadge display={detachedHeadDisplay} side="bottom" />
-          </div>
-        )}
 
         {/* Why: hidden when count is 0 — notes are created from the diff view, so an empty Notes shelf here is pure chrome. */}
         {activeWorktreeId && worktreePath && diffCommentCount > 0 && (
@@ -5559,6 +5570,7 @@ function SourceControlInner(): React.JSX.Element {
                   groupId={activeGroupId ?? activeWorktreeId}
                   comments={diffCommentsForActive}
                   triggerClassName="size-6"
+                  respondToOpenRequest
                 />
                 {diffCommentCount > 0 && (
                   <TooltipProvider delayDuration={400}>
@@ -5696,7 +5708,12 @@ function SourceControlInner(): React.JSX.Element {
 
           {repositoryHuge && (
             <div className="px-3 pb-2">
-              <TooManyChangesBanner limit={repositoryHuge.limit} />
+              {/* Why: a slow SSH retry must not keep the next worktree's Retry disabled after navigation. */}
+              <TooManyChangesBanner
+                key={activeWorktreeId}
+                limit={repositoryHuge.limit}
+                onRetry={refreshActiveGitStatus}
+              />
             </div>
           )}
 
@@ -6358,6 +6375,7 @@ function SourceControlInner(): React.JSX.Element {
         settings={settings}
         repo={activeRepo ?? null}
         discoveryHostKey={sourceControlAiDiscoveryHostKey}
+        linkedIssue={activeWorktree?.linkedIssue ?? null}
         onGenerate={(params) => {
           void handleGenerate({ sourceControlAiResolvedParams: params })
         }}
@@ -6379,6 +6397,7 @@ function SourceControlInner(): React.JSX.Element {
         settings={settings}
         repo={activeRepo ?? null}
         discoveryHostKey={sourceControlAiDiscoveryHostKey}
+        linkedIssue={activeWorktree?.linkedIssue ?? null}
         onGenerate={(params) => {
           void handleGeneratePullRequestFields({ sourceControlAiResolvedParams: params })
         }}
@@ -6390,6 +6409,20 @@ function SourceControlInner(): React.JSX.Element {
 
 const SourceControl = React.memo(SourceControlInner)
 export default SourceControl
+
+export function handleSourceControlCommitShortcut(
+  event: React.KeyboardEvent<HTMLElement>,
+  primaryAction: Pick<PrimaryAction, 'disabled' | 'kind'>,
+  onCommit: () => void
+): void {
+  if (primaryAction.disabled || primaryAction.kind !== 'commit' || !isScreenSubmitShortcut(event)) {
+    return
+  }
+  // Why: the handler lives on the Source Control root, so the shortcut cannot fire from the editor, terminal, or another sidebar tab.
+  event.preventDefault()
+  event.stopPropagation()
+  onCommit()
+}
 
 type CommitAreaProps = {
   worktreeId: string | null
@@ -6723,8 +6756,11 @@ export function CommitArea({
                 </Button>
               </span>
             </TooltipTrigger>
-            <TooltipContent side="top" sideOffset={6} className="max-w-72">
-              {primaryAction.title}
+            <TooltipContent side="top" sideOffset={6} className="flex max-w-72 items-center gap-2">
+              <span>{primaryAction.title}</span>
+              {primaryAction.kind === 'commit' ? (
+                <ShortcutKeyCombo keys={[getScreenSubmitModifierLabel(), 'Enter']} />
+              ) : null}
             </TooltipContent>
           </Tooltip>
           <DropdownMenu>
@@ -7502,18 +7538,89 @@ export function OperationBanner({
   )
 }
 
-export function TooManyChangesBanner({ limit }: { limit: number }): React.JSX.Element {
+export function TooManyChangesBanner({
+  limit,
+  onRetry
+}: {
+  limit: number
+  onRetry: (signal: AbortSignal) => Promise<void>
+}): React.JSX.Element {
+  const [isRetrying, setIsRetrying] = useState(false)
+  const [showSpinner, setShowSpinner] = useState(false)
+  const retryControllerRef = useRef<AbortController | null>(null)
+  const isMountedRef = useRef(false)
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+      retryControllerRef.current?.abort()
+    }
+  }, [])
+  useEffect(() => {
+    if (!isRetrying) {
+      setShowSpinner(false)
+      return
+    }
+    const timer = window.setTimeout(() => setShowSpinner(true), 1_000)
+    return () => window.clearTimeout(timer)
+  }, [isRetrying])
+
+  const handleRetry = async (): Promise<void> => {
+    if (isRetrying) {
+      return
+    }
+    const controller = new AbortController()
+    retryControllerRef.current = controller
+    const timeout = window.setTimeout(() => controller.abort(), CAPPED_STATUS_RETRY_TIMEOUT_MS)
+    setIsRetrying(true)
+    try {
+      await onRetry(controller.signal)
+    } catch (error) {
+      if (!isMountedRef.current) {
+        return
+      }
+      // Why: a failed local/SSH retry must leave the capped warning usable
+      // instead of becoming an unhandled click rejection.
+      console.warn('[SourceControl] capped status retry failed', error)
+      toast.error(
+        translate(
+          'auto.components.right.sidebar.SourceControl.97e7124eac',
+          'Could not refresh Source Control. Try again.'
+        )
+      )
+    } finally {
+      window.clearTimeout(timeout)
+      if (retryControllerRef.current === controller) {
+        retryControllerRef.current = null
+      }
+      if (isMountedRef.current) {
+        setIsRetrying(false)
+      }
+    }
+  }
+
   return (
     <div className="rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2">
       <div className="flex items-center gap-2">
         <AlertTriangle className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
-        <span className="text-xs text-foreground">
+        <span className="min-w-0 flex-1 text-xs text-foreground">
           {translate(
             'auto.components.right.sidebar.SourceControl.tooManyChanges',
             'Too many changes detected. Only the first {{value0}} are shown.',
             { value0: limit.toLocaleString() }
           )}
         </span>
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          className="w-24 shrink-0 text-xs"
+          disabled={isRetrying}
+          onClick={() => void handleRetry()}
+        >
+          {showSpinner ? <Loader2 className="size-3 animate-spin" /> : null}
+          {translate('auto.components.right.sidebar.SourceControl.286dbda4d6', 'Retry')}
+        </Button>
       </div>
     </div>
   )
@@ -7695,7 +7802,7 @@ function SubmodulePlaceholderRow({
   message
 }: {
   depth: number
-  state: 'loading' | 'empty' | 'error'
+  state: 'loading' | 'empty' | 'error' | 'truncated'
   message?: string
 }): React.JSX.Element {
   const fallback =
@@ -7703,7 +7810,12 @@ function SubmodulePlaceholderRow({
       ? SUBMODULE_ERROR_LABEL
       : state === 'empty'
         ? SUBMODULE_EMPTY_LABEL
-        : SUBMODULE_LOADING_LABEL
+        : state === 'truncated'
+          ? translate(
+              'auto.components.right.sidebar.SourceControl.submoduleTruncated',
+              'More submodule changes were omitted'
+            )
+          : SUBMODULE_LOADING_LABEL
   return (
     <div
       className={cn(
@@ -7780,6 +7892,7 @@ const UncommittedEntryRow = React.memo(function UncommittedEntryRow({
     <SourceControlEntryContextMenu
       currentWorktreeId={currentWorktreeId}
       absolutePath={joinPath(worktreePath, entry.path)}
+      relativePath={entry.path}
       connectionId={connectionId}
       onView={() => onOpen(entry)}
       onRevealInExplorer={onRevealInExplorer}
@@ -8029,6 +8142,7 @@ function BranchEntryRow({
     <SourceControlEntryContextMenu
       currentWorktreeId={currentWorktreeId}
       absolutePath={joinPath(worktreePath, entry.path)}
+      relativePath={entry.path}
       connectionId={connectionId}
       onView={() => onOpen()}
       onRevealInExplorer={onRevealInExplorer}

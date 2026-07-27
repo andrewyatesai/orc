@@ -28,6 +28,8 @@ type SubscribeCallbacks = {
 
 class FakeAnchorServer {
   private streamId = 0
+  /** Untagged snapshot pulls (the client's self-healing resync), held unanswered. */
+  resyncRequests = 0
 
   constructor(private readonly toClient: (bytes: Uint8Array<ArrayBufferLike>) => void) {}
 
@@ -43,9 +45,16 @@ class FakeAnchorServer {
     }
     if (frame.opcode === TerminalStreamOpcode.SnapshotRequest) {
       const payload = decodeTerminalStreamJson<{ requestId?: number }>(frame.payload)
+      if (typeof payload?.requestId !== 'number') {
+        // Untagged pull: the client resyncs after dropping a state-replacing
+        // snapshot. Held so the test can observe the anchor in the window
+        // between the drop and the replacement replay.
+        this.resyncRequests += 1
+        return
+      }
       // A REQUESTED snapshot (park/serialize path) carries an anchor too, but
       // it is not replayed into the engine — the client must not adopt it.
-      this.sendSnapshot('REQUESTED', { hostRowAnchor: 205, anchorGen: 77 }, payload?.requestId)
+      this.sendSnapshot('REQUESTED', { hostRowAnchor: 205, anchorGen: 77 }, payload.requestId)
     }
   }
 
@@ -158,6 +167,12 @@ describe('remote terminal snapshot anchor recording', () => {
     })
     await Promise.resolve()
     expect(stream.getReplayedHostAnchor()).toBeNull()
+    // The drop self-heals through an untagged resync pull; only that replayed
+    // replacement — never the dropped snapshot's anchor — re-arms the anchor.
+    expect(server.resyncRequests).toBe(1)
+    server.sendSnapshot('RESYNCED', { hostRowAnchor: 640, anchorGen: 61 })
+    await Promise.resolve()
+    expect(stream.getReplayedHostAnchor()).toEqual({ hostRowAnchor: 640, anchorGen: 61 })
   })
 
   it('clears the stale anchor when an OVERFLOWED recovery is dropped (>2 MiB skew fallback)', async () => {
@@ -167,5 +182,9 @@ describe('remote terminal snapshot anchor recording', () => {
     server.sendSnapshot('X'.repeat(2 * 1024 * 1024 + 1), { hostRowAnchor: 500, anchorGen: 60 })
     await Promise.resolve()
     expect(stream.getReplayedHostAnchor()).toBeNull()
+    expect(server.resyncRequests).toBe(1)
+    server.sendSnapshot('RESYNCED', { hostRowAnchor: 720, anchorGen: 62 })
+    await Promise.resolve()
+    expect(stream.getReplayedHostAnchor()).toEqual({ hostRowAnchor: 720, anchorGen: 62 })
   })
 })

@@ -247,6 +247,7 @@ export const SETTINGS_CHANGED_WHITELIST = [
   'experimentalPet',
   'experimentalNativeChat',
   'experimentalActivity',
+  'experimentalAgentDashboardPopout',
   'experimentalTerminalAttention',
   'experimentalAgentHibernation',
   'experimentalEphemeralVms',
@@ -370,6 +371,45 @@ const agentErrorSchema = z
 
 // Why: daemon start-failure signal (fleet-wide outage like v1.4.129-rc.1); enum-only so raw stderr never reaches the wire.
 const daemonStartFailedSchema = z.object({ error_class: errorClassSchema }).strict()
+
+// Rollout signal for granting Codex hook trust via codex app-server RPCs
+// instead of Orca's self-computed trusted_hash. `fallback`/`verify_failed`
+// spikes mean the RPC lane is not taking; steady-state ledger skips are not
+// reported (they would only measure launch volume). `lane` attributes the
+// grant surface (real ~/.codex vs managed home); `error_class`/`verify_class`
+// are closed classifications so `error` fallbacks are diagnosable in the
+// field — e.g. `binary-missing` = codex CLI absent, no rollout impact.
+const codexTrustGrantSchema = z
+  .object({
+    outcome: z.enum(['granted', 'fallback', 'verify_failed']),
+    host_kind: z.enum(['native', 'wsl']),
+    lane: z.enum(['real-home', 'managed']),
+    fallback_reason: z
+      .enum([
+        'disabled',
+        'no-managed-entries',
+        'unsupported',
+        'unsupported-cached',
+        'verify-failed',
+        'retry-cached',
+        'error'
+      ])
+      .optional(),
+    error_class: z
+      .enum(['binary-missing', 'timeout', 'entry-failed', 'early-exit', 'rpc-failed', 'unexpected'])
+      .optional(),
+    verify_class: z
+      .enum([
+        'list-mismatch',
+        'post-grant-untrusted',
+        'post-grant-mismatch',
+        'unexpected-key',
+        'duplicate-key',
+        'coverage'
+      ])
+      .optional()
+  })
+  .strict()
 
 const settingsChangedSchema = z
   .object({
@@ -1289,6 +1329,8 @@ export const eventSchemas = {
   agent_hook_unattributed: agentHookUnattributedSchema,
 
   daemon_start_failed: daemonStartFailedSchema,
+
+  codex_trust_grant: codexTrustGrantSchema,
 
   settings_changed: settingsChangedSchema,
 

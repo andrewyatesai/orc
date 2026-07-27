@@ -8,7 +8,7 @@ import { Separator } from '../ui/separator'
 import { SearchableSetting } from './SearchableSetting'
 import { SettingsSubsectionHeader } from './SettingsFormControls'
 import { translate } from '@/i18n/i18n'
-import { ORCA_ALAB_PUBLIC_STARGAZERS_URL } from '../../../../shared/repository-endpoints'
+import { ORCA_ALAB_PUBLIC_REPOSITORY_URL } from '../../../../shared/repository-endpoints'
 
 type SupportState =
   | 'loading'
@@ -57,7 +57,8 @@ export function GeneralSupportSection({
   const handleStarClick = async (): Promise<void> => {
     if (starState === 'web-fallback') {
       setStarState('opening-github')
-      await window.api.shell.openUrl(ORCA_ALAB_PUBLIC_STARGAZERS_URL)
+      // Do not deep-link to /stargazers: GitHub 404s that page for users without repo write access.
+      await window.api.shell.openUrl(ORCA_ALAB_PUBLIC_REPOSITORY_URL)
       if (mountedRef.current) {
         setStarState('web-fallback')
       }

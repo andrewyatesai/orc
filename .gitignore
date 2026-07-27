@@ -132,6 +132,8 @@ docs/reference/react-performance-audit.md
 # Native-Rust migration docs are durable reference material.
 !docs/rust-migration/
 !docs/rust-migration/**
+# Upstream's per-file reference allowlist (git-compatibility, headless-linux-server,
+# linux-glibc-compatibility) is subsumed by the `!docs/reference/**` rule above.
 
 # Stably CLI (only docs/ are tracked)
 .stably/*

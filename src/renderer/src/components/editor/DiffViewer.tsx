@@ -4,7 +4,7 @@ import type { editor } from 'monaco-editor'
 import { useAppStore } from '@/store'
 import { diffViewStateCache, setWithLRU } from '@/lib/scroll-cache'
 import { monaco } from '@/lib/monaco-setup'
-import { computeDiffEditorFontSize } from '@/lib/editor-font-zoom'
+import { computeDiffEditorFontSize, resolveEditorFontFamily } from '@/lib/editor-font-zoom'
 import { useContextualCopySetup } from './useContextualCopySetup'
 import { selectWorktreeDiffComments } from '@/store/worktree-diff-comments-selector'
 import { useDiffCommentDecorator } from '../diff-comments/useDiffCommentDecorator'
@@ -27,6 +27,7 @@ import { buildDiffEditorWordWrapOptions } from './diff-editor-word-wrap-options'
 import { useDiffEditorRegistration } from './diff-navigation-context'
 import { preserveDiffViewStateAcrossModelSwaps } from './diff-model-swap-view-state'
 import { resolveEditorEditContextEnabled } from './monaco-input-mode'
+import { monacoFindOptions } from './monaco-find-options'
 
 export default function DiffViewer({
   modelKey,
@@ -422,19 +423,15 @@ export default function DiffViewer({
               minimap: { enabled: false },
               scrollBeyondLastLine: false,
               fontSize: diffEditorFontSize,
-              fontFamily: settings?.terminalFontFamily || 'monospace',
+              fontFamily: resolveEditorFontFamily(settings),
               lineNumbers: 'on',
               ...buildDiffEditorWordWrapOptions(settings?.diffWordWrap),
               automaticLayout: true,
               renderOverviewRuler: true,
               scrollbar: diffEditorScrollbarOptions,
               padding: { top: 0 },
-              find: {
-                addExtraSpaceOnTop: false,
-                autoFindInSelection: 'never',
-                // Why: prefill Cmd+F from the selection (Monaco's default).
-                seedSearchStringFromSelection: 'always'
-              }
+              // Why: fork keeps 'always' (port of #5429) so Cmd+F also seeds from the word under the cursor.
+              find: { ...monacoFindOptions, seedSearchStringFromSelection: 'always' }
             }}
           />
         )}

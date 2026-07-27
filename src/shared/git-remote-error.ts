@@ -71,6 +71,16 @@ export async function runPullWithDivergenceFallback(
   }
 }
 
+// Why: an exec-level timeout kills the child (SIGTERM) with no git stderr line,
+// so message inspection can't distinguish it from a real git failure.
+export function isExecKilledError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false
+  }
+  const { killed, signal } = error as { killed?: unknown; signal?: unknown }
+  return killed === true || (typeof signal === 'string' && signal.length > 0)
+}
+
 export type GitRemoteOperation = 'push' | 'pull' | 'fetch' | 'upstream'
 
 /** Fixed user-facing message for a runner-enforced remote-operation timeout,
@@ -83,7 +93,11 @@ export function formatGitRemoteOperationTimeoutMessage(
   error: unknown,
   operation?: GitRemoteOperation
 ): string | null {
-  if (!operation || !(error instanceof Error) || !REMOTE_OPERATION_TIMEOUT_PATTERN.test(error.message)) {
+  if (
+    !operation ||
+    !(error instanceof Error) ||
+    !REMOTE_OPERATION_TIMEOUT_PATTERN.test(error.message)
+  ) {
     return null
   }
   const label =

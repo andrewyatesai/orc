@@ -4,11 +4,7 @@ import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getExecutionHostLabel, toSshExecutionHostId } from '../../../../shared/execution-host'
-import {
-  PROJECT_HOST_SETUP_RUNTIME_CAPABILITY,
-  RUNTIME_PROTOCOL_VERSION,
-  WORKSPACE_RUN_CONTEXT_RUNTIME_CAPABILITY
-} from '../../../../shared/protocol-version'
+import { RUNTIME_PROTOCOL_VERSION } from '../../../../shared/protocol-version'
 import type { Project, ProjectHostSetup, Repo } from '../../../../shared/types'
 import { useAppStore } from '../../store'
 import { RepositoryHostSetupsSection } from './RepositoryHostSetupsSection'
@@ -69,24 +65,17 @@ afterEach(() => {
   useAppStore.setState(useAppStore.getInitialState(), true)
 })
 
-function renderSection(repo: Repo): void {
+function renderSection(repo: Repo, selectedProjectSetupId?: string): void {
   act(() => {
     root.render(
       React.createElement(RepositoryHostSetupsSection, {
         repo,
+        selectedProjectSetupId,
         forceVisible: true,
         searchQuery: '',
         searchEntries: []
       })
     )
-  })
-}
-
-function typeIntoInput(input: HTMLInputElement, value: string): void {
-  act(() => {
-    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
-    setValue?.call(input, value)
-    input.dispatchEvent(new Event('input', { bubbles: true }))
   })
 }
 
@@ -96,14 +85,6 @@ function findButton(label: string): HTMLButtonElement | undefined {
     buttons.find((button) => button.textContent?.trim() === label) ??
     buttons.find((button) => button.textContent?.includes(label))
   )
-}
-
-function clickButton(label: string): void {
-  const button = findButton(label)
-  expect(button).toBeTruthy()
-  act(() => {
-    button?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  })
 }
 
 describe('RepositoryHostSetupsSection', () => {
@@ -201,10 +182,140 @@ describe('RepositoryHostSetupsSection', () => {
     // The single project pane switches host in place — no navigation.
     expect(setSettingsProjectHostSelection).toHaveBeenCalledWith(
       'github:stablyai/orca',
-      toSshExecutionHostId('openclaw 2')
+      toSshExecutionHostId('openclaw 2'),
+      'remote-repo'
     )
     expect(openSettingsPage).not.toHaveBeenCalled()
     expect(openSettingsTarget).not.toHaveBeenCalled()
+  })
+
+  it('keeps nested SSH setups distinct and derives readiness from their HUB owner', () => {
+    const remoteRepo = makeRepo({
+      id: 'remote-repo',
+      displayName: 'Orca',
+      path: '/srv/orca',
+      executionHostId: 'runtime:hub'
+    })
+    useAppStore.setState({
+      repos: [remoteRepo],
+      projects: [makeProject({ id: 'github:stablyai/orca', sourceRepoIds: ['remote-repo'] })],
+      projectHostSetups: [
+        makeSetup({
+          id: 'direct-setup',
+          projectId: 'github:stablyai/orca',
+          repoId: 'remote-repo',
+          hostId: 'runtime:hub',
+          executionHostId: 'ssh:direct',
+          runtimeOwnerEnvironmentId: 'hub',
+          path: '/srv/orca'
+        }),
+        makeSetup({
+          id: 'jump-setup',
+          projectId: 'github:stablyai/orca',
+          repoId: 'remote-repo',
+          hostId: 'runtime:hub',
+          executionHostId: 'ssh:jump',
+          runtimeOwnerEnvironmentId: 'hub',
+          path: '/srv/orca'
+        })
+      ],
+      runtimeStatusByEnvironmentId: new Map([
+        [
+          'hub',
+          {
+            checkedAt: 1,
+            appVersion: '1.8.0',
+            status: {
+              runtimeId: 'runtime-hub',
+              rendererGraphEpoch: 1,
+              graphStatus: 'ready',
+              authoritativeWindowId: 1,
+              liveTabCount: 0,
+              liveLeafCount: 0,
+              runtimeProtocolVersion: RUNTIME_PROTOCOL_VERSION,
+              minCompatibleRuntimeClientVersion: 1,
+              capabilities: []
+            }
+          }
+        ]
+      ]),
+      sshStateByEnvironment: new Map([
+        [
+          'hub',
+          {
+            connectionStates: new Map([
+              [
+                'direct',
+                {
+                  targetId: 'direct',
+                  status: 'connected',
+                  error: null,
+                  reconnectAttempt: 0
+                }
+              ],
+              [
+                'jump',
+                {
+                  targetId: 'jump',
+                  status: 'disconnected',
+                  error: null,
+                  reconnectAttempt: 0
+                }
+              ]
+            ]),
+            targetLabels: new Map([
+              ['direct', 'Direct box'],
+              ['jump', 'Jump box']
+            ]),
+            removedTargetLabels: new Map(),
+            targetsHydrated: true
+          }
+        ]
+      ])
+    })
+
+    renderSection(remoteRepo, 'jump-setup')
+
+    expect(container.textContent).toContain('Direct box')
+    expect(container.textContent).toContain('Jump box')
+    expect(container.textContent).toContain('Ready')
+    expect(container.textContent).toContain('Disconnected')
+    expect(findButton('Open')).toBeTruthy()
+    const currentSetup = container.querySelector('[data-current="true"]')
+    expect(currentSetup?.textContent).toContain('Jump box')
+    expect(currentSetup?.textContent).toContain('Disconnected')
+    expect(currentSetup?.textContent).not.toContain('Direct box')
+    expect(currentSetup?.textContent).not.toContain('Ready')
+  })
+
+  it('shows HUB-local setups as disconnected when their owning runtime is unreachable', () => {
+    const remoteRepo = makeRepo({
+      id: 'remote-repo',
+      displayName: 'Orca',
+      path: '/srv/orca',
+      executionHostId: 'runtime:hub'
+    })
+    useAppStore.setState({
+      repos: [remoteRepo],
+      projects: [makeProject({ id: 'github:stablyai/orca', sourceRepoIds: ['remote-repo'] })],
+      projectHostSetups: [
+        makeSetup({
+          id: 'hub-local-setup',
+          projectId: 'github:stablyai/orca',
+          repoId: 'remote-repo',
+          hostId: 'runtime:hub',
+          executionHostId: 'local',
+          runtimeOwnerEnvironmentId: 'hub',
+          path: '/srv/orca'
+        })
+      ],
+      runtimeStatusByEnvironmentId: new Map([['hub', { checkedAt: 1, status: null }]])
+    })
+
+    renderSection(remoteRepo)
+
+    expect(container.textContent).toContain('Disconnected')
+    expect(container.textContent).not.toContain('Ready')
   })
 
   it('removes independent setup metadata instead of opening an empty repo target', async () => {
@@ -334,383 +445,6 @@ describe('RepositoryHostSetupsSection', () => {
     expect(deleteProjectHostSetup).toHaveBeenCalledWith({
       setupId: 'shared-setup',
       hostId: 'runtime:cpu'
-    })
-  })
-
-  it('sets up the project on another known host from an existing folder path', async () => {
-    const openSettingsPage = vi.fn()
-    const openSettingsTarget = vi.fn()
-    const setSettingsProjectHostSelection = vi.fn()
-    const setupProjectExistingFolder = vi.fn().mockResolvedValue({
-      project: makeProject({ id: 'github:stablyai/orca' }),
-      setup: makeSetup({
-        id: 'remote-repo',
-        projectId: 'github:stablyai/orca',
-        repoId: 'remote-repo',
-        hostId: toSshExecutionHostId('openclaw 2'),
-        path: '/home/alice/orca'
-      }),
-      repo: makeRepo({
-        id: 'remote-repo',
-        displayName: 'Orca',
-        path: '/home/alice/orca',
-        connectionId: 'openclaw 2'
-      })
-    })
-    const localRepo = makeRepo({
-      id: 'local-repo',
-      displayName: 'Orca',
-      path: '/Users/alice/orca'
-    })
-    useAppStore.setState({
-      repos: [localRepo],
-      projects: [makeProject({ id: 'github:stablyai/orca' })],
-      projectHostSetups: [
-        makeSetup({
-          id: 'local-repo',
-          projectId: 'github:stablyai/orca',
-          repoId: 'local-repo',
-          hostId: 'local',
-          path: '/Users/alice/orca'
-        })
-      ],
-      sshTargetLabels: new Map([['openclaw 2', 'openclaw 2']]),
-      openSettingsPage,
-      openSettingsTarget,
-      setSettingsProjectHostSelection,
-      setupProjectExistingFolder
-    })
-
-    renderSection(localRepo)
-    clickButton('Add to another host')
-    clickButton('Browse folder')
-
-    const pathInput = container.querySelector<HTMLInputElement>(
-      'input[placeholder="/path/to/project/on/host"]'
-    )
-    expect(pathInput).toBeTruthy()
-    typeIntoInput(pathInput!, '/home/alice/orca')
-
-    const importButton = findButton('Import')
-    expect(importButton).toBeTruthy()
-
-    await act(async () => {
-      importButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    expect(setupProjectExistingFolder).toHaveBeenCalledWith({
-      projectId: 'github:stablyai/orca',
-      hostId: 'ssh:openclaw%202',
-      path: '/home/alice/orca',
-      kind: 'git',
-      displayName: 'Orca'
-    })
-    expect(setSettingsProjectHostSelection).toHaveBeenCalledWith(
-      'github:stablyai/orca',
-      'ssh:openclaw%202'
-    )
-    expect(openSettingsPage).not.toHaveBeenCalled()
-    expect(openSettingsTarget).not.toHaveBeenCalled()
-  })
-
-  it('clones the project onto another known host from settings', async () => {
-    const openSettingsPage = vi.fn()
-    const openSettingsTarget = vi.fn()
-    const setSettingsProjectHostSelection = vi.fn()
-    const setupProjectClone = vi.fn().mockResolvedValue({
-      project: makeProject({ id: 'github:stablyai/orca' }),
-      setup: makeSetup({
-        id: 'remote-repo',
-        projectId: 'github:stablyai/orca',
-        repoId: 'remote-repo',
-        hostId: toSshExecutionHostId('openclaw 2'),
-        path: '/home/alice/orca'
-      }),
-      repo: makeRepo({
-        id: 'remote-repo',
-        displayName: 'Orca',
-        path: '/home/alice/orca',
-        connectionId: 'openclaw 2'
-      })
-    })
-    const localRepo = makeRepo({
-      id: 'local-repo',
-      displayName: 'Orca',
-      path: '/Users/alice/orca'
-    })
-    useAppStore.setState({
-      repos: [localRepo],
-      projects: [makeProject({ id: 'github:stablyai/orca' })],
-      projectHostSetups: [
-        makeSetup({
-          id: 'local-repo',
-          projectId: 'github:stablyai/orca',
-          repoId: 'local-repo',
-          hostId: 'local',
-          path: '/Users/alice/orca'
-        })
-      ],
-      sshTargetLabels: new Map([['openclaw 2', 'openclaw 2']]),
-      openSettingsPage,
-      openSettingsTarget,
-      setSettingsProjectHostSelection,
-      setupProjectClone
-    })
-
-    renderSection(localRepo)
-    clickButton('Add to another host')
-    clickButton('Clone from URL')
-
-    const urlInput = container.querySelector<HTMLInputElement>(
-      'input[placeholder="Repository URL"]'
-    )
-    const destinationInput = container.querySelector<HTMLInputElement>(
-      'input[placeholder="/destination/on/host"]'
-    )
-    expect(urlInput).toBeTruthy()
-    expect(destinationInput).toBeTruthy()
-    typeIntoInput(urlInput!, 'https://github.com/stablyai/orca.git')
-    typeIntoInput(destinationInput!, '/home/alice')
-
-    const cloneButton = findButton('Clone')
-    expect(cloneButton).toBeTruthy()
-
-    await act(async () => {
-      cloneButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    expect(setupProjectClone).toHaveBeenCalledWith({
-      projectId: 'github:stablyai/orca',
-      hostId: 'ssh:openclaw%202',
-      url: 'https://github.com/stablyai/orca.git',
-      destination: '/home/alice',
-      displayName: 'Orca'
-    })
-    expect(setSettingsProjectHostSelection).toHaveBeenCalledWith(
-      'github:stablyai/orca',
-      'ssh:openclaw%202'
-    )
-    expect(openSettingsPage).not.toHaveBeenCalled()
-    expect(openSettingsTarget).not.toHaveBeenCalled()
-  })
-
-  it('creates pending setup metadata for a known host without requiring a path', async () => {
-    const createProjectHostSetup = vi.fn().mockResolvedValue({
-      project: makeProject({ id: 'github:stablyai/orca' }),
-      setup: makeSetup({
-        id: 'gpu-setup',
-        projectId: 'github:stablyai/orca',
-        repoId: '',
-        hostId: 'runtime:gpu',
-        path: '',
-        setupState: 'not-set-up',
-        setupMethod: 'provisioned'
-      })
-    })
-    const localRepo = makeRepo({
-      id: 'local-repo',
-      displayName: 'Orca',
-      path: '/Users/alice/orca'
-    })
-    useAppStore.setState({
-      repos: [localRepo],
-      projects: [makeProject({ id: 'github:stablyai/orca' })],
-      projectHostSetups: [
-        makeSetup({
-          id: 'local-repo',
-          projectId: 'github:stablyai/orca',
-          repoId: 'local-repo',
-          hostId: 'local',
-          path: '/Users/alice/orca'
-        })
-      ],
-      settings: { activeRuntimeEnvironmentId: 'gpu' } as never,
-      runtimeStatusByEnvironmentId: new Map([
-        [
-          'gpu',
-          {
-            checkedAt: 1,
-            appVersion: '1.8.0',
-            status: {
-              runtimeId: 'runtime-gpu',
-              rendererGraphEpoch: 1,
-              graphStatus: 'ready',
-              authoritativeWindowId: 1,
-              liveTabCount: 0,
-              liveLeafCount: 0,
-              runtimeProtocolVersion: RUNTIME_PROTOCOL_VERSION,
-              minCompatibleRuntimeClientVersion: 1,
-              capabilities: [
-                PROJECT_HOST_SETUP_RUNTIME_CAPABILITY,
-                WORKSPACE_RUN_CONTEXT_RUNTIME_CAPABILITY
-              ]
-            }
-          }
-        ]
-      ]),
-      createProjectHostSetup
-    })
-
-    renderSection(localRepo)
-
-    clickButton('Add to another host')
-    clickButton('Add host placeholder')
-
-    const addHostButton = findButton('Add gpu')
-    expect(addHostButton).toBeTruthy()
-
-    await act(async () => {
-      addHostButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    expect(createProjectHostSetup).toHaveBeenCalledWith({
-      projectId: 'github:stablyai/orca',
-      hostId: 'runtime:gpu',
-      displayName: 'Orca',
-      setupState: 'not-set-up',
-      setupMethod: 'provisioned'
-    })
-  })
-
-  it('shows unsupported runtime hosts without enabling setup actions', async () => {
-    const createProjectHostSetup = vi.fn()
-    const setupProjectClone = vi.fn()
-    const setupProjectExistingFolder = vi.fn()
-    const localRepo = makeRepo({
-      id: 'local-repo',
-      displayName: 'Orca',
-      path: '/Users/alice/orca'
-    })
-    useAppStore.setState({
-      repos: [localRepo],
-      projects: [makeProject({ id: 'github:stablyai/orca' })],
-      projectHostSetups: [
-        makeSetup({
-          id: 'local-repo',
-          projectId: 'github:stablyai/orca',
-          repoId: 'local-repo',
-          hostId: 'local',
-          path: '/Users/alice/orca'
-        })
-      ],
-      settings: { activeRuntimeEnvironmentId: null } as never,
-      runtimeStatusByEnvironmentId: new Map([
-        [
-          'gpu',
-          {
-            checkedAt: 1,
-            appVersion: '1.7.0',
-            status: {
-              runtimeId: 'runtime-gpu',
-              rendererGraphEpoch: 1,
-              graphStatus: 'ready',
-              authoritativeWindowId: 1,
-              liveTabCount: 0,
-              liveLeafCount: 0,
-              runtimeProtocolVersion: RUNTIME_PROTOCOL_VERSION,
-              minCompatibleRuntimeClientVersion: 1,
-              capabilities: []
-            }
-          }
-        ]
-      ]),
-      createProjectHostSetup,
-      setupProjectClone,
-      setupProjectExistingFolder
-    })
-
-    renderSection(localRepo)
-    clickButton('Add to another host')
-
-    expect(container.textContent).toContain('Update Orca on this host to set up projects')
-    const browseButton = findButton('Browse folder')
-    const plannedButton = findButton('Add host placeholder')
-    expect(browseButton?.disabled).toBe(true)
-    expect(plannedButton?.disabled).toBe(true)
-
-    await act(async () => {
-      plannedButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    expect(createProjectHostSetup).not.toHaveBeenCalled()
-    expect(setupProjectClone).not.toHaveBeenCalled()
-    expect(setupProjectExistingFolder).not.toHaveBeenCalled()
-  })
-
-  it('offers inactive runtime hosts discovered from hydrated runtime status', async () => {
-    const createProjectHostSetup = vi.fn().mockResolvedValue({
-      project: makeProject({ id: 'github:stablyai/orca' }),
-      setup: makeSetup({
-        id: 'gpu-setup',
-        projectId: 'github:stablyai/orca',
-        repoId: '',
-        hostId: 'runtime:gpu',
-        path: '',
-        setupState: 'not-set-up',
-        setupMethod: 'provisioned'
-      })
-    })
-    const localRepo = makeRepo({
-      id: 'local-repo',
-      displayName: 'Orca',
-      path: '/Users/alice/orca'
-    })
-    useAppStore.setState({
-      repos: [localRepo],
-      projects: [makeProject({ id: 'github:stablyai/orca' })],
-      projectHostSetups: [
-        makeSetup({
-          id: 'local-repo',
-          projectId: 'github:stablyai/orca',
-          repoId: 'local-repo',
-          hostId: 'local',
-          path: '/Users/alice/orca'
-        })
-      ],
-      settings: { activeRuntimeEnvironmentId: null } as never,
-      runtimeStatusByEnvironmentId: new Map([
-        [
-          'gpu',
-          {
-            checkedAt: 1,
-            appVersion: '1.8.0',
-            status: {
-              runtimeId: 'runtime-gpu',
-              rendererGraphEpoch: 1,
-              graphStatus: 'ready',
-              authoritativeWindowId: 1,
-              liveTabCount: 0,
-              liveLeafCount: 0,
-              runtimeProtocolVersion: RUNTIME_PROTOCOL_VERSION,
-              minCompatibleRuntimeClientVersion: 1,
-              capabilities: [
-                PROJECT_HOST_SETUP_RUNTIME_CAPABILITY,
-                WORKSPACE_RUN_CONTEXT_RUNTIME_CAPABILITY
-              ]
-            }
-          }
-        ]
-      ]),
-      createProjectHostSetup
-    })
-
-    renderSection(localRepo)
-
-    clickButton('Add to another host')
-    expect(container.textContent).toContain('gpu')
-    clickButton('Add host placeholder')
-    const addHostButton = findButton('Add gpu')
-
-    await act(async () => {
-      addHostButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    expect(createProjectHostSetup).toHaveBeenCalledWith({
-      projectId: 'github:stablyai/orca',
-      hostId: 'runtime:gpu',
-      displayName: 'Orca',
-      setupState: 'not-set-up',
-      setupMethod: 'provisioned'
     })
   })
 })

@@ -75,23 +75,31 @@ function appendSessionFilePaths(target: string[], source: readonly string[]): vo
  */
 export async function* listCodexSessionJsonlFilesIncrementally(
   rootPath: string,
-  options: CodexSessionBridgeIncrementalOptions
+  options: CodexSessionBridgeIncrementalOptions,
+  onDirectoryError?: (directoryPath: string, error: unknown) => void | Promise<void>
 ): AsyncGenerator<string> {
-  yield* listCodexSessionFilesIncrementally(rootPath, options, isJsonlSessionFile)
+  yield* listCodexSessionFilesIncrementally(rootPath, options, isJsonlSessionFile, onDirectoryError)
 }
 
 /** Yields both physical representations that current Codex can resume. */
 export async function* listCodexSessionRolloutFilesIncrementally(
   rootPath: string,
-  options: CodexSessionBridgeIncrementalOptions
+  options: CodexSessionBridgeIncrementalOptions,
+  onDirectoryError?: (directoryPath: string, error: unknown) => void | Promise<void>
 ): AsyncGenerator<string> {
-  yield* listCodexSessionFilesIncrementally(rootPath, options, isRolloutSessionFile)
+  yield* listCodexSessionFilesIncrementally(
+    rootPath,
+    options,
+    isRolloutSessionFile,
+    onDirectoryError
+  )
 }
 
 async function* listCodexSessionFilesIncrementally(
   rootPath: string,
   options: CodexSessionBridgeIncrementalOptions,
-  isSessionFile: (fileName: string) => boolean
+  isSessionFile: (fileName: string) => boolean,
+  onDirectoryError?: (directoryPath: string, error: unknown) => void | Promise<void>
 ): AsyncGenerator<string> {
   const batchSize = Math.max(1, options.batchSize ?? INCREMENTAL_BRIDGE_BATCH_SIZE)
   const yieldMs = Math.max(0, options.yieldMs ?? INCREMENTAL_BRIDGE_YIELD_MS)
@@ -119,6 +127,7 @@ async function* listCodexSessionFilesIncrementally(
         }
       }
     } catch (error) {
+      await onDirectoryError?.(currentDirectory, error)
       console.warn('[codex-session-bridge] Failed to list system Codex sessions:', error)
     }
   }

@@ -21,7 +21,7 @@ import {
   type PreflightIssue,
   type LandingPreflightStatus
 } from './landing-preflight-issues'
-import { ORCA_ALAB_PUBLIC_STARGAZERS_URL } from '../../../shared/repository-endpoints'
+import { ORCA_ALAB_PUBLIC_REPOSITORY_URL } from '../../../shared/repository-endpoints'
 
 type ShortcutItem = {
   id: string
@@ -83,7 +83,9 @@ function GitHubStarButton({ hasRepos }: { hasRepos: boolean }): React.JSX.Elemen
       return
     }
     if (state === 'web-fallback') {
-      await window.api.shell.openUrl(ORCA_ALAB_PUBLIC_STARGAZERS_URL)
+      // Why: don't deep-link to /stargazers — GitHub 404s that page for users
+      // without repo write access; the repo root always resolves.
+      await window.api.shell.openUrl(ORCA_ALAB_PUBLIC_REPOSITORY_URL)
       return
     }
     if (state !== 'not-starred') {

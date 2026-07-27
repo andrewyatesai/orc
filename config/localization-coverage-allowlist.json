@@ -19,5 +19,75 @@
     "text": "JetBrains Mono",
     "dynamic": false,
     "count": 1
+  },
+  {
+    "filePath": "src/renderer/src/lib/agent-background-session-test-state.ts",
+    "kind": "object-property:title",
+    "text": "Terminal 1",
+    "dynamic": false,
+    "count": 1
+  },
+  {
+    "filePath": "src/renderer/src/components/settings/appearance-search.ts",
+    "kind": "object-property:keywords",
+    "text": "\u8bed\u8a00",
+    "dynamic": false,
+    "count": 1
+  },
+  {
+    "filePath": "src/renderer/src/components/settings/appearance-search.ts",
+    "kind": "object-property:keywords",
+    "text": "\u8a9e\u8a00",
+    "dynamic": false,
+    "count": 1
+  },
+  {
+    "filePath": "src/renderer/src/components/settings/appearance-search.ts",
+    "kind": "object-property:keywords",
+    "text": "\uc5b8\uc5b4",
+    "dynamic": false,
+    "count": 1
+  },
+  {
+    "filePath": "src/renderer/src/components/settings/appearance-search.ts",
+    "kind": "object-property:keywords",
+    "text": "\u8a00\u8a9e",
+    "dynamic": false,
+    "count": 1
+  },
+  {
+    "filePath": "src/renderer/src/components/settings/appearance-search.ts",
+    "kind": "object-property:keywords",
+    "text": "Idioma",
+    "dynamic": false,
+    "count": 1
+  },
+  {
+    "filePath": "src/renderer/src/components/settings/terminal-advanced-platform-search.ts",
+    "kind": "object-property:keywords",
+    "text": "Ghostty",
+    "dynamic": false,
+    "count": 2
+  },
+  {
+    "filePath": "src/renderer/src/components/settings/terminal-advanced-platform-search.ts",
+    "kind": "object-property:keywords",
+    "text": "ghostty",
+    "dynamic": false,
+    "count": 2
+  },
+  {
+    "filePath": "src/renderer/src/components/settings/terminal-pane-appearance-search.ts",
+    "kind": "object-property:keywords",
+    "text": "Ghostty",
+    "dynamic": false,
+    "count": 1
+  },
+  {
+    "filePath": "src/renderer/src/components/settings/terminal-pane-appearance-search.ts",
+    "kind": "object-property:keywords",
+    "text": "ghostty",
+    "dynamic": false,
+    "count": 1
   }
 ]

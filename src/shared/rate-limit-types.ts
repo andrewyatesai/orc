@@ -15,7 +15,7 @@ export type RateLimitBucket = RateLimitWindow & {
   name: string
 }
 
-export type UsageRateLimitSource = 'oauth' | 'cli' | 'web'
+export type UsageRateLimitSource = 'oauth' | 'cli' | 'web' | 'live-session'
 
 export type UsageRateLimitFailureKind =
   | 'missing-credentials'
@@ -78,6 +78,8 @@ export type ProviderRateLimits = {
       grantedAt: number | null
     }[]
   } | null
+  /** Subscription plan tier for the active account (Codex `plan_type`, e.g. "plus"). */
+  planType?: string | null
   /** Unix ms timestamp of the last successful data update. */
   updatedAt: number
   /** Human-readable error message, null when status is 'ok'. */

@@ -41,6 +41,7 @@ pub mod feature_tips;
 pub mod contextual_tours;
 pub mod feature_education_telemetry;
 pub mod setup_script_import_codex_environment;
+pub mod setup_script_import_limits;
 pub mod setup_script_imports;
 
 pub use workspace_session_schema::{parse_workspace_session, ParsedWorkspaceSession, MAX_BROWSER_HISTORY_ENTRIES};

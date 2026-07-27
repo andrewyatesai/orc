@@ -56,15 +56,28 @@ export function setPrimarySelectionEnabled(nextEnabled: boolean): void {
 // Why: the integrated terminal injects the primary selection into the PTY
 // itself on middle-click, so arm a short window to swallow Chromium's follow-up
 // native X11 paste instead of forwarding the same selection to the PTY twice.
+// Only X11/Linux emits that native follow-up; arming elsewhere (middle-click
+// paste is also on by default off Linux) would swallow legitimate pastes.
 export function armPrimarySelectionNativePasteSuppression(now: number = Date.now()): void {
-  if (!enabled) {
+  if (!enabled || !isLinuxUserAgent(getUserAgent())) {
     return
   }
   nativePasteSuppressionUntil = now + PRIMARY_SELECTION_NATIVE_PASTE_SUPPRESSION_MS
 }
 
+// Why: single-shot — the arm owes exactly one follow-up paste, so clearing the
+// deadline on consume keeps a real keyboard paste inside the same 750ms alive.
+export function consumePrimarySelectionNativePasteSuppression(now: number = Date.now()): boolean {
+  if (!enabled || nativePasteSuppressionUntil === 0 || now > nativePasteSuppressionUntil) {
+    return false
+  }
+  nativePasteSuppressionUntil = 0
+  return true
+}
+
+// Non-consuming probe of the same window, for callers that must not disarm it.
 export function shouldSuppressPrimarySelectionNativePaste(now: number = Date.now()): boolean {
-  return enabled && now <= nativePasteSuppressionUntil
+  return enabled && nativePasteSuppressionUntil !== 0 && now <= nativePasteSuppressionUntil
 }
 
 export function isPrimarySelectionEnabled(): boolean {

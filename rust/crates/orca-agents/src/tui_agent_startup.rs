@@ -105,6 +105,9 @@ pub struct AgentResumeStartupPlanArgs<'a> {
     pub provider_session_id: &'a str,
     /// Pi's transcript-path resume identity (`providerSession.transcriptPath`).
     pub provider_session_transcript_path: Option<&'a str>,
+    /// OMP's exact transcript-file locator (`ompResumeFilePath`); it overrides
+    /// the session id when set, unlike pi's *required* transcript path.
+    pub omp_resume_file_path: Option<&'a str>,
     pub cmd_overrides: &'a [(&'a str, &'a str)],
     pub platform: &'a str,
     pub shell: Option<AgentStartupShell>,
@@ -242,6 +245,7 @@ pub fn get_agent_resume_argv(
     key: ProviderSessionKey,
     id: &str,
     transcript_path: Option<&str>,
+    omp_resume_file_path: Option<&str>,
 ) -> Option<Vec<String>> {
     // Why: pi resumes by absolute transcript path, not by session id (#8876);
     // a missing/empty path cannot resume (the TS truthiness guard).
@@ -251,6 +255,20 @@ pub fn get_agent_resume_argv(
                 Some(vec!["pi".to_string(), "--session".to_string(), path.to_string()])
             }
             _ => None,
+        };
+    }
+    // Why: omp resumes by the exact transcript file when one is known, and by
+    // bare session id otherwise (the TS `ompResumeFilePath?.trim() || id`).
+    if agent == "omp" {
+        return match key {
+            ProviderSessionKey::SessionId => {
+                let target = omp_resume_file_path
+                    .map(str::trim)
+                    .filter(|path| !path.is_empty())
+                    .unwrap_or(id);
+                Some(vec!["omp".to_string(), "--resume".to_string(), target.to_string()])
+            }
+            ProviderSessionKey::ConversationId => None,
         };
     }
     let argv: &[&str] = match (agent, key) {
@@ -371,6 +389,7 @@ pub fn build_agent_resume_startup_plan(
         args.provider_session_key,
         args.provider_session_id,
         args.provider_session_transcript_path,
+        args.omp_resume_file_path,
     )?;
     let shell = resolve_startup_shell(args.platform, args.shell);
     let config = tui_agent_config(args.agent)?;
@@ -501,7 +520,7 @@ mod tests {
     #[test]
     fn resume_argv_matches_the_ts_table_per_agent_and_key() {
         use ProviderSessionKey::{ConversationId, SessionId};
-        let argv = |a: &str, k, id: &str| get_agent_resume_argv(a, k, id, None);
+        let argv = |a: &str, k, id: &str| get_agent_resume_argv(a, k, id, None, None);
         assert_eq!(argv("claude", SessionId, "s1").unwrap(), ["claude", "--resume", "s1"]);
         assert_eq!(argv("codex", SessionId, "s2").unwrap(), ["codex", "resume", "s2"]);
         assert_eq!(argv("antigravity", ConversationId, "c1").unwrap(), ["agy", "--conversation", "c1"]);
@@ -512,11 +531,26 @@ mod tests {
         // Pi resumes by transcript path, never by bare session id (#8876).
         assert_eq!(argv("pi", SessionId, "x"), None);
         assert_eq!(
-            get_agent_resume_argv("pi", SessionId, "x", Some("/tmp/pi-1.jsonl")).unwrap(),
+            get_agent_resume_argv("pi", SessionId, "x", Some("/tmp/pi-1.jsonl"), None).unwrap(),
             ["pi", "--session", "/tmp/pi-1.jsonl"]
         );
-        assert_eq!(get_agent_resume_argv("pi", SessionId, "x", Some("")), None);
-        assert_eq!(get_agent_resume_argv("pi", ConversationId, "x", Some("/tmp/pi-1.jsonl")), None);
+        assert_eq!(get_agent_resume_argv("pi", SessionId, "x", Some(""), None), None);
+        assert_eq!(
+            get_agent_resume_argv("pi", ConversationId, "x", Some("/tmp/pi-1.jsonl"), None),
+            None
+        );
+        // omp takes the exact file locator when given, else the bare session id.
+        assert_eq!(argv("omp", SessionId, "s4").unwrap(), ["omp", "--resume", "s4"]);
+        assert_eq!(
+            get_agent_resume_argv("omp", SessionId, "s4", None, Some(" /vault/omp/session.jsonl "))
+                .unwrap(),
+            ["omp", "--resume", "/vault/omp/session.jsonl"]
+        );
+        assert_eq!(
+            get_agent_resume_argv("omp", SessionId, "s4", None, Some("   ")).unwrap(),
+            ["omp", "--resume", "s4"]
+        );
+        assert_eq!(argv("omp", ConversationId, "s4"), None);
     }
 
     fn startup_args<'a>(agent: &'a str, prompt: &'a str, platform: &'a str) -> AgentStartupPlanArgs<'a> {
@@ -735,6 +769,7 @@ mod tests {
             provider_session_key: ProviderSessionKey::SessionId,
             provider_session_id: id,
             provider_session_transcript_path: None,
+            omp_resume_file_path: None,
             cmd_overrides: &[],
             platform: "linux",
             shell: None,

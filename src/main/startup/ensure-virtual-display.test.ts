@@ -77,10 +77,10 @@ describe('ensureVirtualDisplayForHeadlessServe', () => {
     expect(ensureVirtualDisplayForHeadlessServe({ isServeMode: true })).toBe(true)
     expect(spawnMock).not.toHaveBeenCalled()
     expect(process.env.DISPLAY).toBe(':0')
-    expect(appMock.commandLine.appendSwitch).toHaveBeenCalledWith('disable-dev-shm-usage')
     // An externally provided DISPLAY is commonly Xvfb too, so software rendering
     // must be forced on this path as well (#9785).
     expect(appMock.disableHardwareAcceleration).toHaveBeenCalled()
+    expect(appMock.commandLine.appendSwitch).toHaveBeenCalledWith('disable-dev-shm-usage')
     expect(appMock.commandLine.appendSwitch).toHaveBeenCalledWith('disable-gpu')
   })
 

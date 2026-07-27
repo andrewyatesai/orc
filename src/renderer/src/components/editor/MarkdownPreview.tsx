@@ -135,6 +135,7 @@ type MarkdownPreviewSourceOpenFile = {
   relativePath: string
   worktreeId: string
   runtimeEnvironmentId?: string | null
+  externalSshTargetId?: string
   mode: string
   markdownPreviewSourceFileId?: string
 }
@@ -623,12 +624,14 @@ export default function MarkdownPreview({
             settings: settingsForRuntimeOwner(settings, resolvedSourceRuntimeEnvironmentId),
             worktreeId: sourceRoutingWorktreeId,
             worktreePath: worktreeRoot,
-            connectionId: sourceConnectionId
+            connectionId: sourceConnectionId,
+            expectedExternalSshTargetId: sourceOpenFile?.externalSshTargetId
           }
         : undefined,
     [
       settings,
       sourceConnectionId,
+      sourceOpenFile?.externalSshTargetId,
       resolvedSourceRuntimeEnvironmentId,
       sourceRoutingWorktreeId,
       worktreeRoot

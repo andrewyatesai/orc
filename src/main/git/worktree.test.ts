@@ -76,6 +76,21 @@ describe('listWorktrees in-flight sharing', () => {
     expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(1)
   })
 
+  it('does not share scans across different timeout contracts', async () => {
+    const scanOutput = 'worktree /repo\nHEAD abc123\nbranch refs/heads/main\n'
+    gitExecFileAsyncMock.mockResolvedValue({ stdout: scanOutput })
+
+    await Promise.all([listWorktrees('/repo'), listWorktrees('/repo', { timeout: 5_000 })])
+
+    expect(gitExecFileAsyncMock.mock.calls).toEqual([
+      [
+        ['worktree', 'list', '--porcelain', '-z'],
+        { cwd: '/repo', timeout: WORKTREE_LIST_TIMEOUT_MS }
+      ],
+      [['worktree', 'list', '--porcelain', '-z'], { cwd: '/repo', timeout: 5_000 }]
+    ])
+  })
+
   it('runs a fresh scan once the shared one has settled', async () => {
     const scanOutput = 'worktree /repo\nHEAD abc123\nbranch refs/heads/main\n'
     gitExecFileAsyncMock.mockResolvedValue({ stdout: scanOutput })
@@ -84,6 +99,27 @@ describe('listWorktrees in-flight sharing', () => {
     await listWorktrees('/repo')
 
     expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('runs a fresh scan after a timed-out shared scan settles', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      gitExecFileAsyncMock
+        .mockRejectedValueOnce(new Error('git timed out.'))
+        .mockResolvedValueOnce({
+          stdout: 'worktree /repo\nHEAD abc123\nbranch refs/heads/main\n'
+        })
+
+      await expect(listWorktrees('/repo')).resolves.toEqual([])
+      await expect(listWorktrees('/repo')).resolves.toEqual([
+        expect.objectContaining({ path: '/repo', head: 'abc123' })
+      ])
+
+      expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(2)
+      expect(_getWorktreeScanCacheSizesForTests()).toEqual({ inFlight: 0, generations: 0 })
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 
   it('does not share scans across different repos', async () => {
@@ -710,6 +746,20 @@ branch refs/heads/main
     gitExecFileAsyncMock.mockRejectedValueOnce(new Error('fatal: not a git repository'))
 
     await expect(listWorktreeGraph('/not-a-repo')).resolves.toEqual([])
+  })
+
+  it('lets callers override the default worktree list timeout', async () => {
+    gitExecFileAsyncMock.mockResolvedValueOnce({
+      stdout: 'worktree /repo\nHEAD abc123\nbranch refs/heads/main\n'
+    })
+
+    await listWorktreeGraph('/repo', { timeout: 5_000 })
+
+    expect(gitExecFileAsyncMock).toHaveBeenCalledWith(['worktree', 'list', '--porcelain', '-z'], {
+      cwd: '/repo',
+      timeout: 5_000
+    })
+    expect(WORKTREE_LIST_TIMEOUT_MS).toBe(30_000)
   })
 })
 

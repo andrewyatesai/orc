@@ -47,6 +47,7 @@ export function getInitialClaudeRateLimitTarget(
       : { runtime: 'host' }
   }
 
+  // Why: pre-setting profiles used account selection as their startup fallback.
   const projectRuntimeTarget = getProjectRuntimeRateLimitTarget(settings, platform)
   if (projectRuntimeTarget) {
     return projectRuntimeTarget

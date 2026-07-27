@@ -32,6 +32,7 @@ import { toPublicPane } from './pane-public-view'
 import type { TerminalLeafId } from '../../../../shared/stable-pane-id'
 import { registerLivePaneManager, unregisterLivePaneManager } from './pane-manager-registry'
 import { applyAtermGpuMode, buildPaneRenderingDiagnostics } from './aterm-rendering-diagnostics'
+import { fitRevealedPane } from './pane-reveal-fit'
 import { PaneIdentityRegistry } from './pane-identity-registry'
 import {
   closeManagedPane,
@@ -191,8 +192,23 @@ export class PaneManager {
     fitAllPanesInternal(this.panes)
   }
 
+  // Why: reveal (minimize→restore, worktree foreground, window wake) must not
+  // refit unconditionally — a fit on a mid-transition container reflows the grid
+  // and garbles diff-painting inline TUIs. fitRevealedPane fits only on a real
+  // pixel change and otherwise just releases parked fit continuations.
+  fitAllRevealedPanes(): void {
+    for (const pane of this.panes.values()) {
+      fitRevealedPane(pane)
+    }
+  }
+
   refreshAllPanes(): void {
     for (const pane of this.panes.values()) {
+      // Suspended GPU panes re-present the whole grid on resume, so a forced
+      // repaint here buys nothing (upstream's retained-WebGL-context skip).
+      if (pane.startRenderingSuspended && pane.atermController?.rendererKind() === 'gpu') {
+        continue
+      }
       try {
         if (pane.terminal.rows > 0) {
           pane.terminal.refresh(0, pane.terminal.rows - 1)

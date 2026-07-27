@@ -60,7 +60,11 @@ import type {
 import type { TerminalPaneSplitSource } from '../../../../shared/feature-education-telemetry'
 import type { EventProps } from '../../../../shared/telemetry-events'
 import type { StartupCommandDelivery } from '../../../../shared/codex-startup-delivery'
-import type { SleepingAgentLaunchConfig } from '../../../../shared/agent-session-resume'
+import type {
+  AgentProviderSessionMetadata,
+  SleepingAgentLaunchConfig
+} from '../../../../shared/agent-session-resume'
+// Fork: the weight resolver moved out of shared/terminal-fonts with the aterm engine.
 import { resolveTerminalFontWeights } from '../../lib/git-wasm/terminal-fonts'
 import {
   buildFontFamily,
@@ -82,7 +86,7 @@ import { makePaneKey } from '../../../../shared/stable-pane-id'
 import { applyExpandedLayoutTo, restoreExpandedLayoutFrom } from './expand-collapse'
 import { applyTerminalAppearance, installMode2031Handlers } from './terminal-appearance'
 import { pushMode2031SeedReply } from './terminal-mode-2031-replies'
-import { handleOsc52ClipboardRequest } from './osc52-clipboard'
+import { createOsc52OscHandler } from './osc52-clipboard'
 import { showOsc52ClipboardBlockedToast } from './osc52-clipboard-blocked-toast'
 import { copyTerminalTextVerified, reportTerminalCopyOutcome } from './terminal-copy-outcome'
 import { parseOsc7 } from './parse-osc7'
@@ -116,6 +120,7 @@ import type { EffectiveMacOptionAsAlt } from '@/lib/keyboard-layout/detect-optio
 import { resolveEffectiveTerminalAppearance } from '@/lib/terminal-theme'
 import { connectPanePty } from './pty-connection'
 import type { PtyTransport } from './pty-transport'
+import type { PtyTransportRecoveryState } from './pty-transport-types'
 import {
   reconcileMissingSessions,
   type ReconcilableBinding
@@ -229,7 +234,9 @@ type UseTerminalPaneLifecycleDeps = {
     delivery?: 'terminal-paste'
     startupCommandDelivery?: StartupCommandDelivery
     env?: Record<string, string>
+    envToDelete?: string[]
     launchConfig?: SleepingAgentLaunchConfig
+    resumeProviderSession?: AgentProviderSessionMetadata
     launchToken?: string
     launchAgent?: TuiAgent
     draftPrompt?: string
@@ -280,8 +287,12 @@ type UseTerminalPaneLifecycleDeps = {
   onAgentExitedRef: React.RefObject<(leafId: string) => void>
   onPtyErrorRef?: React.RefObject<(paneId: number, message: string) => void>
   onPaneProcessDied?: (exitCode: number) => void
+  onPtyRecoveryStateRef?: React.RefObject<
+    (paneId: number, state: PtyTransportRecoveryState | null) => void
+  >
   clearTabPtyId: (tabId: string, ptyId: string) => void
   consumeSuppressedPtyExit: (ptyId: string) => boolean
+  isPtyShutdownPending: (ptyId: string) => boolean
   updateTabTitle: (tabId: string, title: string) => void
   setRuntimePaneTitle: (tabId: string, paneId: number, title: string) => void
   clearRuntimePaneTitle: (tabId: string, paneId: number) => void
@@ -571,8 +582,10 @@ export function useTerminalPaneLifecycle({
   onAgentExitedRef,
   onPtyErrorRef,
   onPaneProcessDied,
+  onPtyRecoveryStateRef,
   clearTabPtyId,
   consumeSuppressedPtyExit,
+  isPtyShutdownPending,
   updateTabTitle,
   setRuntimePaneTitle,
   clearRuntimePaneTitle,
@@ -936,8 +949,10 @@ export function useTerminalPaneLifecycle({
       onAgentExitedRef,
       onPtyErrorRef,
       onPaneProcessDied,
+      onPtyRecoveryStateRef,
       clearTabPtyId,
       consumeSuppressedPtyExit,
+      isPtyShutdownPending,
       updateTabTitle,
       setRuntimePaneTitle,
       clearRuntimePaneTitle,
@@ -998,18 +1013,28 @@ export function useTerminalPaneLifecycle({
         })
         mode2031DisposablesRef.current.set(pane.id, mode2031Disposables)
 
-        // OSC 52 — TUI-initiated clipboard writes (tmux/nvim/fzf/ssh).
+        // OSC 52 — TUI-initiated clipboard writes (Zellij/tmux/nvim/fzf/ssh).
         // Why: read settingsRef at fire time so mid-session gate toggles apply; return true in both paths so xterm doesn't fall through.
         const osc52Disposable = pane.terminal.parser.registerOscHandler(
           52,
-          guardParserHandler('osc-52-clipboard', (data) =>
-            handleOsc52ClipboardRequest(data, {
-              allowClipboardWrite: settingsRef.current?.terminalAllowOsc52Clipboard === true,
-              writeClipboardText: window.api.ui.writeClipboardText,
-              onBlockedWrite: showOsc52ClipboardBlockedToast,
+          guardParserHandler(
+            'osc-52-clipboard',
+            createOsc52OscHandler({
+              getSettingEnabled: () => settingsRef.current?.terminalAllowOsc52Clipboard,
+              getReplaying: () => isPaneReplaying(replayingPanesRef, pane.id),
               // Why: an allowed TUI copy is invisible; surface its verified outcome
-              // (one-time success toast + failure toast live in the seam).
-              onWriteResult: (ok) => reportTerminalCopyOutcome(ok, 'osc52')
+              // (one-time success toast + failure toast live in the seam). Wrapped
+              // here because the coalescing handler swallows write rejections.
+              writeClipboardText: async (text) => {
+                let ok = false
+                try {
+                  ok = (await window.api.ui.writeClipboardText(text)) !== false
+                } catch {
+                  ok = false
+                }
+                reportTerminalCopyOutcome(ok, 'osc52')
+              },
+              showBlockedWriteToast: showOsc52ClipboardBlockedToast
             })
           )
         )
@@ -1405,6 +1430,7 @@ export function useTerminalPaneLifecycle({
         queueResizeAll(true)
       },
       onPaneClosed: (paneId, closedPane) => {
+        onPtyRecoveryStateRef?.current?.(paneId, null)
         const isDetachedToTab = closedPane?.reason === 'detach'
         const linkProviderDisposable = linkProviderDisposablesRef.current.get(paneId)
         if (linkProviderDisposable) {

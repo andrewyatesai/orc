@@ -5,12 +5,12 @@ import type {
   AgentStatusOrchestrationContext,
   MigrationUnsupportedPtyEntry
 } from '../../../../shared/agent-status-types'
+import { selectWorktreeAgentOrchestration } from './worktree-agent-orchestration-index'
 import type { TerminalLayoutSnapshot } from '../../../../shared/types'
 import {
   getLiveEntriesByWorktree,
   getMigrationUnsupportedByWorktree,
   getRetainedEntriesByWorktree,
-  getRuntimeAgentOrchestrationByWorktree,
   type RuntimeAgentOrchestrationState,
   type WorktreeAgentRowsState
 } from './worktree-agent-index-cache'
@@ -18,7 +18,6 @@ import {
 const EMPTY_LIVE_ENTRIES: AgentStatusEntry[] = []
 const EMPTY_MIGRATION_UNSUPPORTED_ENTRIES: MigrationUnsupportedPtyEntry[] = []
 const EMPTY_RETAINED: RetainedAgentEntry[] = []
-const EMPTY_RUNTIME_AGENT_ORCHESTRATION: Record<string, AgentStatusOrchestrationContext> = {}
 // Why: selector unit tests often pass partial store mocks; production state
 // owns these maps, but missing mock maps should behave like empty slices.
 const EMPTY_RECORD = {}
@@ -46,14 +45,15 @@ export function selectRetainedAgentEntriesForWorktree(
   return getRetainedEntriesByWorktree(state).get(worktreeId) ?? EMPTY_RETAINED
 }
 
+// Why: reads a shared worktree-keyed index instead of rescanning every
+// orchestration context. Zustand re-runs each mounted card's selector on every
+// publication, so the old per-card scan was O(cards x contexts) on unrelated
+// traffic; only the first card through a given store version now pays a build.
 export function selectRuntimeAgentOrchestrationForWorktree(
   state: RuntimeAgentOrchestrationState,
   worktreeId: string
 ): Record<string, AgentStatusOrchestrationContext> {
-  return (
-    getRuntimeAgentOrchestrationByWorktree(state).get(worktreeId) ??
-    EMPTY_RUNTIME_AGENT_ORCHESTRATION
-  )
+  return selectWorktreeAgentOrchestration(state, worktreeId)
 }
 
 export function selectTerminalLayoutsForWorktree(

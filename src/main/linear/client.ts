@@ -6,6 +6,7 @@ import type { LinearClient } from '@linear/sdk'
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { loadLinearSdk, type LinearSdkModule } from './linear-sdk'
 import {
   CredentialDecryptionError,
   credentialFileHasContent,
@@ -19,21 +20,15 @@ import type {
 } from '../../shared/types'
 
 // ── Lazy @linear/sdk ─────────────────────────────────────────────────
-// Why: the Linear SDK is ~1 MB and only needed to build a client for real API
-// calls (never at startup — initLinearToken warms plaintext metadata only). It
-// is dynamically imported on first client construction so it stays OUT of the
-// every-launch main-bundle parse. The loaded module is cached module-wide;
-// isAuthError reads the cached class (it only runs after an op already loaded it).
-// The module type is derived from the dynamic-import expression (not an
-// `import()` type annotation, which consistent-type-imports forbids).
-const loadLinearSdk = () => import('@linear/sdk')
-type LinearSdk = Awaited<ReturnType<typeof loadLinearSdk>>
-let sdkPromise: Promise<LinearSdk> | null = null
-let sdk: LinearSdk | null = null
-export async function ensureLinearSdk(): Promise<LinearSdk> {
-  const loaded = await (sdkPromise ??= loadLinearSdk())
-  sdk = loaded
-  return loaded
+// Why: the SDK is a ~2.6 MB CJS bundle only needed to build a client for real
+// API calls (never at startup — initLinearToken warms plaintext metadata only),
+// so it stays OUT of the every-launch main-bundle parse. Loading goes through
+// ./linear-sdk's createRequire accessor, which caches and stays mockable in
+// tests. The async wrapper is the call-site contract for the client factories.
+let sdk: LinearSdkModule | null = null
+export async function ensureLinearSdk(): Promise<LinearSdkModule> {
+  sdk ??= loadLinearSdk()
+  return sdk
 }
 
 // ── Concurrency limiter — max 4 parallel Linear API calls ────────────
@@ -566,7 +561,11 @@ export async function getClients(
     if (!token) {
       continue
     }
-    clients.push({ workspace, client: new LinearClient({ apiKey: token }), apiKey: token })
+    clients.push({
+      workspace,
+      client: new LinearClient({ apiKey: token }),
+      apiKey: token
+    })
   }
   return clients
 }
@@ -590,7 +589,8 @@ export async function getPublicFileUrlClient(
 export function isAuthError(error: unknown): boolean {
   // Reads the cached SDK class: isAuthError only runs inside a catch AFTER an
   // API op already loaded the SDK, so `sdk` is set. Before any op it is null
-  // (no client was ever built, so no AuthenticationLinearError can exist).
+  // (no client was ever built, so no AuthenticationLinearError can exist) —
+  // don't force the SDK parse just to classify an error.
   return sdk != null && error instanceof sdk.AuthenticationLinearError
 }
 

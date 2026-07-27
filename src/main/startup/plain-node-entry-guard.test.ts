@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest'
 import type { Plugin } from 'vite'
 import { createPlainNodeEntryGuardPlugin } from '../../../build-plugins/plain-node-entry-guard'
 
-// The three plain-Node fork entries the guard must always find in a produced build.
+// The plain-Node fork entries the guard must always find in a produced build.
+// Mirrors PLAIN_NODE_ENTRY_NAMES in build-plugins/plain-node-entry-guard.ts, minus
+// upstream's `daemon-entry` — the fork's daemon is the Rust runtime, not a Node fork.
 const PLAIN_NODE_ENTRY_NAMES = [
   'parcel-watcher-process-entry',
   'computer-sidecar',
-  'agent-hooks/managed-agent-hook-controls'
+  'agent-hooks/managed-agent-hook-controls',
+  'codex/codex-app-server-grant-entry'
 ] as const
 
 function entryChunk(
@@ -68,6 +71,30 @@ describe('plain-node entry guard plugin', () => {
 
     expect(() => runWriteBundle(createPlainNodeEntryGuardPlugin(), bundle)).toThrow(
       /no emitted entry chunk for "computer-sidecar"/
+    )
+  })
+
+  it('guards the codex app-server grant entry, which runs under ELECTRON_RUN_AS_NODE', () => {
+    const bundle = bundleWithAllEntries()
+    delete bundle['codex/codex-app-server-grant-entry.js']
+
+    expect(() => runWriteBundle(createPlainNodeEntryGuardPlugin(), bundle)).toThrow(
+      /no emitted entry chunk for "codex\/codex-app-server-grant-entry"/
+    )
+  })
+
+  it('catches an electron require reachable from the codex grant entry', () => {
+    const bundle = bundleWithAllEntries({
+      'codex/codex-app-server-grant-entry.js': entryChunk(
+        'codex/codex-app-server-grant-entry',
+        'const x = 1',
+        { imports: ['codex-shared.js'] }
+      ),
+      'codex-shared.js': sharedChunk('codex-shared.js', 'const e = require("electron")')
+    })
+
+    expect(() => runWriteBundle(createPlainNodeEntryGuardPlugin(), bundle)).toThrow(
+      /"codex\/codex-app-server-grant-entry" reaches chunk "codex-shared\.js" that requires electron/
     )
   })
 

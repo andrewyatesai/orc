@@ -100,6 +100,8 @@ function renderMenu(overrides: Record<string, unknown> = {}): string {
     onEqualizePaneSizes: vi.fn(),
     onClosePane: vi.fn(),
     onClearScreen: vi.fn(),
+    canContinueAgentSessionInNewSession: false,
+    onContinueAgentSessionInNewSession: vi.fn(),
     onForkAgentSession: vi.fn(),
     canToggleNativeChat: false,
     isNativeChatView: false,
@@ -151,6 +153,22 @@ describe('TerminalContextMenu', () => {
     expect(onForkAgentSession).not.toHaveBeenCalled()
   })
 
+  it('shows new-session continuation only for eligible agent panes', () => {
+    const onContinueAgentSessionInNewSession = vi.fn()
+    renderMenu({
+      canContinueAgentSessionInNewSession: true,
+      onContinueAgentSessionInNewSession
+    })
+
+    const handoffItem = items.list.find(
+      (item) => childrenText(item.children) === 'Continue in New Session…'
+    )
+    expect(handoffItem).toBeDefined()
+
+    handoffItem?.onSelect?.()
+    expect(onContinueAgentSessionInNewSession).toHaveBeenCalledTimes(1)
+  })
+
   it('shows one shortcut per terminal menu action on Windows', () => {
     vi.stubGlobal('navigator', {
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
@@ -186,14 +204,16 @@ describe('TerminalContextMenu', () => {
       projectQuickCommandsTrusted: false
     })
 
-    const projectItem = items.list.find((item) => deepChildrenText(item.children).includes('Dev server'))
+    const projectItem = items.list.find((item) =>
+      deepChildrenText(item.children).includes('Dev server')
+    )
     expect(projectItem).toBeDefined()
     expect(projectItem?.disabled).toBe(true)
     // Why: provenance must be visible — a repo-supplied command may not masquerade as a user-saved one.
     expect(markup).toContain('Defined in orca.yaml')
 
-    const reviewItem = items.list.find(
-      (item) => deepChildrenText(item.children).includes('Review orca.yaml trust…')
+    const reviewItem = items.list.find((item) =>
+      deepChildrenText(item.children).includes('Review orca.yaml trust…')
     )
     expect(reviewItem).toBeDefined()
     expect(reviewItem?.disabled).not.toBe(true)
@@ -212,8 +232,8 @@ describe('TerminalContextMenu', () => {
       onQuickCommand
     })
 
-    const reviewItem = items.list.find(
-      (item) => deepChildrenText(item.children).includes('Review orca.yaml trust…')
+    const reviewItem = items.list.find((item) =>
+      deepChildrenText(item.children).includes('Review orca.yaml trust…')
     )
     reviewItem?.onSelect?.()
     expect(onOpenChange).toHaveBeenCalledWith(false)
@@ -249,9 +269,7 @@ describe('TerminalContextMenu', () => {
 
   it('renders Open/Copy link items only when a link target resolved (#9279 A2)', () => {
     renderMenu({})
-    expect(
-      items.list.find((item) => childrenText(item.children) === 'Open Link')
-    ).toBeUndefined()
+    expect(items.list.find((item) => childrenText(item.children) === 'Open Link')).toBeUndefined()
 
     items.list = []
     const onOpenLinkTarget = vi.fn()
@@ -351,7 +369,9 @@ describe('TerminalContextMenu', () => {
     expect(
       items.list.find((item) => deepChildrenText(item.children).includes('Review orca.yaml trust…'))
     ).toBeUndefined()
-    const projectItem = items.list.find((item) => deepChildrenText(item.children).includes('Dev server'))
+    const projectItem = items.list.find((item) =>
+      deepChildrenText(item.children).includes('Dev server')
+    )
     expect(projectItem?.disabled).not.toBe(true)
     projectItem?.onSelect?.()
     expect(onQuickCommand).toHaveBeenCalledWith(projectCommand)

@@ -45,7 +45,11 @@ import { initOnboardingCohortClassifier } from './telemetry/onboarding-cohort-cl
 import { resolveConsent } from './telemetry/consent'
 import { triggerStartupNotificationRegistration } from './ipc/notifications'
 import { OrcaRuntimeService } from './runtime/orca-runtime'
+import { loadAgentSessionClaimSigner } from './runtime/agent-session-claim-identity'
 import { OrcaRuntimeRpcServer } from './runtime/runtime-rpc'
+import { resolveAdvertisedPairingEndpoint } from './runtime/pairing-endpoint'
+import { ServeReadinessPublisher } from './server/serve-readiness'
+import { reserveServeStdoutForReadiness } from './server/serve-stdout-boundary'
 import { DesktopRelayService } from './runtime/relay/desktop-relay-service'
 import type { RelayBrokerStatus } from './runtime/relay/relay-session-broker'
 import { awaitRuntimeFileWatcherUnsubscribes } from './runtime/orca-runtime-files'
@@ -56,10 +60,24 @@ import {
   registerAppMenu,
   rebuildAppMenu
 } from './menu/register-app-menu'
-import { checkForUpdatesFromMenu, isQuittingForUpdate } from './updater'
-import type { UpdateCheckOptions } from '../shared/types'
+import {
+  checkForRemoteServerUpdate,
+  checkForUpdatesFromMenu,
+  downloadRemoteServerUpdate,
+  getRemoteServerUpdaterSnapshot,
+  installRemoteServerUpdate,
+  isQuittingForUpdate,
+  resolveUpdateInstallMode
+} from './updater'
+import { configureRemoteServerUpdater } from './runtime/remote-server-updater'
+import type { TuiAgent, UpdateCheckOptions } from '../shared/types'
 import { recordUpdaterLifecycle } from './updater-lifecycle-diagnostics'
 import {
+  installServeSupervisorDisconnectQuit,
+  notifyServeSupervisorReady
+} from './serve-update-handoff'
+import {
+  configureMainProcessWebglContextBudget,
   configureElectronNetworkCompatibility,
   configureDevUserDataPath,
   configureOrcaUserDataPathEnv,
@@ -67,11 +85,14 @@ import {
   installDevParentDisconnectQuit,
   installDevParentSignalQuit,
   installDevParentWatchdog,
-  installUncaughtPipeErrorGuard,
   isDevParentShutdownRequested,
   patchPackagedProcessPath,
   shouldInstallManagedHooks
 } from './startup/configure-process'
+import {
+  installUncaughtPipeErrorGuard,
+  installUnhandledRejectionLogging
+} from './startup/main-process-error-guards'
 import { enableRendererHeapHeadroom } from './startup/renderer-heap-headroom'
 import { ensureVirtualDisplayForHeadlessServe } from './startup/ensure-virtual-display'
 import {
@@ -131,6 +152,7 @@ import {
   ensureAutoUpdaterConfigured
 } from './window/attach-main-window-services'
 import { createMainWindow, loadMainWindow } from './window/createMainWindow'
+import { zoomDashboardPopoutIfFocused } from './window/dashboard-popout-window'
 import {
   createSystemTray,
   destroySystemTray,
@@ -143,18 +165,33 @@ import { focusExistingMainWindow } from './window/focus-existing-window'
 import { notifyMainWindowBecameVisible } from './window/main-window-visibility'
 import { CodexAccountService } from './codex-accounts/service'
 import { CodexRuntimeHomeService } from './codex-accounts/runtime-home-service'
+import { markCodexProjectTrusted } from './agent-trust-presets'
 import {
   normalizeCodexRuntimeSelection,
   type CodexAccountSelectionTarget
 } from './codex-accounts/runtime-selection'
 import { normalizeClaudeRuntimeSelection } from './claude-accounts/runtime-selection'
-import { codexHookService } from './codex/hook-service'
+import { codexHookService, setSystemCodexHomeHookSweepSuppressed } from './codex/hook-service'
+import {
+  ensureRealHomeCodexHookState,
+  isRealHomeCodexHookLaneUsable
+} from './codex/codex-real-home-hook-install'
+import { setCodexTrustGrantTelemetry } from './codex/codex-trust-grant-telemetry'
+import { startCodexSessionBackfillInBackground } from './codex/codex-session-backfill'
+import { startCodexSessionIndexHealInBackground } from './codex/codex-session-index-heal'
+import { createCodexSessionMigrationScheduler } from './codex/codex-session-migration-scheduler'
+import { prepareLegacySharedCodexSessionResume } from './codex/codex-legacy-session-resume'
+import { resolveHostCodexSessionSourceHome } from './codex/codex-session-source-home'
+import { findTrustedCodexSessionResume } from './codex/codex-session-resume-home'
+import { getSystemCodexHomePath } from './codex/codex-home-paths'
+import { normalizeRuntimePathForComparison } from '../shared/cross-platform-path'
+import type { AgentProviderSessionMetadata } from '../shared/agent-session-resume'
 import { getDefaultWslDistro } from './wsl'
 import { ClaudeAccountService } from './claude-accounts/service'
 import { ClaudeRuntimeAuthService } from './claude-accounts/runtime-auth-service'
 import {
-  attachClaudeLivePtyDrainListener,
   attachClaudeLivePtyPersistence,
+  onLiveClaudePtysDrained,
   seedLiveClaudePtysFromPersistence
 } from './claude-accounts/live-pty-gate'
 import { StarNagService } from './star-nag/service'
@@ -164,6 +201,7 @@ import { maybeAutoRenameBranchOnFirstWork } from './agent-hooks/first-work-branc
 import { rememberBranchRenameFailureOutput } from './agent-hooks/branch-rename-failure-output'
 import { renameWorktreeFolderOnFirstWork } from './agent-hooks/first-work-folder-rename'
 import { moveWorktree } from './git/worktree'
+import { setDefaultWslDistroOverride } from './git/runner'
 import { getRepoIdFromWorktreeId } from '../shared/worktree-id'
 import { parseWorkspaceKey } from '../shared/workspace-scope'
 import { classifyAtermRainPulse } from '../shared/aterm-rain-signal'
@@ -192,6 +230,7 @@ import { getLocalProjectGitExecOptions } from './project-runtime-git-options'
 import { resolveGitAutoFetchSettings } from '../shared/git-auto-fetch-settings'
 import { GIT_FETCH_SKIP_AUTO_MAINTENANCE_CONFIG_ARGS } from '../shared/git-fetch-auto-maintenance'
 import { registerSystemResumeBroadcast } from './system-resume-broadcast'
+import { settleTeardownWithinDeadline } from './quit-teardown-deadline'
 import {
   recordCoalescedCrashBreadcrumb,
   recordCrashBreadcrumb
@@ -229,7 +268,6 @@ import { preserveAgentAuthBeforeRestart } from './agent-auth-restart-preservatio
 import { CliInstaller } from './cli/cli-installer'
 import { installLinuxBareOrcaDispatcher } from './cli/linux-bare-orca-dispatcher'
 import { reconcileManagedWslCliRegistrations } from './cli/wsl-cli-registration-reconciliation'
-import { selfHealRuntimeEnvironmentFocus } from './runtime-environment-focus-self-heal'
 import { selfHealRuntimeHostWorkspaceSessions } from './runtime-environment-host-session-self-heal'
 
 let mainWindow: BrowserWindow | null = null
@@ -247,8 +285,10 @@ let claudeRuntimeAuth: ClaudeRuntimeAuthService | null = null
 let runtime: OrcaRuntimeService | null = null
 let rateLimits: RateLimitService | null = null
 let runtimeRpc: OrcaRuntimeRpcServer | null = null
+const serveReadinessPublisher = new ServeReadinessPublisher()
 let desktopRelayService: DesktopRelayService | null = null
 let desktopRelayStatus: RelayBrokerStatus = 'offline'
+let pendingUnpairedDeviceAuthFailure = false
 // Why: gates whether headless serve installs the offscreen browser backend (and advertises browser pane support).
 let headlessBrowserDisplayAvailable = false
 
@@ -283,6 +323,9 @@ let localPtyStartupReady: Promise<void> = Promise.resolve()
 let localPtyProviderStartupReady: Promise<void> = Promise.resolve()
 const AGENT_STATE_CRASH_BREADCRUMB_MIN_INTERVAL_MS = 30_000
 const isServeMode = process.argv.includes('--serve')
+if (isServeMode) {
+  reserveServeStdoutForReadiness()
+}
 const desktopActivationGate = createServeDesktopActivationGate({
   initialState: isServeMode ? 'initializing' : 'ready',
   activateWindow: () => {
@@ -445,6 +488,8 @@ const devAgentHookEndpointNamespace = devInstanceIdentity.isDev
   : undefined
 
 installUncaughtPipeErrorGuard()
+// Why (issue #9441): without this, one rejected background promise during startup restore kills main silently (exit 1, no crash report).
+installUnhandledRejectionLogging()
 configureDevUserDataPath(is.dev)
 // Why: the productName rename (59574d931) moved userData 'Orca Staging' → 'Orca ALab Edition'; adopt the old profile before the single-instance lock or any other consumer creates the new dir.
 // Why skipKeychainCopy: the Keychain copy writes files/Keychain items into userData and must not run before the
@@ -476,6 +521,12 @@ if (
 
 // Why: expose the app version via process.env so main and the forked daemon can set TERM_PROGRAM_VERSION without importing electron.
 process.env.ORCA_APP_VERSION = app.getVersion()
+configureRemoteServerUpdater({
+  getSnapshot: getRemoteServerUpdaterSnapshot,
+  check: checkForRemoteServerUpdate,
+  download: downloadRemoteServerUpdate,
+  install: installRemoteServerUpdate
+})
 patchPackagedProcessPath()
 // Why: the sync seed above covers early IPC (homebrew/nix); the async login-shell probe below (packaged only) then adds the user's rc PATH.
 if (app.isPackaged && process.platform !== 'win32') {
@@ -485,6 +536,8 @@ if (app.isPackaged && process.platform !== 'win32') {
     }
   })
 }
+// Why: userData path + env are configured pre-lock above (staging-profile adoption); only the serve supervisor coupling belongs here.
+installServeSupervisorDisconnectQuit(isServeMode)
 
 // Why: just past createMainWindow's 10s ready-to-show fallback, so a window revealed that way still gets its tray icon.
 const TRAY_CREATE_FALLBACK_MS = 12_000
@@ -709,7 +762,10 @@ if (hasSingleInstanceLock) {
   configureElectronNetworkCompatibility()
   enableRendererHeapHeadroom()
   maybeApplyGpuFallbackForThisLaunch()
-  if (!gpuFallbackActiveThisLaunch) {
+  if (gpuFallbackActiveThisLaunch) {
+    // Software fallback still shares the renderer's bounded Windows retention policy.
+    configureMainProcessWebglContextBudget()
+  } else {
     enableMainProcessGpuFeatures()
   }
   // Why: headless serve's offscreen BrowserWindows need an X display (Xvfb) on Linux; the result gates whether the offscreen backend is installed.
@@ -762,7 +818,11 @@ function startTerminalRuntimeStartupServices(): Promise<void> {
     // Why: both desktop and headless serve must adopt the same persistent provider before creating terminals or a renderer.
     startDaemonPtyProvider: async (signal) => {
       logStartupMilestone('startup-service-start', { service: 'daemon-pty-provider' })
-      await initDaemonPtyProvider(signal)
+      // Why: only GUI-spawned macOS daemons watch for login-session death; a headless
+      // serve daemon must survive its spawning session ending (SSH disconnect).
+      await initDaemonPtyProvider(signal, {
+        macosLoginSessionWatch: process.platform === 'darwin' && !isServeMode
+      })
       logStartupMilestone('startup-service-done', { service: 'daemon-pty-provider' })
     },
     // Why: PTY spawn env reads ORCA_AGENT_HOOK_* from live server state, so the renderer awaits this before restored terminals reconnect.
@@ -804,8 +864,56 @@ function startTerminalRuntimeStartupServices(): Promise<void> {
   return firstWindowStartupServicesReady
 }
 
-function prepareCodexRuntimeHomeForLaunch(target?: CodexAccountSelectionTarget): string | null {
-  const runtimeHomePath = codexRuntimeHome!.prepareForCodexLaunch(target)
+function prepareCodexRuntimeHomeForLaunch(
+  target?: CodexAccountSelectionTarget,
+  launchEnv?: NodeJS.ProcessEnv,
+  launchContext?: { workspacePath?: string; launchAgent?: TuiAgent }
+): string | null {
+  if (
+    target?.runtime !== 'wsl' &&
+    launchContext?.launchAgent === 'codex' &&
+    launchContext.workspacePath
+  ) {
+    try {
+      // Why: renderer quick-launch cannot await trust IPC before its PTY mounts; launch prep runs synchronously before every recognized Codex spawn.
+      markCodexProjectTrusted(launchContext.workspacePath)
+    } catch (error) {
+      console.warn('[codex-project-trust] failed to pre-mark launch workspace:', error)
+    }
+  }
+  const ensureRealHomeHooksIfSelected = (): boolean => {
+    if (
+      target?.runtime === 'wsl' ||
+      !codexRuntimeHome!.isHostSystemDefaultRealHomeSelected(launchEnv)
+    ) {
+      return false
+    }
+    // Why (flag ON, system default): the hook entry must exist — appended last
+    // and trusted by codex's own app-server grant — in the real ~/.codex before
+    // the pane spawns. An incapable grant flips the lane gate so the launch
+    // below falls back to the managed home instead of a status-blind pane.
+    ensureRealHomeCodexHookState({
+      hooksEnabled: isAgentStatusHooksEnabled(store?.getSettings()),
+      userDataPath: app.getPath('userData')
+    })
+    return true
+  }
+  let realHomeHooksPrepared = ensureRealHomeHooksIfSelected()
+  let runtimeHomePath = codexRuntimeHome!.prepareForCodexLaunch(target, launchEnv)
+  if (runtimeHomePath === null && !realHomeHooksPrepared) {
+    // Why: a managed home can lose auth during launch prep, which clears its
+    // selection and falls through to real home. Establish hook capability for
+    // that newly selected lane, then re-resolve if the capability gate rejects it.
+    realHomeHooksPrepared = ensureRealHomeHooksIfSelected()
+    if (realHomeHooksPrepared) {
+      runtimeHomePath = codexRuntimeHome!.prepareForCodexLaunch(target, launchEnv)
+    }
+  }
+  if (runtimeHomePath === null && target?.runtime !== 'wsl') {
+    // Why: Codex runs on the user's real ~/.codex; the managed-home hook
+    // install below would target a home Codex never reads on this lane.
+    return null
+  }
   const hookTarget =
     target?.runtime === 'wsl'
       ? {
@@ -818,9 +926,11 @@ function prepareCodexRuntimeHomeForLaunch(target?: CodexAccountSelectionTarget):
     // Why: honor the persisted off switch so post-startup launches can't reinstall removed hooks.
     const status = hooksEnabled
       ? (codexHookService.installForRuntimeHome(runtimeHomePath, hookTarget) ??
-        codexHookService.install())
+        // Why: a managed account's launch home is its own self-contained
+        // CODEX_HOME, so hooks/trust must install there, not the shared mirror.
+        codexHookService.install(runtimeHomePath ?? undefined))
       : (codexHookService.refreshRuntimeUserHooksForRuntimeHome(runtimeHomePath, hookTarget) ??
-        codexHookService.refreshRuntimeUserHooks())
+        codexHookService.refreshRuntimeUserHooks(runtimeHomePath ?? undefined))
     if (status.state === 'error') {
       console.warn(
         `[codex-hook-service] failed to ${
@@ -839,6 +949,84 @@ function prepareCodexRuntimeHomeForLaunch(target?: CodexAccountSelectionTarget):
     )
   }
   return runtimeHomePath
+}
+
+async function prepareCodexSessionResumeForLaunch(args: {
+  providerSession: AgentProviderSessionMetadata
+  target: CodexAccountSelectionTarget
+  launchEnv?: NodeJS.ProcessEnv
+  workspacePath?: string
+}): Promise<{ codexHomePath: string | null } | null> {
+  if (args.target.runtime === 'wsl' || !codexRuntimeHome || !store) {
+    return null
+  }
+  const systemHomePath = getSystemCodexHomePath()
+  // Why: codexSessionSourceHome is import-only; treating it as CODEX_HOME would mutate history sources and bypass account auth.
+  const trustedHomes = [
+    systemHomePath,
+    ...codexRuntimeHome.getHostCodexHomePathsForSessionDiscovery()
+  ]
+  const sessionSource = await findTrustedCodexSessionResume({
+    sessionId: args.providerSession.id,
+    transcriptPath: args.providerSession.transcriptPath,
+    trustedCodexHomes: trustedHomes
+  })
+  if (!sessionSource) {
+    if (args.providerSession.transcriptPath) {
+      throw new Error(
+        'Orca could not verify the originating Codex session file, so automatic resume was stopped to avoid using a different account.'
+      )
+    }
+    return null
+  }
+
+  let migrated = { useRealCodexHome: false }
+  try {
+    migrated = await prepareLegacySharedCodexSessionResume(
+      {
+        agent: 'codex',
+        executionHostId: 'local',
+        filePath: sessionSource.transcriptPath,
+        codexHome: sessionSource.homePath
+      },
+      {
+        isHostSystemDefaultRealHome: () => codexRuntimeHome!.isHostSystemDefaultRealHome(),
+        systemCodexHomePath: systemHomePath
+      }
+    )
+  } catch (error) {
+    // Why: migration is a compatibility repair; its failure must not prevent the PTY from resuming from its trusted origin home.
+    console.warn(
+      '[codex-session-resume] Legacy rollout migration failed; using origin home:',
+      error
+    )
+  }
+  const resumeHome = migrated.useRealCodexHome ? systemHomePath : sessionSource.homePath
+
+  if (args.workspacePath) {
+    try {
+      markCodexProjectTrusted(args.workspacePath)
+    } catch (error) {
+      console.warn('[codex-project-trust] failed to pre-mark resumed workspace:', error)
+    }
+  }
+  const isSystemHome =
+    normalizeRuntimePathForComparison(resumeHome) ===
+    normalizeRuntimePathForComparison(systemHomePath)
+  const hooksEnabled = isAgentStatusHooksEnabled(store.getSettings())
+  try {
+    if (isSystemHome) {
+      ensureRealHomeCodexHookState({ hooksEnabled, userDataPath: app.getPath('userData') })
+    } else if (hooksEnabled) {
+      codexHookService.install(resumeHome)
+    } else {
+      codexHookService.refreshRuntimeUserHooks(resumeHome)
+    }
+  } catch (error) {
+    // Why: hook repair is best-effort; session provenance must still win over the currently selected home.
+    console.warn('[codex-hook-service] failed to prepare automatic resume home:', error)
+  }
+  return { codexHomePath: resumeHome }
 }
 
 // Why: restore the window the close handler may have hidden to tray, or reopen it (dock-reactivation style) if fully torn down.
@@ -1083,7 +1271,13 @@ function openMainWindow(): BrowserWindow {
     keybindings,
     {
       getAdditionalAiVaultCodexHomePaths: () =>
-        codexRuntimeHome ? [codexRuntimeHome.getHostRuntimeHomePath()] : [],
+        codexRuntimeHome ? codexRuntimeHome.getHostCodexHomePathsForSessionDiscovery() : [],
+      prepareAiVaultSessionResume: (args) =>
+        prepareLegacySharedCodexSessionResume(args, {
+          isHostSystemDefaultRealHome: () =>
+            codexRuntimeHome?.isHostSystemDefaultRealHome() === true,
+          systemCodexHomePath: resolveHostCodexSessionSourceHome(store!.getSettings())
+        }),
       onBeforeRelaunch: async () => {
         isQuitting = true
         desktopRelayService?.fenceAndCloseNow()
@@ -1102,6 +1296,7 @@ function openMainWindow(): BrowserWindow {
     prepareCodexRuntimeHomeForLaunch,
     (target) => claudeRuntimeAuth!.prepareForClaudeLaunch(target),
     {
+      prepareCodexSessionResume: prepareCodexSessionResumeForLaunch,
       awaitLocalPtyStartup: () => localPtyStartupReady,
       awaitLocalPtyProviderStartup: () => localPtyProviderStartupReady,
       onBeforeRendererReload: ({ ignoreCache, webContentsId }) => {
@@ -1113,7 +1308,8 @@ function openMainWindow(): BrowserWindow {
       // Why: let the PTY layer skip its orphan sweep on the recovery reload that re-fires did-finish-load, so live local sessions survive (#5787).
       isRecoveryReloadInFlight,
       onBeforeUpdateQuit: () =>
-        preserveAgentAuthBeforeRestart({ codexRuntimeHome, claudeRuntimeAuth, store })
+        preserveAgentAuthBeforeRestart({ codexRuntimeHome, claudeRuntimeAuth, store }),
+      updateInstallMode: resolveUpdateInstallMode(isServeMode)
     }
   )
   rateLimits.attach(window)
@@ -1467,8 +1663,13 @@ function getServeOptions(argv = process.argv): ServeOptions {
 }
 
 function getBundledWebClientRoot(): string | undefined {
-  const root = join(app.getAppPath(), 'out', 'web')
-  return existsSync(join(root, 'web-index.html')) ? root : undefined
+  const appPath = app.getAppPath()
+  const roots = [
+    join(appPath, 'out', 'web'),
+    // Why: unpacked electron-vite entrypoints set appPath to out/main, next to the web bundle.
+    join(appPath, '..', 'web')
+  ]
+  return roots.find((root) => existsSync(join(root, 'web-index.html')))
 }
 
 async function renderTerminalPairingQr(pairingUrl: string): Promise<string | null> {
@@ -1502,9 +1703,16 @@ async function printServeReady(options: ServeOptions): Promise<void> {
       throw new Error(`--serve-project-root must be a directory: ${options.projectRoot}`)
     }
   }
-  const endpoint = runtimeRpc.getWebSocketEndpoint()
+  const boundEndpoint = runtimeRpc.getWebSocketEndpoint()
+  const advertised = boundEndpoint
+    ? resolveAdvertisedPairingEndpoint(boundEndpoint, options.pairingAddress)
+    : null
   const pairing = options.noPairing
-    ? ({ available: false } as const)
+    ? ({
+        available: false,
+        reason: 'disabled_by_operator',
+        guidance: 'Restart without --no-pairing to create a client pairing offer.'
+      } as const)
     : runtimeRpc.createPairingOffer({
         address: options.pairingAddress,
         name: `${options.mobilePairing ? 'Mobile' : 'CLI'} ${new Date().toLocaleDateString()}`,
@@ -1514,51 +1722,30 @@ async function printServeReady(options: ServeOptions): Promise<void> {
     pairing.available && options.mobilePairing
       ? await renderTerminalPairingQr(pairing.pairingUrl)
       : null
-  if (options.recipeJson) {
-    if (!pairing.available) {
-      throw new Error('Recipe JSON output requires runtime pairing to be available')
-    }
-    console.log(
-      JSON.stringify({
-        schemaVersion: 1,
-        pairingCode: pairing.pairingUrl,
-        projectRoot: options.projectRoot
-      })
-    )
-    return
-  }
-  if (options.json) {
-    console.log(
-      JSON.stringify({
-        type: 'orca_server_ready',
-        runtimeId: runtime.getRuntimeId(),
-        endpoint,
-        // Why: the WSL reconciliation barrier fails open, so 'pending' warns a WSL PTY launch may still race a repair.
-        managedWslCliReconciliation: managedWslCliReconciliationStatus,
-        pairing: pairing.available
-          ? {
-              url: pairing.pairingUrl,
-              endpoint: pairing.endpoint,
-              deviceId: pairing.deviceId,
-              webClientUrl: pairing.webClientUrl,
-              scope: options.mobilePairing ? 'mobile' : 'runtime',
-              qr: pairingQr
-            }
-          : null
-      })
-    )
-    return
-  }
-  console.log(`Orca server ready: ${endpoint ?? 'websocket unavailable'}`)
-  if (pairing.available) {
-    if (pairing.webClientUrl) {
-      console.log(`Web client URL: ${pairing.webClientUrl}`)
-    }
-    if (options.mobilePairing && pairingQr) {
-      console.log(`Mobile pairing QR:\n${pairingQr}`)
-    }
-    console.log(`Pairing URL: ${pairing.pairingUrl}`)
-  }
+  await serveReadinessPublisher.publish(
+    {
+      runtimeId: runtime.getRuntimeId(),
+      boundEndpoint,
+      advertisedEndpoint: advertised?.ok ? advertised.endpoint : null,
+      // Why: the WSL reconciliation barrier fails open, so 'pending' warns a WSL PTY launch may still race a repair.
+      managedWslCliReconciliation: managedWslCliReconciliationStatus,
+      pairing: pairing.available
+        ? {
+            available: true,
+            url: pairing.pairingUrl,
+            endpoint: pairing.endpoint,
+            deviceId: pairing.deviceId,
+            webClientUrl: pairing.webClientUrl,
+            scope: options.mobilePairing ? 'mobile' : 'runtime',
+            qr: pairingQr
+          }
+        : pairing
+    },
+    options.recipeJson
+      ? { mode: 'recipe-json', projectRoot: options.projectRoot! }
+      : { mode: options.json ? 'json' : 'human' }
+  )
+  notifyServeSupervisorReady(runtime.getRuntimeId())
 }
 
 function installServeSignalHandlers(): void {
@@ -1791,7 +1978,13 @@ app.whenReady().then(async () => {
       repo.gitRemoteIdentity?.remoteUrl ? [{ remoteUrl: repo.gitRemoteIdentity.remoteUrl }] : []
     )
   )
+  // Why: apply initial fallback WSL distro from store settings for global git/CLI calls.
+  setDefaultWslDistroOverride(store.getSettings().terminalWindowsWslDistro ?? null)
   store.onSettingsChanged((updates, settings) => {
+    if ('terminalWindowsWslDistro' in updates) {
+      // Why: synchronize fallback WSL distro updates to runner.
+      setDefaultWslDistroOverride(settings.terminalWindowsWslDistro ?? null)
+    }
     if ('showMenuBarIcon' in updates) {
       // Why: Store is the mutation authority for all settings writes, so every macOS toggle updates the native item live.
       syncMacMenuBarIcon(settings.showMenuBarIcon !== false)
@@ -1820,6 +2013,12 @@ app.whenReady().then(async () => {
   }
   // Why: run before ClaudeRuntimeAuthService's constructor sync — a surviving daemon Claude CLI holds the single-use refresh token; early refresh rotates it out mid-session.
   attachClaudeLivePtyPersistence(store)
+  // Why: while a live claude defers the managed OAuth refresh, usage shows
+  // "Waiting for Claude session"; refetch when the last live PTY exits so the
+  // error clears immediately instead of after the failure backoff.
+  onLiveClaudePtysDrained(() => {
+    void rateLimits?.refreshAfterClaudeLivePtysDrained()
+  })
   const persistedClaudePtyIds = store.getClaudeLivePtySessionIds()
   seedLiveClaudePtysFromPersistence(persistedClaudePtyIds)
   if (persistedClaudePtyIds.length > 0) {
@@ -1827,7 +2026,6 @@ app.whenReady().then(async () => {
       `[claude-live-pty] Seeded ${persistedClaudePtyIds.length} persisted Claude session id(s) into the refresh gate`
     )
   }
-  selfHealRuntimeEnvironmentFocus({ store, userDataPath: app.getPath('userData') })
   // Why: drop terminal workspace-session partitions for runtime environments that
   // were removed in an older build (before delete-on-remove shipped). Runs before
   // the main window loads, so the renderer never restores those tabs and never
@@ -1863,7 +2061,25 @@ app.whenReady().then(async () => {
   })
   // Why: telemetry must init before any IPC handler/renderer can call track(); it's a no-op in dev and while TELEMETRY_ENABLED is false, so it's safe early.
   initTelemetry(store)
-  // Why: the error-tracking lane (telemetry-error-tracking.md) is its own root and must init before any span is created so the tracer's sink is populated first.
+  // Why: the trust-grant module is bundled into plain-node CLI entries where
+  // the telemetry client cannot load, so the tracker is injected here instead
+  // of imported there.
+  setCodexTrustGrantTelemetry(({ outcome, hostKind, lane, reason, errorClass, verifyClass }) => {
+    track('codex_trust_grant', {
+      outcome,
+      host_kind: hostKind,
+      lane,
+      ...(reason !== undefined ? { fallback_reason: reason } : {}),
+      ...(errorClass !== undefined ? { error_class: errorClass } : {}),
+      ...(verifyClass !== undefined ? { verify_class: verifyClass } : {})
+    })
+  })
+  // Why: the error-tracking lane (telemetry-error-tracking.md) is its own
+  // composition root — independent of product telemetry — and must
+  // initialize before any IPC handler / runtime span is created so the
+  // tracer's active sink is populated at the moment the first span fires.
+  // Honors DO_NOT_TRACK / ORCA_TELEMETRY_DISABLED / ORCA_DIAGNOSTICS_DISABLED
+  // / CI internally; those gates do not need to be re-checked here.
   initObservability()
   recordDurableCrashBreadcrumb('main_process_lifecycle_started', {
     packaged: app.isPackaged,
@@ -1878,7 +2094,35 @@ app.whenReady().then(async () => {
   openCodeUsage = new OpenCodeUsageStore(store)
   rateLimits = new RateLimitService()
   codexRuntimeHome = new CodexRuntimeHomeService(store)
-  codexAccounts = new CodexAccountService(store, rateLimits, codexRuntimeHome)
+  // Why: an incapable trust-grant host must fall back to the managed home for
+  // every consumer (PTY env, rate limits, commit messages) in one place.
+  codexRuntimeHome.setRealHomeLaneGate(() => isRealHomeCodexHookLaneUsable())
+  // Why: while the real-home lane owns ~/.codex/hooks.json, the legacy
+  // system-home sweep inside managed installs would delete the entry the
+  // real-home installer just appended. Flag OFF, hooks off, or an incapable
+  // trust lane re-arms the sweep so downgrade, opt-out, and rollback converge.
+  setSystemCodexHomeHookSweepSuppressed(
+    () =>
+      codexRuntimeHome !== null &&
+      codexRuntimeHome.isHostSystemDefaultRealHome() &&
+      isAgentStatusHooksEnabled(store?.getSettings())
+  )
+  const codexSessionMigration = createCodexSessionMigrationScheduler({
+    isEligible: () => codexRuntimeHome?.isHostSystemDefaultRealHome() === true,
+    isQuitting: () => isQuitting,
+    resolveSystemCodexHomePathOverride: () =>
+      resolveHostCodexSessionSourceHome(store!.getSettings()),
+    startBackfill: startCodexSessionBackfillInBackground,
+    startIndexHeal: startCodexSessionIndexHealInBackground
+  })
+  codexAccounts = new CodexAccountService(store, rateLimits, codexRuntimeHome, {
+    onHostSystemDefaultSelected: codexSessionMigration.requestRun
+  })
+  // Why: one-time per-host backfill makes historical Orca-managed Codex
+  // sessions visible to the user's own resume picker and app history (#4444,
+  // #8612). Deferred so startup and first PTY spawns never compete with the
+  // sessions tree walk.
+  codexSessionMigration.scheduleInitialRun()
   claudeRuntimeAuth = new ClaudeRuntimeAuthService(store)
   claudeAccounts = new ClaudeAccountService(store, rateLimits, claudeRuntimeAuth)
   rateLimits.setCodexHomePathResolver((target) =>
@@ -1896,22 +2140,16 @@ app.whenReady().then(async () => {
       console.warn('[rate-limits] Failed to apply account runtime target:', error)
     )
   })
-  {
-    // Why: the last live Claude PTY exiting drains the deferred managed OAuth refresh
-    // immediately instead of waiting for the next window-focus-gated poll (issue #9324).
-    const drainRateLimits = rateLimits
-    attachClaudeLivePtyDrainListener(() => {
-      void drainRateLimits.refreshClaudeForCurrentTarget().catch(() => {
-        // Best-effort recovery drain; the focus-gated poll remains the safety net.
-      })
-    })
-  }
   rateLimits.setClaudeAuthPreparationResolver((target) =>
     claudeRuntimeAuth!.prepareForRateLimitFetch(target)
   )
   rateLimits.setClaudeAuthReconcileResolver((target) =>
     claudeRuntimeAuth!.reconcileActiveManagedAuthFromRuntime(target)
   )
+  // Why: live Claude sessions stream usage windows through their statusLine command; feeding them here avoids OAuth usage-endpoint polling (and its 429s).
+  agentHookServer.setClaudeStatusLineListener((event) => {
+    rateLimits?.ingestLiveClaudeRateLimits(event)
+  })
   rateLimits.setOpenCodeGoConfigResolver(() => {
     const settings = store!.getSettings()
     return {
@@ -1971,6 +2209,10 @@ app.whenReady().then(async () => {
       .map((account) => ({ id: account.id, managedHomePath: account.managedHomePath }))
   })
   const runtimeService = new OrcaRuntimeService(store, stats, {
+    agentSessionClaimSigner: loadAgentSessionClaimSigner(
+      getProfileUserDataPath(),
+      getProfileUserDataPath()
+    ),
     // Why: resolve the PTY provider lazily — a daemon swap happens later, so an eager reference would freeze the pre-daemon provider (design §4.3).
     getLocalProvider: () => getLocalPtyProvider(),
     // Why: SSH relay providers register after construction and may reconnect, so destructive cleanup must resolve the current generation.
@@ -1991,7 +2233,12 @@ app.whenReady().then(async () => {
       agentHookServer.getStatusSnapshot().filter((entry) => entry.providerSessionOnly !== true),
     // Why: source codex-home here (runs in window AND serve) so aiVault.listSessions includes managed-Codex sessions; registerCoreHandlers is window-only.
     getAdditionalAiVaultCodexHomePaths: () =>
-      codexRuntimeHome ? [codexRuntimeHome.getHostRuntimeHomePath()] : [],
+      codexRuntimeHome ? codexRuntimeHome.getHostCodexHomePathsForSessionDiscovery() : [],
+    prepareAiVaultSessionResume: (args) =>
+      prepareLegacySharedCodexSessionResume(args, {
+        isHostSystemDefaultRealHome: () => codexRuntimeHome?.isHostSystemDefaultRealHome() === true,
+        systemCodexHomePath: resolveHostCodexSessionSourceHome(store!.getSettings())
+      }),
     buildAgentHookPtyEnv: () =>
       isAgentStatusHooksEnabled(store?.getSettings()) ? agentHookServer.buildPtyEnv() : {}
   })
@@ -2112,6 +2359,14 @@ app.whenReady().then(async () => {
   const emulatorBridge = new EmulatorBridge()
   runtimeService.setEmulatorBridge(emulatorBridge)
   nativeTheme.themeSource = store.getSettings().theme ?? 'system'
+  if (codexRuntimeHome.isHostSystemDefaultRealHomeSelected()) {
+    // Why: establish capability before managed-hook reconciliation so an
+    // incapable host re-arms and completes the legacy real-home sweep now.
+    ensureRealHomeCodexHookState({
+      hooksEnabled: isAgentStatusHooksEnabled(store.getSettings()),
+      userDataPath: app.getPath('userData')
+    })
+  }
   if (shouldInstallManagedHooks(is.dev)) {
     // Why: managed-hook reconciliation does ~14 synchronous readFileSync+writeFileSync
     // passes across ~/.claude, ~/.codex, etc. On the desktop path there is no await
@@ -2132,7 +2387,6 @@ app.whenReady().then(async () => {
       }
     })
   }
-
   app.on('child-process-gone', (_event, details) => {
     recordProcessGoneCrash('child', details.type, details.reason, details.exitCode ?? null, {
       name: details.name,
@@ -2195,14 +2449,22 @@ app.whenReady().then(async () => {
       const targetBrowserWindow = targetWindow instanceof BrowserWindow ? targetWindow : null
       sendOpenFeatureTour(targetBrowserWindow)
     },
+    // Why: menu zoom must act on the window the user is looking at — routing to
+    // the main window while the dashboard pop-out is focused zooms behind it.
     onZoomIn: () => {
-      mainWindow?.webContents.send('terminal:zoom', 'in')
+      if (!zoomDashboardPopoutIfFocused('in')) {
+        mainWindow?.webContents.send('terminal:zoom', 'in')
+      }
     },
     onZoomOut: () => {
-      mainWindow?.webContents.send('terminal:zoom', 'out')
+      if (!zoomDashboardPopoutIfFocused('out')) {
+        mainWindow?.webContents.send('terminal:zoom', 'out')
+      }
     },
     onZoomReset: () => {
-      mainWindow?.webContents.send('terminal:zoom', 'reset')
+      if (!zoomDashboardPopoutIfFocused('reset')) {
+        mainWindow?.webContents.send('terminal:zoom', 'reset')
+      }
     },
     onToggleLeftSidebar: () => {
       mainWindow?.webContents.send('ui:toggleLeftSidebar')
@@ -2240,6 +2502,11 @@ app.whenReady().then(async () => {
   })
   // Why: parallel E2E Electron instances would race the fixed port (EADDRINUSE); port 0 gives each a random OS-assigned port.
   const isE2E = Boolean(process.env.ORCA_E2E_USER_DATA_DIR)
+  const requestedE2EWsPort = process.env.ORCA_E2E_RUNTIME_WS_PORT
+  const e2eWsPort = requestedE2EWsPort === undefined ? 0 : Number(requestedE2EWsPort)
+  if (isE2E && (!Number.isInteger(e2eWsPort) || e2eWsPort < 0 || e2eWsPort > 65_535)) {
+    throw new Error(`Invalid ORCA_E2E_RUNTIME_WS_PORT value: ${requestedE2EWsPort}`)
+  }
   // Why: pin dev to 6769 so `pnpm dev` doesn't race packaged Orca on 6768 and fall back to a random port, breaking deterministic mobile pairing/repro (STA-1511).
   const devWsPort = is.dev && !isE2E ? 6769 : undefined
   let serveOptions: ServeOptions | null = null
@@ -2257,7 +2524,7 @@ app.whenReady().then(async () => {
     // Why: mobile pairing needs the stable pre-setName() path (getCanonicalUserDataPath), not a late app.getPath('userData') that drops paired devices across restarts.
     userDataPath: getCanonicalUserDataPath(),
     enableWebSocket: true,
-    ...(isE2E ? { wsPort: 0 } : {}),
+    ...(isE2E ? { wsPort: e2eWsPort } : {}),
     ...(devWsPort !== undefined ? { wsPort: devWsPort } : {}),
     ...(serveOptions?.wsPort !== undefined
       ? {
@@ -2268,7 +2535,29 @@ app.whenReady().then(async () => {
       : {}),
     webClientRoot: getBundledWebClientRoot()
   })
-  registerMobileHandlers(runtimeRpc, { getRelayStatus: () => desktopRelayStatus })
+  registerMobileHandlers(runtimeRpc, {
+    getRelayStatus: () => desktopRelayStatus,
+    consumePendingUnpairedDeviceAuthFailure: (webContentsId) => {
+      if (
+        !mainWindow ||
+        mainWindow.isDestroyed() ||
+        mainWindow.webContents.id !== webContentsId ||
+        !pendingUnpairedDeviceAuthFailure
+      ) {
+        return false
+      }
+      pendingUnpairedDeviceAuthFailure = false
+      return true
+    }
+  })
+  // Why: repeated direct auth failures otherwise look like a client that never connects; point users to re-pairing.
+  runtimeRpc.setOnUnpairedDeviceAuthFailure(() => {
+    // Why: runtime startup races renderer mount; retain the one-shot until the listener consumes it.
+    pendingUnpairedDeviceAuthFailure = true
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('mobile:unpairedDeviceAuthFailure')
+    }
+  })
 
   startTerminalRuntimeStartupServices()
   app.on('activate', requestDesktopActivation)
@@ -2287,7 +2576,8 @@ app.whenReady().then(async () => {
       prepareCodexRuntimeHomeForLaunch,
       () => store!.getSettings(),
       (target) => claudeRuntimeAuth!.prepareForClaudeLaunch(target),
-      store
+      store,
+      prepareCodexSessionResumeForLaunch
     )
     // Why: headless servers can't mount <webview> panes; use offscreen WebContents, gated on a real display so browser.headless.v1 stays honest.
     if (headlessBrowserDisplayAvailable) {
@@ -2474,7 +2764,19 @@ app.on('will-quit', (e) => {
     // Why: telemetry flush folds in before app.quit() (bounded 2s); catch defensively so a flush failure can't cancel the quit chain.
     // Why: normal quits keep the detached daemon for warm reattach, but a dead dev parent leaves the temp/dev profile ownerless.
     const daemonTeardown = isDevParentShutdownRequested() ? shutdownDaemon() : disconnectDaemon()
-    Promise.allSettled([daemonTeardown, rpcStopAndClear, watcherShutdown, emulatorShutdown])
+    // Why: a wedged transport (half-open post-sleep socket) can leave one
+    // member unsettled forever and block app.quit() until Force Quit (#9447).
+    settleTeardownWithinDeadline([
+      { name: 'daemon', promise: daemonTeardown },
+      { name: 'runtime-rpc', promise: rpcStopAndClear },
+      { name: 'watchers', promise: watcherShutdown },
+      { name: 'emulator', promise: emulatorShutdown }
+    ])
+      .then((pendingTeardowns) => {
+        if (pendingTeardowns.length > 0) {
+          console.warn('[shutdown] Quit teardown deadline reached', { pendingTeardowns })
+        }
+      })
       .then(() => shutdownTelemetry())
       .then(() => shutdownObservability())
       .catch(() => {

@@ -554,10 +554,10 @@ export function createAgentCompletionCoordinator(
 
   function handleProcessInspectionResult(result: RuntimeTerminalProcessInspection): boolean {
     if (result.unavailable === true) {
-      // Why: a stale/gone remote handle (transport drop, reconnect window) is
-      // unknown liveness, not evidence the agent exited (#9151). Preserve agent
-      // evidence and exit-arming state, and back off like a failed inspection
-      // until a successful sample or authoritative exit event arrives.
+      // Why: a stale/gone remote handle (transport drop, reconnect window) is unknown liveness, not
+      // evidence the agent exited (#9151). Keep agent ownership, but break the consecutive-idle proof
+      // and back off like a failed inspection until a successful sample or authoritative exit arrives.
+      pendingProcessExitAgent = null
       consecutiveInspectionErrors += 1
       scheduleNextPoll()
       return false
@@ -645,6 +645,8 @@ export function createAgentCompletionCoordinator(
             inspectionSucceeded = true
           }
         } catch {
+          // Why: a failed inspection breaks the consecutive-idle proof just like an unavailable result.
+          pendingProcessExitAgent = null
           consecutiveInspectionErrors += 1
         } finally {
           inspectionInFlight = false

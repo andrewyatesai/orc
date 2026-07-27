@@ -2,7 +2,16 @@
    selection, per-agent controls, and runtime location together so settings
    reconciliation stays visible in one file. */
 import { useEffect, useId, useMemo, useState } from 'react'
-import { Check, ChevronDown, ExternalLink, Info, RefreshCw, Terminal, Wrench } from 'lucide-react'
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  ExternalLink,
+  Info,
+  RefreshCw,
+  Terminal,
+  Wrench
+} from 'lucide-react'
 import type { GlobalSettings, TuiAgent } from '../../../../shared/types'
 import { getAgentCatalog, AgentIcon } from '@/lib/agent-catalog'
 import { useDetectedAgents, type AgentDetectionTarget } from '@/hooks/useDetectedAgents'
@@ -695,10 +704,10 @@ export function AgentsPane({
   wslDistros,
   wslCapabilitiesLoading
 }: AgentsPaneProps): React.JSX.Element {
-  // Why (#9790): the Active Server routes agent launches through that host, so
-  // this pane must list what THAT host can launch — detecting on the client
-  // showed a Windows machine's agents while paired to a Linux server. The
-  // enable/disable/default toggles below stay client-local settings.
+  // Why (#9790): the Active Server routes agent launches and provider checks
+  // through that host, so this pane must list what THAT host can launch —
+  // detecting on the client showed a Windows machine's agents while paired to a
+  // Linux server. The enable/disable/default toggles stay client-local settings.
   const activeServerEnvironmentId = settings.activeRuntimeEnvironmentId?.trim() || null
   const agentDetectionTarget = useMemo<AgentDetectionTarget>(
     () =>
@@ -709,8 +718,9 @@ export function AgentsPane({
   )
   const {
     detectedIds: detectedList,
+    detectionFailed,
     isRefreshing,
-    refresh
+    refresh: refreshTargetAgents
   } = useDetectedAgents(agentDetectionTarget)
   // Why (#9790): the WSL/runtime control below and the empty-list retry change
   // the client-local runtime, so they refresh local detection even while the
@@ -753,7 +763,7 @@ export function AgentsPane({
   // (preflight:refreshAgents). This handles the "installed a new CLI, Orca
   // doesn't see it yet" case without a restart, on the host being shown.
   const handleRefresh = (): void => {
-    void refresh()
+    void refreshTargetAgents()
   }
   const detectedIds = useMemo<Set<string> | null>(
     () => (detectedList ? new Set(detectedList) : null),
@@ -1088,12 +1098,34 @@ export function AgentsPane({
         </section>
       )}
 
-      {detectedIds === null && (
+      {detectedIds === null && !detectionFailed && (
         <div className="flex items-center justify-center rounded-md border border-dashed border-border/50 py-6 text-sm text-muted-foreground">
           {translate(
             'auto.components.settings.AgentsPane.d83834f5e6',
             'Detecting installed agents…'
           )}
+        </div>
+      )}
+
+      {detectionFailed && (
+        <div className="flex items-start justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          <span className="flex min-w-0 items-start gap-2">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+            {translate(
+              'auto.components.settings.AgentsPane.remoteDetectionFailed',
+              'Couldn’t detect installed agents. Check the host connection and try again.'
+            )}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            onClick={handleRefresh}
+            className="h-6 shrink-0 gap-1.5 px-2 text-destructive hover:text-destructive"
+          >
+            <RefreshCw className="size-3" />
+            {translate('auto.components.settings.AgentsPane.retryDetection', 'Retry')}
+          </Button>
         </div>
       )}
     </div>

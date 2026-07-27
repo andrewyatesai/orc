@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as NodeFs from 'node:fs'
 import type { GitStatusEntry } from '../../shared/types'
+import type * as BoundedFileReader from '../../shared/node-bounded-file-reader'
 import path from 'node:path'
 import {
   MAX_RENDERED_DIFF_COMBINED_CHARACTERS,
@@ -103,6 +104,33 @@ vi.mock('./untracked-additions-counter', () => ({
       return bytes.at(-1) === 0x0a ? newlines : newlines + 1
     }
 }))
+
+vi.mock('../../shared/node-bounded-file-reader', async (importOriginal) => {
+  const actual = await importOriginal<typeof BoundedFileReader>()
+  return {
+    ...actual,
+    readNodeFileWithinLimit: async (filePath: string, maxBytes: number) => {
+      if (maxBytes === 64 * 1024) {
+        const value = await readFileMock(filePath)
+        const buffer = Buffer.isBuffer(value) ? value : Buffer.from(value)
+        if (buffer.length > maxBytes) {
+          throw new actual.NodeFileReadTooLargeError(buffer.length, maxBytes)
+        }
+        return { buffer, stats: { isFile: () => true, size: buffer.length } }
+      }
+      const stats = await statMock(filePath)
+      if (stats.size > maxBytes) {
+        throw new actual.NodeFileReadTooLargeError(stats.size, maxBytes)
+      }
+      const value = await readFileMock(filePath)
+      const buffer = Buffer.isBuffer(value) ? value : Buffer.from(value)
+      if (buffer.length > maxBytes) {
+        throw new actual.NodeFileReadTooLargeError(buffer.length, maxBytes)
+      }
+      return { buffer, stats }
+    }
+  }
+})
 
 import {
   abortMerge,
@@ -1865,6 +1893,66 @@ describe('getStatus', () => {
     expect(result.entries.map((entry) => entry.path)).toContain('conflict.ts')
     // Only the single streamed status read runs (numstat is skipped at the cap).
     expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps file conflicts and drops submodule unmerged rows', async () => {
+    readFileMock.mockResolvedValue('gitdir: /repo/.git/worktrees/feature\n')
+    existsSyncMock.mockReturnValue(false)
+    // Why: `u` records never count toward the entry cap in the Rust streamer, so
+    // every conflict is surfaced; submodule conflicts (mode 160000) stay out of
+    // scope because they need a different resolution UX.
+    const stdout = `${[
+      'u UU S... 160000 160000 160000 160000 aa bb cc vendor/submodule',
+      ...Array.from(
+        { length: 3 },
+        (_, i) => `u UU N... 100644 100644 100644 100644 aa bb cc conflict-${i}.ts`
+      )
+    ].join('\n')}\n`
+    gitExecFileAsyncMock.mockReset()
+    gitExecFileAsyncMock.mockResolvedValue({ stdout: '' })
+    gitExecFileAsyncMock.mockResolvedValueOnce({ stdout })
+
+    const result = await getStatus('/repo', { limit: 2 })
+
+    // `u` records never count toward the cap here, so the limit is never tripped
+    // and none of the file conflicts are lost (upstream caps them at `limit`).
+    expect(result.didHitLimit).toBeUndefined()
+    expect(result.entries.map((entry) => entry.path)).toEqual([
+      'conflict-0.ts',
+      'conflict-1.ts',
+      'conflict-2.ts'
+    ])
+    expect(result.entries.every((entry) => entry.conflictStatus === 'unresolved')).toBe(true)
+  })
+
+  it('keeps a conflict that sits between ordinary rows at the cap', async () => {
+    readFileMock.mockResolvedValue('gitdir: /repo/.git/worktrees/feature\n')
+    existsSyncMock.mockReturnValue(true)
+    // Upstream drops `after.ts` here because its parser counts `u` records toward
+    // the cap; the Rust streamer doesn't, so the two ordinary rows stay under the
+    // cap and the interleaved conflict is still surfaced — the property the
+    // upstream case exists to protect.
+    const lines = [
+      '? before.ts',
+      'u UU N... 100644 100644 100644 100644 aa bb cc conflict.ts',
+      '? after.ts'
+    ].join('\n')
+    gitExecFileAsyncMock.mockReset()
+    gitExecFileAsyncMock.mockResolvedValue({ stdout: '' })
+    gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: `${lines}\n` })
+
+    const result = await getStatus('/repo', { limit: 2 })
+
+    expect(result.didHitLimit).toBeUndefined()
+    expect(result.entries.map((entry) => entry.path)).toEqual([
+      'before.ts',
+      'after.ts',
+      'conflict.ts'
+    ])
+    expect(result.entries[2]).toMatchObject({
+      conflictKind: 'both_modified',
+      conflictStatus: 'unresolved'
+    })
   })
 
   it('does not flag didHitLimit for a normal repo under the limit', async () => {

@@ -133,7 +133,11 @@ export function createPaneDOM(
 
 /** Open the pane terminal: hand painting + sizing to the in-page aterm canvas
  *  renderer. The facade (pane.terminal) buffers any output until the async
- *  controller attaches, so callers can write/registerOscHandler immediately. */
+ *  controller attaches, so callers can write/registerOscHandler immediately.
+ *
+ *  Ligatures are not an addon here: aterm shapes them natively and the resolved
+ *  terminalLigatures setting is read live (aterm-pane-open getLigatures →
+ *  set_ligatures), so there is no glyph atlas to tear down and rebuild on toggle. */
 export function openTerminal(pane: ManagedPaneInternal): void {
   openAtermPane(pane)
 }

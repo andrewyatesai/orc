@@ -8,7 +8,8 @@ export async function attemptEditorFileSave(target: EditorSaveFileTarget): Promi
     return true
   } catch (error) {
     // Why: a rejected save must not vanish (STA-2027 silent data loss) — log +
-    // toast, and return false so dependent actions never treat it as success.
+    // toast. Shortcut handlers need a non-throwing result, so return false
+    // instead, and dependent actions must never treat that as success.
     console.error('[editor] file save failed', error)
     toast.error(
       translate(

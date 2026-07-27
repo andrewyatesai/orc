@@ -189,6 +189,17 @@ fn p_string_min1(value: Option<&Value>, path: &[String]) -> PResult {
     Ok(parsed)
 }
 
+/// `z.string().trim().min(1)` — the trim transform runs before the length check,
+/// so whitespace-only rejects and the stored value is the trimmed string.
+fn p_string_trimmed_min1(value: Option<&Value>, path: &[String]) -> PResult {
+    let parsed = p_string(value, path)?;
+    let trimmed = js_trim(parsed.as_str().unwrap_or_default());
+    if trimmed.is_empty() {
+        return Err(too_small_chars(1, path));
+    }
+    Ok(Value::String(trimmed.to_string()))
+}
+
 fn p_number(value: Option<&Value>, path: &[String]) -> PResult {
     // Parsed JSON numbers are always finite, so plain `z.number()` needs no
     // NaN/Infinity check here.
@@ -487,6 +498,9 @@ fn p_persisted_open_file(value: Option<&Value>, path: &[String]) -> PResult {
     set_req(&mut out, obj, "language", path, p_string)?;
     set_opt(&mut out, obj, "isPreview", path, p_boolean)?;
     set_opt(&mut out, obj, "runtimeEnvironmentId", path, |v, p| p_nullable(v, p, p_string))?;
+    // Which SSH target owns a file opened outside any worktree — without it a
+    // restored external file re-resolves against the local disk.
+    set_opt(&mut out, obj, "externalSshTargetId", path, p_string_trimmed_min1)?;
     set_opt(&mut out, obj, "dirtyDraftContent", path, p_string)?;
     Ok(Value::Object(out))
 }
@@ -612,7 +626,7 @@ fn p_last_visited(value: Option<&Value>, path: &[String]) -> PResult {
 
 // ─── Sleeping agents (workspace-session-sleeping-agents.ts) ─────────
 
-const RESUMABLE_TUI_AGENTS: [&str; 10] = [
+const RESUMABLE_TUI_AGENTS: [&str; 11] = [
     "claude",
     "codex",
     "gemini",
@@ -623,10 +637,12 @@ const RESUMABLE_TUI_AGENTS: [&str; 10] = [
     "droid",
     "grok",
     "devin",
+    "omp",
 ];
 const AGENT_STATUS_STATES: [&str; 4] = ["working", "blocked", "waiting", "done"];
 const SLEEPING_ORIGINS: [&str; 3] = ["worktree-sleep", "quit", "live"];
 const PROVIDER_SESSION_ID_MAX_LENGTH: usize = 512;
+const OMP_RESUME_FILE_PATH_MAX_LENGTH: usize = 32 * 1024;
 
 fn is_unsafe_object_key(key: &str) -> bool {
     matches!(key, "__proto__" | "constructor" | "prototype")
@@ -711,6 +727,19 @@ fn parse_launch_config(raw: &Value) -> Option<Value> {
     }
     out.insert("agentArgs".to_string(), args.clone());
     out.insert("agentEnv".to_string(), clean_launch_env(obj.get("agentEnv"))?);
+    // `ompResumeFilePath: z.string().trim().min(1).max(32*1024).refine(no control
+    // chars).optional()` — AI Vault scans arbitrary OMP roots, so cold restore
+    // must keep the exact resume locator instead of rebuilding the store path.
+    if let Some(path) = obj.get("ompResumeFilePath") {
+        let trimmed = js_trim(path.as_str()?);
+        if trimmed.is_empty()
+            || utf16_len(trimmed) > OMP_RESUME_FILE_PATH_MAX_LENGTH
+            || has_unsafe_control_chars(trimmed)
+        {
+            return None;
+        }
+        out.insert("ompResumeFilePath".to_string(), Value::String(trimmed.to_string()));
+    }
     Some(Value::Object(out))
 }
 
@@ -751,6 +780,9 @@ fn parse_sleeping_record(value: &Value) -> Option<Value> {
         key,
         provider_session["id"].as_str()?,
         provider_session.get("transcriptPath").and_then(Value::as_str),
+        // Why: the record-level gate only asks "is this session resumable at
+        // all"; omp's optional file locator lives on the launch request.
+        None,
     )?;
     out.insert("providerSession".to_string(), provider_session);
     let prompt = obj.get("prompt")?;
@@ -1148,6 +1180,35 @@ mod tests {
     }
 
     #[test]
+    fn keeps_a_trimmed_external_ssh_target_and_rejects_a_blank_one() {
+        // Which SSH host owns a file opened outside any worktree must survive a
+        // restart; z.string().trim().min(1) trims before it measures.
+        let with_target = |target: &str| {
+            minimal_with(&[(
+                "openFilesByWorktree",
+                json!({
+                    "wt": [{
+                        "filePath": "/tmp/external.png", "relativePath": "/tmp/external.png",
+                        "worktreeId": "wt", "language": "png", "externalSshTargetId": target
+                    }]
+                }),
+            )])
+        };
+        let kept = parse(with_target("  ssh-1  "));
+        assert_eq!(
+            kept.value().unwrap()["openFilesByWorktree"]["wt"][0]["externalSshTargetId"],
+            json!("ssh-1")
+        );
+        assert_eq!(
+            parse(with_target("   ")).error(),
+            Some(
+                "openFilesByWorktree.wt.0.externalSshTargetId: \
+                 Too small: expected string to have >=1 characters"
+            )
+        );
+    }
+
+    #[test]
     fn rejects_a_wrong_typed_pty_id_with_zod_wording() {
         let session = minimal_with(&[(
             "tabsByWorktree",
@@ -1436,6 +1497,46 @@ mod tests {
             let session = minimal_with(&[("sleepingAgentSessionsByPaneKey", raw)]);
             let result = parse(session);
             assert!(result.value().unwrap().get("sleepingAgentSessionsByPaneKey").is_none());
+        }
+    }
+
+    #[test]
+    fn keeps_the_trimmed_omp_resume_file_path_and_drops_the_config_when_it_is_unusable() {
+        let record = |resume: Value| {
+            json!({
+                "paneKey": "p",
+                "worktreeId": "wt",
+                "agent": "omp",
+                "providerSession": { "key": "session_id", "id": "sess-1" },
+                "prompt": "",
+                "state": "done",
+                "capturedAt": 1,
+                "updatedAt": 1,
+                "launchConfig": {
+                    "agentArgs": "",
+                    "agentEnv": {},
+                    "ompResumeFilePath": resume
+                }
+            })
+        };
+        let parse_config = |resume: Value| {
+            let session =
+                minimal_with(&[("sleepingAgentSessionsByPaneKey", json!({ "p": record(resume) }))]);
+            let parsed = parse(session);
+            let kept = parsed.value().unwrap()["sleepingAgentSessionsByPaneKey"]["p"].clone();
+            assert_eq!(kept["agent"], json!("omp"));
+            kept.get("launchConfig").cloned()
+        };
+        assert_eq!(
+            parse_config(json!("  /custom/omp-sessions/project/session.jsonl  ")),
+            Some(json!({
+                "agentArgs": "",
+                "agentEnv": {},
+                "ompResumeFilePath": "/custom/omp-sessions/project/session.jsonl"
+            }))
+        );
+        for unusable in [json!("   "), json!("/omp/bad\u{7f}path"), json!(7)] {
+            assert_eq!(parse_config(unusable), None);
         }
     }
 

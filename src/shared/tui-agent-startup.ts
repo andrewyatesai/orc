@@ -6,6 +6,15 @@
 // the renderer via the orca-git wasm (`@/lib/git-wasm/tui-agent-startup`), both
 // over the single `tuiAgentStartupOp` JSON boundary. This module keeps only the
 // shared result types and re-exports the still-TS shell/detection helpers.
+//
+// Upstream v1.4.150 threaded `ompResumeFilePath` through
+// buildAgentResumeStartupPlan -> getAgentResumeArgv (omp cold-resumes by
+// transcript path, falling back to the session id). Ported to the Rust core it
+// cut over to: get_agent_resume_argv has the "omp" arm and
+// AgentResumeStartupPlanArgs.omp_resume_file_path carries the locator (kept
+// separate from pi's transcript path — pi *requires* it, omp only *overrides*
+// the id with it). Both wrappers already forward the field over the JSON
+// boundary, so the napi and wasm builds must be rebuilt to pick the arm up.
 import { isShellProcess } from './agent-detection'
 import type { SleepingAgentLaunchConfig } from './agent-session-resume'
 import type { StartupCommandDelivery } from './codex-startup-delivery'

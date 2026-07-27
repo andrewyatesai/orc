@@ -56,6 +56,7 @@ const {
     autoUpdaterMock.setFeedURL.mockClear()
     autoUpdaterMock.updateConfigPath = undefined
     autoUpdaterMock.allowPrerelease = false
+    autoUpdaterMock.autoRunAppAfterInstall = true
     delete (autoUpdaterMock as Record<string, unknown>).verifyUpdateCodeSignature
     loadElectronAutoUpdaterMock.mockClear()
     shellMock.openExternal.mockReset().mockResolvedValue(undefined)
@@ -64,6 +65,7 @@ const {
   const autoUpdaterMock = {
     autoDownload: false,
     autoInstallOnAppQuit: false,
+    autoRunAppAfterInstall: true,
     allowPrerelease: false,
     on,
     checkForUpdates: vi.fn(),

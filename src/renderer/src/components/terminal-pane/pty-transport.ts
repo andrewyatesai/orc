@@ -14,10 +14,13 @@ import { isRuntimeOwnedSshTargetId } from '../../../../shared/execution-host'
 import {
   ptyDataHandlers,
   ptyReplayHandlers,
+  drainRolledBackPtyShutdownData,
   ptyExitHandlers,
   ptyTeardownHandlers,
+  ptyShutdownLifecycleHandlers,
   ensurePtyDispatcher,
-  getEagerPtyBufferHandle
+  getEagerPtyBufferHandle,
+  isPtyDataHandlerShutdownPending
 } from './pty-dispatcher'
 import {
   clearConsumedPreHandlerPtyExit,
@@ -138,6 +141,7 @@ export function createPtyOutputProcessor({
     meta?: PtyDataMeta
   ) => void
   clearAccumulatedState: () => void
+  pausePendingSideEffects: () => void
   clearStaleTitleTimer: () => void
   flushPendingSideEffects: () => void
   resetBellDetector: () => void
@@ -449,9 +453,15 @@ export function createPtyOutputProcessor({
     bellDetector.reset()
   }
 
+  function pausePendingSideEffects(): void {
+    clearSideEffectDrainTimer()
+    clearStaleTitleTimer()
+  }
+
   return {
     processData,
     clearAccumulatedState,
+    pausePendingSideEffects,
     clearStaleTitleTimer,
     flushPendingSideEffects,
     resetBellDetector: () => bellDetector.reset(),
@@ -466,8 +476,10 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
     cwd,
     cwdFallback,
     env,
+    envToDelete,
     command,
     launchConfig,
+    resumeProviderSession,
     launchToken,
     launchAgent,
     startupCommandDelivery,
@@ -533,6 +545,9 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
     if (ptyTeardownHandlers.get(id) === clearAccumulatedState) {
       ptyTeardownHandlers.delete(id)
     }
+    if (ptyShutdownLifecycleHandlers.get(id) === shutdownLifecycle) {
+      ptyShutdownLifecycleHandlers.delete(id)
+    }
   }
 
   function unregisterPtyDataAndStatusHandlers(id: string): void {
@@ -576,11 +591,20 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
     }
     ptyDataHandlers.set(id, dataHandler)
     ownedDataAndReplayHandlers.set(id, { data: dataHandler, replay: replayHandler })
-    drainPreHandlerPtyData(id, dataHandler)
+    if (!isPtyDataHandlerShutdownPending(id)) {
+      drainPreHandlerPtyData(id, dataHandler)
+      drainRolledBackPtyShutdownData(id)
+    }
   }
 
   function clearAccumulatedState(): void {
     outputProcessor.clearAccumulatedState()
+  }
+
+  const shutdownLifecycle = {
+    pause: outputProcessor.pausePendingSideEffects,
+    rollback: outputProcessor.flushPendingSideEffects,
+    commit: clearAccumulatedState
   }
 
   function yieldToInputWriteDrain(): Promise<void> {
@@ -638,6 +662,7 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
     ownedExitHandlers.set(id, exitHandler)
     // Why: shutdownWorktreeTerminals kills PTYs directly, bypassing disconnect/destroy; this cancels timers/tracker state that would fire stale notifications.
     ptyTeardownHandlers.set(id, clearAccumulatedState)
+    ptyShutdownLifecycleHandlers.set(id, shutdownLifecycle)
     if (drainBuffered) {
       try {
         drainPreHandlerPtyExit(id, exitHandler)
@@ -701,9 +726,17 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
           cwd,
           ...(shouldSendLocalCwdFallback ? { cwdFallback } : {}),
           env: options.env ?? env,
+          ...((options.envToDelete ?? envToDelete)
+            ? { envToDelete: options.envToDelete ?? envToDelete }
+            : {}),
           command: options.command ?? command,
           ...((options.launchConfig ?? launchConfig)
             ? { launchConfig: options.launchConfig ?? launchConfig }
+            : {}),
+          ...((options.resumeProviderSession ?? resumeProviderSession)
+            ? {
+                resumeProviderSession: options.resumeProviderSession ?? resumeProviderSession
+              }
             : {}),
           ...((options.launchToken ?? launchToken)
             ? { launchToken: options.launchToken ?? launchToken }
@@ -794,6 +827,8 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
         if (spawnResult.isReattach || spawnResult.coldRestore || spawnResult.sessionExpired) {
           return {
             id: spawnResult.id,
+            // Why: recovery needs to distinguish an attach that ignored startup intent from a fresh spawn that ran it.
+            ...(spawnResult.isReattach ? { isReattach: true } : {}),
             ...(resultLaunchAgent ? { launchAgent: resultLaunchAgent } : {}),
             ...(spawnResult.launchConfig ? { launchConfig: spawnResult.launchConfig } : {}),
             snapshot: spawnResult.snapshot,

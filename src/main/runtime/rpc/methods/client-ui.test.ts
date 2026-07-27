@@ -32,7 +32,14 @@ describe('client UI RPC methods', () => {
       minimaxGroupId: 'group-42',
       minimaxUsageModels: 'general,abab6.5',
       githubProjects: {
-        pinned: [],
+        pinned: [
+          {
+            owner: 'stablyai',
+            ownerType: 'organization' as const,
+            number: 1,
+            host: 'ghe.example:8443'
+          }
+        ],
         recent: [],
         lastViewByProject: {},
         activeProject: null
@@ -68,7 +75,12 @@ describe('client UI RPC methods', () => {
         lastViewByProject: {
           'organization:stablyai:1': { viewId: 'view-1' }
         },
-        activeProject: { owner: 'stablyai', ownerType: 'organization', number: 1 }
+        activeProject: {
+          owner: 'stablyai',
+          ownerType: 'organization' as const,
+          number: 1,
+          host: 'ghe.example:8443'
+        }
       }
     }
     const runtime = {
@@ -383,6 +395,30 @@ describe('client UI RPC methods', () => {
       filterRepoIds: ['repo-1']
     })
     expect(response).toMatchObject({ ok: true, result: { ui: updated } })
+  })
+
+  it('lets a paired client clear the OSC 52 default-on notice', async () => {
+    // Why pin this key: the update schema is strict, so an omitted field does not get
+    // stripped — it rejects the whole call. The renderer only logs that failure, so the
+    // one-shot notice would re-toast on every launch of every web/SSH/relay client.
+    const updated: PersistedUIState = {
+      ...getDefaultUIState(),
+      osc52ClipboardDefaultOnNoticePending: false
+    }
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      updateUIState: vi.fn(() => updated)
+    } as unknown as OrcaRuntimeService
+    const dispatcher = new RpcDispatcher({ runtime, methods: CLIENT_UI_METHODS })
+
+    const response = await dispatcher.dispatch(
+      makeRequest('ui.set', { osc52ClipboardDefaultOnNoticePending: false })
+    )
+
+    expect(response).toMatchObject({ ok: true })
+    expect(runtime.updateUIState).toHaveBeenCalledWith({
+      osc52ClipboardDefaultOnNoticePending: false
+    })
   })
 
   it('accepts persisted literal UI arrays and nested UI state', async () => {

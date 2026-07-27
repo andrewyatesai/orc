@@ -9,6 +9,7 @@ import { SettingsSubsectionHeader } from './SettingsFormControls'
 import { translate } from '@/i18n/i18n'
 import { getUpdateCheckClickOptions, getUpdateCheckHint } from '@/lib/update-check-click-options'
 import { getOrcaAlabPublicReleaseUrl } from '../../../../shared/repository-endpoints'
+import { GeneralRemoteServerUpdates } from './GeneralRemoteServerUpdates'
 
 export function GeneralUpdateSettingsSection(): React.JSX.Element {
   const updateStatus = useAppStore((s) => s.updateStatus)
@@ -261,6 +262,7 @@ export function GeneralUpdateSettingsSection(): React.JSX.Element {
                 ))}
         </p>
       </SearchableSetting>
+      <GeneralRemoteServerUpdates />
 
       <div className="space-y-2 border-t border-border pt-4">
         <SettingsSubsectionHeader

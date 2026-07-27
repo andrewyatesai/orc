@@ -123,8 +123,12 @@ describe('sendComposeBoxDraft', () => {
     const writes = transport.sendInput.mock.calls.map(([data]) => data)
     expect(writes).not.toContain(BRACKETED_PASTE_START)
     expect(writes).not.toContain(BRACKETED_PASTE_END)
-    // All writes except the final Enter reassemble the untouched body.
-    expect(writes.slice(0, -1).join('')).toBe(body)
+    // Why: the chunked PTY writes apply the engine's own paste semantics
+    // (\r?\n -> \r), so newline handling no longer flips at the 64 KiB direct
+    // ceiling. CRLF collapses to ONE CR — two would double-execute the line.
+    const crNormalizedBody = `echo one\recho two\r${'y'.repeat(70_000)}`
+    expect(writes.slice(0, -1).join('')).toBe(crNormalizedBody)
+    expect(writes.join('')).not.toContain('\n')
     expect(writes.at(-1)).toBe('\r')
   })
 

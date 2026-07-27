@@ -2640,7 +2640,8 @@ describe('browserManager', () => {
       }
     )
 
-    expect(keyDownPreventDefault).toHaveBeenCalledTimes(1)
+    // Why: keydown must not preventDefault or Electron drops the commit keyup.
+    expect(keyDownPreventDefault).not.toHaveBeenCalled()
     expect(keyUpPreventDefault).toHaveBeenCalledTimes(1)
     expect(rendererSendMock).toHaveBeenNthCalledWith(1, 'ui:ctrlTabKeyDown', { shiftKey: false })
     expect(rendererSendMock).toHaveBeenNthCalledWith(2, 'ui:ctrlTabKeyUp')
@@ -2884,7 +2885,7 @@ describe('browserManager', () => {
         id,
         isDestroyed: vi.fn(() => false),
         getType: vi.fn(() => 'webview'),
-      close: vi.fn(),
+        close: vi.fn(),
         getUserAgent: vi.fn(
           () =>
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) orca/1.0.0 Chrome/134.0.0.0 Electron/30.0.0 Safari/537.36'

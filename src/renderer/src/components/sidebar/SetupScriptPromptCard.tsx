@@ -26,6 +26,7 @@ import {
   type LastVisibleSetupScriptPrompt,
   useSetupScriptPromptProjectContext
 } from './setup-script-prompt-render-state'
+import { useSetupScriptPromptRevalidation } from './useSetupScriptPromptRevalidation'
 import { translate } from '@/i18n/i18n'
 
 type PromptState = SetupScriptPromptInspection
@@ -123,6 +124,14 @@ function SetupScriptPromptCard(): React.JSX.Element | null {
   const handleRetryInspection = useCallback(() => {
     setInspectionRetryKey((value) => value + 1)
   }, [])
+
+  useSetupScriptPromptRevalidation({
+    activeRepo,
+    isDismissed,
+    sidebarOpen,
+    promptState,
+    requestRevalidation: handleRetryInspection
+  })
 
   useEffect(() => {
     if (
@@ -259,9 +268,7 @@ function SetupScriptPromptCard(): React.JSX.Element | null {
       } catch (error) {
         trackSetupScriptPromptAction({
           action:
-            actionPrefix === 'save_detected_setup'
-              ? 'save_detected_setup_failed'
-              : 'import_failed',
+            actionPrefix === 'save_detected_setup' ? 'save_detected_setup_failed' : 'import_failed',
           candidate,
           hasSharedHooks,
           editedBeforeSave

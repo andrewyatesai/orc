@@ -87,15 +87,16 @@ let syncEnabled = false
 let syncTimer: ReturnType<typeof setTimeout> | null = null
 let getStoreState: (() => AppState) | null = null
 let mobileSessionSnapshotVersion = 0
-// Why: main gates per-worktree mobile fanout on (publicationEpoch, snapshotVersion); reuse the cached
-// snapshot/version when a worktree's mobile-visible content is unchanged so no-op syncs stop fanning out.
+// Why: main gates per-worktree mobile fanout on (publicationEpoch, snapshotVersion), so that pair must be a
+// semantic revision: reuse the cached snapshot/version when a worktree's mobile-visible content is unchanged
+// so no-op syncs stop fanning out, and bump the version only for worktrees that actually changed.
 const mobileSessionSnapshotCacheByWorktree = new Map<
   string,
   { content: unknown; snapshot: RuntimeMobileSessionTabsSnapshot }
 >()
 
 // Why: match JSON-serialization equality (undefined keys are absent) without allocating a serialized copy
-// per sync; anything strict-equality can't prove equal reads as changed, costing a redundant — never a suppressed — fanout.
+// per sync; anything strict-equality can't prove equal (e.g. NaN) reads as changed, costing a redundant — never a suppressed — fanout.
 function jsonContentEquals(a: unknown, b: unknown): boolean {
   if (a === b) {
     return true
@@ -866,8 +867,8 @@ export function buildMobileSessionTabSnapshots(
       tabs
     }
     // Why: main suppresses per-worktree fanout on an unchanged (epoch, version) pair, so reuse the cached
-    // version for structurally-identical content. The counter still advances per worktree per build so a
-    // changed worktree's fresh version stays ahead of main's +1 bumps.
+    // version for structurally-identical content. The global counter still advances per worktree per build
+    // (as before caching) so a changed worktree's fresh version stays ahead of main's +1 bumps.
     const candidateVersion = ++mobileSessionSnapshotVersion
     const cached = mobileSessionSnapshotCacheByWorktree.get(worktreeId)
     if (cached && jsonContentEquals(cached.content, content)) {

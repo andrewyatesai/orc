@@ -1,4 +1,10 @@
 import type { DaemonPtyAdapter } from './daemon-pty-adapter'
+import {
+  discoverLegacySessionRoutes,
+  reconcileSessionRoutesOnStartup,
+  resolveInspectionAdapter,
+  resolveSessionAdapter
+} from './daemon-session-adapter-routing'
 import type {
   IPtyProvider,
   PtyBackgroundStreamEvent,
@@ -8,6 +14,8 @@ import type {
   PtySpawnOptions,
   PtySpawnResult
 } from '../providers/types'
+import type { PtyIncarnationId } from '../../shared/pty-incarnation'
+import type { PtyProcessInspection } from '../providers/pty-process-inspection'
 
 type PtyDataFanoutPayload = {
   id: string
@@ -23,7 +31,11 @@ export class DaemonPtyRouter implements IPtyProvider {
   private sessionAdapters = new Map<string, DaemonPtyAdapter>()
   private unsubscribers: (() => void)[] = []
   private dataListeners: ((payload: PtyDataFanoutPayload) => void)[] = []
-  private exitListeners: ((payload: { id: string; code: number }) => void)[] = []
+  private exitListeners: ((payload: {
+    id: string
+    code: number
+    incarnationId?: PtyIncarnationId
+  }) => void)[] = []
 
   constructor(opts: { current: DaemonPtyAdapter; legacy: DaemonPtyAdapter[] }) {
     this.current = opts.current
@@ -47,29 +59,40 @@ export class DaemonPtyRouter implements IPtyProvider {
   }
 
   async discoverLegacySessions(): Promise<void> {
-    for (const adapter of this.legacy) {
-      try {
-        const sessions = await adapter.listProcesses()
-        for (const session of sessions) {
-          this.sessionAdapters.set(session.id, adapter)
-        }
-      } catch (error) {
-        console.warn('[daemon] Failed to discover legacy daemon sessions', error)
-      }
-    }
+    await discoverLegacySessionRoutes(this.legacy, this.sessionAdapters)
   }
 
   async spawn(opts: PtySpawnOptions): Promise<PtySpawnResult> {
     const adapter = opts.sessionId ? this.sessionAdapters.get(opts.sessionId) : undefined
     const target = adapter ?? this.current
     const result = await target.spawn(opts)
-    this.sessionAdapters.set(result.id, target)
+    // Why: the adapter filters intentional recovery exits and canonical-ID races before publishing proof.
+    if (!result.exitedBeforeSpawnReply) {
+      this.sessionAdapters.set(result.id, target)
+    }
     return result
   }
 
   supportsGitCredentialGuardHost(sessionId?: string): boolean {
     const adapter = sessionId ? this.adapterFor(sessionId) : this.current
     return adapter.supportsGitCredentialGuardHost()
+  }
+
+  supportsAgentSessionClaims(): boolean {
+    // Why: a legacy daemon may still own a resumable PTY, so authority requires every route.
+    return this.allAdapters().every((adapter) => adapter.supportsAgentSessionClaims())
+  }
+
+  providesAgentSessionOwnerListings(ptyId: string): boolean {
+    const adapter = this.sessionAdapters.get(ptyId)
+    // Why: an unmapped id may belong to any preserved daemon generation;
+    // only an established route can make an omitted owner authoritative.
+    return adapter?.providesAgentSessionOwnerListings(ptyId) === true
+  }
+
+  supportsAgentSessionCreateOperations(): boolean {
+    // Fresh sessions always route to the current daemon; legacy adapters only retain old IDs.
+    return this.current.supportsAgentSessionCreateOperations()
   }
 
   async attach(id: string): Promise<void> {
@@ -177,6 +200,10 @@ export class DaemonPtyRouter implements IPtyProvider {
     return this.adapterFor(id).getForegroundProcess(id)
   }
 
+  async inspectProcess(id: string): Promise<PtyProcessInspection> {
+    return this.adapterForInspection(id).inspectProcess(id)
+  }
+
   async confirmForegroundProcess(id: string): Promise<string | null> {
     return this.adapterFor(id).confirmForegroundProcess(id)
   }
@@ -252,7 +279,9 @@ export class DaemonPtyRouter implements IPtyProvider {
     return () => {}
   }
 
-  onExit(callback: (payload: { id: string; code: number }) => void): () => void {
+  onExit(
+    callback: (payload: { id: string; code: number; incarnationId?: PtyIncarnationId }) => void
+  ): () => void {
     this.exitListeners.push(callback)
     return () => {
       const idx = this.exitListeners.indexOf(callback)
@@ -274,26 +303,11 @@ export class DaemonPtyRouter implements IPtyProvider {
     alive: string[]
     killed: string[]
   }> {
-    const alive: string[] = []
-    const killed: string[] = []
-    for (const adapter of this.allAdapters()) {
-      const result = await adapter.reconcileOnStartup(validWorktreeIds)
-      // Why: daemon startup can reconcile many restored sessions; spreading
-      // those arrays into push can exceed JavaScript's argument limit.
-      for (const id of result.alive) {
-        alive.push(id)
-      }
-      for (const id of result.killed) {
-        killed.push(id)
-      }
-      for (const id of result.alive) {
-        this.sessionAdapters.set(id, adapter)
-      }
-      for (const id of result.killed) {
-        this.sessionAdapters.delete(id)
-      }
-    }
-    return { alive, killed }
+    return reconcileSessionRoutesOnStartup(
+      this.allAdapters(),
+      this.sessionAdapters,
+      validWorktreeIds
+    )
   }
 
   dispose(): void {
@@ -344,20 +358,11 @@ export class DaemonPtyRouter implements IPtyProvider {
   }
 
   private adapterFor(sessionId: string): DaemonPtyAdapter {
-    const routed = this.sessionAdapters.get(sessionId)
-    if (routed) {
-      return routed
-    }
-    // Why: reads fan out across all adapters, but this routing map is filled only
-    // by one-shot boot discovery. A legacy session it missed had its writes silently
-    // dropped onto `current`; self-heal by asking who actually owns the pty, then cache.
-    for (const adapter of this.allAdapters()) {
-      if (adapter.hasPty(sessionId)) {
-        this.sessionAdapters.set(sessionId, adapter)
-        return adapter
-      }
-    }
-    return this.current
+    return resolveSessionAdapter(sessionId, this.sessionAdapters, this.current, this.legacy)
+  }
+
+  private adapterForInspection(sessionId: string): DaemonPtyAdapter {
+    return resolveInspectionAdapter(sessionId, this.sessionAdapters, this.current, this.legacy)
   }
 
   private allAdapters(): DaemonPtyAdapter[] {

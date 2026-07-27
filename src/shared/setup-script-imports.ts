@@ -1,5 +1,6 @@
 import type { SetupScriptImportProvider } from './setup-script-import-providers'
 import { requireOrcaDispatch } from './orca-dispatch-seam'
+import { isSetupScriptImportTextWithinLimit } from './setup-script-import-limits'
 
 export type SetupScriptImportCandidate = {
   provider: SetupScriptImportProvider
@@ -48,13 +49,19 @@ export async function inspectSetupScriptImportCandidates(
   options?: { fileExists?: SetupScriptImportFileExists }
 ): Promise<SetupScriptImportCandidate[]> {
   const fileExists = options?.fileExists
+  // Drop oversized config files at the IO edge so no unbounded blob crosses into
+  // the Rust core; a rejected file reads as absent, same as upstream's guard.
+  const boundedReadFile: SetupScriptImportFileRead = async (relativePath) => {
+    const content = await readFile(relativePath)
+    return content !== null && isSetupScriptImportTextWithinLimit(content) ? content : null
+  }
   // Without an injected existence check the core falls back to read-based
   // lockfile existence, so read the lockfiles into the map in that case.
   const readPaths = fileExists
     ? SETUP_SCRIPT_CONTENT_PATHS
     : [...SETUP_SCRIPT_CONTENT_PATHS, ...PACKAGE_MANAGER_LOCKFILE_PATHS]
   const contentEntries = await Promise.all(
-    readPaths.map(async (path) => [path, await readFile(path)] as const)
+    readPaths.map(async (path) => [path, await boundedReadFile(path)] as const)
   )
   const contentsByPath: Record<string, string | null> = Object.fromEntries(contentEntries)
 

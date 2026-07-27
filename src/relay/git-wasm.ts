@@ -79,13 +79,40 @@ export function isNoUpstreamError(error: unknown): boolean {
   return wasmIsNoUpstreamError(error instanceof Error ? error.message : undefined)
 }
 
+/** The Rust parser's own status-scan result shape (flat upstream fields, `u`
+ *  records deferred, cap applied during the scan). */
+export type StatusPorcelainScan = {
+  entries: GitStatusEntry[]
+  unmergedLines: string[]
+  ignoredPaths: string[]
+  head?: string
+  branch?: string
+  upstreamName?: string
+  ahead?: number
+  behind?: number
+  didHitLimit?: boolean
+  /** Changed entries observed — `limit + 1` when the cap stopped the scan. */
+  statusLength: number
+}
+
+/**
+ * Scan `git status --porcelain=v2 --branch` bytes, capping the changed-entry
+ * count DURING the scan (`limit` 0 disables the cap). Records are independent and
+ * newline-delimited, so a line-aligned slice scans identically to the whole
+ * output — that is what lets the relay's streaming reader feed this per chunk.
+ */
+export function scanStatusPorcelain(stdout: string, limit: number): StatusPorcelainScan {
+  ensureGitWasm()
+  return JSON.parse(
+    wasmParseStatusPorcelain(Buffer.from(stdout, 'utf8'), limit)
+  ) as StatusPorcelainScan
+}
+
 /**
  * Parse `git status --porcelain=v2 --branch` output into the relay's structured
  * shape. Passes limit 0 (cap disabled) so the parser returns ALL entries, exactly
- * like the old relay-local parser — the caller (git-handler-status-ops) applies
- * DEFAULT_GIT_STATUS_LIMIT itself and relies on the full count to detect the
- * over-limit state. Adapts the wasm's flat upstream fields into the nested
- * `upstreamStatus` the relay consumers expect.
+ * like the old relay-local parser. Adapts the wasm's flat upstream fields into the
+ * nested `upstreamStatus` the relay consumers expect.
  */
 export function parseStatusOutput(stdout: string): {
   entries: GitStatusEntry[]
@@ -100,17 +127,7 @@ export function parseStatusOutput(stdout: string): {
     behind: number
   }
 } {
-  ensureGitWasm()
-  const r = JSON.parse(wasmParseStatusPorcelain(Buffer.from(stdout, 'utf8'), 0)) as {
-    entries: GitStatusEntry[]
-    unmergedLines: string[]
-    ignoredPaths: string[]
-    head?: string
-    branch?: string
-    upstreamName?: string
-    ahead?: number
-    behind?: number
-  }
+  const r = scanStatusPorcelain(stdout, 0)
   return {
     entries: r.entries,
     unmergedLines: r.unmergedLines,

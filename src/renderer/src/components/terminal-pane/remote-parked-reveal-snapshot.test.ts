@@ -38,7 +38,25 @@ describe('remote parked pane reveal snapshot', () => {
     vi.resetModules()
     vi.clearAllMocks()
     subscriptionCallbacks = null
-    runtimeCall.mockResolvedValue({ ok: true, result: { terminal: { handle: 'terminal-1' } } })
+    // Reveal now resolves pane ownership before subscribing, so the host must
+    // claim this transport's tab/leaf or attach aborts before any stream frame.
+    runtimeCall.mockImplementation(async (request: { method: string }) => {
+      if (request.method === 'terminal.resolvePane') {
+        return {
+          ok: true,
+          result: {
+            terminal: {
+              handle: 'terminal-1',
+              tabId: 'tab-1',
+              leafId: 'pane:1',
+              ptyId: 'remote:terminal-1',
+              worktreeId: 'wt-1'
+            }
+          }
+        }
+      }
+      return { ok: true, result: { terminal: { handle: 'terminal-1' } } }
+    })
     runtimeSubscribe.mockImplementation(
       async (_args: unknown, callbacks: typeof subscriptionCallbacks) => {
         subscriptionCallbacks = callbacks

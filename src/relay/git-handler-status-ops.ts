@@ -6,15 +6,16 @@ import * as path from 'node:path'
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { parseUnmergedEntry } from './git-handler-utils'
-import { parseStatusOutput } from './git-status-output-parser'
 import type { GitExec } from './git-handler-ops'
+import type { RelayGitStreamExec } from './git-stdout-stream'
 import type { GitUpstreamStatus } from '../shared/types'
+import { streamRelayGitStatus } from './git-status-stream'
 import { splitRemoteBranchName } from '../shared/git-effective-upstream'
 import { readOrProbeNoEffectiveUpstreamStatus } from './git-status-upstream-negative-cache'
 import { applyLineStats, type GitLineStats } from '../shared/git-uncommitted-line-stats'
 import { parseNumstat } from './git-wasm'
 import { collectUntrackedAdditionsViaGitNumstat } from './git-numstat-untracked-counter'
-import { DEFAULT_GIT_STATUS_LIMIT } from '../shared/git-status-limit'
+import { capGitStatusEntries, resolveGitStatusLimit } from '../shared/git-status-limit'
 import {
   beginGitStatusLineStatsCacheWrite,
   clearGitStatusLineStatsCacheKey,
@@ -58,6 +59,7 @@ export async function detectConflictOperation(worktreePath: string): Promise<str
 
 export async function getStatusOp(
   git: GitExec,
+  streamGit: RelayGitStreamExec,
   params: Record<string, unknown>,
   options: { signal?: AbortSignal } = {}
 ): Promise<{
@@ -75,11 +77,7 @@ export async function getStatusOp(
   const lineStatsWriteToken = beginGitStatusLineStatsCacheWrite(lineStatsCacheKey)
   const includeIgnored = params.includeIgnored === true
   // Why: reject NaN/negative limits — NaN would silently disable capping, negatives would over-truncate.
-  const rawLimit = params.limit
-  const limit =
-    typeof rawLimit === 'number' && Number.isFinite(rawLimit) && rawLimit >= 0
-      ? Math.floor(rawLimit)
-      : DEFAULT_GIT_STATUS_LIMIT
+  const limit = resolveGitStatusLimit(params.limit)
   const conflictOperation = await detectConflictOperation(worktreePath)
   const entries: Record<string, unknown>[] = []
   let head: string | undefined
@@ -102,28 +100,35 @@ export async function getStatusOp(
     if (includeIgnored) {
       statusArgs.push('--ignored=matching')
     }
-    const { stdout } = await git(statusArgs, worktreePath, {
-      // Why: status polling is read-like; avoid racing terminal Git on .git/worktrees/*/index.lock.
-      disableOptionalLocks: true,
-      signal: options.signal
-    })
-    const parsed = parseStatusOutput(stdout)
-    head = parsed.head
-    branch = parsed.branch
-    upstreamStatus = parsed.upstreamStatus
-    ignoredPaths = parsed.ignoredPaths
-    statusLength = parsed.entries.length
-    // Why: cap entry count so an enormous un-ignored folder can't push tens of thousands of rows through every poll.
-    if (limit !== 0 && parsed.entries.length > limit) {
-      didHitLimit = true
-      for (let i = 0; i < limit; i++) {
-        entries.push(parsed.entries[i])
-      }
-    } else {
-      for (const entry of parsed.entries) {
-        entries.push(entry)
-      }
-    }
+    // Why: stream + scan incrementally and stop git the moment the entry count
+    // crosses `limit`, so an enormous un-ignored folder never buffers a status
+    // listing big enough to crash the process. The scan is the Rust orca-git
+    // parser via wasm — the same core the main process runs through napi.
+    const streamed = await streamRelayGitStatus(
+      streamGit,
+      statusArgs,
+      worktreePath,
+      {
+        // Why: status polling is read-like; avoid racing terminal Git on .git/worktrees/*/index.lock.
+        disableOptionalLocks: true,
+        signal: options.signal
+      },
+      limit
+    )
+    head = streamed.head
+    branch = streamed.branch
+    ignoredPaths = streamed.ignoredPaths
+    statusLength = streamed.statusLength
+    didHitLimit = streamed.didHitLimit
+    const { upstreamName, upstreamAheadBehind } = streamed
+    upstreamStatus = upstreamName
+      ? {
+          hasUpstream: true,
+          upstreamName,
+          ahead: upstreamAheadBehind?.ahead ?? 0,
+          behind: upstreamAheadBehind?.behind ?? 0
+        }
+      : { hasUpstream: false, ahead: 0, behind: 0 }
 
     if (!didHitLimit) {
       if (shouldProbeEffectiveUpstreamStatus(branch, upstreamStatus?.upstreamName)) {
@@ -143,13 +148,29 @@ export async function getStatusOp(
           }
         }
       }
+    }
 
-      for (const uLine of parsed.unmergedLines) {
-        const entry = parseUnmergedEntry(worktreePath, uLine)
-        if (entry) {
-          entries.push(entry)
-        }
+    // Why: unmerged (`u`) records need per-file worktree lookups (conflicts are
+    // rare). The scan collects them separately and never counts them toward the
+    // entry cap, so resolve them even when the cap was hit — otherwise a capped
+    // huge change set silently drops early conflict rows behind later ordinary
+    // ones (#9477).
+    const unmergedEntries: Record<string, unknown>[] = []
+    for (const line of streamed.unmergedLines) {
+      const entry = parseUnmergedEntry(worktreePath, line)
+      if (entry) {
+        unmergedEntries.push(entry)
       }
+    }
+    // Why: conflicts always appear before the cap boundary, so surface them ahead
+    // of the capped ordinary rows and re-cap the combined list to `limit` (#9477).
+    // Below the cap, keep the original entries-then-conflicts order.
+    const scannedEntries = streamed.entries as Record<string, unknown>[]
+    const combined = didHitLimit
+      ? capGitStatusEntries([...unmergedEntries, ...scannedEntries], limit).entries
+      : [...scannedEntries, ...unmergedEntries]
+    for (const entry of combined) {
+      entries.push(entry)
     }
   } catch (error) {
     // Why: an aborted scan must reject, not resolve as a completed (empty) status result.

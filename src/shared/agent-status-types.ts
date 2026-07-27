@@ -10,6 +10,7 @@ import {
   normalizeOptionalMultilineField,
   normalizePromptField
 } from './agent-status-field-normalization'
+import { assertJsonTextStructureWithinLimits } from './json-text-structure-limit'
 
 export { AGENT_STATUS_MAX_FIELD_LENGTH } from './agent-status-field-normalization'
 
@@ -67,14 +68,16 @@ export type AgentStatusOrchestrationContext = {
   orchestrationRunId?: string
 }
 
-export type AgentSubagentState = 'working' | 'idle'
+export type AgentSubagentState = 'working' | 'blocked' | 'waiting' | 'idle'
 
-/** A live in-process subagent/teammate of the pane's session (Claude Subagent hooks +
- *  the `background_tasks` field on Stop). Rendered as an indented child row with no PTY of its own. */
+/** A live in-process child of the pane's provider session. Rendered as an
+ *  indented child row with no PTY of its own. */
 export type AgentSubagentSnapshot = {
-  /** Provider-assigned id (Claude hook `agent_id`). */
+  /** Provider-assigned lifecycle id. */
   id: string
   agentType?: string
+  /** Provider model used by this child, when exposed by its lifecycle event. */
+  model?: string
   description?: string
   state: AgentSubagentState
   /** Timestamp (ms) when this subagent was first observed. */
@@ -92,6 +95,8 @@ export type AgentStatusEntry = {
    *  Why: separate from updatedAt so tool/prompt pings (which reset updatedAt) don't move it. */
   stateStartedAt: number
   agentType?: AgentType
+  /** Provider model currently used by this session. */
+  model?: string
   /** Composite key: `${tabId}:${leafId}` where leafId is a stable UUID layout leaf. */
   paneKey: string
   /** Runtime terminal handle for matching retained parent rows when the parent
@@ -153,6 +158,7 @@ export type AgentStatusPayload = {
   state: AgentStatusState
   prompt?: string
   agentType?: AgentType
+  model?: string
   toolName?: string
   toolInput?: string
   /** JSON string of the AskUserQuestion tool input, captured live. See the
@@ -163,7 +169,7 @@ export type AgentStatusPayload = {
   /** True when this `done` means the agent CLI never started (immediate exit
    *  126/127 before any recognition, #7047). Undefined otherwise. */
   launchFailed?: boolean
-  /** Live subagents/teammates of the reporting session. See AgentStatusEntry. */
+  /** Live in-process children of the reporting session. See AgentStatusEntry. */
   subagents?: AgentSubagentSnapshot[]
 }
 
@@ -246,10 +252,15 @@ export function isFreshNonDoneAgentStatus(
 const VALID_STATES: ReadonlySet<string> = new Set<string>(AGENT_STATUS_STATES)
 /** Maximum character length for the agentType label. Truncated on parse. */
 export const AGENT_TYPE_MAX_LENGTH = 40
+export const AGENT_MODEL_MAX_LENGTH = 120
 
 /** Maximum subagent child rows carried per status entry. Bounds per-pane cache
  *  and IPC fanout against a runaway spawner. */
 export const AGENT_STATUS_MAX_SUBAGENTS = 32
+export const AGENT_STATUS_JSON_STRUCTURE_LIMITS = {
+  structuralTokens: 4096,
+  nestingDepth: 16
+} as const
 const AGENT_SUBAGENT_ID_MAX_LENGTH = 64
 
 function normalizeSubagentSnapshot(value: unknown): AgentSubagentSnapshot | null {
@@ -264,7 +275,12 @@ function normalizeSubagentSnapshot(value: unknown): AgentSubagentSnapshot | null
   if (id.length === 0 || id.length > AGENT_SUBAGENT_ID_MAX_LENGTH) {
     return null
   }
-  if (obj.state !== 'working' && obj.state !== 'idle') {
+  if (
+    obj.state !== 'working' &&
+    obj.state !== 'blocked' &&
+    obj.state !== 'waiting' &&
+    obj.state !== 'idle'
+  ) {
     return null
   }
   return {
@@ -273,6 +289,7 @@ function normalizeSubagentSnapshot(value: unknown): AgentSubagentSnapshot | null
     startedAt:
       typeof obj.startedAt === 'number' && Number.isFinite(obj.startedAt) ? obj.startedAt : 0,
     agentType: normalizeOptionalField(obj.agentType, AGENT_TYPE_MAX_LENGTH),
+    model: normalizeOptionalField(obj.model, AGENT_MODEL_MAX_LENGTH),
     description: normalizeOptionalField(obj.description, AGENT_STATUS_TOOL_INPUT_MAX_LENGTH)
   }
 }
@@ -314,6 +331,7 @@ export function agentSubagentsEqual(
       x.state !== y.state ||
       x.startedAt !== y.startedAt ||
       x.agentType !== y.agentType ||
+      x.model !== y.model ||
       x.description !== y.description
     ) {
       return false
@@ -346,6 +364,7 @@ function normalizeAgentStatusObject(parsed: unknown): ParsedAgentStatusPayload |
     prompt: normalizePromptField(obj.prompt),
     // Why: normalize like the other single-line fields so embedded newlines (e.g. `agentType: "claude\nrogue"`) can't break single-line UI and equality checks.
     agentType: normalizeOptionalField(obj.agentType, AGENT_TYPE_MAX_LENGTH),
+    model: normalizeOptionalField(obj.model, AGENT_MODEL_MAX_LENGTH),
     toolName: normalizeOptionalField(obj.toolName, AGENT_STATUS_TOOL_NAME_MAX_LENGTH),
     toolInput: normalizeOptionalField(obj.toolInput, AGENT_STATUS_TOOL_INPUT_MAX_LENGTH),
     interactivePrompt: normalizeInteractivePromptField(
@@ -379,6 +398,7 @@ export function normalizeAgentStatusPayload(payload: unknown): ParsedAgentStatus
  */
 export function parseAgentStatusPayload(json: string): ParsedAgentStatusPayload | null {
   try {
+    assertJsonTextStructureWithinLimits(json, AGENT_STATUS_JSON_STRUCTURE_LIMITS)
     return normalizeAgentStatusObject(JSON.parse(json))
   } catch {
     return null

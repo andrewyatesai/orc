@@ -43,6 +43,7 @@ import { isTerminalLinkActivation } from './terminal-link-activation'
 import { getBufferPositionForTerminalMouseEvent } from './terminal-mouse-buffer-position'
 
 export { openDetectedFilePath } from './terminal-file-open-routing'
+export { mapTerminalFilePath } from './terminal-file-open-routing'
 export { openFilePathLinkAtBufferPosition } from './terminal-file-link-hit-testing'
 export { getTerminalFileOpenHint, getTerminalHtmlFileOpenHint, getTerminalUrlOpenHint }
 export { isTerminalLinkActivation } from './terminal-link-activation'

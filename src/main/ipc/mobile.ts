@@ -16,6 +16,8 @@ import {
   type WindowsMobileFirewallEnvironment
 } from '../runtime/windows-mobile-firewall'
 
+// Enumeration (IPv4 + non-link-local IPv6, tailnet-first ranking) lives in
+// ./mobile-pairing-interfaces so the serve/headless path can reuse it.
 export type { NetworkInterface }
 
 function toRuntimeAccessGrant(device: DeviceEntry): RuntimeAccessGrant {
@@ -35,6 +37,7 @@ export type MobileHandlerDependencies = {
   firewallEnvironment?: WindowsMobileFirewallEnvironment
   openWindowsNetworkSettings?: () => Promise<void>
   getRelayStatus?: () => RelayBrokerStatus
+  consumePendingUnpairedDeviceAuthFailure?: (webContentsId: number) => boolean
 }
 
 export function registerMobileHandlers(
@@ -226,6 +229,13 @@ export function registerMobileHandlers(
   ipcMain.handle('mobile:getRelayStatus', () => ({
     status: dependencies.getRelayStatus?.() ?? 'offline'
   }))
+
+  ipcMain.handle('mobile:consumePendingUnpairedDeviceAuthFailure', (event) => {
+    if (!isWindowRenderer(event)) {
+      return false
+    }
+    return dependencies.consumePendingUnpairedDeviceAuthFailure?.(event.sender.id) ?? false
+  })
 }
 
 function isWindowRenderer(event: IpcMainInvokeEvent): boolean {

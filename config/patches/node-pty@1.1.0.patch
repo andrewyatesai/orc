@@ -1,5 +1,5 @@
 diff --git a/binding.gyp b/binding.gyp
-index 5f63978b07ab50aaf7523219a2170ec737a6b5db..b3309a07ef99dea7967d7bdd04b9fc3500acacae 100644
+index 5f63978b07ab50aaf7523219a2170ec737a6b5db..bbd9e06136e8922f40b5779e35d4fc835f1479ab 100644
 --- a/binding.gyp
 +++ b/binding.gyp
 @@ -5,9 +5,6 @@
@@ -130,7 +130,7 @@ index 181ccabbbe9c4948a9725fb1db907a68e9de01fc..67f31facf85562b67adbfbd04ce28ddd
  process.send!({ consoleProcessList });
  process.exit(0);
 diff --git a/src/unix/pty.cc b/src/unix/pty.cc
-index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..310ba453b31430ed4752fdf6889455e18b18d6a6 100644
+index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..89a85c76254b648e3d004531ad7ba20c8da82fd3 100644
 --- a/src/unix/pty.cc
 +++ b/src/unix/pty.cc
 @@ -23,7 +23,9 @@

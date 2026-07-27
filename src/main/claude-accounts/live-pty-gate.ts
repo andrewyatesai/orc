@@ -17,22 +17,35 @@ export function attachClaudeLivePtyPersistence(target: ClaudeLivePtyPersistence 
   persistence = target
 }
 
-// Why: managed OAuth refresh is deferred while a Claude PTY is live (runtime-auth-service).
-// When the last live Claude tab closes, the deferred refresh would otherwise wait for the
-// next window-focus-gated poll (issue #9324). This drain listener fires on the true 1→0
-// transition so the rate-limits service can run the deferred refresh immediately.
-let drainListener: (() => void) | null = null
+// Why: managed OAuth refresh is deferred while a Claude PTY is live (runtime-auth-service),
+// so usage shows "Waiting for Claude session". Draining on the true 1→0 transition lets the
+// rate-limits service refresh immediately instead of waiting for the next window-focus-gated
+// poll (issue #9324) or the usage-fetch failure backoff.
+type LiveClaudePtyDrainListener = () => void
+let drainListener: LiveClaudePtyDrainListener | null = null
+const drainListeners = new Set<LiveClaudePtyDrainListener>()
 
-export function attachClaudeLivePtyDrainListener(listener: (() => void) | null): void {
+export function attachClaudeLivePtyDrainListener(
+  listener: LiveClaudePtyDrainListener | null
+): void {
   drainListener = listener
 }
 
-// Run `mutate`, then fire the drain listener only when the live set went from non-empty to empty.
+export function onLiveClaudePtysDrained(listener: LiveClaudePtyDrainListener): () => void {
+  drainListeners.add(listener)
+  return () => drainListeners.delete(listener)
+}
+
+// Run `mutate`, then notify listeners only when the live set went from non-empty to empty.
 function withLastPtyDrainNotification(mutate: () => void): void {
   const hadLivePtys = liveClaudePtyIds.size > 0
   mutate()
-  if (hadLivePtys && liveClaudePtyIds.size === 0) {
-    drainListener?.()
+  if (!hadLivePtys || liveClaudePtyIds.size > 0) {
+    return
+  }
+  drainListener?.()
+  for (const listener of drainListeners) {
+    listener()
   }
 }
 

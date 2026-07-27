@@ -1,10 +1,7 @@
 import { toast } from 'sonner'
 import { useAppStore } from '@/store'
-import {
-  buildAgentDraftLaunchPlan,
-  buildAgentStartupPlan,
-  type AgentStartupPlan
-} from '@/lib/tui-agent-startup'
+import type { AgentStartupPlan } from '@/lib/tui-agent-startup'
+import { resolveAgentLaunchPromptRouting } from '@/lib/agent-launch-prompt-routing'
 import { findCustomAgentProfile } from '@/lib/custom-agent-resolve'
 import { CLIENT_PLATFORM } from '@/lib/new-workspace'
 import { getAgentLaunchPlatformForRepo } from '@/lib/agent-launch-platform'
@@ -45,6 +42,7 @@ export type LaunchAgentInNewTabArgs = {
   prompt?: string
   /** Optional CLI arguments appended to the selected agent command. */
   agentArgs?: string | null
+  initialCwd?: string | null
   /** How to deliver the prompt: `draft` leaves it editable, `submit-after-ready` sends it once the TUI is ready. */
   promptDelivery?: 'auto-submit' | 'draft' | 'submit-after-ready'
   /** Telemetry surface that initiated this launch. Defaults to the tab-bar quick-launch entry point. */
@@ -84,6 +82,7 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
     groupId,
     prompt,
     agentArgs,
+    initialCwd,
     promptDelivery = 'auto-submit',
     launchSource,
     quickCommandLabel,
@@ -142,65 +141,16 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
     ? buildPersonalizedAgentPrompt({ prompt: trimmedPrompt, personalizationPrompt })
     : ''
   const isFollowupPath = TUI_AGENT_CONFIG[agent].promptInjectionMode === 'stdin-after-start'
-  // argv/flag agents fold the prompt into the launch command; followup/generated launches deliver it via post-launch paste.
-  let startupPlan: AgentStartupPlan | null = null
-  let pasteDraftAfterLaunch: string | null = null
-  let submitPastedPrompt = false
-  let forcePasteAfterLaunch = false
   let promptDeliveryResult: Promise<{ delivered: boolean; failureNotified: boolean }> | undefined
-
-  if (hasPrompt && promptDelivery === 'submit-after-ready') {
-    // Why: multi-line generated prompts are too large for a shell argv, so launch clean then paste+submit in the TUI.
-    startupPlan = buildAgentStartupPlan({
-      ...startupPlanBase,
-      prompt: '',
-      allowEmptyPromptLaunch: true
+  const { startupPlan, pasteDraftAfterLaunch, submitPastedPrompt } =
+    resolveAgentLaunchPromptRouting({
+      startupPlanBase,
+      trimmedPrompt,
+      hasPrompt,
+      personalizedPrompt,
+      isFollowupPath,
+      promptDelivery
     })
-    pasteDraftAfterLaunch = personalizedPrompt
-    submitPastedPrompt = true
-    forcePasteAfterLaunch = true
-  } else if (hasPrompt && promptDelivery === 'draft') {
-    const draftLaunchPlan = buildAgentDraftLaunchPlan({
-      ...startupPlanBase,
-      draft: trimmedPrompt
-    })
-    if (draftLaunchPlan) {
-      startupPlan = {
-        agent: draftLaunchPlan.agent,
-        launchCommand: draftLaunchPlan.launchCommand,
-        expectedProcess: draftLaunchPlan.expectedProcess,
-        followupPrompt: null,
-        launchConfig: draftLaunchPlan.launchConfig,
-        ...(draftLaunchPlan.sessionOptions
-          ? { sessionOptions: draftLaunchPlan.sessionOptions }
-          : {}),
-        ...(draftLaunchPlan.startupCommandDelivery
-          ? { startupCommandDelivery: draftLaunchPlan.startupCommandDelivery }
-          : {}),
-        ...(draftLaunchPlan.env ? { env: draftLaunchPlan.env } : {})
-      }
-    } else {
-      startupPlan = buildAgentStartupPlan({
-        ...startupPlanBase,
-        prompt: '',
-        allowEmptyPromptLaunch: true
-      })
-      pasteDraftAfterLaunch = personalizedPrompt
-    }
-  } else if (hasPrompt && isFollowupPath) {
-    startupPlan = buildAgentStartupPlan({
-      ...startupPlanBase,
-      prompt: '',
-      allowEmptyPromptLaunch: true
-    })
-    pasteDraftAfterLaunch = personalizedPrompt
-  } else {
-    startupPlan = buildAgentStartupPlan({
-      ...startupPlanBase,
-      prompt: hasPrompt ? trimmedPrompt : '',
-      allowEmptyPromptLaunch: !hasPrompt
-    })
-  }
 
   if (!startupPlan) {
     return null
@@ -218,19 +168,32 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
   })
 
   const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(store, worktreeId)
-  if (isWebRuntimeSessionActive(runtimeEnvironmentId) && pasteDraftAfterLaunch === null) {
-    launchAgentInWebHostTab({
+  if (isWebRuntimeSessionActive(runtimeEnvironmentId)) {
+    const webHostDelivery = launchAgentInWebHostTab({
       agent,
       worktreeId,
       environmentId: runtimeEnvironmentId,
       groupId,
-      hasPrompt,
+      cwd: initialCwd,
       startupPlan,
-      // Why: send the client's resolved terminal choice explicitly, else a paired host applies its own default.
+      prompt: trimmedPrompt,
+      promptDelivery,
+      pastePromptAfterReady: pasteDraftAfterLaunch,
+      submitPastedPrompt,
+      agentArgs,
+      // Why: omission means terminal locally, but would let a paired host apply
+      // its own default; send the client's resolved terminal choice explicitly.
       viewMode: initialViewModeProps.viewMode ?? 'terminal',
       onPromptDelivered
     })
-    return { tabId: null, startupPlan, pasteDraftAfterLaunch: false }
+    return {
+      tabId: null,
+      startupPlan,
+      pasteDraftAfterLaunch: pasteDraftAfterLaunch !== null,
+      ...(pasteDraftAfterLaunch !== null && promptDelivery === 'submit-after-ready'
+        ? { promptDeliveryResult: webHostDelivery }
+        : {})
+    }
   }
 
   // Why: queue startup BEFORE TerminalPane mounts — it snapshots pendingStartupByTabId in useState on first render.
@@ -241,11 +204,17 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
     ...initialViewModeProps
   })
   seedNativeChatAppliedSessionOptions(tab.id, agent, startupPlan.sessionOptions)
+  if (initialCwd?.trim()) {
+    // Why: queue before mount so local, WSL, and SSH continuations preserve their subdirectory.
+    store.queueTabInitialCwd(tab.id, initialCwd)
+  }
   store.queueTabStartupCommand(tab.id, {
     command: startupPlan.launchCommand,
     ...(startupPlan.env ? { env: startupPlan.env } : {}),
     launchConfig: startupPlan.launchConfig,
     launchAgent: agent,
+    ...(agentArgs !== undefined ? { agentArgsOverride: agentArgs } : {}),
+    ...(startupPlan.sessionOptions ? { sessionOptions: startupPlan.sessionOptions } : {}),
     ...(startupPlan.startupCommandDelivery
       ? { startupCommandDelivery: startupPlan.startupCommandDelivery }
       : {}),
@@ -268,7 +237,7 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
       content: pasteDraftAfterLaunch,
       agent,
       submit: submitPastedPrompt,
-      forcePaste: forcePasteAfterLaunch,
+      forcePaste: promptDelivery === 'submit-after-ready',
       onTimeout: () => {
         const state = useAppStore.getState()
         const tabsForWorktree = state.tabsByWorktree[worktreeId] ?? []

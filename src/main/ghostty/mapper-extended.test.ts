@@ -206,8 +206,8 @@ describe('mapGhosttyToOrca — cursor-text', () => {
 })
 
 describe('mapGhosttyToOrca — bold-color', () => {
-  // The aterm engine has no bold-color input (#8595): report the key as
-  // unsupported instead of persisting an override nothing consumes.
+  // The aterm engine has no bold-color input (#8595; cf. xtermjs/xterm.js#6032): report the
+  // key as unsupported instead of persisting an override nothing consumes.
   it('reports valid bold-color as unsupported instead of persisting a dead override', () => {
     const result = mapGhosttyToOrca({ 'bold-color': '#ff0000' })
     expect(result.diff).toEqual({})

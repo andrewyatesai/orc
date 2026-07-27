@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
-  computeClearFilterActions,
   computeVisibleWorktreeIds,
   getVisibleWorktreeIds,
   isDefaultBranchWorkspace,
   pruneVisibleWorktreeOrder,
   releaseVisibleWorktreeOrder,
-  setVisibleWorktreeIds,
-  sidebarHasActiveFilters
+  setVisibleWorktreeIds
 } from './visible-worktrees'
 import type { Repo, TerminalTab, Worktree, WorktreeLineage } from '../../../../shared/types'
 import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
@@ -86,23 +84,11 @@ function visibleOptions(overrides: Partial<VisibleOptions> = {}): VisibleOptions
     worktreeIdsWithLiveAgent: new Set(),
     hideDefaultBranchWorkspace: false,
     hideAutomationGeneratedWorkspaces: false,
+    hideCliCreatedWorkspaces: false,
     repoMap,
     workspaceHostScope: 'all',
     defaultHostId: LOCAL_EXECUTION_HOST_ID,
     worktreeLineageById: {},
-    ...overrides
-  }
-}
-
-type FilterState = Parameters<typeof sidebarHasActiveFilters>[0]
-
-function filterState(overrides: Partial<FilterState> = {}): FilterState {
-  return {
-    showSleepingWorkspaces: true,
-    filterRepoIds: [],
-    hideDefaultBranchWorkspace: false,
-    hideAutomationGeneratedWorkspaces: false,
-    workspaceHostScope: 'all',
     ...overrides
   }
 }
@@ -165,6 +151,57 @@ describe('computeVisibleWorktreeIds', () => {
     )
 
     expect(result).toEqual([manual.id])
+  })
+
+  it('hides CLI-created workspaces when the CLI filter is enabled', () => {
+    const manual = makeWorktree('manual')
+    const cliCreated = {
+      ...makeWorktree('cli-created'),
+      cliProvenance: {
+        kind: 'created-by-cli' as const,
+        createdAt: 123,
+        callerTerminalHandle: 'terminal-1',
+        startupAgent: 'claude' as const
+      }
+    }
+
+    const result = computeVisibleWorktreeIds(
+      { repo1: [manual, cliCreated] },
+      [manual.id, cliCreated.id],
+      visibleOptions({ hideCliCreatedWorkspaces: true })
+    )
+
+    expect(result).toEqual([manual.id])
+  })
+
+  it('keeps CLI-created workspaces visible while the CLI filter is off', () => {
+    const manual = makeWorktree('manual')
+    const cliCreated = {
+      ...makeWorktree('cli-created'),
+      cliProvenance: { kind: 'created-by-cli' as const, createdAt: 123 }
+    }
+
+    const result = computeVisibleWorktreeIds(
+      { repo1: [manual, cliCreated] },
+      [manual.id, cliCreated.id],
+      visibleOptions()
+    )
+
+    expect(result).toEqual([manual.id, cliCreated.id])
+  })
+
+  it('keeps workspaces without CLI provenance visible when the CLI filter is enabled', () => {
+    // Why: workspaces persisted before cliProvenance existed have no marker and
+    // must never be filtered as CLI-created.
+    const legacy = makeWorktree('legacy')
+
+    const result = computeVisibleWorktreeIds(
+      { repo1: [legacy] },
+      [legacy.id],
+      visibleOptions({ hideCliCreatedWorkspaces: true })
+    )
+
+    expect(result).toEqual([legacy.id])
   })
 
   it('does not treat slept wake-hint tabs as live surfaces', () => {
@@ -483,15 +520,18 @@ describe('computeVisibleWorktreeIds', () => {
   })
 
   it('restores an active lineage parent hidden by another filter while sleeping workspaces are hidden', () => {
-    const parent = makeWorktree('parent', 'repo1')
-    const child = makeWorktree('child', 'repo2')
+    // Why not a cross-repo parent: since #9913 a lineage edge that crosses repo
+    // boundaries is invalid, so the parent is hidden by the default-branch filter.
+    const parent = makeWorktree('parent')
+    parent.isMainWorktree = true
+    const child = makeWorktree('child')
     const lineage = makeWorktreeLineage(child, parent)
 
     const result = computeVisibleWorktreeIds(
-      { repo1: [parent], repo2: [child] },
+      { repo1: [parent, child] },
       [child.id, parent.id],
       visibleOptions({
-        filterRepoIds: ['repo2'],
+        hideDefaultBranchWorkspace: true,
         showSleepingWorkspaces: false,
         tabsByWorktree: {
           [parent.id]: [makeTab('t-parent', parent.id, 'p-parent')],
@@ -503,6 +543,139 @@ describe('computeVisibleWorktreeIds', () => {
     )
 
     expect(result).toEqual([parent.id, child.id])
+  })
+
+  it('includes a filtered parent from resolved inline lineage when hydration has no side-map entry', () => {
+    // Why the live parent: the fork's #4573 sleep gate only restores ancestors that
+    // are themselves active, so the parent is hidden by the default-branch filter.
+    const parent = makeWorktree('parent')
+    parent.isMainWorktree = true
+    const child = makeWorktree('child')
+    const lineage = makeWorktreeLineage(child, parent)
+    const resolvedChild = { ...child, lineage }
+
+    const result = computeVisibleWorktreeIds(
+      { repo1: [parent, resolvedChild] },
+      [child.id, parent.id],
+      visibleOptions({
+        hideDefaultBranchWorkspace: true,
+        showSleepingWorkspaces: false,
+        tabsByWorktree: {
+          [parent.id]: [makeTab('t-parent', parent.id, 'p-parent')],
+          [child.id]: [makeTab('t-child', child.id, 'p-child')]
+        },
+        ptyIdsByTabId: { 't-parent': ['p-parent'], 't-child': ['p-child'] }
+      })
+    )
+
+    expect(result).toEqual([parent.id, child.id])
+  })
+
+  it('keeps inline parents out of non-nested board results across parent filters', () => {
+    const child = makeWorktree('child')
+    const run = (
+      parent: ReturnType<typeof makeWorktree>,
+      options: Partial<VisibleOptions>
+    ): string[] => {
+      const resolvedChild = { ...child, lineage: makeWorktreeLineage(child, parent) }
+      return computeVisibleWorktreeIds(
+        { repo1: [parent, resolvedChild] },
+        [parent.id, child.id],
+        visibleOptions({ ...options, injectLineageAncestors: false })
+      )
+    }
+
+    const sleepingParent = makeWorktree('sleeping-parent')
+    expect(
+      run(sleepingParent, {
+        showSleepingWorkspaces: false,
+        tabsByWorktree: { [child.id]: [makeTab('t-child', child.id, 'p-child')] },
+        ptyIdsByTabId: { 't-child': ['p-child'] }
+      })
+    ).toEqual([child.id])
+
+    const defaultBranchParent = makeWorktree('default-parent')
+    defaultBranchParent.isMainWorktree = true
+    expect(run(defaultBranchParent, { hideDefaultBranchWorkspace: true })).toEqual([child.id])
+
+    const automationParent = makeWorktree('automation-parent')
+    automationParent.automationProvenance = {
+      kind: 'created-by-automation',
+      automationId: 'automation-1',
+      automationNameSnapshot: 'Review',
+      automationRunId: 'run-1',
+      automationRunTitleSnapshot: 'Review run',
+      createdAt: 1,
+      executionTargetType: 'local',
+      executionTargetId: 'local',
+      projectId: 'repo1',
+      repoId: 'repo1',
+      hostId: 'local'
+    }
+    expect(run(automationParent, { hideAutomationGeneratedWorkspaces: true })).toEqual([child.id])
+
+    const cliParent = makeWorktree('cli-parent')
+    cliParent.cliProvenance = { kind: 'created-by-cli', createdAt: 1 }
+    expect(run(cliParent, { hideCliCreatedWorkspaces: true })).toEqual([child.id])
+  })
+
+  it('includes inline lineage ancestors when send-target mode forces a filtered child visible', () => {
+    // Parent is live but hidden by the default-branch filter; the sleeping child
+    // only re-enters through send-target forcing, and must drag its parent back.
+    const parent = makeWorktree('parent')
+    parent.isMainWorktree = true
+    const child = makeWorktree('child')
+    const lineage = makeWorktreeLineage(child, parent)
+    const resolvedChild = { ...child, lineage }
+
+    const result = computeVisibleWorktreeIds(
+      { repo1: [parent, resolvedChild] },
+      [parent.id, child.id],
+      visibleOptions({
+        hideDefaultBranchWorkspace: true,
+        showSleepingWorkspaces: false,
+        tabsByWorktree: { [parent.id]: [makeTab('t-parent', parent.id, 'p-parent')] },
+        ptyIdsByTabId: { 't-parent': ['p-parent'] },
+        forcedVisibleWorktreeIds: [child.id]
+      })
+    )
+
+    expect(result).toEqual([parent.id, child.id])
+  })
+
+  it('keeps the hydrated side-map authoritative over disagreeing inline lineage', () => {
+    // Both candidate parents are live and hidden by the same CLI filter, so only
+    // the lineage source decides which one lineage restoration brings back.
+    const inlineParent = makeWorktree('inline-parent')
+    inlineParent.cliProvenance = { kind: 'created-by-cli', createdAt: 1 }
+    const hydratedParent = makeWorktree('hydrated-parent')
+    hydratedParent.cliProvenance = { kind: 'created-by-cli', createdAt: 1 }
+    const child = makeWorktree('child')
+    const inlineLineage = makeWorktreeLineage(child, inlineParent)
+    const hydratedLineage = makeWorktreeLineage(child, hydratedParent)
+    const resolvedChild = { ...child, lineage: inlineLineage }
+
+    const result = computeVisibleWorktreeIds(
+      { repo1: [inlineParent, hydratedParent, resolvedChild] },
+      [child.id, inlineParent.id, hydratedParent.id],
+      visibleOptions({
+        hideCliCreatedWorkspaces: true,
+        showSleepingWorkspaces: false,
+        tabsByWorktree: {
+          [inlineParent.id]: [makeTab('t-inline', inlineParent.id, 'p-inline')],
+          [hydratedParent.id]: [makeTab('t-hydrated', hydratedParent.id, 'p-hydrated')],
+          [child.id]: [makeTab('t-child', child.id, 'p-child')]
+        },
+        ptyIdsByTabId: {
+          't-inline': ['p-inline'],
+          't-hydrated': ['p-hydrated'],
+          't-child': ['p-child']
+        },
+        worktreeLineageById: { [child.id]: hydratedLineage }
+      })
+    )
+
+    expect(result).toEqual([hydratedParent.id, child.id])
   })
 
   it('does not resurrect stale lineage parents', () => {
@@ -564,7 +737,7 @@ describe('computeVisibleWorktreeIds', () => {
     expect(result).toEqual([parent.id, child.id])
   })
 
-  it('includes cross-repo parents when repo filtering leaves their valid child visible', () => {
+  it('does not include a cross-repo parent when repo filtering leaves the child visible', () => {
     const parent = makeWorktree('parent', 'repo1')
     const child = makeWorktree('child', 'repo2')
     const lineage = makeWorktreeLineage(child, parent)
@@ -578,7 +751,44 @@ describe('computeVisibleWorktreeIds', () => {
       })
     )
 
-    expect(result).toEqual([parent.id, child.id])
+    expect(result).toEqual([child.id])
+  })
+
+  it('does not include a known cross-host parent after host filtering', () => {
+    const parent = Object.assign(makeWorktree('parent'), { hostId: 'ssh:remote' as const })
+    const child = Object.assign(makeWorktree('child'), { hostId: 'local' as const })
+    const lineage = makeWorktreeLineage(child, parent)
+
+    const result = computeVisibleWorktreeIds(
+      { repo1: [parent, child] },
+      [child.id, parent.id],
+      visibleOptions({
+        visibleWorkspaceHostIds: ['local'],
+        worktreeLineageById: { [child.id]: lineage }
+      })
+    )
+
+    expect(result).toEqual([child.id])
+  })
+
+  it('does not include a known cross-project parent hidden by another filter', () => {
+    const parent = Object.assign(makeWorktree('parent'), {
+      projectId: 'project-b',
+      isMainWorktree: true
+    })
+    const child = Object.assign(makeWorktree('child'), { projectId: 'project-a' })
+    const lineage = makeWorktreeLineage(child, parent)
+
+    const result = computeVisibleWorktreeIds(
+      { repo1: [parent, child] },
+      [child.id, parent.id],
+      visibleOptions({
+        hideDefaultBranchWorkspace: true,
+        worktreeLineageById: { [child.id]: lineage }
+      })
+    )
+
+    expect(result).toEqual([child.id])
   })
 })
 
@@ -642,116 +852,5 @@ describe('isDefaultBranchWorkspace', () => {
   it('returns false for non-main worktrees even on the default branch', () => {
     const feature = makeWorktree('feature')
     expect(isDefaultBranchWorkspace(feature)).toBe(false)
-  })
-})
-
-describe('sidebarHasActiveFilters', () => {
-  it('returns false when no filters are active', () => {
-    expect(sidebarHasActiveFilters(filterState())).toBe(false)
-  })
-
-  it('returns true when only hideDefaultBranchWorkspace is active', () => {
-    // Why: regression guard for the empty-sidebar escape hatch. If hide is
-    // omitted from the filter union, a user whose only worktree is the
-    // default-branch row sees "No workspaces found" with no way back.
-    expect(sidebarHasActiveFilters(filterState({ hideDefaultBranchWorkspace: true }))).toBe(true)
-  })
-
-  it('returns true when only automation-created workspaces are hidden', () => {
-    expect(sidebarHasActiveFilters(filterState({ hideAutomationGeneratedWorkspaces: true }))).toBe(
-      true
-    )
-  })
-
-  it('returns true when sleeping workspaces are hidden', () => {
-    expect(sidebarHasActiveFilters(filterState({ showSleepingWorkspaces: false }))).toBe(true)
-  })
-
-  it('returns true when only filterRepoIds is non-empty', () => {
-    expect(sidebarHasActiveFilters(filterState({ filterRepoIds: ['repo1'] }))).toBe(true)
-  })
-
-  it('returns true when only host visibility is narrowed', () => {
-    expect(sidebarHasActiveFilters(filterState({ visibleWorkspaceHostIds: ['local'] }))).toBe(true)
-  })
-})
-
-describe('computeClearFilterActions', () => {
-  it('returns no-op actions when nothing is set', () => {
-    expect(computeClearFilterActions(filterState())).toEqual({
-      resetShowSleepingWorkspaces: false,
-      resetFilterRepoIds: false,
-      resetHideDefaultBranchWorkspace: false,
-      resetHideAutomationGeneratedWorkspaces: false,
-      resetVisibleWorkspaceHostIds: false
-    })
-  })
-
-  it('flags only hideDefaultBranchWorkspace for reset when it is the sole filter', () => {
-    // Why: verifies the empty-sidebar escape hatch actually clears the hide
-    // flag. A regression here would leave users stuck on "No workspaces found"
-    // because the only active filter would never clear.
-    expect(computeClearFilterActions(filterState({ hideDefaultBranchWorkspace: true }))).toEqual({
-      resetShowSleepingWorkspaces: false,
-      resetFilterRepoIds: false,
-      resetHideDefaultBranchWorkspace: true,
-      resetHideAutomationGeneratedWorkspaces: false,
-      resetVisibleWorkspaceHostIds: false
-    })
-  })
-
-  it('flags only hideAutomationGeneratedWorkspaces for reset when it is the sole filter', () => {
-    expect(
-      computeClearFilterActions(filterState({ hideAutomationGeneratedWorkspaces: true }))
-    ).toEqual({
-      resetShowSleepingWorkspaces: false,
-      resetFilterRepoIds: false,
-      resetHideDefaultBranchWorkspace: false,
-      resetHideAutomationGeneratedWorkspaces: true,
-      resetVisibleWorkspaceHostIds: false
-    })
-  })
-
-  it('does not flag hideDefaultBranchWorkspace when it is already off', () => {
-    // Why: avoids issuing a pointless IPC write on every Clear Filters click
-    // in the common case where hide was never on.
-    const actions = computeClearFilterActions(
-      filterState({
-        filterRepoIds: ['repo1']
-      })
-    )
-    expect(actions.resetHideDefaultBranchWorkspace).toBe(false)
-    expect(actions.resetShowSleepingWorkspaces).toBe(false)
-    expect(actions.resetFilterRepoIds).toBe(true)
-  })
-
-  it('flags legacy single-host scope for reset even without visible host ids', () => {
-    expect(computeClearFilterActions(filterState({ workspaceHostScope: 'ssh:host-1' }))).toEqual({
-      resetShowSleepingWorkspaces: false,
-      resetFilterRepoIds: false,
-      resetHideDefaultBranchWorkspace: false,
-      resetHideAutomationGeneratedWorkspaces: false,
-      resetVisibleWorkspaceHostIds: true
-    })
-  })
-
-  it('flags every active filter simultaneously', () => {
-    expect(
-      computeClearFilterActions(
-        filterState({
-          showSleepingWorkspaces: false,
-          filterRepoIds: ['repo1', 'repo2'],
-          hideDefaultBranchWorkspace: true,
-          hideAutomationGeneratedWorkspaces: true,
-          visibleWorkspaceHostIds: ['local']
-        })
-      )
-    ).toEqual({
-      resetShowSleepingWorkspaces: true,
-      resetFilterRepoIds: true,
-      resetHideDefaultBranchWorkspace: true,
-      resetHideAutomationGeneratedWorkspaces: true,
-      resetVisibleWorkspaceHostIds: true
-    })
   })
 })

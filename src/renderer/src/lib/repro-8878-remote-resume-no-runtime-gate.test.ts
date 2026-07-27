@@ -29,8 +29,17 @@ describe('#8878 remote client resume runtime-ownership gate', () => {
     // Fix: choke-point gate shared by activation, startup, and background wake.
     expect(resumeSource).toMatch(/isWebRuntimeSessionActive/)
     expect(resumeSource).toMatch(/getRuntimeEnvironmentIdForWorktree/)
+    // The predicate lives in the wake-authority helper the choke point calls first.
     expect(resumeSource).toMatch(
-      /isWebRuntimeSessionActive\(\s*getRuntimeEnvironmentIdForWorktree\(\s*state,\s*worktreeId\s*\)\s*\)/
+      /isWebRuntimeSessionActive\(\s*getRuntimeEnvironmentIdForWorktree\(\s*wakeOwnerState,\s*worktreeId\s*\)\s*\)/
+    )
+    expect(resumeSource).toMatch(
+      /if \(runtimeHostOwnsAgentWake\(state, worktreeId\)\)\s*\{\s*\n\s*return 0/
+    )
+    // The helper withholds the saved-runtime catalog so an unhydrated or multi-runtime
+    // client still reads an unmarked worktree as host-owned instead of resuming locally.
+    expect(resumeSource).toMatch(
+      /const wakeOwnerState = \{ \.\.\.state, runtimeEnvironments: undefined \}/
     )
   })
 
