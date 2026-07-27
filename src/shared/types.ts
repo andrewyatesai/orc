@@ -2311,7 +2311,9 @@ export type UpdateStatus =
       // Why: manual-install platforms need a trusted release target without
       // handing the artifact to a native updater that cannot authenticate it.
       releaseUrl?: string
-      installMode?: 'automatic' | 'manual'
+      // Why: 'bundle-swap' resolves the release itself like 'manual', but applies it
+      // in place instead of sending the user to a download page.
+      installMode?: 'automatic' | 'manual' | 'bundle-swap'
       // Why: changelog is always explicitly set by the main process — null means
       // the fetch failed or the version wasn't in the JSON (simple mode), and a
       // populated object means rich mode. Using `| null` (not `?`) avoids a

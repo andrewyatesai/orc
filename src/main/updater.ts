@@ -44,7 +44,15 @@ import {
   getReleasesLatestDownloadUrl,
   isUpdateFeedConfigured
 } from './updater-feed-endpoints'
-import { getUpdateInstallMode } from './updater-install-policy'
+import { getUpdateInstallMode, usesSelfManagedCheck } from './updater-install-policy'
+import {
+  applyBundleSwap,
+  cleanRetiredBundles,
+  planBundleSwap,
+  resolveAppBundleRoot,
+  relaunchSwappedBundle,
+  stageBundleSwap
+} from './updater-bundle-swap'
 
 type CheckFailureSource = 'event' | 'promise' | 'fallback-promise'
 type MissingManifestPrereleaseFallbackResult = { userInitiated: boolean }
@@ -72,6 +80,12 @@ let autoUpdaterInitialized = false
 let includePrereleaseActive = false
 let availableVersion: string | null = null
 let availableReleaseUrl: string | null = null
+// Why: the bundle swap fetches assets from the exact tag's release directory,
+// which only the self-managed check resolves.
+let availableReleaseTag: string | null = null
+let bundleSwapInFlight = false
+type PendingBundleSwap = { appRoot: string; stagedApp: string; version: string }
+let pendingBundleSwap: PendingBundleSwap | null = null
 let pendingCheckFailureKey: string | null = null
 let pendingCheckFailurePromise: Promise<void> | null = null
 let autoUpdateCheckTimer: ReturnType<typeof setTimeout> | null = null
@@ -134,6 +148,7 @@ function getAutoUpdater(): ElectronAutoUpdater {
 function clearAvailableUpdateContext(): void {
   availableVersion = null
   availableReleaseUrl = null
+  availableReleaseTag = null
 }
 
 function clearPrereleaseFallbackContext(): void {
@@ -1148,12 +1163,17 @@ async function runManualReleaseCheck(
         scheduleAutomaticUpdateCheck(AUTO_UPDATE_CHECK_INTERVAL_MS)
       }
     }
-    console.info(`[updater] manual release available: current=${currentVersion} tag=${releaseTag}`)
+    const installMode = getUpdateInstallMode()
+    console.info(
+      `[updater] ${installMode} release available: current=${currentVersion} tag=${releaseTag}`
+    )
+    // Why: the swap needs the exact tag's asset directory, and the tag is only known here.
+    availableReleaseTag = releaseTag
     sendStatus({
       state: 'available',
       version,
       releaseUrl: availableReleaseUrl,
-      installMode: 'manual',
+      installMode,
       changelog: null
     })
     return
@@ -1198,7 +1218,7 @@ function runBackgroundUpdateCheck(
   backgroundCheckLaunchPending = true
   backgroundCheckPromotedToUserInitiated = false
   const attemptId = beginUpdateCheckAttempt()
-  if (getUpdateInstallMode() === 'manual') {
+  if (usesSelfManagedCheck(getUpdateInstallMode())) {
     void runManualReleaseCheck(attemptId, 'default', false)
     return
   }
@@ -1237,7 +1257,7 @@ export function checkForUpdates(): void {
 }
 
 function enablePrereleaseManifestChecks(): void {
-  if (getUpdateInstallMode() === 'manual') {
+  if (usesSelfManagedCheck(getUpdateInstallMode())) {
     return
   }
   getAutoUpdater().allowPrerelease = true
@@ -1292,7 +1312,7 @@ export function checkForUpdatesFromMenu(options?: UpdateCheckOptions): void {
   }
 
   const attemptId = beginUpdateCheckAttempt()
-  if (getUpdateInstallMode() === 'manual') {
+  if (usesSelfManagedCheck(getUpdateInstallMode())) {
     void runManualReleaseCheck(attemptId, checkVariant, true)
     return
   }
@@ -1339,6 +1359,23 @@ export function isQuittingForUpdate(): boolean {
 
 export function quitAndInstall(): void {
   if (pendingQuitAndInstallTimer || quitAndInstallInProgress) {
+    return
+  }
+
+  // Why: the bundle swap owns its own apply + relaunch; the native installer handoff
+  // (and its Squirrel-specific quit deferral below) does not apply to it.
+  if (pendingBundleSwap) {
+    const pending = pendingBundleSwap
+    pendingBundleSwap = null
+    quitAndInstallInProgress = true
+    void applyPendingBundleSwap(pending).catch((error: unknown) => {
+      quitAndInstallInProgress = false
+      sendErrorStatus(
+        `Could not install the update: ${String((error as Error)?.message ?? error)}`,
+        undefined,
+        'install'
+      )
+    })
     return
   }
 
@@ -1465,10 +1502,19 @@ export function setupAutoUpdater(
   }
   autoUpdaterInitialized = true
 
-  if (getUpdateInstallMode() === 'manual') {
-    // Why: ALab lacks stable macOS and Windows publisher identities, so native
-    // updaters cannot authenticate a different release.
-    console.info('[updater] this platform uses manual releases; native updater stays dormant')
+  const installMode = getUpdateInstallMode()
+  if (usesSelfManagedCheck(installMode)) {
+    // Why: the native updater cannot authenticate a differently-signed release, so this
+    // process resolves and applies the release itself instead.
+    console.info(`[updater] install mode '${installMode}'; native updater stays dormant`)
+    if (installMode === 'bundle-swap') {
+      // Why: a swap interrupted by a crash or power loss leaves the previous bundle
+      // beside the app; sweep it once at startup rather than growing a pile.
+      const appRoot = resolveAppBundleRoot(app.getPath('exe'))
+      if (appRoot) {
+        void cleanRetiredBundles(appRoot).catch(() => undefined)
+      }
+    }
   } else {
     const autoUpdater = getAutoUpdater()
     autoUpdater.autoDownload = false
@@ -1564,8 +1610,59 @@ export function setupAutoUpdater(
   }
 }
 
+/**
+ * Download, verify, and stage the new bundle (macOS). Nothing in the live install is
+ * touched: a failure here always leaves the current app intact. The swap itself waits
+ * for an explicit restart, matching the two-step contract every other platform uses.
+ */
+async function stageBundleSwapUpdate(releaseTag: string, version: string): Promise<void> {
+  const feedBaseUrl = getReleaseDownloadUrl(releaseTag)
+  sendStatus({ state: 'downloading', percent: 0, version })
+  const plan = await planBundleSwap(feedBaseUrl, app.getPath('exe'))
+  const stagedApp = await stageBundleSwap(plan, feedBaseUrl, ({ percent }) => {
+    sendStatus({ state: 'downloading', percent, version })
+  })
+  pendingBundleSwap = { appRoot: plan.appRoot, stagedApp, version }
+  sendStatus({ state: 'downloaded', version })
+}
+
+/**
+ * Swap the staged bundle in and relaunch. Past `applyBundleSwap` the old bundle is gone,
+ * so the relaunch is not optional — quitting without it leaves the user with no app.
+ */
+async function applyPendingBundleSwap(pending: PendingBundleSwap): Promise<void> {
+  await applyBundleSwap(pending.appRoot, pending.stagedApp)
+  await relaunchSwappedBundle(pending.appRoot)
+  quittingForUpdate = true
+  app.quit()
+}
+
 export function downloadUpdate(): void {
   if (downloadInFlight) {
+    return
+  }
+  if (currentStatus.state === 'available' && currentStatus.installMode === 'bundle-swap') {
+    if (bundleSwapInFlight) {
+      return
+    }
+    const releaseTag = availableReleaseTag
+    if (!releaseTag) {
+      sendErrorStatus('Could not install the update because its release tag is missing.')
+      return
+    }
+    bundleSwapInFlight = true
+    const version = currentStatus.version
+    void stageBundleSwapUpdate(releaseTag, version)
+      .catch((error: unknown) => {
+        sendErrorStatus(
+          `Could not download the update: ${String((error as Error)?.message ?? error)}`,
+          undefined,
+          'install'
+        )
+      })
+      .finally(() => {
+        bundleSwapInFlight = false
+      })
     return
   }
   if (currentStatus.state === 'available' && currentStatus.installMode === 'manual') {

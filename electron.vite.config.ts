@@ -251,6 +251,9 @@ export default defineConfig({
     // Why: compile-time substitution for the telemetry gate. See the block
     // above for the full rationale.
     define: {
+      // Why: pinned at COMPILE time so no shell export can retarget the trust anchor;
+      // absent resolves to `null`, which leaves the signature tier inactive.
+      ORCA_UPDATE_PUBKEY: JSON.stringify(process.env.ORCA_UPDATE_PUBKEY ?? null),
       ORCA_BUILD_IDENTITY: ORCA_BUILD_IDENTITY_LITERAL,
       ORCA_POSTHOG_WRITE_KEY: ORCA_POSTHOG_WRITE_KEY_LITERAL,
       ORCA_DIAGNOSTICS_TOKEN_URL: ORCA_DIAGNOSTICS_TOKEN_URL_LITERAL,
