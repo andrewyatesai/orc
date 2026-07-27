@@ -33,6 +33,7 @@ import {
   refreshClaudeOauthCredentials
 } from '../claude-accounts/oauth-refresh'
 import { createOAuthUsageError, OAuthUsageError } from './claude-oauth-usage-error'
+import { mapClaudeUsageWindow, type ClaudeUsageWindowInput } from './claude-usage-window'
 import { withMacTailscaleDnsHint } from '../network/macos-tailscale-dns-diagnostic'
 import { ensureElectronProxyForRequest } from '../network/proxy-settings'
 import { resolveClaudeUsageRefreshPlan } from './claude-usage-refresh-plan'
@@ -278,11 +279,7 @@ function warnClaudeUsageFetchFailure(
 // OAuth API fetch
 // ---------------------------------------------------------------------------
 
-type OAuthUsageWindow = {
-  utilization?: number
-  used_percentage?: number
-  resets_at?: string | number
-}
+type OAuthUsageWindow = ClaudeUsageWindowInput
 
 type OAuthUsageLimit = {
   kind?: string
@@ -316,73 +313,6 @@ function abortedClaudeRateLimitResult(): ProviderRateLimits {
   }
 }
 
-function parseResetTimestamp(value: string | number | undefined): number | null {
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) {
-      return null
-    }
-    return value > 10_000_000_000 ? value : value * 1000
-  }
-
-  if (!value) {
-    return null
-  }
-
-  const numericValue = Number(value)
-  if (Number.isFinite(numericValue) && value.trim() !== '') {
-    return numericValue > 10_000_000_000 ? numericValue : numericValue * 1000
-  }
-
-  const parsed = new Date(value).getTime()
-  return Number.isNaN(parsed) ? null : parsed
-}
-
-function parseResetDescription(resetValue: string | number | undefined): string | null {
-  const resetTimestamp = parseResetTimestamp(resetValue)
-  if (resetTimestamp === null) {
-    return null
-  }
-  try {
-    const date = new Date(resetTimestamp)
-    const now = new Date()
-    const isToday = date.toDateString() === now.toDateString()
-    if (isToday) {
-      return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-    }
-    return date.toLocaleDateString(undefined, {
-      weekday: 'short',
-      hour: 'numeric',
-      minute: '2-digit'
-    })
-  } catch {
-    return null
-  }
-}
-
-function mapWindow(
-  raw: OAuthUsageWindow | undefined,
-  windowMinutes: number
-): RateLimitWindow | null {
-  if (!raw) {
-    return null
-  }
-  const usedPercent =
-    typeof raw.utilization === 'number'
-      ? raw.utilization
-      : typeof raw.used_percentage === 'number'
-        ? raw.used_percentage
-        : null
-  if (usedPercent === null) {
-    return null
-  }
-  return {
-    usedPercent: Math.min(100, Math.max(0, usedPercent)),
-    windowMinutes,
-    resetsAt: parseResetTimestamp(raw.resets_at),
-    resetDescription: parseResetDescription(raw.resets_at)
-  }
-}
-
 function mapFableWeeklyWindow(data: OAuthUsageResponse): RateLimitWindow | null {
   // Why: model quotas moved to structured scoped limits; prefer them but keep legacy weekly fields for older responses.
   const scoped = Array.isArray(data.limits)
@@ -396,13 +326,13 @@ function mapFableWeeklyWindow(data: OAuthUsageResponse): RateLimitWindow | null 
       )
     : undefined
   return (
-    mapWindow(
+    mapClaudeUsageWindow(
       scoped ? { used_percentage: scoped.percent, resets_at: scoped.resets_at } : undefined,
       10080
     ) ??
-    mapWindow(data.fable_weekly, 10080) ??
-    mapWindow(data.fable_seven_day, 10080) ??
-    mapWindow(data.seven_day_fable, 10080)
+    mapClaudeUsageWindow(data.fable_weekly, 10080) ??
+    mapClaudeUsageWindow(data.fable_seven_day, 10080) ??
+    mapClaudeUsageWindow(data.seven_day_fable, 10080)
   )
 }
 
@@ -443,8 +373,8 @@ async function fetchViaOAuth(token: string, signal?: AbortSignal): Promise<Provi
 
     return {
       provider: 'claude',
-      session: mapWindow(data.five_hour, 300),
-      weekly: mapWindow(data.seven_day, 10080),
+      session: mapClaudeUsageWindow(data.five_hour, 300),
+      weekly: mapClaudeUsageWindow(data.seven_day, 10080),
       fableWeekly: mapFableWeeklyWindow(data),
       updatedAt: Date.now(),
       error: null,

@@ -122,6 +122,19 @@ describe('getInitialCodexRateLimitTarget', () => {
         {
           ...getDefaultSettings('/tmp'),
           localAccountRuntime: 'auto',
+          localWindowsRuntimeDefault: { kind: 'windows-host' }
+        },
+        'win32'
+      )
+    ).toEqual({ runtime: 'host' })
+  })
+
+  it('does not let a stale WSL-only selection override an auto host target', () => {
+    expect(
+      getInitialCodexRateLimitTarget(
+        {
+          ...getDefaultSettings('/tmp'),
+          localAccountRuntime: 'auto',
           localWindowsRuntimeDefault: { kind: 'windows-host' },
           activeCodexManagedAccountIdsByRuntime: {
             host: null,
@@ -151,16 +164,19 @@ describe('getInitialCodexRateLimitTarget', () => {
     ).toEqual({ runtime: 'host' })
   })
 
-  it('ignores a stale explicit WSL runtime on non-Windows hosts', () => {
-    expect(
-      getInitialCodexRateLimitTarget(
-        {
-          ...getDefaultSettings('/tmp'),
-          localAccountRuntime: 'wsl',
-          localAccountWslDistro: 'Ubuntu'
-        },
-        'linux'
-      )
-    ).toEqual({ runtime: 'host' })
-  })
+  it.each(['linux', 'darwin'] as const)(
+    'ignores a stale explicit WSL runtime on non-Windows hosts (%s)',
+    (platform) => {
+      expect(
+        getInitialCodexRateLimitTarget(
+          {
+            ...getDefaultSettings('/tmp'),
+            localAccountRuntime: 'wsl',
+            localAccountWslDistro: 'Ubuntu'
+          },
+          platform
+        )
+      ).toEqual({ runtime: 'host' })
+    }
+  )
 })

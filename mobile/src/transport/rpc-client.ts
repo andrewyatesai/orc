@@ -50,6 +50,8 @@ type SendRequestOptions = {
   timeoutMs?: number
 }
 
+type SocketClosedOptions = { timedOut?: boolean; closeCode?: number }
+
 type SubscribeOptions = {
   onBinaryFrame?: (frame: BrowserScreencastFrame) => void
 }
@@ -104,6 +106,8 @@ const GIVE_UP_AFTER_ATTEMPTS = 12
 const TRICKLE_RECONNECT_DELAY_MS = 90_000
 // Why: one unauthorized isn't proof the pairing is dead (issue #5200) — retry the handshake this many times before latching auth-failed.
 const AUTH_RETRY_BUDGET = 3
+// Why: a desktop that regenerated its E2EE keypair sends an e2ee_error we can't decrypt — the 4001 close code is the only surviving auth-failure signal.
+const UNAUTHORIZED_CLOSE_CODE = 4001
 const REQUEST_TIMEOUT_MS = 30_000
 const CONNECT_TIMEOUT_MS = 12_000
 const HANDSHAKE_TIMEOUT_MS = 5_000
@@ -610,7 +614,7 @@ export function connect(
       })
       lastWsClosedAt = closeAt
       currentWsOpenedAt = null
-      handleSocketClosed(openingWs)
+      handleSocketClosed(openingWs, { closeCode: e?.code })
     }
 
     ws.onerror = (event) => {
@@ -630,7 +634,7 @@ export function connect(
     }
   }
 
-  function handleSocketClosed(closedWs: WebSocket, opts: { timedOut?: boolean } = {}) {
+  function handleSocketClosed(closedWs: WebSocket, opts: SocketClosedOptions = {}) {
     if (ws !== closedWs) {
       console.log('[net] handleSocketClosed STALE — ignoring (ws already swapped)', {
         state,
@@ -653,6 +657,14 @@ export function connect(
       console.log('[net] handleSocketClosed — intentional close')
       setState('disconnected')
       rejectAllPending('Connection closed', { deliveryUnknown: true })
+      return
+    }
+    // Why: a bare 4001 close means the desktop rejected our pairing but the encrypted
+    // e2ee_error never arrived (or was undecryptable) — count it against the auth
+    // retry budget instead of looping the generic reconnect forever.
+    if (opts.closeCode === UNAUTHORIZED_CLOSE_CODE) {
+      console.log('[net] handleSocketClosed — unauthorized close', { attempt: reconnectAttempt })
+      handleAuthRejection('Unauthorized — pairing may be revoked')
       return
     }
     console.log('[net] handleSocketClosed → reconnect', {
@@ -799,9 +811,8 @@ export function connect(
   function rejectAllPending(reason: string, options?: { deliveryUnknown?: boolean }) {
     // Why: pending entries only exist after a successful socket write, so a close
     // here means the host may have processed them — mark the ambiguity for callers.
-    const error = options?.deliveryUnknown
-      ? markRpcDeliveryUnknown(new Error(reason))
-      : new Error(reason)
+    const failure = new Error(reason)
+    const error = options?.deliveryUnknown ? markRpcDeliveryUnknown(failure) : failure
     for (const [id, req] of pending) {
       pending.delete(id)
       queueMicrotask(() => req.reject(error))
@@ -1105,10 +1116,7 @@ export function connect(
         terminalStreamListeners,
         terminal
       )
-      if (streamId === null) {
-        return false
-      }
-      if (!ws || ws.readyState !== WebSocket.OPEN || !sharedKey) {
+      if (streamId === null || !ws || ws.readyState !== WebSocket.OPEN || !sharedKey) {
         return false
       }
       const frame = encodeTerminalStreamFrame({

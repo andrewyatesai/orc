@@ -1,10 +1,11 @@
 import { colors } from '../theme/mobile-theme'
 
 // Theme normalization and page-surface painting injected into the WebView IIFE.
-// Mirrors the desktop minimumContrastRatio gate (#7934/#10104): a dark composed background gets a
-// mild floor of 3 to rescue near-background body text (e.g. Antigravity's #262b30 on #1e242a)
-// without over-brightening vibrant ANSI colors; a light background keeps the WCAG-AA 4.5 floor.
-// Gate on the composed background luminance, not app mode, because either slot can hold either theme.
+// Mirrors the desktop minimumContrastRatio gate (src/renderer/src/lib/terminal-contrast-correction.ts,
+// #7934/#10104): a dark composed background gets a mild floor of 3 to rescue near-background body text
+// (e.g. Antigravity's #262b30 on #1e242a) without over-brightening vibrant ANSI colors; a light
+// background keeps the WCAG-AA 4.5 floor. Gate on the composed background luminance, not app mode,
+// because either slot can hold either theme.
 export const TERMINAL_WEBVIEW_THEME_JS = `
   var DARK_BG_MIN_CONTRAST = 3;
   var LIGHT_BG_MIN_CONTRAST = 4.5;

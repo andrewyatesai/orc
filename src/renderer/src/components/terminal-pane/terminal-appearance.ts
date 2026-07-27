@@ -23,6 +23,7 @@ import type { TerminalViewAttributes } from '../../../../shared/terminal-view-at
 import { publishTerminalViewAttributes } from './terminal-view-attributes-publisher'
 import { normalizeTerminalLineHeight } from '../../../../shared/terminal-line-height-settings'
 import { maybePushMode2031Flip } from './terminal-mode-2031-replies'
+import { resolveTerminalMinimumContrastRatio } from '@/lib/terminal-contrast-correction'
 
 // Why Pick over a hand-rolled type: stays tied to xterm's canonical signature so upstream tightening surfaces here.
 type Mode2031Parser = Pick<IParser, 'registerCsiHandler'>
@@ -175,6 +176,18 @@ export function applyTerminalAppearance(
       // scrollback) instead of only new ones.
       pane.atermController?.updateTheme(atermThemeColorsFromITheme(theme))
     }
+    // Gate off the configured theme background; the live OSC-11 background is deliberately preserved by the
+    // theme write above, so a TUI that repaints its background at runtime won't re-gate (known limitation).
+    // Why value-gated: writing minimumContrastRatio clears the contrast cache, so skip on no-op re-applies.
+    const minimumContrastRatio = resolveTerminalMinimumContrastRatio(
+      theme?.background,
+      appearance.mode
+    )
+    if (pane.terminal.options.minimumContrastRatio !== minimumContrastRatio) {
+      pane.terminal.options.minimumContrastRatio = minimumContrastRatio
+    }
+    // allowTransparency is intentionally NOT written: aterm applies background
+    // opacity itself via set_background_opacity (see applyAtermEngineSettings).
     const cursorStyle = settings.terminalCursorStyle ?? 'block'
     pane.terminal.options.cursorStyle = cursorStyle
     pane.terminal.options.cursorInactiveStyle = resolveTerminalCursorInactiveStyle(cursorStyle)

@@ -42,6 +42,7 @@ type Props = {
   onEditIssueType?: (row: GitHubProjectRowType, issueType: GitHubIssueType | null) => void
   onStartWork?: (row: GitHubProjectRowType) => void
   onOpenInBrowser?: (row: GitHubProjectRowType) => void
+  sourceHost?: string
   sourceSettings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
 }
 
@@ -59,6 +60,7 @@ function ProjectRow({
   onEditIssueType,
   onStartWork,
   onOpenInBrowser,
+  sourceHost,
   sourceSettings
 }: Props): React.JSX.Element {
   const disabled = row.itemType === 'REDACTED'
@@ -134,6 +136,7 @@ function ProjectRow({
                 onEditLabels={handleEditLabels}
                 onEditIssueType={handleEditIssueType}
                 onOpenDialog={f.dataType === 'TITLE' ? handleOpenDialog : undefined}
+                sourceHost={sourceHost}
                 sourceSettings={sourceSettings}
               />
             </div>

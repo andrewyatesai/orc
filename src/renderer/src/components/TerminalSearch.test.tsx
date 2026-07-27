@@ -3,6 +3,7 @@
 // P1: find-as-you-type is debounced (~75ms) with request generations — stale results
 // are discarded, Enter bypasses the debounce, and a visible pending state covers the
 // round-trip. P6 surfaces the streaming cost-gate's stale flag as the ~approx label.
+// The cleanup block is upstream's addon-teardown suite re-expressed on the aterm surface.
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -69,6 +70,25 @@ function makeSurface(): {
 
 let root: Root | null = null
 let container: HTMLDivElement | null = null
+// Hoisted so a re-render keeps ref identity — only the surface prop changes.
+let searchStateRef: { current: SearchState } = {
+  current: { query: '', caseSensitive: false, regex: false } as SearchState
+}
+
+function searchElement(
+  surface: AtermSearchSurface,
+  seedQueryRef?: React.RefObject<string | null>
+): React.JSX.Element {
+  return (
+    <TerminalSearch
+      isOpen
+      onClose={() => undefined}
+      atermSearch={surface}
+      searchStateRef={searchStateRef}
+      seedQueryRef={seedQueryRef}
+    />
+  )
+}
 
 function renderSearch(
   surface: AtermSearchSurface,
@@ -77,19 +97,16 @@ function renderSearch(
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
-  const searchStateRef = {
-    current: { query: '', caseSensitive: false, regex: false } as SearchState
-  }
+  searchStateRef = { current: { query: '', caseSensitive: false, regex: false } as SearchState }
   act(() => {
-    root!.render(
-      <TerminalSearch
-        isOpen
-        onClose={() => undefined}
-        atermSearch={surface}
-        searchStateRef={searchStateRef}
-        seedQueryRef={seedQueryRef}
-      />
-    )
+    root!.render(searchElement(surface, seedQueryRef))
+  })
+}
+
+// Search follows focus: the open panel is handed another pane's surface without unmounting.
+function rerenderSearch(surface: AtermSearchSurface): void {
+  act(() => {
+    root!.render(searchElement(surface))
   })
 }
 
@@ -291,5 +308,36 @@ describe('TerminalSearch find-as-you-type', () => {
     expect(exact.textContent).toBe('8 / 8')
     expect(exact.getAttribute('data-stale')).toBeNull()
     expect(exact.getAttribute('data-incomplete')).toBeNull()
+  })
+})
+
+// Upstream parity: highlights must not outlive the surface that owns them.
+// (Upstream's "query erased" case is already covered above by the clear-immediately test.)
+describe('TerminalSearch cleanup', () => {
+  it('clears the previous surface when the search moves to another pane', () => {
+    const { surface: previous } = makeSurface()
+    const { surface: next } = makeSurface()
+    renderSearch(previous)
+    typeQuery('needle')
+    advance(SEARCH_DEBOUNCE_MS)
+    vi.mocked(previous.clearSearch).mockClear()
+
+    rerenderSearch(next)
+
+    expect(previous.clearSearch).toHaveBeenCalledTimes(1) // old pane loses its highlights
+    expect(next.clearSearch).not.toHaveBeenCalled()
+  })
+
+  it('clears the surface when the search panel unmounts', () => {
+    const { surface } = makeSurface()
+    renderSearch(surface)
+    typeQuery('needle')
+    advance(SEARCH_DEBOUNCE_MS)
+    vi.mocked(surface.clearSearch).mockClear()
+
+    act(() => root!.unmount())
+    root = null // afterEach must not unmount twice
+
+    expect(surface.clearSearch).toHaveBeenCalledTimes(1)
   })
 })

@@ -32,7 +32,11 @@ import {
   Trash2
 } from 'lucide-react'
 import { monaco } from '@/lib/monaco-setup'
-import { computeEditorFontSize } from '@/lib/editor-font-zoom'
+import {
+  computeEditorFontSize,
+  resolveEditorFontFamily,
+  resolveEditorFontFamilyOrInherit
+} from '@/lib/editor-font-zoom'
 import { getConnectionId } from '@/lib/connection-context'
 import { resolveDocumentTheme } from '@/lib/document-theme'
 import { useAppStore } from '@/store'
@@ -411,7 +415,7 @@ function CodeCell({
         options={{
           automaticLayout: true,
           editContext: resolveEditorEditContextEnabled(settings?.editorExperimentalInput),
-          fontFamily: settings?.terminalFontFamily || 'monospace',
+          fontFamily: resolveEditorFontFamily(settings),
           fontSize,
           glyphMargin: false,
           lineNumbersMinChars: 3,
@@ -879,7 +883,7 @@ export default function IpynbViewer({
     <div
       ref={setRootRef}
       className="h-full min-h-0 overflow-auto bg-editor-surface scrollbar-editor"
-      style={{ fontSize, fontFamily: settings?.terminalFontFamily || undefined }}
+      style={{ fontSize, fontFamily: resolveEditorFontFamilyOrInherit(settings) }}
       onKeyDownCapture={handleNotebookKeyDownCapture}
       onPointerDownCapture={handleNotebookPointerDownCapture}
     >

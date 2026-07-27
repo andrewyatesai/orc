@@ -209,6 +209,26 @@ describe('Electron runtime package contract', () => {
     )
   })
 
+  it('packages and verifies the Windows SSH node-pty console-list fallback', () => {
+    const relayBuild = readProjectFile('config/scripts/build-relay.mjs')
+    const relayDeploy = readProjectFile('src/main/ssh/ssh-relay-deploy.ts')
+    const patchAsset = readProjectFile(
+      'config/relay-assets/node-pty-1.1.0-console-list-agent-patch.cjs'
+    )
+
+    expect(relayBuild).toContain('copyFileSync(')
+    // Fork names the digest builder `hashBuilder`: it also folds in the
+    // node-pty-patched payload copied for every platform.
+    expect(relayBuild).toContain(
+      'hashBuilder.update(readFileSync(join(outDir, NODE_PTY_CONSOLE_LIST_PATCH_FILENAME)))'
+    )
+    expect(relayBuild).toContain('node-pty-1.1.0-console-list-agent-patch.cjs')
+    expect(relayDeploy).toContain('assertPatchedNodePtyConsoleListAgent')
+    expect(relayDeploy.match(/\$\{windowsNodePtyPatchCommand\(nodePath\)\}/g)).toHaveLength(2)
+    expect(patchAsset).toContain('consoleProcessList = [shellPid];')
+    expect(patchAsset).toContain('packageJson.version !== EXPECTED_NODE_PTY_VERSION')
+  })
+
   it.skipIf(!HAS_CI_WORKFLOWS)(
     'pins the Windows release builder to the VS 2022 runner image',
     () => {
@@ -402,7 +422,7 @@ describe('Electron runtime package contract', () => {
   })
 
   it.skipIf(!HAS_CI_WORKFLOWS)(
-    'keeps release-cut version commits skill-independent and taggable on retries',
+    'advances only the skill release ledger in a taggable release-cut commit',
     () => {
       const releaseWorkflow = readProjectFile('.github/workflows/release-cut.yml')
       const parsedWorkflow = parse(releaseWorkflow)
@@ -416,13 +436,30 @@ describe('Electron runtime package contract', () => {
       const bumpIndex = bumpStep.run.indexOf(
         'npm version "$VERSION" --no-git-tag-version --allow-same-version'
       )
-      const stageIndex = bumpStep.run.indexOf('git add package.json')
+      const generateIndex = bumpStep.run.indexOf(
+        'node config/scripts/generate-skill-bundle-manifest.mjs --release "$VERSION"'
+      )
+      const commands = bumpStep.run.replace(/^\s*#.*$/gm, '')
+      // Unanchored: a `git add` chained after `&&` stages just as effectively.
+      const stagedPaths = [...commands.matchAll(/\bgit add (.+)$/gm)].flatMap((match) =>
+        match[1].trim().split(/\s+/)
+      )
+      // Quotes trimmed and deduped: the index guard names the row a second time.
+      const mentioned = new Set(commands.match(/resources[/\\]skills[^\s'"]*/g))
       expect(checkoutStep.with['fetch-depth']).toBe(0)
       expect(bumpIndex).toBeGreaterThanOrEqual(0)
-      expect(stageIndex).toBeGreaterThan(bumpIndex)
-      // Why: version-only cuts must not mutate content-addressed skill artifacts.
-      expect(bumpStep.run).not.toContain('generate-skill-bundle-manifest')
-      expect(bumpStep.run).not.toContain('resources/skills')
+      // Why: the cut is the only point that advances the release ledger, so this
+      // tag's revision is never rebuilt later — it appends that row, nothing else.
+      expect(generateIndex).toBeGreaterThan(bumpIndex)
+      expect(bumpStep.run.indexOf('git add package.json')).toBeGreaterThan(generateIndex)
+      expect(stagedPaths).toEqual(['package.json', 'resources/skills/release-mapping.json'])
+      // Every distinct mention must be staged, so a copy, a redirect, or a path
+      // held in a variable cannot reach the content-addressed artifacts. Matched
+      // without a trailing slash so `dir="resources/skills"` still counts.
+      expect([...mentioned]).toEqual(stagedPaths.slice(1))
+      // Regeneration is banned job-wide by the generator suite. Here: `-a`, `-am`,
+      // and `--all` sweep unstaged artifacts in; `--allow-empty` below must not.
+      expect(commands).not.toMatch(/\bcommit\b[^\n]*(?:\s-[a-z]*a[a-z]*\b|\s--all\b)/)
       expect(bumpStep.run).toContain('git diff --cached --quiet')
       expect(bumpStep.run).toContain('git commit --allow-empty -m "$commit_message"')
     }

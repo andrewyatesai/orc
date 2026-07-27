@@ -1,6 +1,7 @@
-import { lstat, readFile } from 'node:fs/promises'
+import { lstat } from 'node:fs/promises'
 import * as path from 'node:path'
 import { DEFAULT_GIT_STATUS_LIMIT } from './git-status-limit'
+import { readNodeFileWithinLimit } from './node-bounded-file-reader'
 
 export type GitLineStats = { added?: number; removed?: number }
 
@@ -89,7 +90,9 @@ async function countFileAdditions(
   count: UntrackedAdditionsCounter
 ): Promise<GitLineStats> {
   return countUntrackedFileWithCache(absolutePath, async () => {
-    const buffer = await readFile(absolutePath)
+    // Bounded read, not readFile: the lstat gate above can race a file that grows
+    // past the cap before we open it; the reader refuses instead of buffering it.
+    const { buffer } = await readNodeFileWithinLimit(absolutePath, MAX_UNTRACKED_LINE_COUNT_BYTES)
     // Rust `orca-git` core (count_additions_in_buffer) via napi: null = binary (no count),
     // 0 = empty, else the trailing-newline-aware line count. Parity-tested vs the former
     // TS byte-loop in orca-git-napi-parity.test.ts; the loop is deleted (single source).

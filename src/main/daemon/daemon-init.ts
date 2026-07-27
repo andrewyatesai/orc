@@ -410,6 +410,17 @@ async function reconcileExistingDaemon(
       )
       return createPreservedDaemonHandle(runtimeDir)
     }
+    // Why: the sibling replace branches announce themselves, but this one used
+    // to kill a daemon silently — leaving no way to tell a replacement apart
+    // from an adoption after the fact. A cold start also lands here with
+    // nothing to replace, so only speak up once something actually answered:
+    // a probe that returned a count, a socket that survived a grace retry, or
+    // a refused hello.
+    if (liveSessionCount !== null || graceRetry > 0 || health === 'rejected') {
+      console.warn(
+        `[daemon] Replacing daemon that failed the health check (health=${health}, liveSessions=${liveSessionCount ?? 'unverifiable'}, graceRetries=${graceRetry})`
+      )
+    }
   }
   // No reusable daemon on the socket — caller must kill any stale process and
   // launch a fresh one.
@@ -473,7 +484,8 @@ function makeDaemonSigtermHandle(pid: number | undefined): DaemonProcessHandle {
 async function launchRustDaemon(
   runtimeDir: string,
   socketPath: string,
-  tokenPath: string
+  tokenPath: string,
+  macosLoginSessionWatch: boolean
 ): Promise<DaemonProcessHandle> {
   const binPath = getRustDaemonBinPath()
   if (!binPath) {
@@ -511,15 +523,30 @@ async function launchRustDaemon(
     await killStaleDaemon(runtimeDir, socketPath, tokenPath)
 
     const userDataPath = app.getPath('userData')
-    const child = spawn(binPath, ['--socket', socketPath, '--token', tokenPath], {
-      // Why: match the Node daemon — start from userData so process.cwd() stays
-      // valid after a worktree is deleted, and detached + ignore stdio so the daemon
-      // outlives Electron and never holds the parent's stdout open.
-      cwd: userDataPath,
-      detached: true,
-      stdio: 'ignore',
-      env: { ...process.env, ORCA_USER_DATA_PATH: userDataPath }
-    })
+    // Why the flag survives the Rust port: it marks a daemon born inside a macOS
+    // GUI login session so it can retire itself once that session dies (#7936).
+    // orca-daemon's argv parser skips flags it does not know, so passing it is
+    // inert until the watch lands engine-side — but the launch contract, and the
+    // GUI-vs-serve distinction it encodes, stay in one place.
+    const child = spawn(
+      binPath,
+      [
+        '--socket',
+        socketPath,
+        '--token',
+        tokenPath,
+        ...(macosLoginSessionWatch ? ['--login-session-watch'] : [])
+      ],
+      {
+        // Why: match the Node daemon — start from userData so process.cwd() stays
+        // valid after a worktree is deleted, and detached + ignore stdio so the daemon
+        // outlives Electron and never holds the parent's stdout open.
+        cwd: userDataPath,
+        detached: true,
+        stdio: 'ignore',
+        env: { ...process.env, ORCA_USER_DATA_PATH: userDataPath }
+      }
+    )
     // Why: spawn() reports failures (ENOENT/EACCES) via an async 'error' event, not
     // a throw. Without a listener Node re-raises it as an uncaught exception that
     // crashes the main process; capture it so the poll loop bails cleanly.
@@ -596,9 +623,13 @@ async function backfillWin32DaemonPidFileStartTime(
   }
 }
 
-function createOutOfProcessLauncher(runtimeDir: string): DaemonLauncher {
+function createOutOfProcessLauncher(
+  runtimeDir: string,
+  macosLoginSessionWatch = false
+): DaemonLauncher {
   // The Rust daemon is THE terminal daemon on every platform — no Node fallback.
-  return async (socketPath, tokenPath) => launchRustDaemon(runtimeDir, socketPath, tokenPath)
+  return async (socketPath, tokenPath) =>
+    launchRustDaemon(runtimeDir, socketPath, tokenPath, macosLoginSessionWatch)
 }
 
 // Why: when the daemon process dies (e.g. killed by a signal, OOM, or cascading
@@ -616,14 +647,17 @@ function makeRespawnCallback(spawner: DaemonSpawner): () => Promise<void | (() =
   }
 }
 
-export async function initDaemonPtyProvider(signal?: AbortSignal): Promise<void> {
+export async function initDaemonPtyProvider(
+  signal?: AbortSignal,
+  options: { macosLoginSessionWatch?: boolean } = {}
+): Promise<void> {
   // Why (docs/reference/daemon-staleness-ux.md §Phase 2): every init outcome must land in
   // the daemon-status registry so the renderer can surface lost persistence —
   // a silent fallback to the local provider is the failure mode this prevents.
   setDaemonRuntimeStatus('starting')
   let installed: DaemonProvider | null
   try {
-    installed = await runInitDaemonPtyProvider(signal)
+    installed = await runInitDaemonPtyProvider(signal, options)
   } catch (error) {
     setDaemonRuntimeStatus('failed', {
       cause: 'launch-failed',
@@ -644,7 +678,10 @@ export async function initDaemonPtyProvider(signal?: AbortSignal): Promise<void>
 
 // Returns the provider that was installed, or null when the init attempt was
 // aborted by the startup fail-open path (no swap happened).
-async function runInitDaemonPtyProvider(signal?: AbortSignal): Promise<DaemonProvider | null> {
+async function runInitDaemonPtyProvider(
+  signal?: AbortSignal,
+  options: { macosLoginSessionWatch?: boolean } = {}
+): Promise<DaemonProvider | null> {
   logDaemonMilestone('daemon-init-start')
   // Why: e2e coverage for the startup PTY gate (#5232) needs a daemon init that deterministically outlasts the first-window timeout.
   const e2eInitDelayMs = Number(process.env.ORCA_E2E_DAEMON_INIT_DELAY_MS)
@@ -655,7 +692,7 @@ async function runInitDaemonPtyProvider(signal?: AbortSignal): Promise<DaemonPro
 
   const newSpawner = new DaemonSpawner({
     runtimeDir,
-    launcher: createOutOfProcessLauncher(runtimeDir)
+    launcher: createOutOfProcessLauncher(runtimeDir, options.macosLoginSessionWatch ?? false)
   })
 
   // Why: assign the module-level spawner/adapter only after both succeed, so a failed ensureRunning() leaves no stale spawner.
@@ -1066,7 +1103,11 @@ function legacyDaemonProcessMayBeAlive(runtimeDir: string, protocolVersion: numb
   }
 }
 
-async function createLegacyDaemonAdapters(runtimeDir: string): Promise<DaemonPtyAdapter[]> {
+// Why: callers that own an isolated runtime namespace must keep discovery history out of app userData.
+export async function createLegacyDaemonAdapters(
+  runtimeDir: string,
+  historyPath = getHistoryDir()
+): Promise<DaemonPtyAdapter[]> {
   const adapters: DaemonPtyAdapter[] = []
   for (const protocolVersion of PREVIOUS_DAEMON_PROTOCOL_VERSIONS) {
     const socketPath = getDaemonSocketPath(runtimeDir, protocolVersion)
@@ -1101,7 +1142,7 @@ async function createLegacyDaemonAdapters(runtimeDir: string): Promise<DaemonPty
         socketPath,
         tokenPath,
         protocolVersion,
-        historyPath: getHistoryDir()
+        historyPath
       })
     )
   }

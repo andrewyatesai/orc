@@ -7,6 +7,11 @@
 //! flags unsupported `actions` config. The file read is injected (the IO
 //! boundary), so this stays pure and testable.
 
+use crate::setup_script_import_limits::{
+    is_setup_script_import_field_within_limit, push_setup_script_import_unsupported_field,
+    utf16_len, SETUP_SCRIPT_IMPORT_MAX_FIELD_BYTES, SETUP_SCRIPT_IMPORT_MAX_FIELD_CODE_UNITS,
+    SETUP_SCRIPT_IMPORT_MAX_TOML_LINES,
+};
 use crate::setup_script_imports::SetupScriptImportCandidate;
 
 const CODEX_ENVIRONMENT_PATH: &str = ".codex/environments/environment.toml";
@@ -29,29 +34,43 @@ pub fn inspect_codex_environment_config(
     let content = read_file(CODEX_ENVIRONMENT_PATH).filter(|text| !text.is_empty())?;
 
     let parsed = parse_codex_environment_toml(&content);
-    let setup = parsed.setup_script.as_deref().map(str::trim).unwrap_or("");
+    let setup = normalize_codex_script(parsed.setup_script.as_deref());
     if setup.is_empty() {
         return None;
     }
 
-    let archive = parsed
-        .cleanup_script
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-        .map(str::to_string);
+    let archive = Some(normalize_codex_script(parsed.cleanup_script.as_deref()))
+        .filter(|text| !text.is_empty());
 
     Some(SetupScriptImportCandidate {
         provider: "codex".to_string(),
         label: "Codex environment".to_string(),
         files: vec![CODEX_ENVIRONMENT_PATH.to_string()],
-        setup: setup.to_string(),
+        setup,
         archive,
         unsupported_fields: parsed.unsupported_fields,
     })
 }
 
+/// `normalizeCodexScript` — an over-size script is dropped, not truncated.
+fn normalize_codex_script(value: Option<&str>) -> String {
+    match value {
+        Some(text) if !text.is_empty() && is_setup_script_import_field_within_limit(text) => {
+            text.trim().to_string()
+        }
+        _ => String::new(),
+    }
+}
+
 fn parse_codex_environment_toml(content: &str) -> CodexEnvironmentToml {
+    // Refuse to split a pathologically long file into a line vector at all.
+    if count_toml_lines(content) > SETUP_SCRIPT_IMPORT_MAX_TOML_LINES {
+        return CodexEnvironmentToml {
+            setup_script: None,
+            cleanup_script: None,
+            unsupported_fields: Vec::new(),
+        };
+    }
     // `content.split(/\r?\n/)`: normalize CRLF then split on LF (a bare CR that
     // is not followed by LF is preserved, matching the regex).
     let normalized = content.replace("\r\n", "\n");
@@ -67,12 +86,18 @@ fn parse_codex_environment_toml(content: &str) -> CodexEnvironmentToml {
         let line = lines[index];
         let trimmed = line.trim();
         if matches_actions_assignment(trimmed) {
-            unsupported_fields.push("actions".to_string());
+            push_setup_script_import_unsupported_field(
+                &mut unsupported_fields,
+                "actions".to_string(),
+            );
         }
         if let Some(name) = parse_section_header(trimmed) {
             section = name.to_string();
             if section == "actions" || section.starts_with("actions.") {
-                unsupported_fields.push(format!("[{section}]"));
+                push_setup_script_import_unsupported_field(
+                    &mut unsupported_fields,
+                    format!("[{section}]"),
+                );
             }
             index += 1;
             continue;
@@ -147,13 +172,42 @@ fn parse_toml_string_value(lines: &[&str], start_line_index: usize, raw_value: &
     ParsedTomlValue { value: strip_inline_comment_and_trim(value), end_line_index: start_line_index }
 }
 
+/// Bounded accumulator for a multiline TOML script: a chunk that would push the
+/// value past the field cap is refused, and the whole value is then abandoned
+/// rather than truncated — matching upstream's `append`.
+struct BoundedTomlScript {
+    content: String,
+    bytes: usize,
+    code_units: usize,
+}
+
+impl BoundedTomlScript {
+    fn new() -> Self {
+        Self { content: String::new(), bytes: 0, code_units: 0 }
+    }
+
+    fn append(&mut self, value: &str) -> bool {
+        let code_units = utf16_len(value);
+        if self.code_units + code_units > SETUP_SCRIPT_IMPORT_MAX_FIELD_CODE_UNITS
+            || self.bytes + value.len() > SETUP_SCRIPT_IMPORT_MAX_FIELD_BYTES
+        {
+            return false;
+        }
+        self.content.push_str(value);
+        self.bytes += value.len();
+        self.code_units += code_units;
+        true
+    }
+}
+
 fn parse_toml_multiline_string(
     lines: &[&str],
     start_line_index: usize,
     first_line_remainder: &str,
     delimiter: &str,
 ) -> ParsedTomlValue {
-    let mut content = String::new();
+    let mut script = BoundedTomlScript::new();
+    let mut oversized = false;
     let mut remainder = first_line_remainder;
     let mut index = start_line_index;
     while index < lines.len() {
@@ -161,19 +215,38 @@ fn parse_toml_multiline_string(
             remainder = lines[index];
         }
         if let Some(close_index) = remainder.find(delimiter) {
+            if !oversized && !script.append(&remainder[..close_index]) {
+                oversized = true;
+            }
             return ParsedTomlValue {
-                value: format!("{content}{}", &remainder[..close_index]),
+                value: if oversized { String::new() } else { script.content },
                 end_line_index: index,
             };
         }
-        content.push_str(remainder);
-        content.push('\n');
+        if !oversized && !script.append(&format!("{remainder}\n")) {
+            oversized = true;
+            script.content = String::new();
+        }
         index += 1;
     }
     ParsedTomlValue {
-        value: content.trim_end().to_string(),
+        value: if oversized { String::new() } else { script.content.trim_end().to_string() },
         end_line_index: lines.len().saturating_sub(1),
     }
+}
+
+/// `countTomlLines` — stops as soon as the cap is exceeded.
+fn count_toml_lines(content: &str) -> usize {
+    let mut lines = 1usize;
+    for byte in content.as_bytes() {
+        if *byte == b'\n' {
+            lines += 1;
+            if lines > SETUP_SCRIPT_IMPORT_MAX_TOML_LINES {
+                return lines;
+            }
+        }
+    }
+    lines
 }
 
 fn parse_toml_basic_string(value: &str) -> String {
@@ -311,5 +384,36 @@ mod tests {
     fn ignores_missing_config() {
         let read = reader(vec![]);
         assert_eq!(inspect_codex_environment_config(&read), None);
+    }
+
+    fn inspect_owned(content: String) -> Option<SetupScriptImportCandidate> {
+        let read = move |path: &str| {
+            (path == CODEX_ENVIRONMENT_PATH).then(|| content.clone())
+        };
+        inspect_codex_environment_config(&read)
+    }
+
+    #[test]
+    fn bounds_multiline_script_accumulation_at_the_exact_field_limit() {
+        let exact = "x".repeat(SETUP_SCRIPT_IMPORT_MAX_FIELD_CODE_UNITS);
+        assert_eq!(
+            inspect_owned(format!("[setup]\nscript = \"\"\"{exact}\"\"\""))
+                .map(|candidate| candidate.setup),
+            Some(exact.clone())
+        );
+        assert_eq!(inspect_owned(format!("[setup]\nscript = \"\"\"{exact}x\"\"\"")), None);
+    }
+
+    #[test]
+    fn bounds_toml_line_splitting_at_the_exact_line_limit() {
+        let exact = format!(
+            "[setup]\nscript = \"pnpm install\"{}",
+            "\n".repeat(SETUP_SCRIPT_IMPORT_MAX_TOML_LINES - 2)
+        );
+        assert_eq!(
+            inspect_owned(exact.clone()).map(|candidate| candidate.setup),
+            Some("pnpm install".to_string())
+        );
+        assert_eq!(inspect_owned(format!("{exact}\n")), None);
     }
 }

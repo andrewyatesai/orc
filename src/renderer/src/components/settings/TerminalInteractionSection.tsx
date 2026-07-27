@@ -363,12 +363,13 @@ export function TerminalInteractionSection({
           )}
           description={translate(
             'auto.components.settings.TerminalPane.69c64a479c',
-            'Let Grok, tmux, Neovim, and fzf copy to the system clipboard over the PTY (including over SSH).'
+            'Let Zellij, tmux, Neovim, fzf, and Grok copy to the system clipboard over the PTY (including over SSH).'
           )}
           keywords={[
             'osc 52',
             'osc52',
             'clipboard',
+            'zellij',
             'tmux',
             'neovim',
             'nvim',
@@ -387,7 +388,7 @@ export function TerminalInteractionSection({
             )}
             description={translate(
               'auto.components.settings.TerminalPane.osc52DescriptionWithToastNote',
-              'Let programs in the terminal (Grok, tmux, Neovim, fzf, SSH) copy to your system clipboard. While off, a blocked TUI copy shows a toast that links back here.'
+              'Let programs in the terminal (Zellij, tmux, Neovim, fzf, Grok, SSH) copy to your system clipboard. While off, a blocked TUI copy shows a toast that links back here.'
             )}
             checked={settings.terminalAllowOsc52Clipboard}
             onChange={() =>

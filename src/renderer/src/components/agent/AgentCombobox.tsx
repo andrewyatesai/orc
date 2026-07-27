@@ -61,6 +61,8 @@ type AgentComboboxProps = {
    *  field as the last keyboard-submit step. */
   onTriggerEnter?: () => void
   allowNarrowTrigger?: boolean
+  allowBlankTerminal?: boolean
+  emptyLabel?: string
 }
 
 const BLANK_VALUE = '__none__'
@@ -134,7 +136,9 @@ export default function AgentCombobox({
   onSetDefault,
   triggerClassName,
   onTriggerEnter,
-  allowNarrowTrigger = false
+  allowNarrowTrigger = false,
+  allowBlankTerminal = true,
+  emptyLabel
 }: AgentComboboxProps): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -168,7 +172,10 @@ export default function AgentCombobox({
     () => searchAgentPickerCustomProfiles(customAgents, query),
     [customAgents, query]
   )
-  const blankMatchesQuery = useMemo(() => agentPickerBlankTerminalMatches(query), [query])
+  const blankMatchesQuery = useMemo(
+    () => allowBlankTerminal && agentPickerBlankTerminalMatches(query),
+    [allowBlankTerminal, query]
+  )
   const activeCommandValue = getAgentPickerCommandValue({
     blankValue: BLANK_VALUE,
     blankMatchesQuery,
@@ -291,6 +298,12 @@ export default function AgentCombobox({
     [open, onTriggerEnter, valueCommandKey]
   )
 
+  // Shared by the trigger fallback and the blank list row; only the trigger honors emptyLabel.
+  const blankTerminalLabel = translate(
+    'auto.components.agent.AgentCombobox.986f946354',
+    'Blank Terminal'
+  )
+
   return (
     <div className="flex w-full items-center">
       <Popover open={open} onOpenChange={handleOpenChange}>
@@ -324,9 +337,7 @@ export default function AgentCombobox({
             ) : (
               <span className="inline-flex min-w-0 flex-1 items-center gap-1.5">
                 <Terminal className="size-3.5" />
-                <span className="truncate">
-                  {translate('auto.components.agent.AgentCombobox.986f946354', 'Blank Terminal')}
-                </span>
+                <span className="truncate">{emptyLabel ?? blankTerminalLabel}</span>
               </span>
             )}
             <ChevronsUpDown className="size-3.5 opacity-50" />
@@ -370,10 +381,7 @@ export default function AgentCombobox({
                     onSelect: () => handleSelect({ kind: 'blank' }),
                     onSetDefault: onSetDefault ? () => onSetDefault('blank') : undefined,
                     icon: <Terminal className="size-3.5" />,
-                    label: translate(
-                      'auto.components.agent.AgentCombobox.986f946354',
-                      'Blank Terminal'
-                    )
+                    label: blankTerminalLabel
                   })
                 : null}
               {filteredAgents.map((agent) =>

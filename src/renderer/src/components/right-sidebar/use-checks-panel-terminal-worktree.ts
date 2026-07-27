@@ -32,7 +32,8 @@ type ChecksPanelTerminalWorktree = {
  * the *remote* shell's OSC 7 path, which must not resolve a local worktree.
  * getCwd reads the local shell pid, so it is correct for that case. Remote
  * runtime PTYs are skipped (their cwd lives on the relay host). Polling is
- * gated on panel visibility, so a hidden panel does no background work and the
+ * gated on both panel visibility and window visibility, so a hidden panel or a
+ * hidden/minimized window does no background work (no `lsof` spawns) and the
  * caller's fallback worktree is used.
  *
  * Resolution is scoped to locally-executing worktrees: the cwd comes from a

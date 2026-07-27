@@ -1,9 +1,21 @@
 import { execFileSync } from 'node:child_process'
-import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import {
+  chmod,
+  copyFile,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  appendReleaseRow,
   classifyFile,
   collectPackageFiles,
   describeFile,
@@ -11,6 +23,7 @@ import {
   isToleratedReleaseMappingPrefix,
   normalizeText,
   packageDigest,
+  releasedHistoryFromCommitted,
   sortManifestFiles
 } from './generate-skill-bundle-manifest.mjs'
 import {
@@ -19,11 +32,42 @@ import {
 } from './skill-release-history-stability.mjs'
 
 const temporaryDirectories = []
+// Why: the fork split the append-only history guard out of the generator, so the
+// sandbox copy needs its siblings beside it or the script cannot even load.
+const GENERATOR_MODULES = [
+  'generate-skill-bundle-manifest.mjs',
+  'skill-release-history-stability.mjs'
+]
 
 async function createPackage() {
   const directory = await mkdtemp(path.join(tmpdir(), 'orca-skill-manifest-'))
   temporaryDirectories.push(directory)
   return directory
+}
+
+// Why: the generator resolves its repo root from its own location, so a copy of
+// the script inside a throwaway tree exercises the real CLI — including which
+// artifacts each mode is allowed to write — without touching resources/skills.
+async function createReleaseSandbox() {
+  // Node resolves the entry point through symlinks, so the script's own
+  // repo-root check only matches when the sandbox path is already resolved.
+  const root = await realpath(await createPackage())
+  const skillRoot = path.join(root, 'skills', 'demo')
+  const scriptDir = path.join(root, 'config', 'scripts')
+  const script = path.join(scriptDir, GENERATOR_MODULES[0])
+  await mkdir(scriptDir, { recursive: true })
+  await mkdir(skillRoot, { recursive: true })
+  await Promise.all(
+    GENERATOR_MODULES.map((moduleName) =>
+      copyFile(path.join(import.meta.dirname, moduleName), path.join(scriptDir, moduleName))
+    )
+  )
+  await writeFile(path.join(skillRoot, 'SKILL.md'), 'demo skill\n')
+  return {
+    generate: (...args) => execFileSync(process.execPath, [script, ...args], { stdio: 'pipe' }),
+    read: (name) => readFile(path.join(root, 'resources', 'skills', name), 'utf8'),
+    editSkill: (body) => writeFile(path.join(skillRoot, 'SKILL.md'), body)
+  }
 }
 
 afterEach(async () => {
@@ -227,6 +271,43 @@ describe('skill bundle manifest generator', () => {
     )
   })
 
+  it('protects only revisions named by the committed release mapping', () => {
+    const snapshot = (releaseRevision, packageDigest) => ({ releaseRevision, packageDigest })
+    const committedRegistry = {
+      schemaVersion: 1,
+      skills: {
+        'linear-tickets': [snapshot(1, 'released'), snapshot(2, 'unreleased-tail')]
+      }
+    }
+    const artifacts = {
+      snapshotRegistry: {
+        schemaVersion: 1,
+        skills: { 'linear-tickets': [snapshot(1, 'released'), snapshot(2, 'new-release')] }
+      }
+    }
+
+    expect(() =>
+      assertReleasedHistoryPreserved(
+        committedRegistry,
+        {
+          schemaVersion: 1,
+          releases: [{ appVersion: '1.0.0', skills: { 'linear-tickets': 1 } }]
+        },
+        artifacts
+      )
+    ).not.toThrow()
+    expect(() =>
+      assertReleasedHistoryPreserved(
+        committedRegistry,
+        {
+          schemaVersion: 1,
+          releases: [{ appVersion: '1.0.0', skills: { 'linear-tickets': 2 } }]
+        },
+        artifacts
+      )
+    ).toThrow('Released snapshot history changed for linear-tickets at revision 2')
+  })
+
   it('tolerates only redundant trailing release-mapping rows', () => {
     const serialized = (value) => `${JSON.stringify(value, null, 2)}\n`
     const rows = [
@@ -277,6 +358,158 @@ describe('skill bundle manifest generator', () => {
     expect(isToleratedReleaseMappingPrefix(serialized({ schemaVersion: 1 }), artifacts)).toBe(false)
   })
 
+  it('seeds released history from the committed ledger and drops the floating tail', () => {
+    const snapshot = (releaseRevision, packageDigest) => ({ releaseRevision, packageDigest })
+    const committedRegistry = {
+      schemaVersion: 1,
+      skills: {
+        // released revs 1..2 named by the mapping, plus an unreleased tail at 3
+        'orca-cli': [snapshot(1, 'aaa'), snapshot(2, 'bbb'), snapshot(3, 'unreleased')],
+        // no mapping row -> fall back to all-but-tail
+        'orca-linear': [snapshot(1, 'ccc'), snapshot(2, 'tail')]
+      }
+    }
+    const committedMapping = {
+      schemaVersion: 1,
+      releases: [{ appVersion: '1.0.0', skills: { 'orca-cli': 2 } }]
+    }
+
+    const seeded = releasedHistoryFromCommitted(committedRegistry, committedMapping)
+
+    // The unreleased tail is dropped; only mapping-named revisions survive.
+    expect(seeded.registry.skills['orca-cli']).toEqual([snapshot(1, 'aaa'), snapshot(2, 'bbb')])
+    expect(seeded.registry.skills['orca-linear']).toEqual([snapshot(1, 'ccc')])
+    expect(seeded.releasedSnapshotCounts).toEqual({ 'orca-cli': 2, 'orca-linear': 1 })
+    // The seed clones the mapping so a later release append cannot alias committed state.
+    expect(seeded.mapping).toEqual(committedMapping)
+    expect(seeded.mapping).not.toBe(committedMapping)
+  })
+
+  it('returns an empty ledger when no committed artifacts exist', () => {
+    const seeded = releasedHistoryFromCommitted(null, null)
+    expect(seeded.registry.skills).toEqual({})
+    expect(seeded.releasedSnapshotCounts).toEqual({})
+    expect(seeded.mapping.releases).toEqual([])
+  })
+
+  it('appends one release row, stripping the v-prefix and deduping identical tails', () => {
+    const artifacts = {
+      currentManifest: {
+        skills: [
+          { name: 'orca-cli', releaseRevision: 36 },
+          { name: 'orca-linear', releaseRevision: 8 }
+        ]
+      },
+      releaseMapping: {
+        schemaVersion: 1,
+        releases: [{ appVersion: '1.4.151', skills: { 'orca-cli': 35, 'orca-linear': 8 } }]
+      }
+    }
+
+    appendReleaseRow(artifacts, 'v1.4.160')
+    expect(artifacts.releaseMapping.releases.at(-1)).toEqual({
+      appVersion: '1.4.160',
+      skills: { 'orca-cli': 36, 'orca-linear': 8 }
+    })
+
+    // A second release over identical revisions adds no row.
+    appendReleaseRow(artifacts, '1.4.161')
+    expect(artifacts.releaseMapping.releases).toHaveLength(2)
+  })
+
+  it('overwrites the trailing row when a failed cut is re-cut at the same version', () => {
+    const artifacts = {
+      currentManifest: { skills: [{ name: 'orca-cli', releaseRevision: 37 }] },
+      releaseMapping: {
+        schemaVersion: 1,
+        releases: [
+          { appVersion: '1.4.151', skills: { 'orca-cli': 35 } },
+          // The failed cut already pushed this row to main at revision 36.
+          { appVersion: '1.4.160', skills: { 'orca-cli': 36 } }
+        ]
+      }
+    }
+
+    appendReleaseRow(artifacts, '1.4.160')
+
+    // One row per version: the tag ships revision 37, so 36 must not linger.
+    expect(artifacts.releaseMapping.releases).toEqual([
+      { appVersion: '1.4.151', skills: { 'orca-cli': 35 } },
+      { appVersion: '1.4.160', skills: { 'orca-cli': 37 } }
+    ])
+  })
+
+  it('refuses to rewrite an already-shipped version behind the trailing row', () => {
+    const artifacts = {
+      currentManifest: { skills: [{ name: 'orca-cli', releaseRevision: 37 }] },
+      releaseMapping: {
+        schemaVersion: 1,
+        releases: [
+          { appVersion: '1.4.151', skills: { 'orca-cli': 35 } },
+          { appVersion: '1.4.160', skills: { 'orca-cli': 36 } }
+        ]
+      }
+    }
+
+    expect(() => appendReleaseRow(artifacts, '1.4.151')).toThrow(/already has a row for 1\.4\.151/)
+  })
+
+  it('records a release without regenerating the content-addressed artifacts', async () => {
+    const sandbox = await createReleaseSandbox()
+
+    sandbox.generate('--write')
+    const [manifest, registry] = await Promise.all([
+      sandbox.read('current-manifest.json'),
+      sandbox.read('snapshot-registry.json')
+    ])
+    sandbox.generate('--release', 'v1.4.156')
+
+    // The cut records provenance for bytes that are already committed, so a
+    // version-only cut can never rewrite a shipped identity.
+    expect(JSON.parse(await sandbox.read('release-mapping.json')).releases).toEqual([
+      { appVersion: '1.4.156', skills: { demo: 1 } }
+    ])
+    expect(await sandbox.read('current-manifest.json')).toBe(manifest)
+    expect(await sandbox.read('snapshot-registry.json')).toBe(registry)
+
+    // Bytes that changed since the last regeneration would make the row name a
+    // revision this tag does not ship — refuse rather than record it.
+    await sandbox.editSkill('edited after the last regeneration\n')
+    expect(() => sandbox.generate('--release', '1.4.157')).toThrow(
+      /Generated skill artifacts are stale/
+    )
+    expect(JSON.parse(await sandbox.read('release-mapping.json')).releases).toHaveLength(1)
+  })
+
+  it('freezes a revision once a release records it, and only until then', async () => {
+    const sandbox = await createReleaseSandbox()
+    const demoSnapshots = async () =>
+      JSON.parse(await sandbox.read('snapshot-registry.json')).skills.demo
+
+    sandbox.generate('--write')
+    const unreleased = (await demoSnapshots())[0].packageDigest
+
+    // Nothing has shipped revision 1 yet, so re-deriving it over new bytes is
+    // correct: the tail floats until a release names it.
+    await sandbox.editSkill('about to ship\n')
+    sandbox.generate('--write')
+    const shipped = await demoSnapshots()
+    expect(shipped).toHaveLength(1)
+    expect(shipped[0].packageDigest).not.toBe(unreleased)
+
+    sandbox.generate('--release', '1.4.156')
+
+    // The cut named revision 1, so the next change appends revision 2 instead of
+    // rebuilding revision 1. Installs carrying the shipped digest keep matching a
+    // known snapshot — without the ledger row they would match nothing.
+    await sandbox.editSkill('changed again after the cut\n')
+    sandbox.generate('--write')
+    const frozen = await demoSnapshots()
+    expect(frozen).toHaveLength(2)
+    expect(frozen[0]).toEqual(shipped[0])
+    expect(frozen[1].releaseRevision).toBe(2)
+  })
+
   it.runIf(process.platform !== 'win32')(
     'rejects executable files in shipped skill packages',
     async () => {
@@ -313,11 +546,17 @@ describe('skill bundle manifest generator', () => {
   it('computes the same Git tree identity as Git', async () => {
     const packageRoot = path.resolve('skills', 'orca-cli')
     const files = await collectPackageFiles(packageRoot)
-    const expected = execFileSync('git', ['ls-tree', 'HEAD:skills', 'orca-cli'], {
+    // Why: Git must hash the same bytes we did. Reading the reference out of
+    // HEAD:skills instead also asserts that skills/orca-cli is committed — a
+    // different property, and false in any tree that is mid-edit on the package.
+    const gitRoot = await createPackage()
+    await cp(packageRoot, gitRoot, { recursive: true })
+    execFileSync('git', ['init', '--quiet'], { cwd: gitRoot })
+    execFileSync('git', ['add', '-A'], { cwd: gitRoot })
+    const expected = execFileSync('git', ['write-tree'], {
+      cwd: gitRoot,
       encoding: 'utf8'
-    })
-      .trim()
-      .split(/\s+/)[2]
+    }).trim()
 
     expect(gitTreeSha(files)).toBe(expected)
   })
@@ -337,4 +576,10 @@ describe('skill bundle manifest generator', () => {
 
     expect(gitTreeSha(files)).toBe(expected)
   })
+
+  // Upstream also pins its .github/workflows/release-cut.yml here; the fork has
+  // no workflows (cuts run through `publication`/`pub promote`), so that guard
+  // belongs at the fork's cut seam, not in this file. The in-process half of it
+  // is covered by 'records a release without regenerating the content-addressed
+  // artifacts' above.
 })

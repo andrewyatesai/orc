@@ -204,6 +204,8 @@ describe('daemon pty foreground scan cadence', () => {
       // The first synchronous read precedes enrichment; every later read stays on
       // OMP even when its 1s cache entry expires while the next scan is in flight.
       expect(reads).toEqual(['pi', ...Array.from({ length: 12 }, () => 'omp')])
+      // Bounded rescans: the 1s cache TTL, not every 250ms read, drives the scan.
+      expect(resolveAgentForegroundProcessMock).toHaveBeenCalledTimes(4)
 
       await expect(handle.confirmForegroundProcess!()).resolves.toBe('omp')
       expect(resolveAgentForegroundProcessMock).toHaveBeenLastCalledWith(

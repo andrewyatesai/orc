@@ -286,6 +286,13 @@ export function mapGhosttyToOrca(
       continue
     }
 
+    // Why: the aterm engine has no bold color slot (cf. xtermjs/xterm.js#6032), so importing
+    // bold-color would render as a no-op; report it as unsupported instead of silently dropping.
+    if (key === 'bold-color') {
+      unsupportedKeys.push(key)
+      continue
+    }
+
     if (!value.trim()) {
       unsupportedKeys.push(key)
       continue

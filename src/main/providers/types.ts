@@ -1,31 +1,23 @@
 import type {
   DirEntry,
   FsChangeEvent,
-  GitStatusResult,
-  GitDiffResult,
-  GitBranchCompareResult,
-  GitCommitCompareResult,
-  GitConflictOperation,
-  GitForkSyncExpectedUpstream,
-  GitForkSyncResult,
-  GitPushTarget,
-  GitStagingArea,
-  GitUpstreamStatus,
-  GitWorktreeInfo,
   TuiAgent,
-  RemoveWorktreeResult,
   SearchOptions,
   SearchResult
 } from '../../shared/types'
-import type { GitHistoryOptions, GitHistoryResult } from '../../shared/git-history'
 import type { PtyStartupIngressIntent } from '../../shared/pty-startup-ingress'
-import type { CommitMessageDraftContext } from '../../shared/commit-message-generation'
 import type { WorkspaceSpaceDirectoryScanResult } from '../../shared/workspace-space-types'
 import type { StartupCommandDelivery } from '../../shared/codex-startup-delivery'
 import type { TerminalOscLinkRange } from '../../shared/terminal-osc-link-ranges'
-import type { GitProviderStatusOptions } from './git-provider-status-options'
+import type { IGitProvider } from './git-provider-contract'
 import type { PtyBackgroundStreamEvent, PtyDataEvent } from './pty-provider-events'
 import type { PtySpawnResult } from './pty-spawn-result'
+import type { PtyIncarnationId } from '../../shared/pty-incarnation'
+import type {
+  AgentSessionExecutionClaim,
+  AgentSessionSurfaceBinding
+} from '../../shared/agent-session-host-authority'
+import type { PtyProcessInfo } from './pty-process-info'
 
 export type {
   PtyBackgroundStreamEvent,
@@ -56,6 +48,8 @@ export type PtySpawnOptions = {
   cwd?: string
   env?: Record<string, string>
   envToDelete?: string[]
+  /** Main-validated home provenance for an automatic Codex session resume. */
+  codexHomePathOverride?: { value: string | null }
   command?: string
   commandDelivery?: 'renderer' | 'provider'
   startupCommandDelivery?: StartupCommandDelivery
@@ -98,19 +92,21 @@ export type PtySpawnOptions = {
    *  terminalScrollbackRows setting). Absent keeps each provider's historical
    *  default, so restores from older daemons behave exactly as before. */
   scrollbackRows?: number
+  agentSessionEnsure?: {
+    claim: AgentSessionExecutionClaim
+    surface: AgentSessionSurfaceBinding
+  }
+  /** Host-scoped structured-create identity used only for lower-owner replay. */
+  agentSessionCreateOperationId?: string
+  /** Signals that the native process exists even if later publication fails. */
+  onPtySpawnCommitted?: () => void
+  /** Cancels only before physical dispatch; operation identity fences later ambiguity. */
+  signal?: AbortSignal
 }
 
-export type { PtySpawnResult }
+export type { PtyProcessInfo, PtySpawnResult }
 
-export type PtyProcessInfo = {
-  id: string
-  cwd: string
-  title: string
-  /** Owning worktree when the provider can report it authoritatively. */
-  worktreeId?: string
-  /** Trusted ORCA_TERMINAL_HANDLE exported into this PTY, when known. */
-  terminalHandle?: string
-}
+type PtyProbeOptions = { signal?: AbortSignal }
 
 /** Positive per-session liveness evidence from a provider's own registry (#9169). */
 export type PtySessionLiveness = {
@@ -122,6 +118,12 @@ export type IPtyProvider = {
   spawn(opts: PtySpawnOptions): Promise<PtySpawnResult>
   /** Whether this spawn target can append the Git guard after its final env merge. */
   supportsGitCredentialGuardHost?: (sessionId?: string) => boolean
+  /** Explicit false selects pre-claim legacy spawn for a preserved old daemon. */
+  supportsAgentSessionClaims?: (options?: PtyProbeOptions) => boolean | Promise<boolean>
+  /** Whether missing claim metadata in this PTY's process listing proves absence. */
+  providesAgentSessionOwnerListings?: (ptyId: string) => boolean
+  /** Whether fresh structured creates can replay one spawn across a lost relay response. */
+  supportsAgentSessionCreateOperations?: (options?: PtyProbeOptions) => boolean | Promise<boolean>
   attach(id: string): Promise<void>
   hasPty?: (id: string) => boolean
   write(id: string, data: string): void
@@ -199,7 +201,9 @@ export type IPtyProvider = {
   getProfiles(): Promise<{ name: string; path: string }[]>
   onData(callback: (payload: PtyDataEvent) => void): () => void
   onReplay(callback: (payload: { id: string; data: string }) => void): () => void
-  onExit(callback: (payload: { id: string; code: number }) => void): () => void
+  onExit(
+    callback: (payload: { id: string; code: number; incarnationId?: PtyIncarnationId }) => void
+  ): () => void
 }
 
 // ─── Filesystem Provider ────────────────────────────────────────────
@@ -285,111 +289,11 @@ export type TerminalArtifactAccessOptions = {
 // ─── Git Provider ───────────────────────────────────────────────────
 
 export type { GitProviderStatusOptions } from './git-provider-status-options'
-
-export type IGitProvider = {
-  getStatus(worktreePath: string, options?: GitProviderStatusOptions): Promise<GitStatusResult>
-  getSubmoduleStatus(
-    worktreePath: string,
-    submodulePath: string,
-    area?: GitStagingArea
-  ): Promise<GitStatusResult>
-  checkIgnoredPaths(worktreePath: string, relativePaths: string[]): Promise<string[]>
-  getHistory(worktreePath: string, options?: GitHistoryOptions): Promise<GitHistoryResult>
-  commit(worktreePath: string, message: string): Promise<{ success: boolean; error?: string }>
-  getStagedCommitContext(worktreePath: string): Promise<CommitMessageDraftContext | null>
-  getDiff(
-    worktreePath: string,
-    filePath: string,
-    staged: boolean,
-    compareAgainstHead?: boolean
-  ): Promise<GitDiffResult>
-  stageFile(worktreePath: string, filePath: string): Promise<void>
-  unstageFile(worktreePath: string, filePath: string): Promise<void>
-  getFileDiffPatch(worktreePath: string, filePath: string, staged: boolean): Promise<string>
-  applyIndexPatch(
-    worktreePath: string,
-    filePath: string,
-    patch: string,
-    reverse: boolean
-  ): Promise<void>
-  bulkStageFiles(worktreePath: string, filePaths: string[]): Promise<void>
-  bulkUnstageFiles(worktreePath: string, filePaths: string[]): Promise<void>
-  discardChanges(worktreePath: string, filePath: string): Promise<void>
-  bulkDiscardChanges(worktreePath: string, filePaths: string[]): Promise<void>
-  detectConflictOperation(worktreePath: string): Promise<GitConflictOperation>
-  abortMerge(worktreePath: string): Promise<void>
-  abortRebase(worktreePath: string): Promise<void>
-  checkoutBranch(worktreePath: string, branch: string): Promise<void>
-  listLocalBranches(worktreePath: string): Promise<{ current: string | null; branches: string[] }>
-  getBranchCompare(worktreePath: string, baseRef: string): Promise<GitBranchCompareResult>
-  getCommitCompare(worktreePath: string, commitId: string): Promise<GitCommitCompareResult>
-  getUpstreamStatus(worktreePath: string, pushTarget?: GitPushTarget): Promise<GitUpstreamStatus>
-  pushBranch(
-    worktreePath: string,
-    publish?: boolean,
-    pushTarget?: GitPushTarget,
-    options?: { forceWithLease?: boolean }
-  ): Promise<void>
-  pullBranch(worktreePath: string, pushTarget?: GitPushTarget): Promise<void>
-  fastForwardBranch(worktreePath: string, pushTarget?: GitPushTarget): Promise<void>
-  rebaseFromBase(worktreePath: string, baseRef: string): Promise<void>
-  fetchRemote(worktreePath: string, pushTarget?: GitPushTarget): Promise<void>
-  syncForkDefaultBranch(
-    worktreePath: string,
-    expectedUpstream: GitForkSyncExpectedUpstream
-  ): Promise<GitForkSyncResult>
-  getBranchDiff(
-    worktreePath: string,
-    baseRef: string,
-    options?: { includePatch?: boolean; filePath?: string; oldPath?: string }
-  ): Promise<GitDiffResult[]>
-  getCommitDiff(
-    worktreePath: string,
-    args: { commitOid: string; parentOid?: string | null; filePath: string; oldPath?: string }
-  ): Promise<GitDiffResult>
-  listWorktrees(repoPath: string, options?: { signal?: AbortSignal }): Promise<GitWorktreeInfo[]>
-  addWorktree(
-    repoPath: string,
-    branchName: string,
-    targetDir: string,
-    options?: { base?: string; checkoutExistingBranch?: boolean; noCheckout?: boolean }
-  ): Promise<void>
-  removeWorktree(
-    worktreePath: string,
-    force?: boolean,
-    options?: { deleteBranch?: boolean; forceBranchDelete?: boolean }
-  ): Promise<RemoveWorktreeResult>
-  renameCurrentBranch?(
-    worktreePath: string,
-    currentBranch: string,
-    newBranch: string
-  ): Promise<void>
-  forceDeletePreservedBranch?(
-    repoPath: string,
-    branchName: string,
-    expectedHead: string
-  ): Promise<void>
-  isGitRepo(path: string): boolean
-  isGitRepoAsync(dirPath: string): Promise<{ isRepo: boolean; rootPath: string | null }>
-  exec(
-    args: string[],
-    cwd: string,
-    options?: { signal?: AbortSignal; timeoutMs?: number }
-  ): Promise<{ stdout: string; stderr: string }>
-  getRemoteFileUrl(worktreePath: string, relativePath: string, line: number): Promise<string | null>
-  getRemoteCommitUrl(worktreePath: string, sha: string): Promise<string | null>
-  worktreeIsClean(
-    worktreePath: string,
-    options?: { includeUntracked?: boolean }
-  ): Promise<{ clean: boolean; stdout?: string }>
-}
+export type { IGitProvider } from './git-provider-contract'
 
 // ─── Provider Registry ──────────────────────────────────────────────
 
-/**
- * Routes operations to the correct provider based on connectionId.
- * null/undefined connectionId = local provider.
- */
+/** Routes operations by connectionId; null/undefined selects the local provider. */
 export type IProviderRegistry = {
   getPtyProvider(connectionId: string | null | undefined): IPtyProvider
   getFilesystemProvider(connectionId: string | null | undefined): IFilesystemProvider

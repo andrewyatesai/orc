@@ -15,6 +15,7 @@ let sshConnectionStates = new Map<string, { status: string }>()
 let sshTargetLabels = new Map<string, string>()
 let runtimeStatusByEnvironmentId = new Map<string, { status?: unknown }>()
 let runtimeEnvironments: { id: string; name: string }[] = []
+let sshStateByEnvironment = new Map()
 let worktreesByRepo: Record<string, Worktree[]> = {}
 let repos: Repo[] = []
 let worktreeCardProperties: WorktreeCardProperty[] = ['status']
@@ -36,9 +37,12 @@ vi.mock('@/store', () => ({
       repos,
       runtimeEnvironments,
       runtimeStatusByEnvironmentId,
+      removedSshTargetLabels: new Map(),
       settings: null,
       sshConnectionStates,
+      sshStateByEnvironment,
       sshTargetLabels,
+      sshTargetsHydrated: true,
       updateWorktreeMeta,
       worktreeCardProperties,
       worktreesByRepo
@@ -137,6 +141,7 @@ describe('WorktreeCard SSH reconnect prompt', () => {
     sshTargetLabels = new Map()
     runtimeStatusByEnvironmentId = new Map()
     runtimeEnvironments = []
+    sshStateByEnvironment = new Map()
     worktreesByRepo = {}
     repos = []
     worktreeCardProperties = ['status']
@@ -206,5 +211,31 @@ describe('WorktreeCard SSH reconnect prompt', () => {
 
     expect(remoteMacMarkup).toContain('Project on Remote Mac')
     expect(buildLinuxMarkup).toContain('Project on Build Linux')
+  })
+
+  it('reads nested SSH readiness from the owning HUB instead of client-local SSH state', () => {
+    runtimeStatusByEnvironmentId.set('hub-1', { status: { runtimeId: 'hub-runtime' } })
+    sshConnectionStates.set('ssh-target-1', { status: 'disconnected' })
+    sshTargetLabels.set('ssh-target-1', 'Misleading client-local target')
+    sshStateByEnvironment.set('hub-1', {
+      connectionStates: new Map([['ssh-target-1', { status: 'connected' }]]),
+      targetLabels: new Map([['ssh-target-1', 'HUB private target']]),
+      removedTargetLabels: new Map(),
+      targetsHydrated: true
+    })
+    const worktree = {
+      ...makeWorktree(),
+      hostId: 'ssh:ssh-target-1' as const,
+      runtimeOwnerEnvironmentId: 'hub-1'
+    }
+    worktreesByRepo = { 'repo-1': [worktree] }
+
+    const markup = renderToStaticMarkup(
+      <WorktreeCard worktree={worktree} repo={makeRepo()} isActive={false} />
+    )
+
+    expect(markup).not.toContain('SSH disconnected')
+    expect(markup).toContain('data-ssh-target-label="HUB private target"')
+    expect(markup).not.toContain('Misleading client-local target')
   })
 })

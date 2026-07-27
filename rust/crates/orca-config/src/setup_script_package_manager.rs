@@ -101,7 +101,10 @@ fn parse_package_json(content: Option<&str>) -> Option<Value> {
 }
 
 fn package_manager_name(value: Option<&Value>) -> Option<PackageManager> {
-    let declared = value?.as_str()?.trim().to_lowercase();
+    let declared = value?.as_str().filter(|text| {
+        crate::setup_script_import_limits::is_setup_script_import_field_within_limit(text)
+    })?;
+    let declared = declared.trim().to_lowercase();
     if declared.starts_with("pnpm@") {
         Some(PackageManager::Pnpm)
     } else if declared.starts_with("bun@") {

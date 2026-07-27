@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import type { NativeChatMessage } from '../../../src/shared/native-chat-types'
+import { normalizedUserText, type UnconfirmedSend } from './mobile-native-chat-draft-reconcile'
+import { isImageSourceUserTurn } from './mobile-native-chat-image-transcript-markers'
+import { mobileNativeChatScopeKey } from './mobile-native-chat-scope-key'
 
 export type MobileNativeChatPendingMessage = {
   id: string
   text: string
   normalizedText: string
+  /** Local preview URIs of images ridden along on the send, rendered as thumbnails
+   *  on the echo bubble so the sent photo shows before the transcript catches up. */
+  images?: string[]
   // The transcript tail at send time; only echoes after it can clear this bubble.
   baselineTailMessageId: string | null
 }
@@ -21,27 +27,6 @@ const NO_PENDING_MESSAGES: MobileNativeChatPendingMessage[] = []
 // that delivery remains unconfirmed.
 const UNCONFIRMED_SEND_DEADLINE_MS = 20_000
 
-type UnconfirmedSend = {
-  draftKey: string
-  pendingKey: string | null
-  text: string
-  normalizedText: string
-  baselineTailMessageId: string | null
-  deadline: ReturnType<typeof setTimeout> | null
-}
-
-function normalizedUserText(message: NativeChatMessage): string | null {
-  if (message.role !== 'user') {
-    return null
-  }
-  const text = message.blocks
-    .filter((block) => block.type === 'text')
-    .map((block) => (block.type === 'text' ? block.text : ''))
-    .join('')
-    .trim()
-  return text || null
-}
-
 // Match each entry to a NEW transcript echo: one whose index is after the entry's
 // captured tail (prepended history has index <= tail) and not already claimed by
 // another entry. Shared by the unconfirmed-send hold and the optimistic-pending
@@ -55,18 +40,22 @@ function normalizedUserText(message: NativeChatMessage): string | null {
 // echo has not arrived yet, so it can never match anything at or below the max
 // consumed index; advancing only-forward loses no legitimate future match.
 function reconcileLandedEchoes<
-  T extends { normalizedText: string; baselineTailMessageId: string | null }
+  T extends { normalizedText: string; baselineTailMessageId: string | null; images?: string[] }
 >(messages: readonly NativeChatMessage[], entries: readonly T[]): { landed: T[]; survivors: T[] } {
   const messageIndexById = new Map<string, number>()
   const userMessagesByText = new Map<string, Array<{ id: string; index: number }>>()
   for (const [index, message] of messages.entries()) {
     messageIndexById.set(message.id, index)
-    const text = normalizedUserText(message)
-    if (text) {
-      const current = userMessagesByText.get(text) ?? []
-      current.push({ id: message.id, index })
-      userMessagesByText.set(text, current)
+    if (message.role !== 'user') {
+      continue
     }
+    // `[Image: source: …]` turns — and any other text-less user turn — key by ''
+    // so an image-only send, which has no caption to match, claims one of those
+    // and never an unrelated text echo.
+    const key = isImageSourceUserTurn(message) ? '' : (normalizedUserText(message) ?? '')
+    const current = userMessagesByText.get(key) ?? []
+    current.push({ id: message.id, index })
+    userMessagesByText.set(key, current)
   }
 
   const tailIndexOf = (entry: T): number | undefined =>
@@ -76,6 +65,20 @@ function reconcileLandedEchoes<
   const landed: T[] = []
   const nonLanded: T[] = []
   let maxConsumedIndex = -1
+  const claimEchoes = (key: string, tailIndex: number, limit: number): number => {
+    let claims = 0
+    for (const message of userMessagesByText.get(key) ?? []) {
+      if (claims >= limit) {
+        break
+      }
+      if (message.index > tailIndex && !claimedMessageIds.has(message.id)) {
+        claimedMessageIds.add(message.id)
+        maxConsumedIndex = Math.max(maxConsumedIndex, message.index)
+        claims++
+      }
+    }
+    return claims
+  }
   for (const entry of entries) {
     const tailIndex = tailIndexOf(entry)
     // Baseline message paged out of the transcript: can't validate an echo, so hold.
@@ -83,12 +86,13 @@ function reconcileLandedEchoes<
       nonLanded.push(entry)
       continue
     }
-    const echo = userMessagesByText
-      .get(entry.normalizedText)
-      ?.find((message) => message.index > tailIndex && !claimedMessageIds.has(message.id))
-    if (echo) {
-      claimedMessageIds.add(echo.id)
-      maxConsumedIndex = Math.max(maxConsumedIndex, echo.index)
+    // An image-only send reserves one echo turn per ridden-along image, so a later
+    // photo send cannot mistake this send's second image for its own echo.
+    const claimed =
+      entry.normalizedText === ''
+        ? claimEchoes('', tailIndex, entry.images?.length || 1)
+        : claimEchoes(entry.normalizedText, tailIndex, 1)
+    if (claimed > 0) {
       landed.push(entry)
     } else {
       nonLanded.push(entry)
@@ -121,7 +125,7 @@ export function useMobileNativeChatDrafts(args: {
   setComposerText: Dispatch<SetStateAction<string>>
   pending: MobileNativeChatPendingMessage[]
   captureSendOrigin: (text: string) => MobileNativeChatSendOrigin | null
-  acceptSend: (origin: MobileNativeChatSendOrigin, text: string) => void
+  acceptSend: (origin: MobileNativeChatSendOrigin, text: string, images?: string[]) => void
   holdUnconfirmedSend: (
     origin: MobileNativeChatSendOrigin,
     text: string,
@@ -129,7 +133,7 @@ export function useMobileNativeChatDrafts(args: {
   ) => void
 } {
   const { hostId, worktreeId, tabId, sessionId, messages } = args
-  const draftKey = tabId ? `${hostId}\0${worktreeId}\0${tabId}` : null
+  const draftKey = mobileNativeChatScopeKey(hostId, worktreeId, tabId)
   const pendingKey = draftKey && sessionId ? `${draftKey}\0${sessionId}` : null
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [pendingBySession, setPendingBySession] = useState<
@@ -175,33 +179,37 @@ export function useMobileNativeChatDrafts(args: {
     [draftKey, pendingKey]
   )
 
-  const acceptSend = useCallback((origin: MobileNativeChatSendOrigin, text: string) => {
-    // Why: an RPC may settle after a tab switch; mutate only the tab that
-    // originated the send, without erasing edits typed after it began.
-    setDrafts((previous) =>
-      (previous[origin.draftKey] ?? '').trim() === text.trim()
-        ? { ...previous, [origin.draftKey]: '' }
-        : previous
-    )
-    // Why: the first prompt can be sent before the provider reports a session
-    // id; clear its draft, but wait for an id before keying an optimistic echo.
-    if (!origin.pendingKey) {
-      return
-    }
-    const pendingKey = origin.pendingKey
-    pendingCounterRef.current += 1
-    const pendingId = `pending-${pendingCounterRef.current}`
-    setPendingBySession((previous) => {
-      const current = previous[pendingKey] ?? NO_PENDING_MESSAGES
-      const pending: MobileNativeChatPendingMessage = {
-        id: pendingId,
-        text,
-        normalizedText: origin.normalizedText,
-        baselineTailMessageId: origin.baselineTailMessageId
+  const acceptSend = useCallback(
+    (origin: MobileNativeChatSendOrigin, text: string, images?: string[]) => {
+      // Why: an RPC may settle after a tab switch; mutate only the tab that
+      // originated the send, without erasing edits typed after it began.
+      setDrafts((previous) =>
+        (previous[origin.draftKey] ?? '').trim() === text.trim()
+          ? { ...previous, [origin.draftKey]: '' }
+          : previous
+      )
+      // Why: the first prompt can be sent before the provider reports a session
+      // id; clear its draft, but wait for an id before keying an optimistic echo.
+      if (!origin.pendingKey) {
+        return
       }
-      return { ...previous, [pendingKey]: [...current, pending] }
-    })
-  }, [])
+      const pendingKey = origin.pendingKey
+      pendingCounterRef.current += 1
+      const pendingId = `pending-${pendingCounterRef.current}`
+      setPendingBySession((previous) => {
+        const current = previous[pendingKey] ?? NO_PENDING_MESSAGES
+        const pending: MobileNativeChatPendingMessage = {
+          id: pendingId,
+          text,
+          normalizedText: origin.normalizedText,
+          baselineTailMessageId: origin.baselineTailMessageId,
+          ...(images && images.length > 0 ? { images } : {})
+        }
+        return { ...previous, [pendingKey]: [...current, pending] }
+      })
+    },
+    []
+  )
 
   // Why: a relay drop mid-send loses only the ack in the common case — the
   // desktop already delivered the message. Hold the send instead of claiming

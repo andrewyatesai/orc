@@ -24,6 +24,7 @@ import {
 } from '@/components/automations/automation-run-output-snapshot'
 import { translate } from '@/i18n/i18n'
 import { createBrowserUuid } from '@/lib/browser-uuid'
+import type { AutomationTerminalOwnership } from '@/lib/automation-terminal-ownership'
 
 const AUTOMATIONS_CHANGED_EVENT = 'orca:automations-changed'
 const activeReuseDispatchTabIds = new Set<string>()
@@ -105,6 +106,35 @@ export function useAutomationDispatchEvents(): void {
         let dispatchWorkspaceDisplayName =
           automationWorktree?.displayName ?? run.workspaceDisplayName ?? null
         let precheckResult: AutomationPrecheckResult | null = null
+        let terminalOwnership: AutomationTerminalOwnership | null = null
+        const releaseTerminalOwnership = (): void => {
+          const ownership = terminalOwnership
+          terminalOwnership = null
+          ownership?.release()
+        }
+        const finalizeTerminalOwnership = (): boolean => {
+          const ownership = terminalOwnership
+          terminalOwnership = null
+          return ownership?.finalize() ?? false
+        }
+        // Why: the ownership handle only exists for desktop-runtime launches;
+        // environment/remote-runtime launches fall back to the runtime-aware
+        // reaper above. Exactly one of the two is ever armed for a given run.
+        const retireOwnedAutomationTerminal = (): boolean => {
+          const retiredOwned = finalizeTerminalOwnership()
+          const retiredFallback = closeBackgroundAutomationTab()
+          return retiredOwned || retiredFallback
+        }
+        // Why: an owned desktop terminal is a real tab the user can open, so a
+        // failed/unpersisted run keeps it inspectable — release the claim only.
+        // The fallback tab is a hidden background tab that never mounts a pane,
+        // so keeping it just leaks the tab + live PTY every recurring run
+        // (#9479); reap it on the failure paths too, as the fresh-launch reaper
+        // always has.
+        const releaseOwnedAutomationTerminal = (): void => {
+          releaseTerminalOwnership()
+          closeBackgroundAutomationTab()
+        }
 
         if (!repo) {
           await markDispatchResult({
@@ -328,7 +358,6 @@ export function useAutomationDispatchEvents(): void {
             }
             completionMarked = true
             cleanupRunObservers()
-            let retired = false
             try {
               await markDispatchResult({
                 runId: run.id,
@@ -339,17 +368,23 @@ export function useAutomationDispatchEvents(): void {
                 precheckResult,
                 error: null
               })
-            } finally {
-              retired = closeBackgroundAutomationTab()
+            } catch (error) {
+              releaseOwnedAutomationTerminal()
+              throw error
             }
-            if (retired) {
+            if (retireOwnedAutomationTerminal()) {
               await clearRetiredRunTerminalIdentity()
             }
           }
           const markExitResult = async (code: number): Promise<void> => {
+            // Why: completion and exit race; without this guard a run can be
+            // marked twice and the second mark overwrites the first result.
+            if (completionMarked) {
+              return
+            }
+            completionMarked = true
             cleanupRunObservers()
             const succeeded = code === 0
-            let retired = false
             try {
               await markDispatchResult({
                 runId: run.id,
@@ -360,14 +395,27 @@ export function useAutomationDispatchEvents(): void {
                 precheckResult,
                 error: succeeded ? null : `Automation process exited with code ${code}.`
               })
-            } finally {
-              retired = closeBackgroundAutomationTab()
+            } catch (error) {
+              releaseOwnedAutomationTerminal()
+              throw error
             }
-            // Why: only a clean completion clears identity; a failed run keeps its
-            // persisted error, and the null-identity re-mark would null that error (#9493).
-            if (succeeded && retired) {
-              await clearRetiredRunTerminalIdentity()
+            // Why: only a clean completion retires the terminal and clears identity;
+            // a failed run keeps its terminal (so the failure stays inspectable) and
+            // its persisted error, which the null-identity re-mark would null (#9493).
+            if (succeeded) {
+              if (retireOwnedAutomationTerminal()) {
+                await clearRetiredRunTerminalIdentity()
+              }
+            } else {
+              releaseOwnedAutomationTerminal()
             }
+          }
+          const settleLateResult = (result: Promise<void>): void => {
+            // Why: status/exit callbacks have no awaitable caller; the result
+            // path already releases ownership before propagating persistence errors.
+            void result.catch((error) => {
+              console.error('[automations] Failed to persist late automation result:', error)
+            })
           }
           const handleAgentDone = (): void => {
             if (completionMarked) {
@@ -377,7 +425,7 @@ export function useAutomationDispatchEvents(): void {
               pendingDone = true
               return
             }
-            void markCompletionResult()
+            settleLateResult(markCompletionResult())
           }
           const observeAgentStatus = (
             targetPaneKey: string,
@@ -464,7 +512,7 @@ export function useAutomationDispatchEvents(): void {
                           pendingExitCode = code
                           return
                         }
-                        void markExitResult(code)
+                        settleLateResult(markExitResult(code))
                       }
                     })
                     observeAgentStatus(reusableSession.paneKey, reuseCompletionStartedAt, {
@@ -521,16 +569,24 @@ export function useAutomationDispatchEvents(): void {
                 pendingExitCode = code
                 return
               }
-              void markExitResult(code)
+              settleLateResult(markExitResult(code))
             }
           })
           if (!result) {
             throw new Error('Unable to build an agent launch plan.')
           }
+          terminalOwnership = result.terminalOwnership
           const launchedTabId = result.tabId
-          // Why: this hidden tab/PTY exists solely to run the automation; on
-          // completion it must be closed or every recurring run leaks one.
-          launchedBackgroundSession = { tabId: launchedTabId, ptyId: result.ptyId }
+          if (automation.reuseSession) {
+            // Why: the first fresh launch is the seed for later reuse and must
+            // survive completion under the same policy as an already-reused tab.
+            releaseTerminalOwnership()
+          } else if (!terminalOwnership) {
+            // Why: environment/remote-runtime launches get no ownership handle, but
+            // their hidden tab/PTY exists solely to run the automation and still
+            // leaks one per recurring run (#9479) — reap those the runtime-aware way.
+            launchedBackgroundSession = { tabId: launchedTabId, ptyId: result.ptyId }
+          }
           observeAgentStatus(result.paneKey, dispatchStartedAt)
           try {
             await markDispatchResult({
@@ -569,8 +625,10 @@ export function useAutomationDispatchEvents(): void {
             currentState.setActiveTabType(focusBeforeDispatch.activeTabType)
           }
         } catch (error) {
-          // Why: a launch that succeeded before a later step threw still leaves a
-          // hidden tab/PTY behind — reap it so failed dispatches don't leak either.
+          // Why: give up the ownership claim, and reap the fallback-owned hidden
+          // tab/PTY a launch left behind when a later step threw, so failed
+          // dispatches don't leak either (#9479).
+          releaseTerminalOwnership()
           closeBackgroundAutomationTab()
           await markDispatchResult({
             runId: run.id,

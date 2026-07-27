@@ -68,7 +68,8 @@ vi.mock('./ssh-relay-versioned-install', () => ({
 }))
 
 vi.mock('./ssh-relay-install-lock', () => ({
-  acquireInstallLock: vi.fn().mockResolvedValue(undefined)
+  acquireInstallLock: vi.fn().mockResolvedValue(undefined),
+  RELAY_INSTALL_LOCK_NAME: '.install-lock'
 }))
 
 vi.mock('./ssh-relay-repair-lock', () => ({

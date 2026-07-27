@@ -1,12 +1,14 @@
 import type {
   ConfirmForegroundProcessRequest,
-  GetForegroundProcessRequest
+  GetForegroundProcessRequest,
+  InspectProcessRequest
 } from './daemon-foreground-process-protocol'
 import type { SubscriberSessionRequest } from './daemon-subscriber-protocol'
 
 export type {
   ConfirmForegroundProcessRequest,
-  GetForegroundProcessRequest
+  GetForegroundProcessRequest,
+  InspectProcessRequest
 } from './daemon-foreground-process-protocol'
 
 // ─── Protocol Version ────────────────────────────────────────────────
@@ -20,11 +22,19 @@ export * from './daemon-protocol-versions'
 // overlapping names (PROTOCOL_VERSION, guard-host min, previous-version list)
 // must keep coming from the fork's daemon-protocol-versions.ts above.
 export {
+  AGENT_SESSION_CLAIM_DAEMON_PROTOCOL_VERSION,
+  AGENT_SESSION_CREATE_OPERATION_DAEMON_PROTOCOL_VERSION,
   CLEAN_DISCONNECT_PROTOCOL_VERSION,
+  COMPLETION_PROCESS_INSPECTION_PROTOCOL_VERSION,
+  GET_FOREGROUND_PROCESS_PROTOCOL_VERSION,
   PTY_STARTUP_INGRESS_PROTOCOL_VERSION,
   supportsPtyStartupIngress
 } from './daemon-protocol-version'
 import type { PtyStartupIngressIntent } from '../../shared/pty-startup-ingress'
+import type {
+  AgentSessionExecutionClaim,
+  AgentSessionSurfaceBinding
+} from '../../shared/agent-session-host-authority'
 export type { TerminalModes } from './terminal-modes'
 import type { TerminalSnapshot } from './terminal-snapshot'
 export type { TerminalSnapshot } from './terminal-snapshot'
@@ -116,6 +126,10 @@ export type CreateOrAttachRequest = {
     /** Recovered ANSI applied before the new subprocess can emit startup output. */
     historySeed?: string
     startupIngress?: PtyStartupIngressIntent
+    agentSessionEnsure?: {
+      claim: AgentSessionExecutionClaim
+      surface: AgentSessionSurfaceBinding
+    }
   }
 }
 
@@ -341,6 +355,7 @@ export type DaemonRequest =
   | SubscriberSessionRequest
   | GetCwdRequest
   | GetForegroundProcessRequest
+  | InspectProcessRequest
   | ConfirmForegroundProcessRequest
   | ClearScrollbackRequest
   | ShutdownRequest
@@ -353,60 +368,10 @@ export type DaemonRequest =
   | CloseStartupQueryAuthorityRequest
 
 // ─── RPC Responses (Daemon → Client, on control socket) ────────────
-
-export type RpcResponseOk<T = unknown> = {
-  id: string
-  ok: true
-  payload: T
-}
-
-export type RpcResponseError = {
-  id: string
-  ok: false
-  error: string
-}
-
-export type RpcResponse<T = unknown> = RpcResponseOk<T> | RpcResponseError
-
-export type { DaemonCreateOrAttachResult as CreateOrAttachResult } from './daemon-create-or-attach-result'
-export type GetSnapshotResult = {
-  snapshot: TerminalSnapshot | null
-}
-
-export type ListSessionsResult = {
-  sessions: SessionInfo[]
-}
-
-export type ShutdownIfIdleResult = {
-  retiring: boolean
-}
-
-export type SystemResolverHealth = 'healthy' | 'unhealthy' | 'unknown'
-
-export type SystemResolverHealthResult = {
-  health: SystemResolverHealth
-}
-
-export type SessionInfo = {
-  sessionId: string
-  state: SessionState
-  shellState: ShellReadyState
-  isAlive: boolean
-  terminalHandle?: string
-  pid: number | null
-  cwd: string | null
-  cols: number
-  rows: number
-  createdAt: number
-}
-
-// Why: SessionInfo + source protocol version, so the Manage Sessions UI can
-// label legacy-backed sessions. Populated by the router/adapter at RPC time;
-// never transmitted over the daemon wire (daemon only speaks its own
-// protocol version and doesn't know about other versions).
-export type DaemonSessionInfo = SessionInfo & {
-  protocolVersion: number
-}
+// The response envelope, every result payload and the SessionInfo /
+// DaemonSessionInfo records live in daemon-rpc-responses.ts — re-exported so
+// this stays the one wire-shape entry point.
+export * from './daemon-rpc-responses'
 
 // Stream-socket event shapes live in daemon-stream-events.ts; re-exported so
 // existing importers keep one types entry point.

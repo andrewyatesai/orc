@@ -1,5 +1,17 @@
 import type { Page, TestInfo } from '@stablyai/playwright-test'
 import { test, expect } from './helpers/orca-app'
+// Why: only the two pure helpers are architecture-neutral. The helper's
+// write/readback go through the xterm shim, which aterm leaves unopened and
+// empty, so this spec drives and reads the aterm engine instead (below).
+import { buildAltScreenFrame, describeAltScreenRenderPath } from './helpers/alt-screen-frame'
+import {
+  injectPaneData,
+  readHiddenOutputDebug,
+  resetHiddenOutputDebug,
+  resetTerminalOutputSchedulerDebug,
+  setHiddenSnapshotOverride,
+  waitForHiddenOutputSchedulerActivity
+} from './helpers/hidden-terminal-output-recovery'
 import { runNodeScriptInTerminal } from './helpers/run-node-script-in-terminal'
 import {
   ensureTerminalVisible,
@@ -37,43 +49,6 @@ type TabTerminalGeometry = {
 }
 
 const TAB_SWITCH_MARKER_PREFIX = 'TAB_SWITCH_VISUAL_RESTORE'
-
-type TerminalOutputSchedulerSnapshot = {
-  backgroundEnqueueCount: number
-  scheduledDrainCount: number
-  queuedChars: number
-}
-
-type SchedulerDebugWindow = Window & {
-  __terminalOutputSchedulerDebug?: {
-    reset: () => void
-    snapshot: () => TerminalOutputSchedulerSnapshot
-  }
-}
-
-type HiddenOutputDebugSnapshot = {
-  hiddenRendererSkipCount: number
-  hiddenRendererSkippedChars: number
-  hiddenRendererMode2031ReplyCount: number
-}
-
-type HiddenOutputRecoveryWindow = Window & {
-  __terminalPtyDataInjection?: {
-    inject: (paneKey: string, data: string, meta?: { seq?: number; rawLength?: number }) => boolean
-  }
-  __terminalPtyOutputDebug?: {
-    reset: () => void
-    snapshot: () => HiddenOutputDebugSnapshot
-  }
-  __terminalHiddenSnapshotOverride?: {
-    setPending: (
-      ptyId: string,
-      snapshot: { data: string; cols: number; rows: number; seq?: number }
-    ) => void
-    resolve: (ptyId: string) => void
-    clear: (ptyId: string) => void
-  }
-}
 
 async function forceWebglOnActiveTab(page: Page): Promise<void> {
   await page.evaluate(() => {
@@ -255,97 +230,6 @@ async function readPaneIdentityOnTab(
     cols: identity.cols,
     rows: identity.rows
   }
-}
-
-async function resetHiddenOutputDebug(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    ;(window as HiddenOutputRecoveryWindow).__terminalPtyOutputDebug?.reset()
-  })
-}
-
-async function readHiddenOutputDebug(page: Page): Promise<HiddenOutputDebugSnapshot | null> {
-  return page.evaluate(() => {
-    return (window as HiddenOutputRecoveryWindow).__terminalPtyOutputDebug?.snapshot() ?? null
-  })
-}
-
-async function injectPaneData(
-  page: Page,
-  paneKey: string,
-  data: string,
-  meta?: { seq?: number; rawLength?: number }
-): Promise<void> {
-  const injected = await page.evaluate(
-    ({ paneKey, data, meta }) =>
-      (window as HiddenOutputRecoveryWindow).__terminalPtyDataInjection?.inject(
-        paneKey,
-        data,
-        meta
-      ) ?? false,
-    { paneKey, data, meta }
-  )
-  if (!injected) {
-    throw new Error(`No terminal PTY data injector registered for ${paneKey}`)
-  }
-}
-
-async function setHiddenSnapshotOverride(
-  page: Page,
-  ptyId: string,
-  snapshot: { data: string; cols: number; rows: number; seq?: number }
-): Promise<void> {
-  await page.evaluate(
-    ({ ptyId, snapshot }) => {
-      const api = (window as HiddenOutputRecoveryWindow).__terminalHiddenSnapshotOverride
-      if (!api) {
-        throw new Error('Hidden snapshot override API unavailable')
-      }
-      api.setPending(ptyId, snapshot)
-      api.resolve(ptyId)
-    },
-    { ptyId, snapshot }
-  )
-}
-
-async function resetTerminalOutputSchedulerDebug(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const debug = (window as SchedulerDebugWindow).__terminalOutputSchedulerDebug
-    if (!debug) {
-      throw new Error('Terminal output scheduler debug API unavailable')
-    }
-    debug.reset()
-  })
-}
-
-async function waitForHiddenOutputSchedulerActivity(
-  page: Page
-): Promise<TerminalOutputSchedulerSnapshot> {
-  await expect
-    .poll(
-      () =>
-        page.evaluate(() => {
-          const snapshot = (
-            window as SchedulerDebugWindow
-          ).__terminalOutputSchedulerDebug?.snapshot()
-          return snapshot?.backgroundEnqueueCount ?? 0
-        }),
-      {
-        timeout: 5_000,
-        message: 'hidden PTY output did not reach the background output scheduler'
-      }
-    )
-    .toBeGreaterThan(0)
-  return page.evaluate(() => {
-    const snapshot = (window as SchedulerDebugWindow).__terminalOutputSchedulerDebug?.snapshot()
-    if (!snapshot) {
-      throw new Error('Terminal output scheduler debug API unavailable')
-    }
-    return {
-      backgroundEnqueueCount: snapshot.backgroundEnqueueCount,
-      scheduledDrainCount: snapshot.scheduledDrainCount,
-      queuedChars: snapshot.queuedChars
-    }
-  })
 }
 
 async function startHiddenPtyOutputBurst(page: Page, ptyId: string, runId: string): Promise<void> {
@@ -540,6 +424,46 @@ async function readSettledGeometryCorruption(
   }
 }
 
+// aterm's engine is what paints; pane.terminal.write only fills the unopened
+// xterm shim, so alt-screen frames are fed to the controller.
+async function writeAltScreenFramesToTab(page: Page, tabId: string, data: string): Promise<void> {
+  await page.evaluate(
+    ({ tabId, data }) => {
+      const manager = window.__paneManagers?.get(tabId)
+      const pane = manager?.getActivePane?.() ?? manager?.getPanes?.()[0]
+      if (!pane) {
+        throw new Error(`No terminal pane for tab ${tabId}`)
+      }
+      pane.atermController?.process(data)
+    },
+    { tabId, data }
+  )
+}
+
+// Why: the live write and the reveal restore paint the same layout, so the frame
+// number says which one landed last. Read from the serialized aterm viewport
+// (scrollbackRows 0) because the xterm buffer shim stays empty under aterm.
+async function readRenderedAltScreenFrameOnTab(
+  page: Page,
+  tabId: string,
+  marker: string
+): Promise<number | null> {
+  return page.evaluate(
+    ({ tabId, marker }) => {
+      const manager = window.__paneManagers?.get(tabId)
+      const pane = manager?.getActivePane?.() ?? manager?.getPanes?.()[0]
+      if (!pane) {
+        throw new Error(`No terminal pane for tab ${tabId}`)
+      }
+      // marker is a literal, so escape it rather than letting `[`/`.`/`+` act as regex syntax.
+      const pattern = new RegExp(`${marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} frame (\\d{3})`)
+      const match = pattern.exec(pane.atermController?.serialize(0) ?? '')
+      return match ? Number(match[1]) : null
+    },
+    { tabId, marker }
+  )
+}
+
 async function captureTabScreenshot(
   page: Page,
   tabId: string,
@@ -644,69 +568,50 @@ test.describe('Terminal tab switch visual restore', () => {
 
     const { firstTabId, secondTabId } = await ensureTwoTerminalTabs(orcaPage)
     await forceWebglOnActiveTab(orcaPage)
+    await waitForPanePtyIdOnTab(orcaPage, firstTabId)
 
     const runId = `${Date.now()}`
     const finalMarker = `${TAB_SWITCH_MARKER_PREFIX}_${runId}_ALT_24`
 
-    await orcaPage.evaluate(
-      ({ tabId, finalMarker }) => {
-        const manager = window.__paneManagers?.get(tabId)
-        const pane = manager?.getActivePane?.() ?? manager?.getPanes?.()[0]
-        if (!pane) {
-          throw new Error(`No terminal pane for tab ${tabId}`)
-        }
-        const frames = Array.from({ length: 25 }, (_, frame) => {
-          const progress = `${'█'.repeat((frame % 8) + 1)}${'░'.repeat(8 - ((frame % 8) + 1))}`
-          return [
-            '\x1b[?2026h',
-            '\x1b[?1049h',
-            '\x1b[2J\x1b[H',
-            '\x1b[?25l',
-            `╭────────────────────────────────────────────────────────────────────╮`,
-            `│ ${finalMarker} frame ${String(frame).padStart(3, '0')} ${progress}                     │`,
-            `│ Dimension              │ Rating                                      │`,
-            `╰────────────────────────────────────────────────────────────────────╯`,
-            '\x1b[?2026l'
-          ].join('\r\n')
-        }).join('')
-        // Feed the aterm engine (serialize reads it), not the unopened xterm shim.
-        pane.atermController?.process(frames)
-      },
-      { tabId: firstTabId, finalMarker }
+    await writeAltScreenFramesToTab(
+      orcaPage,
+      firstTabId,
+      Array.from({ length: 25 }, (_, frame) => buildAltScreenFrame(finalMarker, frame)).join('')
     )
 
     const corruptionReports: string[] = []
+    const renderPaths: string[] = []
     for (let cycle = 0; cycle < 6; cycle += 1) {
+      const liveFrame = cycle * 4
+      const restoreFrame = liveFrame + 1
+      const redraw = buildAltScreenFrame(finalMarker, liveFrame)
+      // Why: this frame never transits the PTY, so a reveal restore would
+      // repaint main's model over it. Publish an equivalent frame as the
+      // snapshot so either path leaves a valid screen — numbered one higher so
+      // the readback still reports which one painted. Identity is re-read per
+      // cycle because a reattach would re-key the override.
+      const { ptyId, cols, rows } = await readPaneIdentityOnTab(orcaPage, firstTabId)
+      await setHiddenSnapshotOverride(orcaPage, ptyId, {
+        data: buildAltScreenFrame(finalMarker, restoreFrame),
+        cols,
+        rows
+      })
       await activateTerminalTab(orcaPage, secondTabId)
-      await orcaPage.evaluate(
-        ({ tabId, finalMarker, cycle }) => {
-          const manager = window.__paneManagers?.get(tabId)
-          const pane = manager?.getActivePane?.() ?? manager?.getPanes?.()[0]
-          if (!pane) {
-            throw new Error(`No terminal pane for tab ${tabId}`)
-          }
-          const frame = cycle * 4
-          const progress = `${'█'.repeat((frame % 8) + 1)}${'░'.repeat(8 - ((frame % 8) + 1))}`
-          const redraw = [
-            '\x1b[?2026h',
-            '\x1b[?1049h',
-            '\x1b[2J\x1b[H',
-            '\x1b[?25l',
-            `╭────────────────────────────────────────────────────────────────────╮`,
-            `│ ${finalMarker} frame ${String(frame).padStart(3, '0')} ${progress}                     │`,
-            `│ Dimension              │ Rating                                      │`,
-            `╰────────────────────────────────────────────────────────────────────╯`,
-            '\x1b[?2026l'
-          ].join('\r\n')
-          // Feed the aterm engine (serialize reads it), not the unopened xterm shim.
-          pane.atermController?.process(redraw)
-        },
-        { tabId: firstTabId, finalMarker, cycle }
-      )
+      await writeAltScreenFramesToTab(orcaPage, firstTabId, redraw)
       await activateTerminalTab(orcaPage, firstTabId)
 
       const geometry = await readTabTerminalGeometry(orcaPage, firstTabId, `${runId}_ALT`)
-      const issue = geometryLooksCorrupted(geometry)
+      const renderedFrame = await readRenderedAltScreenFrameOnTab(orcaPage, firstTabId, finalMarker)
+      renderPaths.push(
+        `cycle ${cycle}: ${describeAltScreenRenderPath(renderedFrame, liveFrame, restoreFrame)}`
+      )
+      // Why: whichever path won must have painted its own frame. Anything else
+      // on screen means the restore replayed stale content.
+      const staleFrame =
+        renderedFrame !== null && renderedFrame !== liveFrame && renderedFrame !== restoreFrame
+          ? `alt-screen shows frame ${renderedFrame}, expected ${liveFrame} (live write) or ${restoreFrame} (reveal restore)`
+          : null
+      const issue = geometryLooksCorrupted(geometry) ?? staleFrame
       if (issue || !geometry.markerPresent) {
         corruptionReports.push(
           `cycle ${cycle}: ${issue ?? 'marker missing after alt-screen redraw'}`
@@ -719,6 +624,15 @@ test.describe('Terminal tab switch visual restore', () => {
         )
       }
     }
+
+    // Why: which cycles latched a restore is load-dependent, so it is recorded
+    // rather than asserted — without it a "both paths agree" run is opaque.
+    // Logged as well because the list reporter omits annotations.
+    testInfo.annotations.push({
+      type: 'alt-screen-render-path',
+      description: renderPaths.join(', ')
+    })
+    console.log('[tab-switch-repro] alt-screen render path:', renderPaths.join(', '))
 
     expect(
       corruptionReports,

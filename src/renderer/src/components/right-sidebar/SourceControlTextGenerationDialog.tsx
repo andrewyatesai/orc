@@ -32,6 +32,8 @@ type SourceControlTextGenerationBaseDialogProps = {
   settings: GlobalSettings | null
   repo?: Pick<Repo, 'id' | 'sourceControlAi'> | null
   discoveryHostKey: string
+  /** Omitted by workspace-less callers (Settings dry-run); `null` means "linked to nothing". */
+  linkedIssue?: number | null
   onGenerate: (params: ResolvedSourceControlAiGenerationParams) => void
   onSaveDefaults: (
     target: SourceControlAiWriteTarget,
@@ -56,7 +58,8 @@ function buildBasePromptPreview(actionId: SourceControlTextActionId): string {
           {
             branch: 'feature/example',
             stagedSummary: 'M src/example.ts',
-            stagedPatch: 'diff --git a/src/example.ts b/src/example.ts\n+addSourceControlAiPreview()'
+            stagedPatch:
+              'diff --git a/src/example.ts b/src/example.ts\n+addSourceControlAiPreview()'
           },
           ''
         ) ?? ''
@@ -98,6 +101,7 @@ export function SourceControlTextGenerationDialog({
   settings,
   repo,
   discoveryHostKey,
+  linkedIssue,
   onGenerate,
   onSaveDefaults
 }: SourceControlTextGenerationDialogProps): React.JSX.Element {
@@ -191,6 +195,7 @@ export function SourceControlTextGenerationDialog({
           repo={repo ?? null}
           baseParams={baseParams}
           basePromptPreview={buildBasePromptPreview(actionId)}
+          linkedIssue={linkedIssue}
           saveTargets={saveTargets}
           onGenerate={onGenerate}
           onOpenChange={onOpenChange}

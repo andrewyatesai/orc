@@ -92,6 +92,8 @@ vi.mock('@/runtime/runtime-terminal-inspection', async (importOriginal) => ({
 
 type CloseTerminalTabOptions = {
   captureRecentlyClosed?: boolean
+  hostCloseReason?: string
+  lifecyclePtyId?: string
   onClosed?: () => void
   onCancel?: () => void
 }
@@ -427,6 +429,42 @@ describe('terminal-parked-tab-watchers', () => {
     expect(getParkedTerminalWatcherTabIds()).toEqual([TAB_ID])
   })
 
+  it('collapses a dead split leaf even when a stale primary handler also observed the exit', () => {
+    // Why (regression, #ghost-blank-pane): a genuinely parked tab's PaneManager
+    // is already destroyed, so the retained primary exit handler's own
+    // split-collapse path is a no-op against the persisted layout — hadPrimary
+    // must not skip this sidecar's collapse for a surviving sibling leaf.
+    capturePanes([
+      { ptyId: PTY_ID, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true },
+      { ptyId: SECOND_PTY_ID, paneId: 2, leafId: SECOND_LEAF_ID, drivesTabTitle: false }
+    ])
+    syncParked()
+    mockStoreState.terminalLayoutsByTabId[TAB_ID] = {
+      root: {
+        type: 'split',
+        direction: 'vertical',
+        first: { type: 'leaf', leafId: LEAF_ID },
+        second: { type: 'leaf', leafId: SECOND_LEAF_ID }
+      },
+      activeLeafId: SECOND_LEAF_ID,
+      expandedLeafId: null,
+      ptyIdsByLeafId: { [LEAF_ID]: PTY_ID, [SECOND_LEAF_ID]: SECOND_PTY_ID }
+    }
+
+    const exited = exitSubscriptions.find((entry) => entry.ptyId === SECOND_PTY_ID)
+    exited?.callback(0, { hadPrimary: true })
+
+    expect(mockStoreState.setTabLayout).toHaveBeenCalledWith(TAB_ID, {
+      root: { type: 'leaf', leafId: LEAF_ID },
+      activeLeafId: LEAF_ID,
+      expandedLeafId: null,
+      ptyIdsByLeafId: { [LEAF_ID]: PTY_ID }
+    })
+    expect(startedWatchers[1].dispose).toHaveBeenCalledTimes(1)
+    expect(startedWatchers[0].dispose).not.toHaveBeenCalled()
+    expect(getParkedTerminalWatcherTabIds()).toEqual([TAB_ID])
+  })
+
   it('seeds each watcher with the pane slot last known runtime title', () => {
     mockStoreState.runtimePaneTitlesByTabId = { [TAB_ID]: { 1: '⠋ Build feature' } }
     capturePanes([
@@ -449,6 +487,10 @@ describe('terminal-parked-tab-watchers', () => {
     expect(getParkedTerminalWatcherTabIds()).toEqual([TAB_ID])
     const options = closeTerminalTab.mock.calls[0]?.[1] as CloseTerminalTabOptions
     expect(options.captureRecentlyClosed).toBe(false)
+    // Why: the wire must carry the pty-exit intent so a paired host can refuse
+    // the echo while its PTY is live, without skipping the pinned guard here.
+    expect(options.hostCloseReason).toBe('pty-exit')
+    expect(options.lifecyclePtyId).toBe(PTY_ID)
     options.onClosed?.()
 
     expect(consumePreHandlerPtyState).toHaveBeenCalledWith(PTY_ID)
@@ -581,227 +623,8 @@ describe('terminal-parked-tab-watchers', () => {
     expect(getParkedTerminalWatcherTabIds()).toEqual([])
   })
 
-  describe('shouldDeferParkedPtyExitTabClose', () => {
-    const closeTab = vi.fn()
-
-    // Mirrors both hosts' onPtyExit wiring: the guard runs before closeTab.
-    function hostOnPtyExit(tabId: string, ptyId: string): void {
-      if (shouldDeferParkedPtyExitTabClose(tabId, ptyId)) {
-        return
-      }
-      closeTab(tabId)
-    }
-
-    it('defers tab close on PTY exit in a parked multi-leaf tab and clears the dead slot', () => {
-      capturePanes([
-        { ptyId: PTY_ID, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true },
-        { ptyId: SECOND_PTY_ID, paneId: 2, leafId: SECOND_LEAF_ID, drivesTabTitle: false }
-      ])
-      syncParked()
-
-      hostOnPtyExit(TAB_ID, PTY_ID)
-
-      expect(closeTab).not.toHaveBeenCalled()
-      // The dead leaf's runtime-title slot cannot pin worktree status.
-      expect(mockStoreState.clearRuntimePaneTitle).toHaveBeenCalledWith(TAB_ID, 1)
-    })
-
-    it('collapses the exited leaf out of the stored layout when deferring', () => {
-      // Why (regression, ghost/resurrected pane): a deferred parked exit that
-      // leaves the leaf and its binding in the stored layout reattaches on
-      // reveal — the daemon re-creates the exited session id as a fresh shell.
-      capturePanes([
-        { ptyId: PTY_ID, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true },
-        { ptyId: SECOND_PTY_ID, paneId: 2, leafId: SECOND_LEAF_ID, drivesTabTitle: false }
-      ])
-      syncParked()
-      mockStoreState.terminalLayoutsByTabId[TAB_ID] = {
-        root: {
-          type: 'split',
-          direction: 'vertical',
-          first: { type: 'leaf', leafId: LEAF_ID },
-          second: { type: 'leaf', leafId: SECOND_LEAF_ID }
-        },
-        activeLeafId: SECOND_LEAF_ID,
-        expandedLeafId: null,
-        ptyIdsByLeafId: { [LEAF_ID]: PTY_ID, [SECOND_LEAF_ID]: SECOND_PTY_ID }
-      }
-
-      hostOnPtyExit(TAB_ID, SECOND_PTY_ID)
-
-      expect(closeTab).not.toHaveBeenCalled()
-      expect(mockStoreState.setTabLayout).toHaveBeenCalledWith(TAB_ID, {
-        root: { type: 'leaf', leafId: LEAF_ID },
-        activeLeafId: LEAF_ID,
-        expandedLeafId: null,
-        ptyIdsByLeafId: { [LEAF_ID]: PTY_ID }
-      })
-    })
-
-    it('retires launch/title hints when the launch-owning parked leaf exits', () => {
-      mockStoreState.tabsByWorktree = {
-        [WORKTREE_ID]: [{ id: TAB_ID, launchAgent: 'codex', ptyId: PTY_ID }]
-      }
-      mockStoreState.runtimePaneTitlesByTabId = {
-        [TAB_ID]: { 1: 'Codex', 2: 'PowerShell' }
-      }
-      capturePanes([
-        { ptyId: PTY_ID, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true },
-        { ptyId: SECOND_PTY_ID, paneId: 2, leafId: SECOND_LEAF_ID, drivesTabTitle: false }
-      ])
-      syncParked()
-      mockStoreState.terminalLayoutsByTabId[TAB_ID] = {
-        root: {
-          type: 'split',
-          direction: 'vertical',
-          first: { type: 'leaf', leafId: LEAF_ID },
-          second: { type: 'leaf', leafId: SECOND_LEAF_ID }
-        },
-        activeLeafId: LEAF_ID,
-        expandedLeafId: null,
-        ptyIdsByLeafId: { [LEAF_ID]: PTY_ID, [SECOND_LEAF_ID]: SECOND_PTY_ID }
-      }
-
-      hostOnPtyExit(TAB_ID, PTY_ID)
-
-      expect(mockStoreState.clearTabLaunchAgent).toHaveBeenCalledWith(TAB_ID)
-      expect(mockStoreState.updateTabTitle).toHaveBeenCalledWith(TAB_ID, 'PowerShell')
-    })
-
-    it('keeps launch ownership when only a parked shell sibling exits', () => {
-      mockStoreState.tabsByWorktree = {
-        [WORKTREE_ID]: [{ id: TAB_ID, launchAgent: 'claude', ptyId: PTY_ID }]
-      }
-      mockStoreState.runtimePaneTitlesByTabId = { [TAB_ID]: { 1: 'Claude Code' } }
-      capturePanes([
-        { ptyId: PTY_ID, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true },
-        { ptyId: SECOND_PTY_ID, paneId: 2, leafId: SECOND_LEAF_ID, drivesTabTitle: false }
-      ])
-      syncParked()
-      mockStoreState.terminalLayoutsByTabId[TAB_ID] = {
-        root: {
-          type: 'split',
-          direction: 'vertical',
-          first: { type: 'leaf', leafId: LEAF_ID },
-          second: { type: 'leaf', leafId: SECOND_LEAF_ID }
-        },
-        activeLeafId: SECOND_LEAF_ID,
-        expandedLeafId: null,
-        ptyIdsByLeafId: { [LEAF_ID]: PTY_ID, [SECOND_LEAF_ID]: SECOND_PTY_ID }
-      }
-
-      hostOnPtyExit(TAB_ID, SECOND_PTY_ID)
-
-      expect(mockStoreState.clearTabLaunchAgent).not.toHaveBeenCalled()
-      expect(mockStoreState.updateTabTitle).toHaveBeenCalledWith(TAB_ID, 'Claude Code')
-    })
-
-    it('keeps exit→closeTab parity for a parked single-leaf tab', () => {
-      capturePanes([{ ptyId: PTY_ID, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true }])
-      syncParked()
-
-      hostOnPtyExit(TAB_ID, PTY_ID)
-
-      expect(closeTab).toHaveBeenCalledWith(TAB_ID)
-    })
-
-    it('keeps exit→closeTab parity when the tab is not parked', () => {
-      hostOnPtyExit(TAB_ID, PTY_ID)
-
-      expect(closeTab).toHaveBeenCalledWith(TAB_ID)
-    })
-
-    it('collapses a dead leaf then closes when the last parked split leaf exits', () => {
-      // Why: hosts' onPtyExit runs from a mounted TerminalPane, so an exit
-      // that lands while parked reaches ONLY the watcher sidecar — it must run
-      // the layout collapse itself or the leaf resurrects on reveal.
-      capturePanes([
-        { ptyId: PTY_ID, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true },
-        { ptyId: SECOND_PTY_ID, paneId: 2, leafId: SECOND_LEAF_ID, drivesTabTitle: false }
-      ])
-      syncParked()
-      mockStoreState.terminalLayoutsByTabId[TAB_ID] = {
-        root: {
-          type: 'split',
-          direction: 'vertical',
-          first: { type: 'leaf', leafId: LEAF_ID },
-          second: { type: 'leaf', leafId: SECOND_LEAF_ID }
-        },
-        activeLeafId: LEAF_ID,
-        expandedLeafId: null,
-        ptyIdsByLeafId: { [LEAF_ID]: PTY_ID, [SECOND_LEAF_ID]: SECOND_PTY_ID }
-      }
-
-      exitSubscriptions
-        .find((entry) => entry.ptyId === SECOND_PTY_ID)
-        ?.callback(0, { hadPrimary: false })
-
-      expect(consumePreHandlerPtyState).toHaveBeenCalledWith(SECOND_PTY_ID)
-      expect(mockStoreState.clearRuntimePaneTitle).toHaveBeenCalledWith(TAB_ID, 2)
-      expect(mockStoreState.setTabLayout).toHaveBeenCalledWith(TAB_ID, {
-        root: { type: 'leaf', leafId: LEAF_ID },
-        activeLeafId: LEAF_ID,
-        expandedLeafId: null,
-        ptyIdsByLeafId: { [LEAF_ID]: PTY_ID }
-      })
-
-      exitSubscriptions.find((entry) => entry.ptyId === PTY_ID)?.callback(0, { hadPrimary: false })
-      const options = closeTerminalTab.mock.calls[0]?.[1] as CloseTerminalTabOptions
-      options.onClosed?.()
-      expect(consumePreHandlerPtyState).toHaveBeenCalledWith(PTY_ID)
-    })
-
-    it('collapses a dead split leaf even when a stale primary handler observed the exit (#9625)', () => {
-      // Why (regression): a genuinely parked tab's PaneManager is destroyed, so
-      // hadPrimary must not short-circuit before the surviving-sibling collapse,
-      // or the dead leaf resurrects on reveal. discardPreHandlerPtyState runs
-      // only in the size>1 collapse branch — the pre-fix order (hadPrimary first)
-      // retired the sidecar without it.
-      capturePanes([
-        { ptyId: PTY_ID, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true },
-        { ptyId: SECOND_PTY_ID, paneId: 2, leafId: SECOND_LEAF_ID, drivesTabTitle: false }
-      ])
-      syncParked()
-
-      exitSubscriptions
-        .find((entry) => entry.ptyId === SECOND_PTY_ID)
-        ?.callback(0, { hadPrimary: true })
-
-      expect(consumePreHandlerPtyState).toHaveBeenCalledWith(SECOND_PTY_ID)
-      expect(startedWatchers[1].dispose).toHaveBeenCalledTimes(1)
-    })
-
-    it('does not touch the layout when the last parked watcher exits (tab-level close owns it)', () => {
-      capturePanes([{ ptyId: PTY_ID, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true }])
-      syncParked()
-      mockStoreState.terminalLayoutsByTabId[TAB_ID] = {
-        root: { type: 'leaf', leafId: LEAF_ID },
-        activeLeafId: LEAF_ID,
-        expandedLeafId: null,
-        ptyIdsByLeafId: { [LEAF_ID]: PTY_ID }
-      }
-
-      exitSubscriptions.find((entry) => entry.ptyId === PTY_ID)?.callback(0, { hadPrimary: false })
-
-      expect(mockStoreState.setTabLayout).not.toHaveBeenCalled()
-    })
-
-    it('closes the tab when the last surviving leaf of a parked split exits', () => {
-      capturePanes([
-        { ptyId: PTY_ID, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true },
-        { ptyId: SECOND_PTY_ID, paneId: 2, leafId: SECOND_LEAF_ID, drivesTabTitle: false }
-      ])
-      syncParked()
-
-      // First leaf dies: deferred, then its exit sidecar drops the watcher.
-      hostOnPtyExit(TAB_ID, PTY_ID)
-      exitSubscriptions.find((entry) => entry.ptyId === PTY_ID)?.callback(0, { hadPrimary: false })
-      expect(closeTab).not.toHaveBeenCalled()
-
-      hostOnPtyExit(TAB_ID, SECOND_PTY_ID)
-      expect(closeTab).toHaveBeenCalledWith(TAB_ID)
-    })
-  })
+  // Parked pty-exit deferral (`shouldDeferParkedPtyExitTabClose` host wiring)
+  // lives in ./terminal-parked-pty-exit-deferral.test.ts.
 
   describe('canWatcherCoverParkedTerminalTab', () => {
     it('rejects a tab with no unmount capture and no layout snapshot', () => {

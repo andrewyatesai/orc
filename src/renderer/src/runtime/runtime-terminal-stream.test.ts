@@ -120,6 +120,14 @@ describe('remote runtime terminal data subscriptions', () => {
     )
 
     expect(watcher).toHaveBeenCalledWith('live')
+    await vi.waitFor(() =>
+      expect(
+        sendBinary.mock.calls
+          .slice(1)
+          .map((call) => decodeTerminalStreamFrame(call[0]))
+          .some((frame) => frame?.opcode === TerminalStreamOpcode.Ack)
+      ).toBe(true)
+    )
     const ackFrame = sendBinary.mock.calls
       .slice(1)
       .map((call) => decodeTerminalStreamFrame(call[0]))
@@ -438,6 +446,13 @@ describe('remote runtime terminal multiplex ACK gate', () => {
       })
     )
 
+    await vi.waitFor(() =>
+      expect(
+        sendBinary.mock.calls
+          .map((call) => decodeTerminalStreamFrame(call[0]))
+          .filter((frame) => frame?.opcode === TerminalStreamOpcode.Ack)
+      ).toHaveLength(1)
+    )
     const immediateAckFrames = sendBinary.mock.calls
       .map((call) => decodeTerminalStreamFrame(call[0]))
       .filter((frame) => frame?.opcode === TerminalStreamOpcode.Ack)
@@ -450,6 +465,13 @@ describe('remote runtime terminal multiplex ACK gate', () => {
     })
 
     gate?.release()
+    await vi.waitFor(() =>
+      expect(
+        sendBinary.mock.calls
+          .map((call) => decodeTerminalStreamFrame(call[0]))
+          .filter((frame) => frame?.opcode === TerminalStreamOpcode.Ack)
+      ).toHaveLength(2)
+    )
     const allAckFrames = sendBinary.mock.calls
       .map((call) => decodeTerminalStreamFrame(call[0]))
       .filter((frame) => frame?.opcode === TerminalStreamOpcode.Ack)

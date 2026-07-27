@@ -22,7 +22,7 @@ const ANDROID_COPY: InstallCopy = {
   // Why: ALab currently relies on the compatible upstream mobile binary;
   // its public release repository does not publish an Android artifact.
   ctaLabel: 'Download upstream APK',
-  url: 'https://github.com/stablyai/orca/releases/download/mobile-android-v0.0.31/app-release.apk'
+  url: 'https://github.com/stablyai/orca/releases/download/mobile-android-v0.0.32/app-release.apk'
 }
 
 export function getInstallCopy(platform: Platform, iosChannel: IosChannel): InstallCopy {

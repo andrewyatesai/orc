@@ -10,6 +10,7 @@ import {
   type AskPrompt
 } from './mobile-native-chat-ask'
 import { sendMobileNativeChatMessageWithOutcome } from './mobile-native-chat-send'
+import { healMobileNativeChatStaleInput } from './mobile-native-chat-stale-input'
 import {
   resolveNativeChatTranscriptAgent,
   shouldStepNativeChatAskAnswer
@@ -36,8 +37,8 @@ function sanitizeAskFreeText(text: string): string {
 /**
  * Owns the ask-answer send sequence for the mobile native chat. Reads the live
  * pane/agent through refs (the route already keeps them current) so the returned
- * callbacks stay stable. Claude answers are delivered as `buildAskAnswerKeys`
- * keystroke groups written one selector-step apart over the EXISTING
+ * callbacks stay stable. Selector answers are delivered as keystroke groups
+ * written one step apart over the EXISTING
  * `terminal.send` passthrough (raw text, no enter) — same contract the
  * permission card already uses, so old runtimes replay them verbatim (no new
  * RPC; keystrokes are built client-side). The scheduled wait chain is cancelled
@@ -155,6 +156,29 @@ export function useMobileNativeChatAnswerSend(args: {
       // Grok commits pasted labels; Claude and Codex need their selector-specific
       // keystrokes paced so each step renders before the next lands.
       if (!shouldStepNativeChatAskAnswer(agentRef.current)) {
+        // This shape pastes the label into the composer and commits it, so an
+        // orphaned image paste would be submitted along with the answer (#10228).
+        // The selector shapes below deliberately skip the heal: their keys are
+        // `enter: false` for an active overlay, and a single-select answer is a
+        // bare option digit that cannot submit the line at all, so clearing there
+        // would consume the marker still protecting the next real message.
+        // Desktop splits it identically — use-native-chat-interactive-send.ts
+        // routes only the pasted-label shape through the clearing sender.
+        if (
+          !(await healMobileNativeChatStaleInput({
+            client,
+            terminal: handle,
+            deviceToken: deviceTokenRef.current
+          }))
+        ) {
+          if (generationRef.current === generation) {
+            onSendError('Answer not sent')
+          }
+          return false
+        }
+        if (generationRef.current !== generation) {
+          return false
+        }
         return (await sendTerminal(formatAskAnswer(prompt, selections), true)) || fail()
       }
       const groups =

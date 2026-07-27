@@ -17,20 +17,38 @@ import {
 } from '@stablyai/playwright-test'
 import { execSync } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { getE2ECompletedOnboardingProfile } from './e2e-completed-onboarding-profile'
 import { getOrcaElectronLaunchArgs } from './electron-launch-args'
 import { cleanupE2EDaemons, closeElectronAppForE2E } from './electron-process-shutdown'
+import {
+  assertElectronResolvedIsolatedHome,
+  createElectronHomeIsolation,
+  type ElectronHomeIsolation
+} from './electron-home-isolation'
 
 type LaunchedOrca = {
   app: ElectronApplication
   page: Page
 }
 
+type LaunchOptions = {
+  /**
+   * Called for each chunk the relaunched main process writes to stderr. The
+   * listener is attached before `firstWindow()` resolves so main-process
+   * startup logs (e.g. the daemon health-check guard) can't be emitted before
+   * the test starts capturing.
+   */
+  onStderr?: (chunk: string) => void
+  /** Merged into this launch only (not baked into the session's shared env). */
+  extraEnv?: Record<string, string>
+}
+
 type RestartSession = {
   userDataDir: string
-  launch: () => Promise<LaunchedOrca>
+  launch: (options?: LaunchOptions) => Promise<LaunchedOrca>
   /** Gracefully close a launch, letting beforeunload flush session state. */
   close: (app: ElectronApplication) => Promise<void>
   /** Remove the shared userDataDir after the test is done. */
@@ -38,13 +56,47 @@ type RestartSession = {
 }
 
 type RestartSessionOptions = {
+  /** Set false to exercise the real first-run onboarding path. */
   seedCompletedOnboarding?: boolean
+  /** Baked into every launch of this session (see LaunchOptions.extraEnv for per-launch). */
+  extraEnv?: Record<string, string>
+}
+
+// Why: some call sites pass the options object, others a bare extra-env record.
+// Discriminate on value type, not key presence: env values are always strings,
+// so an env var literally named `extraEnv`/`seedCompletedOnboarding` still reads
+// as env rather than being mistaken for an options object.
+function toRestartSessionOptions(
+  optionsOrExtraEnv: RestartSessionOptions | Record<string, string>
+): RestartSessionOptions {
+  const looksLikeOptions =
+    typeof optionsOrExtraEnv.seedCompletedOnboarding === 'boolean' ||
+    (typeof optionsOrExtraEnv.extraEnv === 'object' && optionsOrExtraEnv.extraEnv !== null)
+  return looksLikeOptions
+    ? (optionsOrExtraEnv as RestartSessionOptions)
+    : { extraEnv: optionsOrExtraEnv as Record<string, string> }
 }
 
 async function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     const timeout = setTimeout(resolve, ms)
     timeout.unref?.()
+  })
+}
+
+async function reserveRestartRuntimeWsPort(): Promise<number> {
+  const server = createServer()
+  return new Promise<number>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      if (!address || typeof address === 'string') {
+        server.close()
+        reject(new Error('Restart fixture could not reserve a runtime WebSocket port'))
+        return
+      }
+      server.close((error) => (error ? reject(error) : resolve(address.port)))
+    })
   })
 }
 
@@ -68,15 +120,30 @@ function shouldLaunchHeadful(testInfo: TestInfo): boolean {
   return testInfo.project.metadata.orcaHeadful === true
 }
 
-function launchEnv(userDataDir: string, headful: boolean): NodeJS.ProcessEnv {
+function createRestartLaunchIsolation(
+  userDataDir: string,
+  headful: boolean,
+  extraEnv: Record<string, string>
+): ElectronHomeIsolation {
   const { ELECTRON_RUN_AS_NODE: _unused, ...cleanEnv } = process.env
   void _unused
-  return {
-    ...cleanEnv,
-    NODE_ENV: 'development',
-    ORCA_E2E_USER_DATA_DIR: userDataDir,
-    ...(headful ? { ORCA_E2E_HEADFUL: '1' } : { ORCA_E2E_HEADLESS: '1' })
-  }
+  return createElectronHomeIsolation({
+    inheritedEnv: cleanEnv,
+    launchEnv: {
+      NODE_ENV: 'development',
+      ...((process.env.ORCA_E2E_SSH_LOCALHOST === '1' ||
+        process.env.ORCA_E2E_SSH_DOCKER === '1' ||
+        process.env.ORCA_E2E_NESTED_RUNTIME_SSH === '1') &&
+      !cleanEnv.ORCA_RELAY_PATH
+        ? { ORCA_RELAY_PATH: path.join(process.cwd(), 'out', 'relay') }
+        : {}),
+      ...extraEnv,
+      ...(headful ? { ORCA_E2E_HEADFUL: '1' } : { ORCA_E2E_HEADLESS: '1' })
+    },
+    extraEnv: {},
+    userDataDir,
+    codexRealHomeEnabled: false
+  })
 }
 
 /**
@@ -88,13 +155,20 @@ function launchEnv(userDataDir: string, headful: boolean): NodeJS.ProcessEnv {
  */
 export function createRestartSession(
   testInfo: TestInfo,
-  options: RestartSessionOptions = {}
+  optionsOrExtraEnv: RestartSessionOptions | Record<string, string> = {}
 ): RestartSession {
+  const sessionOptions = toRestartSessionOptions(optionsOrExtraEnv)
   const mainPath = path.join(process.cwd(), 'out', 'main', 'index.js')
   const userDataDir = mkdtempSync(path.join(os.tmpdir(), 'orca-e2e-restart-'))
   const headful = shouldLaunchHeadful(testInfo)
+  const homeIsolation = createRestartLaunchIsolation(
+    userDataDir,
+    headful,
+    sessionOptions.extraEnv ?? {}
+  )
+  let runtimeWsPort: number | null = null
 
-  if (options.seedCompletedOnboarding !== false) {
+  if (sessionOptions.seedCompletedOnboarding !== false) {
     // Why: restart tests normally need the same completed profile as the shared
     // fixture; an explicit first-run case can opt into the real onboarding path.
     writeFileSync(
@@ -103,11 +177,33 @@ export function createRestartSession(
     )
   }
 
-  const launch = async (): Promise<LaunchedOrca> => {
+  const launch = async (options?: LaunchOptions): Promise<LaunchedOrca> => {
+    runtimeWsPort ??= await reserveRestartRuntimeWsPort()
+    const launchEnv = {
+      ...homeIsolation.env,
+      ...options?.extraEnv,
+      ORCA_E2E_RUNTIME_WS_PORT: String(runtimeWsPort)
+    }
     const app = await electron.launch({
-      args: getOrcaElectronLaunchArgs(mainPath, headful),
-      env: launchEnv(userDataDir, headful)
+      // Why: read the switches off this launch's env, not process.env, so an
+      // ORCA_E2E_FORCE_DPR supplied via session/launch extraEnv is honored the
+      // same way the orca-app fixture honors it.
+      args: getOrcaElectronLaunchArgs(mainPath, headful, launchEnv),
+      env: launchEnv
     })
+    // Why: attach before firstWindow — the main-process daemon guard can emit
+    // its decision line during startup, before the renderer window is ready.
+    if (options?.onStderr) {
+      const onStderr = options.onStderr
+      app.process().stderr?.on('data', (chunk: Buffer) => onStderr(chunk.toString()))
+    }
+    try {
+      const resolvedHome = await app.evaluate(({ app }) => app.getPath('home'))
+      assertElectronResolvedIsolatedHome(resolvedHome, homeIsolation)
+    } catch (error) {
+      await closeElectronAppForE2E(app)
+      throw error
+    }
     const page = await app.firstWindow({ timeout: 120_000 })
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => Boolean(window.__store), null, { timeout: 30_000 })
@@ -120,6 +216,10 @@ export function createRestartSession(
 
   const dispose = async (): Promise<void> => {
     await cleanupE2EDaemons(userDataDir)
+    if (process.env.ORCA_E2E_PRESERVE_RESTART_PROFILE === '1') {
+      console.log(`[e2e] Preserved restart profile at ${userDataDir}`)
+      return
+    }
     if (existsSync(userDataDir)) {
       await removeProfileDir(userDataDir)
     }

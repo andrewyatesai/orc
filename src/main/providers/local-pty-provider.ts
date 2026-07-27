@@ -1,5 +1,6 @@
 /* eslint-disable max-lines -- Why: splitting spawn() would scatter tightly coupled PTY lifecycle logic (scan → ready → write → exit) with no cleaner ownership seam. */
 import { basename, delimiter } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { win32 as pathWin32 } from 'node:path'
 import { resolveWindowsShellLaunchArgs } from './windows-shell-args'
 import {
@@ -61,10 +62,7 @@ import { resolveAgentForegroundProcessWithAvailability } from './agent-foregroun
 import { resolveStableForegroundProcess } from './stable-foreground-process'
 import { getAgentForegroundContextPaths } from './agent-foreground-context-paths'
 import { recognizeAgentProcessFromCommandLine } from '../../shared/agent-process-recognition'
-import {
-  captureDescendantSnapshot,
-  terminateDescendantSnapshot
-} from '../pty-descendant-termination'
+import { killWithDescendantSweep } from '../pty-descendant-termination'
 import { readWindowsConptyProcessIds } from './windows-conpty-process-membership'
 import { canConfirmAgentFromConsolePresence } from './windows-console-foreground'
 import { forceKillPosixPtyProcessGroups } from '../pty/posix-pty-process-groups'
@@ -74,6 +72,7 @@ import { ORCA_HERMES_STARTUP_QUERY_ENV } from '../../shared/hermes-startup-query
 import { PhysicalExitTracker } from '../../shared/physical-exit-tracker'
 import { mergeGitConfigEnvProtocol } from '../../shared/git-credential-prompt-env'
 import { PtyStartupIngress, type PtyIngressEmission } from '../../shared/pty-startup-ingress'
+import { resolvePtyOwnerBackend } from '../../shared/pty-owner-backend'
 
 const PANE_IDENTITY_ENV_KEYS = [
   'ORCA_PANE_KEY',
@@ -84,6 +83,10 @@ const PANE_IDENTITY_ENV_KEYS = [
 
 let ptyCounter = 0
 const ptyProcesses = new Map<string, pty.IPty>()
+const ptyIncarnations = new Map<string, string>()
+// Why: POSIX sweeps descendants for every session (#9530); agent identity only widens
+// Windows tree-kill to graceful closes, where a plain shell is left to exit on its own.
+const ptyAgentSessionIds = new Set<string>()
 // Why: descendant capture is async, so reattach/duplicate shutdown must wait for the original owner, not return a dying PTY.
 type PtyShutdownOperation = {
   promise: Promise<void>
@@ -103,6 +106,7 @@ const ptyAgentForegroundContextPaths = new Map<string, string[]>()
 // Why: remember the last recognized agent foreground so a degraded scan doesn't report the shell and look like an exit.
 const ptyLastRecognizedForeground = new Map<string, string>()
 const ptyTerminalHandle = new Map<string, string>()
+const ptyWorktreeId = new Map<string, string>()
 const ptyInitialCwd = new Map<string, string>()
 // Why: reattach carries current settings, not the live process's launch context; keep the first creator's WSL/native identity.
 const ptyWslDistroById = new Map<string, string | null>()
@@ -128,7 +132,7 @@ type DataCallback = (payload: {
   transformed?: boolean
   seq?: number
 }) => void
-type ExitCallback = (payload: { id: string; code: number }) => void
+type ExitCallback = (payload: { id: string; code: number; incarnationId?: string }) => void
 
 const dataListeners = new Set<DataCallback>()
 const exitListeners = new Set<ExitCallback>()
@@ -241,10 +245,13 @@ function clearPtyState(id: string): void {
   disposePtyListeners(id)
   disposePtyExitListener(id)
   ptyProcesses.delete(id)
+  ptyIncarnations.delete(id)
+  ptyAgentSessionIds.delete(id)
   ptyShellName.delete(id)
   ptyAgentForegroundContextPaths.delete(id)
   ptyLastRecognizedForeground.delete(id)
   ptyTerminalHandle.delete(id)
+  ptyWorktreeId.delete(id)
   ptyInitialCwd.delete(id)
   ptyWslDistroById.delete(id)
   ptyLoadGeneration.delete(id)
@@ -372,6 +379,24 @@ function normalizeLocalCallerSessionId(sessionId: string | undefined): string | 
   return requested
 }
 
+function reattachLocalPty(id: string, cols: number, rows: number): PtySpawnResult | null {
+  const existing = ptyProcesses.get(id)
+  if (!existing) {
+    return null
+  }
+  try {
+    existing.resize(cols, rows)
+  } catch {
+    /* Existing PTY may reject resize during teardown; still return the live handle. */
+  }
+  return {
+    id,
+    pid: existing.pid,
+    ...(ptyWslDistroById.has(id) ? { wslDistro: ptyWslDistroById.get(id) ?? null } : {}),
+    isReattach: true
+  }
+}
+
 /**
  * Normalizes node-pty foreground process strings to executable basenames.
  */
@@ -460,6 +485,8 @@ export type LocalPtyProviderOptions = {
     ctx?: {
       command?: string
       launchAgent?: PtySpawnOptions['launchAgent']
+      codexHomePathOverride?: PtySpawnOptions['codexHomePathOverride']
+      cwd?: string
       shellPath?: string
       isWsl?: boolean
       wslDistro?: string | null
@@ -473,8 +500,8 @@ export type LocalPtyProviderOptions = {
   getPosixShell?: () => string | undefined
   getWindowsPowerShellImplementation?: () => 'auto' | 'powershell.exe' | 'pwsh.exe' | undefined
   pwshAvailable?: () => boolean
-  onSpawned?: (id: string) => void
-  onExit?: (id: string, code: number) => void
+  onSpawned?: (id: string, incarnationId: string) => void
+  onExit?: (id: string, code: number, incarnationId: string) => void
   onData?: (
     id: string,
     data: string,
@@ -551,23 +578,13 @@ export class LocalPtyProvider implements IPtyProvider {
           throw new Error(`PTY spawn canceled: ${reattachId}`)
         }
       }
-      const existing = ptyProcesses.get(reattachId)
+      const existing = reattachLocalPty(reattachId, args.cols, args.rows)
       if (existing) {
-        const existingWslDistro = ptyWslDistroById.get(reattachId)
-        try {
-          existing.resize(args.cols, args.rows)
-        } catch {
-          /* Existing PTY may reject resize during teardown; still return the live handle. */
-        }
-        return {
-          id: reattachId,
-          pid: existing.pid,
-          ...(ptyWslDistroById.has(reattachId) ? { wslDistro: existingWslDistro ?? null } : {}),
-          isReattach: true
-        }
+        return existing
       }
     }
     const id = allocatePtyId(reattachId ?? undefined)
+    const incarnationId = randomUUID()
 
     // Why: a broken pty.node (ABI mismatch, corrupted install) must fail this spawn, not crash main before app.whenReady.
     const nodePty = await loadNodePty()
@@ -739,6 +756,8 @@ export class LocalPtyProvider implements IPtyProvider {
       ? this.opts.buildSpawnEnv(id, spawnEnv, {
           command: args.command,
           launchAgent: args.launchAgent,
+          codexHomePathOverride: args.codexHomePathOverride,
+          cwd,
           shellPath,
           isWsl: isWslShell,
           wslDistro: launchWslDistro
@@ -865,6 +884,14 @@ export class LocalPtyProvider implements IPtyProvider {
     }
 
     await prepareLocalPtySpawn(id, spawnGeneration)
+    if (args.signal?.aborted) {
+      throw new Error('client_disconnected')
+    }
+    // Why: another same-id request can win while this one awaits preflight; attach before launching a redundant shell.
+    const concurrentWinner = reattachId ? reattachLocalPty(id, args.cols, args.rows) : null
+    if (concurrentWinner) {
+      return concurrentWinner
+    }
     const spawnResult = spawnShellWithFallback({
       shellPath,
       shellArgs,
@@ -881,6 +908,7 @@ export class LocalPtyProvider implements IPtyProvider {
         : undefined,
       windowsFallbackAttempts
     })
+    args.onPtySpawnCommitted?.()
     shellPath = spawnResult.shellPath
     // Why: a Windows fallback embeds its startup command in argv; honor the winning shell's delivery flag to avoid a double write.
     if (spawnResult.startupCommandDeliveredInShellArgs !== undefined) {
@@ -897,23 +925,35 @@ export class LocalPtyProvider implements IPtyProvider {
     const proc = spawnResult.process
     const spawnedShellIsWsl =
       process.platform === 'win32' && pathWin32.basename(shellPath).toLowerCase() === 'wsl.exe'
-    const spawnedWslDistro = spawnedShellIsWsl ? (launchWslDistro ?? undefined) : null
+    const spawnedWslDistro = spawnedShellIsWsl
+      ? (launchWslDistro ?? undefined)
+      : process.platform === 'win32'
+        ? null
+        : undefined
     createPtyPhysicalExit(id)
     ptyProcesses.set(id, proc)
     ptyInitialCwd.set(id, cwd)
     if (spawnedWslDistro !== undefined) {
       ptyWslDistroById.set(id, spawnedWslDistro)
     }
+    // Why both: launchAgent is explicit intent that survives command rewrites; recognition catches bare agent command lines.
+    if (args.launchAgent || startupAgentRecognition) {
+      ptyAgentSessionIds.add(id)
+    }
     ptyShellName.set(id, getSpawnedShellName(shellPath))
     if (finalEnv.ORCA_TERMINAL_HANDLE) {
       ptyTerminalHandle.set(id, finalEnv.ORCA_TERMINAL_HANDLE)
+    }
+    if (args.worktreeId) {
+      ptyWorktreeId.set(id, args.worktreeId)
     }
     ptyAgentForegroundContextPaths.set(
       id,
       getAgentForegroundContextPaths({ cwd: args.cwd, worktreeId: args.worktreeId })
     )
     ptyLoadGeneration.set(id, spawnGeneration)
-    this.opts.onSpawned?.(id)
+    ptyIncarnations.set(id, incarnationId)
+    this.opts.onSpawned?.(id, incarnationId)
 
     const emitIngressData = (emission: PtyIngressEmission): void => {
       const sequenceChars = emission.rawEndSeq - emission.rawStartSeq
@@ -938,6 +978,11 @@ export class LocalPtyProvider implements IPtyProvider {
     }
     const startupIngress = new PtyStartupIngress({
       ...(args.startupIngress ? { intent: args.startupIngress } : {}),
+      ownerBackend: resolvePtyOwnerBackend({
+        platform: process.platform,
+        shellPath,
+        wslDistro: spawnedWslDistro
+      }),
       write: (data) => proc.write(data),
       onEmission: emitIngressData
     })
@@ -1034,9 +1079,9 @@ export class LocalPtyProvider implements IPtyProvider {
       startupIngressByPty.delete(id)
       // Why: release the master ptmx fd on natural exit, else a clean exit leaks the fd until GC. See docs/fix-pty-fd-leak.md.
       destroyPtyProcess(proc, { alreadyKilled: wasTerminationRequested })
-      this.opts.onExit?.(id, exitCode)
+      this.opts.onExit?.(id, exitCode, incarnationId)
       for (const cb of exitListeners) {
-        cb({ id, code: exitCode })
+        cb({ id, code: exitCode, incarnationId })
       }
     })
     if (onExitDisposable) {
@@ -1063,6 +1108,7 @@ export class LocalPtyProvider implements IPtyProvider {
     const pid = typeof rawPid === 'number' && Number.isFinite(rawPid) && rawPid > 0 ? rawPid : null
     return {
       id,
+      incarnationId,
       pid,
       ...(spawnedWslDistro !== undefined ? { wslDistro: spawnedWslDistro } : {})
     }
@@ -1146,18 +1192,29 @@ export class LocalPtyProvider implements IPtyProvider {
     operation: PtyShutdownOperation
   ): Promise<void> {
     const physicalExit = ptyPhysicalExits.get(id)
-    // Why: snapshot before signaling — once the shell dies, descendants reparent to pid 1 and a ppid walk can't find them.
-    // Why every session, not only agents: plain terminals leak detached prompt helpers (oh-my-posh, #9530).
-    const descendants = await captureDescendantSnapshot(proc.pid)
-    // Why: a natural exit can race the snapshot — never signal descendants or the root PID after this PTY loses ownership.
-    if (ptyProcesses.get(id) === proc) {
-      if (descendants) {
-        terminateDescendantSnapshot(descendants)
+    const signalRoot = (): void => {
+      // Why: natural exit can race the sweep — never signal after this PTY loses ownership.
+      if (ptyProcesses.get(id) !== proc) {
+        return
       }
       // Cancel startup delivery now, but keep the exit listener and ownership maps until node-pty reports physical exit.
       runPtyCleanup(id)
       operation.rootSignalled = true
       this.requestTrackedPtyShutdown(id, proc, operation.immediate)
+    }
+    // Why POSIX always sweeps: the snapshot must precede the signal (descendants reparent
+    // to pid 1 once the shell dies), and plain terminals leak detached prompt helpers too
+    // (oh-my-posh, #9530) — not only agent tool children.
+    // Why the win32 gate: taskkill /T /F runs only when the identity probe returns `own`,
+    // and only for agent sessions or a forced close, so a graceful plain-shell close still
+    // lets ConPTY children exit on their own; otherwise a live `pnpm i`/`node` would hold
+    // the worktree cwd (#10004). `unknown`/`foreign`/`absent` fall back to root close alone.
+    if (process.platform !== 'win32' || ptyAgentSessionIds.has(id) || operation.immediate) {
+      await killWithDescendantSweep(proc.pid, signalRoot, {
+        ownsRoot: () => ptyProcesses.get(id) === proc
+      })
+    } else {
+      signalRoot()
     }
     await waitForPtyPhysicalExit(id, physicalExit)
   }
@@ -1353,9 +1410,12 @@ export class LocalPtyProvider implements IPtyProvider {
   async listProcesses(): Promise<PtyProcessInfo[]> {
     return Array.from(ptyProcesses.entries()).map(([id, proc]) => ({
       id,
+      ...(ptyIncarnations.get(id) ? { incarnationId: ptyIncarnations.get(id) } : {}),
       cwd: ptyInitialCwd.get(id) ?? '',
       title: proc.process || ptyShellName.get(id) || 'shell',
-      ...(ptyTerminalHandle.get(id) ? { terminalHandle: ptyTerminalHandle.get(id) } : {})
+      ...(ptyWorktreeId.get(id) ? { worktreeId: ptyWorktreeId.get(id) } : {}),
+      ...(ptyTerminalHandle.get(id) ? { terminalHandle: ptyTerminalHandle.get(id) } : {}),
+      ...(ptyWslDistroById.has(id) ? { wslDistro: ptyWslDistroById.get(id) ?? null } : {})
     }))
   }
 

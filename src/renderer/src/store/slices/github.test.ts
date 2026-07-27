@@ -969,6 +969,22 @@ describe('createGitHubSlice.fetchPRChecks', () => {
     })
   })
 
+  it('isolates PR detail caches by Enterprise host', () => {
+    const githubRepo = { owner: 'Acme', repo: 'Widgets', host: 'github.com' }
+    const enterpriseRepo = {
+      owner: 'Acme',
+      repo: 'Widgets',
+      host: 'github.acme-corp.com'
+    }
+
+    expect(prChecksCacheSuffix(12, enterpriseRepo, 'head')).not.toBe(
+      prChecksCacheSuffix(12, githubRepo, 'head')
+    )
+    expect(prCommentsCacheSuffix(12, enterpriseRepo)).not.toBe(
+      prCommentsCacheSuffix(12, githubRepo)
+    )
+  })
+
   it('bounds checks cache entries across many repo and head combinations', async () => {
     vi.useFakeTimers()
 
@@ -7027,6 +7043,62 @@ describe('createGitHubSlice.fetchWorkItems source/error envelope', () => {
     ).toBe('project-local')
   })
 
+  it('keeps same-named github.com and GHES project cache entries separate', async () => {
+    const store = createTestStore()
+    const makeTable = (host: string, id: string) => ({
+      project: {
+        id,
+        host,
+        owner: 'acme',
+        ownerType: 'organization' as const,
+        number: 1,
+        title: id,
+        url: `https://${host}/orgs/acme/projects/1`
+      },
+      selectedView: {
+        id: 'view-1',
+        number: 1,
+        name: 'Table',
+        layout: 'TABLE_LAYOUT' as const,
+        filter: '',
+        fields: [],
+        groupByFields: [],
+        sortByFields: []
+      },
+      rows: [],
+      totalCount: 0,
+      parentFieldDropped: false
+    })
+    mockApi.gh.getProjectViewTable
+      .mockResolvedValueOnce({ ok: true, data: makeTable('github.com', 'dotcom-project') })
+      .mockResolvedValueOnce({ ok: true, data: makeTable('ghe.example', 'enterprise-project') })
+
+    for (const host of ['github.com', 'ghe.example']) {
+      await store.getState().fetchProjectViewTable({
+        owner: 'acme',
+        ownerType: 'organization',
+        projectNumber: 1,
+        viewId: 'view-1',
+        host
+      })
+    }
+
+    expect(mockApi.gh.getProjectViewTable).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ host: 'ghe.example' })
+    )
+    expect(
+      store.getState().projectViewCache[
+        projectViewCacheKey('organization', 'acme', 1, 'view-1', undefined, 'local', 'ghe.example')
+      ]?.data?.project.id
+    ).toBe('enterprise-project')
+    expect(
+      store.getState().projectViewCache[
+        projectViewCacheKey('organization', 'acme', 1, 'view-1', undefined, 'local', 'github.com')
+      ]?.data?.project.id
+    ).toBe('dotcom-project')
+  })
+
   it('routes project field mutations through the source encoded in the cache key', async () => {
     const store = createTestStore()
     const cacheKey = projectViewCacheKey(
@@ -7035,7 +7107,8 @@ describe('createGitHubSlice.fetchWorkItems source/error envelope', () => {
       1,
       'view-1',
       undefined,
-      'runtime:env-project'
+      'runtime:env-project',
+      'ghe.example:8443'
     )
     store.setState({
       settings: { activeRuntimeEnvironmentId: 'env-focused' },
@@ -7045,6 +7118,7 @@ describe('createGitHubSlice.fetchWorkItems source/error envelope', () => {
           data: {
             project: {
               id: 'project-1',
+              host: 'ghe.example:8443',
               owner: 'acme',
               ownerType: 'organization',
               number: 1,
@@ -7104,6 +7178,7 @@ describe('createGitHubSlice.fetchWorkItems source/error envelope', () => {
       method: 'github.project.updateItemField',
       params: {
         projectId: 'project-1',
+        host: 'ghe.example:8443',
         itemId: 'row-1',
         fieldId: 'field-1',
         value: { kind: 'text', text: 'next' }
@@ -7269,6 +7344,12 @@ describe('IssueSourceIndicator suppression', () => {
     expect(
       sameGitHubOwnerRepo({ owner: 'StablyAI', repo: 'Orca' }, { owner: 'stablyai', repo: 'orca' })
     ).toBe(true)
+    expect(
+      sameGitHubOwnerRepo(
+        { owner: 'stablyai', repo: 'orca', host: 'github.com' },
+        { owner: 'stablyai', repo: 'orca', host: 'ghe.example.test' }
+      )
+    ).toBe(false)
     expect(sameGitHubOwnerRepo({ owner: 'a', repo: 'r' }, { owner: 'b', repo: 'r' })).toBe(false)
 
     // null on either side → element renders as null (empty render)
@@ -7304,6 +7385,12 @@ describe('IssueSourceIndicator suppression', () => {
     expect(itemMarkup).toContain('up/r')
     expect(itemMarkup).toContain('Issue from')
     expect(itemMarkup).not.toContain('Issues from')
+
+    const enterpriseEl = React.createElement(IssueSourceIndicator, {
+      issues: { owner: 'up', repo: 'r', host: 'ghe.example.test' },
+      prs: { owner: 'fork', repo: 'r', host: 'ghe.example.test' }
+    })
+    expect(renderToStaticMarkup(enterpriseEl)).toContain('ghe.example.test/up/r')
   })
 })
 

@@ -95,7 +95,19 @@ describe('remote transport requested-snapshot alt-screen threading (#6106)', () 
     vi.clearAllMocks()
     subscriptionCallbacks = null
     subscriptionSendBinary.mockReset()
-    runtimeCall.mockResolvedValue({ ok: true, result: { terminal: { handle: 'terminal-1' } } })
+    // terminal.resolvePane must echo the pane's own identity: the transport
+    // rejects a mismatched owner (terminal_owner_mismatch) before subscribing.
+    runtimeCall.mockResolvedValue({
+      ok: true,
+      result: {
+        terminal: {
+          handle: 'terminal-1',
+          tabId: 'tab-1',
+          leafId: 'pane:1',
+          worktreeId: 'wt-1'
+        }
+      }
+    })
     runtimeSubscribe.mockImplementation(
       async (_args: unknown, callbacks: typeof subscriptionCallbacks) => {
         subscriptionCallbacks = callbacks

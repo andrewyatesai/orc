@@ -83,17 +83,20 @@ export function reconcileSerializedMarkdown({
     diffs = cleanupSemantic(diffs)
     diffs = cleanupEfficiency(diffs)
   }
-  // Why: applyPatches reads patch.start* as UTF-8 byte offsets (Sanity's wire
-  // format) and converts them to UCS-2, but makePatches emits UCS-2 there — so
-  // non-ASCII docs misplace hunks or throw (#9158/#9492). Feed the UTF-8 twins
-  // so the internal conversion round-trips to the true indices;
-  // allowExceedingIndices absorbs residual source-vs-base drift (fuzzy match
-  // relocates, branch 6 verifies).
-  const patches = makePatches(baseLf, diffs).map((patch) => ({
-    ...patch,
-    start1: patch.utf8Start1,
-    start2: patch.utf8Start2
-  }))
+  // Why: applyPatches decodes patch.start* as UTF-8 byte offsets (Sanity's wire format) while
+  // makePatches emits UCS-2 indices, so non-ASCII docs misplace hunks or throw (#9158/#9492).
+  // Encode against the divergent text being patched, not against baseLf's own utf8Start twins, so
+  // the decode preserves the fuzzy-match seed; allowExceedingIndices absorbs residual source-vs-base
+  // drift (fuzzy match relocates, branch 6 verifies).
+  const patches = makePatches(baseLf, diffs)
+  const utf8Offsets = getUtf8OffsetsAtCodeUnitIndices(
+    originalSourceLf,
+    patches.flatMap((patch) => [patch.start1, patch.start2])
+  )
+  for (const patch of patches) {
+    patch.start1 = utf8Offsets.get(patch.start1) ?? 0
+    patch.start2 = utf8Offsets.get(patch.start2) ?? 0
+  }
   let reconciledLf: string
   let results: boolean[]
   try {
@@ -143,6 +146,42 @@ function restoreEol(lfText: string, eol: '\n' | '\r\n'): string {
 function normalizeForSafety(text: string): string {
   // Why: compare exactly (only CRLF-normalized) — a trailing `\n\n` empty paragraph is semantic, so a lenient trimEnd would mask the trailing-block drift branch 6 must catch.
   return text.replace(/\r\n/g, '\n')
+}
+
+function getUtf8OffsetsAtCodeUnitIndices(
+  text: string,
+  codeUnitIndices: number[]
+): Map<number, number> {
+  const targets = [...new Set(codeUnitIndices)].sort((a, b) => a - b)
+  const offsets = new Map<number, number>()
+  let codeUnitIndex = 0
+  let byteOffset = 0
+  for (const target of targets) {
+    const boundedTarget = Math.max(0, Math.min(target, text.length))
+    while (codeUnitIndex < boundedTarget) {
+      const codePoint = text.codePointAt(codeUnitIndex)
+      if (codePoint === undefined) {
+        break
+      }
+      byteOffset += utf8CodePointLength(codePoint)
+      codeUnitIndex += codePoint > 0xffff ? 2 : 1
+    }
+    offsets.set(target, byteOffset)
+  }
+  return offsets
+}
+
+function utf8CodePointLength(codePoint: number): number {
+  if (codePoint <= 0x7f) {
+    return 1
+  }
+  if (codePoint <= 0x7ff) {
+    return 2
+  }
+  if (codePoint <= 0xffff) {
+    return 3
+  }
+  return 4
 }
 
 function hasRepeatedHalfMatchSeed(textA: string, textB: string): boolean {

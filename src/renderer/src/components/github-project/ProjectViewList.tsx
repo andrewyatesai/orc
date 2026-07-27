@@ -325,6 +325,7 @@ export default function ProjectViewList({
                   onEditIssueType={onEditIssueType}
                   onStartWork={onStartWork}
                   onOpenInBrowser={onOpenInBrowser}
+                  sourceHost={table.project.host}
                   sourceSettings={sourceSettings}
                 />
               )}

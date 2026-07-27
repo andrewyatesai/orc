@@ -6,6 +6,9 @@
  * 2. getPRFiles / getPRFileContents used getOwnerRepo only → null / empty
  * 3. gh api never passed --hostname → wrong host even with a forced slug
  *
+ * The host now rides on the gh exec options and `applyGhHostToArgs` injects
+ * `--hostname` into the argv, so (3) is asserted through the real runner helper.
+ *
  * Related prior art: https://github.com/stablyai/orca/pull/8932 (@wonjerry)
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -16,34 +19,35 @@ type RateLimitGuardResult =
 
 const {
   ghExecFileAsyncMock,
-  getOwnerRepoMock,
-  getIssueOwnerRepoMock,
+  getOwnerRepoForRemoteMock,
   getEnterpriseGitHubRepoSlugMock,
+  getEnterpriseGitHubRepoSlugForRemoteMock,
+  isGitHubHostAuthenticatedMock,
   getWorkItemMock,
   getPRChecksMock,
   getPRCommentsMock,
-  rateLimitGuardMock,
-  noteRateLimitSpendMock,
+  repositoryRateLimitGuardMock,
+  noteRepositoryRateLimitSpendMock,
   acquireMock,
   releaseMock
 } = vi.hoisted(() => ({
   ghExecFileAsyncMock: vi.fn(),
-  getOwnerRepoMock: vi.fn(),
-  getIssueOwnerRepoMock: vi.fn(),
+  getOwnerRepoForRemoteMock: vi.fn(),
   getEnterpriseGitHubRepoSlugMock: vi.fn(),
+  getEnterpriseGitHubRepoSlugForRemoteMock: vi.fn(),
+  isGitHubHostAuthenticatedMock: vi.fn(),
   getWorkItemMock: vi.fn(),
   getPRChecksMock: vi.fn(),
   getPRCommentsMock: vi.fn(),
-  rateLimitGuardMock: vi.fn<() => RateLimitGuardResult>(() => ({ blocked: false })),
-  noteRateLimitSpendMock: vi.fn(),
+  repositoryRateLimitGuardMock: vi.fn<() => RateLimitGuardResult>(() => ({ blocked: false })),
+  noteRepositoryRateLimitSpendMock: vi.fn(),
   acquireMock: vi.fn(),
   releaseMock: vi.fn()
 }))
 
 vi.mock('./gh-utils', () => ({
   ghExecFileAsync: ghExecFileAsyncMock,
-  getOwnerRepo: getOwnerRepoMock,
-  getIssueOwnerRepo: getIssueOwnerRepoMock,
+  getOwnerRepoForRemote: getOwnerRepoForRemoteMock,
   ghRepoExecOptions: vi.fn((context) =>
     context.connectionId
       ? {}
@@ -65,30 +69,49 @@ vi.mock('./client', () => ({
 }))
 
 vi.mock('./github-enterprise-repository', () => ({
-  getEnterpriseGitHubRepoSlug: getEnterpriseGitHubRepoSlugMock
+  getEnterpriseGitHubRepoSlug: getEnterpriseGitHubRepoSlugMock,
+  getEnterpriseGitHubRepoSlugForRemote: getEnterpriseGitHubRepoSlugForRemoteMock,
+  isGitHubHostAuthenticated: isGitHubHostAuthenticatedMock
 }))
 
 vi.mock('./rate-limit', () => ({
-  rateLimitGuard: rateLimitGuardMock,
-  noteRateLimitSpend: noteRateLimitSpendMock
+  repositoryRateLimitGuard: repositoryRateLimitGuardMock,
+  noteRepositoryRateLimitSpend: noteRepositoryRateLimitSpendMock
 }))
 
 import { getPRFileContents, getWorkItemDetails } from './work-item-details'
+import { _resetOriginGitHubApiRepositoryCache } from './github-api-repository'
 import { parseGitHubOwnerRepo, parseGitHubRemoteIdentity } from './github-remote-identity-parsing'
+import { applyGhHostToArgs } from '../git/runner'
+
+// The resolved host rides on the gh exec options; replay the real runner
+// helper so this still asserts the argv gh would actually receive.
+function ghApiArgv(): string[][] {
+  return ghExecFileAsyncMock.mock.calls
+    .map(([args, options]) =>
+      applyGhHostToArgs(args as string[], (options as { host?: string } | undefined)?.host)
+    )
+    .filter((args) => args[0] === 'api')
+}
 
 describe('issue #8935 GHE PR diff host routing', () => {
   beforeEach(() => {
+    // Origin-repo resolution is cached module-side; a slug from one case must not leak into the next.
+    _resetOriginGitHubApiRepositoryCache()
     ghExecFileAsyncMock.mockReset()
-    getOwnerRepoMock.mockReset()
-    getIssueOwnerRepoMock.mockReset()
+    getOwnerRepoForRemoteMock.mockReset()
     getEnterpriseGitHubRepoSlugMock.mockReset()
     getEnterpriseGitHubRepoSlugMock.mockResolvedValue(null)
+    getEnterpriseGitHubRepoSlugForRemoteMock.mockReset()
+    getEnterpriseGitHubRepoSlugForRemoteMock.mockResolvedValue(null)
+    isGitHubHostAuthenticatedMock.mockReset()
+    isGitHubHostAuthenticatedMock.mockResolvedValue(true)
     getWorkItemMock.mockReset()
     getPRChecksMock.mockReset()
     getPRCommentsMock.mockReset()
-    rateLimitGuardMock.mockReset()
-    rateLimitGuardMock.mockReturnValue({ blocked: false })
-    noteRateLimitSpendMock.mockReset()
+    repositoryRateLimitGuardMock.mockReset()
+    repositoryRateLimitGuardMock.mockReturnValue({ blocked: false })
+    noteRepositoryRateLimitSpendMock.mockReset()
     acquireMock.mockReset()
     releaseMock.mockReset()
     acquireMock.mockResolvedValue(undefined)
@@ -119,7 +142,7 @@ describe('issue #8935 GHE PR diff host routing', () => {
       updatedAt: '2026-07-16T00:00:00Z',
       author: 'pr-author'
     })
-    getOwnerRepoMock.mockResolvedValue(null)
+    getOwnerRepoForRemoteMock.mockResolvedValue(null)
     getEnterpriseGitHubRepoSlugMock.mockResolvedValue({
       owner: 'team',
       repo: 'orca',
@@ -175,9 +198,7 @@ describe('issue #8935 GHE PR diff host routing', () => {
     })
     expect(contents).toMatchObject({ original: 'old', modified: 'new' })
 
-    const apiCalls = ghExecFileAsyncMock.mock.calls
-      .map(([args]) => args as string[])
-      .filter((args) => args[0] === 'api')
+    const apiCalls = ghApiArgv()
     expect(apiCalls.length).toBeGreaterThan(0)
     expect(apiCalls.every((args) => args.includes('--hostname'))).toBe(true)
     expect(
@@ -186,7 +207,7 @@ describe('issue #8935 GHE PR diff host routing', () => {
   })
 
   it('returns empty PR file contents when owner/repo cannot be resolved on any host', async () => {
-    getOwnerRepoMock.mockResolvedValue(null)
+    getOwnerRepoForRemoteMock.mockResolvedValue(null)
     getEnterpriseGitHubRepoSlugMock.mockResolvedValue(null)
 
     const contents = await getPRFileContents({
@@ -208,7 +229,7 @@ describe('issue #8935 GHE PR diff host routing', () => {
   })
 
   it('encodes # and ? in content paths while preserving directory separators', async () => {
-    getOwnerRepoMock.mockResolvedValue(null)
+    getOwnerRepoForRemoteMock.mockResolvedValue(null)
     getEnterpriseGitHubRepoSlugMock.mockResolvedValue({
       owner: 'team',
       repo: 'orca',

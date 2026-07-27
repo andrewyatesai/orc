@@ -11,6 +11,7 @@ import type { DiffSection } from './diff-section-types'
 import { translate } from '@/i18n/i18n'
 import { LargeDiffFallback } from './LargeDiffFallback'
 import { buildDiffEditorWordWrapOptions } from './diff-editor-word-wrap-options'
+import { monacoFindOptions } from './monaco-find-options'
 
 const ImageDiffViewer = lazy(() => import('./ImageDiffViewer'))
 
@@ -37,7 +38,7 @@ type DiffSectionBodyProps = {
   isEditable: boolean
   diffEditorFontSize: number
   diffWordWrap?: boolean
-  terminalFontFamily?: string
+  editorFontFamily?: string
   experimentalInput?: boolean
   onCancelComment: () => void
   onSubmitComment: (body: string) => Promise<void>
@@ -63,7 +64,7 @@ export function DiffSectionBody({
   isEditable,
   diffEditorFontSize,
   diffWordWrap,
-  terminalFontFamily,
+  editorFontFamily,
   experimentalInput,
   onCancelComment,
   onSubmitComment,
@@ -195,19 +196,15 @@ export function DiffSectionBody({
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
             fontSize: diffEditorFontSize,
-            fontFamily: terminalFontFamily || 'monospace',
+            fontFamily: editorFontFamily || 'monospace',
             lineNumbers: 'on',
             ...buildDiffEditorWordWrapOptions(diffWordWrap),
             automaticLayout: true,
             renderOverviewRuler: false,
             scrollbar: combinedDiffSectionScrollbarOptions,
             hideUnchangedRegions: { enabled: true },
-            find: {
-              addExtraSpaceOnTop: false,
-              autoFindInSelection: 'never',
-              // Why: prefill Cmd+F from the selection (Monaco's default).
-              seedSearchStringFromSelection: 'always'
-            }
+            // Why: fork keeps 'always' (port of #5429) so Cmd+F also seeds from the word under the cursor.
+            find: { ...monacoFindOptions, seedSearchStringFromSelection: 'always' }
           }}
         />
       )}

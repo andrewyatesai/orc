@@ -15,7 +15,7 @@ import {
   syncTerminalScrollIntentFromViewport
 } from '@/lib/pane-manager/terminal-scroll-intent'
 import { resetTerminalLinkifierHoverState } from '@/lib/pane-manager/terminal-linkifier-hover-reset'
-import { fitAndFocusPanes, fitPanes, focusActivePane } from './pane-helpers'
+import { focusActivePane } from './pane-helpers'
 import { scheduleTabRevealWebglAtlasRecovery } from './terminal-webgl-atlas-recovery'
 
 // Re-anchor schedule after a resume: two rAFs + an 80ms backstop, matching
@@ -35,6 +35,17 @@ type ResumeTerminalVisibilityArgs = {
   wasVisible: boolean
   shouldUseLightTabResume: boolean
   captureViewportPositions: (useRememberedSnapshots: boolean) => Map<number, ScrollState>
+  /** Optional caller-supplied freeze. The fork owns a depth-counted module-level
+   *  intent-write freeze instead, so this is only honored (and composed) when a
+   *  legacy caller still passes it. */
+  withSuppressedScrollTracking?: (callback: () => void) => void
+}
+
+/** Deferred half of a heavy reveal: the backlog drain and cross-manager present
+ *  the caller runs AFTER the reveal frame paints. `run` takes the live manager
+ *  because lifecycle effects can replace it between layout and this pass. */
+export type TerminalVisibilityPostPaintRecovery = {
+  run: (manager: PaneManager) => void
 }
 
 type HideTerminalVisibilityArgs = {
@@ -62,14 +73,17 @@ export function resumeTerminalVisibility({
   isActive,
   wasVisible,
   shouldUseLightTabResume,
-  captureViewportPositions
-}: ResumeTerminalVisibilityArgs): void {
+  captureViewportPositions,
+  withSuppressedScrollTracking
+}: ResumeTerminalVisibilityArgs): TerminalVisibilityPostPaintRecovery | null {
   // Why: the link input short-circuits same-cell mousemoves, and hidden panes
   // keep ingesting output; without this reset a link stays dead/stale when the
   // pointer returns to the same cell on reveal (upstream #9061).
   for (const pane of manager.getPanes()) {
     resetTerminalLinkifierHoverState(pane.terminal)
   }
+  // Latch intent BEFORE the freeze/resume/fit: those can move the viewport and
+  // would otherwise re-latch a pinned viewport as followOutput.
   syncTerminalViewportIntents(manager)
   // Why: WebGL resume can disturb xterm's viewport bookkeeping before the
   // post-resume fit runs. Capture numeric viewport positions first; the
@@ -106,14 +120,9 @@ export function resumeTerminalVisibility({
         focusActivePane(manager)
       }
     } else {
-      resumeTerminalVisibilityHeavy(manager, isActive)
+      resumeTerminalVisibilityBeforePaint(manager, isActive)
     }
     enforceTerminalViewportIntents(manager)
-    if (!shouldUseLightTabResume) {
-      // Why: after a heavy resume from hidden, force every live manager to
-      // re-present its aterm grid so returning panes repaint a fresh frame.
-      resetAllTerminalWebglAtlases()
-    }
   } finally {
     // Re-anchor the durable absolute pin AFTER the replay flood settles (two rAFs +
     // an 80ms backstop), THEN release the write-freeze. Scheduled from `finally` so a
@@ -136,6 +145,23 @@ export function resumeTerminalVisibility({
       reanchor()
       release()
     }, RESUME_REANCHOR_BACKSTOP_MS)
+  }
+  if (shouldUseLightTabResume) {
+    return null
+  }
+  return {
+    run: (currentManager) => {
+      // Why: lifecycle effects can swap the PaneManager between the reveal layout
+      // pass and this post-paint pass, so the drain/present must be re-aimed at
+      // the live manager — the pre-paint pass only reached the old one.
+      withScrollIntentWritesFrozen(withSuppressedScrollTracking, () => {
+        drainVisibleTerminalBacklog(currentManager)
+        enforceTerminalViewportIntents(currentManager)
+        // Why: the cross-manager re-present touches every live pane, so it stays
+        // out of the reveal's pre-paint critical path.
+        resetAllTerminalWebglAtlases()
+      })
+    }
   }
 }
 
@@ -179,8 +205,17 @@ export function recoverVisibleTerminalWindowWake({
   isActive,
   clearGlyphAtlases
 }: RecoverVisibleTerminalWindowWakeArgs): void {
-  // Why: macOS screensaver/display wake can leave xterm visible but with a
+  // Why: macOS screensaver/display wake can leave the pane visible but with a
   // stale renderer/input surface; Orca's own hidden-state resume never runs.
+  // Order: latch intent -> resume drawing -> fit metrics -> drain -> enforce.
+  // Intent must be latched before resume/fit (they can move the viewport and
+  // would re-latch a pin as followOutput), and the fit must precede the flush so
+  // recovered backlog lands on the settled grid rather than the pre-fit one.
+  syncTerminalViewportIntents(manager)
+  manager.resumeRendering()
+  // Why: the wobble-resistant reveal fit — a sync fitAllPanes on a mid-transition
+  // container reflows the grid and garbles diff-painting inline TUIs.
+  manager.fitAllRevealedPanes()
   for (const pane of manager.getPanes()) {
     // Why: window blur fires mouseleave which clears the current link but not
     // the hovered-cell cache, so on refocus/wake with a stationary pointer the
@@ -190,12 +225,12 @@ export function recoverVisibleTerminalWindowWake({
     requestTerminalBacklogRecovery(pane.terminal)
     flushTerminalOutput(pane.terminal, { maxChars: WINDOW_WAKE_FLUSH_CHARS })
   }
-  syncTerminalViewportIntents(manager)
-  manager.resumeRendering()
+  // Why no post-flush re-sync: flushTerminalOutput only submits the engine write and
+  // returns before parse callbacks, so a same-tick re-sync would read pre-parse
+  // geometry (possibly disturbed by resume/fit) and overwrite the pre-resume pin.
+  // Enforce the pre-resume latched intent instead.
   if (isActive) {
-    fitAndFocusPanes(manager)
-  } else {
-    fitPanes(manager)
+    focusActivePane(manager)
   }
   enforceTerminalViewportIntents(manager)
   if (clearGlyphAtlases) {
@@ -216,28 +251,49 @@ function requestLightTabBacklogRecovery(manager: PaneManager): void {
   }
 }
 
-function resumeTerminalVisibilityHeavy(manager: PaneManager, isActive: boolean): void {
-  // Why: hidden panes can accumulate large PTY bursts while Chromium is
-  // occluded. Drain a bounded slice before fitting; the scheduler keeps
-  // ordering and continues the rest asynchronously so return-to-app does
-  // not beachball behind an entire backlog.
+function resumeTerminalVisibilityBeforePaint(manager: PaneManager, isActive: boolean): void {
+  // Resume draw scheduling before paint so the reveal frame shows the last-known
+  // state (panes may have been suspended while hidden, or created suspended via
+  // initialRenderingSuspended). The backlog drain is deferred to the post-paint
+  // pass so a hidden pane's accumulated burst cannot beachball the reveal.
+  manager.resumeRendering()
+  // Why: reveal must not refit unconditionally — a sync fitAllPanes on a
+  // mid-transition container applies a transient one-column-off grid and garbles
+  // diff-painting inline TUIs. fitRevealedPane fits only on a real pixel change.
+  manager.fitAllRevealedPanes()
+  if (isActive) {
+    focusActivePane(manager)
+  }
+}
+
+function drainVisibleTerminalBacklog(manager: PaneManager): void {
   for (const pane of manager.getPanes()) {
     requestTerminalBacklogRecovery(pane.terminal)
     flushTerminalOutput(pane.terminal, { maxChars: VISIBLE_RESUME_FLUSH_CHARS })
   }
-  syncTerminalViewportIntents(manager)
-  // Resume draw scheduling immediately so the terminal shows its last-known
-  // state on the first painted frame (panes may have been suspended while
-  // hidden, or created suspended via initialRenderingSuspended).
-  manager.resumeRendering()
-  // Single fit on resume. Background bytes have been pushed into the engine
-  // above, so this fit only absorbs container dimension changes that
-  // happened while hidden (e.g. sidebar toggle on another worktree).
-  if (isActive) {
-    fitAndFocusPanes(manager)
-  } else {
-    fitPanes(manager)
+}
+
+/** Always take the fork's depth-counted intent-write freeze (it nests inside the
+ *  resume-window freeze, which the backstop may already have released by the time
+ *  the post-paint pass runs), composing the caller's legacy freeze around it when
+ *  a legacy caller still supplies one. */
+function withScrollIntentWritesFrozen(
+  withSuppressedScrollTracking: ((callback: () => void) => void) | undefined,
+  run: () => void
+): void {
+  const frozen = (): void => {
+    beginSuppressScrollIntentWrites()
+    try {
+      run()
+    } finally {
+      endSuppressScrollIntentWrites()
+    }
   }
+  if (withSuppressedScrollTracking) {
+    withSuppressedScrollTracking(frozen)
+    return
+  }
+  frozen()
 }
 
 function enforceTerminalViewportIntents(manager: PaneManager): void {

@@ -160,6 +160,18 @@ describe('createWorktreeChangeRefreshQueue', () => {
     })
   })
 
+  it('threads forceLocalOwner through to the handler', async () => {
+    const handler = vi.fn(() => Promise.resolve())
+    const queue = createWorktreeChangeRefreshQueue(handler)
+
+    queue.enqueue({ repoId: 'repo-1', forceLocalOwner: true })
+    await flushPromises()
+
+    expect(handler).toHaveBeenCalledWith('repo-1', undefined, undefined, {
+      forceLocalOwner: true
+    })
+  })
+
   it('propagates forceLocalOwner to the handler and never coalesces it into a runtime-routed scan (#6628)', async () => {
     const firstRefresh = deferred()
     const handler = vi.fn().mockReturnValueOnce(firstRefresh.promise).mockResolvedValue(undefined)
@@ -184,6 +196,31 @@ describe('createWorktreeChangeRefreshQueue', () => {
     expect(handler).toHaveBeenCalledTimes(3)
     expect(handler).toHaveBeenNthCalledWith(2, 'repo-1', undefined, undefined, {
       forceLocalOwner: undefined
+    })
+    expect(handler).toHaveBeenNthCalledWith(3, 'repo-1', undefined, undefined, {
+      forceLocalOwner: true
+    })
+  })
+
+  it('does not coalesce a local-pinned refresh into a runtime-routed one', async () => {
+    const firstRefresh = deferred()
+    const handler = vi.fn().mockReturnValueOnce(firstRefresh.promise).mockResolvedValue(undefined)
+    const queue = createWorktreeChangeRefreshQueue(handler)
+
+    // First refresh starts draining immediately; the next two queue behind it.
+    // A plain refresh and a local-pinned refresh differ, so both are kept.
+    queue.enqueue({ repoId: 'repo-1', forceLocalOwner: false })
+    queue.enqueue({ repoId: 'repo-1', forceLocalOwner: false })
+    queue.enqueue({ repoId: 'repo-1', forceLocalOwner: true })
+
+    expect(handler).toHaveBeenCalledTimes(1)
+
+    firstRefresh.resolve()
+    await flushPromises()
+
+    expect(handler).toHaveBeenCalledTimes(3)
+    expect(handler).toHaveBeenNthCalledWith(2, 'repo-1', undefined, undefined, {
+      forceLocalOwner: false
     })
     expect(handler).toHaveBeenNthCalledWith(3, 'repo-1', undefined, undefined, {
       forceLocalOwner: true

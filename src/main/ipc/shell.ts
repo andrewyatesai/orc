@@ -1,22 +1,25 @@
-import { ipcMain, shell, dialog } from 'electron'
+import { ipcMain, shell } from 'electron'
 import { spawn } from 'node:child_process'
-import { readFile, stat } from 'node:fs/promises'
-import { basename, extname, isAbsolute, normalize } from 'node:path'
+import { stat } from 'node:fs/promises'
+import { isAbsolute, normalize, posix, win32 } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type {
+  ShellOpenExternalEditorRequest,
+  ShellOpenExternalEditorResult,
+  ShellOpenLocalPathResult
+} from '../../shared/shell-open-types'
 import type { Store } from '../persistence'
-import type { ShellOpenLocalPathResult } from '../../shared/shell-open-types'
-import { MAX_REPO_ICON_UPLOAD_BYTES } from '../../shared/repo-icon'
 import { getSpawnArgsForWindows } from '../win32-utils'
 import {
   EXTERNAL_EDITOR_CLI_COMMAND,
-  resolveExternalEditorLaunchSpec
+  resolveExternalEditorLaunchSpec,
+  resolveVsCodeRemoteSshLaunchSpec,
+  type ExternalEditorLaunchSpec
 } from '../external-editor-launch'
+import { resolveVsCodeSshAuthority } from '../ssh/vscode-ssh-authority'
+import { registerFilePickerDialogHandlers } from './file-picker-dialogs'
 
 export { EXTERNAL_EDITOR_CLI_COMMAND }
-
-const REPO_ICON_IMAGE_MIME_TYPES: Record<string, string> = {
-  '.png': 'image/png'
-}
 
 // Why: KeybindingsFileActions launches these two without a settings entry, so they stay trusted even when never configured.
 const BUILT_IN_EDITOR_COMMANDS = new Set([EXTERNAL_EDITOR_CLI_COMMAND, 'cursor'])
@@ -51,7 +54,17 @@ async function validateLocalPathTarget(
   return { ok: true, path: normalizedPath }
 }
 
-async function openInFileManager(pathValue: string): Promise<ShellOpenLocalPathResult> {
+function hasActiveRuntime(store: Store): boolean {
+  return Boolean(store.getSettings().activeRuntimeEnvironmentId?.trim())
+}
+
+async function openInFileManager(
+  store: Store,
+  pathValue: string
+): Promise<ShellOpenLocalPathResult> {
+  if (hasActiveRuntime(store)) {
+    return { ok: false, reason: 'remote-runtime-unsupported' }
+  }
   const target = await validateLocalPathTarget(pathValue)
   if (!target.ok) {
     return target
@@ -66,8 +79,7 @@ async function openInFileManager(pathValue: string): Promise<ShellOpenLocalPathR
   }
 }
 
-async function launchExternalEditor(pathValue: string, command?: string): Promise<void> {
-  const launchSpec = resolveExternalEditorLaunchSpec(command, pathValue)
+async function launchExternalEditor(launchSpec: ExternalEditorLaunchSpec): Promise<void> {
   const { spawnCmd, spawnArgs } =
     launchSpec.kind === 'executable'
       ? getSpawnArgsForWindows(launchSpec.spawnCmd, launchSpec.spawnArgs)
@@ -111,15 +123,51 @@ async function launchExternalEditor(pathValue: string, command?: string): Promis
 }
 
 async function openInExternalEditor(
-  pathValue: string,
-  command?: string
-): Promise<ShellOpenLocalPathResult> {
-  const target = await validateLocalPathTarget(pathValue)
+  store: Store,
+  request: ShellOpenExternalEditorRequest
+): Promise<ShellOpenExternalEditorResult> {
+  if (hasActiveRuntime(store)) {
+    return { ok: false, reason: 'remote-runtime-unsupported' }
+  }
+
+  const connectionId = request.connectionId?.trim()
+  if (connectionId) {
+    const sshTarget = store.getSshTarget(connectionId)
+    if (!sshTarget) {
+      return { ok: false, reason: 'ssh-target-not-found' }
+    }
+    if (sshTarget.owner?.type === 'on-demand-runtime') {
+      return { ok: false, reason: 'remote-runtime-unsupported' }
+    }
+    if (!posix.isAbsolute(request.path) && !win32.isAbsolute(request.path)) {
+      return { ok: false, reason: 'not-absolute' }
+    }
+    const authority = resolveVsCodeSshAuthority(sshTarget)
+    if (!authority.ok) {
+      return authority
+    }
+    const launchSpec = resolveVsCodeRemoteSshLaunchSpec(
+      request.command,
+      request.path,
+      authority.authority
+    )
+    if (!launchSpec) {
+      return { ok: false, reason: 'remote-editor-unsupported' }
+    }
+    try {
+      await launchExternalEditor(launchSpec)
+      return { ok: true }
+    } catch {
+      return { ok: false, reason: 'launch-failed' }
+    }
+  }
+
+  const target = await validateLocalPathTarget(request.path)
   if (!target.ok) {
     return target
   }
   try {
-    await launchExternalEditor(target.path, command)
+    await launchExternalEditor(resolveExternalEditorLaunchSpec(request.command, target.path))
     return { ok: true }
   } catch {
     return { ok: false, reason: 'launch-failed' }
@@ -143,25 +191,25 @@ export function registerShellHandlers(store: Store): void {
   ipcMain.handle('shell:openPath', async (_event, path: string): Promise<void> => {
     // Why: keep the legacy fire-and-forget renderer contract while reusing the
     // same absolute/existing path validation as the explicit file-manager API.
-    void (await openInFileManager(path))
+    void (await openInFileManager(store, path))
   })
 
   ipcMain.handle(
     'shell:openInFileManager',
-    (_event, path: string): Promise<ShellOpenLocalPathResult> => openInFileManager(path)
+    (_event, path: string): Promise<ShellOpenLocalPathResult> => openInFileManager(store, path)
   )
 
   ipcMain.handle(
     'shell:openInExternalEditor',
-    (_event, path: string, command?: string): Promise<ShellOpenLocalPathResult> => {
+    (_event, request: ShellOpenExternalEditorRequest): Promise<ShellOpenExternalEditorResult> => {
       // Why: command reaches spawn() (compound commands run via `sh -c`), so only main-trusted
       // launchers may run — a raw renderer string would hand a compromised renderer arbitrary
       // process execution (same threat model as the fs:* path confinement).
-      const trimmedCommand = command?.trim()
+      const trimmedCommand = request.command?.trim()
       if (trimmedCommand && !isTrustedExternalEditorCommand(trimmedCommand, store)) {
         return Promise.resolve({ ok: false, reason: 'launch-failed' })
       }
-      return openInExternalEditor(path, command)
+      return openInExternalEditor(store, request)
     }
   )
 
@@ -220,90 +268,7 @@ export function registerShellHandlers(store: Store): void {
     return pathExists(filePath)
   })
 
-  ipcMain.handle(
-    'shell:pickDirectory',
-    async (_event, args: { defaultPath?: string }): Promise<string | null> => {
-      const result = await dialog.showOpenDialog({
-        defaultPath: args.defaultPath,
-        // Why: callers only need an existing folder grant; enabling native
-        // creation can leave typed prefix directories behind on macOS.
-        properties: ['openDirectory']
-      })
-      if (result.canceled || result.filePaths.length === 0) {
-        return null
-      }
-      return result.filePaths[0]
-    }
-  )
-
-  // Why: window.prompt() and <input type="file"> are unreliable in Electron,
-  // so we use the native OS dialog to let the user pick any attachment file.
-  ipcMain.handle('shell:pickAttachment', async (): Promise<string | null> => {
-    const result = await dialog.showOpenDialog({
-      properties: ['openFile']
-    })
-    if (result.canceled || result.filePaths.length === 0) {
-      return null
-    }
-    return result.filePaths[0]
-  })
-
-  // Why: window.prompt() and <input type="file"> are unreliable in Electron,
-  // so we use the native OS dialog to let the user pick an image file.
-  ipcMain.handle('shell:pickImage', async (): Promise<string | null> => {
-    const result = await dialog.showOpenDialog({
-      properties: ['openFile'],
-      filters: [
-        { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico'] }
-      ]
-    })
-    if (result.canceled || result.filePaths.length === 0) {
-      return null
-    }
-    return result.filePaths[0]
-  })
-
-  ipcMain.handle(
-    'shell:pickRepoIconImage',
-    async (): Promise<{ dataUrl: string; fileName: string } | null> => {
-      const result = await dialog.showOpenDialog({
-        properties: ['openFile'],
-        filters: [{ name: 'Repo icon images', extensions: ['png'] }]
-      })
-      if (result.canceled || result.filePaths.length === 0) {
-        return null
-      }
-
-      const filePath = result.filePaths[0]
-      const extension = extname(filePath).toLowerCase()
-      const mimeType = REPO_ICON_IMAGE_MIME_TYPES[extension]
-      if (!mimeType) {
-        throw new Error('Repo icons must be PNG files.')
-      }
-
-      const stats = await stat(filePath)
-      if (stats.size > MAX_REPO_ICON_UPLOAD_BYTES) {
-        throw new Error('Repo icon image must be 256KB or smaller.')
-      }
-
-      const buffer = await readFile(filePath)
-      return {
-        dataUrl: `data:${mimeType};base64,${buffer.toString('base64')}`,
-        fileName: basename(filePath)
-      }
-    }
-  )
-
-  ipcMain.handle('shell:pickAudio', async (): Promise<string | null> => {
-    const result = await dialog.showOpenDialog({
-      properties: ['openFile'],
-      filters: [{ name: 'Audio', extensions: ['ogg', 'mp3', 'wav', 'm4a', 'aac', 'flac'] }]
-    })
-    if (result.canceled || result.filePaths.length === 0) {
-      return null
-    }
-    return result.filePaths[0]
-  })
+  registerFilePickerDialogHandlers()
 
   // Note: shell:copyFile was removed — it had no live caller (markdown image
   // insert and file duplication both go through the confined fs:* handlers).

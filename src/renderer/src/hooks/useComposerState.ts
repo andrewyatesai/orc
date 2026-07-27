@@ -39,6 +39,7 @@ import {
   type TaskSourceContext
 } from '../../../shared/task-source-context'
 import type {
+  GitHubRepositoryIdentity,
   GitHubWorkItem,
   GitHubPrStartPoint,
   GitPushTarget,
@@ -56,6 +57,7 @@ import type {
   WorkspaceCreateTelemetrySource,
   ProjectGroup
 } from '../../../shared/types'
+import { githubRepoIdentityKey } from '../../../shared/github-repository-identity-key'
 import { isWorkspaceStatusId } from '../../../shared/workspace-statuses'
 import {
   CLIENT_PLATFORM,
@@ -79,6 +81,7 @@ import {
   resolveQuickCreateLinkedWorkItemPrompt
 } from '@/lib/linked-work-item-context'
 import { getLocalRepoProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
+import { captureDirectSshMutationExpectation } from '@/lib/ssh-mutation-expectation'
 import {
   buildLinearIssueLinkedWorkItem,
   getLinearLinkedWorkItemBranchName,
@@ -179,6 +182,7 @@ import {
   getComposerRepoWorktreeBranches
 } from './composer-branch-selection'
 import { isCurrentComposerDropOwner } from './composer-drop-owner'
+import { applyComposerNativeFileDrop } from './composer-native-file-drop'
 import {
   collectComposerDropUploadResult,
   shouldReportComposerDropUploadFailure
@@ -1214,25 +1218,26 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
   const selectedRepoConnectionIdRef = useRef(selectedRepoConnectionId)
   selectedRepoConnectionIdRef.current = selectedRepoConnectionId
 
-  // Why: the selected repo's slug, used to confirm a pasted PR URL belongs to this repo before linking (else a same-numbered foreign PR mislinks).
-  const [selectedRepoSlug, setSelectedRepoSlug] = useState<{ owner: string; repo: string } | null>(
-    null
-  )
+  // Why: compare the full host-aware identity before linking a pasted PR URL to this repo.
+  const [selectedRepoSlug, setSelectedRepoSlug] = useState<GitHubRepositoryIdentity | null>(null)
   const selectedRepoPath = selectedRepo?.path
   const selectedRepoPathRef = useRef<string | undefined>(selectedRepoPath)
   selectedRepoPathRef.current = selectedRepoPath
   const selectedRepoSettingsRef = useRef(selectedRepoSettings)
   selectedRepoSettingsRef.current = selectedRepoSettings
 
+  // Why: depend on the persisted policy *value*, not the selectedRepo object. Background repo
+  // refetches (git polling) hand back a new repo reference with the same hookSettings; keying on
+  // the object would re-run this and briefly flip the toggle back to the stale value — the glitch.
+  const persistedSetupAgentStartupPolicy = getRepoSetupAgentStartupPolicy(selectedRepo)
   useEffect(() => {
-    const nextPolicy = getRepoSetupAgentStartupPolicy(selectedRepo)
     const draft = setupAgentStartupPolicyDraftRef.current
-    if (draft?.repoId === repoId && draft.policy !== nextPolicy) {
+    if (draft?.repoId === repoId && draft.policy !== persistedSetupAgentStartupPolicy) {
       return
     }
-    setupAgentStartupPolicyRef.current = nextPolicy
-    setSetupAgentStartupPolicy(nextPolicy)
-  }, [repoId, selectedRepo])
+    setupAgentStartupPolicyRef.current = persistedSetupAgentStartupPolicy
+    setSetupAgentStartupPolicy(persistedSetupAgentStartupPolicy)
+  }, [repoId, persistedSetupAgentStartupPolicy])
 
   const persistSetupAgentStartupPolicy = useCallback(
     async (
@@ -1363,7 +1368,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
     const target = getActiveRuntimeTarget(selectedRepoSettings)
     const slugRequest =
       target.kind === 'environment'
-        ? callRuntimeRpc<{ owner: string; repo: string } | null>(
+        ? callRuntimeRpc<GitHubRepositoryIdentity | null>(
             target,
             'github.repoSlug',
             { repo: repoId },
@@ -1443,8 +1448,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
       // Why: adopt the number only when the URL slug matches the selected repo (and the slug has resolved), else a foreign PR URL mislinks to a same-numbered PR here.
       if (
         selectedRepoSlug &&
-        fromName.slug.owner.toLowerCase() === selectedRepoSlug.owner.toLowerCase() &&
-        fromName.slug.repo.toLowerCase() === selectedRepoSlug.repo.toLowerCase()
+        githubRepoIdentityKey(fromName.slug) === githubRepoIdentityKey(selectedRepoSlug)
       ) {
         return fromName.number
       }
@@ -1723,7 +1727,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
       }
     }
 
-    void readRuntimeIssueCommand(selectedRepoSettings, repoId)
+    void readRuntimeIssueCommand(selectedRepoSettingsRef.current, repoId)
       .then((result) => {
         if (!cancelled) {
           setIssueCommandTemplate(result.effectiveContent ?? '')
@@ -1740,13 +1744,18 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
     return () => {
       cancelled = true
     }
+    // Why: key on the stable runtime-env id, not the selectedRepoSettings object. `updateRepo`
+    // (e.g. saving the setup toggle from this very composer) replaces selectedRepo — and thus the
+    // memoized selectedRepoSettings — by reference; depending on the object would re-run this
+    // effect, blank yamlHooks to null, and make the whole setup section vanish for a frame.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     commitHookCheckIfCurrent,
     enableIssueAutomation,
     loadHookCheckForRepo,
     repoId,
     selectedRepoIsGit,
-    selectedRepoSettings
+    runtimeEnvironmentId
   ])
 
   const onConnectSelectedRepo = useCallback(async (): Promise<void> => {
@@ -1922,6 +1931,9 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
             sourceContext: selectedRepoGitHubSourceContext,
             owner: normalizedLinkQuery.directLink.slug.owner,
             repo: normalizedLinkQuery.directLink.slug.repo,
+            ...(normalizedLinkQuery.directLink.slug.host
+              ? { host: normalizedLinkQuery.directLink.slug.host }
+              : {}),
             number: normalizedLinkQuery.directLink.number,
             type: normalizedLinkQuery.directLink.type
           })
@@ -2402,16 +2414,44 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
         return { filePaths: [], folderPaths: [] }
       }
       const destinationDir = joinPath(targetRepoPath, '.orca/drops')
+      const sshExpectation = targetConnectionId
+        ? captureDirectSshMutationExpectation(
+            useAppStore.getState(),
+            targetConnectionId,
+            targetSettings?.activeRuntimeEnvironmentId
+          )
+        : {
+            expectedExecutionHostId: 'local' as const,
+            expectedSshTargetId: undefined,
+            expectedSshConnectionGeneration: undefined
+          }
+      const assertCurrent = targetConnectionId
+        ? () => {
+            const current = captureDirectSshMutationExpectation(
+              useAppStore.getState(),
+              targetConnectionId,
+              targetSettings?.activeRuntimeEnvironmentId
+            )
+            if (
+              current.expectedSshTargetId !== sshExpectation.expectedSshTargetId ||
+              current.expectedSshConnectionGeneration !==
+                sshExpectation.expectedSshConnectionGeneration
+            ) {
+              throw new Error('Attachment upload host changed; retry the upload.')
+            }
+          }
+        : undefined
       const { results } = await importExternalPathsToRuntime(
         {
           settings: targetSettings,
           worktreeId: targetRepoPath,
           worktreePath: targetRepoPath,
-          connectionId: targetConnectionId ?? undefined
+          connectionId: targetConnectionId ?? undefined,
+          ...sshExpectation
         },
         sourcePaths,
         destinationDir,
-        { ensureDestinationDir: true }
+        { ensureDestinationDir: true, assertCurrent }
       )
       const uploadResult = collectComposerDropUploadResult(results)
       if (shouldReportComposerDropUploadFailure(uploadResult, canReportFailure)) {
@@ -2494,26 +2534,25 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
       if (!isCurrentComposerDropOwner(composerDropStack, instanceId)) {
         return
       }
-      void (async () => {
-        const isStillDropOwner = (): boolean =>
-          isCurrentComposerDropOwner(composerDropStack, instanceId)
-        const uploaded = await uploadComposerPathsRef.current(
-          data.paths,
-          selectedRepoSettingsRef.current,
-          connectionIdRef.current,
-          selectedRepoPathRef.current,
-          isStillDropOwner
-        )
-        if (!isStillDropOwner()) {
-          return
-        }
-        if (uploaded) {
-          addComposerAttachmentsRef.current(uploaded.filePaths)
-          insertComposerFolderPathsRef.current(uploaded.folderPaths)
-          return
-        }
-        await applyLocalComposerDropRef.current(data.paths, isStillDropOwner)
-      })()
+      const isStillDropOwner = (): boolean =>
+        isCurrentComposerDropOwner(composerDropStack, instanceId)
+      void applyComposerNativeFileDrop({
+        paths: data.paths,
+        isCurrentOwner: isStillDropOwner,
+        uploadPaths: (paths) =>
+          uploadComposerPathsRef.current(
+            paths,
+            selectedRepoSettingsRef.current,
+            connectionIdRef.current,
+            selectedRepoPathRef.current,
+            isStillDropOwner
+          ),
+        applyLocalPaths: applyLocalComposerDropRef.current,
+        addAttachments: addComposerAttachmentsRef.current,
+        insertFolderPaths: insertComposerFolderPathsRef.current,
+        onError: (error) =>
+          toast.error(error instanceof Error ? error.message : 'Failed to drop files.')
+      })
     })
     return () => {
       unsubscribe()

@@ -131,12 +131,22 @@ export function buildAgentResumeStartupPlan(args: {
   agentArgs?: string | null
   agentEnv?: Record<string, string> | null
   agentCommand?: string | null
+  /** OMP's exact transcript-file locator; the Rust arm falls back to the
+   * session id when it is absent or blank. */
+  ompResumeFilePath?: string | null
   /** Accepted for call-site parity; resume restores the provider session's own
    * state, so picker flags are never replayed (matches upstream). */
   sessionOptions?: Record<string, SessionOptionValue>
   isRemote?: boolean
 }): AgentStartupPlan | null {
-  return op<AgentStartupPlan>('buildAgentResumeStartupPlan', args)
+  const plan = op<AgentStartupPlan>('buildAgentResumeStartupPlan', args)
+  // Why: the Rust launchConfig carries no OMP locator, so re-attach it here —
+  // a captured config without it cold-resumes by bare id against the default
+  // store and misses a custom OMP_CODING_AGENT_DIR / WSL session.
+  const ompResumeFilePath = args.ompResumeFilePath?.trim()
+  return plan && ompResumeFilePath
+    ? { ...plan, launchConfig: { ...plan.launchConfig, ompResumeFilePath } }
+    : plan
 }
 
 export function buildAgentDraftLaunchPlan(args: {

@@ -83,12 +83,17 @@ function getAgentStatusTabId(entry: {
 
 function activeOrQueuedResumeClaimsProviderSession(
   record: SleepingAgentSessionRecord,
-  state: ReturnType<typeof useAppStore.getState>
+  state: ReturnType<typeof useAppStore.getState>,
+  samePaneOwnsRecovery: boolean
 ): boolean {
   const worktreeTabIds = new Set(
     (state.tabsByWorktree[record.worktreeId] ?? []).map((tab) => tab.id)
   )
   for (const entry of Object.values(state.agentStatusByPaneKey)) {
+    // Why: only an owned pane needs its record; hidden/live panes still dedupe by status.
+    if (samePaneOwnsRecovery && entry.paneKey === record.paneKey) {
+      continue
+    }
     if (
       worktreeTabIds.has(getAgentStatusTabId(entry) ?? '') &&
       entry.worktreeId === record.worktreeId &&
@@ -127,6 +132,18 @@ function activeOrQueuedResumeClaimsProviderSession(
   return false
 }
 
+function runtimeHostOwnsAgentWake(
+  state: ReturnType<typeof useAppStore.getState>,
+  worktreeId: string
+): boolean {
+  // Why: the shared owner resolver only trusts the focused-runtime fallback while the saved
+  // runtime catalog names exactly that env, so it reports "unowned" before the catalog hydrates
+  // and for multi-runtime clients. Wake authority must fail closed there, so resolve ownership
+  // with the catalog withheld — every explicit local/ssh/repo host still wins first (#8878).
+  const wakeOwnerState = { ...state, runtimeEnvironments: undefined }
+  return isWebRuntimeSessionActive(getRuntimeEnvironmentIdForWorktree(wakeOwnerState, worktreeId))
+}
+
 function isInvalidWorktreeActivationRecord(record: SleepingAgentSessionRecord): boolean {
   if (record.interrupted === true) {
     return true
@@ -146,7 +163,7 @@ export function resumeSleepingAgentSessionsForWorktree(
   const state = useAppStore.getState()
   // Why: runtime-owned worktrees are host-authoritative for agent wake; a paired
   // client resuming here would double-launch a still-live host session (#8878).
-  if (isWebRuntimeSessionActive(getRuntimeEnvironmentIdForWorktree(state, worktreeId))) {
+  if (runtimeHostOwnsAgentWake(state, worktreeId)) {
     return 0
   }
   const worktreeRecords = Object.values(state.sleepingAgentSessionsByPaneKey)
@@ -188,7 +205,7 @@ export function resumeSleepingAgentSessionsForWorktree(
       }
       continue
     }
-    if (activeOrQueuedResumeClaimsProviderSession(record, currentState)) {
+    if (activeOrQueuedResumeClaimsProviderSession(record, currentState, isPaneOwned)) {
       // Why: main can replay the old wake record after the same provider
       // session was already queued in a fresh tab; clear the stale replay.
       state.clearSleepingAgentSession(record.paneKey)

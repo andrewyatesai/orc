@@ -9,8 +9,7 @@
 // reconnects via `relay.js --connect`, bridging the new SSH channel's stdio to the existing relay's socket.
 
 import { createServer, createConnection, type Socket, type Server } from 'node:net'
-import { homedir } from 'node:os'
-import { resolve, join } from 'node:path'
+import { join } from 'node:path'
 import { unlinkSync, existsSync, statSync, writeFileSync } from 'node:fs'
 import {
   RELAY_SENTINEL,
@@ -23,7 +22,7 @@ import {
 } from './protocol'
 import { readLaunchVersion, runConnectHandshake, setupDaemonHandshake } from './relay-handshake'
 import { RelayDispatcher } from './dispatcher'
-import { RelayContext } from './context'
+import { RelayContext, expandTilde } from './context'
 import { bindRelayOrcaDispatch } from './git-wasm'
 import { PtyHandler } from './pty-handler'
 import { FsHandler } from './fs-handler'
@@ -416,13 +415,10 @@ async function main(): Promise<void> {
   // Why: `~` is a shell expansion Node's fs APIs don't understand; resolve it to an absolute path on the remote host before persisting.
   dispatcher.onRequest('session.resolveHome', async (params) => {
     const inputPath = params.path as string
-    if (inputPath === '~' || inputPath === '~/') {
-      return { resolvedPath: homedir() }
-    }
-    if (inputPath.startsWith('~/')) {
-      return { resolvedPath: resolve(homedir(), inputPath.slice(2)) }
-    }
-    return { resolvedPath: inputPath }
+    // Use the shared expander so Windows `~\…` paths resolve too — a remote
+    // relay host can be Windows, where a literal `~\` would otherwise fall
+    // through unexpanded and break every downstream fs op.
+    return { resolvedPath: expandTilde(inputPath) }
   })
 
   const ptyHandler = new PtyHandler(dispatcher, graceTimeMs)

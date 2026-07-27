@@ -62,6 +62,7 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
                 provider_session_transcript_path: session
                     .and_then(|value| value.get("transcriptPath"))
                     .and_then(Value::as_str),
+                omp_resume_file_path: input.get("ompResumeFilePath").and_then(Value::as_str),
                 cmd_overrides: &cmd_overrides,
                 platform: str_field(input, "platform"),
                 shell: parse_shell(input.get("shell")),

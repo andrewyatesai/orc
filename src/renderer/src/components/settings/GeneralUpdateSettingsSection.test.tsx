@@ -29,6 +29,9 @@ beforeEach(() => {
         getIdentity: vi.fn().mockResolvedValue({ name: 'Orca: ALab Edition' })
       },
       shell: { openUrl },
+      // Why: the section now renders GeneralRemoteServerUpdates, whose store slice
+      // lists runtime environments on mount; without this the effect rejects.
+      runtimeEnvironments: { list: vi.fn().mockResolvedValue([]) },
       updater: {
         check: vi.fn(),
         download,

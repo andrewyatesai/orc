@@ -17,13 +17,17 @@ describe('ResourceUsageStatusSegment orphan bulk kill', () => {
   it('re-verifies orphans against fresh daemon inventory before killing', () => {
     const confirmedIndex = source.indexOf('const runKillOrphansConfirmed')
     expect(confirmedIndex).toBeGreaterThanOrEqual(0)
-    const refreshIndex = source.indexOf('await refreshSessions()', confirmedIndex)
+    // The fresh read hits the daemon directly: useResourceSessionInventory's
+    // refreshSessions() resolves to void and only writes state this closure cannot read.
+    const freshReadIndex = source.indexOf('await window.api.pty.listSessions()', confirmedIndex)
     const verifyIndex = source.indexOf('selectVerifiedOrphanSessions(', confirmedIndex)
     const killIndex = source.indexOf('window.api.pty.kill', confirmedIndex)
     // Order matters: fetch fresh inventory -> re-verify unbound -> kill.
-    expect(refreshIndex).toBeGreaterThan(confirmedIndex)
-    expect(verifyIndex).toBeGreaterThan(refreshIndex)
+    expect(freshReadIndex).toBeGreaterThan(confirmedIndex)
+    expect(verifyIndex).toBeGreaterThan(freshReadIndex)
     expect(killIndex).toBeGreaterThan(verifyIndex)
+    // The verification must consume that fresh read, never the popover's snapshot.
+    expect(source).toContain('selectVerifiedOrphanSessions(freshSessions, resourceSessionBindings)')
   })
 
   it('aborts the bulk kill when the fresh inventory fetch fails', () => {

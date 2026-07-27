@@ -252,9 +252,10 @@ export async function runOnboardingFeatureSetup(
   if (selection.computerUse) {
     try {
       const status = await deps.getComputerUsePermissionStatus()
-      // Why: when the helper app is absent every permission reads 'not-granted' with a
-      // helperUnavailableReason set; opening setup would only throw RuntimeClientError (#8950),
-      // so skip it rather than surface a spurious warning.
+      // Why: when the helper app is absent (e.g. dev builds without `pnpm build:computer-macos`)
+      // every permission reads 'not-granted' with a helperUnavailableReason set; opening setup
+      // would only throw RuntimeClientError (#8950), so skip it rather than surface a spurious
+      // warning.
       const needsMacPermissions =
         status.platform === 'darwin' &&
         !status.helperUnavailableReason &&

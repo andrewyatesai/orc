@@ -20,11 +20,14 @@ import {
   deferTerminalGeometryMutationDuringRebuild,
   isTerminalScrollIntentRebuildInFlight
 } from './terminal-scroll-intent-rebuild'
+import {
+  canMeasurePaneForFit,
+  getProposedDimensions,
+  hasMeasurableContainerLayout,
+  recordPaneFitClientSize
+} from './pane-fit-measurement'
 
-const MIN_PANE_FIT_WIDTH_PX = 48
-const MIN_PANE_FIT_HEIGHT_PX = 24
-const MIN_PANE_FIT_COLS = 8
-const MIN_PANE_FIT_ROWS = 4
+export { canMeasurePaneForFit, readFitClientSize } from './pane-fit-measurement'
 
 export type SafeFitContinuationHandle = {
   completion: Promise<boolean>
@@ -41,36 +44,6 @@ const pendingSafeFitContinuations = new WeakMap<
   ManagedPane,
   Map<string, PendingSafeFitContinuation>
 >()
-
-function getProposedDimensions(pane: ManagedPane): { cols: number; rows: number } | null {
-  try {
-    return pane.fitAddon.proposeDimensions() ?? null
-  } catch {
-    return null
-  }
-}
-
-function hasMeasurableContainerLayout(pane: ManagedPane): boolean {
-  const measure = pane.container?.getBoundingClientRect
-  if (typeof measure !== 'function') {
-    return true
-  }
-  const rect = measure.call(pane.container)
-  return rect.width >= MIN_PANE_FIT_WIDTH_PX && rect.height >= MIN_PANE_FIT_HEIGHT_PX
-}
-
-function canMeasurePaneForFit(pane: ManagedPane): boolean {
-  if (!hasMeasurableContainerLayout(pane)) {
-    return false
-  }
-  const dims = getProposedDimensions(pane)
-  if (!dims) {
-    return false
-  }
-  // Why: worktree switches can briefly measure a near-zero overlay before
-  // fallback positioning lands. Fitting there pins the PTY at ~2 cols.
-  return dims.cols >= MIN_PANE_FIT_COLS && dims.rows >= MIN_PANE_FIT_ROWS
-}
 
 function canPreserveScrollIntentForFit(pane: ManagedPane): boolean {
   // Why: split reparent has its own delayed restore; restoring here can fight that timer.
@@ -195,7 +168,7 @@ function settlePendingSafeFitContinuation(
   pending.resolve(completed)
 }
 
-function flushPendingSafeFitContinuations(pane: ManagedPane): void {
+export function flushPendingSafeFitContinuations(pane: ManagedPane): void {
   const operations = pendingSafeFitContinuations.get(pane)
   if (!operations) {
     return
@@ -217,6 +190,8 @@ function flushPendingSafeFitContinuations(pane: ManagedPane): void {
 export function safeFit(pane: ManagedPane): boolean {
   const completed = performSafeFit(pane)
   if (completed) {
+    // Why: baseline for the reveal fit to tell a real resize from a metric wobble.
+    recordPaneFitClientSize(pane)
     // Why: replay transactions may be waiting for renderer dimensions; any
     // successful ordinary fit is the event that makes their PTY grid authoritative.
     flushPendingSafeFitContinuations(pane)

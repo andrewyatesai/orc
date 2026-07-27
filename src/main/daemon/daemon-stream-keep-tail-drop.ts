@@ -33,10 +33,13 @@ export type PendingStreamDataBatch = {
   // Per-session held totals so the flush hold can spare small talkers
   // (echo/replies) from waiting behind other sessions' floods.
   queuedCharsBySession: Map<string, number>
+  // Membership is reconciled when queued data first appears and on rare
+  // background lifecycle changes, keeping steady-state enqueue constant-time.
+  droppableQueuedSessionIds: Set<string>
   // Last droppable-sessions-with-queued-data count seen by the keep-tail
   // logic: when it GROWS the shared budget tightens, and sessions that
   // finished producing must be re-trimmed (they will never re-enqueue).
-  lastDroppableSessionCount?: number
+  lastEvaluatedDroppableSessionCount?: number
 }
 
 // The keep-tail must comfortably cover a full TUI repaint (~cols×rows×SGR ≈
@@ -181,38 +184,4 @@ export function dropOldestQueuedForSession(
       (batch.queuedCharsBySession.get(sessionId) ?? 0) + salvaged.length
     )
   }
-}
-
-// Why here, not the batcher: the cap/keep-tail policy and its shared-budget
-// scaling are this module's contract; the batcher only reports enqueues.
-export function applyBackgroundSessionDropCaps(
-  batch: PendingStreamDataBatch,
-  sessionId: string,
-  isSessionDroppable: (sessionId: string) => boolean,
-  salvageDroppedData: (dropped: string) => string
-): void {
-  let droppableQueued = 0
-  for (const [queuedSessionId, queued] of batch.queuedCharsBySession) {
-    if (queued > 0 && isSessionDroppable(queuedSessionId)) {
-      droppableQueued++
-    }
-  }
-  const dropCap = backgroundSessionDropCapChars(droppableQueued)
-  const keepTail = backgroundSessionKeepTailChars(droppableQueued)
-  if ((batch.queuedCharsBySession.get(sessionId) ?? 0) > dropCap) {
-    dropOldestQueuedForSession(batch, sessionId, keepTail, salvageDroppedData)
-  }
-  if (droppableQueued > (batch.lastDroppableSessionCount ?? 0)) {
-    // Shared budget tightened: re-trim sessions that already finished producing — they never re-enter this path on their own.
-    for (const [queuedSessionId, queued] of Array.from(batch.queuedCharsBySession)) {
-      if (
-        queued > dropCap &&
-        queuedSessionId !== sessionId &&
-        isSessionDroppable(queuedSessionId)
-      ) {
-        dropOldestQueuedForSession(batch, queuedSessionId, keepTail, salvageDroppedData)
-      }
-    }
-  }
-  batch.lastDroppableSessionCount = droppableQueued
 }

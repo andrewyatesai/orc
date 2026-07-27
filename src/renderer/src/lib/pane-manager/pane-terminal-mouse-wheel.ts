@@ -1,7 +1,9 @@
 // TUI wheel policy facade: the multiplier/report math lives in
 // pane-terminal-tui-wheel-reports (upstream #7179/#7205); the aterm seam
 // (aterm-mouse-input + aterm-wheel-lines) owns actual wheel-report forwarding,
-// so the xterm replay/attach machinery is intentionally absent here.
+// so the xterm replay/attach machinery is intentionally absent here. Upstream's
+// mouseTrackingMode==='none' drain gate has no analogue: aterm encodes reports
+// synchronously behind is_mouse_tracking, with no deferred batch to stale out.
 export {
   TERMINAL_TUI_MOUSE_WHEEL_MULTIPLIER,
   TERMINAL_TUI_MOUSE_WHEEL_MULTIPLIER_MAX,

@@ -13,9 +13,11 @@ import {
 } from '../../shared/workspace-scope'
 import { inspectSetupScriptImportCandidates } from '../../shared/setup-script-imports'
 import { getProjectHostSetupWorktreeMeta } from '../../shared/project-host-setup-projection'
+import { projectResolvedWorktreeLineage } from '../../shared/resolved-worktree-lineage'
 import { deleteWorktreeHistoryDir } from '../terminal-history'
 import type {
   AutomationWorkspaceProvenance,
+  CliWorkspaceProvenance,
   CreateWorktreeArgs,
   CreateWorktreeResult,
   DetectedWorktree,
@@ -48,8 +50,15 @@ import {
 import { gitExecFileAsync } from '../git/runner'
 import { withWorktreeSpan } from '../observability/instrumentation'
 import { resolveGitHubPrStartPoint } from '../github/pr-start-point'
-import { fetchPrHeadTrackingRef } from '../github/pr-head-tracking-ref'
+import {
+  fetchGitHubPullRequestHeadRef,
+  fetchPrHeadTrackingRef
+} from '../github/pr-head-tracking-ref'
 import { pruneWorktreePRRefreshAliases } from '../github/pr-refresh-coordinator'
+import { resolveGitHubReviewHeadRemote } from '../github/review-head-remote'
+// Why: upstream dropped this import when it replaced resolveRemote with
+// resolveGitHubReviewHeadRemote, but the fork's memoized remote enumeration
+// (resolveRemoteList, used for resolveRemoteAlternatives) still needs it.
 import { getDefaultRemote } from '../git/repo'
 import { listRepoWorktrees } from '../repo-worktrees'
 import { getSshGitProvider, requireSshGitProvider } from '../providers/ssh-git-dispatch'
@@ -106,6 +115,7 @@ import { shouldEmitBoundedWarning } from './bounded-warning-dedupe'
 
 type CreateWorktreeArgsWithSystemProvenance = CreateWorktreeArgs & {
   automationProvenance?: AutomationWorkspaceProvenance
+  cliProvenance?: CliWorkspaceProvenance
 }
 
 type RemoveWorktreeArgs = {
@@ -739,7 +749,7 @@ function buildDetectedGitWorktrees(
     repo.path,
     ...liveWorktrees.map((worktree) => worktree.path)
   ])
-  return liveWorktrees.map((gitWorktree) => {
+  const detected = liveWorktrees.map((gitWorktree) => {
     const worktreeId = `${repo.id}::${gitWorktree.path}`
     let meta = store.getWorktreeMeta(worktreeId)
     const worktree = mergeWorktree(repo.id, gitWorktree, meta, repo.displayName)
@@ -767,6 +777,7 @@ function buildDetectedGitWorktrees(
       agentScratchWorktreePathMatcher
     })
   })
+  return projectResolvedWorktreeLineage(detected, store.getAllWorktreeLineage?.() ?? {})
 }
 
 function stampAndMergeVisibleDetectedWorktree(
@@ -837,6 +848,7 @@ function mergeFolderWorkspace(repo: Repo, worktreeId: string, meta: WorktreeMeta
     ...(meta.automationProvenance !== undefined
       ? { automationProvenance: meta.automationProvenance }
       : {}),
+    ...(meta.cliProvenance !== undefined ? { cliProvenance: meta.cliProvenance } : {}),
     ...(meta.priorWorktreeIds !== undefined ? { priorWorktreeIds: meta.priorWorktreeIds } : {}),
     workspaceStatus: meta.workspaceStatus ?? DEFAULT_WORKSPACE_STATUS_ID,
     diffComments: meta.diffComments,
@@ -927,6 +939,7 @@ function createFolderWorkspace(
     orcaCreatedAt: now,
     orcaCreationSource: 'desktop',
     ...(args.automationProvenance ? { automationProvenance: args.automationProvenance } : {}),
+    ...(args.cliProvenance ? { cliProvenance: args.cliProvenance } : {}),
     ...(args.createdWithAgent ? { createdWithAgent: args.createdWithAgent } : {}),
     ...(args.linkedIssue !== undefined ? { linkedIssue: args.linkedIssue } : {}),
     ...(args.linkedPR !== undefined ? { linkedPR: args.linkedPR } : {}),
@@ -960,7 +973,7 @@ function buildDisconnectedDetectedWorktrees(
     repo.path,
     ...worktrees.map((worktree) => worktree.path)
   ])
-  return worktrees.map((worktree) => {
+  const detected = worktrees.map((worktree) => {
     const meta = store.getWorktreeMeta(worktree.id)
     const detected = toDetectedWorktree({
       repo,
@@ -973,6 +986,7 @@ function buildDisconnectedDetectedWorktrees(
     })
     return applyMetadataFallbackVisibility(detected)
   })
+  return projectResolvedWorktreeLineage(detected, store.getAllWorktreeLineage?.() ?? {})
 }
 
 export function registerWorktreeHandlers(
@@ -1150,7 +1164,10 @@ export function registerWorktreeHandlers(
             repoId: repo.id,
             authoritative: true,
             source: 'git',
-            worktrees: buildFolderDetectedWorktrees(store, repo)
+            worktrees: projectResolvedWorktreeLineage(
+              buildFolderDetectedWorktrees(store, repo),
+              store.getAllWorktreeLineage?.() ?? {}
+            )
           }
         } else if (repo.connectionId) {
           const provider = getSshGitProvider(repo.connectionId)
@@ -1309,13 +1326,21 @@ export function registerWorktreeHandlers(
         }
         return provider.exec(args, repo.path)
       }
-      // Why: SSH repos can't fetch over the relay's read-only git.exec channel; route the PR-head fetch through the write-capable helper.
+      // Why: SSH review-head fetches require narrow write-capable RPCs.
       const fetchRemoteTrackingRef = (remote: string, branch: string): Promise<void> =>
         fetchPrHeadTrackingRef(
           repo,
           repo.connectionId ? getSshGitProvider(repo.connectionId) : undefined,
           remote,
           branch,
+          { localGitExecOptions: getLocalProjectGitExecOptions(store, repo) }
+        )
+      const fetchPullRequestHeadRef = (remote: string, prNumber: number): Promise<string> =>
+        fetchGitHubPullRequestHeadRef(
+          repo,
+          repo.connectionId ? getSshGitProvider(repo.connectionId) : undefined,
+          remote,
+          prNumber,
           { localGitExecOptions: getLocalProjectGitExecOptions(store, repo) }
         )
 
@@ -1375,18 +1400,45 @@ export function registerWorktreeHandlers(
         return remoteListPromise
       }
 
+      // Why: the primary remote must honor issue-source preference and GitHub
+      // hosting identity (upstream #10120), not just git's default remote —
+      // memoized so resolveRemote and resolveRemoteAlternatives share one probe.
+      let primaryRemotePromise: Promise<string> | null = null
+      const resolvePrimaryRemote = (): Promise<string> => {
+        if (!primaryRemotePromise) {
+          primaryRemotePromise = resolveGitHubReviewHeadRemote({
+            repoPath: repo.path,
+            issueSourcePreference: repo.issueSourcePreference,
+            connectionId: repo.connectionId ?? null,
+            localGitOptions: getLocalProjectWorktreeGitOptions(store, repo),
+            gitExec
+          })
+        }
+        return primaryRemotePromise
+      }
+
       return resolveGitHubPrStartPoint({
         repoPath: repo.path,
         prNumber: args.prNumber,
         headRefName: args.headRefName,
         baseRefName: args.baseRefName,
         isCrossRepository: args.isCrossRepository,
+        issueSourcePreference: repo.issueSourcePreference,
         connectionId: repo.connectionId ?? null,
         localGitOptions: getLocalProjectWorktreeGitOptions(store, repo),
         gitExec,
         fetchRemoteTrackingRef,
-        resolveRemote: async () => (await resolveRemoteList())[0]!,
-        resolveRemoteAlternatives: async () => (await resolveRemoteList()).slice(1)
+        fetchPullRequestHeadRef,
+        resolveRemote: resolvePrimaryRemote,
+        // Why: the fork's enumeration supplies the ordered fallbacks that
+        // pr-start-point walks when the identity-picked primary lacks the branch.
+        resolveRemoteAlternatives: async () => {
+          const [primary, remotes] = await Promise.all([
+            resolvePrimaryRemote(),
+            resolveRemoteList()
+          ])
+          return remotes.filter((remote) => remote !== primary)
+        }
       })
     }
   )

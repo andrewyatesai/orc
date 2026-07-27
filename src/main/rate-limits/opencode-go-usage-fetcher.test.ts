@@ -12,7 +12,6 @@ vi.mock('electron', () => ({
 }))
 
 import { fetchOpenCodeGoRateLimits, normalizeCookieInput } from './opencode-go-usage-fetcher'
-
 const WORKSPACES_SERVER_ID = 'def39973159c7f0483d8793a822b8dbb10d067e12c65455fcb4608459ba0234f'
 
 function makeResponse(body: string, status = 200): Response {

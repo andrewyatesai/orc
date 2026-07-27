@@ -220,6 +220,15 @@ export default function TerminalSearch({
     input?.focus()
   }, [])
 
+  // Why: unmounting (or swapping panes) while a search is live left the last match
+  // highlighted; clear the engine's search state on teardown, not just on close.
+  useEffect(
+    () => () => {
+      atermSearch?.clearSearch()
+    },
+    [atermSearch]
+  )
+
   useEffect(() => {
     // Keep the ref in sync so the keyboard handler (Cmd+G / Cmd+Shift+G)
     // can read the current search state without lifting it to parent state.

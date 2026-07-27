@@ -141,6 +141,13 @@ async function postFeedback(
       signal: controller.signal
     }
     return await net.fetch(url, init)
+  } catch (error) {
+    // Why: Electron and Node use different AbortError messages. Normalize our
+    // client deadline so support logs explain which request budget expired.
+    if (controller.signal.aborted) {
+      throw new Error(`request timed out after ${timeoutMs / 1000} seconds`)
+    }
+    throw error
   } finally {
     clearTimeout(timeout)
   }
@@ -201,6 +208,42 @@ function responseFailure(response: Response): FeedbackRequestFailure {
 
 function errorFailure(error: unknown): FeedbackRequestFailure {
   return { status: null, error: messageFromError(error) }
+}
+
+// Why: a 5xx or a dropped connection is usually transient, so retry once against
+// the same configured endpoint. There is deliberately no second host to try.
+async function retryFeedbackOnEndpoint(
+  endpoint: string,
+  body: FeedbackSubmitBody,
+  primaryError?: unknown
+): Promise<FeedbackSubmitResult> {
+  try {
+    const retry = await postFeedback(endpoint, body)
+    if (retry.ok) {
+      return { ok: true }
+    }
+    const retryMessage = `status ${retry.status}`
+    if (primaryError === undefined) {
+      return { ok: false, status: retry.status, error: retryMessage }
+    }
+    // Why: keep the first failure visible so support sees the 5xx → retry chain,
+    // not only its last link.
+    return {
+      ok: false,
+      status: retry.status,
+      error: `${messageFromError(primaryError)}; retry: ${retryMessage}`
+    }
+  } catch (retryError) {
+    const message = messageFromError(retryError)
+    if (primaryError === undefined) {
+      return { ok: false, status: null, error: message }
+    }
+    return {
+      ok: false,
+      status: null,
+      error: `${messageFromError(primaryError)}; retry: ${message}`
+    }
+  }
 }
 
 function shouldRetryDiagnosticBundleAsJson(status: number): boolean {
@@ -280,9 +323,14 @@ export async function submitFeedback(
     if (res.ok) {
       return { ok: true }
     }
+    // Why: transient server errors retry the same configured endpoint; a 404 or
+    // any other 4xx is a real rejection, so it fails immediately.
+    if (res.status >= 500) {
+      return retryFeedbackOnEndpoint(endpoint, body, new Error(`status ${res.status}`))
+    }
     return { ok: false, status: res.status, error: `status ${res.status}` }
   } catch (error) {
-    return { ok: false, status: null, error: messageFromError(error) }
+    return retryFeedbackOnEndpoint(endpoint, body, error)
   }
 }
 

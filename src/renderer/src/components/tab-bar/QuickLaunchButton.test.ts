@@ -163,6 +163,24 @@ describe('QuickLaunchAgentMenuItems agent detection host (#9790)', () => {
     })
   })
 
+  it('prefers the paired runtime owner over its server-side SSH connection', () => {
+    storeState.worktreesByRepo = { 'repo-1': [{ id: 'worktree-1', repoId: 'repo-1' }] }
+    storeState.repos = [
+      {
+        id: 'repo-1',
+        connectionId: 'server-only-ssh-target',
+        executionHostId: 'runtime:env-1'
+      }
+    ]
+
+    renderAgentMenuItems()
+
+    expect(useDetectedAgentsMock).toHaveBeenLastCalledWith({
+      kind: 'runtime',
+      environmentId: 'env-1'
+    })
+  })
+
   it('detects locally for a plain local worktree', () => {
     storeState.worktreesByRepo = { 'repo-1': [{ id: 'worktree-1', repoId: 'repo-1' }] }
     storeState.repos = [{ id: 'repo-1', connectionId: null }]

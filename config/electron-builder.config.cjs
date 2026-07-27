@@ -11,9 +11,9 @@ const {
   prunePackagedRuntimeNodeModules,
   verifyPackagedMainRuntimeDeps
 } = require('./packaged-runtime-node-modules.cjs')
+const { verifyLinuxGlibcFloor } = require('./scripts/verify-linux-glibc-floor.cjs')
 
 const { assertBundledBinaryArchitectures } = require('./scripts/assert-bundled-binary-arch.cjs')
-const { verifyLinuxGlibcFloor } = require('./scripts/verify-linux-glibc-floor.cjs')
 
 const isMacRelease = process.env.ORCA_MAC_RELEASE === '1'
 // Why: releases have only an ad-hoc launch seal — no Developer ID or notarization.
@@ -165,9 +165,10 @@ module.exports = {
     // local cargo run) into app.asar, bloating the bundle ~20x (11GB vs ~150MB).
     '!rust{,/**/*}',
     '!skills{,/**/*}',
-    // Why: authoritative guide markdown is compiled into out/cli; shipping the
-    // authoring sources too would duplicate content without a runtime consumer.
+    // Why: guide/stub authoring sources are compiled into runtime artifacts; shipping
+    // either source tree would duplicate content without a runtime consumer.
     '!skill-guides{,/**/*}',
+    '!skill-stubs{,/**/*}',
     '!tests{,/**/*}',
     // Why: pr-evidence/ is a local e2e screenshot output (ORCA_CAPTURE_EVIDENCE);
     // it is gitignored, but exclude it defensively so a stray local capture at

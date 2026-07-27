@@ -510,6 +510,27 @@ function mockConnectedAdoptionClientOnce(): void {
   })
 }
 
+function mockOnlyDaemonSocketAlive(socketSuffix: string): void {
+  netConnectMock.mockImplementation((options?: { path?: string }) => {
+    const live = options?.path?.endsWith(socketSuffix) ?? false
+    const handlers: Record<string, (() => void)[]> = { connect: [], error: [] }
+    return {
+      on(event: string, callback: () => void) {
+        handlers[event]?.push(callback)
+        if ((live && event === 'connect') || (!live && event === 'error')) {
+          queueMicrotask(() => callback())
+        }
+        return this
+      },
+      removeListener(event: string, callback: () => void) {
+        handlers[event] = handlers[event]?.filter((handler) => handler !== callback) ?? []
+        return this
+      },
+      destroy() {}
+    }
+  })
+}
+
 describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
   beforeEach(() => {
     probeSocketExistsMock.mockReturnValue(false)
@@ -645,23 +666,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
   it('disconnects uninstalled adapter leases when startup aborts during legacy discovery', async () => {
     const mod = await importFresh()
     probeSocketExistsMock.mockImplementation((p?: string) => p?.endsWith('daemon-v9.sock') ?? false)
-    netConnectMock.mockImplementation(() => {
-      const handlers: Record<string, (() => void)[]> = { connect: [], error: [] }
-      return {
-        on(event: string, cb: () => void) {
-          handlers[event]?.push(cb)
-          if (event === 'connect') {
-            queueMicrotask(() => cb())
-          }
-          return this
-        },
-        removeListener(event: string, cb: () => void) {
-          handlers[event] = handlers[event]?.filter((handler) => handler !== cb) ?? []
-          return this
-        },
-        destroy() {}
-      }
-    })
+    mockOnlyDaemonSocketAlive('daemon-v9.sock')
     let resolveDiscovery!: (sessions: { sessionId: string }[]) => void
     const discovery = new Promise<{ sessionId: string }[]>((resolve) => {
       resolveDiscovery = resolve
@@ -692,23 +697,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     probeSocketExistsMock.mockImplementation(
       (path?: string) => path?.endsWith('daemon-v9.sock') ?? false
     )
-    netConnectMock.mockImplementation(() => {
-      const handlers: Record<string, (() => void)[]> = { connect: [], error: [] }
-      return {
-        on(event: string, callback: () => void) {
-          handlers[event]?.push(callback)
-          if (event === 'connect') {
-            queueMicrotask(() => callback())
-          }
-          return this
-        },
-        removeListener(event: string, callback: () => void) {
-          handlers[event] = handlers[event]?.filter((handler) => handler !== callback) ?? []
-          return this
-        },
-        destroy() {}
-      }
-    })
+    mockOnlyDaemonSocketAlive('daemon-v9.sock')
     const discoveryError = new Error('router subscription failed')
     const currentCleanupError = new Error('current cleanup failed')
     const legacyCleanupError = new Error('legacy cleanup failed')
@@ -951,23 +940,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
   it('routes affected v9 daemon sessions through a legacy adapter on launch', async () => {
     const mod = await importFresh()
     probeSocketExistsMock.mockImplementation((p?: string) => p?.endsWith('daemon-v9.sock') ?? false)
-    netConnectMock.mockImplementation(() => {
-      const handlers: Record<string, (() => void)[]> = { connect: [], error: [] }
-      return {
-        on(event: string, cb: () => void) {
-          handlers[event]?.push(cb)
-          if (event === 'connect') {
-            queueMicrotask(() => cb())
-          }
-          return this
-        },
-        removeListener(event: string, cb: () => void) {
-          handlers[event] = handlers[event]?.filter((handler) => handler !== cb) ?? []
-          return this
-        },
-        destroy() {}
-      }
-    })
+    mockOnlyDaemonSocketAlive('daemon-v9.sock')
 
     await mod.initDaemonPtyProvider()
 
@@ -1183,7 +1156,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
 
   it('respawns instead of reusing a healthy daemon launched from another app path', async () => {
     const mod = await importFresh()
-    await mod.initDaemonPtyProvider()
+    await mod.initDaemonPtyProvider(undefined, { macosLoginSessionWatch: true })
 
     const launcher = spawnerInstances[0].launcher as (
       socketPath: string,
@@ -1206,9 +1179,26 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     )
     expect(spawnMock).toHaveBeenCalledWith(
       FAKE_RUST_DAEMON_BIN,
-      ['--socket', '/fake/socket', '--token', '/fake/token'],
+      // The GUI-login marker rides the Rust launch contract too (see daemon-init).
+      ['--socket', '/fake/socket', '--token', '/fake/token', '--login-session-watch'],
       expect.objectContaining({ cwd: '/fake/userData', detached: true })
     )
+  })
+
+  it('omits the login-session watch flag when init did not request it', async () => {
+    const mod = await importFresh()
+    await mod.initDaemonPtyProvider()
+
+    const launcher = spawnerInstances[0].launcher as (
+      socketPath: string,
+      tokenPath: string
+    ) => Promise<{ shutdown(): Promise<void> }>
+    getDaemonLaunchIdentityMock.mockReturnValueOnce('mismatch')
+
+    await launcher('/fake/socket', '/fake/token')
+
+    const launchedArgsWithoutWatch = spawnMock.mock.calls.at(-1)?.[1] as string[]
+    expect(launchedArgsWithoutWatch).not.toContain('--login-session-watch')
   })
 
   it('holds a full adoption pair before a healthy launcher resolves', async () => {
@@ -1565,6 +1555,49 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     expect(spawnMock).toHaveBeenCalled()
   })
 
+  it('stays silent about replacing a daemon on a cold start, where there is none', async () => {
+    // Why: a first launch reaches the same replace fall-through (unreachable health,
+    // no socket, nothing to probe); announcing a replacement there reports killing a
+    // daemon that never existed, on the most common path there is.
+    const mod = await importFresh()
+    await mod.initDaemonPtyProvider()
+
+    // Both pre-spawn probes fail: nothing ever answers, so no session count is observed.
+    const unreachableClient = function MockDaemonClient() {
+      return {
+        ensureConnected: vi.fn(async () => {
+          throw new Error('connect ENOENT')
+        }),
+        request: vi.fn(),
+        disconnect: vi.fn()
+      }
+    }
+    daemonClientMock
+      .mockImplementationOnce(unreachableClient)
+      .mockImplementationOnce(unreachableClient)
+
+    const launcher = spawnerInstances[0].launcher as (
+      socketPath: string,
+      tokenPath: string
+    ) => Promise<{ shutdown(): Promise<void> }>
+    // Only the pre-spawn reconcile probe is unreachable; the post-spawn readiness
+    // poll takes the default 'healthy' so the Rust launch completes.
+    checkDaemonHealthMock.mockResolvedValueOnce('unreachable')
+    probeSocketExistsMock.mockReturnValue(false)
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      await launcher('/fake/socket', '/fake/token')
+
+      expect(spawnMock).toHaveBeenCalled()
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('Replacing daemon that failed the health check')
+      )
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
   // Why: net.connect stub whose 'connect' fires, so probeSocket() reports the pipe alive on every grace re-check.
   function stubAliveSocketConnect() {
     const handlers: Record<string, (() => void)[]> = { connect: [], error: [] }
@@ -1683,6 +1716,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
 
     // Count only the launcher's own session-count probes.
     daemonClientMock.mockClear()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     try {
       await launcher('/fake/socket', '/fake/token')
@@ -1696,7 +1730,16 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       // Full grace budget: initial adoption pair + 1 initial probe +
       // WEDGED_DAEMON_GRACE_RETRIES retries + the fresh daemon's adoption lease.
       expect(daemonClientMock).toHaveBeenCalledTimes(3 + WEDGED_DAEMON_GRACE_RETRIES)
+      // Why: this replace path used to kill the daemon with no log, so a post-hoc
+      // reader could not tell it apart from an adoption; the verdict must be recorded.
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Replacing daemon that failed the health check')
+      )
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`graceRetries=${WEDGED_DAEMON_GRACE_RETRIES}`)
+      )
     } finally {
+      warnSpy.mockRestore()
       // Restore the answering default: clearAllMocks clears calls not impls, so the throwing impl would leak into later tests.
       daemonClientMock.mockImplementation(answeringDefault)
     }

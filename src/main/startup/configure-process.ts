@@ -1,6 +1,8 @@
 import { app } from 'electron'
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { TERMINAL_WEBGL_MAX_ACTIVE_CONTEXTS } from '../../shared/terminal-webgl-context-budget'
 import { getVersionManagerBinPaths } from '../codex-cli/command'
 import { getMainE2EConfig } from '../e2e-config'
 
@@ -89,28 +91,6 @@ export function resetDevParentShutdownRequestForTests(): void {
   devParentShutdownRequested = false
 }
 
-export function installUncaughtPipeErrorGuard(): void {
-  const onUncaughtException = (error: unknown): void => {
-    if (
-      error &&
-      typeof error === 'object' &&
-      'code' in error &&
-      ((error as NodeJS.ErrnoException).code === 'EIO' ||
-        (error as NodeJS.ErrnoException).code === 'EPIPE')
-    ) {
-      return
-    }
-
-    process.off('uncaughtException', onUncaughtException)
-    // Why: throwing inside an uncaughtException handler exits with status 7 and hides the fault; re-throw next tick for the real stack.
-    setImmediate(() => {
-      throw error
-    })
-  }
-
-  process.on('uncaughtException', onUncaughtException)
-}
-
 export function patchPackagedProcessPath(): void {
   if (!app.isPackaged) {
     return
@@ -161,7 +141,20 @@ export function patchPackagedProcessPath(): void {
 export function configureDevUserDataPath(isDev: boolean): void {
   const e2eConfig = getMainE2EConfig()
   if (e2eConfig.userDataDir) {
-    // Why: a per-launch userData path stops E2E specs leaking persisted repos/worktrees/session state through the shared dev profile.
+    // Why: the E2E suite launches a fresh Electron app for each spec. A
+    // dedicated userData path per launch prevents persisted repos, worktrees,
+    // and session state from leaking between tests through the shared dev
+    // profile while still leaving the user's real packaged profile untouched.
+    const e2eHomeDir = process.env.ORCA_E2E_HOME_DIR ?? join(e2eConfig.userDataDir, 'home')
+    // Why: E2E imports can resolve os.homedir() before Electron is ready. Abort
+    // startup if a direct launch skipped the disposable Node-home contract.
+    if (!areSameE2EHomePath(homedir(), e2eHomeDir)) {
+      throw new Error('Refusing to start E2E outside its disposable home boundary')
+    }
+    // Why: on macOS Electron resolves app.getPath('home') from the native user
+    // database, not HOME. Set it explicitly before any Codex paths are built.
+    mkdirSync(e2eHomeDir, { recursive: true, mode: 0o700 })
+    app.setPath('home', e2eHomeDir)
     app.setPath('userData', e2eConfig.userDataDir)
     return
   }
@@ -177,6 +170,14 @@ export function configureDevUserDataPath(isDev: boolean): void {
   }
   // Why: without a dev-only path, pnpm dev overwrites the packaged app's runtime pointer under userData and breaks the orca CLI.
   app.setPath('userData', join(app.getPath('appData'), 'orca-dev'))
+}
+
+function areSameE2EHomePath(left: string, right: string): boolean {
+  const normalizedLeft = resolve(left)
+  const normalizedRight = resolve(right)
+  return process.platform === 'win32'
+    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
+    : normalizedLeft === normalizedRight
 }
 
 export function configureOrcaUserDataPathEnv(): void {
@@ -265,6 +266,13 @@ function appendComposedEnableFeatures(featureFlags: string[]): void {
   }
 }
 
+export function configureMainProcessWebglContextBudget(): void {
+  app.commandLine.appendSwitch(
+    'max-active-webgl-contexts',
+    String(TERMINAL_WEBGL_MAX_ACTIVE_CONTEXTS)
+  )
+}
+
 export function enableMainProcessGpuFeatures(): void {
   // Why: unlocks the SAB byte ring (renderer->worker) without COOP/COEP on the
   // file:// renderer; consumers must keep a typeof SharedArrayBuffer runtime
@@ -286,9 +294,16 @@ export function enableMainProcessGpuFeatures(): void {
     return
   }
 
+  if (process.platform === 'darwin') {
+    // Why: Graphite can strand corrupt Metal tiles after idle; Ganesh preserves GPU compositing without the stale surface.
+    // Reached on every macOS launch only because GPU fallback skips this function and is win32-only; if fallback ever
+    // reaches macOS this must move out of this path or Macs silently lose the fix.
+    app.commandLine.appendSwitch('disable-skia-graphite')
+  }
+
   // Why: Blink evicts the oldest WebGL context past 16/renderer and each terminal pane holds one, silently downgrading panes to DOM.
   // 128 raises the ceiling for real layouts while staying bounded so context leaks still surface.
-  app.commandLine.appendSwitch('max-active-webgl-contexts', '128')
+  configureMainProcessWebglContextBudget()
 
   const ozonePlatform = (app.commandLine.getSwitchValue('ozone-platform') ?? '').toLowerCase()
   const ozonePlatformHint = (process.env.ELECTRON_OZONE_PLATFORM_HINT ?? '').toLowerCase()

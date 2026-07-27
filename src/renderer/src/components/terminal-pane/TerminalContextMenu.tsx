@@ -37,6 +37,7 @@ import { formatPrimaryShortcutLabel } from '@/hooks/useShortcutLabel'
 import type { KeybindingOverrides } from '../../../../shared/keybindings'
 import { translate } from '@/i18n/i18n'
 import { isMacPlatform, nativeChatToggleShortcutLabel } from '../native-chat/native-chat-shortcut'
+import { AgentSessionContinuationMenuItem } from './AgentSessionContinuationMenuItem'
 
 type TerminalContextMenuProps = {
   open: boolean
@@ -73,6 +74,8 @@ type TerminalContextMenuProps = {
   onEqualizePaneSizes: () => void
   onClosePane: () => void
   onClearScreen: () => void
+  canContinueAgentSessionInNewSession: boolean
+  onContinueAgentSessionInNewSession: () => void
   onForkAgentSession: () => void
   canToggleNativeChat: boolean
   isNativeChatView: boolean
@@ -125,6 +128,8 @@ export default function TerminalContextMenu({
   onEqualizePaneSizes,
   onClosePane,
   onClearScreen,
+  canContinueAgentSessionInNewSession,
+  onContinueAgentSessionInNewSession,
   onForkAgentSession,
   canToggleNativeChat,
   isNativeChatView,
@@ -163,10 +168,6 @@ export default function TerminalContextMenu({
     }),
     [keybindings]
   )
-  const showEqualizeShortcut = shortcuts.equalize !== 'Unassigned'
-  const showSetTitleShortcut = shortcuts.setTitle !== 'Unassigned'
-  const showClearPaneTitleShortcut = shortcuts.clearPaneTitle !== 'Unassigned'
-
   // First selection line — the action searches it in full; the item ellipsizes.
   const selectionSnippet = menuSelectionText.split('\n', 1)[0].trim()
 
@@ -260,6 +261,9 @@ export default function TerminalContextMenu({
           onAddQuickCommand={onAddQuickCommand}
           onOpenChange={onOpenChange}
         />
+        {canContinueAgentSessionInNewSession ? (
+          <AgentSessionContinuationMenuItem onSelect={onContinueAgentSessionInNewSession} />
+        ) : null}
         <DropdownMenuItem onSelect={onForkAgentSession}>
           <GitFork />
           {translate(
@@ -313,7 +317,7 @@ export default function TerminalContextMenu({
               'auto.components.terminal.pane.TerminalContextMenu.06c2b0f043',
               'Equalize Pane Sizes'
             )}
-            {showEqualizeShortcut ? (
+            {shortcuts.equalize !== 'Unassigned' ? (
               <DropdownMenuShortcut>{shortcuts.equalize}</DropdownMenuShortcut>
             ) : null}
           </DropdownMenuItem>
@@ -344,7 +348,7 @@ export default function TerminalContextMenu({
         >
           <Pencil />
           {translate('auto.components.terminal.pane.TerminalContextMenu.39809d152f', 'Set Title…')}
-          {showSetTitleShortcut ? (
+          {shortcuts.setTitle !== 'Unassigned' ? (
             <DropdownMenuShortcut>{shortcuts.setTitle}</DropdownMenuShortcut>
           ) : null}
         </DropdownMenuItem>
@@ -355,7 +359,7 @@ export default function TerminalContextMenu({
               'auto.components.terminal.pane.TerminalContextMenu.clearPaneTitle',
               'Clear Pane Title'
             )}
-            {showClearPaneTitleShortcut ? (
+            {shortcuts.clearPaneTitle !== 'Unassigned' ? (
               <DropdownMenuShortcut>{shortcuts.clearPaneTitle}</DropdownMenuShortcut>
             ) : null}
           </DropdownMenuItem>

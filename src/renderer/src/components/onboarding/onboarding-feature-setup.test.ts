@@ -300,6 +300,42 @@ describe('onboarding feature setup runner', () => {
     expect(deps.clipboardWrites).toEqual([])
   })
 
+  it('skips openSetup silently when the helper app is unavailable and every feature is selected', async () => {
+    // Why: getComputerUsePermissionStatus reports helperUnavailableReason with
+    // all permissions set to not-granted when the helper app is missing (e.g.
+    // a dev build that never ran `pnpm build:computer-macos`). The runner must
+    // not call openSetup in that case, or the IPC handler throws.
+    //
+    // Fork contract (#8950): the skip is silent. Upstream's twin fix (#8951) instead
+    // pushes helperUnavailableReason as a computerUse warning; the fork treats a
+    // missing helper as a non-event for onboarding, so no warning is emitted. This
+    // case adds the full-selection path the single-feature #8950 test does not cover.
+    const unavailableStatus: ComputerUsePermissionStatusResult = {
+      platform: 'darwin',
+      helperAppPath: null,
+      helperUnavailableReason: 'Orca Computer Use.app was not found',
+      permissions: [
+        { id: 'accessibility', status: 'not-granted' },
+        { id: 'screenshots', status: 'not-granted' }
+      ]
+    }
+    const openComputerUsePermissionSetup = vi.fn(async () => OPENED_COMPUTER_USE_SETUP)
+    const deps = createDeps({
+      getComputerUsePermissionStatus: vi.fn(async () => unavailableStatus),
+      openComputerUsePermissionSetup
+    })
+
+    const result = await runOnboardingFeatureSetup(
+      { browserUse: true, computerUse: true, orchestration: true, linearTickets: true },
+      deps
+    )
+
+    expect(result.computerUsePermissionsOpened).toBe(false)
+    expect(openComputerUsePermissionSetup).not.toHaveBeenCalled()
+    expect(result.warnings).toEqual([])
+    expect(result.skillCommandsCopied).toBe(true)
+  })
+
   it('shows CLI registration context before installing a missing CLI during onboarding', async () => {
     const staleStatus: CliInstallStatus = {
       ...INSTALLED_CLI_STATUS,

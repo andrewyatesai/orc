@@ -10,6 +10,7 @@ import { getAgentStatusHooksTitle } from './agent-status-hooks-copy'
 import { getAgentAwakeDescription, getAgentAwakeTitle } from './agent-awake-copy'
 import { AgentAwakeSetting } from './AgentAwakeSetting'
 import { AgentRuntimeSetting } from './AgentRuntimeSetting'
+import type * as AgentRuntimeSettingModule from './AgentRuntimeSetting'
 import {
   AgentAvailabilityControl,
   AgentPermissionsSetting,
@@ -26,8 +27,13 @@ import { TooltipProvider } from '../ui/tooltip'
 
 const detectedAgentsMock = vi.hoisted(() => ({
   detectedIds: ['claude'] as TuiAgent[] | null,
+  isLoading: false,
+  detectionFailed: false,
   refresh: vi.fn(),
   lastTarget: undefined as unknown
+}))
+const agentRuntimeSettingMock = vi.hoisted(() => ({
+  lastRefresh: null as (() => Promise<unknown>) | null
 }))
 
 vi.mock('@/hooks/useDetectedAgents', () => ({
@@ -35,12 +41,24 @@ vi.mock('@/hooks/useDetectedAgents', () => ({
     detectedAgentsMock.lastTarget = target
     return {
       detectedIds: detectedAgentsMock.detectedIds,
-      isLoading: detectedAgentsMock.detectedIds === null,
+      isLoading: detectedAgentsMock.isLoading,
+      detectionFailed: detectedAgentsMock.detectionFailed,
       isRefreshing: false,
       refresh: detectedAgentsMock.refresh
     }
   }
 }))
+
+vi.mock('./AgentRuntimeSetting', async (importOriginal) => {
+  const actual = await importOriginal<typeof AgentRuntimeSettingModule>()
+  return {
+    ...actual,
+    AgentRuntimeSetting: (props: React.ComponentProps<typeof actual.AgentRuntimeSetting>) => {
+      agentRuntimeSettingMock.lastRefresh = props.refresh
+      return actual.AgentRuntimeSetting(props)
+    }
+  }
+})
 
 type ReactElementLike = {
   type: unknown
@@ -146,14 +164,59 @@ function findSegmentedControl(node: unknown, ariaLabel: string): ReactElementLik
 describe('AgentsPane', () => {
   beforeEach(() => {
     detectedAgentsMock.detectedIds = ['claude']
+    detectedAgentsMock.isLoading = false
+    detectedAgentsMock.detectionFailed = false
     detectedAgentsMock.refresh.mockReset()
     detectedAgentsMock.lastTarget = undefined
+    agentRuntimeSettingMock.lastRefresh = null
     useAppStore.setState({
       settingsSearchQuery: '',
       detectedAgentIds: ['claude'],
       isDetectingAgents: false,
-      isRefreshingAgents: false
+      isRefreshingAgents: false,
+      runtimeEnvironments: []
+    } as never)
+  })
+
+  it('shows a retryable error when initial remote detection fails', () => {
+    detectedAgentsMock.detectedIds = null
+    detectedAgentsMock.isLoading = false
+    detectedAgentsMock.detectionFailed = true
+
+    const markup = renderPane({
+      ...getDefaultSettings('/tmp'),
+      activeRuntimeEnvironmentId: 'env-1'
     })
+
+    expect(markup).toContain('Couldn’t detect installed agents')
+    expect(markup).toContain('Retry')
+    expect(markup).not.toContain('Detecting installed agents…')
+  })
+
+  it('does not flash a failure before the initial detection effect starts', () => {
+    detectedAgentsMock.detectedIds = null
+    detectedAgentsMock.isLoading = false
+    detectedAgentsMock.detectionFailed = false
+
+    const markup = renderPane(getDefaultSettings('/tmp'))
+
+    expect(markup).toContain('Detecting installed agents…')
+    expect(markup).not.toContain('Couldn’t detect installed agents')
+  })
+
+  it('keeps Windows runtime changes scoped to the local agent refresh', () => {
+    renderPane(
+      {
+        ...getDefaultSettings('/tmp'),
+        activeRuntimeEnvironmentId: 'env-1'
+      },
+      { wslSupportedPlatform: true, wslAvailable: true, wslDistros: ['Ubuntu'] }
+    )
+
+    expect(agentRuntimeSettingMock.lastRefresh).toBe(
+      useAppStore.getInitialState().refreshDetectedAgents
+    )
+    expect(agentRuntimeSettingMock.lastRefresh).not.toBe(detectedAgentsMock.refresh)
   })
 
   it('detects agents locally when no active remote server is set (#9790)', () => {

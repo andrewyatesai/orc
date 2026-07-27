@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import {
   FOCUS_TERMINAL_PANE_EVENT,
   PASTE_TERMINAL_TEXT_EVENT,
@@ -19,7 +19,8 @@ import { handleTerminalProgrammaticTextPaste } from './terminal-programmatic-tex
 import {
   hideTerminalVisibility,
   resumeTerminalVisibility,
-  type TerminalHiddenReason
+  type TerminalHiddenReason,
+  type TerminalVisibilityPostPaintRecovery
 } from './terminal-visibility-resume'
 import { useTerminalWindowWakeRecovery } from './use-terminal-window-wake-recovery'
 import {
@@ -81,22 +82,15 @@ export function useTerminalPaneGlobalEffects({
   worktreeIdRef.current = worktreeId
   const cwdRef = useRef(cwd)
   cwdRef.current = cwd
-  // Starts true so the first render with isVisible=false triggers a
-  // suspendRendering(). Background worktrees that mount hidden would
-  // otherwise leak WebGL contexts — openTerminal() unconditionally creates
-  // one — and exhaust Chromium's ~8-context budget across worktrees.
+  // Starts true so initially hidden tabs never allocate WebGL.
   const wasVisibleRef = useRef(true)
   const wasWorktreeActiveRef = useRef(isWorktreeActive)
   const hasCompletedVisibleResumeRef = useRef(false)
   const renderingSuspendedByVisibilityRef = useRef(false)
   const hiddenReasonRef = useRef<TerminalHiddenReason | null>(null)
+  const postPaintVisibilityRecoveryRef = useRef<TerminalVisibilityPostPaintRecovery | null>(null)
   const rendererVisible = isVisible && isWorktreeActive
-  // Why: the active pane can rebind to a new PTY (deferred reattach / eager
-  // adopt) or switch active leaf without isActive/isVisible/isWorktreeActive
-  // flipping. Derive the active leaf's live PTY reactively from the same
-  // leaf→PTY binding the reattach path writes, so the active-renderer-pty report
-  // below re-fires on rebind — otherwise main keeps the stale id and the live
-  // PTY loses its interactive reserve.
+  // Why: rebind/active-leaf changes without visibility flips must re-report PTY.
   const activeLeafPtyId = useAppStore((state) => {
     const layout = state.terminalLayoutsByTabId[tabId]
     const activeLeafId = layout?.activeLeafId
@@ -136,51 +130,64 @@ export function useTerminalPaneGlobalEffects({
     }
   }, [rendererVisible, paneTransportsRef])
 
-  useEffect(() => {
+  // Why layout: resuming before paint avoids a one-frame stale/blank flash on reveal.
+  useLayoutEffect(() => {
+    isActiveRef.current = isActive
+    isVisibleRef.current = rendererVisible
+    const wasVisible = wasVisibleRef.current
+    const wasWorktreeActive = wasWorktreeActiveRef.current
+    const shouldUseLightTabResume =
+      isWorktreeActive &&
+      hasCompletedVisibleResumeRef.current &&
+      !renderingSuspendedByVisibilityRef.current &&
+      (wasVisible || hiddenReasonRef.current === 'tab')
+    // Why: bookkeeping must advance even before PaneManager exists, so the first
+    // tab hide after a hidden mount still takes the light path.
+    postPaintVisibilityRecoveryRef.current = null
+    wasVisibleRef.current = rendererVisible
+    wasWorktreeActiveRef.current = isWorktreeActive
+    if (rendererVisible) {
+      renderingSuspendedByVisibilityRef.current = false
+      hasCompletedVisibleResumeRef.current = true
+      hiddenReasonRef.current = null
+    }
     const manager = managerRef.current
     if (!manager) {
       return
     }
-    const wasVisible = wasVisibleRef.current
-    const wasWorktreeActive = wasWorktreeActiveRef.current
-    isActiveRef.current = isActive
-    isVisibleRef.current = rendererVisible
     if (rendererVisible) {
-      const shouldUseLightTabResume =
-        isWorktreeActive &&
-        hasCompletedVisibleResumeRef.current &&
-        !renderingSuspendedByVisibilityRef.current &&
-        (wasVisible || hiddenReasonRef.current === 'tab')
-      resumeTerminalVisibility({
+      postPaintVisibilityRecoveryRef.current = resumeTerminalVisibility({
         manager,
         isActive,
         wasVisible,
         shouldUseLightTabResume,
         captureViewportPositions
       })
-      renderingSuspendedByVisibilityRef.current = false
-      wasVisibleRef.current = true
-      wasWorktreeActiveRef.current = isWorktreeActive
-      hasCompletedVisibleResumeRef.current = true
-      hiddenReasonRef.current = null
       applyPendingFollowOutputRequests()
       return
-    } else {
-      const hiddenState = hideTerminalVisibility({
-        manager,
-        wasVisible,
-        wasWorktreeActive,
-        isWorktreeActive,
-        hasCompletedVisibleResume: hasCompletedVisibleResumeRef.current,
-        captureViewportPositions
-      })
-      renderingSuspendedByVisibilityRef.current = hiddenState.renderingSuspended
-      hiddenReasonRef.current = hiddenState.hiddenReason
     }
-    wasVisibleRef.current = false
-    wasWorktreeActiveRef.current = isWorktreeActive
+    const hiddenState = hideTerminalVisibility({
+      manager,
+      wasVisible,
+      wasWorktreeActive,
+      isWorktreeActive,
+      hasCompletedVisibleResume: hasCompletedVisibleResumeRef.current,
+      captureViewportPositions
+    })
+    renderingSuspendedByVisibilityRef.current = hiddenState.renderingSuspended
+    hiddenReasonRef.current = hiddenState.hiddenReason
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isActive, isWorktreeActive, rendererVisible])
+
+  useEffect(() => {
+    const recovery = postPaintVisibilityRecoveryRef.current
+    postPaintVisibilityRecoveryRef.current = null
+    const manager = managerRef.current
+    // Why: lifecycle effects may replace the manager after layout but before this effect.
+    if (recovery && isVisibleRef.current && manager) {
+      recovery.run(manager)
+    }
+  }, [isActive, isWorktreeActive, rendererVisible, isVisibleRef, managerRef])
 
   useEffect(() => {
     const ptyId = isActive && isVisible && isWorktreeActive ? activeLeafPtyId : null
@@ -197,22 +204,16 @@ export function useTerminalPaneGlobalEffects({
   useEffect(() => {
     const onToggleExpand = (event: Event): void => {
       const detail = (event as CustomEvent<{ tabId?: string }>).detail
-      if (!detail?.tabId || detail.tabId !== tabId) {
-        return
-      }
       const manager = managerRef.current
-      if (!manager) {
+      if (!detail?.tabId || detail.tabId !== tabId || !manager) {
         return
       }
       const panes = manager.getPanes()
-      if (panes.length < 2) {
-        return
+      // Why: a single pane has nothing to expand against.
+      const pane = panes.length > 1 ? (manager.getActivePane() ?? panes[0]) : null
+      if (pane) {
+        toggleExpandPane(pane.id)
       }
-      const pane = manager.getActivePane() ?? panes[0]
-      if (!pane) {
-        return
-      }
-      toggleExpandPane(pane.id)
     }
     window.addEventListener(TOGGLE_TERMINAL_PANE_EXPAND_EVENT, onToggleExpand)
     return () => window.removeEventListener(TOGGLE_TERMINAL_PANE_EXPAND_EVENT, onToggleExpand)

@@ -89,10 +89,12 @@ export type KeybindingActionId =
   | 'editor.replace'
   | 'editor.save'
   | 'editor.markdownPreview'
+  | 'editor.toggleWordWrap'
   | 'editor.copyContext'
   | 'editor.previousChange'
   | 'editor.nextChange'
   | 'editor.addReviewNote'
+  | 'sourceControl.sendReviewNotes'
   | 'fileExplorer.undo'
   | 'fileExplorer.redo'
   | 'fileExplorer.copyPath'
@@ -826,6 +828,15 @@ export const KEYBINDING_DEFINITIONS: readonly KeybindingDefinition[] = [
     defaultBindings: platformBindings(['Mod+Shift+V'])
   },
   {
+    id: 'editor.toggleWordWrap',
+    title: 'Toggle Word Wrap',
+    group: 'Editors',
+    scope: 'editor',
+    searchKeywords: ['shortcut', 'editor', 'word wrap', 'wrap', 'long lines', 'soft wrap'],
+    // Why: Alt+Z matches VS Code; bare Alt+letter is not AltGr, so it stays cross-platform (#9974).
+    defaultBindings: platformBindings(['Alt+Z'])
+  },
+  {
     id: 'editor.copyContext',
     title: 'Copy Context',
     group: 'Editors',
@@ -860,6 +871,26 @@ export const KEYBINDING_DEFINITIONS: readonly KeybindingDefinition[] = [
     searchKeywords: ['shortcut', 'editor', 'markdown', 'note', 'comment', 'annotation', 'review'],
     // Why: Ctrl+Alt+letter is AltGr text input on Windows/Linux, so an editor default must not reserve chars like Polish `ń`.
     defaultBindings: platformBindings(['Mod+Shift+A'])
+  },
+  {
+    id: 'sourceControl.sendReviewNotes',
+    title: 'Send Review Notes to Agent',
+    group: 'Global',
+    scope: 'global',
+    // Why: fires from the global capture handler even while the editor is focused, so Settings must warn on collisions with editor chords (e.g. Add Review Note) too, not just global ones.
+    conflictGroup: 'editor',
+    searchKeywords: [
+      'shortcut',
+      'source control',
+      'diff',
+      'notes',
+      'send',
+      'agent',
+      'review',
+      'annotate'
+    ],
+    // Why: unbound by default so it never collides with existing chords; users opt in via Settings.
+    defaultBindings: platformBindings([])
   },
   {
     id: 'fileExplorer.undo',
