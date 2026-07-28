@@ -15,6 +15,11 @@
 
 import { spawnSync } from 'node:child_process'
 import { chmodSync, copyFileSync, existsSync, mkdirSync } from 'node:fs'
+import {
+  clearInstalledAtermSourceCommit,
+  readCleanAtermSourceCommit,
+  writeInstalledAtermSourceCommit
+} from './terminal-addon-source-stamp.mjs'
 import { dirname, resolve } from 'node:path'
 import {
   DARWIN_TRIPLES,
@@ -31,6 +36,22 @@ const rustWorkspaceDir = dirname(manifest)
 // Cargo appends .exe on Windows; the packaged resource + resolver expect the same.
 const binExt = process.platform === 'win32' ? '.exe' : ''
 const binPath = resolve(projectDir, `rust/target/release/orca-daemon${binExt}`)
+// Why: the daemon statically embeds its own aterm copy, so it needs the same source
+// provenance the addon records — otherwise a stale daemon ships beside a fresh engine
+// and no gate objects (see check-native-artifact-provenance.mjs).
+const daemonStampPath = resolve(projectDir, 'rust/target/release/.orca-daemon-aterm-source.json')
+const atermSource = resolve(projectDir, 'rust/aterm')
+
+function stampDaemonProvenance() {
+  const sourceCommit = readCleanAtermSourceCommit(atermSource)
+  if (sourceCommit) {
+    writeInstalledAtermSourceCommit(daemonStampPath, sourceCommit)
+  } else {
+    // A dirty or unreadable checkout has no exact provenance; an absent stamp is the
+    // honest state and the checker reports it as such.
+    clearInstalledAtermSourceCommit(daemonStampPath)
+  }
+}
 
 function rustupBin(tool) {
   const r = spawnSync('rustup', ['which', tool, '--toolchain', 'stable'], { encoding: 'utf8' })
@@ -99,6 +120,7 @@ async function main() {
       lipoCreate(perTargetBinPaths, binPath)
     }
     chmodSync(binPath, 0o755)
+    stampDaemonProvenance()
     console.log(`[build-rust-daemon] built ${binPath} (${macArches.join(' + ')})`)
   } else {
     console.log(
@@ -108,6 +130,7 @@ async function main() {
     if (!existsSync(binPath)) {
       throw new CargoCommandFailure(`expected binary missing after build: ${binPath}`)
     }
+    stampDaemonProvenance()
     console.log(`[build-rust-daemon] built ${binPath}`)
   }
 }

@@ -16,10 +16,16 @@ const { verifyLinuxGlibcFloor } = require('./scripts/verify-linux-glibc-floor.cj
 const { assertBundledBinaryArchitectures } = require('./scripts/assert-bundled-binary-arch.cjs')
 
 const isMacRelease = process.env.ORCA_MAC_RELEASE === '1'
-// Why: releases have only an ad-hoc launch seal — no Developer ID or notarization.
-// Distribution signing requires a real identity, so this stays false.
-const isSignedMacRelease = false
-const macAdHocSigningIdentity = '-'
+// Why: signing is three INDEPENDENT tiers, not one boolean — ad-hoc ('-', the default),
+// a configured identity, and notarization on top of a Developer ID. Read from the
+// environment ONLY, never discovered from the keychain, so a dev build can never
+// silently become a signed one.
+const macSigningIdentity = (process.env.ORCA_MAC_SIGN_IDENTITY || '').trim() || '-'
+const isIdentitySigned = macSigningIdentity !== '-'
+// Why: a self-signed cert cannot be notarized, and hardened runtime's library validation
+// rejects nested code signed by a different identity — so both stay off unless a real
+// Developer ID is in play. Opt-in, never inferred from ORCA_MAC_RELEASE.
+const isNotarizedMacRelease = isIdentitySigned && process.env.ORCA_MAC_NOTARIZE === '1'
 const isLinuxArm64Release = process.env.ORCA_LINUX_ARM64_RELEASE === '1'
 // Why: fork builds must not wear public Orca's identity — the same
 // appId/productName would share userData, the single-instance lock, and the
@@ -328,9 +334,9 @@ module.exports = {
     include: resolve(__dirname, 'nsis', 'daemon-host-uninstall.nsh')
   },
   mac: {
-    // Why: a mutated arm64 bundle still needs an ad-hoc seal; this value also
-    // prevents electron-builder from discovering a developer's local identity.
-    identity: macAdHocSigningIdentity,
+    // Why: a mutated arm64 bundle always needs at least an ad-hoc seal; reading the
+    // identity from config (never keychain discovery) keeps the tier explicit per build.
+    identity: macSigningIdentity,
     // Why: the default mac zip name embeds productName, and 'Orca ALab Edition'
     // contains a space — GitHub rewrites spaces in release asset names, so
     // latest-mac.yml would reference a filename that 404s on download. Pin a
@@ -361,10 +367,10 @@ module.exports = {
       NSDownloadsFolderUsageDescription:
         "Application requests access to the user's Downloads folder."
     },
-    // Why: ad-hoc ALab artifacts cannot use distribution hardened-runtime
-    // signing or notarization; both stay off until a real policy lands.
-    hardenedRuntime: isSignedMacRelease,
-    notarize: isSignedMacRelease,
+    // Why: hardened runtime + notarization require a Developer ID; ad-hoc and
+    // self-signed builds must not request either (see the tier note at the top).
+    hardenedRuntime: isNotarizedMacRelease,
+    notarize: isNotarizedMacRelease,
     extraResources: [
       ...commonExtraResources,
       ...createPackagedRuntimeNodeModuleResources('darwin'),
@@ -410,9 +416,9 @@ module.exports = {
       }
     ]
   },
-  // Why: ALab releases are only ad-hoc signed, so packaging must not require
-  // an unavailable distribution identity.
-  forceCodeSigning: isSignedMacRelease,
+  // Why: only demand a successful signature once an identity is actually configured;
+  // an ad-hoc build must still package.
+  forceCodeSigning: isIdentitySigned,
   dmg: {
     artifactName: 'orca-macos-${arch}.${ext}'
   },
@@ -552,9 +558,9 @@ async function signMacComputerUseHelper(helperAppPath) {
     }
     return
   }
-  // Why: nested helpers must share the outer app's explicit ad-hoc posture;
-  // environment or keychain discovery must not turn a dev build into a signed one.
-  const identity = macAdHocSigningIdentity
+  // Why: nested helpers must share the outer app's exact identity, or hardened-runtime
+  // library validation rejects them; keychain discovery must never widen the tier.
+  const identity = macSigningIdentity
   execFileSync('codesign', codesignArgs(identity, helperAppPath), { stdio: 'inherit' })
   execFileSync('codesign', ['--verify', '--deep', '--strict', helperAppPath], {
     stdio: 'inherit'
@@ -568,15 +574,15 @@ async function signMacNotificationStatusHelper(helperPath) {
     }
     return
   }
-  // Why: keep the nested executable aligned with the ad-hoc outer bundle
-  // even when the developer's keychain contains Apple signing identities.
-  const identity = macAdHocSigningIdentity
+  // Why: keep the nested executable aligned with the outer bundle's identity even when
+  // the developer's keychain contains other signing identities.
+  const identity = macSigningIdentity
   // Why: macOS keys notification records to the code-signing identifier; the
   // binary embeds the app's CFBundleIdentifier in __TEXT,__info_plist so this
   // (and any later) `codesign --force` derives the correct identifier. Sign
   // before the outer Orca.app is sealed, like the computer-use helper.
   const args = ['--force', '--sign', identity]
-  if (isMacRelease && identity !== '-') {
+  if (isNotarizedMacRelease) {
     args.push('--options', 'runtime', '--timestamp')
   }
   args.push(helperPath)
@@ -586,7 +592,7 @@ async function signMacNotificationStatusHelper(helperPath) {
 
 function codesignArgs(identity, targetPath) {
   const args = ['--force', '--deep', '--sign', identity]
-  if (isMacRelease && identity !== '-') {
+  if (isNotarizedMacRelease) {
     args.push(
       '--options',
       'runtime',

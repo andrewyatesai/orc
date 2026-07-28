@@ -122,7 +122,8 @@ vi.mock('./electron-updater-loader', () => ({
 }))
 
 vi.mock('./updater-install-policy', () => ({
-  getUpdateInstallMode: () => (manualMacUpdatesRef.value ? 'manual' : 'automatic')
+  getUpdateInstallMode: () => (manualMacUpdatesRef.value ? 'manual' : 'automatic'),
+  usesSelfManagedCheck: (mode: string) => mode !== 'automatic'
 }))
 
 vi.mock('@electron-toolkit/utils', () => ({
