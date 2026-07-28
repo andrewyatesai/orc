@@ -5,10 +5,14 @@ import {
   MAX_QUICK_COMMAND_ID_LENGTH,
   MAX_QUICK_COMMAND_LABEL_LENGTH,
   MAX_QUICK_COMMAND_REPO_ID_LENGTH,
-  MAX_QUICK_COMMAND_TERMINAL_TEXT_LENGTH,
+  MAX_QUICK_COMMAND_TERMINAL_TEXT_LENGTH
+} from '../../../../shared/terminal-quick-commands'
+// Why: the shared TS bodies are mobile's impl. Main normalizes through the Rust
+// core so this schema and persistence.ts cannot disagree about the same payload.
+import {
   normalizeTerminalQuickCommands,
   supportsTerminalAgentQuickCommand
-} from '../../../../shared/terminal-quick-commands'
+} from '../../../rust-terminal-quick-commands'
 
 const TerminalQuickCommandScopeUpdate = z.discriminatedUnion('type', [
   z.object({ type: z.literal('global') }).strict(),
