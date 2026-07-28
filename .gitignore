@@ -160,6 +160,9 @@ playwright-report/
 /.agents/skills/
 /skills-lock.json
 
+# Agent worktree checkouts (machine-local; `lint` already skips them by path)
+/.claude/worktrees/
+
 # Agent hook runtime endpoints (machine-local secrets)
 /agent-hooks/
 
