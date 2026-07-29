@@ -14,6 +14,7 @@ vi.mock('@/lib/telemetry', () => ({
 }))
 
 import {
+  resolveOnboardingPermissionMode,
   buildCompletedOnboardingNotificationSettings,
   buildOnboardingDismissedPayload,
   useCloseWith,
@@ -169,5 +170,21 @@ describe('onboarding flow persistence', () => {
     })
 
     expect(api.starNag.onboardingCompleted).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('resolveOnboardingPermissionMode', () => {
+  it('keeps a stored safe profile safe when the binary toggle reads "on"', () => {
+    // Why: safe never prompts, so it hydrates the yolo toggle as checked — continuing
+    // onboarding untouched must not swap sandbox flags for bypass flags.
+    expect(resolveOnboardingPermissionMode(true, 'safe')).toBe('safe')
+  })
+
+  it('maps the toggle to yolo/manual exactly as before for non-safe profiles', () => {
+    expect(resolveOnboardingPermissionMode(true, 'yolo')).toBe('yolo')
+    expect(resolveOnboardingPermissionMode(true, undefined)).toBe('yolo')
+    expect(resolveOnboardingPermissionMode(true, 'garbage')).toBe('yolo')
+    expect(resolveOnboardingPermissionMode(false, 'safe')).toBe('manual')
+    expect(resolveOnboardingPermissionMode(false, undefined)).toBe('manual')
   })
 })

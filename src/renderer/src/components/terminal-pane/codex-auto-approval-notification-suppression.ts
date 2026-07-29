@@ -52,13 +52,13 @@ export function shouldSuppressCodexAutoApprovalStatus(
     return false
   }
 
-  return (
-    resolveTuiAgentPermissionMode({
-      agent: 'codex',
-      agentArgs: launchConfig.agentArgs,
-      agentEnv: launchConfig.agentEnv
-    }) === 'yolo'
-  )
+  // Why safe counts too: --ask-for-approval never means approval waits can't be real there either.
+  const mode = resolveTuiAgentPermissionMode({
+    agent: 'codex',
+    agentArgs: launchConfig.agentArgs,
+    agentEnv: launchConfig.agentEnv
+  })
+  return mode === 'yolo' || mode === 'safe'
 }
 
 export function shouldSuppressCodexAutoApprovalSyntheticTitle(

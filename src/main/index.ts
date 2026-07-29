@@ -255,6 +255,7 @@ import {
   type SyntheticAgentTitleProfile
 } from '../shared/synthetic-agent-title'
 import type { AgentStatusState } from '../shared/agent-status-types'
+import { isAskUserQuestionTool } from '../shared/agent-question-answered-intent'
 import { resolveTuiAgentPermissionMode } from '../shared/tui-agent-permissions'
 import type { TerminalSideEffectBatch } from '../shared/terminal-side-effect-facts'
 import {
@@ -1415,6 +1416,7 @@ function openMainWindow(): BrowserWindow {
           ? shouldSuppressCodexAutoApprovalSyntheticTitleFromHook({
               agentType: payload.agentType,
               state: payload.state,
+              toolName: payload.toolName,
               launchConfig: runtime?.getAgentStatusLaunchConfigForPaneKey(paneKey, { launchToken })
             })
           : false
@@ -1895,6 +1897,7 @@ function driveSyntheticTitleFromHook(
 function shouldSuppressCodexAutoApprovalSyntheticTitleFromHook(args: {
   agentType: string | null | undefined
   state: AgentStatusState
+  toolName?: string
   launchConfig:
     | {
         agentArgs?: string | null
@@ -1906,16 +1909,21 @@ function shouldSuppressCodexAutoApprovalSyntheticTitleFromHook(args: {
   if (args.agentType !== 'codex' || (args.state !== 'waiting' && args.state !== 'blocked')) {
     return false
   }
+  // Why: request_user_input waits are real questions neither yolo nor safe auto-resolves —
+  // same carve-out the renderer suppression site already applies.
+  if (isAskUserQuestionTool(args.toolName)) {
+    return false
+  }
   if (!args.launchConfig) {
     return false
   }
-  return (
-    resolveTuiAgentPermissionMode({
-      agent: 'codex',
-      agentArgs: args.launchConfig.agentArgs,
-      agentEnv: args.launchConfig.agentEnv
-    }) === 'yolo'
-  )
+  // Why safe counts too: --ask-for-approval never means approval waits can't be real there either.
+  const mode = resolveTuiAgentPermissionMode({
+    agent: 'codex',
+    agentArgs: args.launchConfig.agentArgs,
+    agentEnv: args.launchConfig.agentEnv
+  })
+  return mode === 'yolo' || mode === 'safe'
 }
 
 app.whenReady().then(async () => {

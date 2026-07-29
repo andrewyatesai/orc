@@ -3015,6 +3015,12 @@ export type GlobalSettings = {
   agentDefaultArgs?: Partial<Record<TuiAgent, string>>
   /** Per-agent launch environment defaults used when yolo mode is exposed as env. */
   agentDefaultEnv?: Partial<Record<TuiAgent, Record<string, string>>>
+  /** The permission preset the user last chose. Kept beside the compiled per-agent args
+   *  because args can't preserve intent: under 'safe', agents without OS confinement hold
+   *  '' (manual), and unattended callers need to know that was a confinement request so
+   *  they can refuse to launch those agents rather than run them unconfined. Absent on
+   *  legacy profiles — derive from the args summary then. */
+  agentPermissionPreset?: 'yolo' | 'safe' | 'manual'
   /** One-shot guard for adding yolo-mode default args to untouched agent launch profiles. */
   agentYoloDefaultsMigrated?: boolean
   /** Why: disabling must persist so startup doesn't reinstall global agent hook entries the user just removed. */

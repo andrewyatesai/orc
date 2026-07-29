@@ -4,7 +4,28 @@ import { useAppStore } from '@/store'
 import { ONBOARDING_FINAL_STEP, ONBOARDING_FLOW_VERSION } from '../../../../shared/constants'
 import type { EventProps } from '../../../../shared/telemetry-events'
 import type { GlobalSettings, OnboardingState, TuiAgent } from '../../../../shared/types'
-import { applyAgentPermissionMode } from '../../../../shared/tui-agent-permissions'
+import {
+  applyAgentPermissionMode,
+  normalizeAgentPermissionPreset,
+  type AgentPermissionMode
+} from '../../../../shared/tui-agent-permissions'
+
+/**
+ * Map the binary onboarding toggle onto the three-preset model.
+ *
+ * Why: a stored safe profile hydrates the toggle as "on" (it never prompts), so persisting
+ * a raw "on" as yolo would silently swap OS-sandbox flags for bypass flags with zero user
+ * action indicating that. Untouched "on" over safe stays safe; unchecking still means manual.
+ */
+export function resolveOnboardingPermissionMode(
+  yoloPermissions: boolean,
+  storedPresetValue: unknown
+): Exclude<AgentPermissionMode, 'mixed'> {
+  if (!yoloPermissions) {
+    return 'manual'
+  }
+  return normalizeAgentPermissionPreset(storedPresetValue) === 'safe' ? 'safe' : 'yolo'
+}
 import type { StepId, StepNumber } from './use-onboarding-flow-types'
 
 export async function persistStep(
@@ -190,10 +211,15 @@ export function usePersistCurrentStep({
     try {
       if (currentStepId === 'agent') {
         const defaultTuiAgent = selectedAgentOrBlank(selectedAgent)
+        const permissionMode = resolveOnboardingPermissionMode(
+          yoloPermissions,
+          settings.agentPermissionPreset
+        )
         await updateSettings({
           defaultTuiAgent,
+          agentPermissionPreset: permissionMode,
           ...applyAgentPermissionMode({
-            mode: yoloPermissions ? 'yolo' : 'manual',
+            mode: permissionMode,
             agentDefaultArgs: settings.agentDefaultArgs,
             agentDefaultEnv: settings.agentDefaultEnv
           })

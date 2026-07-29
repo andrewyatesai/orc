@@ -5239,7 +5239,7 @@
           "agentPermissions": "Agent 권한",
           "agentPermissionsInfo": "Agent 권한 정보",
           "agentPermissionsTooltip": "Custom agent arguments stay unchanged when switching modes.",
-          "agentPermissionsDescription": "Orca가 agents를 실행할 때 권한 프롬프트를 줄일지, 수동 확인을 유지할지 선택합니다.",
+          "agentPermissionsDescription": "안전 모드는 지원되는 agents를 OS 샌드박스 안에서 확인 프롬프트 없이 실행하고, 샌드박스가 없는 agents는 수동 확인을 유지합니다. Yolo는 샌드박스 없이 프롬프트를 건너뜁니다. 수동은 각 agent의 권한 확인을 유지합니다.",
           "agentPermissionsYolo": "Yolo",
           "agentPermissionsManual": "수동",
           "3f1bdf3cb4": "환경 텍스트가 너무 커서 안전하게 파싱할 수 없습니다.",
@@ -5249,7 +5249,9 @@
           "03e1a5081a": "on {{value0}}",
           "25a41a9aad": "Re-detect agents installed on the active server",
           "remoteDetectionFailed": "Couldn’t detect installed agents. Check the host connection and try again.",
-          "retryDetection": "Retry"
+          "retryDetection": "Retry",
+          "agentPermissionsSafe": "안전",
+          "agentPermissionsCustomized": "사용자 지정됨"
         },
         "AppIconSelector": {
           "d5a112dc9b": "다음 아이콘",
@@ -7445,7 +7447,7 @@
             "a79d266f71": "세션",
             "afbf35be68": "안정적인 세션",
             "agentPermissions": "Agent 권한",
-            "agentPermissionsDescription": "agent 권한 기본값을 Yolo와 수동 사이에서 전환합니다.",
+            "agentPermissionsDescription": "agent 권한 기본값을 안전, Yolo, 수동 사이에서 전환합니다.",
             "agentRuntime": "Agent 런타임",
             "agentRuntimeDescription": "기본적으로 Windows 또는 WSL에서 agents를 감지하고 시작할지 선택합니다."
           }

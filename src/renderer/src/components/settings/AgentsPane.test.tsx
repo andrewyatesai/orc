@@ -453,6 +453,8 @@ describe('AgentsPane', () => {
     expect(matchesSettingsSearch('permission', getAgentsPaneSearchEntries())).toBe(true)
     expect(matchesSettingsSearch('yolo', getAgentsPaneSearchEntries())).toBe(true)
     expect(matchesSettingsSearch('manual', getAgentsPaneSearchEntries())).toBe(true)
+    expect(matchesSettingsSearch('safe', getAgentsPaneSearchEntries())).toBe(true)
+    expect(matchesSettingsSearch('sandbox', getAgentsPaneSearchEntries())).toBe(true)
   })
 
   it('applies the selected agent permission mode from settings without a mixed segment', () => {
@@ -460,17 +462,29 @@ describe('AgentsPane', () => {
     const element = AgentPermissionsSetting({ mode: 'mixed', onChange })
     const props = element.props.children.props.action.props as {
       value: 'yolo'
-      onChange: (value: 'yolo' | 'manual' | 'mixed') => void
+      onChange: (value: 'yolo' | 'safe' | 'manual' | 'mixed') => void
       options: { value: string }[]
     }
 
     expect(props.value).toBe('yolo')
-    expect(props.options.map((option) => option.value)).toEqual(['yolo', 'manual'])
+    expect(props.options.map((option) => option.value)).toEqual(['safe', 'yolo', 'manual'])
     props.onChange('mixed')
     expect(onChange).not.toHaveBeenCalled()
 
     props.onChange('manual')
     expect(onChange).toHaveBeenCalledWith('manual')
+  })
+
+  it('renders a stored safe preset as the selected segment', () => {
+    const onChange = vi.fn()
+    const element = AgentPermissionsSetting({ mode: 'safe', onChange })
+    const props = element.props.children.props.action.props as {
+      value: string
+      onChange: (value: 'yolo' | 'safe' | 'manual' | 'mixed') => void
+    }
+    expect(props.value).toBe('safe')
+    props.onChange('safe')
+    expect(onChange).toHaveBeenCalledWith('safe')
   })
 
   it('keeps catalog agent ids, labels, and commands discoverable in settings search', () => {

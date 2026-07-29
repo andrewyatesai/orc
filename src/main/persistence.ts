@@ -232,6 +232,10 @@ import {
   normalizeTuiAgentArgsRecord,
   normalizeTuiAgentEnvRecord
 } from '../shared/tui-agent-launch-defaults'
+import {
+  normalizeAgentPermissionPreset,
+  reconcileAgentProfileWithPreset
+} from '../shared/tui-agent-permissions'
 import { normalizeTerminalCursorStyleDefault } from '../shared/terminal-cursor-style-settings'
 import {
   normalizeOsc52ClipboardDefaultOn,
@@ -777,12 +781,17 @@ function migrateAgentYoloDefaults(
 ): Pick<GlobalSettings, 'agentDefaultArgs' | 'agentDefaultEnv' | 'agentYoloDefaultsMigrated'> {
   const existingArgs = normalizeTuiAgentArgsRecord(settings?.agentDefaultArgs)
   const existingEnv = normalizeTuiAgentEnvRecord(settings?.agentDefaultEnv)
-  if (settings?.agentYoloDefaultsMigrated === true) {
-    return {
-      agentDefaultArgs: existingArgs,
-      agentDefaultEnv: existingEnv,
-      agentYoloDefaultsMigrated: true
-    }
+  const storedPreset = normalizeAgentPermissionPreset(settings?.agentPermissionPreset)
+  if (settings?.agentYoloDefaultsMigrated === true || storedPreset !== undefined) {
+    // Why reconcile: agents added to the catalog after the user chose a preset have no
+    // stored entry and would otherwise launch with the built-in yolo default. Fill the
+    // gaps with the chosen preset instead of the bypass flag. A stored preset also blocks
+    // the legacy yolo back-fill below outright — it must never overwrite a Safe profile
+    // whose migration stamp was lost.
+    const reconciled = storedPreset
+      ? reconcileAgentProfileWithPreset(storedPreset, existingArgs, existingEnv)
+      : { agentDefaultArgs: existingArgs, agentDefaultEnv: existingEnv }
+    return { ...reconciled, agentYoloDefaultsMigrated: true }
   }
 
   const commandOverrides = settings?.agentCmdOverrides ?? {}

@@ -44,13 +44,14 @@ import {
   normalizeDisabledTuiAgents
 } from '../../../../shared/tui-agent-selection'
 import {
-  getTuiAgentDefaultArgs,
-  getTuiAgentDefaultEnv,
   resolveTuiAgentLaunchArgs,
   resolveTuiAgentLaunchEnv
 } from '../../../../shared/tui-agent-launch-defaults'
 import {
   applyAgentPermissionMode,
+  getPresetAgentArgs,
+  getPresetAgentEnv,
+  normalizeAgentPermissionPreset,
   resolveAgentPermissionModeSummary,
   type AgentPermissionMode
 } from '../../../../shared/tui-agent-permissions'
@@ -129,6 +130,8 @@ type AgentAvailabilityControlProps = {
 
 type AgentPermissionsSettingProps = {
   mode: AgentPermissionMode
+  /** True when per-agent args/env diverge from every preset — the control then shows intent, not fact. */
+  customized?: boolean
   onChange: (mode: Exclude<AgentPermissionMode, 'mixed'>) => void
 }
 
@@ -222,15 +225,25 @@ export function AgentAvailabilityControl({
 
 export function AgentPermissionsSetting({
   mode,
+  customized = false,
   onChange
 }: AgentPermissionsSettingProps): React.JSX.Element {
-  const visibleMode: Exclude<AgentPermissionMode, 'mixed'> = mode === 'manual' ? 'manual' : 'yolo'
+  // Why mixed collapses to yolo: hand-customized args predate presets and were historically yolo-ish.
+  const visibleMode: Exclude<AgentPermissionMode, 'mixed'> = mode === 'mixed' ? 'yolo' : mode
   return (
     <section className="space-y-3">
       <SettingsSubsectionHeader
         title={
           <span className="flex items-center gap-2">
             {translate('auto.components.settings.AgentsPane.agentPermissions', 'Agent Permissions')}
+            {customized && (
+              <SettingsBadge>
+                {translate(
+                  'auto.components.settings.AgentsPane.agentPermissionsCustomized',
+                  'Customized'
+                )}
+              </SettingsBadge>
+            )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -255,7 +268,7 @@ export function AgentPermissionsSetting({
         }
         description={translate(
           'auto.components.settings.AgentsPane.agentPermissionsDescription',
-          'Choose whether Orca launches agents with fewer permission prompts or with manual checks.'
+          'Safe runs supported agents inside an OS sandbox with prompts off; agents without a sandbox keep manual checks. Yolo skips prompts without a sandbox. Manual keeps each agent’s own permission prompts.'
         )}
         action={
           <SettingsSegmentedControl<AgentPermissionMode>
@@ -271,6 +284,10 @@ export function AgentPermissionsSetting({
             )}
             size="sm"
             options={[
+              {
+                value: 'safe',
+                label: translate('auto.components.settings.AgentsPane.agentPermissionsSafe', 'Safe')
+              },
               {
                 value: 'yolo',
                 label: translate('auto.components.settings.AgentsPane.agentPermissionsYolo', 'Yolo')
@@ -775,10 +792,26 @@ export function AgentsPane({
   const cmdOverrides = settings.agentCmdOverrides ?? {}
   const agentDefaultArgs = settings.agentDefaultArgs ?? {}
   const agentDefaultEnv = settings.agentDefaultEnv ?? {}
-  const agentPermissionMode = resolveAgentPermissionModeSummary({
+  const storedPermissionPreset = normalizeAgentPermissionPreset(settings.agentPermissionPreset)
+  const agentPermissionSummary = resolveAgentPermissionModeSummary({
     agentDefaultArgs,
     agentDefaultEnv
   })
+  // Why the summary drives display: a stale stored preset must never label a hand-edited
+  // profile "Safe" while an agent actually launches with a bypass flag. When the profile
+  // diverges (mixed), show the stored intent but flag it as customized.
+  const agentPermissionMode =
+    agentPermissionSummary !== 'mixed'
+      ? agentPermissionSummary
+      : (storedPermissionPreset ?? 'mixed')
+  const agentPermissionsCustomized = agentPermissionSummary === 'mixed'
+  // Why: the per-agent Reset buttons restore the CHOSEN preset's values, not yolo's —
+  // on a safe profile a reset must never quietly reinstall a bypass flag or env.
+  const resetPreset =
+    storedPermissionPreset ?? (agentPermissionSummary !== 'mixed' ? agentPermissionSummary : 'yolo')
+  const presetDefaultArgsFor = (agent: TuiAgent): string => getPresetAgentArgs(agent, resetPreset)
+  const presetDefaultEnvFor = (agent: TuiAgent): Record<string, string> =>
+    getPresetAgentEnv(agent, resetPreset)
   const disabledAgents = normalizeDisabledTuiAgents(settings.disabledTuiAgents)
   const customAgents = settings.customAgents ?? []
 
@@ -825,13 +858,14 @@ export function AgentsPane({
   }
 
   const saveAgentPermissionMode = (mode: Exclude<AgentPermissionMode, 'mixed'>): void => {
-    updateSettings(
-      applyAgentPermissionMode({
+    updateSettings({
+      agentPermissionPreset: mode,
+      ...applyAgentPermissionMode({
         mode,
         agentDefaultArgs,
         agentDefaultEnv
       })
-    )
+    })
   }
 
   // Why: null means detection is in flight, not "all agents are installed".
@@ -966,7 +1000,11 @@ export function AgentsPane({
 
       <AgentCacheTimerSection settings={settings} updateSettings={updateSettings} />
 
-      <AgentPermissionsSetting mode={agentPermissionMode} onChange={saveAgentPermissionMode} />
+      <AgentPermissionsSetting
+        mode={agentPermissionMode}
+        customized={agentPermissionsCustomized}
+        onChange={saveAgentPermissionMode}
+      />
 
       <AgentPersonalizationSection
         settings={settings}
@@ -1030,8 +1068,8 @@ export function AgentsPane({
                 label={agent.label}
                 homepageUrl={agent.homepageUrl}
                 defaultCmd={agent.cmd}
-                defaultArgs={getTuiAgentDefaultArgs(agent.id)}
-                defaultEnv={getTuiAgentDefaultEnv(agent.id)}
+                defaultArgs={presetDefaultArgsFor(agent.id)}
+                defaultEnv={presetDefaultEnvFor(agent.id)}
                 isDetected
                 isEnabled={isTuiAgentEnabled(agent.id, disabledAgents)}
                 isDefault={defaultAgent === agent.id}
@@ -1079,8 +1117,8 @@ export function AgentsPane({
                 label={agent.label}
                 homepageUrl={agent.homepageUrl}
                 defaultCmd={agent.cmd}
-                defaultArgs={getTuiAgentDefaultArgs(agent.id)}
-                defaultEnv={getTuiAgentDefaultEnv(agent.id)}
+                defaultArgs={presetDefaultArgsFor(agent.id)}
+                defaultEnv={presetDefaultEnvFor(agent.id)}
                 isDetected={false}
                 isEnabled={isTuiAgentEnabled(agent.id, disabledAgents)}
                 isDefault={false}

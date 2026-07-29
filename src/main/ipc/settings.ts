@@ -6,6 +6,7 @@ import { getTerminalFallbackFonts } from '../terminal-fallback-fonts'
 import { previewGhosttyImport } from '../ghostty/index'
 import { previewWarpThemeImport } from '../warp-themes'
 import { setMainUiLanguage } from '../i18n/main-i18n'
+import { normalizeAgentPermissionPreset } from '../../shared/tui-agent-permissions'
 import { rebuildAppMenu } from '../menu/register-app-menu'
 import { track } from '../telemetry/client'
 import { SETTINGS_CHANGED_WHITELIST, type SettingsChangedKey } from '../../shared/telemetry-events'
@@ -115,6 +116,13 @@ export function registerSettingsHandlers(
     }
     if ('appIcon' in args) {
       sanitizedArgs.appIcon = normalizeAppIconId(args.appIcon)
+    }
+    if ('agentPermissionPreset' in args) {
+      // Why: this key labels a safety posture; an unrecognized value must not persist and
+      // later read as one. Invalid input clears the stored preset rather than storing junk.
+      sanitizedArgs.agentPermissionPreset = normalizeAgentPermissionPreset(
+        args.agentPermissionPreset
+      )
     }
     if ('terminalCustomThemes' in args) {
       sanitizedArgs.terminalCustomThemes = normalizeTerminalCustomThemes(args.terminalCustomThemes)
