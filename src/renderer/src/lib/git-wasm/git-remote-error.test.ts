@@ -26,6 +26,30 @@ describe('renderer git remote-error helpers (orca-git wasm)', () => {
     expect(stripCredentialsFromMessage('fetch https://user:secret@host/repo failed')).toBe(
       'fetch https://host/repo failed'
     )
+    expect(stripCredentialsFromMessage('remote: https://user:ghp_secret@github.com/o/r.git')).toBe(
+      'remote: https://github.com/o/r.git'
+    )
+    expect(stripCredentialsFromMessage('https://ghp_token@github.com/o/r.git')).toBe(
+      'https://github.com/o/r.git'
+    )
+  })
+
+  // Ported from the deleted TS scrub twin, now asserted against the core that
+  // actually ships: JS `\s` and Rust `\s` disagree on U+FEFF (BOM) and U+0085
+  // (NEL), so a credential carrying one must still redact rather than leak.
+  it('keeps a raw BOM/NEL inside the credential span so it still redacts', () => {
+    expect(stripCredentialsFromMessage('https://user:ghp_\uFEFFsecret@github.com/o/r.git')).toBe(
+      'https://github.com/o/r.git'
+    )
+    expect(stripCredentialsFromMessage('https://ghp_\u0085token@github.com/o/r.git')).toBe(
+      'https://github.com/o/r.git'
+    )
+  })
+
+  it('leaves a non-contiguous pseudo-credential (real whitespace bound) untouched', () => {
+    expect(stripCredentialsFromMessage('https://user:pass @github.com/o/r.git')).toBe(
+      'https://user:pass @github.com/o/r.git'
+    )
   })
 
   // Ported from the deleted src/shared/git-remote-error.test.ts (the spy-based

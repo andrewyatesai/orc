@@ -12,6 +12,7 @@ import {
   initSync,
   normalizeGitErrorMessage as wasmNormalizeGitErrorMessage,
   isNoUpstreamError as wasmIsNoUpstreamError,
+  stripCredentialsFromMessage as wasmStripCredentialsFromMessage,
   parseStatusPorcelain as wasmParseStatusPorcelain,
   parseNumstat as wasmParseNumstat,
   parseWorktreeList as wasmParseWorktreeList,
@@ -77,6 +78,13 @@ export function normalizeGitErrorMessage(error: unknown, operation?: GitRemoteOp
 export function isNoUpstreamError(error: unknown): boolean {
   ensureGitWasm()
   return wasmIsNoUpstreamError(error instanceof Error ? error.message : undefined)
+}
+
+/** Scrub credentials embedded in a git URL within `message` — the same Rust
+ *  core the main process runs via napi. */
+export function stripCredentialsFromMessage(message: string): string {
+  ensureGitWasm()
+  return wasmStripCredentialsFromMessage(message)
 }
 
 /** The Rust parser's own status-scan result shape (flat upstream fields, `u`

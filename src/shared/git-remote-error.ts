@@ -1,12 +1,12 @@
 // The git remote-error TEXT logic (normalizeGitErrorMessage,
 // stripCredentialsFromMessage, isNoUpstreamError,
-// formatSubmodulePushFailureDetail) moved to the Rust orca-text core: the main
+// formatSubmodulePushFailureDetail) lives in the Rust orca-text core: the main
 // process drives it via napi (src/main/git/rust-git-remote-error.ts), the
 // relay via wasm (src/relay/git-wasm.ts), and the renderer via wasm
 // (src/renderer/src/lib/git-wasm/git-remote-error.ts). This shared module
-// keeps the operation type plus the divergent-pull retry fallback — the latter
-// is JS control flow (it wraps a runPull callback) with no Rust analog, so it
-// stays in TS even though its error-text predicate mirrors the Rust core.
+// keeps the operation type plus the divergent-pull retry fallback — JS control
+// flow (it wraps a runPull callback) with no Rust analog. No text logic here
+// mirrors the Rust core; shared callers that need a scrub take one injected.
 
 const DIVERGENT_PULL_RECONCILIATION_PATTERN =
   /Need to specify how to reconcile divergent branches|divergent branches and need to specify how to reconcile them/i
@@ -16,25 +16,6 @@ const RECONCILIATION_PULL_ARG_PATTERN =
   /^(--rebase|--no-rebase|--ff-only|--ff|--no-ff|--merge|-r)(=|$)/
 // Why: --no-rebase (historical merge default) predates the 2.25 baseline, so this fallback is safe on every supported Git.
 export const MERGE_RECONCILIATION_PULL_ARGS = ['--no-rebase']
-
-// Credential-URL scrub patterns. The CANONICAL normalizer lives in the Rust
-// orca-text core (see the header note); this small pure-TS copy exists only so
-// shared modules that can't reach an env-specific Rust binding (e.g.
-// git-clone-failure-message, which runs in main, relay, and renderer) can still
-// redact `https://user:token@host` before surfacing a clone error. Keep the two
-// patterns in sync with the Rust core.
-// The credential character class bounds on an EXPLICIT ASCII-whitespace set
-// (` \t\r\n\f\v`) rather than `\s`: JS `\s` and Rust `\s` disagree on U+FEFF
-// (BOM) and U+0085 (NEL), so `\s` would let a raw BOM/NEL byte in a credential
-// leak on one path and scrub on the other. Bounding on the real delimiters keeps
-// exotic whitespace inside the credential span so it always redacts, identically
-// to the Rust core.
-const USERPASS_URL_PATTERN = /([a-z][a-z0-9+.-]*:\/\/)[^ \t\r\n\f\v/@:]+:[^ \t\r\n\f\v/@]+@/gi
-const HTTPS_TOKEN_URL_PATTERN = /(https?:\/\/)[^ \t\r\n\f\v/@:]+@/gi
-
-export function stripCredentialsFromMessage(message: string): string {
-  return message.replace(USERPASS_URL_PATTERN, '$1').replace(HTTPS_TOKEN_URL_PATTERN, '$1')
-}
 
 // Why: a fresh host may lack any pull.rebase/pull.ff policy, so Git 2.27+
 // refuses to reconcile divergent branches. Detect that specific failure so the

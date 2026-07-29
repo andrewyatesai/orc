@@ -88,6 +88,7 @@ import {
   getClonePathComparisonKey
 } from '../git/repo-clone-path'
 import { getGitCloneFailureMessage } from '../../shared/git-clone-failure-message'
+import { stripCredentialsFromMessage as stripCredentials } from '../git/rust-git-remote-error'
 import { GIT_FETCH_SKIP_AUTO_MAINTENANCE_CONFIG_ARGS } from '../../shared/git-fetch-auto-maintenance'
 import { createHash, randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
@@ -16280,7 +16281,11 @@ export class OrcaRuntimeService {
         } else if (code === 0) {
           resolve()
         } else {
-          reject(new Error(`Clone failed: ${getGitCloneFailureMessage(stderrTail, { clonePath })}`))
+          reject(
+            new Error(
+              `Clone failed: ${getGitCloneFailureMessage(stderrTail, { clonePath, stripCredentials })}`
+            )
+          )
         }
       }
       proc.on('error', (error) => {

@@ -108,6 +108,7 @@ import {
   getFolderWorkspacePathStatusForPath
 } from '../project-groups/folder-workspace-path-status'
 import { getGitCloneFailureMessage } from '../../shared/git-clone-failure-message'
+import { stripCredentialsFromMessage as stripCredentials } from '../git/rust-git-remote-error'
 import { prepareLocalWorktreeRootForRepo } from '../worktree-root-preparation'
 import { runWithGitReadCacheInvalidation } from '../git/status'
 
@@ -440,7 +441,9 @@ async function cloneRemoteRepo(
     }
     const message = err instanceof Error ? err.message : String(err)
     if (message.startsWith('Clone failed:')) {
-      throw new Error(`Clone failed: ${getGitCloneFailureMessage(message, { clonePath })}`)
+      throw new Error(
+        `Clone failed: ${getGitCloneFailureMessage(message, { clonePath, stripCredentials })}`
+      )
     }
     throw err
   } finally {
@@ -2330,7 +2333,9 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
               resolve()
             } else {
               reject(
-                new Error(`Clone failed: ${getGitCloneFailureMessage(stderrTail, { clonePath })}`)
+                new Error(
+                  `Clone failed: ${getGitCloneFailureMessage(stderrTail, { clonePath, stripCredentials })}`
+                )
               )
             }
           }

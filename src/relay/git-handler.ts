@@ -51,6 +51,7 @@ import {
   isNoUpstreamError,
   upstreamOnlyCommitsArePatchEquivalent,
   normalizeGitErrorMessage,
+  stripCredentialsFromMessage as stripCredentials,
   parseNumstat,
   parseGitHistoryLog,
   gitPullRebaseFromBase,
@@ -1470,7 +1471,9 @@ export class GitHandler {
           resolve({ stdout, stderr })
           return
         }
-        reject(new Error(`Clone failed: ${getGitCloneFailureMessage(stderr)}`))
+        reject(
+          new Error(`Clone failed: ${getGitCloneFailureMessage(stderr, { stripCredentials })}`)
+        )
       })
     })
   }

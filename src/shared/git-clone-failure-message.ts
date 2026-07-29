@@ -1,8 +1,13 @@
-import { stripCredentialsFromMessage } from './git-remote-error'
-
+// Why: this formatter runs in both main (napi) and the relay (wasm), so it
+// cannot reach an env-specific Rust binding itself. The caller injects its own
+// — required, not optional, so no call site can quietly skip redaction — which
+// keeps the Rust orca-text core the only scrub implementation.
 export function getGitCloneFailureMessage(
   stderr: string,
-  options: { clonePath?: string | null } = {}
+  options: {
+    stripCredentials: (message: string) => string
+    clonePath?: string | null
+  }
 ): string {
   let fallbackLine: string | null = null
 
@@ -10,7 +15,7 @@ export function getGitCloneFailureMessage(
   // git error to embed a live token (`https://user:ghp_…@host/repo.git`).
   // Scrub up-front so every return branch operates on already-redacted text,
   // matching normalizeGitErrorMessage.
-  const scrubbedStderr = stripCredentialsFromMessage(stderr)
+  const scrubbedStderr = options.stripCredentials(stderr)
 
   for (const rawLine of iterateLinesFromEnd(scrubbedStderr)) {
     const line = stripAnsi(rawLine).trim()
