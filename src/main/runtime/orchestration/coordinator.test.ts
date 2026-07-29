@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { OrchestrationDb } from './db'
 import { reconcileLifecycleMessage } from './lifecycle-reconciliation'
+import type { TuiAgent } from '../../../shared/types'
+import { SAFE_TUI_AGENT_ARGS, YOLO_TUI_AGENT_ARGS } from '../../../shared/tui-agent-permissions'
 import {
   Coordinator,
   DISPATCH_STALE_THRESHOLD,
@@ -24,6 +26,11 @@ function createMockRuntime(): CoordinatorRuntime & {
   cliCommand: 'orca' | 'orca-ide'
   setProbeDrift(result: DriftResult): void
   throwProbeDrift: Error | null
+  agentPermissionPreset: unknown
+  launchProfiles: Record<
+    string,
+    { agent: TuiAgent | null; agentArgs: string | null; agentEnv: Record<string, string> | null }
+  >
 } {
   const mock = {
     sentMessages: [] as { handle: string; text: string }[],
@@ -68,6 +75,17 @@ function createMockRuntime(): CoordinatorRuntime & {
     },
     getTerminalOrchestrationCliCommand() {
       return mock.cliCommand
+    },
+    agentPermissionPreset: undefined as unknown,
+    launchProfiles: {} as Record<
+      string,
+      { agent: TuiAgent | null; agentArgs: string | null; agentEnv: Record<string, string> | null }
+    >,
+    getAgentPermissionPreset() {
+      return mock.agentPermissionPreset
+    },
+    getTerminalAgentLaunchProfile(handle: string) {
+      return mock.launchProfiles[handle] ?? null
     }
   }
   return mock
@@ -241,6 +259,71 @@ describe('Coordinator', () => {
 
     expect(result.status).toBe('completed')
     expect(result.completedTasks.filter((id) => id === task.id)).toHaveLength(1)
+  })
+
+  it('refuses unattended dispatch to an unconfined worker under the Safe preset', async () => {
+    db = new OrchestrationDb(':memory:')
+    const runtime = createMockRuntime()
+    runtime.agentPermissionPreset = 'safe'
+    runtime.terminals = [{ handle: 'term_a', worktreeId: 'wt1', connected: true, writable: true }]
+    // Why yolo args: the dangerous cell — unconfined and silent. The gate judges the
+    // worker's ACTUAL launch, so a bypass worker cannot hide behind the Safe label.
+    runtime.launchProfiles.term_a = {
+      agent: 'codex',
+      agentArgs: YOLO_TUI_AGENT_ARGS.codex ?? '',
+      agentEnv: {}
+    }
+
+    const task = db.createTask({ spec: 'work' })
+    const logs: string[] = []
+    const coordinator = new Coordinator(db, runtime, {
+      spec: 'go',
+      coordinatorHandle: 'coord',
+      pollIntervalMs: 50,
+      onLog: (msg) => logs.push(msg)
+    })
+
+    const runPromise = coordinator.run()
+    await new Promise((r) => setTimeout(r, 150))
+    coordinator.stop()
+    await runPromise
+
+    // No dispatch happened: no prompt was typed, no circuit-breaker budget burned,
+    // and the refusal reason is in the run log.
+    expect(runtime.sentMessages).toHaveLength(0)
+    expect(db.getDispatchContext(task.id)).toBeUndefined()
+    expect(db.getTask(task.id)?.status).toBe('ready')
+    expect(logs.some((line) => line.includes('Refusing dispatch'))).toBe(true)
+    expect(logs.some((line) => line.includes('bypass flags'))).toBe(true)
+  })
+
+  it('dispatches to a verified safe worker under the Safe preset', async () => {
+    db = new OrchestrationDb(':memory:')
+    const runtime = createMockRuntime()
+    runtime.agentPermissionPreset = 'safe'
+    runtime.terminals = [{ handle: 'term_a', worktreeId: 'wt1', connected: true, writable: true }]
+    runtime.launchProfiles.term_a = {
+      agent: 'codex',
+      agentArgs: SAFE_TUI_AGENT_ARGS.codex ?? '',
+      agentEnv: {}
+    }
+
+    const task = db.createTask({ spec: 'work' })
+    const coordinator = new Coordinator(db, runtime, {
+      spec: 'go',
+      coordinatorHandle: 'coord',
+      pollIntervalMs: 50
+    })
+
+    const runPromise = coordinator.run()
+    await new Promise((r) => setTimeout(r, 150))
+
+    expect(runtime.sentMessages.length).toBeGreaterThan(0)
+    expect(runtime.sentMessages[0].handle).toBe('term_a')
+
+    insertWorkerDone(db, { taskId: task.id, from: 'term_a' })
+    const result = await runPromise
+    expect(result.status).toBe('completed')
   })
 
   it('creates a terminal when none are available', async () => {

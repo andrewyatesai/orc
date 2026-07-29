@@ -1040,6 +1040,7 @@ type RuntimeStore = {
     agentCmdOverrides?: GlobalSettings['agentCmdOverrides']
     agentDefaultArgs?: GlobalSettings['agentDefaultArgs']
     agentDefaultEnv?: GlobalSettings['agentDefaultEnv']
+    agentPermissionPreset?: GlobalSettings['agentPermissionPreset']
     terminalWindowsShell?: GlobalSettings['terminalWindowsShell']
     terminalPosixShell?: GlobalSettings['terminalPosixShell']
     floatingTerminalEnabled?: GlobalSettings['floatingTerminalEnabled']
@@ -27222,6 +27223,44 @@ export class OrcaRuntimeService {
 
   getAgentStatusTerminalHandleForPaneKey(paneKey: string): string | undefined {
     return this.getTerminalHandleForPaneKey(paneKey) ?? undefined
+  }
+
+  /** The stored preset — the coordinator's unattended-dispatch gate reads intent from here. */
+  getAgentPermissionPreset(): unknown {
+    return this.store?.getSettings?.().agentPermissionPreset
+  }
+
+  /**
+   * The agent identity + launch profile actually running behind a terminal handle, or null
+   * when none can be resolved. Unlike getAgentStatusLaunchConfigForPaneKey this needs no
+   * launch token: the caller is the trusted main-process coordinator judging its own
+   * workers, not an external hook payload proving provenance.
+   */
+  getTerminalAgentLaunchProfile(handle: string): {
+    agent: TuiAgent | null
+    agentArgs: string | null
+    agentEnv: Record<string, string> | null
+  } | null {
+    let pty = this.getLivePtyForHandle(handle)?.pty ?? null
+    if (!pty) {
+      try {
+        const { leaf } = this.getLiveLeafForHandle(handle)
+        pty = leaf.ptyId ? (this.ptysById.get(leaf.ptyId) ?? null) : null
+      } catch {
+        return null
+      }
+    }
+    if (!pty) {
+      return null
+    }
+    return {
+      // Why foregroundAgent as fallback: a user can start an agent by hand inside a plain
+      // shell terminal; the dispatch gate must judge what is actually running, not how the
+      // terminal was created.
+      agent: pty.launchAgent ?? pty.foregroundAgent,
+      agentArgs: pty.launchConfig?.agentArgs ?? null,
+      agentEnv: pty.launchConfig?.agentEnv ?? null
+    }
   }
 
   getAgentStatusLaunchConfigForPaneKey(

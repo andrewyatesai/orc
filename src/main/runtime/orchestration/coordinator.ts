@@ -3,6 +3,8 @@ import type { OrchestrationDb } from './db'
 import type { MessageRow, TaskRow, CoordinatorStatus } from './types'
 import { buildDispatchPreamble } from './preamble'
 import { reconcileLifecycleMessage } from './lifecycle-reconciliation'
+import { decideUnattendedAgentDispatch } from '../../../shared/unattended-agent-dispatch'
+import type { TuiAgent } from '../../../shared/types'
 
 export type CoordinatorRuntime = {
   sendTerminalAgentPrompt(handle: string, prompt: string): Promise<unknown>
@@ -28,6 +30,14 @@ export type CoordinatorRuntime = {
   } | null>
   // Why: optional so lightweight runtime fakes keep compiling; when present, dispatch records the assignee's remint-stable pane identity.
   getTerminalPaneKey?(handle: string): string | null
+  // Why optional (fakes again); when present, dispatch fail-closes under the Safe preset:
+  // unattended work only drives workers whose actual launch verifies as confined + silent.
+  getAgentPermissionPreset?(): unknown
+  getTerminalAgentLaunchProfile?(handle: string): {
+    agent: TuiAgent | null
+    agentArgs: string | null
+    agentEnv: Record<string, string> | null
+  } | null
   // Why: Windows can host native and WSL workers at once, so the worker pane (not the coordinator) picks the packaged CLI name.
   getTerminalOrchestrationCliCommand?(handle: string): 'orca' | 'orca-ide'
   getPersonalizationPrompt?: (terminalHandle?: string) => string | Promise<string>
@@ -413,6 +423,23 @@ export class Coordinator {
         )
         return
       }
+    }
+
+    // Why before createDispatchContext (same shape as the drift guard above): a refusal must
+    // not bump failure_count and burn the circuit-breaker budget. The task stays `ready` and
+    // retries next tick; the reason lands in the run log so the stall is diagnosable.
+    const launchProfile = this.runtime.getTerminalAgentLaunchProfile?.(targetHandle)
+    const dispatchGate = decideUnattendedAgentDispatch({
+      preset: this.runtime.getAgentPermissionPreset?.(),
+      agent: launchProfile?.agent,
+      agentArgs: launchProfile?.agentArgs,
+      agentEnv: launchProfile?.agentEnv
+    })
+    if (dispatchGate.refuse) {
+      this.opts.onLog(
+        `Refusing dispatch of ${task.id} to ${targetHandle}: ${dispatchGate.reason}. Task remains 'ready'.`
+      )
+      return
     }
 
     const dispatch = this.db.createDispatchContext(

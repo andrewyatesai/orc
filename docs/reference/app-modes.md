@@ -1061,10 +1061,14 @@ Only genuine decisions. Each with a recommendation.
 --ask-for-approval never`, gemini `--sandbox --approval-mode yolo`), selectable in
 Settings ▸ Agents and stored as `GlobalSettings.agentPermissionPreset` so intent survives
 compilation. Agents with no OS confinement fall back to their own prompts under `safe`,
-never to a bypass flag, and `agentSupportsConfinedLaunch()` is the allowlist predicate
-Story World and unattended ALab launches must consult — refusing, fail-closed, to launch
-unconfinable agents. What remains mode-scoped: the lock (a child must not be able to flip
-the preset), the refusal wiring at the mode launch sites, and the Codex `sandbox_mode`
+never to a bypass flag, and the fail-closed refusal is LIVE for unattended
+work: `decideUnattendedAgentDispatch` (`src/shared/unattended-agent-dispatch.ts`) gates
+`Coordinator.dispatchTask` — under the Safe preset a fleet only drives workers whose
+ACTUAL launch (via `getTerminalAgentLaunchProfile`, never stored intent) verifies as
+confined + silent; everything else is refused before the circuit breaker with the reason
+in the run log. `agentSupportsConfinedLaunch()` is the same allowlist Story World's agent
+picker consults when its UI lands. What remains mode-scoped: the lock (a child must not
+be able to flip the preset), the picker filtering itself, and the Codex `sandbox_mode`
 config path (excluded from `PROMOTED_CODEX_SETTING_KEYS`) if config-level enforcement is
 ever wanted over launch flags.
 
