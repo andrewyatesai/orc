@@ -2,10 +2,25 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+// The shell was split out of App.tsx into ./app-shell/*; these guards follow the code, not the file.
+const read = (relativePath: string): string =>
+  readFileSync(join(process.cwd(), relativePath), 'utf8')
+
+const APP = 'src/renderer/src/App.tsx'
+const HYDRATION = 'src/renderer/src/app-shell/app-startup-hydration.ts'
+const LAZY_SURFACES = 'src/renderer/src/app-shell/app-lazy-surfaces.ts'
+const OVERLAY_HOST = 'src/renderer/src/app-shell/AppOverlayHost.tsx'
+const WORKSPACE_SHELL = 'src/renderer/src/app-shell/AppWorkspaceShell.tsx'
+const VIEW_MODEL = 'src/renderer/src/app-shell/use-app-shell-view-model.ts'
+const VIEW_PERSISTENCE = 'src/renderer/src/app-shell/use-app-view-persistence.ts'
+const SESSION_PERSISTENCE = 'src/renderer/src/app-shell/use-app-session-persistence.ts'
+const RECOVERY = 'src/renderer/src/app-shell/app-startup-recovery.ts'
+const SSH_RECONNECT = 'src/renderer/src/app-shell/app-startup-ssh-reconnect.ts'
+
 describe('renderer startup runtime routing', () => {
   it('hydrates persisted UI before local catalog and worktree hydration', () => {
-    const source = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
-    const startupBlockStart = source.indexOf('void (async () => {')
+    const source = read(HYDRATION)
+    const startupBlockStart = source.indexOf('export async function runAppStartupHydration')
     // Why (#18): the session/worktree-hydration and catalog branches now run concurrently, so
     // session-get is no longer the block terminator. End the slice at hydrate-session-stores (runs
     // after the allSettled join) so every concurrent startup branch falls inside the analyzed block.
@@ -67,9 +82,10 @@ describe('renderer startup runtime routing', () => {
       "parseExecutionHostId(getRepoExecutionHostId(repo))?.kind !== 'runtime'"
     )
     expect(hydrationFilterBlock).not.toContain('=== LOCAL_EXECUTION_HOST_ID')
-    expect(fullWorktreesIndex).toBeGreaterThan(
-      source.indexOf("logRendererStartupDiagnostic('startup-hydration-done'")
-    )
+    // The deferred full scan runs after hydration is declared done.
+    expect(
+      source.indexOf('refreshRemoteCatalogAfterHydration(actions, isCancelled)')
+    ).toBeGreaterThan(source.indexOf("logRendererStartupDiagnostic('startup-hydration-done'"))
     // Why: the deferred full scan must be followed by a re-prune so deleted-worktree visit
     // timestamps for non-session repos are dropped once every repo is authoritative.
     expect(
@@ -94,10 +110,7 @@ describe('renderer startup runtime routing', () => {
   })
 
   it('refreshes remote catalogs after startup hydration succeeds', () => {
-    const source = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
-    const hydrationDoneIndex = source.indexOf(
-      "logRendererStartupDiagnostic('startup-hydration-done'"
-    )
+    const source = read(HYDRATION)
     const remoteCatalogIndex = source.indexOf("timeRendererStartupStep('remote-catalog-refresh'")
     const remoteWorktreeIndex = source.indexOf("timeRendererStartupStep('remote-worktree-refresh'")
     const remoteCatalogFailureIndex = source.indexOf(
@@ -106,8 +119,7 @@ describe('renderer startup runtime routing', () => {
     const lineageIndex = source.indexOf('actions.fetchWorktreeLineage()')
     const startupRefreshCompletedIndex = source.indexOf('startupWorktreeRefreshCompleted: true')
 
-    expect(hydrationDoneIndex).toBeGreaterThanOrEqual(0)
-    expect(hydrationDoneIndex).toBeLessThan(remoteCatalogIndex)
+    expect(remoteCatalogIndex).toBeGreaterThanOrEqual(0)
     expect(remoteCatalogIndex).toBeLessThan(remoteCatalogFailureIndex)
     // Why: a project-group/folder catalog failure must not suppress the independent full worktree scan.
     expect(remoteCatalogFailureIndex).toBeLessThan(remoteWorktreeIndex)
@@ -116,36 +128,50 @@ describe('renderer startup runtime routing', () => {
     expect(source.slice(remoteCatalogIndex, remoteWorktreeIndex)).toContain(
       'actions.fetchReposForAllHosts()'
     )
-
-    const startupFailureIndex = source.indexOf(
-      '[startup] Workspace session hydration failed; leaving disk state untouched:'
-    )
-    expect(startupFailureIndex).toBeGreaterThanOrEqual(0)
-    expect(
-      source.indexOf('startupWorktreeRefreshCompleted: true', startupFailureIndex)
-    ).toBeGreaterThan(startupFailureIndex)
     expect(source.slice(remoteCatalogIndex, remoteWorktreeIndex)).toContain(
       'actions.fetchProjectGroupsForAllHosts()'
     )
     expect(source.slice(remoteCatalogIndex, remoteWorktreeIndex)).toContain(
       'actions.fetchFolderWorkspacesForAllHosts()'
     )
+
+    // Degraded mode must still un-gate surfaces that wait on the startup scan.
+    const recovery = read(RECOVERY)
+    const startupFailureIndex = recovery.indexOf(
+      '[startup] Workspace session hydration failed; leaving disk state untouched:'
+    )
+    expect(startupFailureIndex).toBeGreaterThanOrEqual(0)
+    expect(
+      recovery.indexOf('startupWorktreeRefreshCompleted: true', startupFailureIndex)
+    ).toBeGreaterThan(startupFailureIndex)
   })
 
   it('waits for first-window startup services before terminal reconnect', () => {
-    const source = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
-    const reconnectIndex = source.indexOf('await actions.reconnectPersistedTerminals')
-    const servicesIndex = source.indexOf('await window.api.app.awaitFirstWindowStartupServices()')
+    const source = read(HYDRATION)
+    const reconnectIndex = source.indexOf('actions.reconnectPersistedTerminals(abortSignal)')
+    const servicesIndex = source.indexOf('window.api.app.awaitFirstWindowStartupServices()')
 
     expect(servicesIndex).toBeGreaterThanOrEqual(0)
     expect(servicesIndex).toBeLessThan(reconnectIndex)
+
+    // The recovery path reconnects only when the success path never started it.
+    const recovery = read(RECOVERY)
+    expect(recovery).toContain('await window.api.app.awaitFirstWindowStartupServices()')
+    expect(recovery).toContain('if (reconnectStarted) {')
+  })
+
+  it('reconnects SSH targets before terminal restoration, skipping runtime-owned ones', () => {
+    const hydration = read(HYDRATION)
+    const ssh = read(SSH_RECONNECT)
+    expect(hydration.indexOf('reconnectSshTargetsForStartup(')).toBeLessThan(
+      hydration.indexOf("timeRendererStartupStep('first-window-services-await'")
+    )
+    expect(ssh).toContain('isRuntimeOwnedSshTargetId(targetId)')
+    expect(ssh).toContain('needsPassphrase')
   })
 
   it('keeps the persisted Automations view from starting its own bootstrap worktree scan', () => {
-    const source = readFileSync(
-      join(process.cwd(), 'src/renderer/src/components/automations/AutomationsPage.tsx'),
-      'utf8'
-    )
+    const source = read('src/renderer/src/components/automations/AutomationsPage.tsx')
     const fullRefreshStart = source.indexOf('const mountedBeforeStartupWorktreeRefreshRef')
     const fullRefreshEffect = source.slice(
       fullRefreshStart,
@@ -158,41 +184,56 @@ describe('renderer startup runtime routing', () => {
   })
 
   it('does not eagerly import the floating terminal panel on startup', () => {
-    const source = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
+    const app = read(APP)
+    const lazySurfaces = read(LAZY_SURFACES)
+    const workspaceShell = read(WORKSPACE_SHELL)
 
-    expect(source).toContain(
-      "import { FloatingTerminalToggleButton } from './components/floating-terminal/FloatingTerminalToggleButton'"
+    expect(workspaceShell).toContain(
+      "import { FloatingTerminalToggleButton } from '../components/floating-terminal/FloatingTerminalToggleButton'"
     )
-    expect(source).toContain("import('./components/floating-terminal/FloatingTerminalPanel').then")
-    expect(source).not.toContain("from './components/floating-terminal/FloatingTerminalPanel'")
+    expect(lazySurfaces).toContain(
+      "import('../components/floating-terminal/FloatingTerminalPanel').then"
+    )
+    expect(app).not.toContain("from './components/floating-terminal/FloatingTerminalPanel'")
+    expect(lazySurfaces).not.toContain(
+      "from '../components/floating-terminal/FloatingTerminalPanel'"
+    )
   })
 
   it('does not eagerly import idle optional overlay surfaces on startup', () => {
-    const source = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
+    const app = read(APP)
+    const lazySurfaces = read(LAZY_SURFACES)
 
-    expect(source).toContain("import('./components/UpdateCard').then")
-    expect(source).toContain("import('./components/contextual-tours/ContextualTourOverlay').then")
-    expect(source).toContain("import('./components/setup-guide/SetupGuideTelemetryObserver').then")
-    expect(source).not.toContain("from './components/UpdateCard'")
-    expect(source).not.toContain("from './components/contextual-tours/ContextualTourOverlay'")
-    expect(source).not.toContain("from './components/setup-guide/SetupGuideTelemetryObserver'")
-    expect(source).toContain('const shouldMountSetupGuideTelemetryObserver = persistedUIReady')
-    expect(source).not.toContain(
-      "const shouldMountSetupGuideTelemetryObserver = persistedUIReady && activeModal === 'setup-guide'"
+    expect(lazySurfaces).toContain("import('../components/UpdateCard').then")
+    expect(lazySurfaces).toContain(
+      "import('../components/contextual-tours/ContextualTourOverlay').then"
+    )
+    expect(lazySurfaces).toContain(
+      "import('../components/setup-guide/SetupGuideTelemetryObserver').then"
+    )
+    expect(lazySurfaces).not.toContain("from '../components/UpdateCard'")
+    expect(lazySurfaces).not.toContain(
+      "from '../components/contextual-tours/ContextualTourOverlay'"
+    )
+    expect(lazySurfaces).not.toContain(
+      "from '../components/setup-guide/SetupGuideTelemetryObserver'"
+    )
+    expect(app).not.toContain("from './components/UpdateCard'")
+    // Why: the observer mounts on hydration alone — re-gating it behind an open modal silences setup-guide telemetry.
+    expect(app).toContain('shouldMountSetupGuideTelemetryObserver={persistedUIReady}')
+    expect(app).not.toContain(
+      "shouldMountSetupGuideTelemetryObserver={persistedUIReady && activeModal === 'setup-guide'}"
     )
   })
 
   it('keeps crash-report listeners eager while lazy-loading the dialog surface', () => {
-    const appSource = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
-    const hostSource = readFileSync(
-      join(process.cwd(), 'src/renderer/src/components/crash-report/CrashReportDialog.tsx'),
-      'utf8'
-    )
+    const overlayHost = read(OVERLAY_HOST)
+    const hostSource = read('src/renderer/src/components/crash-report/CrashReportDialog.tsx')
 
-    expect(appSource).toContain(
-      "import { CrashReportDialog } from './components/crash-report/CrashReportDialog'"
+    expect(overlayHost).toContain(
+      "import { CrashReportDialog } from '../components/crash-report/CrashReportDialog'"
     )
-    expect(appSource).not.toContain("from './components/crash-report/CrashReportDialogSurface'")
+    expect(overlayHost).not.toContain("from '../components/crash-report/CrashReportDialogSurface'")
     expect(hostSource).toContain("import('./CrashReportDialogSurface').then")
     expect(hostSource).toContain('window.api.crashReports.getLatestPending()')
     expect(hostSource).toContain('window.api.ui.onOpenCrashReport')
@@ -202,10 +243,7 @@ describe('renderer startup runtime routing', () => {
   })
 
   it('clears stale crash-report state before opening the lazy manual report surface', () => {
-    const hostSource = readFileSync(
-      join(process.cwd(), 'src/renderer/src/components/crash-report/CrashReportDialog.tsx'),
-      'utf8'
-    )
+    const hostSource = read('src/renderer/src/components/crash-report/CrashReportDialog.tsx')
     const manualOpenStart = hostSource.indexOf('return window.api.ui.onOpenCrashReport(() => {')
     const manualOpenEnd = hostSource.indexOf('  }, [loadCrashReport])', manualOpenStart)
     const manualOpenBlock = hostSource.slice(manualOpenStart, manualOpenEnd)
@@ -220,79 +258,85 @@ describe('renderer startup runtime routing', () => {
   })
 
   it('loads dictation only when voice is enabled or a session is active', () => {
-    const source = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
+    const lazySurfaces = read(LAZY_SURFACES)
+    const viewModel = read(VIEW_MODEL)
+    const overlayHost = read(OVERLAY_HOST)
 
-    expect(source).toContain("import('./components/dictation/DictationController').then")
-    expect(source).not.toContain("from './components/dictation/DictationController'")
-    expect(source).toContain("settings?.voice?.enabled === true || dictationState !== 'idle'")
-    expect(source).toContain('shouldMountDictationController ?')
+    expect(lazySurfaces).toContain("import('../components/dictation/DictationController').then")
+    expect(lazySurfaces).not.toContain("from '../components/dictation/DictationController'")
+    expect(viewModel).toContain("settings?.voice?.enabled === true || dictationState !== 'idle'")
+    expect(overlayHost).toContain('shouldMountDictationController ?')
   })
 
   it('loads the SSH passphrase dialog only when a credential request is queued', () => {
-    const source = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
+    const lazySurfaces = read(LAZY_SURFACES)
+    const viewModel = read(VIEW_MODEL)
+    const overlayHost = read(OVERLAY_HOST)
 
-    expect(source).toContain("import('./components/settings/SshPassphraseDialog').then")
-    expect(source).not.toContain("from './components/settings/SshPassphraseDialog'")
-    expect(source).toContain('s.sshCredentialQueue.length > 0')
-    expect(source).toContain('hasSshCredentialRequest ?')
+    expect(lazySurfaces).toContain("import('../components/settings/SshPassphraseDialog').then")
+    expect(lazySurfaces).not.toContain("from '../components/settings/SshPassphraseDialog'")
+    expect(viewModel).toContain('s.sshCredentialQueue.length > 0')
+    expect(overlayHost).toContain('hasSshCredentialRequest ?')
   })
 
   it('defers background polling until the workspace session is ready', () => {
-    const source = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
+    const source = read(APP)
 
-    expect(source).toContain('useGitStatusPolling({ enabled: workspaceSessionReady })')
-    expect(source).toContain('<WorkspacePortScanner enabled={workspaceSessionReady} />')
+    expect(source).toContain('useGitStatusPolling({ enabled: vm.workspaceSessionReady })')
+    expect(source).toContain('<WorkspacePortScanner enabled={vm.workspaceSessionReady} />')
   })
 
   it('does not load the terminal workbench on the no-workspace landing path', () => {
-    const source = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
+    const lazySurfaces = read(LAZY_SURFACES)
+    const viewModel = read(VIEW_MODEL)
+    const workspaceShell = read(WORKSPACE_SHELL)
 
-    expect(source).toContain("const Terminal = lazy(() => import('./components/Terminal'))")
-    expect(source).not.toContain("from './components/Terminal'")
-    expect(source).toContain('const hasMountedTerminalWorkbenchRef = useRef(false)')
-    expect(source).toContain('hasMountedTerminalWorkbenchRef.current = true')
-    expect(source).toContain('activeWorktreeId !== null || backgroundTerminalMountRequested')
-    expect(source).toContain('backgroundTerminalMountRequested ||')
-    expect(source).toContain('hasMountedTerminalWorkbenchRef.current')
-    expect(source).toContain('shouldMountTerminalWorkbench ?')
+    expect(lazySurfaces).toContain(
+      "export const Terminal = lazy(() => import('../components/Terminal'))"
+    )
+    expect(lazySurfaces).not.toContain("from '../components/Terminal'")
+    expect(viewModel).toContain('const hasMountedTerminalWorkbenchRef = useRef(false)')
+    expect(viewModel).toContain('hasMountedTerminalWorkbenchRef.current = true')
+    expect(viewModel).toContain('activeWorktreeId !== null || backgroundTerminalMountRequested')
+    expect(viewModel).toContain('backgroundTerminalMountRequested ||')
+    expect(viewModel).toContain('hasMountedTerminalWorkbenchRef.current')
+    expect(workspaceShell).toContain('shouldMountTerminalWorkbench ?')
   })
 
   it('keeps the new-workspace composer eager because it is a critical create surface', () => {
-    const source = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
-    const lazyModalSource = readFileSync(
-      join(process.cwd(), 'src/renderer/src/lazy-modal-mount-state.ts'),
-      'utf8'
-    )
+    const overlayHost = read(OVERLAY_HOST)
+    const lazySurfaces = read(LAZY_SURFACES)
+    const lazyModalSource = read('src/renderer/src/lazy-modal-mount-state.ts')
 
-    expect(source).toContain(
-      "import NewWorkspaceComposerModal from './components/NewWorkspaceComposerModal'"
+    expect(overlayHost).toContain(
+      "import NewWorkspaceComposerModal from '../components/NewWorkspaceComposerModal'"
     )
-    expect(source).not.toContain("import('./components/NewWorkspaceComposerModal')")
-    expect(source).toContain("activeModal === 'new-workspace-composer'")
+    expect(lazySurfaces).not.toContain("import('../components/NewWorkspaceComposerModal')")
+    expect(overlayHost).toContain("activeModal === 'new-workspace-composer'")
     expect(lazyModalSource).not.toContain("'new-workspace-composer'")
   })
 
   it('does not eagerly import inactive sidebar dialog flows on startup', () => {
-    const appSource = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
-    const sidebarSource = readFileSync(
-      join(process.cwd(), 'src/renderer/src/components/sidebar/index.tsx'),
-      'utf8'
-    )
+    const app = read(APP)
+    const lazySurfaces = read(LAZY_SURFACES)
+    const overlayHost = read(OVERLAY_HOST)
+    const sidebarSource = read('src/renderer/src/components/sidebar/index.tsx')
 
-    expect(appSource).toContain("lazy(() => import('./components/sidebar/AddRepoDialog'))")
-    expect(appSource).toContain("lazy(() => import('./components/sidebar/NonGitFolderDialog'))")
-    expect(appSource).toContain("import('./components/sidebar/AddProjectFromFolderDialog')")
-    expect(appSource).toContain("lazy(() => import('./components/sidebar/ProjectAddedDialog'))")
-    expect(appSource).toContain("activeModal === 'add-repo'")
-    expect(appSource).toContain("activeModal === 'confirm-non-git-folder'")
-    expect(appSource).toContain("activeModal === 'confirm-add-project-from-folder'")
-    expect(appSource).toContain("activeModal === 'project-added'")
-    expect(appSource).toContain('shouldMountAddRepoDialog ? (')
-    expect(appSource).toContain('boundaryId="modal.add-repo"')
-    expect(appSource).toContain('boundaryId="modal.confirm-non-git-folder"')
-    expect(appSource).toContain('boundaryId="modal.confirm-add-project-from-folder"')
-    expect(appSource).toContain('boundaryId="modal.project-added"')
-    expect(appSource).toContain('setTimeout(() =>')
+    expect(lazySurfaces).toContain("lazy(() => import('../components/sidebar/AddRepoDialog'))")
+    expect(lazySurfaces).toContain("lazy(() => import('../components/sidebar/NonGitFolderDialog'))")
+    expect(lazySurfaces).toContain("import('../components/sidebar/AddProjectFromFolderDialog')")
+    expect(lazySurfaces).toContain("lazy(() => import('../components/sidebar/ProjectAddedDialog'))")
+    expect(app).toContain("activeModal === 'add-repo'")
+    expect(overlayHost).toContain("activeModal === 'confirm-non-git-folder'")
+    expect(overlayHost).toContain("activeModal === 'confirm-add-project-from-folder'")
+    expect(overlayHost).toContain("activeModal === 'project-added'")
+    expect(overlayHost).toContain('shouldMountAddRepoDialog ? (')
+    expect(overlayHost).toContain('boundaryId="modal.add-repo"')
+    expect(overlayHost).toContain('boundaryId="modal.confirm-non-git-folder"')
+    expect(overlayHost).toContain('boundaryId="modal.confirm-add-project-from-folder"')
+    expect(overlayHost).toContain('boundaryId="modal.project-added"')
+    // Why: one closed render before unmount, so AddRepoDialog's close effect can abort in-flight clone work.
+    expect(app).toContain('setTimeout(() =>')
     expect(sidebarSource).toContain("lazyWithRetry(() => import('./WorktreeMetaDialog'))")
     expect(sidebarSource).not.toContain("from './AddRepoDialog'")
     expect(sidebarSource).not.toContain("React.lazy(() => import('./AddRepoDialog'))")
@@ -316,10 +360,7 @@ describe('renderer startup runtime routing', () => {
   })
 
   it('does not eagerly import optional status-bar segments on startup', () => {
-    const source = readFileSync(
-      join(process.cwd(), 'src/renderer/src/components/status-bar/StatusBar.tsx'),
-      'utf8'
-    )
+    const source = read('src/renderer/src/components/status-bar/StatusBar.tsx')
 
     expect(source).toContain("import('./ResourceUsageStatusSegment').then")
     expect(source).toContain("import('./PortsStatusSegment').then")
@@ -332,37 +373,41 @@ describe('renderer startup runtime routing', () => {
   })
 
   it('does not eagerly import the status bar shell on startup', () => {
-    const source = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
+    const app = read(APP)
+    const lazySurfaces = read(LAZY_SURFACES)
 
-    expect(source).toContain("import('./components/status-bar/StatusBar').then")
-    expect(source).not.toContain("from './components/status-bar/StatusBar'")
-    expect(source).toContain('statusBarVisible ? (')
-    expect(source).toContain('h-6 min-h-[24px] shrink-0 border-t border-border')
+    expect(lazySurfaces).toContain("import('../components/status-bar/StatusBar').then")
+    expect(lazySurfaces).not.toContain("from '../components/status-bar/StatusBar'")
+    expect(app).not.toContain("from './components/status-bar/StatusBar'")
+    expect(app).toContain('vm.statusBarVisible ? (')
+    expect(app).toContain('h-6 min-h-[24px] shrink-0 border-t border-border')
   })
 
   it('keeps activeView off the 150ms debounced UI writer hot path (#9002)', () => {
-    const source = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
-    const writerStart = source.indexOf('const timer = window.setTimeout(() => {')
-    const writerEnd = source.indexOf('}, 150)', writerStart)
-    const writerBlock = source.slice(writerStart, writerEnd)
+    const source = read(VIEW_PERSISTENCE)
+    const payloadStart = source.indexOf('const durableUI = useMemo(')
+    const payloadEnd = source.indexOf('    [', payloadStart)
+    const payloadBlock = source.slice(payloadStart, payloadEnd)
 
-    expect(writerStart).toBeGreaterThanOrEqual(0)
-    expect(writerEnd).toBeGreaterThan(writerStart)
-    // Why: this field riding the writer's payload (#8265) is exactly the
-    // #9002 regression — every switch scheduled a full durable-state save. It
-    // must persist through its narrow preference or unload path instead. Matched as
-    // a standalone object-literal property (not the surrounding prose, which
-    // legitimately references the field name) so the assertion is precise.
-    expect(writerBlock).not.toMatch(/^\s*activeView,\s*$/m)
+    expect(payloadStart).toBeGreaterThanOrEqual(0)
+    expect(payloadEnd).toBeGreaterThan(payloadStart)
+    // Why: this field riding the writer's payload (#8265) is exactly the #9002 regression — every
+    // switch scheduled a full durable-state save. It must persist through its narrow preference or
+    // unload path instead. Matched as a standalone object-literal property (not the surrounding
+    // prose, which legitimately references the field name) so the assertion is precise.
+    expect(payloadBlock).not.toMatch(/^\s*activeView,\s*$/m)
 
-    const depsStart = source.indexOf('}, [', writerEnd)
-    const depsEnd = source.indexOf('])', depsStart)
-    const depsBlock = source.slice(depsStart, depsEnd)
+    // The memo's dependency array must not track activeView either.
+    const depsBlock = source.slice(payloadEnd, source.indexOf('  )', payloadEnd))
     expect(depsBlock).not.toMatch(/^\s*activeView,?\s*$/m)
+
+    // And the debounced writer must send exactly that memoized payload.
+    expect(source).toContain('void window.api.ui.set(durableUI)')
+    expect(source).toContain('}, 150)')
   })
 
   it('persists activeView through its narrow preference on every switch (#9002)', () => {
-    const source = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
+    const source = read(VIEW_PERSISTENCE)
 
     const preferenceEffect = [
       '// Why (#9002): activeView has its own tiny profile preference',
@@ -377,7 +422,7 @@ describe('renderer startup runtime routing', () => {
   })
 
   it('arms the OSC 52 default-on notice behind a statically mounted Toaster (#10567)', () => {
-    const source = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
+    const source = read(APP)
 
     // Why pin the call site: the hook is the only caller, so deleting this line silences
     // the migration notice on desktop with every unit suite still green.
@@ -391,14 +436,9 @@ describe('renderer startup runtime routing', () => {
   })
 
   it('checkpoints activeView and all session snapshots through one beforeunload handler (#9002)', () => {
-    const source = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
-    const checkpointStart = source.indexOf(
-      'const shutdownCheckpoint = createShutdownCheckpointGuard(() => {'
-    )
-    const checkpointEnd = source.indexOf(
-      'const persistBeforeUnload = createShutdownCheckpointBeforeUnloadHandler(shutdownCheckpoint)',
-      checkpointStart
-    )
+    const source = read(SESSION_PERSISTENCE)
+    const checkpointStart = source.indexOf('function captureShutdownCheckpoint(): void {')
+    const checkpointEnd = source.indexOf('function persistSessionPatchToHostsAndRemotes')
     expect(checkpointStart).toBeGreaterThanOrEqual(0)
     expect(checkpointEnd).toBeGreaterThan(checkpointStart)
     const checkpointBlock = source.slice(checkpointStart, checkpointEnd)
@@ -410,6 +450,8 @@ describe('renderer startup runtime routing', () => {
     expect(checkpointBlock).toContain('window.api.app.persistBeforeUnloadSync({')
     expect(checkpointBlock).toContain('sessions: sessionSnapshots')
     expect(checkpointBlock).toContain('ui: buildActiveViewUnloadPatch(freshState)')
+    // The guard must wrap that capture, and every abort path must reset it.
+    expect(source).toContain('createShutdownCheckpointGuard(captureShutdownCheckpoint)')
     expect(source).toContain(
       'window.addEventListener(ORCA_APP_RESTART_ABORTED_EVENT, shutdownCheckpoint.reset)'
     )
