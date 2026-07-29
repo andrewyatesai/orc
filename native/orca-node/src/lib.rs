@@ -985,9 +985,19 @@ impl JsOrchestrationStore {
     // ---- decision gates ----
 
     #[napi(catch_unwind)]
-    pub fn create_gate(&self, id: String, task_id: String, question: String, options: Vec<String>) -> napi::Result<String> {
+    pub fn create_gate(
+        &self,
+        id: String,
+        task_id: String,
+        question: String,
+        options: Vec<String>,
+        origin_message_id: Option<String>,
+    ) -> napi::Result<String> {
         let options: Vec<&str> = options.iter().map(String::as_str).collect();
-        self.store()?.create_gate(&id, &task_id, &question, &options).map(|g| row_json(&g)).map_err(napi_err)
+        self.store()?
+            .create_gate(&id, &task_id, &question, &options, origin_message_id.as_deref())
+            .map(|g| row_json(&g))
+            .map_err(napi_err)
     }
 
     #[napi(catch_unwind)]

@@ -73,6 +73,9 @@ export type DecisionGateRow = {
   resolution: string | null
   created_at: string
   resolved_at: string | null
+  /** The `ask` message this gate answers, when one opened it. Null for gates from
+   *  `gateCreate`, and for every gate written before schema v8 — always read defensively. */
+  origin_message_id: string | null
 }
 
 export type CoordinatorRun = {

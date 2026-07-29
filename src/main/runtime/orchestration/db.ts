@@ -334,9 +334,20 @@ export class OrchestrationDb {
 
   // ── Decision Gates ──
 
-  createGate(gate: { taskId: string; question: string; options?: string[] }): DecisionGateRow {
+  createGate(gate: {
+    taskId: string
+    question: string
+    options?: string[]
+    originMessageId?: string
+  }): DecisionGateRow {
     return rowFromJson<DecisionGateRow>(
-      this.store.createGate(generateId('gate'), gate.taskId, gate.question, gate.options ?? [])
+      this.store.createGate(
+        generateId('gate'),
+        gate.taskId,
+        gate.question,
+        gate.options ?? [],
+        gate.originMessageId ?? null
+      )
     )
   }
 

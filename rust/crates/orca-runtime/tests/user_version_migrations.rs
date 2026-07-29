@@ -128,8 +128,23 @@ const GATES_SQL: &str = r#"CREATE TABLE decision_gates (
           CHECK(status IN ('pending', 'resolved', 'timeout')),
         resolution    TEXT,
         created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-        resolved_at   TEXT
+        resolved_at   TEXT,
+        origin_message_id TEXT
       )"#;
+
+/// Same table reached via the v7 -> v8 ALTER: SQLite appends the column to the
+/// stored CREATE text rather than rewriting it, so the fresh and migrated SQL differ.
+const GATES_MIGRATED_SQL: &str = r#"CREATE TABLE decision_gates (
+        id            TEXT PRIMARY KEY,
+        task_id       TEXT NOT NULL,
+        question      TEXT NOT NULL,
+        options       TEXT NOT NULL DEFAULT '[]',
+        status        TEXT NOT NULL DEFAULT 'pending'
+          CHECK(status IN ('pending', 'resolved', 'timeout')),
+        resolution    TEXT,
+        created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        resolved_at   TEXT
+      , origin_message_id TEXT)"#;
 
 const RUNS_SQL: &str = r#"CREATE TABLE coordinator_runs (
         id                  TEXT PRIMARY KEY,
@@ -298,6 +313,7 @@ fn expected_migrated_v1_master() -> Vec<MasterEntry> {
     let mut master = expected_fresh_master();
     for entry in &mut master {
         entry.2 = match entry.1 {
+            "decision_gates" => Some(GATES_MIGRATED_SQL),
             "dispatch_contexts" => Some(DISPATCH_MIGRATED_SQL),
             "idx_messages_undelivered_inbox" => Some(UNDELIVERED_IDX_REBUILD_SQL),
             "messages" => Some(MESSAGES_MIGRATED_SQL),
@@ -377,7 +393,7 @@ fn fresh_open_matches_ts_fresh_database() {
     drop(open_orchestration(&path).unwrap());
 
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(user_version(&conn), 7, "fresh DB lands on SCHEMA_VERSION");
+    assert_eq!(user_version(&conn), 8, "fresh DB lands on SCHEMA_VERSION");
     let journal: String = conn.query_row("PRAGMA journal_mode", [], |row| row.get(0)).unwrap();
     assert_eq!(journal, "wal", "journal_mode=WAL persists in the DB file");
     assert_master_matches(&dump_master(&conn), &expected_fresh_master());
@@ -399,7 +415,7 @@ fn v1_database_migrates_to_current_preserving_data() {
     drop(open_orchestration(&path).unwrap());
 
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(user_version(&conn), 7);
+    assert_eq!(user_version(&conn), 8);
     assert_master_matches(&dump_master(&conn), &expected_migrated_v1_master());
 
     // Row-level goldens from the TS-migrated fixture.
@@ -426,7 +442,9 @@ fn v1_database_migrates_to_current_preserving_data() {
     assert_eq!(
         dump_rows(&conn, "decision_gates", "id"),
         vec![
-            r#"id=gate_a1|task_id=task_a1|question=Proceed?|options=["yes","no"]|status=resolved|resolution=yes|created_at=2025-01-02 03:20:00|resolved_at=2025-01-02 03:25:00"#,
+            // origin_message_id=NULL: a gate written before v8 has no ask to answer, so the
+            // resolve path skips the thread reply and behaves exactly as it did pre-migration.
+            r#"id=gate_a1|task_id=task_a1|question=Proceed?|options=["yes","no"]|status=resolved|resolution=yes|created_at=2025-01-02 03:20:00|resolved_at=2025-01-02 03:25:00|origin_message_id=NULL"#,
         ]
     );
     assert_eq!(
@@ -469,7 +487,7 @@ fn already_current_open_is_a_noop() {
         let conn = Connection::open(&path).unwrap();
         (user_version(&conn), dump_master(&conn), dump_rows(&conn, "tasks", "id"))
     };
-    assert_eq!(version_before, 7);
+    assert_eq!(version_before, 8);
 
     drop(open_orchestration(&path).unwrap());
 
@@ -558,7 +576,7 @@ fn v6_database_migrates_to_v7_adding_recipient_pane_key() {
     drop(open_orchestration(&path).unwrap());
 
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(user_version(&conn), 7, "v6 ladder row advances to v7");
+    assert_eq!(user_version(&conn), 8, "v6 ladder row advances through v8");
     let messages_sql: String = conn
         .query_row(
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'messages'",

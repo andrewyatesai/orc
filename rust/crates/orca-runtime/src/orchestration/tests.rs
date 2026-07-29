@@ -167,8 +167,9 @@ fn decision_gate_blocks_task_and_resolution_unblocks_it() {
     new_task(&db, "t1", "spec", &[]);
     db.create_dispatch_context("t1", "worker-1", "ctx1", None).unwrap();
 
-    let gate = db.create_gate("g1", "t1", "Proceed?", &["yes", "no"]).unwrap();
+    let gate = db.create_gate("g1", "t1", "Proceed?", &["yes", "no"], None).unwrap();
     assert_eq!(gate.status, "pending");
+    assert_eq!(gate.origin_message_id, None);
     assert_eq!(gate.options, "[\"yes\",\"no\"]");
     assert_eq!(status_of(&db, "t1"), "blocked");
     assert_eq!(db.dispatch_context_by_id("ctx1").unwrap().unwrap().status, "completed");
@@ -183,7 +184,7 @@ fn decision_gate_blocks_task_and_resolution_unblocks_it() {
     // Missing gate resolves to None.
     assert!(db.resolve_gate("nope", "x").unwrap().is_none());
 
-    db.create_gate("g2", "t1", "Again?", &["ok"]).unwrap();
+    db.create_gate("g2", "t1", "Again?", &["ok"], None).unwrap();
     assert_eq!(status_of(&db, "t1"), "blocked");
     let timed = db.timeout_gate("g2").unwrap().unwrap();
     assert_eq!(timed.status, "timeout");
@@ -378,4 +379,32 @@ fn reset_helpers_clear_the_right_tables() {
 
     db.reset_messages().unwrap();
     assert!(db.get_inbox(10).unwrap().is_empty());
+}
+
+#[test]
+fn gate_round_trips_its_origin_message_id() {
+    // Why: gateResolve answers the blocked `ask` through this column. If it does not
+    // survive insert -> select the task unblocks while the worker hangs to timeout —
+    // the failure that looks fixed on the board.
+    let db = OrchestrationDb::open_in_memory().unwrap();
+    new_task(&db, "t1", "spec", &[]);
+
+    let gate = db.create_gate("g1", "t1", "Ship it?", &["yes"], Some("msg-42")).unwrap();
+    assert_eq!(gate.origin_message_id.as_deref(), Some("msg-42"));
+
+    // Survives the re-read paths the resolve flow actually uses.
+    assert_eq!(
+        db.gate_by_id("g1").unwrap().unwrap().origin_message_id.as_deref(),
+        Some("msg-42")
+    );
+    let resolved = db.resolve_gate("g1", "yes").unwrap().unwrap();
+    assert_eq!(resolved.origin_message_id.as_deref(), Some("msg-42"));
+
+    // A directly-created gate (orchestration.gateCreate) has no origin and must stay null.
+    db.create_gate("g2", "t1", "No origin?", &[], None).unwrap();
+    assert_eq!(db.gate_by_id("g2").unwrap().unwrap().origin_message_id, None);
+    assert_eq!(
+        db.list_gates(Some("t1"), None).unwrap().iter().filter(|g| g.origin_message_id.is_some()).count(),
+        1
+    );
 }

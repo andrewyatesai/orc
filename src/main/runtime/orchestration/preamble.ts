@@ -110,7 +110,16 @@ Slack, GitHub comments, or any other channel to reach a human during the run.
   # blocks on \`check --wait\` until the coordinator replies, then prints the
   # reply body. Use it anywhere you would otherwise have reached for
   # AskUserQuestion.
+  #
+  # RULE: always pass --task. It opens a decision gate on your task, which is
+  # what puts the question in front of a HUMAN supervisor. Without it the
+  # question only reaches the addressed handle, so if nobody is driving that
+  # handle you block until timeout with nothing shown to anyone.
+  #
+  # --timeout-ms is clamped to 1800000 (30 min); asking for more is silently
+  # reduced, so pick a budget you can actually afford to wait.
   ${cli} orchestration ask --to ${params.coordinatorHandle} --from ${params.workerHandle} \\
+    --task ${params.taskId} \\
     --question "<your question>" \\
     --options "<optional,comma,separated>" \\
     --timeout-ms 600000

@@ -110,8 +110,10 @@ export const ORCHESTRATION_COMMAND_SPECS: CommandSpec[] = [
     path: ['orchestration', 'ask'],
     summary: 'Ask the coordinator a question and block until answered',
     usage:
-      'orca orchestration ask --to <handle> --question <text> [--options <csv>] [--timeout-ms <n>] [--from <handle>] [--json]',
-    allowedFlags: [...GLOBAL_FLAGS, 'to', 'question', 'options', 'timeout-ms', 'from']
+      'orca orchestration ask --to <handle> --question <text> [--task <task_id>] [--options <csv>] [--timeout-ms <n>] [--from <handle>] [--json]',
+    // Why --task: naming the blocked task also opens a decision gate, so a human
+    // supervisor sees the question in the queue instead of only the addressed agent.
+    allowedFlags: [...GLOBAL_FLAGS, 'to', 'question', 'task', 'options', 'timeout-ms', 'from']
   },
   {
     path: ['orchestration', 'run'],
@@ -131,6 +133,12 @@ export const ORCHESTRATION_COMMAND_SPECS: CommandSpec[] = [
     path: ['orchestration', 'run-stop'],
     summary: 'Stop an active coordinator run',
     usage: 'orca orchestration run-stop [--run <run_id>] [--from <handle>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'run', 'from']
+  },
+  {
+    path: ['orchestration', 'run-log'],
+    summary: "Show a coordinator run's diagnostic tail (stalls, retries, stuck tasks)",
+    usage: 'orca orchestration run-log [--run <run_id>] [--from <handle>] [--json]',
     allowedFlags: [...GLOBAL_FLAGS, 'run', 'from']
   },
   {

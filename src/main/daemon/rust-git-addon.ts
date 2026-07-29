@@ -116,7 +116,13 @@ export type RustOrchestrationStoreHandle = {
     lastHeartbeatAt: string | null
   ): void
   // decision gates
-  createGate(id: string, taskId: string, question: string, options: string[]): string
+  createGate(
+    id: string,
+    taskId: string,
+    question: string,
+    options: string[],
+    originMessageId: string | null
+  ): string
   resolveGate(id: string, resolution: string): string | null
   timeoutGate(id: string): string | null
   listGates(taskId: string | undefined, status: string | undefined): string

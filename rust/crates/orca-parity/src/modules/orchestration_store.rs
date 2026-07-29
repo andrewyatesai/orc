@@ -181,7 +181,10 @@ fn run_op_sequence(input: &Value) -> Value {
                     .map(|arr| arr.iter().filter_map(Value::as_str).map(str::to_string).collect())
                     .unwrap_or_default();
                 let options_ref: Vec<&str> = options.iter().map(String::as_str).collect();
-                let ok = db.create_gate(&gen, &task, &str_field(op, "question"), &options_ref).is_ok();
+                let origin = op.get("originMessageId").and_then(Value::as_str);
+                let ok = db
+                    .create_gate(&gen, &task, &str_field(op, "question"), &options_ref, origin)
+                    .is_ok();
                 if ok {
                     created_id = Some(gen);
                 }

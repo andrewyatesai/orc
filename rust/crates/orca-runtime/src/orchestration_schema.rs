@@ -13,8 +13,10 @@ use rusqlite::OptionalExtension;
 // (dispatch_contexts.assignee_pane_key, messages.sender_pane_key) so
 // worker_done ownership survives a terminal handle remint; v6 → v7
 // messages.recipient_pane_key so delivery follows the pane when the addressed
-// handle goes stale (#9163 delivery-follows-identity).
-pub(crate) const SCHEMA_VERSION: i64 = 7;
+// handle goes stale (#9163 delivery-follows-identity); v7 → v8
+// decision_gates.origin_message_id so resolving a gate can reply to the ask that
+// opened it, instead of unblocking the task while the worker hangs to timeout.
+pub(crate) const SCHEMA_VERSION: i64 = 8;
 
 /// Byte-copy of the db.ts `createTables` exec template.
 const CREATE_TABLES_SQL: &str = r#"
@@ -93,7 +95,8 @@ const CREATE_TABLES_SQL: &str = r#"
           CHECK(status IN ('pending', 'resolved', 'timeout')),
         resolution    TEXT,
         created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-        resolved_at   TEXT
+        resolved_at   TEXT,
+        origin_message_id TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_gates_task ON decision_gates(task_id);
@@ -231,6 +234,18 @@ fn apply_version_ladder(db: &Database, current: i64) -> Result<(), StoreError> {
     if current < 7 {
         if !has_column(db, "messages", "recipient_pane_key")? {
             db.exec("ALTER TABLE messages ADD COLUMN recipient_pane_key TEXT")?;
+        }
+    }
+    // v7 → v8: decision_gates.origin_message_id couples a gate back to the ask
+    // message that opened it, so resolving the gate can answer the blocked worker.
+    //
+    // Downgrade/upgrade safety: the column is nullable and every read is defensive.
+    // A gate created by a pre-v8 build reads back `null` and the resolve path simply
+    // skips the thread reply — exactly today's behavior — instead of failing. An
+    // older binary opening a v8 DB selects by explicit column list and never sees it.
+    if current < 8 {
+        if !has_column(db, "decision_gates", "origin_message_id")? {
+            db.exec("ALTER TABLE decision_gates ADD COLUMN origin_message_id TEXT")?;
         }
     }
     create_undelivered_inbox_index_if_possible(db)?;

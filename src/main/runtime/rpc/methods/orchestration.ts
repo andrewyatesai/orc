@@ -198,7 +198,10 @@ const AskParams = z.object({
   question: requiredString('Missing --question'),
   options: OptionalString,
   timeoutMs: OptionalFiniteNumber,
-  from: OptionalString
+  from: OptionalString,
+  /** Naming the blocked task opens a decision gate, so a human sees the question in
+   *  the queue instead of only the addressed agent. Without it `ask` stays agent↔agent. */
+  task: OptionalString
 })
 
 const ResetParams = z
@@ -621,7 +624,13 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
           .map((s) => s.trim())
           .filter(Boolean) ?? []
 
-      const payload = JSON.stringify({ question: params.question, options })
+      // Why taskId rides the payload: Coordinator.handleDecisionGateMessage hard-rejects a
+      // decision_gate whose payload has no taskId, so without this an ask never becomes a gate.
+      const payload = JSON.stringify({
+        question: params.question,
+        options,
+        ...(params.task ? { taskId: params.task } : {})
+      })
       // Why: same remint-stable recipient identity as send — a decision gate must
       // still reach the pane if the addressed handle goes stale mid-ask (#9163).
       const recipientPaneKey =
@@ -635,6 +644,19 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
         payload,
         recipientPaneKey
       })
+      // Why create the gate here rather than waiting for the coordinator tick: when `to`
+      // names an orchestrator *agent* the message goes into its PTY and no coordinator ever
+      // sees it, so the gate would never exist and the queue would show nothing waiting.
+      // Stamped with the origin so resolving it can answer this exact ask.
+      if (params.task) {
+        db.createGate({
+          taskId: params.task,
+          question: params.question,
+          options,
+          originMessageId: outbound.id
+        })
+      }
+
       runtime.deliverPendingMessagesForHandle(params.to, recipientPaneKey)
       runtime.notifyMessageArrived(params.to, outbound.type, recipientPaneKey)
 

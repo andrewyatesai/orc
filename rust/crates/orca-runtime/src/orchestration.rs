@@ -106,6 +106,10 @@ pub struct DecisionGate {
     pub resolution: Option<String>,
     pub created_at: String,
     pub resolved_at: Option<String>,
+    /// The `ask` message this gate answers, when it was opened by one. Null for
+    /// gates created directly via `gateCreate`, and for every gate written by a
+    /// pre-v8 build — read defensively, never assume it is present.
+    pub origin_message_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -127,7 +131,7 @@ const TASK_COLUMNS: &str =
 const DISPATCH_COLUMNS: &str =
     "id, task_id, assignee_handle, assignee_pane_key, status, failure_count, last_failure, dispatched_at, completed_at, created_at, last_heartbeat_at";
 const GATE_COLUMNS: &str =
-    "id, task_id, question, options, status, resolution, created_at, resolved_at";
+    "id, task_id, question, options, status, resolution, created_at, resolved_at, origin_message_id";
 const RUN_COLUMNS: &str =
     "id, spec, status, coordinator_handle, poll_interval_ms, created_at, completed_at";
 
@@ -727,10 +731,11 @@ impl OrchestrationDb {
         task_id: &str,
         question: &str,
         options: &[&str],
+        origin_message_id: Option<&str>,
     ) -> Result<DecisionGate, StoreError> {
         self.db.connection().execute(
-            "INSERT INTO decision_gates (id, task_id, question, options) VALUES (?1, ?2, ?3, ?4)",
-            params![id, task_id, question, json_string_array(options)],
+            "INSERT INTO decision_gates (id, task_id, question, options, origin_message_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, task_id, question, json_string_array(options), origin_message_id],
         )?;
         self.complete_active_dispatch_for_task(task_id)?;
         self.db
@@ -1044,6 +1049,7 @@ fn row_to_gate(row: &SqlRow<'_>) -> rusqlite::Result<DecisionGate> {
         resolution: row.get(5)?,
         created_at: row.get(6)?,
         resolved_at: row.get(7)?,
+        origin_message_id: row.get(8)?,
     })
 }
 

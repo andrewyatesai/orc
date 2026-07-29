@@ -56,7 +56,7 @@ describe('orchestration RPC methods', () => {
 
   it('registers all expected methods', () => {
     const registry = buildRegistry(ORCHESTRATION_METHODS)
-    expect(registry.size).toBe(16)
+    expect(registry.size).toBe(17)
     expect(registry.has('orchestration.send')).toBe(true)
     expect(registry.has('orchestration.check')).toBe(true)
     expect(registry.has('orchestration.reply')).toBe(true)
@@ -69,6 +69,9 @@ describe('orchestration RPC methods', () => {
     expect(registry.has('orchestration.ask')).toBe(true)
     expect(registry.has('orchestration.run')).toBe(true)
     expect(registry.has('orchestration.runStop')).toBe(true)
+    // Why pinned: without a reader the coordinator's stale-heartbeat warning — the only
+    // hang detector in the codebase — is generated and thrown away.
+    expect(registry.has('orchestration.runLog')).toBe(true)
     expect(registry.has('orchestration.gateCreate')).toBe(true)
     expect(registry.has('orchestration.gateResolve')).toBe(true)
     expect(registry.has('orchestration.gateList')).toBe(true)

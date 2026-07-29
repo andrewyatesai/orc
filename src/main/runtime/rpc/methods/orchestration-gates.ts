@@ -3,12 +3,18 @@ import { defineMethod, type RpcMethod } from '../core'
 import { OptionalFiniteNumber, OptionalString, requiredString } from '../schemas'
 import type { CoordinatorRun, GateStatus, OrchestrationDb } from '../../orchestration/db'
 import { Coordinator } from '../../orchestration/coordinator'
+import { CoordinatorRunLogRegistry } from '../../orchestration/coordinator-run-log'
+import { deliverGateResolutionToOrigin } from '../../orchestration/gate-reply-coupling'
 
 // Why: live coordinators are keyed by run id so orchestration.runStop can
 // target one without touching the others. Runs are keyed by coordinator
 // handle (#4389): one live run per handle, but different handles may
 // coordinate concurrently in the same workspace.
 const activeCoordinators = new Map<string, { coordinator: Coordinator; handle: string }>()
+
+// Why: Coordinator.onLog defaulted to a no-op here, discarding the stale-heartbeat
+// warning that is the codebase's only hang detector. Kept per run and reaped with it.
+const coordinatorRunLogs = new CoordinatorRunLogRegistry()
 
 function findLiveRunIdForHandle(handle: string): string | undefined {
   for (const [runId, entry] of activeCoordinators) {
@@ -51,6 +57,11 @@ const GateResolveParams = z.object({
   resolution: requiredString('Missing --resolution')
 })
 
+const RunLogParams = z.object({
+  runId: OptionalString,
+  from: OptionalString
+})
+
 const GateListParams = z.object({
   task: OptionalString,
   status: z.enum(['pending', 'resolved', 'timeout']).optional()
@@ -84,18 +95,20 @@ export const ORCHESTRATION_GATE_METHODS: RpcMethod[] = [
         markStaleCoordinatorRunFailed(db, existing)
       }
 
+      const run = db.createCoordinatorRun({
+        spec: params.spec,
+        coordinatorHandle,
+        pollIntervalMs: params.pollIntervalMs
+      })
+
+      const runLog = coordinatorRunLogs.forRun(run.id)
       const coordinator = new Coordinator(db, runtime, {
         spec: params.spec,
         coordinatorHandle,
         pollIntervalMs: params.pollIntervalMs,
         maxConcurrent: params.maxConcurrent,
-        worktree: params.worktree
-      })
-
-      const run = db.createCoordinatorRun({
-        spec: params.spec,
-        coordinatorHandle,
-        pollIntervalMs: params.pollIntervalMs
+        worktree: params.worktree,
+        onLog: (message) => runLog.append(message, Date.now())
       })
 
       activeCoordinators.set(run.id, { coordinator, handle: coordinatorHandle })
@@ -128,9 +141,7 @@ export const ORCHESTRATION_GATE_METHODS: RpcMethod[] = [
         }
         run = match
       } else if (params.from) {
-        const match = activeRuns.find(
-          (candidate) => candidate.coordinator_handle === params.from
-        )
+        const match = activeRuns.find((candidate) => candidate.coordinator_handle === params.from)
         if (!match) {
           throw new Error(`No active coordinator run for handle: ${params.from}`)
         }
@@ -197,7 +208,36 @@ export const ORCHESTRATION_GATE_METHODS: RpcMethod[] = [
       if (!gate) {
         throw new Error(`Gate not found: ${params.id}`)
       }
-      return { gate }
+      // Why: resolveGate alone unblocks the task but leaves the asking worker parked on
+      // its thread until timeout — the board clears while the fleet is still stuck.
+      const answered = deliverGateResolutionToOrigin(db, runtime, gate, params.resolution)
+      return { gate, answeredOrigin: answered.delivered }
+    }
+  }),
+
+  // Why: without this the coordinator's diagnostics have no reader at all — a mission
+  // that stalls on a failed terminal creation looks identical to one that is just slow.
+  defineMethod({
+    name: 'orchestration.runLog',
+    params: RunLogParams,
+    handler: (params, { runtime }) => {
+      const db = runtime.getOrchestrationDb()
+      const runId = params.runId ?? findLiveRunIdForHandle(params.from ?? 'coordinator')
+      if (!runId) {
+        throw new Error('No active coordinator run; pass --run <run_id> or --from <handle>')
+      }
+      const log = coordinatorRunLogs.peek(runId)
+      if (!log) {
+        // A finished or pre-restart run has no in-memory tail; say so rather than imply silence.
+        return { runId, entries: [], dropped: 0, retained: false, run: db.getCoordinatorRun(runId) }
+      }
+      return {
+        runId,
+        entries: log.list(),
+        dropped: log.dropped,
+        retained: true,
+        run: db.getCoordinatorRun(runId)
+      }
     }
   }),
 

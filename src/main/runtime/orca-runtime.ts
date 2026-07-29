@@ -97,6 +97,7 @@ import { mkdir, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { resolveWorktreeCreateBase } from '../worktree-create-base'
 import { resolveWorktreeAddBaseRef } from '../../shared/worktree-base-ref'
 import { OrchestrationDb } from './orchestration/db'
+import { failStrandedCoordinatorRuns } from './orchestration/stranded-coordinator-runs'
 import { formatMessagesForInjection } from './orchestration/formatter'
 import type {
   Automation,
@@ -3531,6 +3532,10 @@ export class OrcaRuntimeService {
       const { app } = require('electron')
       const dbPath = join(app.getPath('userData'), 'orchestration.db')
       this._orchestrationDb = new OrchestrationDb(dbPath)
+      // Why here: first open is the one moment no coordinator can be live, so every row
+      // still marked running was stranded by the previous process exit. Left alone, a
+      // fleet view reports those missions as running forever.
+      failStrandedCoordinatorRuns(this._orchestrationDb)
     }
     return this._orchestrationDb
   }
