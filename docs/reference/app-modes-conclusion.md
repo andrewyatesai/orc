@@ -71,6 +71,7 @@ All gates clean at `304ace7e4`: three TypeScript projects, full `oxlint` (zero
 suppressions added anywhere in this work), the max-lines ratchet (baseline shrunk, never
 grown), switch-exhaustiveness, localization catalog + coverage, Rust `orca-runtime`
 suites 27/27 including the v1→v8 migration fixtures, and the renderer/main/shared vitest
-suites over every touched area (≈20k tests). The one pre-existing failure documented
-during the work — `updater.headless-serve-install.test.ts`'s stale mock — predates this
-work and is untouched by it.
+suites over every touched area (≈20k tests). The one pre-existing failure found during
+the work — `updater.headless-serve-install.test.ts`'s mock of `updater-install-policy`
+missing the `usesSelfManagedCheck` export its three sibling suites already stub — was
+fixed as a follow-up, so the suite is fully green.

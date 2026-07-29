@@ -79,7 +79,10 @@ vi.mock('electron-updater', () => ({ autoUpdater: autoUpdaterMock }))
 vi.mock('./electron-updater-loader', () => ({ loadElectronAutoUpdater: () => autoUpdaterMock }))
 vi.mock('@electron-toolkit/utils', () => ({ is: { dev: false } }))
 // Fork-only: the native updater is dormant unless the platform installs automatically (Linux).
-vi.mock('./updater-install-policy', () => ({ getUpdateInstallMode: () => 'automatic' }))
+vi.mock('./updater-install-policy', () => ({
+  getUpdateInstallMode: () => 'automatic',
+  usesSelfManagedCheck: (mode: string) => mode !== 'automatic'
+}))
 vi.mock('./ipc/pty', () => ({ killAllPty: killAllPtyMock }))
 vi.mock('./updater-changelog', () => ({ fetchChangelog: vi.fn().mockResolvedValue(null) }))
 vi.mock('./updater-nudge', () => ({
