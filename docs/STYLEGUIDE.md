@@ -91,6 +91,24 @@ This keeps light/dark parity automatic.
   - 12px (sub-text, paths, secondary content)
   - 13px (sidebar items, dense list rows)
   - 14px (default body, button text in `default` size)
+- **Scale multiplier:** `--app-font-scale` (default `1`) is consumed once, by `html { font-size: calc(100% * var(--app-font-scale)) }`. It exists so a mode that needs larger copy raises one number instead of overriding hundreds of components. It scales every **rem**-based size, including Tailwind's `text-*` utilities; it deliberately does **not** reach the hardcoded `px` font-sizes in `main.css`, which are fixed chrome. Do not set it per component — if a single surface needs bigger text, use a larger Tailwind size.
+
+## Motion
+
+One scale, consumed through tokens so a mode can retime the app in one place and so reduced-motion has a single lever.
+
+| Token | Value | Use |
+| --- | --- | --- |
+| `--motion-duration-fast` | `120ms` | Hover, focus, small state flips — anything the eye should not track. |
+| `--motion-duration-base` | `200ms` | The default. Panels, popovers, list transitions. |
+| `--motion-duration-slow` | `320ms` | Entrances of large surfaces; use sparingly. |
+| `--motion-ease-standard` | `cubic-bezier(0.2, 0, 0, 1)` | Both-ends motion (move, resize). |
+| `--motion-ease-entrance` | `cubic-bezier(0, 0, 0, 1)` | Enter — decelerate in. |
+| `--motion-ease-exit` | `cubic-bezier(0.3, 0, 1, 1)` | Exit — accelerate out. |
+
+Reach for these instead of writing a bare `transition: background 150ms`. Under `prefers-reduced-motion: reduce` the three durations collapse to `0.01ms` at `:root`, so every consumer is neutralized at the source — you do not need a per-component guard for a transition built from these tokens. Existing bespoke `@keyframes` and hardcoded transitions are grandfathered; convert them opportunistically when you touch them, and never add new ones.
+
+**These tokens do not reach aterm.** The terminal's cursor trail, sparkle, matrix rain and glow are timed inside the Rust/WASM engine, not by CSS, and they have their own accessibility path — `aterm-effects-settings.ts` reads `prefers-reduced-motion` at apply time and forwards it via `term.set_sparkle_reduced_motion(...)`. Retiming terminal effects is an engine-config change through `AtermEffectsSettings`, never a token edit. The two systems are complementary: CSS tokens own DOM chrome, the engine owns the grid.
 
 ## Radius
 
@@ -127,7 +145,9 @@ Variants in priority order:
 | `link`        | Inline text actions inside paragraphs.                             |
 | `destructive` | Delete, discard, irreversible. Never for Cancel.                   |
 
-Sizes: `default` (36px), `sm` (32px), `xs` (24px), `lg` (40px), plus `icon`, `icon-xs`, `icon-sm`, `icon-lg`. Match the size to the surrounding row height — don't drop a `default` button into a 28px toolbar.
+Sizes: `default` (36px), `sm` (32px), `xs` (24px), `lg` (40px), `touch` (48px), plus `icon`, `icon-xs`, `icon-sm`, `icon-lg`, `icon-touch` (48px). Match the size to the surrounding row height — don't drop a `default` button into a 28px toolbar.
+
+`touch` / `icon-touch` exist because the scale stopped at 40px, under the 44px minimum hit target for primary controls driven by finger or by a young child. Use them for a mode's primary actions; never reproduce them as a per-component `className="h-12"`, which is how a size scale rots.
 
 ### Other primitives in this repo
 

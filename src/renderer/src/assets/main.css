@@ -118,6 +118,12 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  --animate-duration-fast: var(--motion-duration-fast);
+  --animate-duration-base: var(--motion-duration-base);
+  --animate-duration-slow: var(--motion-duration-slow);
+  --ease-standard: var(--motion-ease-standard);
+  --ease-entrance: var(--motion-ease-entrance);
+  --ease-exit: var(--motion-ease-exit);
 }
 
 /* ── Light Mode ──────────────────────────────────────── */
@@ -129,6 +135,26 @@
     'SF Mono', SFMono-Regular, ui-monospace, 'Cascadia Code', Menlo, Consolas, 'Liberation Mono',
     monospace;
   --radius: 0.625rem;
+
+  /* Root type-scale multiplier. 1 everywhere except modes that need larger touch
+     copy (Story World). Scales every rem-based size — including Tailwind's text-*
+     utilities — from one place instead of per-component overrides. Declared only
+     here, not in .dark: it is theme-independent, like --radius. Note it does NOT
+     reach the hardcoded px font-sizes further down this file; those are chrome
+     that deliberately stays fixed. Composes multiplicatively with Electron's
+     --ui-zoom-factor, which is what a user expects from zoom plus a bigger scale. */
+  --app-font-scale: 1;
+
+  /* Motion. One scale for the whole app so a mode can retime every transition in
+     one place and the reduced-motion guard below can neutralize every consumer at
+     once — previously ~60 hardcoded transition declarations had nothing to key on. */
+  --motion-duration-fast: 120ms;
+  --motion-duration-base: 200ms;
+  --motion-duration-slow: 320ms;
+  --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --motion-ease-entrance: cubic-bezier(0, 0, 0, 1);
+  --motion-ease-exit: cubic-bezier(0.3, 0, 1, 1);
+
   /* Why: the cross-pane effects spill canvas must sit above pane content
      (z-auto..2) but below every interactive tier (IME 4, scrollbar 5, ...). */
   --z-terminal-spill: 3;
@@ -309,6 +335,23 @@
 
 .dark .linear-priority-bars {
   --linear-priority-bar-inactive-fill: color-mix(in srgb, lch(39.576 1.25 282) 62%, transparent);
+}
+
+/* Why here and not on :root's declaration: the token is the knob, this is the one
+   place it is consumed, so a mode changes one number and every rem size follows. */
+html {
+  font-size: calc(100% * var(--app-font-scale, 1));
+}
+
+/* Why: collapse the motion scale itself rather than restating `transition: none`
+   per component — every consumer of these tokens is neutralized at the source, and
+   the existing per-component reduced-motion blocks below stay as they are. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration-fast: 0.01ms;
+    --motion-duration-base: 0.01ms;
+    --motion-duration-slow: 0.01ms;
+  }
 }
 
 [data-sonner-toaster] {
