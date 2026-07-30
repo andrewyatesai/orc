@@ -1,11 +1,10 @@
 import { isBuiltin } from 'node:module'
 import { resolve } from 'node:path'
-import { execSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
 import { defineConfig, type UserConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { createPlainNodeEntryGuardPlugin } from './build-plugins/plain-node-entry-guard'
+import { createPreloadBridgeGuardPlugin } from './build-plugins/preload-bridge-guard'
 import { createMainCompileCacheBootstrapPlugin } from './build-plugins/main-compile-cache-bootstrap'
 import { createChunkModuleDumpPlugin } from './build-plugins/renderer-chunk-module-dump'
 import {
@@ -13,6 +12,7 @@ import {
   createRendererWorkerChunkBudgetPlugin
 } from './build-plugins/renderer-chunk-budget'
 import { createRendererContentSecurityPolicyPlugin } from './build-plugins/renderer-content-security-policy'
+import { computeOrcaBuildInfoLiteral } from './build-plugins/orca-build-info'
 import packageJson from './package.json' with { type: 'json' }
 
 const EXTERNAL_MAIN_DEPENDENCIES = Object.keys(packageJson.dependencies)
@@ -26,48 +26,6 @@ function isExternalMainModule(source: string): boolean {
   )
 }
 
-// Build provenance for the About section, baked in at build time (a packaged app
-// has no git repo / rust/aterm tree to read at runtime). Best-effort: any piece
-// that can't be resolved (no git, missing file) degrades to 'unknown' rather than
-// failing the build. See `ORCA_BUILD_INFO` in src/types/build-constants.d.ts.
-function git(args: string): string {
-  try {
-    return execSync(`git ${args}`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
-  } catch {
-    return ''
-  }
-}
-function computeOrcaBuildInfoLiteral(): string {
-  let orcaVersion = 'unknown'
-  try {
-    orcaVersion = JSON.parse(readFileSync(resolve('package.json'), 'utf8')).version ?? 'unknown'
-  } catch {
-    /* keep unknown */
-  }
-  // aterm is a pinned git submodule; its checked-out commit IS the engine version.
-  const atermRevFull = git('-C rust/aterm rev-parse HEAD')
-  const atermRev = atermRevFull ? atermRevFull.slice(0, 12) : 'unknown'
-  // The last upstream re-sync: most recent commit whose subject starts with
-  // "Merge upstream" (the convention these merges use); pull the version + hash out.
-  const mergeLine = git('log -1 --grep="Merge upstream" --format="%h %s"')
-  let upstreamAligned = 'unknown'
-  if (mergeLine) {
-    const sep = mergeLine.indexOf(' ')
-    const hash = sep === -1 ? mergeLine : mergeLine.slice(0, sep)
-    const subject = sep === -1 ? '' : mergeLine.slice(sep + 1)
-    const version = subject.match(/v?\d+\.\d+\.\d+[\w.-]*/)?.[0] ?? ''
-    upstreamAligned = version ? `${version} (${hash})` : hash
-  }
-  const info = {
-    orcaVersion,
-    orcaCommit: git('rev-parse --short HEAD') || 'unknown',
-    orcaCommitDate: git('show -s --format=%cI HEAD') || 'unknown',
-    atermRev,
-    upstreamFork: 'stablyai/orca',
-    upstreamAligned
-  }
-  return JSON.stringify(info)
-}
 const ORCA_BUILD_INFO_LITERAL = computeOrcaBuildInfoLiteral()
 
 // Why: the telemetry transport is gated by two compile-time constants that
@@ -306,7 +264,23 @@ export const electronViteConfig: UserConfig = {
           // Coordinator v0: the single-channel-pair daemon byte tunnel — kept
           // separate so that window never loads the legacy IPC surface.
           coordinator: resolve('src/preload/coordinator.ts')
-        }
+        },
+        // Why: `electron` in a preload is the runtime builtin, never the npm
+        // package. Rolldown otherwise bundles node_modules/electron (the binary
+        // path helper) and splits it into a shared chunk, which a SANDBOXED
+        // preload cannot require — the bridge then fails to load and
+        // window.api is silently undefined.
+        external: (source: string) => source === 'electron' || source.startsWith('electron/'),
+        // Why: same CJS pinning as the main build. Rolldown defaults preload to
+        // ESM `.mjs`, but createMainWindow/coordinator-window pass literal
+        // `../preload/index.js` and `../preload/coordinator.js`, so a renamed
+        // artifact makes Electron load no preload at all.
+        output: {
+          format: 'cjs',
+          entryFileNames: '[name].js',
+          chunkFileNames: 'chunks/[name]-[hash].js'
+        },
+        plugins: [createPreloadBridgeGuardPlugin()]
       }
     }
   },
