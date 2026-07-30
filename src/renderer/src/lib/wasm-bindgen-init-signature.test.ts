@@ -13,11 +13,11 @@ const loaderCases = [
   },
   {
     file: 'pane-manager/aterm/load-aterm-gpu.ts',
-    calls: ['init({ module_or_path: wasmUrl })']
+    calls: ['glue.default({ module_or_path: wasmUrl })']
   },
   {
     file: 'pane-manager/aterm/load-aterm.ts',
-    calls: ['init({ module_or_path: wasmUrl })']
+    calls: ['glue.default({ module_or_path: wasmUrl })']
   },
   {
     file: 'pane-manager/aterm/aterm-worker-engine-build.ts',
