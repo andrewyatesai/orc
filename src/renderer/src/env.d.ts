@@ -150,6 +150,15 @@ declare global {
   }
 }
 
+// Vite `?worker` imports. Declared here rather than pulling in all of `vite/client`.
+// Why the suffix form at call sites: rolldown-vite collapses
+// `new Worker(new URL('./x.ts', import.meta.url))` to `self.location.href`, which under
+// the orca://app scheme is index.html, so the worker never loads.
+declare module '*?worker' {
+  const WorkerConstructor: new () => Worker
+  export default WorkerConstructor
+}
+
 // oxlint-disable-next-line typescript-eslint/consistent-type-definitions -- declaration merging requires interface
 interface ImportMetaEnv {
   readonly VITE_EXPOSE_STORE?: boolean
