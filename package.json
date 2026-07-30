@@ -110,6 +110,7 @@
     "test:e2e:computer": "vitest run --config tests/e2e/vitest.config.ts",
     "bench:idle-cpu": "pnpm run ensure:electron-runtime && node config/scripts/run-idle-cpu-benchmark.mjs",
     "bench:startup": "pnpm run ensure:electron-runtime && node tools/benchmarks/startup-time-bench.mjs",
+    "bench:first-terminal": "pnpm run ensure:electron-runtime && node tools/benchmarks/startup-time-bench.mjs --label first-terminal --state-profile restored-local-tabs --session-tabs 8 --wait-for-event renderer-first-terminal-frame --iterations 5",
     "bench:daemon-coldstart": "pnpm run ensure:electron-runtime && node tools/benchmarks/daemon-coldstart-bench.mjs",
     "bench:main-thread-jank": "pnpm run ensure:electron-runtime && node tools/benchmarks/main-thread-jank-bench.mjs",
     "bench:multi-workspace-typing": "pnpm run ensure:electron-runtime && node config/scripts/run-multi-workspace-typing-bench.mjs",
