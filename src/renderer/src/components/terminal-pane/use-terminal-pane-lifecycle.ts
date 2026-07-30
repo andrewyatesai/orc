@@ -419,6 +419,11 @@ function hydrateTerminalScrollbackRefs(layout: TerminalLayoutSnapshot): {
       continue
     }
     try {
+      // Why still synchronous: PaneManager builds the grid from this layout right
+      // below, so awaiting here would paint empty panes and reflow. The blocking
+      // IO moved instead — the preload prefetches these tails at restore start
+      // (src/preload/terminal-scrollback-tail-prefetch.ts) and this is a memory
+      // read whenever the prefetch landed first.
       const tail = window.api.session.readTerminalScrollbackTail({ ref })
       if (tail?.text) {
         buffers[leafId] = tail.text

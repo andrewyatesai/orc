@@ -256,6 +256,18 @@ import {
   createUpdaterQuitAbortRelay,
   prepareRendererForAppRestart
 } from './renderer-restart-preparation'
+import {
+  createTerminalScrollbackTailReader,
+  TERMINAL_SCROLLBACK_TAIL_PREFETCH_CHANNEL
+} from './terminal-scrollback-tail-prefetch'
+
+// Why at the top of preload evaluation: this starts the restore scrollback pull
+// before the renderer bundle parses, so session.readTerminalScrollbackTail below
+// answers restored panes from memory instead of a renderer-blocking disk read.
+const terminalScrollbackTailReader = createTerminalScrollbackTailReader({
+  requestPrefetch: () => ipcRenderer.invoke(TERMINAL_SCROLLBACK_TAIL_PREFETCH_CHANNEL),
+  readTailSync: (args) => ipcRenderer.sendSync('session:read-terminal-scrollback-tail-sync', args)
+})
 
 type NativeFileDropCallback = (data: NativeFileDropPayload) => void
 
@@ -459,6 +471,11 @@ const api = {
     persistBeforeUnloadSync: (
       args: Parameters<PreloadApi['app']['persistBeforeUnloadSync']>[0]
     ) => {
+      // The quit/park capture rewrites scrollback snapshots too, so it must
+      // invalidate the restore prefetch exactly like session.set/patch do.
+      terminalScrollbackTailReader.noteSessionWrite(
+        (args as { session?: unknown } | undefined)?.session
+      )
       const result = ipcRenderer.sendSync('app:persist-before-unload-sync', args) as {
         ok?: unknown
       }
@@ -2855,18 +2872,28 @@ const api = {
   session: {
     // hostId is optional; main defaults it to 'local' so existing omitting call sites keep the local session partition.
     get: (hostId) => ipcRenderer.invoke('session:get', hostId),
-    set: (args, hostId) => ipcRenderer.invoke('session:set', args, hostId),
-    patch: (args, hostId) => ipcRenderer.invoke('session:patch', args, hostId),
+    // Why noteSessionWrite: a buffer-carrying write rewrites snapshot files on
+    // main, so any tail prefetched from the old file must be dropped unread.
+    set: (args, hostId) => {
+      terminalScrollbackTailReader.noteSessionWrite(args)
+      return ipcRenderer.invoke('session:set', args, hostId)
+    },
+    patch: (args, hostId) => {
+      terminalScrollbackTailReader.noteSessionWrite(args)
+      return ipcRenderer.invoke('session:patch', args, hostId)
+    },
     flush: () => ipcRenderer.invoke('session:flush'),
     readTerminalScrollback: (args) =>
       ipcRenderer.sendSync('session:read-terminal-scrollback-sync', args),
-    // P5 deep restore: sync tail with offsets, then async older-chunk streaming.
-    readTerminalScrollbackTail: (args) =>
-      ipcRenderer.sendSync('session:read-terminal-scrollback-tail-sync', args),
+    // P5 deep restore: tail with offsets, then async older-chunk streaming. The
+    // reader serves the prefetched tail when one is resident and otherwise falls
+    // back to the same sendSync read.
+    readTerminalScrollbackTail: (args) => terminalScrollbackTailReader.read(args),
     readTerminalScrollbackOlderChunk: (args) =>
       ipcRenderer.invoke('session:read-terminal-scrollback-older-chunk', args),
     /** Synchronous session save for beforeunload — blocks until flushed to disk. */
     setSync: (args, hostId) => {
+      terminalScrollbackTailReader.noteSessionWrite(args)
       ipcRenderer.sendSync('session:set-sync', args, hostId)
     }
   } satisfies PreloadApi['session'],

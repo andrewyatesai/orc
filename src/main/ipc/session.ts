@@ -1,6 +1,26 @@
 import { ipcMain } from 'electron'
 import type { Store } from '../persistence'
+import { resolveRestoreScrollbackPrefetchRefs } from '../terminal-scrollback-restore-prefetch'
 import type { WorkspaceSessionPatch, WorkspaceSessionState } from '../../shared/types'
+
+type TerminalScrollbackTailRead = NonNullable<
+  ReturnType<Store['readTerminalScrollbackSnapshotTail']>
+>
+
+// Why once per app run: the restore replay happens in the first window to load,
+// and each answered ref hands out up to the 512KB replay limit. A reload or a
+// later popout gets an empty map and falls back to the sync read below.
+let restoreTailPrefetchServed = false
+
+export function resetTerminalScrollbackRestorePrefetchForTest(): void {
+  restoreTailPrefetchServed = false
+}
+
+/** Yield the loop between reads so a multi-pane prefetch can never stall the
+ *  startup IPC main is answering concurrently. */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve))
+}
 
 export function registerSessionHandlers(store: Store): void {
   // Why: hostId is an optional second arg so an older renderer that invokes
@@ -51,6 +71,27 @@ export function registerSessionHandlers(store: Store): void {
         typeof args?.ref === 'string' ? store.readTerminalScrollbackSnapshotTail(args.ref) : null
     }
   )
+
+  // Restore prefetch: the preload pulls this while the renderer bundle is still
+  // parsing (src/preload/terminal-scrollback-tail-prefetch.ts), so the panes that
+  // mount first read their tail from memory instead of blocking on this process.
+  // Same Store call as the sync channel above — identical bytes, caps, and
+  // missing/corrupt handling (null is simply omitted from the map).
+  ipcMain.handle('session:prefetch-restore-terminal-scrollback-tails', async () => {
+    if (restoreTailPrefetchServed) {
+      return {}
+    }
+    restoreTailPrefetchServed = true
+    const tails: Record<string, TerminalScrollbackTailRead> = {}
+    for (const ref of resolveRestoreScrollbackPrefetchRefs(store.getWorkspaceSession())) {
+      await yieldToEventLoop()
+      const tail = store.readTerminalScrollbackSnapshotTail(ref)
+      if (tail) {
+        tails[ref] = tail
+      }
+    }
+    return tails
+  })
 
   ipcMain.handle(
     'session:read-terminal-scrollback-older-chunk',
