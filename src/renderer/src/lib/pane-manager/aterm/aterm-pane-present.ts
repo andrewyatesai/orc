@@ -2,6 +2,7 @@ import {
   markTerminalInteractivePresentStart,
   measureTerminalFramePresented
 } from '../../../../../shared/terminal-perf-marks'
+import { markFirstAtermTerminalFramePresented } from './aterm-first-terminal-frame-milestone'
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
 import type { AtermDrawScheduler } from './aterm-draw-scheduler'
 import type { AtermEffectsDrive } from './aterm-effects-drive'
@@ -63,6 +64,8 @@ export function createAtermPanePresenter(deps: AtermPanePresenterDeps): AtermPan
     // only while the engine reports an active animation (idle-to-zero contract).
     deps.effectsDrive.beforeFrame()
     strategy.drawFrame()
+    // Startup milestone: the first terminal frame just presented (fire-once).
+    markFirstAtermTerminalFramePresented()
     deps.spillBlit?.()
     searchOverlay?.paint(deps.getSearchMatches(), deps.getSearchActiveIndex())
     a11yMirror.schedule()

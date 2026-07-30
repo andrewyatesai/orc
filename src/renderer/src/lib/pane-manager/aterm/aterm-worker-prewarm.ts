@@ -31,6 +31,9 @@ export type AtermWorkerPrewarmDeps = {
 
 export type AtermWorkerPrewarm = {
   arm: () => void
+  /** Warm NOW, skipping the idle delay — for a restore that is known to mount
+   *  panes imminently (the idle prewarm always loses that race). */
+  warmNow: () => void
   notePaneAcquired: () => void
 }
 
@@ -38,6 +41,7 @@ export type AtermWorkerPrewarm = {
  *  production uses the module-level singleton below. */
 export function createAtermWorkerPrewarm(deps: AtermWorkerPrewarmDeps): AtermWorkerPrewarm {
   let armed = false
+  let warmStarted = false
   let paneSeen = false
   let hold: AtermWorkerPrewarmHold | null = null
   let holdTimer: ReturnType<typeof setTimeout> | null = null
@@ -52,6 +56,31 @@ export function createAtermWorkerPrewarm(deps: AtermWorkerPrewarmDeps): AtermWor
     hold = null
   }
 
+  // ONE warm per prewarm (idle-scheduled or immediate): a second acquire would
+  // overwrite `hold` and leak the first slot, keeping the worker alive forever.
+  const startWarm = (): void => {
+    if (paneSeen || warmStarted) {
+      return
+    }
+    warmStarted = true
+    deps
+      .acquire()
+      .then((pane) => {
+        if (paneSeen) {
+          // A real pane raced ahead and owns the worker now — the warm-up
+          // already happened; drop the redundant slot immediately.
+          pane.release()
+          return
+        }
+        hold = pane
+        holdTimer = setTimeout(releaseHold, deps.holdMs)
+      })
+      .catch(() => {
+        // Best-effort: a prewarm failure is invisible; the first real pane
+        // open runs the same path and surfaces any real error itself.
+      })
+  }
+
   return {
     arm: (): void => {
       if (armed) {
@@ -60,26 +89,14 @@ export function createAtermWorkerPrewarm(deps: AtermWorkerPrewarmDeps): AtermWor
       armed = true
       cancelSchedule = deps.schedule(() => {
         cancelSchedule = null
-        if (paneSeen) {
-          return
-        }
-        deps
-          .acquire()
-          .then((pane) => {
-            if (paneSeen) {
-              // A real pane raced ahead and owns the worker now — the warm-up
-              // already happened; drop the redundant slot immediately.
-              pane.release()
-              return
-            }
-            hold = pane
-            holdTimer = setTimeout(releaseHold, deps.holdMs)
-          })
-          .catch(() => {
-            // Best-effort: a prewarm failure is invisible; the first real pane
-            // open runs the same path and surfaces any real error itself.
-          })
+        startWarm()
       })
+    },
+    warmNow: (): void => {
+      // A still-pending idle attempt would fire into startWarm's no-op; drop it.
+      cancelSchedule?.()
+      cancelSchedule = null
+      startWarm()
     },
     notePaneAcquired: (): void => {
       paneSeen = true
@@ -110,15 +127,41 @@ export function noteRealAtermWorkerPaneAcquired(): void {
   productionPrewarm.notePaneAcquired()
 }
 
+export type AtermPrewarmEnvironment = {
+  hasWindow: boolean
+  hasWorker: boolean
+  mode: string | undefined
+  e2eExposeStore: boolean
+}
+
+/** Skipped under unit tests and e2e (exposeStore): specs assert on lazy worker
+ *  creation/termination and must not see a background worker they didn't open.
+ *  Pure so the skip decision is testable despite MODE always being 'test' here. */
+export function shouldSkipAtermEnginePrewarm(env: AtermPrewarmEnvironment): boolean {
+  return !env.hasWindow || !env.hasWorker || env.mode === 'test' || env.e2eExposeStore
+}
+
+const prewarmSkipped = shouldSkipAtermEnginePrewarm({
+  hasWindow: typeof window !== 'undefined',
+  hasWorker: typeof Worker !== 'undefined',
+  mode: import.meta.env?.MODE,
+  e2eExposeStore: e2eConfig.exposeStore
+})
+
 // Self-arm with the renderer bundle (this module loads via the static pane-open
-// import chain, long before any pane exists). Skipped under unit tests and e2e
-// (exposeStore): specs assert on lazy worker creation/termination and must not
-// see a background worker they didn't open.
-if (
-  typeof window !== 'undefined' &&
-  typeof Worker !== 'undefined' &&
-  import.meta.env?.MODE !== 'test' &&
-  !e2eConfig.exposeStore
-) {
+// import chain, long before any pane exists).
+if (!prewarmSkipped) {
   productionPrewarm.arm()
+}
+
+/** Session-restore warm: a LOCAL restored terminal pane is known to be imminent,
+ *  so run the whole warm path NOW (acquire = loadAterm wasm compile + font fetch
+ *  + worker spawn + resident-fonts post) instead of waiting out the idle delay a
+ *  cold-restore pane always races ahead of. Same bounded hold + release-on-real-
+ *  pane lifecycle as the idle prewarm, so memory-over-warmth still holds. */
+export function warmAtermSharedWorkerForImminentPane(): void {
+  if (prewarmSkipped) {
+    return
+  }
+  productionPrewarm.warmNow()
 }

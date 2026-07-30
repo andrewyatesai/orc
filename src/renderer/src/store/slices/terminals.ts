@@ -3345,6 +3345,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
   },
 
   reconnectPersistedTerminals: async (_signal) => {
+    const restoreSnapshot = get()
     const {
       pendingReconnectWorktreeIds,
       pendingReconnectTabByWorktree,
@@ -3352,8 +3353,22 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       terminalLayoutsByTabId,
       tabsByWorktree,
       ptyIdsByTabId
-    } = get()
+    } = restoreSnapshot
     const ids = pendingReconnectWorktreeIds ?? []
+
+    // Why: overlap the multi-second aterm engine cold boot with the rest of
+    // startup when this restore will mount local terminal panes — pane mount is
+    // gated on workspaceSessionReady, which flips only at the end of this action.
+    // Dynamic import keeps the aterm chain out of the budget-gated eager entry;
+    // the captured snapshot survives the pendingReconnect* clear below.
+    if (ids.length > 0) {
+      void import('@/lib/pane-manager/aterm/aterm-session-restore-warm')
+        .then((warm) => warm.warmAtermEngineForSessionRestore(restoreSnapshot))
+        .catch(() => {
+          // Best-effort: the first real pane open runs the same path and
+          // surfaces any real error itself.
+        })
+    }
 
     if (ids.length === 0) {
       set({
