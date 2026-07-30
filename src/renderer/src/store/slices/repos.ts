@@ -192,6 +192,16 @@ type AllHostCatalogFetchOptions = {
   remoteHosts?: 'include' | 'skip'
 }
 
+/** Local-host catalog rows carried by the startup snapshot. Hydrating from
+ *  them replaces the boot chain's repos/projects/host-setups round-trips;
+ *  repos:list's promotion/enrichment side effects run main-side in the
+ *  snapshot handler instead. */
+export type PrefetchedLocalRepoCatalog = {
+  repos: Repo[]
+  projects: Project[]
+  projectHostSetups: ProjectHostSetup[]
+}
+
 export type ProjectRemovalFailure = {
   projectId: string
   reason: string
@@ -1045,6 +1055,38 @@ async function fetchRepoCatalogForTarget(
   }
 }
 
+// Why: the snapshot rows are the same store reads the local channels return; apply
+// the identical owner shaping so the prefetched and live paths hydrate byte-identically.
+function localRepoCatalogFromPrefetched(
+  prefetched: PrefetchedLocalRepoCatalog
+): FetchedRepoCatalog {
+  const target = { kind: 'local' as const }
+  return {
+    repos: prefetched.repos.map((repo) => repoWithFetchedOwner(repo, target)),
+    projectHostSetupCompatibility: {
+      projects: prefetched.projects,
+      setups: prefetched.projectHostSetups
+    },
+    hostId: LOCAL_EXECUTION_HOST_ID
+  }
+}
+
+function localProjectGroupCatalogFromPrefetched(
+  prefetched: ProjectGroup[]
+): FetchedProjectGroupCatalog {
+  const target = { kind: 'local' as const }
+  return {
+    projectGroups: prefetched.map((group) => projectGroupWithFetchedOwner(group, target)),
+    hostId: LOCAL_EXECUTION_HOST_ID
+  }
+}
+
+function localFolderWorkspaceCatalogFromPrefetched(
+  prefetched: FolderWorkspace[]
+): FetchedFolderWorkspaceCatalog {
+  return { folderWorkspaces: prefetched, hostId: LOCAL_EXECUTION_HOST_ID }
+}
+
 function mergeFetchedRepoCatalog(
   catalog: FetchedRepoCatalog,
   currentRepos: readonly Repo[]
@@ -1552,12 +1594,18 @@ export type RepoSlice = {
   pendingSshRepoReadoptions: SshRepoReadoption[]
   recordSshRepoReadoptions: (readoptions: SshRepoReadoption[]) => void
   fetchRepos: () => Promise<void>
-  fetchReposForAllHosts: (options?: AllHostCatalogFetchOptions) => Promise<void>
+  fetchReposForAllHosts: (
+    options?: AllHostCatalogFetchOptions & { prefetchedLocal?: PrefetchedLocalRepoCatalog }
+  ) => Promise<void>
   fetchRuntimeEnvironmentRepos: (environmentId: string) => Promise<Repo[]>
   fetchProjectGroups: () => Promise<void>
-  fetchProjectGroupsForAllHosts: (options?: AllHostCatalogFetchOptions) => Promise<void>
+  fetchProjectGroupsForAllHosts: (
+    options?: AllHostCatalogFetchOptions & { prefetchedLocal?: ProjectGroup[] }
+  ) => Promise<void>
   fetchFolderWorkspaces: () => Promise<void>
-  fetchFolderWorkspacesForAllHosts: (options?: AllHostCatalogFetchOptions) => Promise<void>
+  fetchFolderWorkspacesForAllHosts: (
+    options?: AllHostCatalogFetchOptions & { prefetchedLocal?: FolderWorkspace[] }
+  ) => Promise<void>
   addRepo: () => Promise<Repo | null>
   addRepoPath: (
     path: string,
@@ -1894,7 +1942,12 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
     // Local first so local repos are present even if a remote fetch stalls.
     let failed = false
     try {
-      applyCatalog(await fetchRepoCatalogForTarget({ kind: 'local' }))
+      // Why: snapshot-prefetched rows hydrate the local catalog with zero IPC round-trips at boot.
+      applyCatalog(
+        options?.prefetchedLocal
+          ? localRepoCatalogFromPrefetched(options.prefetchedLocal)
+          : await fetchRepoCatalogForTarget({ kind: 'local' })
+      )
     } catch (err) {
       failed = true
       console.error('Failed to fetch local repos for all-host load:', err)
@@ -1952,7 +2005,11 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
     }
 
     try {
-      applyCatalog(await fetchProjectGroupCatalogForTarget({ kind: 'local' }))
+      applyCatalog(
+        options?.prefetchedLocal
+          ? localProjectGroupCatalogFromPrefetched(options.prefetchedLocal)
+          : await fetchProjectGroupCatalogForTarget({ kind: 'local' })
+      )
     } catch (err) {
       console.error('Failed to fetch local project groups for all-host load:', err)
     }
@@ -2026,7 +2083,11 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
 
     let failed = false
     try {
-      applyCatalog(await fetchFolderWorkspaceCatalogForTarget({ kind: 'local' }))
+      applyCatalog(
+        options?.prefetchedLocal
+          ? localFolderWorkspaceCatalogFromPrefetched(options.prefetchedLocal)
+          : await fetchFolderWorkspaceCatalogForTarget({ kind: 'local' })
+      )
     } catch (err) {
       failed = true
       console.error('Failed to fetch local folder workspaces for all-host load:', err)

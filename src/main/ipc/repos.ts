@@ -91,6 +91,7 @@ import type { RepoMethod } from '../../shared/telemetry-events'
 import { detectRepoIconAndUpstream } from '../repo-icon-autodetect'
 import { enrichMissingRepoGitRemoteIdentities } from '../repo-git-remote-identity-enrichment'
 import { promoteFolderReposWithGitRepositories } from '../repo-folder-git-promotion'
+import { setRepoListSideEffectsRunner } from './repo-list-boot-side-effects'
 import {
   getProjectHostSetupForRepo,
   getProjectIdentityRepoStamp
@@ -1201,7 +1202,7 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
   ipcMain.removeHandler('sparsePresets:save')
   ipcMain.removeHandler('sparsePresets:remove')
 
-  ipcMain.handle('repos:list', () => {
+  const runRepoListSideEffects = (): void => {
     // Why: kind is captured at add time; re-detect here so a later `git init`
     // in a folder project surfaces the Git tab (issue #8125).
     promoteFolderReposWithGitRepositories(store, {
@@ -1214,6 +1215,12 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
     enrichRepoGitUsernames(store, {
       onChanged: () => notifyReposChanged(mainWindow)
     })
+  }
+  // Why: the boot chain reads the catalog from the startup snapshot instead of repos:list; the snapshot handler replays these effects through this seam.
+  setRepoListSideEffectsRunner(runRepoListSideEffects)
+
+  ipcMain.handle('repos:list', () => {
+    runRepoListSideEffects()
     return store.getRepos()
   })
 

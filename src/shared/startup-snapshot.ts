@@ -28,9 +28,10 @@ export type StartupSnapshot = {
   ui?: PersistedUIState
   keybindings?: KeybindingFileSnapshot
   onboarding?: OnboardingState
-  /** Catalog reads (informational until the catalog slices adopt them): the
-   *  boot chain still calls repos:list etc. so promotion/enrichment side
-   *  effects keep running exactly once there. */
+  /** Catalog rows the boot chain hydrates with ZERO round-trips. The repos:list
+   *  boot side effects (folder-repo promotion/enrichment, #8125) run in the
+   *  snapshot handler via the repo-list-boot-side-effects seam BEFORE these rows
+   *  are read, so promotions are already in the payload. */
   repos?: Repo[]
   projects?: Project[]
   projectHostSetups?: ProjectHostSetup[]

@@ -36,14 +36,12 @@ describe('renderer startup runtime routing', () => {
     const settingsIndex = indexInStartupBlock('actions.fetchSettings()')
     const uiGetIndex = indexInStartupBlock("timeRendererStartupStep('ui-get'")
     const hydrateUiIndex = indexInStartupBlock("timeRendererStartupSyncStep('hydrate-persisted-ui'")
-    const localReposIndex = indexInStartupBlock(
-      "actions.fetchReposForAllHosts({ remoteHosts: 'skip' })"
-    )
+    const localReposIndex = indexInStartupBlock("timeRendererStartupStep('fetch-repos-local'")
     const localGroupsIndex = indexInStartupBlock(
-      "actions.fetchProjectGroupsForAllHosts({ remoteHosts: 'skip' })"
+      "timeRendererStartupStep('fetch-project-groups-local'"
     )
     const localFoldersIndex = indexInStartupBlock(
-      "actions.fetchFolderWorkspacesForAllHosts({ remoteHosts: 'skip' })"
+      "timeRendererStartupStep('fetch-folder-workspaces-local'"
     )
     const sessionIndex = indexInStartupBlock("timeRendererStartupStep('session-get'")
     const hydrationWorktreesIndex = source.indexOf(
@@ -146,6 +144,46 @@ describe('renderer startup runtime routing', () => {
     const snapshotSource = read(SNAPSHOT)
     expect(snapshotSource).toContain('snapshotPromise ??=')
     expect(snapshotSource).toContain('return null')
+  })
+
+  it('hydrates the local boot catalog from the snapshot with zero round-trips, keeping live fallbacks', () => {
+    const source = read(HYDRATION)
+
+    // Each boot catalog fetch stays local-only AND consumes the snapshot rows when present.
+    const reposBlock = source.slice(
+      source.indexOf("timeRendererStartupStep('fetch-repos-local'"),
+      source.indexOf("timeRendererStartupStep('fetch-project-groups-local'")
+    )
+    expect(reposBlock).toContain("remoteHosts: 'skip'")
+    // Why gate on all three pieces: the prefetched repo catalog carries projects +
+    // host setups too; a partial snapshot must fall back to the live channel whole
+    // so hydration is byte-identical to today's path.
+    expect(reposBlock).toContain(
+      'snapshot?.repos && snapshot.projects && snapshot.projectHostSetups'
+    )
+    const groupsBlock = source.slice(
+      source.indexOf("timeRendererStartupStep('fetch-project-groups-local'"),
+      source.indexOf("timeRendererStartupStep('fetch-folder-workspaces-local'")
+    )
+    expect(groupsBlock).toContain("remoteHosts: 'skip'")
+    expect(groupsBlock).toContain('prefetchedLocal: snapshot?.projectGroups')
+    const foldersBlock = source.slice(
+      source.indexOf("timeRendererStartupStep('fetch-folder-workspaces-local'"),
+      source.indexOf("timeRendererStartupStep('session-get'")
+    )
+    expect(foldersBlock).toContain("remoteHosts: 'skip'")
+    expect(foldersBlock).toContain('prefetchedLocal: snapshot?.folderWorkspaces')
+
+    // The deferred remote refresh must keep the live channels (no prefetched rows):
+    // repos:list still runs there so its enrichment effects keep their refresh cadence.
+    const remoteRefreshBlock = source.slice(
+      source.indexOf('async function refreshRemoteCatalogAfterHydration'),
+      source.indexOf('type StartupHydrationParams')
+    )
+    expect(remoteRefreshBlock).toContain('actions.fetchReposForAllHosts()')
+    expect(remoteRefreshBlock).toContain('actions.fetchProjectGroupsForAllHosts()')
+    expect(remoteRefreshBlock).toContain('actions.fetchFolderWorkspacesForAllHosts()')
+    expect(remoteRefreshBlock).not.toContain('prefetchedLocal')
   })
 
   it('renders immediately and primes the boot snapshot before createRoot (main.tsx)', () => {

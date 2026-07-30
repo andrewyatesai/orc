@@ -12,6 +12,7 @@ import {
 } from '../../shared/execution-host'
 import { listKnownRuntimeHostIds } from '../../shared/workspace-session-runtime-hosts'
 import { browserSessionRegistry } from '../browser/browser-session-registry'
+import { runRepoListSideEffectsForStartupSnapshot } from './repo-list-boot-side-effects'
 import type { KeybindingService } from '../keybindings/keybinding-service'
 import type { Store } from '../persistence'
 
@@ -37,15 +38,17 @@ function listPublicRuntimeEnvironmentsForSnapshot(): PublicKnownRuntimeEnvironme
  *  Every source is the same synchronous in-memory getter its individual
  *  channel uses; those channels stay registered for non-boot callers.
  *
- *  Deliberately NOT here: repos:list's folder-repo promotion + git-identity
- *  enrichment side effects. The boot chain still invokes repos:list exactly
- *  once (the catalog slices have not adopted the snapshot yet), so running
- *  them here too would double the sync fs probes during boot. */
+ *  The boot chain consumes this catalog with ZERO repos:list round-trips, so
+ *  repos:list's promotion/enrichment side effects (issue #8125 folder→git
+ *  promotion, git-identity + username enrichment) replay here through the seam
+ *  registerRepoHandlers installs — before repos are read, so promotions land
+ *  in this payload exactly as a repos:list response would carry them. */
 export function registerStartupSnapshotHandler(
   store: Store,
   keybindings?: KeybindingService
 ): void {
   ipcMain.handle(STARTUP_SNAPSHOT_CHANNEL, (event): StartupSnapshot => {
+    runRepoListSideEffectsForStartupSnapshot()
     const repos = store.getRepos()
     const runtimeEnvironments = listPublicRuntimeEnvironmentsForSnapshot()
     const sessionPartitionsByHostId: Partial<

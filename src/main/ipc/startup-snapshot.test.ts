@@ -6,6 +6,7 @@ import {
   registerStartupSnapshotHandler,
   setTrustedStartupSnapshotWebContentsId
 } from './startup-snapshot'
+import { setRepoListSideEffectsRunner } from './repo-list-boot-side-effects'
 
 const { handlers, listProfilesMock, listEnvironmentsMock } = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown) => unknown>(),
@@ -63,6 +64,7 @@ beforeEach(() => {
   listProfilesMock.mockReset().mockReturnValue([{ id: 'profile-1' }])
   listEnvironmentsMock.mockReset().mockReturnValue([{ id: 'env-1', name: 'Env', endpoints: [] }])
   setTrustedStartupSnapshotWebContentsId(null)
+  setRepoListSideEffectsRunner(null)
 })
 
 describe('registerStartupSnapshotHandler', () => {
@@ -127,5 +129,29 @@ describe('registerStartupSnapshotHandler', () => {
     setTrustedStartupSnapshotWebContentsId(7)
     expect(invokeSnapshot(7).browserSessionProfiles).toEqual([{ id: 'profile-1' }])
     expect(invokeSnapshot(8).browserSessionProfiles).toBeUndefined()
+  })
+
+  // The boot chain no longer calls repos:list, so the snapshot must replay its
+  // promotion/enrichment side effects (issue #8125) — exactly once per request,
+  // before repos are captured, so promotions land in the payload.
+  it('replays the repos:list side effects exactly once, before repos are read', () => {
+    const store = createFakeStore()
+    const promotedRepo = { id: 'r1', connectionId: null, executionHostId: null, kind: 'git' }
+    const runner = vi.fn(() => {
+      // Simulates the #8125 folder→git promotion mutating the store mid-request.
+      ;(store.getRepos as ReturnType<typeof vi.fn>).mockReturnValue([promotedRepo])
+    })
+    setRepoListSideEffectsRunner(runner)
+    registerStartupSnapshotHandler(store)
+
+    const snapshot = invokeSnapshot()
+    expect(runner).toHaveBeenCalledTimes(1)
+    // No promotion lost: the payload carries the post-promotion rows.
+    expect(snapshot.repos).toEqual([promotedRepo])
+  })
+
+  it('serves the snapshot even when repo handlers have not installed the side-effect runner', () => {
+    registerStartupSnapshotHandler(createFakeStore())
+    expect(invokeSnapshot().repos).toHaveLength(2)
   })
 })

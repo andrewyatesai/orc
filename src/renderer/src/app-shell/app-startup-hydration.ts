@@ -194,18 +194,37 @@ export async function runAppStartupHydration({
     )
     runtimeHostsPromise.catch(() => {})
     // Why: saved remote runtimes can spend the full connect timeout; load only the local catalog for first paint and refresh remotes after hydration.
+    // Snapshot rows hydrate the local catalog with ZERO round-trips (repos:list's
+    // promotion/enrichment already ran main-side in the snapshot handler); any
+    // missing piece falls back to the live channels, which keep those effects.
     await timeRendererStartupStep('fetch-repos-local', () =>
-      actions.fetchReposForAllHosts({ remoteHosts: 'skip' })
+      actions.fetchReposForAllHosts({
+        remoteHosts: 'skip',
+        prefetchedLocal:
+          snapshot?.repos && snapshot.projects && snapshot.projectHostSetups
+            ? {
+                repos: snapshot.repos,
+                projects: snapshot.projects,
+                projectHostSetups: snapshot.projectHostSetups
+              }
+            : undefined
+      })
     )
     // Why: folder workspaces merge against projectGroups (repos.ts fetchFolderWorkspacesForAllHosts),
     // so keep this two-step catalog chain internally ordered; it is otherwise independent of
     // repos/worktrees/session and overlaps the session-scoped hydration chain below.
     const localCatalogChain = (async () => {
       await timeRendererStartupStep('fetch-project-groups-local', () =>
-        actions.fetchProjectGroupsForAllHosts({ remoteHosts: 'skip' })
+        actions.fetchProjectGroupsForAllHosts({
+          remoteHosts: 'skip',
+          prefetchedLocal: snapshot?.projectGroups
+        })
       )
       await timeRendererStartupStep('fetch-folder-workspaces-local', () =>
-        actions.fetchFolderWorkspacesForAllHosts({ remoteHosts: 'skip' })
+        actions.fetchFolderWorkspacesForAllHosts({
+          remoteHosts: 'skip',
+          prefetchedLocal: snapshot?.folderWorkspaces
+        })
       )
     })()
     // Why: chain session-get off runtimeHostsPromise instead of awaiting the host ids here, so the
