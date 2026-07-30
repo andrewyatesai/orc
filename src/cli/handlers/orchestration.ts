@@ -630,6 +630,10 @@ export const ORCHESTRATION_HANDLERS: Record<string, CommandHandler> = {
         to: getRequiredStringFlag(flags, 'to'),
         question: getRequiredStringFlag(flags, 'question'),
         options: getOptionalStringFlag(flags, 'options'),
+        // Why: naming the blocked task opens a decision gate (the preamble instructs
+        // workers to always pass --task); dropping it here silently kept every
+        // CLI-originated ask out of the human's gate queue.
+        task: getOptionalStringFlag(flags, 'task'),
         timeoutMs: parsedTimeoutMs === undefined ? undefined : timeoutMs,
         from
       },
@@ -704,6 +708,29 @@ export const ORCHESTRATION_HANDLERS: Record<string, CommandHandler> = {
       from: getOptionalStringFlag(flags, 'from')
     })
     printResult(result, json, (r) => `Run ${r.runId} stopped`)
+  },
+
+  'orchestration run-log': async ({ flags, client, json }) => {
+    const result = await client.call<{
+      runId: string
+      entries: { at: number; message: string }[]
+      dropped: number
+      retained: boolean
+      run: { id: string; status: string; coordinator_handle: string } | undefined
+    }>('orchestration.runLog', {
+      runId: getOptionalStringFlag(flags, 'run'),
+      from: getOptionalStringFlag(flags, 'from')
+    })
+    printResult(result, json, (r) => {
+      if (!r.retained) {
+        // Why: a finished or pre-restart run has no in-memory tail; say so rather than imply silence.
+        const status = r.run ? ` (run status: ${r.run.status})` : ''
+        return `Run ${r.runId}: log not retained — the diagnostic tail lives only while the coordinator is in memory${status}`
+      }
+      const lines = r.entries.map((e) => `[${new Date(e.at).toISOString()}] ${e.message}`)
+      const dropped = r.dropped > 0 ? `\n(${r.dropped} earlier entries dropped)` : ''
+      return lines.length > 0 ? `${lines.join('\n')}${dropped}` : `Run ${r.runId}: log is empty`
+    })
   },
 
   'orchestration gate-create': async ({ flags, client, json }) => {

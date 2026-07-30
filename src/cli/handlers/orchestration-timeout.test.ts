@@ -275,10 +275,33 @@ describe('orchestration timeout flag validation', () => {
         to: 'term_coord',
         question: 'Proceed?',
         options: undefined,
+        task: undefined,
         timeoutMs: 123,
         from: 'term_worker'
       },
       { timeoutMs: 5_123 }
+    )
+  })
+
+  it('forwards --task so the ask opens a decision gate', async () => {
+    process.env.ORCA_TERMINAL_HANDLE = 'term_worker'
+    callMock.mockResolvedValue({
+      result: { answer: 'yes', messageId: 'msg_1', threadId: 'thread_1', timedOut: false }
+    })
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await invokeAsk(
+      new Map<string, string | boolean>([
+        ['to', 'term_coord'],
+        ['question', 'Proceed?'],
+        ['task', 'task_abc123']
+      ])
+    )
+
+    expect(callMock).toHaveBeenCalledWith(
+      'orchestration.ask',
+      expect.objectContaining({ task: 'task_abc123' }),
+      expect.anything()
     )
   })
 })

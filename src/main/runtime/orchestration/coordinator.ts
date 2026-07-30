@@ -4,6 +4,7 @@ import type { MessageRow, TaskRow, CoordinatorStatus } from './types'
 import { buildDispatchPreamble } from './preamble'
 import { reconcileLifecycleMessage } from './lifecycle-reconciliation'
 import { decideUnattendedAgentDispatch } from '../../../shared/unattended-agent-dispatch'
+import { parsePaneKey } from '../../../shared/stable-pane-id'
 import type { TuiAgent } from '../../../shared/types'
 
 export type CoordinatorRuntime = {
@@ -90,6 +91,9 @@ export class Coordinator {
   private runtime: CoordinatorRuntime
   private state: CoordinatorState
   private stopped = false
+  // Terminals this run created; always dispatchable. See isDispatchableTarget for
+  // the rest of the rule.
+  private readonly ownedWorkerHandles = new Set<string>()
   private opts: Required<Omit<CoordinatorOptions, 'onLog' | 'worktree'>> & {
     onLog: (msg: string) => void
     worktree?: string
@@ -153,6 +157,7 @@ export class Coordinator {
 
     try {
       await this.decompose()
+      await this.reconcileOrphanedDispatches()
 
       while (!this.stopped) {
         const converged = await this.tick()
@@ -191,6 +196,65 @@ export class Coordinator {
 
   stop(): void {
     this.stopped = true
+  }
+
+  // Why: a restart strands tasks in 'dispatched' — failStrandedCoordinatorRuns fails
+  // only coordinator_runs rows, so phantom dispatches ate maxConcurrent slots forever
+  // and their tasks never re-dispatched. A dispatch whose assignee pane is provably
+  // gone cannot complete; failDispatch returns the task to 'ready' (spending one
+  // failure-budget unit, deliberately — visible and bounded, like any other failure).
+  //
+  // Fail-safe: reaping requires POSITIVE evidence of loss — a recorded assignee pane
+  // key that no live pane matches. Handles remint across restarts (#9163), so handle
+  // absence alone would reap workers that came back with a new handle; rows with no
+  // pane key, or a runtime that cannot enumerate pane keys, are left alone. A worker
+  // that outlived the restart in a daemon session still completes its task via the
+  // send-path lifecycle reconcile.
+  private async reconcileOrphanedDispatches(): Promise<void> {
+    const dispatchedTasks = this.db.listTasks({ status: 'dispatched' })
+    if (dispatchedTasks.length === 0 || !this.runtime.getTerminalPaneKey) {
+      return
+    }
+    let roster: { handle: string }[]
+    try {
+      roster = (await this.runtime.listTerminals()).terminals
+    } catch (err) {
+      // Why: cannot verify liveness — never guess a worker dead on a roster error.
+      this.opts.onLog(`Orphaned-dispatch check skipped: listTerminals failed: ${err}`)
+      return
+    }
+    const livePaneLeafIds = new Set<string>()
+    for (const terminal of roster) {
+      const paneKey = this.runtime.getTerminalPaneKey(terminal.handle)
+      const leafId = paneKey ? parsePaneKey(paneKey)?.leafId : undefined
+      if (leafId) {
+        livePaneLeafIds.add(leafId)
+      }
+    }
+    for (const task of dispatchedTasks) {
+      const ctx = this.db.getDispatchContext(task.id)
+      if (!ctx || ctx.status !== 'dispatched') {
+        continue
+      }
+      // Why leafId and not the whole pane key: the tab half is reassigned on rebind
+      // while the leaf identifies the pane — the same equivalence lifecycle authority uses.
+      const ctxLeafId = ctx.assignee_pane_key
+        ? parsePaneKey(ctx.assignee_pane_key)?.leafId
+        : undefined
+      if (ctxLeafId === undefined || livePaneLeafIds.has(ctxLeafId)) {
+        continue
+      }
+      const updated = this.db.failDispatch(
+        ctx.id,
+        'worker terminal lost (app restart or pane closed)'
+      )
+      if (updated?.status === 'circuit_broken') {
+        this.state.failedTasks.push(task.id)
+      }
+      this.opts.onLog(
+        `Reset task ${task.id}: worker pane ${ctx.assignee_pane_key} no longer exists (dispatch ${ctx.id})`
+      )
+    }
   }
 
   // Why: decomposition isn't implemented yet — tasks must be pre-created before run(); AI-driven decomposition is a future phase.
@@ -370,8 +434,18 @@ export class Coordinator {
         const created = await this.runtime.createTerminal(this.opts.worktree, {
           title: `Worker: ${readyTasks[0].spec.slice(0, 40)}`
         })
-        terminals.push(created.handle)
+        this.ownedWorkerHandles.add(created.handle)
         this.opts.onLog(`Created worker terminal ${created.handle}`)
+        // Why: dispatch raced agent startup on a fresh terminal — the preamble
+        // paste could land before the shell/agent was accepting input. Fail-open
+        // on timeout: the wait mitigates the race, the dispatch itself still
+        // verifies delivery.
+        await this.runtime
+          .waitForTerminal(created.handle, { condition: 'tui-idle', timeoutMs: 30_000 })
+          .catch((err) => {
+            this.opts.onLog(`waitForTerminal(${created.handle}) failed: ${err}; dispatching anyway`)
+          })
+        terminals.push(created.handle)
       } catch (err) {
         this.opts.onLog(`Failed to create terminal: ${err}`)
         return
@@ -490,6 +564,20 @@ export class Coordinator {
     this.state.phase = 'monitoring'
   }
 
+  // Why: the automatic loop used to reuse ANY connected pane in the worktree,
+  // including the human's own bare shells — where the pasted preamble executes as
+  // shell commands. The manual `dispatch --inject` path has always required a
+  // recognized agent (isTerminalRunningAgent); the loop had no equivalent. A target
+  // qualifies only if this coordinator created it, or the runtime can confirm it is
+  // running an agent. Unconfirmable panes are skipped, so a runtime that cannot
+  // answer degrades to coordinator-created workers rather than to the old behavior.
+  private isDispatchableTarget(handle: string): boolean {
+    if (this.ownedWorkerHandles.has(handle)) {
+      return true
+    }
+    return this.runtime.getTerminalAgentLaunchProfile?.(handle)?.agent != null
+  }
+
   private async getAvailableTerminals(): Promise<string[]> {
     try {
       const result = await this.runtime.listTerminals(this.opts.worktree)
@@ -503,14 +591,17 @@ export class Coordinator {
         }
       }
 
-      // Why: createDispatchContext's dispatch-lock guarantees correctness; this filter is only an optimization to skip busy/disconnected terminals.
+      // Why: createDispatchContext's dispatch-lock guarantees correctness; the busy/
+      // connected/writable filter is only an optimization. isDispatchableTarget is a
+      // safety boundary, not an optimization — see its comment.
       return result.terminals
         .filter(
           (t) =>
             t.handle !== this.opts.coordinatorHandle &&
             !busyHandles.has(t.handle) &&
             t.connected &&
-            t.writable
+            t.writable &&
+            this.isDispatchableTarget(t.handle)
         )
         .map((t) => t.handle)
     } catch {
