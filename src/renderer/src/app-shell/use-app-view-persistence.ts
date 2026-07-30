@@ -37,6 +37,7 @@ export function useAppViewPersistence(
     hideDefaultBranchWorkspace,
     hideAutomationGeneratedWorkspaces,
     hideCliCreatedWorkspaces,
+    hideDetachedHeadWorkspaces,
     showDotfilesByWorktree,
     filterRepoIds,
     acknowledgedAgentsByPaneKey
@@ -59,6 +60,7 @@ export function useAppViewPersistence(
       hideDefaultBranchWorkspace,
       hideAutomationGeneratedWorkspaces,
       hideCliCreatedWorkspaces,
+      hideDetachedHeadWorkspaces,
       showDotfilesByWorktree,
       filterRepoIds,
       // Why: acknowledgedAgentsByPaneKey rides this debounced save so dashboard auto-acks (which fire
@@ -80,6 +82,7 @@ export function useAppViewPersistence(
       hideDefaultBranchWorkspace,
       hideAutomationGeneratedWorkspaces,
       hideCliCreatedWorkspaces,
+      hideDetachedHeadWorkspaces,
       showDotfilesByWorktree,
       filterRepoIds,
       acknowledgedAgentsByPaneKey

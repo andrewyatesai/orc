@@ -60,7 +60,10 @@ export function useTerminalTabColdParking(args: {
   /** Tabs cold activation keeps unmounted — parked-equivalent for watcher
    *  purposes. Targeted background restrictions intentionally stay bounded. */
   activationDeferredMountTabIds?: ReadonlySet<string> | null
-}): ReadonlySet<string> {
+}): {
+  parkedTerminalTabIds: ReadonlySet<string>
+  coldParkedTerminalTabIds: ReadonlySet<string>
+} {
   const {
     worktreeId,
     terminalTabs,
@@ -291,5 +294,5 @@ export function useTerminalTabColdParking(args: {
 
   useEffect(() => () => disposeParkedTerminalWatchersForWorktree(worktreeId), [worktreeId])
 
-  return parkedTerminalTabIds
+  return { parkedTerminalTabIds, coldParkedTerminalTabIds }
 }

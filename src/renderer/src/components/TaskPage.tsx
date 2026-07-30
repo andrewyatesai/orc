@@ -7109,6 +7109,7 @@ export default function TaskPage(): React.JSX.Element {
     // Why: when a modal is open, let it own Esc dismissal.
     if (
       dialogWorkItem ||
+      selectedJiraIssue ||
       selectedLinearIssue ||
       newIssueOpen ||
       newLinearIssueOpen ||
@@ -7153,7 +7154,8 @@ export default function TaskPage(): React.JSX.Element {
     newIssueOpen,
     newLinearIssueOpen,
     newJiraIssueOpen,
-    selectedLinearIssue
+    selectedLinearIssue,
+    selectedJiraIssue
   ])
 
   useEffect(() => {

@@ -193,7 +193,7 @@ async function createBackgroundTab(args: {
   }
   if (
     await retireUnownedTerminal({
-      tabId: tab.id,
+      owner: { tabId: tab.id },
       ptyId,
       runtimeTarget: { kind: 'local' }
     })
@@ -225,7 +225,7 @@ async function addSetupSplit(args: {
   })
   if (
     await retireUnownedTerminal({
-      tabId: args.tab.tabId,
+      owner: { tabId: args.tab.tabId },
       ptyId: setupPtyId,
       runtimeTarget: { kind: 'local' }
     })

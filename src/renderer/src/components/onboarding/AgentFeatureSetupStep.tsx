@@ -48,7 +48,8 @@ export function AgentFeatureSetupStep({
             {setupBusyLabel ??
               translate(
                 'auto.components.onboarding.AgentFeatureSetupStep.97dcdc010f',
-                'Install CLI & Skills'
+                // Why: English renders from this inline fallback, so catalog-side copy changes must land here.
+                'Enable capabilities'
               )}
           </Button>
         </div>

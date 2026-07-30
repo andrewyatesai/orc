@@ -1,5 +1,5 @@
 import type { Worktree } from '../../../../shared/types'
-import { isDefaultBranchWorkspace } from './visible-worktrees'
+import { isDefaultBranchWorkspace } from './sidebar-filter-state'
 
 export type AddRepoSkipFinalizationState = {
   activeRepoId: string | null

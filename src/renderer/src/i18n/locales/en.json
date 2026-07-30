@@ -635,6 +635,24 @@
           }
         }
       },
+      "codex": {
+        "session": {
+          "restart": {
+            "4bd4a3a9c7": "System default",
+            "9f0b1c2d3e": "Codex account"
+          }
+        }
+      },
+      "browser": {
+        "cookie": {
+          "import": {
+            "toast": {
+              "restartFallbackUnavailableNone": "None of the {{value0}} cookies could be loaded, and the restart fallback was unavailable. The previous cookies for this profile were replaced. Try the import again.",
+              "restartFallbackUnavailablePartial": "Imported {{value0}} of {{value1}} cookies. The rest could not be loaded, and the restart fallback was unavailable. Try the import again."
+            }
+          }
+        }
+      },
       "deep": {
         "link": {
           "ui": {
@@ -1919,7 +1937,12 @@
         "c9ff9b9ec2": "Check official releases",
         "a05992a26b": "The signature check couldn't run — usually because antivirus software blocked it. Retry the download, or get the installer from our official releases.",
         "5194358929": "Hide details",
-        "8bc9e17d8f": "Show details"
+        "8bc9e17d8f": "Show details",
+        "8cf17b10af": "Local Build Error",
+        "a4650b0dc4": "Could Not Use Local Build",
+        "b1e390250d": "Could not complete the local build switch.",
+        "d29740d175": "The selected build could not be used.",
+        "37d45c9ec1": "Choose Another Build"
       },
       "WorktreeJumpPalette": {
         "ac037cfac2": "Move",
@@ -2791,6 +2814,13 @@
                 "context": {
                   "menu": {
                     "a29b9faa01": "Pane ID copied",
+                    "pane": {
+                      "id": {
+                        "copy": {
+                          "failed": "Unable to copy pane ID"
+                        }
+                      }
+                    },
                     "terminal": {
                       "id": {
                         "copied": "Terminal ID copied",
@@ -3249,6 +3279,22 @@
             "84c3b15dca": "Agent usage limits",
             "d663430cf9": "Configure usage tracking"
           },
+          "SkillUpdateStatusSegment": {
+            "runningLabel": "Updating skills",
+            "runningOne": "Updating {{value0}}…",
+            "runningMany": "Updating {{value0}} skills…",
+            "runningAria": "Skills updating. Click to open details.",
+            "successLabel": "Skills updated",
+            "successOne": "Updated {{value0}}",
+            "successMany": "Updated {{value0}} skills",
+            "successAria": "Skills updated. Click to open details.",
+            "errorLabel": "Update failed",
+            "errorTooltip": "Skill update failed — click to see details",
+            "errorAria": "Skill update failed. Click to open details.",
+            "stoppingLabel": "Stopping update",
+            "stoppingTooltip": "Stopping the skill update…",
+            "stoppingAria": "Stopping the skill update. Click to open details."
+          },
           "UpdateStatusSegment": {
             "5cd13105a3": "Update failed. Click to expand.",
             "2201df6987": "Update failed — click to see details",
@@ -3442,6 +3488,14 @@
             "updatedTooltip": "Remote Orca Server updates completed",
             "failedOne": "1 server update failed",
             "updatedOne": "1 server updated"
+          },
+          "resource": {
+            "memory": {
+              "metric": {
+                "workingSetDescription": "Summed working set (WS). Shared pages can appear in more than one process.",
+                "rssDescription": "Summed resident set size (RSS). Shared or aliased pages can appear in more than one process."
+              }
+            }
           }
         }
       },
@@ -3842,23 +3896,59 @@
           "tipReadOnly": "This copy is in a read-only location.",
           "tipInRepo": "This copy lives inside a project, not your global skills.",
           "tipPluginCache": "This copy is managed by a plugin.",
-          "skippedReasonDuplicate": "This is a separate copy, so the update won’t reach it — the command only refreshes the main copy. Remove this copy, then reinstall the skill so this location follows the main one."
+          "skippedReasonDuplicate": "This is a separate copy, so the update won’t reach it — the command only refreshes the main copy. Remove this copy, then reinstall the skill so this location follows the main one.",
+          "skippedReasonNewer": "This copy is a later version than the one this build of Orca ships, so Orca left it alone rather than roll it back. Updating Orca will bring the two back in line.",
+          "skippedReasonStaleRecord": "The skills updater has no usable record of this copy, so it reports the skill as already up to date and changes nothing. Reinstall it to bring the record back in line: {{value0}}",
+          "chipNewer": "Newer",
+          "tipNewer": "This copy is a later version than the one this build of Orca ships."
         },
         "SkillFreshnessUpdateDialog": {
           "title": "Update skills",
           "checking": "Checking installed Orca skills…",
           "none": "No installed Orca skills found.",
-          "updateOne": "1 skill can be updated safely",
-          "updateMany": "{{value0}} skills can be updated safely",
+          "updateOne": "1 update available",
+          "updateMany": "{{value0}} updates available",
+          "blockedOne": "1 skill can't be updated automatically.",
+          "blockedMany": "{{value0}} skills can't be updated automatically.",
           "success": "All installed Orca skills are up to date.",
           "attention": "Some installed Orca skills were left out of the update.",
-          "attentionDescription": "Open Update details to see why each one was skipped.",
-          "details": "Update details",
-          "terminalTitle": "Update Orca skills",
-          "terminalDescription": "Review the pre-filled command, then press Enter to run it.",
-          "terminalAria": "Orca skill update terminal",
+          "runningOne": "Updating 1 skill…",
+          "runningMany": "Updating {{value0}} skills…",
+          "runningDescription": "You can close this window — it keeps running in the background.",
+          "progressAria": "Updating skills",
+          "updatedOne": "Updated 1 skill",
+          "updatedMany": "Updated {{value0}} skills",
+          "updatedPartial": "Updated {{value0}} of {{value1}} skills",
+          "errorTitle": "The update didn't finish",
+          "retry": "Retry",
+          "copyCommand": "Copy command",
+          "copied": "Copied",
+          "showLog": "Show log",
+          "updating": "Updating…",
+          "updateActionOne": "Update 1 skill",
+          "updateActionMany": "Update {{value0}} skills",
           "checkNow": "Re-check",
-          "close": "Close"
+          "done": "Done",
+          "close": "Close",
+          "stop": "Stop",
+          "stopping": "Stopping…",
+          "stoppingHeadline": "Stopping the update…",
+          "scanIncomplete": "Orca could not finish checking plugin-managed skills.",
+          "scanDepthLimit": "Orca reached its plugin scan depth limit before checking this folder.",
+          "scanEntryLimit": "Orca reached its plugin scan entry limit before checking the rest of this cache.",
+          "scanCandidateLimit": "Orca found more same-named skill folders than it can safely inspect.",
+          "scanManifestLimit": "Orca skipped this plugin manifest because it exceeded a safe limit.",
+          "scanOutsideRoot": "Orca skipped this plugin path because it points outside the plugin cache.",
+          "scanIoErrorWithCode": "Orca could not read this plugin path ({{value0}}).",
+          "scanIoError": "Orca could not read this plugin path.",
+          "scanIssueLimit": "Orca found too many skipped plugin folders to list individually."
+        },
+        "SkillUpdateResultRows": {
+          "stillOutdated": "Still out of date after the update ran."
+        },
+        "SkillUpdateRow": {
+          "oneLocation": "1 location",
+          "manyLocations": "{{value0}} locations"
         },
         "SkillFreshnessStatusPill": {
           "updateAvailable": "Update available",
@@ -4208,7 +4298,8 @@
           "489d1c8c9f": "Search projects...",
           "ee240a39eb": "Edit filters",
           "automationCreated": "Hide automation-created",
-          "cliCreated": "Hide CLI-created"
+          "cliCreated": "Hide CLI-created",
+          "detachedHead": "Hide detached HEAD"
         },
         "SidebarHeader": {
           "25a95899c9": "Add Project",
@@ -4272,7 +4363,8 @@
           "ed1611b65b": "Hide sleeping",
           "82594419ba": "Filters",
           "automationCreated": "Hide automation-created",
-          "cliCreated": "Hide CLI-created"
+          "cliCreated": "Hide CLI-created",
+          "detachedHead": "Hide detached HEAD"
         },
         "sidebarHostOptions": {
           "3e102f111c": "All hosts",
@@ -4985,6 +5077,15 @@
           "cancel": "Cancel",
           "forget": "Remove from Orca",
           "reconnectAndDelete": "Reconnect & Delete"
+        },
+        "MarkdownImageLightbox": {
+          "image": "Image",
+          "expand": "Expand image",
+          "close": "Close"
+        },
+        "WorktreeDeveloperMenu": {
+          "developer": "Developer",
+          "parkTerminal": "Park terminal"
         }
       },
       "shared": {
@@ -6861,7 +6962,8 @@
           "25b0004fbf": "Terminal active",
           "781cb74d22": "Runs from terminal panes.",
           "cb02e00202": "Terminal",
-          "d8c988dab4": "~/.orca/keybindings.json"
+          "d8c988dab4": "~/.orca/keybindings.json",
+          "shortcutUnavailable": "Shortcut is no longer available."
         },
         "SourceControlAiActionRecipeDefaults": {
           "2576299196": "args",
@@ -11172,6 +11274,9 @@
                 }
               }
             }
+          },
+          "activityBar": {
+            "error": "Error"
           }
         }
       },
@@ -14681,6 +14786,11 @@
         "moreMatches": "+{{value0}} more",
         "searching": "Searching…",
         "resultsAnnouncement": "{{value0}} matches shown"
+      },
+      "terminalPane": {
+        "useManualTerminalWorktreeParking": {
+          "cannotPark": "These terminals cannot be parked safely."
+        }
       }
     },
     "i18n": {

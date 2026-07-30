@@ -3,7 +3,10 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SESSION_RESTORED_BANNER_TEXT } from './SessionRestoredBanner'
+import {
+  SESSION_RESTORED_BANNER_TEXT,
+  SESSION_RESUME_UNAVAILABLE_BANNER_TEXT
+} from './SessionRestoredBanner'
 import { SessionRestoredBannerPortals } from './SessionRestoredBannerPortals'
 import {
   addSessionRestoredBannerPane,
@@ -36,7 +39,12 @@ function states(
 }
 
 function bannerOnly(...paneIds: number[]): Map<number, SessionRestoredBannerState> {
-  return states(...paneIds.map((id): [number, SessionRestoredBannerState] => [id, { lastCommand: null }]))
+  return states(
+    ...paneIds.map((id): [number, SessionRestoredBannerState] => [
+      id,
+      { lastCommand: null, reason: 'restored' }
+    ])
+  )
 }
 
 async function renderPortals(
@@ -145,6 +153,33 @@ describe('session restored banner pane state', () => {
     expect(paneText(inactiveRestoredPane)).toBe(SESSION_RESTORED_BANNER_TEXT)
   })
 
+  it('names a fresh session when the requested resume could not be verified', async () => {
+    const restoredPane = createPane(1)
+    const freshPane = createPane(2)
+
+    await renderPortals(
+      [restoredPane, freshPane],
+      states(
+        [restoredPane.id, { lastCommand: null, reason: 'restored' }],
+        [freshPane.id, { lastCommand: null, reason: 'resume-unavailable' }]
+      )
+    )
+
+    expect(paneText(restoredPane)).toBe(SESSION_RESTORED_BANNER_TEXT)
+    expect(paneText(freshPane)).toBe(SESSION_RESUME_UNAVAILABLE_BANNER_TEXT)
+  })
+
+  it('upgrades a restored pane to resume-unavailable and keeps identity otherwise', () => {
+    // Why: the reason must win over the earlier one — a pane that turned out to be a fresh
+    // session cannot keep claiming a restore. Identity is what stops a needless re-render.
+    const restored = states([1, { lastCommand: null, reason: 'restored' }])
+
+    expect(addSessionRestoredBannerPane(restored, 1, null, 'resume-unavailable')).toEqual(
+      states([1, { lastCommand: null, reason: 'resume-unavailable' }])
+    )
+    expect(addSessionRestoredBannerPane(restored, 1, null, 'restored')).toBe(restored)
+  })
+
   it('dismisses only the interacted pane for pointer and key events', () => {
     const firstPane = createPane(1)
     const secondPane = createPane(2)
@@ -198,13 +233,13 @@ describe('session restored banner pane state', () => {
   it('keeps a recorded lastCommand when a later null trigger re-adds the pane', () => {
     const withCommand = addSessionRestoredBannerPane(states(), 1, 'npm run dev')
     const afterNullTrigger = addSessionRestoredBannerPane(withCommand, 1, null)
-    expect(afterNullTrigger.get(1)).toEqual({ lastCommand: 'npm run dev' })
+    expect(afterNullTrigger.get(1)).toEqual({ lastCommand: 'npm run dev', reason: 'restored' })
   })
 
   // #7596: the affordance types the command WITHOUT executing.
   it('Type it again pastes the command without a trailing newline and dismisses', async () => {
     const pane = createPane(1)
-    const bannerStates = states([pane.id, { lastCommand: 'npm run dev' }])
+    const bannerStates = states([pane.id, { lastCommand: 'npm run dev', reason: 'restored' }])
     const onTypeItAgain = vi.fn((target: SessionRestoredBannerPane, command: string) => {
       target.terminal.paste(command)
     })
@@ -230,7 +265,7 @@ describe('session restored banner pane state', () => {
   // exemption the banner would unmount before its own click could fire.
   it('pointerdown on the action button does not dismiss the banner', async () => {
     const pane = createPane(1)
-    const bannerStates = states([pane.id, { lastCommand: 'npm run dev' }])
+    const bannerStates = states([pane.id, { lastCommand: 'npm run dev', reason: 'restored' }])
     await renderPortals([pane], bannerStates)
 
     const action = pane.container.querySelector<HTMLButtonElement>(

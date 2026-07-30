@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   computeVisibleWorktreeIds,
   getVisibleWorktreeIds,
-  isDefaultBranchWorkspace,
   pruneVisibleWorktreeOrder,
   releaseVisibleWorktreeOrder,
   setVisibleWorktreeIds
 } from './visible-worktrees'
+import { isDefaultBranchWorkspace } from './sidebar-filter-state'
 import type { Repo, TerminalTab, Worktree, WorktreeLineage } from '../../../../shared/types'
 import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
 
@@ -85,6 +85,7 @@ function visibleOptions(overrides: Partial<VisibleOptions> = {}): VisibleOptions
     hideDefaultBranchWorkspace: false,
     hideAutomationGeneratedWorkspaces: false,
     hideCliCreatedWorkspaces: false,
+    hideDetachedHeadWorkspaces: false,
     repoMap,
     workspaceHostScope: 'all',
     defaultHostId: LOCAL_EXECUTION_HOST_ID,
@@ -202,6 +203,46 @@ describe('computeVisibleWorktreeIds', () => {
     )
 
     expect(result).toEqual([legacy.id])
+  })
+
+  it('hides detached-HEAD workspaces when the detached filter is enabled', () => {
+    const onBranch = makeWorktree('on-branch')
+    const detached = { ...makeWorktree('detached'), branch: '', head: 'deadbeefcafe' }
+
+    const result = computeVisibleWorktreeIds(
+      { repo1: [onBranch, detached] },
+      [onBranch.id, detached.id],
+      visibleOptions({ hideDetachedHeadWorkspaces: true })
+    )
+
+    expect(result).toEqual([onBranch.id])
+  })
+
+  it('keeps detached-HEAD workspaces visible while the detached filter is off', () => {
+    const onBranch = makeWorktree('on-branch')
+    const detached = { ...makeWorktree('detached'), branch: '', head: 'deadbeefcafe' }
+
+    const result = computeVisibleWorktreeIds(
+      { repo1: [onBranch, detached] },
+      [onBranch.id, detached.id],
+      visibleOptions()
+    )
+
+    expect(result).toEqual([onBranch.id, detached.id])
+  })
+
+  it('keeps headless workspaces visible when the detached filter is enabled', () => {
+    // Why: folder workspaces and SSH-synthesized rows carry an empty branch AND
+    // an empty head. Only a real head means a genuine detached checkout.
+    const folder = { ...makeWorktree('folder'), branch: '', head: '', isMainWorktree: true }
+
+    const result = computeVisibleWorktreeIds(
+      { repo1: [folder] },
+      [folder.id],
+      visibleOptions({ hideDetachedHeadWorkspaces: true })
+    )
+
+    expect(result).toEqual([folder.id])
   })
 
   it('does not treat slept wake-hint tabs as live surfaces', () => {
@@ -617,6 +658,11 @@ describe('computeVisibleWorktreeIds', () => {
     const cliParent = makeWorktree('cli-parent')
     cliParent.cliProvenance = { kind: 'created-by-cli', createdAt: 1 }
     expect(run(cliParent, { hideCliCreatedWorkspaces: true })).toEqual([child.id])
+
+    const detachedParent = makeWorktree('detached-parent')
+    detachedParent.branch = ''
+    detachedParent.head = 'deadbeefcafe'
+    expect(run(detachedParent, { hideDetachedHeadWorkspaces: true })).toEqual([child.id])
   })
 
   it('includes inline lineage ancestors when send-target mode forces a filtered child visible', () => {

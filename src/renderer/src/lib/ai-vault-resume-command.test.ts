@@ -3,9 +3,9 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AppState } from '@/store/types'
 import {
   buildAiVaultResumeCopyCommandForWorktree,
-  buildAiVaultResumeStartupForWorktree,
-  getAiVaultResumePlatform
+  buildAiVaultResumeStartupForWorktree
 } from './ai-vault-resume-command'
+import { getAiVaultResumePlatform } from './ai-vault-resume-platform'
 
 vi.mock('@/lib/new-workspace', () => ({
   CLIENT_PLATFORM: 'win32'

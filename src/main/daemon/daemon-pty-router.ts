@@ -5,6 +5,7 @@ import {
   resolveInspectionAdapter,
   resolveSessionAdapter
 } from './daemon-session-adapter-routing'
+import { combineUnsubscribes } from './combine-unsubscribes'
 import type {
   IPtyProvider,
   PtyBackgroundStreamEvent,
@@ -265,14 +266,17 @@ export class DaemonPtyRouter implements IPtyProvider {
   }
 
   onBackgroundStreamEvent(callback: (payload: PtyBackgroundStreamEvent) => void): () => void {
-    const unsubscribes = this.allAdapters().map((adapter) =>
-      adapter.onBackgroundStreamEvent(callback)
+    return combineUnsubscribes(
+      this.allAdapters().map((adapter) => adapter.onBackgroundStreamEvent(callback))
     )
-    return () => {
-      for (const unsubscribe of unsubscribes) {
-        unsubscribe()
-      }
-    }
+  }
+
+  // Why: main subscribes on the routed provider, so without this the dead-endpoint
+  // fan-out never reaches the renderer and only the written pane recovers (STA-2373).
+  onWriteUnavailable(callback: (payload: { id: string }) => void): () => void {
+    return combineUnsubscribes(
+      this.allAdapters().map((adapter) => adapter.onWriteUnavailable(callback))
+    )
   }
 
   onReplay(_callback: (payload: { id: string; data: string }) => void): () => void {

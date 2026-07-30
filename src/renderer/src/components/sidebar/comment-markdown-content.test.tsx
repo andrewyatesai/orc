@@ -101,16 +101,28 @@ describe('CommentMarkdown', () => {
     expect(markup).toContain('href="http://attacker.example/p.png?v=VICTIM"')
   })
 
-  it('renders trusted document markdown images inline', () => {
+  it('renders document markdown images with an expand control for the lightbox', () => {
+    // Why: document bodies need a large preview without a provider-specific renderer.
     const markup = renderToStaticMarkup(
       <CommentMarkdown
         variant="document"
-        content="Shot: ![Image #1](data:image/png;base64,abc123)"
+        content="See this: ![ui.png](data:image/png;base64,abc123)"
       />
     )
 
     expect(markup).toContain('<img')
     expect(markup).toContain('src="data:image/png;base64,abc123"')
+    expect(markup).toContain('aria-label="Expand image"')
+    expect(markup).toContain('type="button"')
+  })
+
+  it('adds an expand control to compact images only when requested', () => {
+    const markup = renderToStaticMarkup(
+      <CommentMarkdown expandImages content="See this: ![ui.png](data:image/png;base64,abc123)" />
+    )
+
+    expect(markup).toContain('aria-label="Expand image"')
+    expect(markup).toContain('max-h-32')
   })
 
   it('renders bare GitHub user attachment links as document videos', () => {
@@ -233,6 +245,24 @@ describe('CommentMarkdown', () => {
     expect(markup).toContain('max-h-32')
     expect(markup).toContain('overflow-x-auto')
     expect(markup).not.toContain('mermaid-block')
+  })
+
+  it('renders headings as block elements with hierarchy in the document variant', () => {
+    const markup = renderToStaticMarkup(
+      <CommentMarkdown variant="document" content={'## Problem to solve\n\nSome body text.'} />
+    )
+
+    expect(markup).toContain('<h2')
+    expect(markup).toContain('Problem to solve')
+  })
+
+  it('flattens headings to inline text in the compact variant', () => {
+    const markup = renderToStaticMarkup(
+      <CommentMarkdown content={'## Problem to solve\n\nSome body text.'} />
+    )
+
+    expect(markup).not.toContain('<h2')
+    expect(markup).toContain('Problem to solve')
   })
 
   it('contains long PR body markdown inside its available width', () => {

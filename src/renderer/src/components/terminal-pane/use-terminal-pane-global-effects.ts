@@ -27,6 +27,13 @@ import {
   releaseRendererPtyVisibilityClaim,
   setRendererPtyVisibilityClaim
 } from './pty-renderer-delivery-claims'
+import { getRendererAppPlatform } from '@/lib/renderer-app-platform'
+import { getTerminalVisibilityEffectPhase } from './terminal-visibility-effect-phase'
+
+const useTerminalVisibilityEffect =
+  getTerminalVisibilityEffectPhase(getRendererAppPlatform()) === 'layout'
+    ? useLayoutEffect
+    : useEffect
 
 type UseTerminalPaneGlobalEffectsArgs = {
   tabId: string
@@ -123,15 +130,11 @@ export function useTerminalPaneGlobalEffects({
   useEffect(() => {
     const paneTransports = paneTransportsRef.current
     reportRendererPtyVisibility(paneTransports, rendererVisible)
-    return () => {
-      for (const transport of paneTransports.values()) {
-        releaseRendererPtyVisibilityClaim(transport)
-      }
-    }
+    return () => paneTransports.forEach(releaseRendererPtyVisibilityClaim)
   }, [rendererVisible, paneTransportsRef])
 
-  // Why layout: resuming before paint avoids a one-frame stale/blank flash on reveal.
-  useLayoutEffect(() => {
+  // macOS can rebuild WebGL pre-paint without blocking reveal on slow ANGLE paths.
+  useTerminalVisibilityEffect(() => {
     isActiveRef.current = isActive
     isVisibleRef.current = rendererVisible
     const wasVisible = wasVisibleRef.current

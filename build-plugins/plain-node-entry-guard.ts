@@ -1,4 +1,10 @@
-import type { NormalizedOutputOptions, OutputBundle, OutputChunk, Plugin } from 'rollup'
+// Rolldown-vite exposes Rollup's types through the vite package; importing from
+// 'rollup' directly would resolve a different, non-installed implementation.
+import type { Plugin, Rollup } from 'vite'
+
+type NormalizedOutputOptions = Rollup.NormalizedOutputOptions
+type OutputBundle = Rollup.OutputBundle
+type OutputChunk = Rollup.OutputChunk
 
 // Why: v1.4.129-rc.1 shipped a dead terminal daemon because a shared main
 // chunk gained `require("electron")` (an import edge added in #7642), and a
@@ -60,6 +66,7 @@ function assertNoElectronRequire(
 }
 
 export function createPlainNodeEntryGuardPlugin(): Plugin {
+
   return {
     name: 'orca-plain-node-entry-guard',
     writeBundle(_options: NormalizedOutputOptions, bundle: OutputBundle) {

@@ -8,6 +8,7 @@ type RegisteredPaneManager = {
   refreshAllPanes?: () => void
   getRenderingDiagnostics?: () => PaneRenderingDiagnostics[]
   getPanes?: () => { id: number; terminal: unknown }[]
+  getPaneCount?: () => number
 }
 
 // Omit: the base getPanes (desync-sentinel shape) would otherwise win overload
@@ -178,6 +179,26 @@ export function getAllPaneRenderingDiagnostics(): PaneRenderingDiagnostics[] {
     }
   }
   return all
+}
+
+/**
+ * Live pane census: managers (≈ terminal tabs) and the panes they hold.
+ *
+ * Why: this is the population number crash reports have been inferring from
+ * breadcrumb multiplicity, which never worked — `pane.id` restarts at 1 per
+ * manager, so N panes and one looping pane are indistinguishable in the ring.
+ * Measure it instead.
+ */
+export function getLivePaneCensus(): { managers: number; panes: number } {
+  let panes = 0
+  for (const manager of liveManagers) {
+    try {
+      panes += manager.getPaneCount?.() ?? manager.getPanes?.().length ?? 0
+    } catch {
+      // Why: a manager mid-teardown must not sink the count for the rest.
+    }
+  }
+  return { managers: liveManagers.size, panes }
 }
 
 /**

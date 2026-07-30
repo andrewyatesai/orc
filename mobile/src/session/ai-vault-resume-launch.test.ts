@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AiVaultSession } from '../../../src/shared/ai-vault-types'
-import { buildAgentResumeStartupPlan } from '../../../src/shared/tui-agent-startup'
+import { buildAgentResumeStartupPlan } from './agent-resume-startup-plan'
 import {
   buildMobileAiVaultResumeLaunch,
   buildMobileAiVaultResumeCommand,
@@ -8,9 +8,9 @@ import {
   readMobileRuntimeHostPlatform,
   readMobileRuntimeTerminalWindowsShell,
   resolveMobileAiVaultResumePlatform,
-  resumeAiVaultSessionInTerminal,
-  RESUME_RPC_TIMEOUT_MS
+  resumeAiVaultSessionInTerminal
 } from './ai-vault-resume-launch'
+import { RESUME_RPC_TIMEOUT_MS } from './ai-vault-resume-preparation'
 
 function session(overrides: Partial<AiVaultSession> = {}): AiVaultSession {
   return {

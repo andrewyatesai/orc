@@ -77,7 +77,6 @@ import {
   notifyServeSupervisorReady
 } from './serve-update-handoff'
 import {
-  configureMainProcessWebglContextBudget,
   configureElectronNetworkCompatibility,
   configureDevUserDataPath,
   configureOrcaUserDataPathEnv,
@@ -107,6 +106,10 @@ import {
   GpuCrashFallbackTracker,
   isGpuFallbackCrashCandidate
 } from './crash-reporting/gpu-crash-fallback-decision'
+import {
+  promptForGpuFallbackRestart,
+  type GpuFallbackRestartDecision
+} from './crash-reporting/gpu-fallback-restart-prompt'
 import {
   shouldSuppressDevEducation,
   suppressDevEducationForStore
@@ -182,8 +185,9 @@ import { startCodexSessionIndexHealInBackground } from './codex/codex-session-in
 import { createCodexSessionMigrationScheduler } from './codex/codex-session-migration-scheduler'
 import { prepareLegacySharedCodexSessionResume } from './codex/codex-legacy-session-resume'
 import { resolveHostCodexSessionSourceHome } from './codex/codex-session-source-home'
-import { findTrustedCodexSessionResume } from './codex/codex-session-resume-home'
-import { getSystemCodexHomePath } from './codex/codex-home-paths'
+import type { CodexSessionResumePreparation } from './codex/codex-session-resume-home'
+import { prepareCodexSessionResume } from './codex/codex-session-resume-preparation'
+import { getOrcaManagedCodexHomePath, getSystemCodexHomePath } from './codex/codex-home-paths'
 import { normalizeRuntimePathForComparison } from '../shared/cross-platform-path'
 import type { AgentProviderSessionMetadata } from '../shared/agent-session-resume'
 import { getDefaultWslDistro } from './wsl'
@@ -195,7 +199,8 @@ import {
   seedLiveClaudePtysFromPersistence
 } from './claude-accounts/live-pty-gate'
 import { StarNagService } from './star-nag/service'
-import { agentHookServer } from './agent-hooks/server'
+import { agentHookServer, type AgentHookProviderSessionIdentity } from './agent-hooks/server'
+import { createHookProviderSessionInvalidator } from './agent-hooks/hook-provider-session-invalidation'
 import { wslHookRelayManager } from './agent-hooks/wsl-hook-relay-manager'
 import { maybeAutoRenameBranchOnFirstWork } from './agent-hooks/first-work-branch-rename'
 import { rememberBranchRenameFailureOutput } from './agent-hooks/branch-rename-failure-output'
@@ -313,8 +318,6 @@ let managedWslCliReconciliationReady: Promise<void> = Promise.resolve()
 let managedWslCliStartupBarrierReady: Promise<void> = Promise.resolve()
 // Why: the serve barrier fails open, so this state tells headless clients a WSL PTY launch may still race an un-migrated registration ('settled' = off-Windows no-op).
 let managedWslCliReconciliationStatus: 'pending' | 'settled' | 'failed' = 'settled'
-// Why: GPU child crashes clustered right after launch indicate a broken driver; track them to switch this build to software rendering.
-const gpuLaunchTimeMs = Date.now()
 const gpuCrashFallbackTracker = new GpuCrashFallbackTracker({
   windowMs: DEFAULT_GPU_CRASH_FALLBACK_WINDOW_MS,
   threshold: DEFAULT_GPU_CRASH_FALLBACK_THRESHOLD
@@ -763,10 +766,7 @@ if (hasSingleInstanceLock) {
   configureElectronNetworkCompatibility()
   enableRendererHeapHeadroom()
   maybeApplyGpuFallbackForThisLaunch()
-  if (gpuFallbackActiveThisLaunch) {
-    // Software fallback still shares the renderer's bounded Windows retention policy.
-    configureMainProcessWebglContextBudget()
-  } else {
+  if (!gpuFallbackActiveThisLaunch) {
     enableMainProcessGpuFeatures()
   }
   // Why: headless serve's offscreen BrowserWindows need an X display (Xvfb) on Linux; the result gates whether the offscreen backend is installed.
@@ -957,7 +957,7 @@ async function prepareCodexSessionResumeForLaunch(args: {
   target: CodexAccountSelectionTarget
   launchEnv?: NodeJS.ProcessEnv
   workspacePath?: string
-}): Promise<{ codexHomePath: string | null } | null> {
+}): Promise<CodexSessionResumePreparation | null> {
   if (args.target.runtime === 'wsl' || !codexRuntimeHome || !store) {
     return null
   }
@@ -967,67 +967,71 @@ async function prepareCodexSessionResumeForLaunch(args: {
     systemHomePath,
     ...codexRuntimeHome.getHostCodexHomePathsForSessionDiscovery()
   ]
-  const sessionSource = await findTrustedCodexSessionResume({
+  const settingsStore = store
+  // Why: a `fresh` outcome must skip migration, trust and hook repair entirely — there is
+  // no verified origin home to prepare, so the PTY layer drops the resume argv (#10793).
+  return prepareCodexSessionResume({
     sessionId: args.providerSession.id,
     transcriptPath: args.providerSession.transcriptPath,
-    trustedCodexHomes: trustedHomes
-  })
-  if (!sessionSource) {
-    if (args.providerSession.transcriptPath) {
-      throw new Error(
-        'Orca could not verify the originating Codex session file, so automatic resume was stopped to avoid using a different account.'
-      )
-    }
-    return null
-  }
-
-  let migrated = { useRealCodexHome: false }
-  try {
-    migrated = await prepareLegacySharedCodexSessionResume(
-      {
-        agent: 'codex',
-        executionHostId: 'local',
-        filePath: sessionSource.transcriptPath,
-        codexHome: sessionSource.homePath
-      },
-      {
-        isHostSystemDefaultRealHome: () => codexRuntimeHome!.isHostSystemDefaultRealHome(),
-        systemCodexHomePath: systemHomePath
+    trustedCodexHomes: trustedHomes,
+    // Why: the legacy id rescan's winning home becomes this pane's CODEX_HOME, i.e. its account;
+    // rank it by the current selection so settings insertion order can never decide the account.
+    // Lazy: only the legacy branch ranks, so a provenance-present resume never stats the marker.
+    getSelectedAccountCodexHome: () => codexRuntimeHome!.getSelectedHostAccountCodexHomePath(),
+    systemCodexHomePath: systemHomePath,
+    // Why: the mirror winning is what triggers the migration into ~/.codex below, so it must
+    // outrank the path-sorted account homes or a system-default selection resumes as an account.
+    sharedRuntimeCodexHomePath: getOrcaManagedCodexHomePath(),
+    resolveVerifiedResumeHome: async (sessionSource) => {
+      let migrated = { useRealCodexHome: false }
+      try {
+        migrated = await prepareLegacySharedCodexSessionResume(
+          {
+            agent: 'codex',
+            executionHostId: 'local',
+            filePath: sessionSource.transcriptPath,
+            codexHome: sessionSource.homePath
+          },
+          {
+            isHostSystemDefaultRealHome: () => codexRuntimeHome!.isHostSystemDefaultRealHome(),
+            systemCodexHomePath: systemHomePath
+          }
+        )
+      } catch (error) {
+        // Why: migration is a compatibility repair; its failure must not prevent the PTY from resuming from its trusted origin home.
+        console.warn(
+          '[codex-session-resume] Legacy rollout migration failed; using origin home:',
+          error
+        )
       }
-    )
-  } catch (error) {
-    // Why: migration is a compatibility repair; its failure must not prevent the PTY from resuming from its trusted origin home.
-    console.warn(
-      '[codex-session-resume] Legacy rollout migration failed; using origin home:',
-      error
-    )
-  }
-  const resumeHome = migrated.useRealCodexHome ? systemHomePath : sessionSource.homePath
+      const resumeHome = migrated.useRealCodexHome ? systemHomePath : sessionSource.homePath
 
-  if (args.workspacePath) {
-    try {
-      markCodexProjectTrusted(args.workspacePath)
-    } catch (error) {
-      console.warn('[codex-project-trust] failed to pre-mark resumed workspace:', error)
+      if (args.workspacePath) {
+        try {
+          markCodexProjectTrusted(args.workspacePath)
+        } catch (error) {
+          console.warn('[codex-project-trust] failed to pre-mark resumed workspace:', error)
+        }
+      }
+      const isSystemHome =
+        normalizeRuntimePathForComparison(resumeHome) ===
+        normalizeRuntimePathForComparison(systemHomePath)
+      const hooksEnabled = isAgentStatusHooksEnabled(settingsStore.getSettings())
+      try {
+        if (isSystemHome) {
+          ensureRealHomeCodexHookState({ hooksEnabled, userDataPath: app.getPath('userData') })
+        } else if (hooksEnabled) {
+          codexHookService.install(resumeHome)
+        } else {
+          codexHookService.refreshRuntimeUserHooks(resumeHome)
+        }
+      } catch (error) {
+        // Why: hook repair is best-effort; session provenance must still win over the currently selected home.
+        console.warn('[codex-hook-service] failed to prepare automatic resume home:', error)
+      }
+      return resumeHome
     }
-  }
-  const isSystemHome =
-    normalizeRuntimePathForComparison(resumeHome) ===
-    normalizeRuntimePathForComparison(systemHomePath)
-  const hooksEnabled = isAgentStatusHooksEnabled(store.getSettings())
-  try {
-    if (isSystemHome) {
-      ensureRealHomeCodexHookState({ hooksEnabled, userDataPath: app.getPath('userData') })
-    } else if (hooksEnabled) {
-      codexHookService.install(resumeHome)
-    } else {
-      codexHookService.refreshRuntimeUserHooks(resumeHome)
-    }
-  } catch (error) {
-    // Why: hook repair is best-effort; session provenance must still win over the currently selected home.
-    console.warn('[codex-hook-service] failed to prepare automatic resume home:', error)
-  }
-  return { codexHomePath: resumeHome }
+  })
 }
 
 // Why: restore the window the close handler may have hidden to tray, or reopen it (dock-reactivation style) if fully torn down.
@@ -1277,6 +1281,8 @@ function openMainWindow(): BrowserWindow {
         prepareLegacySharedCodexSessionResume(args, {
           isHostSystemDefaultRealHome: () =>
             codexRuntimeHome?.isHostSystemDefaultRealHome() === true,
+          getSelectedHostAccountCodexHomePath: () =>
+            codexRuntimeHome?.getSelectedHostAccountCodexHomePath() ?? null,
           systemCodexHomePath: resolveHostCodexSessionSourceHome(store!.getSettings())
         }),
       onBeforeRelaunch: async () => {
@@ -1530,13 +1536,13 @@ function maybeApplyGpuFallbackForThisLaunch(): void {
   })
 }
 
-// Why: a burst of GPU child crashes right after launch means HW acceleration is unusable — persist a build-scoped marker and relaunch into software rendering.
-function handleGpuChildCrash(reason: string, exitCode: number | null): void {
+// Why: a burst of GPU child crashes means HW acceleration is unusable — persist a build-scoped marker and offer software rendering.
+async function handleGpuChildCrash(reason: string, exitCode: number | null): Promise<void> {
   // Software rendering already active or shutting down: nothing more to do.
   if (gpuFallbackActiveThisLaunch || isQuitting || isServeMode) {
     return
   }
-  const result = gpuCrashFallbackTracker.recordGpuCrash(Date.now() - gpuLaunchTimeMs)
+  const result = gpuCrashFallbackTracker.recordGpuCrash(performance.now())
   if (!result.shouldEngageFallback) {
     return
   }
@@ -1563,12 +1569,30 @@ function handleGpuChildCrash(reason: string, exitCode: number | null): void {
     console.warn('[gpu-fallback] failed to persist marker:', error)
     return
   }
-  isQuitting = true
-  relaunchApp('gpu-fallback', {
+  const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined
+  let restartDecision: GpuFallbackRestartDecision
+  try {
+    restartDecision = await promptForGpuFallbackRestart(window)
+  } catch (error) {
+    console.warn('[gpu-fallback] failed to show restart prompt:', error)
+    return
+  }
+  const fallbackData = {
     processReason: reason,
     exitCode,
     crashesInWindow: result.crashesInWindow
-  })
+  }
+  if (isQuitting) {
+    return
+  }
+  if (restartDecision !== 'restart') {
+    recordDurableCrashBreadcrumb('gpu_fallback_restart_deferred', fallbackData)
+    return
+  }
+  isQuitting = true
+  relaunchApp('gpu-fallback', fallbackData)
+  // Why: app.exit(0) skips before-quit, so destroy the Windows tray manually to avoid a stale icon.
+  destroySystemTray()
   app.exit(0)
 }
 
@@ -2064,9 +2088,32 @@ app.whenReady().then(async () => {
   agentAwakeService.setEnabled(store.getSettings().keepComputerAwakeWhileAgentsRun)
   // Why: start from empty — disk-hydrated status rows are UI continuity only; only this runtime's hook events keep the computer awake.
   agentAwakeService.setStatuses([])
-  unsubscribeAgentAwakeStatusChanges = agentHookServer.subscribeStatusChanges((statuses) => {
+  const collectChangedProviderSessionWorktrees = createHookProviderSessionInvalidator()
+  const publishProviderSessionChanges = (identities: AgentHookProviderSessionIdentity[]): void => {
+    const ownedIdentities = identities.map((identity) => ({
+      ...identity,
+      worktreeId:
+        identity.worktreeId ??
+        runtime?.getTerminalWorktreeIdForPaneKey(identity.paneKey) ??
+        undefined
+    }))
+    for (const worktreeId of collectChangedProviderSessionWorktrees(ownedIdentities)) {
+      runtime?.notifyMobileSessionTabsChanged(worktreeId)
+    }
+  }
+  const unsubscribeStatusChanges = agentHookServer.subscribeStatusChanges((statuses) => {
     agentAwakeService?.setStatuses(statuses)
   })
+  const unsubscribeProviderSessionChanges = agentHookServer.subscribeProviderSessionChanges(
+    (sessions) => {
+      // Healthy session.tabs streams need a push when transcript identity changes.
+      publishProviderSessionChanges(sessions)
+    }
+  )
+  unsubscribeAgentAwakeStatusChanges = () => {
+    unsubscribeStatusChanges()
+    unsubscribeProviderSessionChanges()
+  }
   // Why: telemetry must init before any IPC handler/renderer can call track(); it's a no-op in dev and while TELEMETRY_ENABLED is false, so it's safe early.
   initTelemetry(store)
   // Why: the trust-grant module is bundled into plain-node CLI entries where
@@ -2239,18 +2286,27 @@ app.whenReady().then(async () => {
     // Why: worktree.ps pulls hook-reported agent status (same source as the desktop sidebar) at query time so mobile shows the same agents.
     getAgentStatusSnapshot: () =>
       agentHookServer.getStatusSnapshot().filter((entry) => entry.providerSessionOnly !== true),
+    // Why: the filter above hides resume-identity rows from the live-agent views, but
+    // those rows carry the provider session mobile native chat addresses transcripts
+    // by — Pi publishes identity that way and would otherwise be unreachable.
+    getAgentProviderSessionSnapshot: () => agentHookServer.getStatusSnapshot(),
+    getAgentProviderSessionRowsForPane: (paneKey) =>
+      agentHookServer.getStatusSnapshotForPane(paneKey),
     // Why: source codex-home here (runs in window AND serve) so aiVault.listSessions includes managed-Codex sessions; registerCoreHandlers is window-only.
     getAdditionalAiVaultCodexHomePaths: () =>
       codexRuntimeHome ? codexRuntimeHome.getHostCodexHomePathsForSessionDiscovery() : [],
     prepareAiVaultSessionResume: (args) =>
       prepareLegacySharedCodexSessionResume(args, {
         isHostSystemDefaultRealHome: () => codexRuntimeHome?.isHostSystemDefaultRealHome() === true,
+        getSelectedHostAccountCodexHomePath: () =>
+          codexRuntimeHome?.getSelectedHostAccountCodexHomePath() ?? null,
         systemCodexHomePath: resolveHostCodexSessionSourceHome(store!.getSettings())
       }),
     buildAgentHookPtyEnv: () =>
       isAgentStatusHooksEnabled(store?.getSettings()) ? agentHookServer.buildPtyEnv() : {}
   })
   runtime = runtimeService
+  publishProviderSessionChanges(agentHookServer.getProviderSessionIdentities())
   browserManager.setBrowserGuestStateChangedListener((worktreeId) => {
     runtimeService.notifyMobileSessionTabsChanged(worktreeId)
   })
@@ -2408,7 +2464,7 @@ app.whenReady().then(async () => {
         reason: details.reason
       })
     ) {
-      handleGpuChildCrash(details.reason, details.exitCode ?? null)
+      void handleGpuChildCrash(details.reason, details.exitCode ?? null)
     }
   })
 

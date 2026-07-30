@@ -458,7 +458,6 @@ export function createMainWindow(
   })
 
   installPrivilegedWindowNavigationPolicy(mainWindow.webContents)
-
   mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
     const src = typeof params.src === 'string' ? params.src : ''
     const normalizedSrc = normalizeBrowserNavigationUrl(src)

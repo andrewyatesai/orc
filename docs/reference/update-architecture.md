@@ -323,7 +323,7 @@ the fail-closed default (`aterm-update-core/src/lib.rs:56-64`).
 
 **Identity, all derived:** `ATERM_DEFAULT_OWNER`/`_REPO` from `[workspace.metadata.aterm]
 update_channel` = `alabsystems/aterm` — where installed copies *look for updates* ·
-`ATERM_PUBLISH_OWNER`/`_REPO` from `[workspace.package] repository` = `andrewyatesai/aterm`
+`ATERM_PUBLISH_OWNER`/`_REPO` from `[workspace.package] repository` = the private aterm dev repo
 — the account the project *belongs to*, kept separate because atpkg's trust is
 account-bound and following a mirror repoint would silently move its root
 (`aterm-update-core/src/source.rs:33-46`) · `ATERM_APP_RELEASE_VERSION`,

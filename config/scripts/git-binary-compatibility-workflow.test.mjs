@@ -17,7 +17,7 @@ describe('Git binary compatibility PR gate', () => {
       const workflow = parse(
         readFileSync(join(projectDir, '.github/workflows/pr.yml'), 'utf8')
       )
-      const step = workflow.jobs.verify.steps.find(
+      const step = workflow.jobs.git_compatibility.steps.find(
         (candidate) => candidate.name === 'Verify Git binary compatibility matrix'
       )
 
@@ -30,6 +30,9 @@ describe('Git binary compatibility PR gate', () => {
       expect(step?.run).toContain('alpine/git:v2.49.1|2.49.1')
       expect(step?.run).toContain('ORCA_GIT_COMPAT_IMAGE="$image"')
       expect(step?.run).toContain('src/shared/git-binary-compatibility.test.ts')
+      expect(step?.run).toContain('-j"$(nproc)"')
+      expect(step?.run).toContain('pids+=("$!")')
+      expect(step?.run).toContain('wait "$pid" || status=1')
     }
   )
 })

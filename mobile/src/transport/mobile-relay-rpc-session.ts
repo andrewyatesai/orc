@@ -7,6 +7,7 @@ import { MobileRelayE2eeLink } from './mobile-relay-e2ee-link'
 import { MobileRelayRpcStreams } from './mobile-relay-rpc-streams'
 import { MobileE2EEAuthenticationError } from './mobile-e2ee-v2-physical-channel'
 import { markRpcDeliveryUnknown } from './rpc-delivery-ambiguity'
+import { openRpcRequestBudget, resolvePostConnectRequestTimeout } from './rpc-request-budget'
 import { isRpcResponse } from './rpc-response-shape'
 import { encodeTerminalStreamFrame, TerminalStreamOpcode } from './terminal-stream-protocol'
 import type { RpcClient } from './rpc-client'
@@ -77,8 +78,9 @@ export function connectMobileRelayRpcSession(args: {
 
   const client: MobileRelayRpcSession = {
     async sendRequest(method, params, options) {
-      await waitForConnected(options?.timeoutMs)
-      return sendRpc(method, params, options?.timeoutMs)
+      const budget = openRpcRequestBudget(options)
+      await waitForConnected(budget.timeoutMs)
+      return sendRpc(method, params, resolvePostConnectRequestTimeout(budget, requestTimeoutMs))
     },
 
     subscribe(method, params, listener, options) {

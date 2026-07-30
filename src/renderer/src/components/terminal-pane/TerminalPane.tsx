@@ -81,6 +81,7 @@ import {
   syncSessionRestoredBannerTitleSpace,
   type SessionRestoredBannerDismissEvent,
   type SessionRestoredBannerPane,
+  type SessionRestoredBannerReason,
   type SessionRestoredBannerState
 } from './session-restored-banner-pane-state'
 import { useSystemPrefersDark } from './use-system-prefers-dark'
@@ -259,6 +260,7 @@ type TerminalPaneProps = {
   showSplitButton?: boolean
   onPtyExit: (ptyId: string) => void
   onCloseTab: () => void
+  onInitialRenderSettled?: () => void
 }
 
 type TerminalQuickCommandEditorDialogProps = {
@@ -301,7 +303,8 @@ export default function TerminalPane({
   isolatedPaneKey = null,
   showSplitButton = true,
   onPtyExit,
-  onCloseTab
+  onCloseTab,
+  onInitialRenderSettled
 }: TerminalPaneProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const managerRef = useRef<PaneManager | null>(null)
@@ -330,6 +333,8 @@ export default function TerminalPane({
   const isRendererVisible = isVisible && isWorktreeActive
   const isVisibleRef = useRef(isRendererVisible)
   isVisibleRef.current = isRendererVisible
+  const onInitialRenderSettledRef = useRef(onInitialRenderSettled)
+  onInitialRenderSettledRef.current = onInitialRenderSettled
   const sshReconnectTargetId = useAppStore((store) => {
     const connectionId = getConnectionIdFromState(store, worktreeId)
     // Why: runtime-owned SSH targets are internal plumbing users can't connect to, so a reconnect prompt would mislead.
@@ -856,9 +861,13 @@ export default function TerminalPane({
   }, [])
 
   const showRestoredSessionBanner = useCallback(
-    (paneId: number, info?: { lastCommand?: string | null }): void => {
+    (
+      paneId: number,
+      reason: SessionRestoredBannerReason = 'restored',
+      info?: { lastCommand?: string | null }
+    ): void => {
       setSessionRestoredBannerPanes((prev) => {
-        const next = addSessionRestoredBannerPane(prev, paneId, info?.lastCommand ?? null)
+        const next = addSessionRestoredBannerPane(prev, paneId, info?.lastCommand ?? null, reason)
         return next === prev ? prev : next
       })
     },
@@ -1536,7 +1545,8 @@ export default function TerminalPane({
     setPaneCount,
     setPaneLayoutRevision,
     resolveExternalPaneDropTarget,
-    onExternalPaneDrop: handleExternalPaneDrop
+    onExternalPaneDrop: handleExternalPaneDrop,
+    onInitialRenderSettledRef
   })
 
   useEffect(() => {
@@ -1859,6 +1869,11 @@ export default function TerminalPane({
     }
   }, [executeClosePane])
 
+  // Why leaf bindings are a dep: a parked or deferred tab mounts with no
+  // transport, so a queued restart has no ptyId to match on the mount pass. The
+  // reconnected PTY rewrites this map when it binds — `ptyIdsByTabId` does not,
+  // because a restored id is already listed there before the pane ever mounts.
+  const panePtyLayoutBindings = savedLayout.ptyIdsByLeafId
   useEffect(() => {
     const manager = managerRef.current
     if (!manager) {
@@ -1875,7 +1890,12 @@ export default function TerminalPane({
         handleRestartCodexPane(pane.id)
       }
     }
-  }, [consumePendingCodexPaneRestart, handleRestartCodexPane, pendingCodexPaneRestartIds])
+  }, [
+    consumePendingCodexPaneRestart,
+    handleRestartCodexPane,
+    panePtyLayoutBindings,
+    pendingCodexPaneRestartIds
+  ])
 
   useTerminalFontZoom({
     isActive,

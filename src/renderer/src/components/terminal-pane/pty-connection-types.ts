@@ -1,4 +1,5 @@
 import type { PtyTransport } from './pty-transport'
+import type { SessionRestoredBannerReason } from './session-restored-banner-pane-state'
 import type { ReplayingPanesRef } from './replay-guard'
 import type { RestoredViewportBlankingPanesRef } from './terminal-restored-viewport'
 import type { AgentCompletionStatusSnapshot } from './agent-completion-coordinator-types'
@@ -82,9 +83,13 @@ export type PtyConnectionDeps = {
   clearWorktreeUnread: (worktreeId: string) => void
   clearTerminalTabUnread: (tabId: string) => void
   clearTerminalPaneUnread: (paneKey: string) => void
-  // Why: lastCommand (#7596) powers the restored banner's type-it-again
-  // affordance; absent/null keeps the plain "session restored" marker.
-  onShowSessionRestoredBanner: (paneId: number, info?: { lastCommand?: string | null }) => void
+  // Why: reason distinguishes a true restore from a resume-unavailable fresh
+  // session; lastCommand (#7596) powers the banner's type-it-again affordance.
+  onShowSessionRestoredBanner: (
+    paneId: number,
+    reason?: SessionRestoredBannerReason,
+    info?: { lastCommand?: string | null }
+  ) => void
   // Why: the renderer dispatches four notification sources — BEL from the PTY
   // byte stream, agent-task-complete on the working→idle title transition,
   // long-command-complete on OSC 133 C→D past the settings threshold, and

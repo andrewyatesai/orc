@@ -87,7 +87,7 @@ describe('HostProtocolGate', () => {
     renderer = await renderGate()
     const output = renderedText(renderer)
     expect(output).toContain('Update Orca Mobile')
-    expect(output).toContain('Open App Store')
+    expect(output).toContain('Open upstream App Store')
     expect(output).not.toContain('HostContent')
   })
 
@@ -107,7 +107,7 @@ describe('HostProtocolGate', () => {
     expect(output).not.toContain('HostContent')
     act(() => renderer?.root.findAllByType('Pressable')[0]?.props.onPress())
     expect(nativeTestState.openUrl).toHaveBeenCalledWith(
-      'https://github.com/stablyai/orca/releases'
+      'https://github.com/alabsystems/orca-alab/releases'
     )
   })
 

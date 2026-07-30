@@ -1,7 +1,8 @@
+import { isBuiltin } from 'node:module'
 import { resolve } from 'node:path'
 import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { defineConfig } from 'electron-vite'
+import { defineConfig, type UserConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { createPlainNodeEntryGuardPlugin } from './build-plugins/plain-node-entry-guard'
@@ -10,6 +11,18 @@ import {
   createRendererWorkerChunkBudgetPlugin
 } from './build-plugins/renderer-chunk-budget'
 import { createRendererContentSecurityPolicyPlugin } from './build-plugins/renderer-content-security-policy'
+import packageJson from './package.json' with { type: 'json' }
+
+const EXTERNAL_MAIN_DEPENDENCIES = Object.keys(packageJson.dependencies)
+
+function isExternalMainModule(source: string): boolean {
+  if (isBuiltin(source) || source === 'electron' || source.startsWith('electron/')) {
+    return true
+  }
+  return EXTERNAL_MAIN_DEPENDENCIES.some(
+    (dependency) => source === dependency || source.startsWith(`${dependency}/`)
+  )
+}
 
 // Build provenance for the About section, baked in at build time (a packaged app
 // has no git repo / rust/aterm tree to read at runtime). Best-effort: any piece
@@ -224,10 +237,13 @@ function createStartupDiagnosticsBootstrapPlugin() {
   }
 }
 
-export default defineConfig({
+export const electronViteConfig: UserConfig = {
   main: {
     build: {
       rollupOptions: {
+        // Why: every main runtime dependency resolves from packaged node_modules
+        // (the fork has no Node daemon entry, so nothing needs bundling).
+        external: isExternalMainModule,
         input: {
           index: resolve('src/main/index.ts'),
           'computer-sidecar': resolve('src/main/computer/sidecar-entry.ts'),
@@ -250,6 +266,13 @@ export default defineConfig({
           'agent-hooks/managed-agent-hook-controls': resolve(
             'src/main/agent-hooks/managed-agent-hook-controls.ts'
           )
+        },
+        // Why: Rolldown's SSR default is ESM, but Electron and sidecar launchers
+        // consume these stable CommonJS paths.
+        output: {
+          format: 'cjs',
+          entryFileNames: '[name].js',
+          chunkFileNames: 'chunks/[name]-[hash].js'
         },
         plugins: [createStartupDiagnosticsBootstrapPlugin(), createPlainNodeEntryGuardPlugin()]
       }
@@ -330,4 +353,6 @@ export default defineConfig({
       plugins: () => [createRendererWorkerChunkBudgetPlugin()]
     }
   }
-})
+}
+
+export default defineConfig(electronViteConfig)

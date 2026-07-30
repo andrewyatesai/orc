@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   agentTabActionId,
+  findKeybindingActionsForBinding,
   getKeybindingDefinition,
   findKeybindingConflicts,
   formatKeybinding,
@@ -403,6 +404,16 @@ describe('keybindings', () => {
       binding: 'Mod+0',
       actionIds: expect.arrayContaining(['zoom.reset', 'sidebar.focusWorktreeList'])
     })
+  })
+
+  it('finds app-level owners of a prospective plugin chord with overrides', () => {
+    expect(findKeybindingActionsForBinding('Mod+P', 'darwin')).toContain('worktree.quickOpen')
+    expect(
+      findKeybindingActionsForBinding('Mod+Alt+T', 'linux', {
+        'view.tasks': ['Mod+Alt+T']
+      })
+    ).toContain('view.tasks')
+    expect(findKeybindingActionsForBinding('Mod+F', 'darwin')).not.toContain('editor.find')
   })
 
   it('reports quick-command menu conflicts with global shortcuts and digit ranges', () => {

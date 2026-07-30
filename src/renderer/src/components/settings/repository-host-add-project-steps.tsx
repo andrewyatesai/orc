@@ -133,9 +133,10 @@ export function HostSetupExistingFolderStep({
           disabled={disabled || !setupPath.trim() || isSettingUp}
           onClick={onSubmit}
         >
+          {/* Why: English renders from these inline fallbacks — keep them on the catalog copy all locales translate. */}
           {isSettingUp
-            ? translate('auto.components.settings.RepositoryPane.settingUpHost', 'Adding...')
-            : translate('auto.components.settings.RepositoryPane.setupHost', 'Add project')}
+            ? translate('auto.components.settings.RepositoryPane.settingUpHost', 'Importing...')
+            : translate('auto.components.settings.RepositoryPane.setupHost', 'Import')}
         </Button>
       </div>
     </div>

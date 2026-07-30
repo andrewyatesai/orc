@@ -25,6 +25,7 @@ import {
 import { useAppMenuPaste } from './hooks/useAppMenuPaste'
 import { useLargeTextControlPaste } from './hooks/useLargeTextControlPaste'
 import { useWebSessionTabsSync } from './runtime/web-session-tabs-sync'
+import { useRemoteRuntimeRecoveryTriggers } from './runtime/use-remote-runtime-recovery-triggers'
 import { useGlobalFileDrop } from './hooks/useGlobalFileDrop'
 import { useRadixBodyPointerEventsRecovery } from './hooks/useRadixBodyPointerEventsRecovery'
 import type { VirtualizedScrollAnchor } from './hooks/useVirtualizedScrollAnchor'
@@ -53,6 +54,9 @@ function App(): React.JSX.Element {
   const clearUnreadDockBadge = useUnreadDockBadge()
   useRadixBodyPointerEventsRecovery()
   useWebSessionTabsSync()
+  // Why: fire pending shared-control reconnect timers and pane recovery
+  // backoffs on system resume / browser online (#8255).
+  useRemoteRuntimeRecoveryTriggers()
 
   const actions = useAppStoreActions()
   const vm = useAppShellViewModel()

@@ -53,6 +53,7 @@ import {
   revealTerminalMenuFileTarget,
   type AtermContextLinkTarget
 } from './terminal-context-menu-link-target'
+import { runCopyPaneId } from './terminal-copy-rejection-guards'
 
 const CLOSE_ALL_CONTEXT_MENUS_EVENT = 'orca-close-all-context-menus'
 
@@ -199,7 +200,8 @@ export function useTerminalPaneContextMenu({
     // read the controller's selection text when this pane is aterm-rendered.
     const selection = pane.atermController?.selectionText() ?? pane.terminal.getSelection()
     if (selection) {
-      // Verified write: a failure surfaces via the copy-outcome seam.
+      // Verified write: never rejects, so a failed copy cannot cost the pane
+      // its focus; the failure surfaces via the copy-outcome seam.
       await copyTerminalTextVerified(selection, 'context-menu')
     }
     // Why: Radix returns focus to the menu trigger (the pane container) on
@@ -214,16 +216,35 @@ export function useTerminalPaneContextMenu({
     if (!pane) {
       return
     }
-    // Why: orchestration targets use ORCA_PANE_KEY, which survives renderer
-    // remounts; the numeric PaneManager id is only a local runtime handle.
-    await window.api.ui.writeClipboardText(makePaneKey(tabId, pane.leafId))
-    toast.success(
-      translate(
-        'auto.components.terminal.pane.use.terminal.pane.context.menu.a29b9faa01',
-        'Pane ID copied'
-      )
-    )
-    pane.terminal.focus()
+    await runCopyPaneId({
+      // Why: orchestration targets use ORCA_PANE_KEY, which survives renderer
+      // remounts; the numeric PaneManager id is only a local runtime handle.
+      paneKey: makePaneKey(tabId, pane.leafId),
+      // Adapts the verified-boolean seam to the guard's rejection contract: an
+      // unverified write must reach onError, not resolve as success.
+      writeClipboardText: async (text) => {
+        if (!(await window.api.ui.writeClipboardText(text))) {
+          throw new Error('Clipboard write could not be verified')
+        }
+      },
+      onSuccess: () =>
+        toast.success(
+          translate(
+            'auto.components.terminal.pane.use.terminal.pane.context.menu.a29b9faa01',
+            'Pane ID copied'
+          )
+        ),
+      // Why: claiming success after a failed write is the exact silent lie this
+      // fallback exists to remove, so report it the way Copy Terminal ID does.
+      onError: () =>
+        toast.error(
+          translate(
+            'auto.components.terminal.pane.use.terminal.pane.context.menu.pane.id.copy.failed',
+            'Unable to copy pane ID'
+          )
+        ),
+      focus: () => pane.terminal.focus()
+    })
   }
 
   const getShortcutPlatform = (): NodeJS.Platform => {

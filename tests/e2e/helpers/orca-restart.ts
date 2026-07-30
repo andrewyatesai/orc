@@ -191,8 +191,8 @@ export function createRestartSession(
       args: getOrcaElectronLaunchArgs(mainPath, headful, launchEnv),
       env: launchEnv
     })
-    // Why: attach before firstWindow — the main-process daemon guard can emit
-    // its decision line during startup, before the renderer window is ready.
+    // Why: attach before firstWindow — the main-process daemon guard and the
+    // plugin-system startup metrics can both emit before the renderer is ready.
     if (options?.onStderr) {
       const onStderr = options.onStderr
       app.process().stderr?.on('data', (chunk: Buffer) => onStderr(chunk.toString()))

@@ -244,6 +244,7 @@ import type {
   WorkspaceSessionState
 } from '../shared/types'
 import type { PtyModelRestoreNeededEvent } from '../shared/pty-model-restore-marker'
+import type { PtyListedSession } from '../shared/pty-listed-session'
 import type {
   PtyRendererDeliveryHealthReply,
   PtyRendererDeliveryStateReport
@@ -352,7 +353,11 @@ import type {
   ShellOpenLocalPathResult
 } from '../shared/shell-open-types'
 import type { SkillDiscoveryResult, SkillDiscoveryTarget } from '../shared/skills'
-import type { SkillFreshnessInventory } from '../shared/skill-freshness'
+import type {
+  SkillFreshnessInventory,
+  SkillUpdateRun,
+  SkillUpdateStartResult
+} from '../shared/skill-freshness'
 import type {
   CrashReportBreadcrumbData,
   CrashReportCopyDiagnosticsArgs,
@@ -1378,9 +1383,11 @@ export type PreloadApi = {
         lastCommand?: string
       }
       startupCwdFallback?: { kind: 'worktree'; cwd: string }
+      agentResumeUnavailable?: true
     }>
     write: (id: string, data: string) => void
     writeAccepted: (id: string, data: string) => Promise<boolean>
+    onWriteUnavailable?: (callback: (payload: { id: string }) => void) => () => void
     resize: (id: string, cols: number, rows: number) => void
     claimViewport: (id: string, cols: number, rows: number) => void
     reportGeometry: (id: string, cols: number, rows: number) => void
@@ -1426,7 +1433,7 @@ export type PreloadApi = {
     confirmForegroundProcess: (id: string) => Promise<string | null>
     getCwd: (id: string) => Promise<string>
     getSize: (id: string) => Promise<{ cols: number; rows: number } | null>
-    listSessions: () => Promise<{ id: string; cwd: string; title: string }[]>
+    listSessions: () => Promise<PtyListedSession[]>
     getAuthoritativeBufferSnapshotCapabilities?: (
       ids: string[]
     ) => { id: string; authoritative: boolean | null }[]
@@ -2277,6 +2284,16 @@ export type PreloadApi = {
       runtime?: 'host' | 'wsl'
       wslDistro?: string | null
     }) => Promise<CodexRateLimitAccountsState>
+    /** Live PTYs whose baked CODEX_HOME still points at a deselected account. */
+    listStalePanes: (args: {
+      ptyIds: string[]
+    }) => Promise<
+      { ptyId: string; launchAccountId: string | null; activeAccountId: string | null }[]
+    >
+    /** The selection lane each PTY launched from, keyed by pty id; unrecorded panes are absent. */
+    listRecordedPaneLanes: (args: { ptyIds: string[] }) => Promise<Record<string, string>>
+    /** Drops launch records so a dismissed prompt stays dismissed across restarts. */
+    forgetStalePanes: (args: { ptyIds: string[] }) => Promise<void>
   }
   claudeAccounts: {
     list: () => Promise<ClaudeRateLimitAccountsState>
@@ -2404,6 +2421,11 @@ export type PreloadApi = {
   skills: {
     discover: (target?: SkillDiscoveryTarget) => Promise<SkillDiscoveryResult>
     freshnessInventory: () => Promise<SkillFreshnessInventory>
+    startUpdateRun: (names: string[]) => Promise<SkillUpdateStartResult>
+    cancelUpdateRun: () => Promise<void>
+    acknowledgeUpdateRun: () => Promise<void>
+    getUpdateRun: () => Promise<SkillUpdateRun>
+    onUpdateRun: (callback: (run: SkillUpdateRun) => void) => () => void
   }
   pet: {
     import: () => Promise<CustomPet | null>
@@ -2558,6 +2580,7 @@ export type PreloadApi = {
     download: () => Promise<void>
     quitAndInstall: () => Promise<void>
     dismissNudge: () => Promise<void>
+    dismissAvailableUpdate: () => Promise<void>
     onStatus: (callback: (status: UpdateStatus) => void) => () => void
     onClearDismissal: (callback: () => void) => () => void
   }
@@ -3234,6 +3257,8 @@ export type PreloadApi = {
       selector: string
       timeoutMs?: number
     }) => Promise<RuntimeRpcResponse<RuntimeStatus>>
+    // Why: system resume / browser online advance pending shared-control reconnect timers only.
+    retryConnectionsNow?: () => Promise<void>
     call: (args: {
       selector: string
       method: string

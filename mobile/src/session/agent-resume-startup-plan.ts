@@ -42,12 +42,16 @@ function buildSleepingAgentLaunchConfig(args: {
   agentCommand?: string | null
   agentArgs?: string | null
   agentEnv?: Record<string, string> | null
+  ompResumeFilePath?: string | null
 }): SleepingAgentLaunchConfig {
   return {
     ...(args.agentCommand?.trim() ? { agentCommand: args.agentCommand } : {}),
     agentArgs: args.agentArgs ?? '',
     // Why: the durable resume snapshot is limited to Orca-managed agent env inputs.
-    agentEnv: args.agentEnv ? { ...args.agentEnv } : {}
+    agentEnv: args.agentEnv ? { ...args.agentEnv } : {},
+    // Why: omp cold-resumes by transcript path, so the locator must survive in
+    // the durable snapshot for a later launch to rebuild the same resume argv.
+    ...(args.ompResumeFilePath?.trim() ? { ompResumeFilePath: args.ompResumeFilePath } : {})
   }
 }
 
@@ -60,11 +64,12 @@ export function buildAgentResumeStartupPlan(args: {
   agentArgs?: string | null
   agentEnv?: Record<string, string> | null
   agentCommand?: string | null
+  ompResumeFilePath?: string | null
   /** Why: SSH remotes deploy the CLI shim as plain `orca`, so the Linux-only
    * `orca-ide` rename must be skipped for remote launches. */
   isRemote?: boolean
 }): AgentStartupPlan | null {
-  const argv = getAgentResumeArgv(args.agent, args.providerSession)
+  const argv = getAgentResumeArgv(args.agent, args.providerSession, args.ompResumeFilePath)
   if (!argv) {
     return null
   }

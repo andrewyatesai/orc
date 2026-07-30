@@ -19,9 +19,9 @@ vi.mock('electron', () => ({
 }))
 
 type ModelManagerInternals = {
-  downloadArchiveWithRetry: (
+  downloadFileWithRetry: (
     url: string,
-    archivePath: string,
+    filePath: string,
     expectedSize: number,
     modelId: string,
     isAborted: () => boolean,
@@ -29,7 +29,7 @@ type ModelManagerInternals = {
   ) => Promise<void>
   downloadFile: (
     url: string,
-    archivePath: string,
+    filePath: string,
     expectedSize: number,
     modelId: string,
     isAborted: () => boolean,
@@ -174,7 +174,7 @@ describe('ModelManager download resume', () => {
 
   it('resumes an interrupted download with a Range request and assembles the full file', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'orca-model-resume-'))
-    const archivePath = join(dir, 'model.tar.bz2')
+    const filePath = join(dir, 'model.bin')
     try {
       scriptRequest(() => ({
         statusCode: 200,
@@ -184,7 +184,7 @@ describe('ModelManager download resume', () => {
         // Why: a Range retry can only resume bytes that reached disk. Waiting
         // on that state models an interruption after persistence without a
         // timing assumption about filesystem throughput under full-suite load.
-        beforeFailure: () => waitForFileSize(archivePath, 10)
+        beforeFailure: () => waitForFileSize(filePath, 10)
       }))
       const second = scriptRequest((sentHeaders) => {
         expect(sentHeaders.range).toBe('bytes=10-')
@@ -199,9 +199,9 @@ describe('ModelManager download resume', () => {
       })
       const manager = new ModelManager(dir) as unknown as ModelManagerInternals
 
-      await manager.downloadArchiveWithRetry(
-        'https://example.com/model.tar.bz2',
-        archivePath,
+      await manager.downloadFileWithRetry(
+        'https://example.com/model.bin',
+        filePath,
         PAYLOAD.length,
         'm',
         () => false,
@@ -210,7 +210,7 @@ describe('ModelManager download resume', () => {
 
       expect(netRequestMock).toHaveBeenCalledTimes(2)
       expect(second.sentHeaders.range).toBe('bytes=10-')
-      expect(readFileSync(archivePath)).toEqual(PAYLOAD)
+      expect(readFileSync(filePath)).toEqual(PAYLOAD)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -226,8 +226,8 @@ describe('ModelManager download resume', () => {
 
       await expect(
         manager.downloadFile(
-          'https://example.com/model.tar.bz2',
-          join(dir, 'model.tar.bz2'),
+          'https://example.com/model.bin',
+          join(dir, 'model.bin'),
           PAYLOAD.length,
           'm',
           () => false
@@ -253,8 +253,8 @@ describe('ModelManager download resume', () => {
 
       await expect(
         manager.downloadFile(
-          'https://example.com/model.tar.bz2',
-          join(dir, 'model.tar.bz2'),
+          'https://example.com/model.bin',
+          join(dir, 'model.bin'),
           PAYLOAD.length,
           'm',
           () => false
@@ -267,7 +267,7 @@ describe('ModelManager download resume', () => {
     }
   })
 
-  it('uses a complete archive after a late transport failure without requesting past EOF', async () => {
+  it('uses a complete file after a late transport failure without requesting past EOF', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'orca-model-resume-'))
     try {
       scriptRequest(() => ({
@@ -277,11 +277,11 @@ describe('ModelManager download resume', () => {
         failWith: 'net::ERR_CONNECTION_RESET'
       }))
       const manager = new ModelManager(dir) as unknown as ModelManagerInternals
-      const archivePath = join(dir, 'model.tar.bz2')
+      const filePath = join(dir, 'model.bin')
 
-      await manager.downloadArchiveWithRetry(
-        'https://example.com/model.tar.bz2',
-        archivePath,
+      await manager.downloadFileWithRetry(
+        'https://example.com/model.bin',
+        filePath,
         PAYLOAD.length,
         'm',
         () => false,
@@ -289,13 +289,13 @@ describe('ModelManager download resume', () => {
       )
 
       expect(netRequestMock).toHaveBeenCalledTimes(1)
-      expect(readFileSync(archivePath)).toEqual(PAYLOAD)
+      expect(readFileSync(filePath)).toEqual(PAYLOAD)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   })
 
-  it('requests the remaining bytes when a clean range response ends before the archive total', async () => {
+  it('requests the remaining bytes when a clean range response ends before the file total', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'orca-model-resume-'))
     try {
       const first = scriptRequest((sentHeaders) => {
@@ -321,12 +321,12 @@ describe('ModelManager download resume', () => {
         }
       })
       const manager = new ModelManager(dir) as unknown as ModelManagerInternals
-      const archivePath = join(dir, 'model.tar.bz2')
-      writeFileSync(archivePath, PAYLOAD.subarray(0, 10))
+      const filePath = join(dir, 'model.bin')
+      writeFileSync(filePath, PAYLOAD.subarray(0, 10))
 
-      await manager.downloadArchiveWithRetry(
-        'https://example.com/model.tar.bz2',
-        archivePath,
+      await manager.downloadFileWithRetry(
+        'https://example.com/model.bin',
+        filePath,
         PAYLOAD.length,
         'm',
         () => false,
@@ -336,7 +336,7 @@ describe('ModelManager download resume', () => {
       expect(netRequestMock).toHaveBeenCalledTimes(2)
       expect(first.sentHeaders.range).toBe('bytes=10-')
       expect(second.sentHeaders.range).toBe('bytes=15-')
-      expect(readFileSync(archivePath)).toEqual(PAYLOAD)
+      expect(readFileSync(filePath)).toEqual(PAYLOAD)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -370,12 +370,12 @@ describe('ModelManager download resume', () => {
         }
       })
       const manager = new ModelManager(dir) as unknown as ModelManagerInternals
-      const archivePath = join(dir, 'model.tar.bz2')
-      writeFileSync(archivePath, PAYLOAD.subarray(0, 1))
+      const filePath = join(dir, 'model.bin')
+      writeFileSync(filePath, PAYLOAD.subarray(0, 1))
 
-      await manager.downloadArchiveWithRetry(
-        'https://example.com/model.tar.bz2',
-        archivePath,
+      await manager.downloadFileWithRetry(
+        'https://example.com/model.bin',
+        filePath,
         PAYLOAD.length,
         'm',
         () => false,
@@ -383,7 +383,7 @@ describe('ModelManager download resume', () => {
       )
 
       expect(netRequestMock).toHaveBeenCalledTimes(10)
-      expect(readFileSync(archivePath)).toEqual(PAYLOAD)
+      expect(readFileSync(filePath)).toEqual(PAYLOAD)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -393,20 +393,20 @@ describe('ModelManager download resume', () => {
     const dir = mkdtempSync(join(tmpdir(), 'orca-model-resume-'))
     try {
       const manager = new ModelManager(dir) as unknown as ModelManagerInternals
-      const archivePath = join(dir, 'model.tar.bz2')
+      const filePath = join(dir, 'model.bin')
       let bytesWritten = 0
       // Advances one byte per request against a total larger than the request
       // ceiling, so it makes forward progress forever without ever completing.
       const downloadFileMock = vi.spyOn(manager, 'downloadFile').mockImplementation(() => {
         bytesWritten += 1
-        writeFileSync(archivePath, Buffer.alloc(bytesWritten))
+        writeFileSync(filePath, Buffer.alloc(bytesWritten))
         return Promise.resolve()
       })
 
       await expect(
-        manager.downloadArchiveWithRetry(
-          'https://example.com/model.tar.bz2',
-          archivePath,
+        manager.downloadFileWithRetry(
+          'https://example.com/model.bin',
+          filePath,
           1_000_000,
           'm',
           () => false,
@@ -431,18 +431,18 @@ describe('ModelManager download resume', () => {
       // it takes (regression guard: a fixed failure budget used to abandon a
       // still-advancing large download around attempt 8).
       const manager = new ModelManager(dir) as unknown as ModelManagerInternals
-      const archivePath = join(dir, 'model.tar.bz2')
+      const filePath = join(dir, 'model.bin')
       const SLICE = 2
       let delivered = 0
       const downloadFileMock = vi.spyOn(manager, 'downloadFile').mockImplementation(() => {
         delivered = Math.min(delivered + SLICE, PAYLOAD.length)
-        writeFileSync(archivePath, PAYLOAD.subarray(0, delivered))
+        writeFileSync(filePath, PAYLOAD.subarray(0, delivered))
         return Promise.reject(new Error('net::ERR_CONNECTION_RESET'))
       })
 
-      const download = manager.downloadArchiveWithRetry(
-        'https://example.com/model.tar.bz2',
-        archivePath,
+      const download = manager.downloadFileWithRetry(
+        'https://example.com/model.bin',
+        filePath,
         PAYLOAD.length,
         'm',
         () => false,
@@ -458,14 +458,14 @@ describe('ModelManager download resume', () => {
 
       await expect(outcome).resolves.toBe('resolved')
       expect(downloadFileMock).toHaveBeenCalledTimes(PAYLOAD.length / SLICE)
-      expect(readFileSync(archivePath)).toEqual(PAYLOAD)
+      expect(readFileSync(filePath)).toEqual(PAYLOAD)
     } finally {
       vi.useRealTimers()
       rmSync(dir, { recursive: true, force: true })
     }
   })
 
-  it('keeps the known archive total when Content-Range omits it', async () => {
+  it('keeps the known file total when Content-Range omits it', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'orca-model-resume-'))
     try {
       scriptRequest((sentHeaders) => {
@@ -491,12 +491,12 @@ describe('ModelManager download resume', () => {
         }
       })
       const manager = new ModelManager(dir) as unknown as ModelManagerInternals
-      const archivePath = join(dir, 'model.tar.bz2')
-      writeFileSync(archivePath, PAYLOAD.subarray(0, 10))
+      const filePath = join(dir, 'model.bin')
+      writeFileSync(filePath, PAYLOAD.subarray(0, 10))
 
-      await manager.downloadArchiveWithRetry(
-        'https://example.com/model.tar.bz2',
-        archivePath,
+      await manager.downloadFileWithRetry(
+        'https://example.com/model.bin',
+        filePath,
         PAYLOAD.length,
         'm',
         () => false,
@@ -504,7 +504,7 @@ describe('ModelManager download resume', () => {
       )
 
       expect(netRequestMock).toHaveBeenCalledTimes(2)
-      expect(readFileSync(archivePath)).toEqual(PAYLOAD)
+      expect(readFileSync(filePath)).toEqual(PAYLOAD)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -522,13 +522,13 @@ describe('ModelManager download resume', () => {
         chunks: [PAYLOAD.subarray(0, 10)]
       }))
       const manager = new ModelManager(dir) as unknown as ModelManagerInternals
-      const archivePath = join(dir, 'model.tar.bz2')
-      writeFileSync(archivePath, PAYLOAD.subarray(0, 10))
+      const filePath = join(dir, 'model.bin')
+      writeFileSync(filePath, PAYLOAD.subarray(0, 10))
 
       const error = await manager
         .downloadFile(
-          'https://example.com/model.tar.bz2',
-          archivePath,
+          'https://example.com/model.bin',
+          filePath,
           PAYLOAD.length,
           'm',
           () => false,
@@ -542,7 +542,7 @@ describe('ModelManager download resume', () => {
         message: 'Invalid Content-Range for resume at byte 10',
         retryable: true
       })
-      expect(existsSync(archivePath)).toBe(false)
+      expect(existsSync(filePath)).toBe(false)
       expect(mismatched.abortMock).toHaveBeenCalledTimes(1)
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -564,11 +564,11 @@ describe('ModelManager download resume', () => {
         chunks: [PAYLOAD]
       }))
       const manager = new ModelManager(dir) as unknown as ModelManagerInternals
-      const archivePath = join(dir, 'model.tar.bz2')
+      const filePath = join(dir, 'model.bin')
 
-      await manager.downloadArchiveWithRetry(
-        'https://example.com/model.tar.bz2',
-        archivePath,
+      await manager.downloadFileWithRetry(
+        'https://example.com/model.bin',
+        filePath,
         PAYLOAD.length,
         'm',
         () => false,
@@ -576,7 +576,7 @@ describe('ModelManager download resume', () => {
       )
 
       expect(netRequestMock).toHaveBeenCalledTimes(2)
-      expect(readFileSync(archivePath)).toEqual(PAYLOAD)
+      expect(readFileSync(filePath)).toEqual(PAYLOAD)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -589,9 +589,9 @@ describe('ModelManager download resume', () => {
       const manager = new ModelManager(dir) as unknown as ModelManagerInternals
 
       await expect(
-        manager.downloadArchiveWithRetry(
-          'https://example.com/model.tar.bz2',
-          join(dir, 'model.tar.bz2'),
+        manager.downloadFileWithRetry(
+          'https://example.com/model.bin',
+          join(dir, 'model.bin'),
           PAYLOAD.length,
           'm',
           () => false,
@@ -616,8 +616,8 @@ describe('ModelManager download resume', () => {
 
       const error = await manager
         .downloadFile(
-          'https://example.com/model.tar.bz2',
-          join(dir, 'model.tar.bz2'),
+          'https://example.com/model.bin',
+          join(dir, 'model.bin'),
           PAYLOAD.length,
           'm',
           () => false
@@ -636,7 +636,7 @@ describe('ModelManager download resume', () => {
     const dir = mkdtempSync(join(tmpdir(), 'orca-model-resume-'))
     try {
       const manager = new ModelManager(dir) as unknown as ModelManagerInternals
-      const archivePath = join(dir, 'model.tar.bz2')
+      const filePath = join(dir, 'model.bin')
       const rateLimitError = Object.assign(new Error('HTTP 429'), {
         httpStatusCode: 429,
         retryAfterMs: 3_000
@@ -645,12 +645,12 @@ describe('ModelManager download resume', () => {
         .spyOn(manager, 'downloadFile')
         .mockRejectedValueOnce(rateLimitError)
         .mockImplementationOnce(() => {
-          writeFileSync(archivePath, PAYLOAD)
+          writeFileSync(filePath, PAYLOAD)
           return Promise.resolve()
         })
-      const download = manager.downloadArchiveWithRetry(
-        'https://example.com/model.tar.bz2',
-        archivePath,
+      const download = manager.downloadFileWithRetry(
+        'https://example.com/model.bin',
+        filePath,
         PAYLOAD.length,
         'm',
         () => false,
@@ -679,9 +679,9 @@ describe('ModelManager download resume', () => {
       const downloadFileMock = vi.spyOn(manager, 'downloadFile').mockRejectedValue(rateLimitError)
 
       await expect(
-        manager.downloadArchiveWithRetry(
-          'https://example.com/model.tar.bz2',
-          join(dir, 'model.tar.bz2'),
+        manager.downloadFileWithRetry(
+          'https://example.com/model.bin',
+          join(dir, 'model.bin'),
           PAYLOAD.length,
           'm',
           () => false,
@@ -704,9 +704,9 @@ describe('ModelManager download resume', () => {
         .spyOn(manager, 'downloadFile')
         .mockRejectedValue(new Error('net::ERR_CONNECTION_RESET'))
 
-      const download = manager.downloadArchiveWithRetry(
-        'https://example.com/model.tar.bz2',
-        join(dir, 'model.tar.bz2'),
+      const download = manager.downloadFileWithRetry(
+        'https://example.com/model.bin',
+        join(dir, 'model.bin'),
         PAYLOAD.length,
         'm',
         () => false,
@@ -752,9 +752,9 @@ describe('ModelManager download resume', () => {
       const controller = new AbortController()
       const manager = new ModelManager(dir) as unknown as ModelManagerInternals
 
-      const download = manager.downloadArchiveWithRetry(
-        'https://example.com/model.tar.bz2',
-        join(dir, 'model.tar.bz2'),
+      const download = manager.downloadFileWithRetry(
+        'https://example.com/model.bin',
+        join(dir, 'model.bin'),
         PAYLOAD.length,
         'm',
         () => false,

@@ -1037,6 +1037,11 @@ export type BrowserCookieImportSummary = {
   importedCookies: number
   skippedCookies: number
   domains: string[]
+  warning?: {
+    code: 'restart-fallback-unavailable'
+    loadedCookies: number
+    failedCookies: number
+  }
 }
 
 export type BrowserCookieImportResult =
@@ -2348,9 +2353,12 @@ export type ChangelogData = {
 export type UpdateCheckOptions = {
   includePrerelease?: boolean
   includePerfPrerelease?: boolean
+  localBuild?: boolean
 }
 
-export type UpdateStatus =
+export type UpdateSource = 'local'
+
+export type UpdateStatus = (
   | { state: 'idle' }
   | { state: 'checking'; userInitiated?: boolean }
   | {
@@ -2382,6 +2390,7 @@ export type UpdateStatus =
       // installation must not wastefully download the same release again.
       retryAction?: 'install'
     }
+) & { source?: UpdateSource }
 
 // ─── Settings ────────────────────────────────────────────────────────
 export type NotificationSettings = {
@@ -3410,6 +3419,8 @@ export type PersistedUIState = {
   hideAutomationGeneratedWorkspaces?: boolean
   /** Hide workspaces created through `orca worktree create`. */
   hideCliCreatedWorkspaces?: boolean
+  /** Hide workspaces sitting on a detached HEAD; folder workspaces (no head at all) are unaffected. */
+  hideDetachedHeadWorkspaces?: boolean
   /** Per-worktree Explorer dotfile visibility. Missing entries inherit the default: show. */
   showDotfilesByWorktree?: Record<string, boolean>
   filterRepoIds: string[]
@@ -3810,6 +3821,10 @@ export type UsageValues = {
   memory: number
 }
 
+export type ProcessMemoryMetric = 'rss' | 'working-set'
+
+export type HostAvailableMemorySource = 'memory-pressure' | 'proc-meminfo' | 'free-memory'
+
 /** The top-level cpu/memory are the sum of main + renderer + other. */
 export type AppMemory = UsageValues & {
   main: UsageValues
@@ -3838,7 +3853,12 @@ export type WorktreeMemory = UsageValues & {
 
 export type HostMemory = {
   totalMemory: number
+  /** Immediately free memory reported by Node's host API. */
   freeMemory: number
+  /** Memory available without material pressure, or freeMemory when unavailable. */
+  availableMemory: number
+  availableMemorySource: HostAvailableMemorySource
+  /** totalMemory - availableMemory. */
   usedMemory: number
   memoryUsagePercent: number
   cpuCoreCount: number
@@ -3849,9 +3869,11 @@ export type MemorySnapshot = {
   app: AppMemory
   worktrees: WorktreeMemory[]
   host: HostMemory
+  /** Per-process byte metric used by app, session, worktree, history, and totalMemory values. */
+  processMemoryMetric: ProcessMemoryMetric
   /** Sum of app + all tracked worktree sessions. Percent of a single core, so may exceed 100 on multi-core machines. */
   totalCpu: number
-  /** Sum of app + all tracked worktree sessions in bytes. NOT the same as host.totalMemory, which is physical RAM. */
+  /** Sum of per-process samples. Shared pages may repeat, so this can exceed host.totalMemory. */
   totalMemory: number
   collectedAt: number
 }

@@ -15,6 +15,7 @@ import type { RuntimeRpcResponse } from '../../shared/runtime-rpc-envelope'
 import type { Store } from '../persistence'
 import { registerRuntimeHostPtyBindingChurnPruneStore } from '../runtime-host-pty-binding-churn-prune'
 import { closeRemoteRuntimeRequestConnection } from './runtime-environment-request-connections'
+import { registerRuntimeEnvironmentRecoveryHandler } from './runtime-environment-recovery-handler'
 import { advanceRuntimeEnvironmentTransportGeneration } from './runtime-environment-transport-generation'
 import {
   closeSubscriptionsForEnvironment,
@@ -114,6 +115,7 @@ export function registerRuntimeEnvironmentHandlers(store: Store): void {
       return { disconnected: redactRuntimeEnvironment(environment) }
     }
   )
+  registerRuntimeEnvironmentRecoveryHandler()
   ipcMain.handle(
     'runtimeEnvironments:getStatus',
     async (

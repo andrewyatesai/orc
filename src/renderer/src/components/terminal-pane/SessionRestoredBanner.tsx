@@ -1,10 +1,16 @@
 import { translate } from '@/i18n/i18n'
-import { SESSION_RESTORED_BANNER_ACTION_ATTRIBUTE } from './session-restored-banner-pane-state'
+import {
+  SESSION_RESTORED_BANNER_ACTION_ATTRIBUTE,
+  type SessionRestoredBannerReason
+} from './session-restored-banner-pane-state'
 
 export const SESSION_RESTORED_BANNER_TEXT = '--- session restored ---'
+export const SESSION_RESUME_UNAVAILABLE_BANNER_TEXT =
+  '--- previous session unavailable, started fresh ---'
 
 type SessionRestoredBannerProps = {
   visible: boolean
+  reason?: SessionRestoredBannerReason
   /** Last command the restored session ran (#7596); null hides the affordance. */
   lastCommand?: string | null
   /** Types the command into the pane WITHOUT executing (no trailing newline). */
@@ -13,6 +19,7 @@ type SessionRestoredBannerProps = {
 
 export function SessionRestoredBanner({
   visible,
+  reason = 'restored',
   lastCommand = null,
   onTypeItAgain
 }: SessionRestoredBannerProps): React.JSX.Element | null {
@@ -20,8 +27,15 @@ export function SessionRestoredBanner({
     return null
   }
 
-  if (!lastCommand) {
-    return <div className="session-restored-banner">{SESSION_RESTORED_BANNER_TEXT}</div>
+  // Why: the re-run affordance only makes sense for a real restore.
+  if (reason !== 'restored' || !lastCommand) {
+    return (
+      <div className="session-restored-banner">
+        {reason === 'resume-unavailable'
+          ? SESSION_RESUME_UNAVAILABLE_BANNER_TEXT
+          : SESSION_RESTORED_BANNER_TEXT}
+      </div>
+    )
   }
 
   return (

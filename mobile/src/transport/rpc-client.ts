@@ -1,10 +1,9 @@
-import type {
-  RpcResponse,
-  RpcSuccess,
-  ConnectionState,
-  ConnectionLogLevel,
-  ConnectionLogSink
-} from './types'
+import type { RpcResponse, RpcSuccess, ConnectionState, ConnectionLogSink } from './types'
+import { createConnectionLogEmitter, redactedEndpoint } from './rpc-client-connection-log'
+import {
+  isStreamingSubscriptionReadyResult,
+  isTerminalSubscribedResult
+} from './rpc-streaming-result-shape'
 import {
   generateKeyPair,
   deriveSharedKey,
@@ -32,6 +31,7 @@ import {
 } from './rpc-client-terminal-subscription'
 import { describeSocketEvent } from './socket-event-debug'
 import { markRpcDeliveryUnknown } from './rpc-delivery-ambiguity'
+import { openRpcRequestBudget, resolvePostConnectRequestTimeout } from './rpc-request-budget'
 import { isRpcResponse } from './rpc-response-shape'
 import { websocketPayloadToUint8 } from './websocket-payload-bytes'
 
@@ -46,8 +46,16 @@ type ConnectWaiter = {
   timeout: ReturnType<typeof setTimeout> | null
 }
 
-type SendRequestOptions = {
+export type SendRequestOptions = {
   timeoutMs?: number
+  /** Spend `timeoutMs` across connect-wait AND the request instead of giving each
+   *  phase its own. Interactive chat writes need it: they run as sequential loops
+   *  under one shared budget, so a per-phase clock lets the composer sit `sending`
+   *  for a multiple of the stated ceiling. Off by default — the long-running
+   *  callers (worktree create, dictation finish, credit reset) sized their budgets
+   *  against the post-connect clock, and squeezing them to the floor after a slow
+   *  reconnect would fail sends that used to land. */
+  budgetSpansConnect?: boolean
 }
 
 type SocketClosedOptions = { timedOut?: boolean; closeCode?: number }
@@ -109,6 +117,9 @@ const AUTH_RETRY_BUDGET = 3
 // Why: a desktop that regenerated its E2EE keypair sends an e2ee_error we can't decrypt — the 4001 close code is the only surviving auth-failure signal.
 const UNAUTHORIZED_CLOSE_CODE = 4001
 const REQUEST_TIMEOUT_MS = 30_000
+// Why: an explicit `timeoutMs` is one budget for the whole call. If the connect wait
+// ate nearly all of it, still give the written frame a moment to be answered rather
+// than arming a 1ms timer.
 const CONNECT_TIMEOUT_MS = 12_000
 const HANDSHAKE_TIMEOUT_MS = 5_000
 // Why: RN may not expose WebSocket.readyState constants, but the CONNECTING protocol value (0) is stable across runtimes.
@@ -136,19 +147,7 @@ export function connect(
       : (optionsOrLegacy ?? {})
   const onStateChange = options.onStateChange
   const onLog = options.onLog
-  let logCounter = 0
-  function emitLog(level: ConnectionLogLevel, message: string, detail?: string) {
-    if (!onLog) {
-      return
-    }
-    onLog({
-      id: `log-${++logCounter}-${Date.now()}`,
-      ts: Date.now(),
-      level,
-      message,
-      detail
-    })
-  }
+  const emitLog = createConnectionLogEmitter(onLog)
   let ws: WebSocket | null = null
   let state: ConnectionState = 'disconnected'
   let requestCounter = 0
@@ -232,16 +231,6 @@ export function connect(
     }
     for (const listener of stateListeners) {
       listener(next)
-    }
-  }
-
-  // Why: keep device tokens / full URLs out of log scrolls — truncate to host:port.
-  function redactedEndpoint(ep: string): string {
-    try {
-      const m = ep.match(/^wss?:\/\/([^/]+)/i)
-      return m ? m[1] : 'unknown'
-    } catch {
-      return 'unknown'
     }
   }
 
@@ -988,7 +977,8 @@ export function connect(
       params?: unknown,
       options?: SendRequestOptions
     ): Promise<RpcResponse> {
-      const waitStart = Date.now()
+      const budget = openRpcRequestBudget(options)
+      const waitStart = budget.startedAt
       const wasConnected = state === 'connected'
       await waitForConnected(options?.timeoutMs)
       if (!wasConnected) {
@@ -1000,7 +990,7 @@ export function connect(
 
       return new Promise((resolve, reject) => {
         const id = nextId()
-        const timeoutMs = options?.timeoutMs ?? REQUEST_TIMEOUT_MS
+        const timeoutMs = resolvePostConnectRequestTimeout(budget, REQUEST_TIMEOUT_MS)
         const timeout = setTimeout(() => {
           pending.delete(id)
           console.log('[net] sendRequest TIMEOUT', {
@@ -1194,26 +1184,4 @@ export function connect(
       rejectAllPending('Client closed', { deliveryUnknown: true })
     }
   }
-}
-
-function isTerminalSubscribedResult(
-  value: unknown
-): value is { type: 'subscribed'; streamId: number } {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    (value as { type?: unknown }).type === 'subscribed' &&
-    typeof (value as { streamId?: unknown }).streamId === 'number'
-  )
-}
-
-function isStreamingSubscriptionReadyResult(
-  value: unknown
-): value is { type: 'ready'; subscriptionId: string } {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    (value as { type?: unknown }).type === 'ready' &&
-    typeof (value as { subscriptionId?: unknown }).subscriptionId === 'string'
-  )
 }

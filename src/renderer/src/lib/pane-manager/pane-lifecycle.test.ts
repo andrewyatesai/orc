@@ -145,6 +145,8 @@ describe('buildDefaultTerminalOptions', () => {
 // to assert; RTL/Arabic shaping is handled natively by aterm-bidi in the engine,
 // so there is no renderer-side character-joiner to cover. Upstream's
 // streamed-output linkifier hover-reset wiring test (#9320) is also out: the
-// aterm facade exposes no onWriteParsed seam to install it against. Same for
+// aterm facade exposes no onWriteParsed seam to install it against — as is
+// v1.4.161's mouseleave hover-reset variant, which listens on the xterm
+// .xterm-screen element that aterm panes never render. Same for
 // upstream's two offscreen webglRebuildDeferred ligature cases — aterm toggles
 // ligatures on the live engine with no atlas rebuild to defer.

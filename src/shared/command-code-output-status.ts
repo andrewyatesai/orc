@@ -9,7 +9,9 @@ import {
   cleanCommandCodePromptCandidate,
   isCommandCodeIdlePromptCandidate
 } from './command-code-prompt-text'
-import { stripTerminalControl } from './terminal-control-sequence-strip'
+import { stripTerminalControl } from './terminal-control-stripping'
+
+export { stripTerminalControl } from './terminal-control-stripping'
 
 type CommandCodeOutputStatusDetector = {
   observe: (data: string) => boolean

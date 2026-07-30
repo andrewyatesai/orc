@@ -7,6 +7,7 @@ import { pipeline } from 'node:stream/promises'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { parse as parseYaml } from 'yaml'
+import { cancelUnreadResponseBody } from './lib/unread-response-body'
 
 const run = promisify(execFile)
 
@@ -109,6 +110,7 @@ async function sha512Base64(path: string): Promise<string> {
 async function fetchBytes(url: string): Promise<Uint8Array> {
   const response = await fetch(url, { redirect: 'follow' })
   if (!response.ok) {
+    await cancelUnreadResponseBody(response)
     throw new Error(`fetch failed (${response.status}) for ${url}`)
   }
   return new Uint8Array(await response.arrayBuffer())
@@ -149,6 +151,7 @@ export async function downloadWithProgress(
 ): Promise<void> {
   const response = await fetch(url, { redirect: 'follow' })
   if (!response.ok || !response.body) {
+    await cancelUnreadResponseBody(response)
     throw new Error(`download failed (${response.status}) for ${url}`)
   }
   const headerSize = Number(response.headers.get('content-length'))

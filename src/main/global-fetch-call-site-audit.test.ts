@@ -19,6 +19,7 @@ const AUDITED_GLOBAL_FETCH_LINES = new Map<string, number>([
   // through hosted-review-api-request.ts so read and write share one bounded,
   // same-origin transport.
   ['main/orca-profiles/profile-cloud-client.ts', 1],
+  ['main/updater-bundle-swap.ts', 2],
   ['main/orca-profiles/profile-cloud-org-members-client.ts', 1],
   ['main/rate-limits/codex-fetcher.ts', 3],
   ['main/runtime/relay/relay-http-client.ts', 2],

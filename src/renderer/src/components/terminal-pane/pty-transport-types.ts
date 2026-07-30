@@ -87,6 +87,8 @@ export type PtyConnectResult = {
   }
   replay?: string
   startupCwdFallback?: { kind: 'worktree'; cwd: string }
+  /** Main declined an unverifiable provider-session resume and launched fresh. */
+  agentResumeUnavailable?: true
   /** Trailing partial escape the daemon emulator held mid-parse; the reattach
    *  replay writes it LAST (after the reset) so a racing live continuation
    *  completes it instead of rendering literally (#7329). */
@@ -113,6 +115,7 @@ type PtyCallbacks = {
    *  replay limit and was dropped (old host without the subscribe budget); the
    *  pane should restore via the server-bounded requested-snapshot path. */
   onSnapshotOverflow?: () => void
+  onWriteUnavailable?: () => void
   onRecoveryStateChange?: (state: PtyTransportRecoveryState) => void
 }
 

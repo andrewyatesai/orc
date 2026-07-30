@@ -12,6 +12,7 @@ import {
 import { applyDocumentTheme } from './lib/document-theme'
 import { startGitWasm } from './lib/git-wasm/git-line-stats'
 import { startCryptoWasm } from './lib/crypto-wasm/browser-crypto-wasm'
+import { installTypingLatencyDiagnostic } from './lib/typing-latency-diagnostic'
 import { shouldEnableReactGrab } from './lib/react-grab-dev-gate'
 import { I18nProvider } from './i18n/I18nProvider'
 import { translate } from './i18n/i18n'
@@ -28,6 +29,7 @@ const gitWasmReady = startGitWasm()
 // Compile the E2EE crypto wasm eagerly so it is ready before any remote
 // WebSocket handshake (which needs it synchronously to seal the box).
 void startCryptoWasm()
+installTypingLatencyDiagnostic()
 
 if (
   import.meta.env.DEV &&

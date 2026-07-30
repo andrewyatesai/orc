@@ -2,6 +2,12 @@ import type { ManagedPane } from '@/lib/pane-manager/pane-manager'
 
 export type SessionRestoredBannerPane = Pick<ManagedPane, 'id' | 'container' | 'terminal'>
 
+/** `resume-unavailable`: the pane asked to resume a provider session Orca could not
+ *  verify, so it launched a fresh one — silence would read as a successful restore. */
+export type SessionRestoredBannerReason = 'restored' | 'resume-unavailable'
+
+export type SessionRestoredBannerPaneReasons = ReadonlyMap<number, SessionRestoredBannerReason>
+
 export type SessionRestoredBannerStartup =
   | {
       showSessionRestoredBanner?: boolean
@@ -12,6 +18,7 @@ export type SessionRestoredBannerStartup =
 /** Per-pane banner payload: lastCommand powers the re-run affordance (#7596). */
 export type SessionRestoredBannerState = {
   lastCommand: string | null
+  reason: SessionRestoredBannerReason
 }
 
 export type SessionRestoredBannerDismissEvent = KeyboardEvent | PointerEvent
@@ -35,15 +42,19 @@ export function offerableRestoredLastCommand(lastCommand: string | null | undefi
 export function addSessionRestoredBannerPane(
   states: ReadonlyMap<number, SessionRestoredBannerState>,
   paneId: number,
-  lastCommand: string | null = null
+  lastCommand: string | null = null,
+  reason: SessionRestoredBannerReason = 'restored'
 ): Map<number, SessionRestoredBannerState> {
   const existing = states.get(paneId)
   // Why: an agent-resume trigger (null) must not clobber a lastCommand already
-  // recorded for the pane; identical state returns the same reference.
-  if (existing && (existing.lastCommand === lastCommand || lastCommand === null)) {
+  // recorded for the pane, while a later reason must win (a pane that turned out
+  // to be a fresh session cannot keep claiming a restore); identical state
+  // returns the same reference.
+  const nextLastCommand = lastCommand ?? existing?.lastCommand ?? null
+  if (existing && existing.lastCommand === nextLastCommand && existing.reason === reason) {
     return states instanceof Map ? states : new Map(states)
   }
-  return new Map(states).set(paneId, { lastCommand })
+  return new Map(states).set(paneId, { lastCommand: nextLastCommand, reason })
 }
 
 export function removeSessionRestoredBannerPane(
@@ -105,7 +116,7 @@ export function dismissSessionRestoredBannerPanes(
 export function seedStartupSessionRestoredBanner(
   startup: SessionRestoredBannerStartup,
   paneId: number,
-  onShowSessionRestoredBanner: (paneId: number) => void
+  onShowSessionRestoredBanner: (paneId: number, reason?: SessionRestoredBannerReason) => void
 ): void {
   if (startup?.showSessionRestoredBanner === true) {
     onShowSessionRestoredBanner(paneId)

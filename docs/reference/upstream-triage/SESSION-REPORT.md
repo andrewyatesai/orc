@@ -5,8 +5,8 @@
 Started as "align with upstream, triage the issues"; became a full upstream-sync
 + triage + roadmap-port + engine-performance program across two repos:
 **orca-alab** (the Electron app, `/Users/ayates/orc`, GitHub `andrewyatesai/orca-alab`)
-and **aterm** (the Rust/WASM terminal engine, submodule + `~/aterm`, GitHub
-`andrewyatesai/aterm`).
+and **aterm** (the Rust/WASM terminal engine, submodule + `~/aterm`, on the
+dev account's private `aterm` repo).
 
 ## What shipped (all gated, all pushed)
 

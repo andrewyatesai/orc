@@ -7,7 +7,6 @@ import {
   getRepoMapFromState,
   getWorktreeMapFromState
 } from '@/store/selectors'
-import { DEFAULT_SHOW_SLEEPING_WORKSPACES } from '../../../../shared/constants'
 import {
   ALL_EXECUTION_HOSTS_SCOPE,
   getSettingsFocusedExecutionHostId,
@@ -21,93 +20,12 @@ import {
   getLineageRenderInfo
 } from './worktree-lineage-projection'
 import { computeRenderedSidebarWorktreeOrder } from './rendered-sidebar-worktree-order'
-
-/**
- * Whether a worktree represents the repo's default-branch row that the
- * "Hide Default Branch Workspace" setting targets. Folder-mode projects are
- * main worktrees with branch === '' and are intentionally preserved.
- *
- * Why a shared helper: this predicate gates visibility in both the sidebar
- * pipeline (computeVisibleWorktreeIds) and the Cmd+J jump palette. Keeping
- * the definition in one place prevents the two surfaces from drifting.
- */
-export function isDefaultBranchWorkspace(worktree: Worktree): boolean {
-  return worktree.isMainWorktree && worktree.branch.trim() !== ''
-}
-
-export function isAutomationGeneratedWorkspace(worktree: Worktree): boolean {
-  return worktree.automationProvenance?.kind === 'created-by-automation'
-}
-
-export function isCliCreatedWorkspace(worktree: Worktree): boolean {
-  return worktree.cliProvenance?.kind === 'created-by-cli'
-}
-
-/** Inputs describing sidebar filter settings that the Clear Filters path owns. */
-export type SidebarFilterState = {
-  showSleepingWorkspaces: boolean
-  filterRepoIds: readonly string[]
-  hideDefaultBranchWorkspace: boolean
-  hideAutomationGeneratedWorkspaces: boolean
-  hideCliCreatedWorkspaces: boolean
-  visibleWorkspaceHostIds?: readonly ExecutionHostId[] | null
-  workspaceHostScope?: ExecutionHostScope
-}
-
-/**
- * Whether at least one sidebar filter is active — drives the "Clear Filters"
- * escape hatch in the empty-state message. Kept pure so it can be unit-tested
- * alongside the sorting pipeline.
- *
- * Why include hideDefaultBranchWorkspace here: without it, a user whose only
- * worktree is the default-branch row and who toggles hide-on would see the
- * "No workspaces found" message with no in-sidebar recovery path.
- */
-export function sidebarHasActiveFilters(state: SidebarFilterState): boolean {
-  return (
-    state.showSleepingWorkspaces !== DEFAULT_SHOW_SLEEPING_WORKSPACES ||
-    state.filterRepoIds.length > 0 ||
-    state.hideDefaultBranchWorkspace ||
-    state.hideAutomationGeneratedWorkspaces ||
-    state.hideCliCreatedWorkspaces ||
-    state.visibleWorkspaceHostIds != null ||
-    (state.workspaceHostScope != null && state.workspaceHostScope !== ALL_EXECUTION_HOSTS_SCOPE)
-  )
-}
-
-/** Describes which mutators the Clear Filters button must invoke, separated
- *  from the mutators themselves so the decision logic is testable. */
-export type ClearFilterActions = {
-  resetShowSleepingWorkspaces: boolean
-  resetFilterRepoIds: boolean
-  resetHideDefaultBranchWorkspace: boolean
-  resetHideAutomationGeneratedWorkspaces: boolean
-  resetHideCliCreatedWorkspaces: boolean
-  resetVisibleWorkspaceHostIds: boolean
-}
-
-/**
- * Determines which sidebar filters the Clear Filters button needs to reset.
- * Returning an explicit action plan (rather than just calling the setters)
- * keeps the pure decision separate from the impure mutations, so tests can
- * verify the logic without mounting the component.
- *
- * Why reset only the ones that are set: keeps Clear Filters from churning
- * UI state (and the debounced ui.set write-back) on every click when the
- * flag was already off.
- */
-export function computeClearFilterActions(state: SidebarFilterState): ClearFilterActions {
-  return {
-    resetShowSleepingWorkspaces: state.showSleepingWorkspaces !== DEFAULT_SHOW_SLEEPING_WORKSPACES,
-    resetFilterRepoIds: state.filterRepoIds.length > 0,
-    resetHideDefaultBranchWorkspace: state.hideDefaultBranchWorkspace,
-    resetHideAutomationGeneratedWorkspaces: state.hideAutomationGeneratedWorkspaces,
-    resetHideCliCreatedWorkspaces: state.hideCliCreatedWorkspaces,
-    resetVisibleWorkspaceHostIds:
-      state.visibleWorkspaceHostIds != null ||
-      (state.workspaceHostScope != null && state.workspaceHostScope !== ALL_EXECUTION_HOSTS_SCOPE)
-  }
-}
+import {
+  isAutomationGeneratedWorkspace,
+  isCliCreatedWorkspace,
+  isDefaultBranchWorkspace,
+  isDetachedHeadWorkspace
+} from './sidebar-filter-state'
 
 /**
  * Shared pure utility that computes the ordered list of visible (non-archived,
@@ -138,6 +56,7 @@ export function computeVisibleWorktreeIds(
     hideDefaultBranchWorkspace: boolean
     hideAutomationGeneratedWorkspaces: boolean
     hideCliCreatedWorkspaces: boolean
+    hideDetachedHeadWorkspaces: boolean
     repoMap: Map<string, Repo>
     workspaceHostScope: ExecutionHostScope
     visibleWorkspaceHostIds?: readonly ExecutionHostId[] | null
@@ -166,6 +85,10 @@ export function computeVisibleWorktreeIds(
 
   if (opts.hideCliCreatedWorkspaces) {
     all = all.filter((w) => !isCliCreatedWorkspace(w))
+  }
+
+  if (opts.hideDetachedHeadWorkspaces) {
+    all = all.filter((w) => !isDetachedHeadWorkspace(w))
   }
 
   const visibleHostIds =
@@ -392,6 +315,7 @@ export function getVisibleWorktreeIds(): string[] {
     hideDefaultBranchWorkspace: state.hideDefaultBranchWorkspace,
     hideAutomationGeneratedWorkspaces: state.hideAutomationGeneratedWorkspaces,
     hideCliCreatedWorkspaces: state.hideCliCreatedWorkspaces,
+    hideDetachedHeadWorkspaces: state.hideDetachedHeadWorkspaces,
     repoMap,
     workspaceHostScope: state.workspaceHostScope,
     visibleWorkspaceHostIds: state.visibleWorkspaceHostIds,

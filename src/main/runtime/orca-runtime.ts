@@ -36,6 +36,7 @@ import {
   type AgentStatusOrchestrationContext,
   type AgentStatusEntry
 } from '../../shared/agent-status-types'
+import { indexAgentStatusRowsByPaneKey } from '../agent-hooks/agent-status-pane-index'
 import type {
   AgentSessionClaimedSpawnResult,
   AgentSessionExecutionClaim,
@@ -1883,6 +1884,19 @@ function runtimeRepoMatchesExecutionHost(
   return repo.connectionId == null
 }
 
+// Why: this runtime only has local git and local fs, so an ssh: host here would clone and
+// probe the wrong machine and then register the result as remote. SSH setup is owned by the
+// desktop IPC path (addRemoteRepoFromPath / cloneRemoteRepo), which the renderer routes to;
+// only `local` and `runtime:` legitimately reach these RPCs.
+function assertProjectHostSetupHostIsSupported(hostId: ExecutionHostId | null | undefined): void {
+  if (parseExecutionHostId(hostId)?.kind !== 'ssh') {
+    return
+  }
+  throw new Error(
+    'SSH hosts are not supported by this operation. Set the project up from the Orca desktop app, which owns the SSH connection.'
+  )
+}
+
 function getRuntimeFolderWorkspaceInstanceId(repo: Repo, instanceId: string): string {
   return `${getRuntimeFolderWorkspaceRootId(repo)}${FOLDER_WORKSPACE_INSTANCE_SEPARATOR}${instanceId}`
 }
@@ -2458,12 +2472,18 @@ export type MobileNotificationDispatchEvent = {
   worktreeId?: string
   notificationId?: string
   notificationSeq?: number
+  notificationEpoch?: string
 }
+
+export type RuntimeWorktreeLifecycleEvent =
+  | { kind: 'created'; worktreeId: string; path: string; branch: string }
+  | { kind: 'removed'; worktreeId: string; path: string }
 
 export type MobileNotificationDismissEvent = {
   type: 'dismiss'
   notificationId: string
   notificationSeq?: number
+  notificationEpoch?: string
 }
 
 export type MobileNotificationEvent =
@@ -2633,6 +2653,7 @@ export class OrcaRuntimeService {
   private ptyController: RuntimePtyController | null = null
   private notifier: RuntimeNotifier | null = null
   private clientEventListeners = new Set<(event: RuntimeClientEvent) => void>()
+  private worktreeLifecycleListeners = new Set<(event: RuntimeWorktreeLifecycleEvent) => void>()
   private forkBackfillStarted = false
   private agentBrowserBridge: AgentBrowserBridge | null = null
   private offscreenBrowserBackend: BrowserBackend | null = null
@@ -3027,6 +3048,10 @@ export class OrcaRuntimeService {
   private readonly onTerminalSideEffects: ((batch: TerminalSideEffectBatch) => void) | null
   private terminalSideEffectConsumerAvailable = false
   private readonly getAgentStatusSnapshotFn: (() => AgentStatusIpcPayload[]) | null
+  private readonly getAgentProviderSessionSnapshotFn: (() => AgentStatusIpcPayload[]) | null
+  private readonly getAgentProviderSessionRowsForPaneFn:
+    | ((paneKey: string) => AgentStatusIpcPayload[])
+    | null
   private readonly buildAgentHookPtyEnv: (() => Record<string, string>) | null
   private readonly getDesktopWindowStatusFn: () => RuntimeDesktopWindowStatus
   private readonly prepareAiVaultSessionResumeFn:
@@ -3063,6 +3088,12 @@ export class OrcaRuntimeService {
       // terminal output. worktree.ps reads this at query time so mobile shows the
       // same inline agent rows the desktop sidebar does — same source, 1:1.
       getAgentStatusSnapshot?: () => AgentStatusIpcPayload[]
+      /** Same rows, but including the resume-identity-only ones `getAgentStatusSnapshot`
+       *  filters out so they can't read as running agents. Mobile native chat needs
+       *  them: for an agent that publishes identity separately (Pi), that row is the
+       *  only carrier of the provider session a transcript is addressed by. */
+      getAgentProviderSessionSnapshot?: () => AgentStatusIpcPayload[]
+      getAgentProviderSessionRowsForPane?: (paneKey: string) => AgentStatusIpcPayload[]
       // Why: codex-home paths for the Agent Session History scan must be sourced
       // here, not via the window-only registerCoreHandlers path — that path never
       // runs under `orca serve`, so remote/SSH hosts would silently drop
@@ -3097,6 +3128,9 @@ export class OrcaRuntimeService {
       this.agentDetector = new AgentDetector(stats)
     }
     this.getAgentStatusSnapshotFn = deps?.getAgentStatusSnapshot ?? null
+    this.getAgentProviderSessionSnapshotFn =
+      deps?.getAgentProviderSessionSnapshot ?? deps?.getAgentStatusSnapshot ?? null
+    this.getAgentProviderSessionRowsForPaneFn = deps?.getAgentProviderSessionRowsForPane ?? null
     // Why: configure the shared AiVault scan cache from a serve-mode-reachable
     // seam so the aiVault.listSessions RPC includes managed-Codex + WSL sessions
     // even on headless `orca serve` hosts where registerCoreHandlers never runs.
@@ -3739,6 +3773,28 @@ export class OrcaRuntimeService {
   private notifyWorktreesChanged(repoId: string): void {
     this.notifier?.worktreesChanged(repoId)
     this.emitClientEvent({ type: 'worktreesChanged', repoId })
+  }
+
+  /** Detail-level worktree lifecycle tap. The coarse worktreesChanged client
+   *  event carries only repoId, which is not enough for subscribers that need
+   *  the affected worktree's identity.
+   *  Removal payloads carry no branch: the removal target resolves before
+   *  the git worktree is torn down and only pins id + path. */
+  onWorktreeLifecycle(listener: (event: RuntimeWorktreeLifecycleEvent) => void): () => void {
+    this.worktreeLifecycleListeners.add(listener)
+    return () => {
+      this.worktreeLifecycleListeners.delete(listener)
+    }
+  }
+
+  private emitWorktreeLifecycle(event: RuntimeWorktreeLifecycleEvent): void {
+    for (const listener of this.worktreeLifecycleListeners) {
+      try {
+        listener(event)
+      } catch (err) {
+        console.error('[runtime] worktree lifecycle listener threw', err)
+      }
+    }
   }
 
   private notifyReposChanged(): void {
@@ -7435,6 +7491,11 @@ export class OrcaRuntimeService {
     listener: (snapshot: RuntimeMobileSessionTabsResult) => void,
     clientNavigationId?: string
   ): () => void {
+    // Why: a notify coalesced before this subscriber existed is already folded
+    // into the initial snapshot it was just sent. Draining it here — before the
+    // listener joins — keeps that pending timer from landing as a redundant
+    // `updated` frame carrying pre-subscribe state. Mirrors the unsubscribe flush.
+    this.mobileSessionTabsNotifyCoalescer.flushAll()
     const subscription = { listener, clientNavigationId }
     this.mobileSessionTabListeners.add(subscription)
     return () => {
@@ -8109,7 +8170,12 @@ export class OrcaRuntimeService {
    *  facts itself and the delivered bytes may be gapped — feeding them to
    *  main's transient scanners would mint phantom or duplicate facts. Title
    *  processing stays main-side either way. */
-  setPtyTransientFactDelegation(ptyId: string, delegated: boolean, scanSeedAnsi?: string): void {
+  setPtyTransientFactDelegation(
+    ptyId: string,
+    delegated: boolean,
+    scanSeedAnsi?: string,
+    mode2031PendingSubscribe?: true
+  ): void {
     const entry = this.getOrCreatePtyTitleTrackerEntry(ptyId)
     entry.tracker.setTransientFactScanningSuppressed(delegated)
     if (!delegated && scanSeedAnsi) {
@@ -8117,7 +8183,10 @@ export class OrcaRuntimeService {
       // incomplete escape at the handoff position — a sequence split across
       // the un-background toggle must not mint a phantom bell or lose its
       // fact. titleScanData:'' keeps titles out (they were never suppressed).
-      entry.tracker.handleChunk(scanSeedAnsi, { titleScanData: '' })
+      entry.tracker.handleChunk(scanSeedAnsi, {
+        titleScanData: '',
+        mode2031PendingSubscribe
+      })
     }
   }
 
@@ -8140,6 +8209,9 @@ export class OrcaRuntimeService {
         return
       case '2031-subscribe':
         this.recordTerminalSideEffectFact(ptyId, { kind: '2031-subscribe' })
+        return
+      case '2031-unsubscribe':
+        this.recordTerminalSideEffectFact(ptyId, { kind: '2031-unsubscribe' })
     }
   }
 
@@ -8387,6 +8459,12 @@ export class OrcaRuntimeService {
               // still sent by the renderer (query authority stays with the view).
               onMode2031Subscribe: () => {
                 this.recordTerminalSideEffectFact(ptyId, { kind: '2031-subscribe' })
+              },
+              // Why: the gated view never sees the withdrawal bytes either, so the
+              // subscription registry it keeps for theme flips needs this fact to
+              // stay truthful.
+              onMode2031Unsubscribe: () => {
+                this.recordTerminalSideEffectFact(ptyId, { kind: '2031-unsubscribe' })
               }
             }
           : {})
@@ -10467,7 +10545,12 @@ export class OrcaRuntimeService {
     // Isolated so one throwing paired-client listener can't drop the durable dispatch (#10052).
     notifyRuntimeListeners(
       this.notificationListeners,
-      (listener) => listener({ ...event, notificationSeq: seq }),
+      (listener) =>
+        listener({
+          ...event,
+          notificationSeq: seq,
+          notificationEpoch: this.mobileNotificationReplay.epoch
+        }),
       'mobile-notification'
     )
   }
@@ -10475,8 +10558,15 @@ export class OrcaRuntimeService {
   // Returns notifications dispatched after lastSeenSeq. Idempotent: the same
   // watermark always yields the same set, so a client cannot be re-pushed an
   // already-delivered event (the adversarial-review gate for #8129).
-  getMissedNotificationsSince(lastSeenSeq: number): ReplayableMobileNotification[] {
-    return this.mobileNotificationReplay.getMissedSince(lastSeenSeq)
+  getMissedNotificationsSince(lastSeenSeq: number, epoch?: string): ReplayableMobileNotification[] {
+    return this.mobileNotificationReplay.getMissedSince(lastSeenSeq, epoch)
+  }
+
+  // Why (#8591): the seq counter is per-process and restarts at 0 on every desktop
+  // launch, but the client's watermark is persisted. Clients need the epoch to tell
+  // a stale watermark from a valid one — see MobileNotificationReplayBuffer.
+  getMobileNotificationEpoch(): string {
+    return this.mobileNotificationReplay.epoch
   }
 
   dismissMobileNotification(notificationId: string): void {
@@ -13992,6 +14082,12 @@ export class OrcaRuntimeService {
     return this.getPaneKeyForTerminalHandle(handle)
   }
 
+  getTerminalWorktreeIdForPaneKey(paneKey: string): string | null {
+    const parsed = parsePaneKey(paneKey)
+    const leaf = parsed ? this.leaves.get(this.getLeafKey(parsed.tabId, parsed.leafId)) : null
+    return leaf?.worktreeId ?? this.getPtyRecordForPaneKey(paneKey)?.worktreeId ?? null
+  }
+
   resolveTerminalPane(paneKey: string, expectedWorktreeId?: string): RuntimeTerminalResolvePane {
     // Why: the renderer context menu only knows the stable pane key; main owns
     // the runtime terminal handle that agents and CLI commands can address.
@@ -15534,6 +15630,7 @@ export class OrcaRuntimeService {
     if (!this.store) {
       throw new Error('runtime_unavailable')
     }
+    assertProjectHostSetupHostIsSupported(args.hostId)
     let repo = await this.addRepo(args.path, args.kind === 'folder' ? 'folder' : 'git', args.hostId)
     let setup = getProjectHostSetupForRepo(this.listProjectHostSetups(), repo)
     if (setup.projectId !== args.projectId) {
@@ -15574,6 +15671,8 @@ export class OrcaRuntimeService {
   }
 
   async setupProjectClone(args: ProjectHostSetupCloneArgs): Promise<ProjectHostSetupResult> {
+    // Why: guard before cloneRepo, which would otherwise clone to the local disk.
+    assertProjectHostSetupHostIsSupported(args.hostId)
     const repo = await this.cloneRepo(args.url, args.destination, args.hostId)
     return await this.setupProjectExistingFolder({
       projectId: args.projectId,
@@ -18997,6 +19096,12 @@ export class OrcaRuntimeService {
       const worktree = mergeRuntimeFolderWorkspace(repo, worktreeId, meta)
       this.invalidateResolvedWorktreeCache()
       this.notifyWorktreesChanged(repo.id)
+      this.emitWorktreeLifecycle({
+        kind: 'created',
+        worktreeId: worktree.id,
+        path: worktree.path,
+        branch: worktree.branch
+      })
       const shouldActivate = args.activate === true || args.runHooks === true
       let warning: string | undefined
       let didSpawnStartup = false
@@ -19086,6 +19191,12 @@ export class OrcaRuntimeService {
         ...(effectiveDraftPaste ? { startupDraftPaste: effectiveDraftPaste } : {})
       })
       const recordedLineage = this.recordCreatedWorktreeLineage(result.worktree, lineageResolution)
+      this.emitWorktreeLifecycle({
+        kind: 'created',
+        worktreeId: result.worktree.id,
+        path: result.worktree.path,
+        branch: result.worktree.branch
+      })
       return {
         ...result,
         worktree: {
@@ -19883,6 +19994,12 @@ export class OrcaRuntimeService {
               : {})
           }
         : undefined
+    this.emitWorktreeLifecycle({
+      kind: 'created',
+      worktreeId: worktree.id,
+      path: worktree.path,
+      branch: worktree.branch
+    })
     return {
       worktree: {
         ...worktree,
@@ -21886,7 +22003,13 @@ export class OrcaRuntimeService {
     })()
     this.removeManagedWorktreeInFlight.set(removalTarget.id, { optionsKey, promise: removal })
     try {
-      return await removal
+      const result = await removal
+      this.emitWorktreeLifecycle({
+        kind: 'removed',
+        worktreeId: removalTarget.id,
+        path: removalTarget.path
+      })
+      return result
     } finally {
       if (this.removeManagedWorktreeInFlight.get(removalTarget.id)?.promise === removal) {
         this.removeManagedWorktreeInFlight.delete(removalTarget.id)
@@ -26841,6 +26964,27 @@ export class OrcaRuntimeService {
   ): RuntimeMobileSessionTabsResult {
     const tabs: RuntimeMobileSessionClientTab[] = []
     const liveBrowserTabsByPageId = this.getLiveBrowserTabsByPageId(snapshot.worktree)
+    // Production reads hook rows by pane; the snapshot fallback remains for tests
+    // and embedders that have not adopted the narrow getter.
+    let hookRowsByPaneKey: Map<string, AgentStatusIpcPayload[]> | null = null
+    const hookRowsForPane = new Map<string, AgentStatusIpcPayload[]>()
+    const getHookRowsForPane = (paneKey: string): AgentStatusIpcPayload[] => {
+      const cached = hookRowsForPane.get(paneKey)
+      if (cached) {
+        return cached
+      }
+      const direct = this.getAgentProviderSessionRowsForPaneFn?.(paneKey)
+      if (direct) {
+        hookRowsForPane.set(paneKey, direct)
+        return direct
+      }
+      hookRowsByPaneKey ??= indexAgentStatusRowsByPaneKey(
+        this.getAgentProviderSessionSnapshotFn?.() ?? []
+      )
+      const rows = hookRowsByPaneKey.get(paneKey) ?? []
+      hookRowsForPane.set(paneKey, rows)
+      return rows
+    }
     // Why: a live PTY backs one surface; claim each once so two leaves resolving to it can't emit duplicate React keys and crash the client.
     const claimedLivePtyIds = new Set<string>()
     for (const tab of snapshot.tabs) {
@@ -26979,7 +27123,8 @@ export class OrcaRuntimeService {
             mobileStatusPty,
             tab,
             terminalHandle,
-            retainedAgentStatus
+            retainedAgentStatus,
+            getHookRowsForPane
           )),
         ...(tab.parentLayout ? { parentLayout: tab.parentLayout } : {}),
         ...(tab.startupCwd ? { startupCwd: tab.startupCwd } : {}),
@@ -27036,12 +27181,25 @@ export class OrcaRuntimeService {
     pty: RuntimePtyWorktreeRecord | null,
     tab: RuntimeMobileSessionTerminalTab,
     terminalHandle: string | null,
-    retained: RuntimeAgentRowSnapshot | null
+    retained: RuntimeAgentRowSnapshot | null,
+    getHookRowsForPane: (paneKey: string) => AgentStatusIpcPayload[]
   ): { agentStatus: AgentStatusEntry } | Record<string, never> {
     const paneKey = this.getMobileTerminalPaneKey(tab)
-    if (!pty?.lastAgentStatus && !retained) {
+    // Why: neither the OSC-retained row nor a title-derived status can carry a
+    // provider session — only the hook payload does, and headless serve has no
+    // renderer to publish `tab.agentStatus`. Without it mobile native chat has no
+    // transcript to address and sits on the empty state forever.
+    const hookRow = this.getHookAgentRowForPane(getHookRowsForPane(paneKey))
+    // Why: the hook row is evidence in its own right. Returning early on a missing
+    // PTY status/retained row put this check ahead of the only headless carrier, so
+    // an agent that reported its session but never emitted a recognized title got no
+    // `agentStatus` at all — exactly the hook-only case the fallback exists for.
+    if (!pty?.lastAgentStatus && !retained && !hookRow.agentType && !hookRow.providerSession) {
       return {}
     }
+    const providerSession = hookRow.providerSession
+      ? { providerSession: hookRow.providerSession }
+      : {}
     const leaf = this.leaves.get(this.getLeafKey(tab.parentTabId, tab.leafId)) ?? null
     const ptyTitle = pty
       ? getLatestAgentCandidateTitle(
@@ -27058,7 +27216,14 @@ export class OrcaRuntimeService {
     if (ptyTitle !== null && ptyTitleClassification !== 'agent') {
       // Why: non-agent title = shell reclaimed the pane; suppress to clear stuck spinners (#1437), though a live hook signal survives.
       const hasLiveHookSignal =
-        retained?.payload.interactivePrompt != null || retained?.payload.toolName != null
+        retained?.payload.interactivePrompt != null ||
+        retained?.payload.toolName != null ||
+        // Why: headless serve has no renderer to retain an OSC row, so a fresh hook
+        // agentType is the only live signal a hook-only pane can offer — and an agent
+        // that reports over HTTP need never set a title this gate would recognize.
+        // Scoped to panes with no PTY status at all, so it cannot revive a spinner:
+        // this branch publishes `done`. It only keeps the transcript addressable.
+        (!pty?.lastAgentStatus && (hookRow.agentType != null || hookRow.providerSession != null))
       if (!hasLiveHookSignal) {
         return {}
       }
@@ -27067,7 +27232,7 @@ export class OrcaRuntimeService {
     const ownerAgent =
       resolvePaneAgentOwner({
         launchAgent: tab.launchAgent ?? pty?.launchAgent ?? null,
-        hookAgent: retained?.payload.agentType ?? null
+        hookAgent: retained?.payload.agentType ?? hookRow.agentType
       }) ??
       pty?.foregroundAgent ??
       null
@@ -27090,20 +27255,23 @@ export class OrcaRuntimeService {
               ? { worktreeId: pty?.worktreeId ?? retained.worktreeId }
               : {}),
             tabId: tab.parentTabId,
-            terminalTitle
+            terminalTitle,
+            ...providerSession
           },
           ownerAgent
         )
       }
     }
-    const now = pty!.lastOutputAt ?? Date.now()
+    // A hook-only pane has no PTY status to date the row from; `done` with a
+    // now-stamp is the honest projection — the hook proves identity, not liveness.
+    const now = pty?.lastOutputAt ?? Date.now()
     const agentType = ownerAgent ?? undefined
     return {
       agentStatus: {
         state:
-          pty!.lastAgentStatus === 'working'
+          pty?.lastAgentStatus === 'working'
             ? 'working'
-            : pty!.lastAgentStatus === 'permission'
+            : pty?.lastAgentStatus === 'permission'
               ? 'blocked'
               : 'done',
         prompt: '',
@@ -27112,11 +27280,54 @@ export class OrcaRuntimeService {
         paneKey,
         ...(terminalHandle ? { terminalHandle } : {}),
         ...(agentType ? { agentType } : {}),
-        worktreeId: pty!.worktreeId,
+        ...(pty?.worktreeId ? { worktreeId: pty.worktreeId } : {}),
         tabId: tab.parentTabId,
         terminalTitle,
-        stateHistory: []
+        stateHistory: [],
+        ...providerSession
       }
+    }
+  }
+
+  /** Hook-reported identity for this pane, newest wins per field.
+   *
+   *  `providerSession` is deliberately unbounded: it is resume identity, not live
+   *  state, it stays correct until the pane relaunches (which overwrites the row
+   *  under the same paneKey), and it is only ever read once an agent is already
+   *  established. Bounding it would blank mobile native chat on an idle session.
+   *
+   *  `agentType` is bounded by the same staleness window the retained OSC path uses,
+   *  because it is the signal that claims an agent owns the pane at all. A user who
+   *  exits the agent leaves `pty.lastAgentStatus` behind forever, so an unbounded
+   *  read would keep offering native chat for what is now a plain shell. */
+  private getHookAgentRowForPane(rows: readonly AgentStatusIpcPayload[]): {
+    providerSession: AgentProviderSessionMetadata | null
+    agentType: string | null
+  } {
+    let session: AgentStatusIpcPayload | null = null
+    let agent: AgentStatusIpcPayload | null = null
+    const agentTypeFreshAfter = Date.now() - AGENT_STATUS_STALE_AFTER_MS
+    // Why pane key only: the sibling `terminalHandle` arm this used to carry never
+    // matched. `toAgentStatusIpcPayload` does not emit the field on the hook path
+    // (only the renderer's own store stamps it, and headless serve has no renderer),
+    // and because it is optional TypeScript could not flag the dead comparison.
+    for (const entry of rows) {
+      if (entry.providerSession && (!session || entry.receivedAt > session.receivedAt)) {
+        session = entry
+      }
+      if (
+        entry.agentType &&
+        (entry.providerSessionOnly !== true ||
+          (entry.agentType === 'pi' && entry.providerSession != null)) &&
+        entry.receivedAt >= agentTypeFreshAfter &&
+        (!agent || entry.receivedAt > agent.receivedAt)
+      ) {
+        agent = entry
+      }
+    }
+    return {
+      providerSession: session?.providerSession ?? null,
+      agentType: agent?.agentType ?? null
     }
   }
 

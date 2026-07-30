@@ -1,3 +1,5 @@
+import { dirname } from 'node:path'
+
 // Why: ORCA_E2E_FORCE_DPR forces Chromium's device scale factor so a spec can
 // exercise the Retina (devicePixelRatio=2) render path the rest of the headless
 // suite never hits (it runs at dpr=1). Strictly additive and OFF by default: when
@@ -27,12 +29,15 @@ export function getOrcaElectronLaunchArgs(
   headful: boolean,
   env: NodeJS.ProcessEnv = process.env
 ): string[] {
-  // Why: Chromium switches must precede the app entry path (mainPath), so prepend
+  // Launch through package.json so app version and resource paths match a packaged app.
+  const appPath = dirname(dirname(dirname(mainPath)))
+
+  // Why: Chromium switches must precede the app entry path, so prepend
   // the forced-DPR switch to whichever base arg list applies.
   const forcedDpr = getForcedDeviceScaleFactorArgs(env)
 
   if (headful || process.platform !== 'linux') {
-    return [...forcedDpr, mainPath]
+    return [...forcedDpr, appPath]
   }
 
   // Why: Ubuntu CI cannot run Electron's setuid chrome-sandbox (not root-owned
@@ -49,6 +54,6 @@ export function getOrcaElectronLaunchArgs(
     '--disable-gpu-sandbox',
     '--disable-dev-shm-usage',
     '--in-process-gpu',
-    mainPath
+    appPath
   ]
 }

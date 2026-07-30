@@ -181,6 +181,11 @@ describe('registerAppMenu', () => {
     item?.click?.(
       {} as never,
       undefined as never,
+      { altKey: true, shiftKey: true } as Electron.KeyboardEvent
+    )
+    item?.click?.(
+      {} as never,
+      undefined as never,
       {
         triggeredByAccelerator: true,
         shiftKey: true,
@@ -194,6 +199,13 @@ describe('registerAppMenu', () => {
       [{ includePrerelease: true, includePerfPrerelease: true }],
       [{ includePrerelease: false, includePerfPrerelease: true }],
       [{ includePrerelease: false, includePerfPrerelease: false }],
+      [
+        {
+          includePrerelease: !isMac,
+          includePerfPrerelease: false,
+          ...(isMac ? { localBuild: true } : {})
+        }
+      ],
       [{ includePrerelease: false, includePerfPrerelease: false }]
     ])
   })

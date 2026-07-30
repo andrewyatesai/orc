@@ -31,14 +31,16 @@ import { sortWorktreesSmart } from '@/components/sidebar/smart-sort'
 import {
   isAutomationGeneratedWorkspace,
   isCliCreatedWorkspace,
+  isDetachedHeadWorkspace,
   isDefaultBranchWorkspace
-} from '@/components/sidebar/visible-worktrees'
+} from '@/components/sidebar/sidebar-filter-state'
 import { getLiveAgentStatusByWorktreeId, isInactiveWorkspace } from '@/lib/worktree-activity-state'
 import { orderEmptyQueryWorktrees } from '@/lib/order-empty-query-worktrees'
 import StatusIndicator from '@/components/sidebar/StatusIndicator'
 import { cn } from '@/lib/utils'
 import { getWorktreeStatus, getWorktreeStatusLabel } from '@/lib/worktree-status'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
+import { queueWorkspaceActivationTerminalFocus } from '@/lib/workspace-activation-terminal-focus'
 import { findWorktreeById } from '@/store/slices/worktree-helpers'
 import {
   getWorktreePaletteSearchScope,
@@ -394,6 +396,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
   const hideDefaultBranchWorkspace = useAppStore((s) => s.hideDefaultBranchWorkspace)
   const hideAutomationGeneratedWorkspaces = useAppStore((s) => s.hideAutomationGeneratedWorkspaces)
   const hideCliCreatedWorkspaces = useAppStore((s) => s.hideCliCreatedWorkspaces)
+  const hideDetachedHeadWorkspaces = useAppStore((s) => s.hideDetachedHeadWorkspaces)
   const showSleepingWorkspaces = useAppStore((s) => s.showSleepingWorkspaces)
   const lastVisitedAtByWorktreeId = useAppStore((s) => s.lastVisitedAtByWorktreeId)
   const workspacePortScan = useAppStore((s) => s.workspacePortScan?.result ?? null)
@@ -487,6 +490,9 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
         if (hideCliCreatedWorkspaces && isCliCreatedWorkspace(worktree)) {
           return false
         }
+        if (hideDetachedHeadWorkspaces && isDetachedHeadWorkspace(worktree)) {
+          return false
+        }
         if (
           !showSleepingWorkspaces &&
           isInactiveWorkspace(
@@ -507,6 +513,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
       hideAutomationGeneratedWorkspaces,
       hideCliCreatedWorkspaces,
       hideDefaultBranchWorkspace,
+      hideDetachedHeadWorkspaces,
       ptyIdsByTabId,
       showSleepingWorkspaces,
       tabsByWorktree,
@@ -1255,12 +1262,16 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
         )
         return
       }
-      activateAndRevealWorktree(worktreeId)
+      const activation = activateAndRevealWorktree(worktreeId)
       recordFeatureInteraction('cmd-j-workspace-open')
       skipRestoreFocusRef.current = true
       closeModal()
       setSelectedItemId('')
-      focusFallbackSurface()
+      // Why: #9939 — the unscoped fallback grabs the first terminal in the document, which is
+      // often the worktree we just left, now hidden. Focus the destination's own tab instead.
+      if (!queueWorkspaceActivationTerminalFocus(worktreeId, activation)) {
+        focusFallbackSurface()
+      }
     },
     [closeModal, focusFallbackSurface, recordFeatureInteraction]
   )
@@ -1416,7 +1427,9 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
         return
       }
       if (previousWorktreeIdRef.current) {
-        focusFallbackSurface()
+        // Why: #9939 — sidebar reveal keeps the same worktree, so restore the exact element the
+        // user came from rather than the first terminal in the document.
+        focusFallbackSurface(previousFocusElementRef.current)
       }
     },
     [
@@ -1487,7 +1500,11 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
       const activeMatch = matches.find((w) => w.repoId === state.activeRepoId) ?? matches[0]
       if (activeMatch) {
         closeModal()
-        activateAndRevealWorktree(activeMatch.id)
+        // Why: #9939 — jumping to an already-open workspace must focus its own terminal.
+        const activation = activateAndRevealWorktree(activeMatch.id)
+        if (!queueWorkspaceActivationTerminalFocus(activeMatch.id, activation)) {
+          focusFallbackSurface()
+        }
         recordFeatureInteraction('cmd-j-workspace-open')
         return
       }
@@ -1514,7 +1531,11 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
       const activeMatch = matches.find((w) => w.repoId === state.activeRepoId) ?? matches[0]
       if (activeMatch) {
         closeModal()
-        activateAndRevealWorktree(activeMatch.id)
+        // Why: #9939 — jumping to an already-open workspace must focus its own terminal.
+        const activation = activateAndRevealWorktree(activeMatch.id)
+        if (!queueWorkspaceActivationTerminalFocus(activeMatch.id, activation)) {
+          focusFallbackSurface()
+        }
         recordFeatureInteraction('cmd-j-workspace-open')
         return
       }
@@ -1588,6 +1609,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
     closeModal,
     createLookupGuard,
     createWorktreeName,
+    focusFallbackSurface,
     openModal,
     prefetchCreateWorkspaceBaseForComposer,
     recordFeatureInteraction,

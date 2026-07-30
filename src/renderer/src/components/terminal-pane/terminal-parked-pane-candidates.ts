@@ -4,7 +4,10 @@
  * or the persisted layout fallback.
  */
 import type { useAppStore } from '@/store'
-import { collectLeafIdsInOrder } from './terminal-layout-leaf-ids'
+import {
+  collectLeafIdsInOrder,
+  resolveRootlessTerminalLayoutLeafId
+} from './terminal-layout-leaf-ids'
 import {
   capturedPanesByTabId,
   type ParkedTerminalPaneCapture
@@ -23,7 +26,11 @@ export function fallbackParkedPaneCandidates(
   state: ParkedPaneFallbackState
 ): ParkedTerminalPaneCapture[] {
   const layout = state.terminalLayoutsByTabId[tab.id]
-  const leafIds = collectLeafIdsInOrder(layout?.root)
+  // Why: a never-mounted tab persists a rootless layout; resolve its single leaf like replayTerminalLayout does, or the tab is permanently uncoverable.
+  const rootLeafIds = collectLeafIdsInOrder(layout?.root)
+  const rootlessLeafId = layout ? resolveRootlessTerminalLayoutLeafId(layout) : null
+  const leafIds =
+    rootLeafIds.length > 0 ? rootLeafIds : rootlessLeafId !== null ? [rootlessLeafId] : []
   if (leafIds.length === 0) {
     return []
   }

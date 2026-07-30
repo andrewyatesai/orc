@@ -635,6 +635,24 @@
           }
         }
       },
+      "codex": {
+        "session": {
+          "restart": {
+            "4bd4a3a9c7": "System default",
+            "9f0b1c2d3e": "Codex account"
+          }
+        }
+      },
+      "browser": {
+        "cookie": {
+          "import": {
+            "toast": {
+              "restartFallbackUnavailableNone": "None of the {{value0}} cookies could be loaded, and the restart fallback was unavailable. The previous cookies for this profile were replaced. Try the import again.",
+              "restartFallbackUnavailablePartial": "Imported {{value0}} of {{value1}} cookies. The rest could not be loaded, and the restart fallback was unavailable. Try the import again."
+            }
+          }
+        }
+      },
       "deep": {
         "link": {
           "ui": {
@@ -1919,7 +1937,12 @@
         "c9ff9b9ec2": "Check official releases",
         "a05992a26b": "The signature check couldn't run — usually because antivirus software blocked it. Retry the download, or get the installer from our official releases.",
         "5194358929": "Hide details",
-        "8bc9e17d8f": "Show details"
+        "8bc9e17d8f": "Show details",
+        "8cf17b10af": "Local Build Error",
+        "a4650b0dc4": "Could Not Use Local Build",
+        "b1e390250d": "Could not complete the local build switch.",
+        "d29740d175": "The selected build could not be used.",
+        "37d45c9ec1": "Choose Another Build"
       },
       "WorktreeJumpPalette": {
         "ac037cfac2": "이동",
@@ -2798,6 +2821,13 @@
                           "failed": "터미널 ID를 복사할 수 없습니다"
                         }
                       }
+                    },
+                    "pane": {
+                      "id": {
+                        "copy": {
+                          "failed": "Unable to copy pane ID"
+                        }
+                      }
                     }
                   }
                 }
@@ -3442,6 +3472,30 @@
             "updatedTooltip": "Remote Orca Server updates completed",
             "failedOne": "1 server update failed",
             "updatedOne": "1 server updated"
+          },
+          "resource": {
+            "memory": {
+              "metric": {
+                "workingSetDescription": "Summed working set (WS). Shared pages can appear in more than one process.",
+                "rssDescription": "Summed resident set size (RSS). Shared or aliased pages can appear in more than one process."
+              }
+            }
+          },
+          "SkillUpdateStatusSegment": {
+            "runningLabel": "Updating skills",
+            "runningOne": "Updating {{value0}}…",
+            "runningMany": "Updating {{value0}} skills…",
+            "runningAria": "Skills updating. Click to open details.",
+            "successLabel": "Skills updated",
+            "successOne": "Updated {{value0}}",
+            "successMany": "Updated {{value0}} skills",
+            "successAria": "Skills updated. Click to open details.",
+            "errorLabel": "Update failed",
+            "errorTooltip": "Skill update failed — click to see details",
+            "errorAria": "Skill update failed. Click to open details.",
+            "stoppingLabel": "Stopping update",
+            "stoppingTooltip": "Stopping the skill update…",
+            "stoppingAria": "Stopping the skill update. Click to open details."
           }
         }
       },
@@ -3842,7 +3896,11 @@
           "skippedReasonPluginCache": "A plugin manages this skill, so Orca left it out of the update — update the plugin instead.",
           "skippedReasonExternalLink": "This copy is a shortcut pointing outside Orca’s skill folders, so Orca left it out of the update.",
           "skippedReasonBrokenLink": "This copy is a shortcut to something that no longer exists, so Orca left it out — you can safely delete it.",
-          "skippedReasonDuplicate": "This is a separate copy, so the update won’t reach it — the command only refreshes the main copy. Remove this copy, then reinstall the skill so this location follows the main one."
+          "skippedReasonDuplicate": "This is a separate copy, so the update won’t reach it — the command only refreshes the main copy. Remove this copy, then reinstall the skill so this location follows the main one.",
+          "skippedReasonNewer": "This copy is a later version than the one this build of Orca ships, so Orca left it alone rather than roll it back. Updating Orca will bring the two back in line.",
+          "skippedReasonStaleRecord": "The skills updater has no usable record of this copy, so it reports the skill as already up to date and changes nothing. Reinstall it to bring the record back in line: {{value0}}",
+          "chipNewer": "Newer",
+          "tipNewer": "This copy is a later version than the one this build of Orca ships."
         },
         "SkillFreshnessUpdateDialog": {
           "title": "스킬 업데이트",
@@ -3852,13 +3910,38 @@
           "updateMany": "스킬 {{value0}}개를 안전하게 업데이트할 수 있습니다",
           "success": "설치된 Orca 스킬이 모두 최신 상태입니다.",
           "attention": "일부 설치된 Orca 스킬은 자동으로 업데이트할 수 없습니다.",
-          "attentionDescription": "각 항목을 업데이트할 수 없는 이유는 업데이트 세부 정보를 열어 확인하세요.",
-          "details": "업데이트 세부 정보",
-          "terminalTitle": "Orca 스킬 업데이트",
-          "terminalDescription": "미리 입력된 명령을 검토한 후 Enter 키를 눌러 실행하세요.",
-          "terminalAria": "Orca 스킬 업데이트 터미널",
           "checkNow": "지금 확인",
-          "close": "닫기"
+          "close": "닫기",
+          "blockedOne": "1 skill can't be updated automatically.",
+          "blockedMany": "{{value0}} skills can't be updated automatically.",
+          "runningOne": "Updating 1 skill…",
+          "runningMany": "Updating {{value0}} skills…",
+          "runningDescription": "You can close this window — it keeps running in the background.",
+          "progressAria": "Updating skills",
+          "updatedOne": "Updated 1 skill",
+          "updatedMany": "Updated {{value0}} skills",
+          "updatedPartial": "Updated {{value0}} of {{value1}} skills",
+          "errorTitle": "The update didn't finish",
+          "retry": "Retry",
+          "copyCommand": "Copy command",
+          "copied": "Copied",
+          "showLog": "Show log",
+          "updating": "Updating…",
+          "updateActionOne": "Update 1 skill",
+          "updateActionMany": "Update {{value0}} skills",
+          "done": "Done",
+          "stop": "Stop",
+          "stopping": "Stopping…",
+          "stoppingHeadline": "Stopping the update…",
+          "scanIncomplete": "Orca가 플러그인으로 관리되는 스킬 확인을 완료하지 못했습니다.",
+          "scanDepthLimit": "이 폴더를 확인하기 전에 플러그인 검사 깊이 제한에 도달했습니다.",
+          "scanEntryLimit": "이 캐시의 나머지 항목을 확인하기 전에 플러그인 검사 항목 수 제한에 도달했습니다.",
+          "scanCandidateLimit": "안전하게 검사할 수 있는 수보다 많은 동명 스킬 폴더가 발견되었습니다.",
+          "scanManifestLimit": "안전한 제한을 초과한 플러그인 매니페스트를 건너뛰었습니다.",
+          "scanOutsideRoot": "플러그인 캐시 외부를 가리키는 플러그인 경로를 건너뛰었습니다.",
+          "scanIoErrorWithCode": "이 플러그인 경로를 읽지 못했습니다({{value0}}).",
+          "scanIoError": "이 플러그인 경로를 읽지 못했습니다.",
+          "scanIssueLimit": "건너뛴 플러그인 폴더가 너무 많아 개별적으로 표시할 수 없습니다."
         },
         "SkillFreshnessStatusPill": {
           "updateAvailable": "업데이트 가능",
@@ -3866,6 +3949,13 @@
           "installed": "설치됨",
           "details": "Details",
           "needsAttention": "Needs attention"
+        },
+        "SkillUpdateResultRows": {
+          "stillOutdated": "Still out of date after the update ran."
+        },
+        "SkillUpdateRow": {
+          "oneLocation": "1 location",
+          "manyLocations": "{{value0}} locations"
         }
       },
       "sidebar": {
@@ -4174,7 +4264,8 @@
           "489d1c8c9f": "프로젝트 검색...",
           "ee240a39eb": "필터 편집",
           "automationCreated": "자동화로 생성된 워크스페이스 숨기기",
-          "cliCreated": "Hide CLI-created"
+          "cliCreated": "Hide CLI-created",
+          "detachedHead": "Hide detached HEAD"
         },
         "SidebarHeader": {
           "92154beb7e": "새로운 워크스페이스",
@@ -4238,7 +4329,8 @@
           "ed1611b65b": "슬립 중인 항목 숨기기",
           "82594419ba": "필터",
           "automationCreated": "자동화로 생성된 워크스페이스 숨기기",
-          "cliCreated": "Hide CLI-created"
+          "cliCreated": "Hide CLI-created",
+          "detachedHead": "Hide detached HEAD"
         },
         "SidebarWorkspaceOptionsMenu": {
           "95c9754653": "Agent 활동 레이아웃",
@@ -4985,6 +5077,15 @@
           "cancel": "취소",
           "forget": "Orca에서 제거",
           "reconnectAndDelete": "재연결 후 삭제"
+        },
+        "MarkdownImageLightbox": {
+          "image": "Image",
+          "expand": "Expand image",
+          "close": "Close"
+        },
+        "WorktreeDeveloperMenu": {
+          "developer": "Developer",
+          "parkTerminal": "Park terminal"
         }
       },
       "shared": {
@@ -6809,7 +6910,8 @@
           "25b0004fbf": "Terminal 활성",
           "781cb74d22": "terminal 패널에서 실행됩니다.",
           "cb02e00202": "터미널",
-          "d8c988dab4": "~/.orca/keybindings.json"
+          "d8c988dab4": "~/.orca/keybindings.json",
+          "shortcutUnavailable": "Shortcut is no longer available."
         },
         "SourceControlAiActionRecipeDefaults": {
           "2576299196": "인수",
@@ -11172,6 +11274,9 @@
                 }
               }
             }
+          },
+          "activityBar": {
+            "error": "Error"
           }
         }
       },
@@ -14681,6 +14786,11 @@
         "moreMatches": "+{{value0}} more",
         "searching": "Searching…",
         "resultsAnnouncement": "{{value0}} matches shown"
+      },
+      "terminalPane": {
+        "useManualTerminalWorktreeParking": {
+          "cannotPark": "These terminals cannot be parked safely."
+        }
       }
     },
     "i18n": {

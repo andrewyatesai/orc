@@ -14,7 +14,10 @@ function broadcastKeybindingsChanged(snapshot: KeybindingFileSnapshot): void {
   rebuildAppMenu()
 }
 
-export function registerKeybindingHandlers(service: KeybindingService): void {
+export function registerKeybindingHandlers(
+  service: KeybindingService,
+  onChanged?: () => void
+): void {
   ipcMain.handle('keybindings:get', () => service.getSnapshot())
 
   ipcMain.handle('keybindings:ensureFile', () => {
@@ -23,6 +26,7 @@ export function registerKeybindingHandlers(service: KeybindingService): void {
     // workspace. Opening it in the editor still needs normal fs IPC access.
     authorizeExternalPath(snapshot.path)
     broadcastKeybindingsChanged(snapshot)
+    onChanged?.()
     return snapshot
   })
 
@@ -31,6 +35,7 @@ export function registerKeybindingHandlers(service: KeybindingService): void {
     (_event, args: { actionId: KeybindingActionId; bindings: string[] | null }) => {
       const snapshot = service.setActionBindings(args.actionId, args.bindings)
       broadcastKeybindingsChanged(snapshot)
+      onChanged?.()
       return snapshot
     }
   )
@@ -50,6 +55,7 @@ export function registerKeybindingHandlers(service: KeybindingService): void {
   ipcMain.handle('keybindings:reload', () => {
     const snapshot = service.reload()
     broadcastKeybindingsChanged(snapshot)
+    onChanged?.()
     return snapshot
   })
 

@@ -309,19 +309,21 @@ describe('incremental terminal history restore', () => {
     const firstReplay = reader.detectColdRestore(SESSION_ID)
     const secondReplay = reader.detectColdRestore(secondSessionId)
     try {
+      // Drain by yield because awaiting the session that loses the replay-slot race deadlocks.
       await vi.waitFor(() => expect(pendingYields).toHaveLength(1))
+      pendingYields.shift()!()
+
+      await vi.waitFor(() => expect(pendingYields).toHaveLength(1))
+      pendingYields.shift()!()
 
       // Why snapshotAnsi, not scrollbackAnsi: aterm's snapshot is SPLIT —
       // serializeAnsi() (snapshotAnsi) is history+viewport, serializeScrollbackAnsi()
       // (scrollbackAnsi) is scrolled-off history only, so the replayed tail after a
       // 64KiB slice boundary lands in snapshotAnsi. buildColdRestorePayload replays
       // snapshotAnsi on a normal screen for the same reason.
-      pendingYields.shift()!()
-      expect((await firstReplay)?.snapshotAnsi).toContain('😀second')
-      await vi.waitFor(() => expect(pendingYields).toHaveLength(1))
-
-      pendingYields.shift()!()
-      expect((await secondReplay)?.snapshotAnsi).toContain('😀second')
+      for (const restore of await Promise.all([firstReplay, secondReplay])) {
+        expect(restore?.snapshotAnsi).toContain('😀second')
+      }
       expect(pendingYields).toHaveLength(0)
     } finally {
       for (const resume of pendingYields.splice(0)) {

@@ -6,7 +6,6 @@ import i18next, {
 } from 'i18next'
 import { initReactI18next } from 'react-i18next'
 
-import en from './locales/en.json'
 import { isPseudoLocalizationLocale, pseudoLocalizeString } from './pseudo-localization'
 import { DEFAULT_LOCALE, resolveUiLocale } from './supported-languages'
 import type { SupportedUiLocale } from '../../../shared/ui-locale'
@@ -14,12 +13,14 @@ import type { UiLanguage } from '../../../shared/ui-language'
 
 export const i18n: I18nInstance = i18next.createInstance()
 
-// Why: only the English catalog is bundled eagerly. The other four locales add
-// ~2MB to the renderer's startup chunk (parsed on every launch) even though the
-// app always boots in English and only switches after the persisted UI language
-// loads. A lazy backend fetches each non-English catalog on demand, so any
-// changeLanguage() call (UI switch or test) transparently loads its bundle
-// instead of paying the parse cost at cold start.
+// Why: NO catalog is bundled eagerly — not even English. Every translate()/t()
+// call site carries its English string inline as defaultValue (enforced by
+// verify:localization-catalog, which GENERATES en.json from those fallbacks), so
+// the 600KB English catalog is byte-identical redundancy at runtime; bundling it
+// eagerly cost its parse on every cold start. English renders from the inline
+// defaults over an empty bundled resource (the main process has used this exact
+// scheme since main-i18n.ts). The four translated locales load on demand via the
+// lazy backend, so any changeLanguage() call transparently fetches its bundle.
 const NON_DEFAULT_LOCALE_LOADERS: Record<
   Exclude<SupportedUiLocale, 'en'>,
   () => Promise<{ default: Record<string, unknown> }>
@@ -54,14 +55,13 @@ void i18n
   .init({
     fallbackLng: DEFAULT_LOCALE,
     lng: DEFAULT_LOCALE,
-    // Why: `resources` seeds the eager English catalog while
-    // `partialBundledLanguages` lets the backend supply the lazy locales — so
-    // i18next uses bundled `en` immediately and only hits the backend for the
-    // languages that aren't already in memory.
+    // Why: the empty bundled `en` resource keeps i18next from asking the backend
+    // for English (mirrors main-i18n.ts) — English copy comes entirely from the
+    // per-call-site defaultValue fallbacks.
     partialBundledLanguages: true,
     resources: {
       en: {
-        translation: en
+        translation: {}
       }
     },
     interpolation: {

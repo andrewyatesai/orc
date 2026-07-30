@@ -1,6 +1,5 @@
 import { app, ipcMain } from 'electron'
 import type { Store } from '../persistence'
-import { loadHooks } from '../hooks'
 import {
   getEphemeralVmRecipeResultConnection,
   getEphemeralVmRecipeResultWarnings,
@@ -27,6 +26,7 @@ import {
   getRecipeRepo,
   listRecipeCatalog,
   listRecipes,
+  resolveRecipeForRepo,
   type EphemeralVmRecipeCatalogEntry
 } from './ephemeral-vm-recipe-context'
 import { registerEphemeralVmRuntimeHandlers } from './ephemeral-vm-runtime-handlers'
@@ -83,7 +83,7 @@ export function registerEphemeralVmHandlers(store: Store): void {
       return doctorEphemeralVmRecipe({
         repoPath: repo.repo.path,
         recipeId: args.recipeId,
-        recipes: loadHooks(repo.repo.path)?.environmentRecipes ?? [],
+        recipes: listRecipes(store, args.repoId).recipes,
         localExecutionSupported: true
       })
     }
@@ -106,9 +106,7 @@ export function registerEphemeralVmHandlers(store: Store): void {
       if (!repo.ok) {
         return { ok: false, error: repo.message, stdout: '', stderr: '' }
       }
-      const recipe = (loadHooks(repo.repo.path)?.environmentRecipes ?? []).find(
-        (entry) => entry.id === args.recipeId
-      )
+      const recipe = resolveRecipeForRepo(repo.repo.path, args.recipeId)
       if (!recipe) {
         return { ok: false, error: `Recipe not found: ${args.recipeId}`, stdout: '', stderr: '' }
       }

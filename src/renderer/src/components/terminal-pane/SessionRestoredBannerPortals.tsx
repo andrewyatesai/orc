@@ -29,6 +29,7 @@ export function SessionRestoredBannerPortals({
           // must live in that pane's chrome instead of the PTY byte stream.
           <SessionRestoredBanner
             visible
+            reason={state.reason}
             lastCommand={state.lastCommand}
             onTypeItAgain={(command) => onTypeItAgain(pane, command)}
           />,

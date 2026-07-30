@@ -1,6 +1,35 @@
 # Upstream Sync v1.4.150 → v1.4.161 — Audit and Merge Plan
 
-**Status: plan, not in progress.** Written 2026-07-30 to be picked up cold.
+**Status: executed 2026-07-30 on `merge/upstream-v1.4.161`.** Execution findings
+that amended the plan:
+
+- **The tag contains 137 of the 267 audited commits.** Upstream cuts releases on
+  branches; the other ~130 (incl. `a40183389b` SSH reconnect, `dca0db38c4`
+  schema-skew, `fe6f929c6e` IME, `4543bb6826` Activity latch, `3a67186623`)
+  are post-161 → they move to the v1.4.162 sync.
+- **Upstream reverted #9925 in-branch** (`bf27227437` reverts `cd05f2ff93`), so
+  the orchestration-store reconciliation this plan feared is a net-zero delta at
+  this tag. Our Rust store came through untouched; only the ask-timeout clamp
+  (#10689) and test replacement landed. The v18-schema reconciliation moves to
+  the v1.4.162 sync, where #9925 presumably re-lands.
+- **Plugin system: stripped, per the deferral decision** — reinforced by scoping:
+  #8549 is in-tag but its trust-boundary fixes (`5c59c84c7a`) and the
+  hostile-panel-asar fix (`3c0cd6069f`) are NOT; v1.4.161 ships the system with
+  known holes. 193 dedicated files removed; wiring stripped from `index.ts`,
+  `register-core-handlers`, `persistence`, `main-i18n`, `ephemeral-vm`,
+  preload/settings/i18n surfaces. Pre-existing near-name files kept
+  (`relay/plugin-overlay*`, Claude-skills `skill-plugin-*`, WSL installers,
+  vite build-plugin tests, `skill-plugin-manifest-roots`).
+- **Toolchain: adopted upstream's `vite: npm:rolldown-vite`** (auto-merged; kept
+  deliberately) with the vite-namespace Rollup types in
+  `build-plugins/plain-node-entry-guard.ts`.
+- **Updater cluster resolved OURS** (self-managed .app-swap feed); upstream's
+  local-build modules stay dormant/unreferenced. `73a61fff7f`'s
+  background-check-resume fix is moot without the local source — recheck at 162.
+- Engine-side behavior specs filed in
+  [`aterm-engine-work-from-v1.4.161-sync.md`](./aterm-engine-work-from-v1.4.161-sync.md).
+
+The original plan follows; written to be picked up cold.
 Produced by a full audit of every unmerged upstream commit (multi-agent
 categorization of all 267, spot-verification of top claims against this tree by
 `rg`/`git show`, plus a loss audit of the previous merge).

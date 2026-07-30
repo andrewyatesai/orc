@@ -28,6 +28,8 @@ export {
   COMPLETION_PROCESS_INSPECTION_PROTOCOL_VERSION,
   GET_FOREGROUND_PROCESS_PROTOCOL_VERSION,
   PTY_STARTUP_INGRESS_PROTOCOL_VERSION,
+  MODE_2031_UNSUBSCRIBE_FACT_PROTOCOL_VERSION,
+  supportsMode2031UnsubscribeFact,
   supportsPtyStartupIngress
 } from './daemon-protocol-version'
 import type { PtyStartupIngressIntent } from '../../shared/pty-startup-ingress'

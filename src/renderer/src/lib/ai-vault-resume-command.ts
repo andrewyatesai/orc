@@ -14,7 +14,6 @@ import {
   resolveTuiAgentLaunchArgs,
   resolveTuiAgentLaunchEnv
 } from '../../../shared/tui-agent-launch-defaults'
-import { parseWslUncPath } from '../../../shared/wsl-paths'
 import { resolveWindowsShellStartupFamily } from '../../../shared/windows-terminal-shell'
 import { resolveLocalPosixAgentStartupShell } from '../../../shared/posix-terminal-shell'
 import type { AgentStartupShell } from '../../../shared/tui-agent-startup-shell'
@@ -24,12 +23,14 @@ import {
   resolveStartupShell
 } from '../../../shared/tui-agent-startup-shell'
 import type { AppState } from '@/store/types'
-import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
+import type { AiVaultSessionDragPayload } from '@/lib/ai-vault-session-drag'
 import { CLIENT_PLATFORM } from '@/lib/new-workspace'
 import { buildAgentResumeStartupPlan } from '@/lib/tui-agent-startup'
-import { getExecutionHostIdForWorktree } from '@/lib/worktree-runtime-owner'
-import { LOCAL_EXECUTION_HOST_ID, parseExecutionHostId } from '../../../shared/execution-host'
-import { parseWorkspaceKey } from '../../../shared/workspace-scope'
+import {
+  getAiVaultResumeCodexHome,
+  getAiVaultResumePlatform
+} from '@/lib/ai-vault-resume-platform'
+import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
 
 type AiVaultResumeCommandSession = Pick<
   AiVaultSession,
@@ -81,6 +82,43 @@ export function buildAiVaultResumeStartupForWorktree(
   args: AiVaultResumeWorktreeArgs
 ): AiVaultResumeStartup {
   return buildAiVaultResumeForWorktree(args)
+}
+
+/**
+ * Rebuilds a drag-drop resume startup under the account home the host
+ * substituted, or null when the payload cannot be repinned.
+ *
+ * Why: the drag payload's prebuilt command pins the session's recorded home,
+ * which the substitution just proved belongs to the wrong account. A null
+ * sessionCwd is a real value (session has no cwd; rebuild without a cd
+ * prefix); only an ABSENT sessionCwd — a payload from an older serializer —
+ * declines, because the original cwd is unrecoverable.
+ */
+export function buildAiVaultDropRepinStartup(args: {
+  state: AiVaultResumeWorktreeArgs['state']
+  payload: Pick<
+    AiVaultSessionDragPayload,
+    'agent' | 'sessionId' | 'sessionCwd' | 'sessionExecutionHostId' | 'sessionFilePath'
+  >
+  substituteCodexHome: string
+  worktreeId: string
+}): AiVaultResumeStartup | null {
+  if (args.payload.sessionCwd === undefined || !args.payload.sessionFilePath) {
+    return null
+  }
+  return buildAiVaultResumeStartupForWorktree({
+    state: args.state,
+    worktreeId: args.worktreeId,
+    session: {
+      agent: args.payload.agent,
+      sessionId: args.payload.sessionId,
+      cwd: args.payload.sessionCwd,
+      codexHome: args.substituteCodexHome,
+      executionHostId: args.payload.sessionExecutionHostId,
+      filePath: args.payload.sessionFilePath
+    },
+    commandOverride: args.state.settings?.agentCmdOverrides?.[args.payload.agent]
+  })
 }
 
 function buildAiVaultResumeForWorktree(args: AiVaultResumeWorktreeArgs): AiVaultResumeStartup {
@@ -257,71 +295,4 @@ export function getAiVaultAgentProviderSession(
       : null
   }
   return { key: 'session_id', id: session.sessionId }
-}
-
-function getAiVaultResumeCodexHome(
-  codexHome: string | null,
-  platform: NodeJS.Platform
-): string | null {
-  // Why: WSL UNC Codex homes must be POSIX when invoking Linux commands.
-  // Keep original paths unchanged for non-Linux targets.
-  if (!codexHome || platform !== 'linux') {
-    return codexHome
-  }
-  return parseWslUncPath(codexHome)?.linuxPath ?? codexHome
-}
-
-export function getAiVaultResumePlatform(
-  state: Pick<
-    AppState,
-    | 'activeRepoId'
-    | 'activeWorktreeId'
-    | 'folderWorkspaces'
-    | 'projectGroups'
-    | 'projects'
-    | 'repos'
-    | 'settings'
-    | 'worktreesByRepo'
-  >,
-  worktreeId?: string | null
-): NodeJS.Platform {
-  const targetWorktreeId = worktreeId ?? state.activeWorktreeId
-  const executionHost = parseExecutionHostId(getExecutionHostIdForWorktree(state, targetWorktreeId))
-  if (executionHost?.kind === 'ssh' || executionHost?.kind === 'runtime') {
-    return 'linux'
-  }
-
-  const projectRuntime = getLocalProjectExecutionRuntimeContext(state, worktreeId, CLIENT_PLATFORM)
-  if (projectRuntime?.status === 'repair-required') {
-    return projectRuntime.repair.preferredRuntime.kind === 'wsl' ? 'linux' : CLIENT_PLATFORM
-  }
-  if (projectRuntime?.status === 'resolved' && projectRuntime.runtime.kind === 'wsl') {
-    return 'linux'
-  }
-
-  const workspacePath = getAiVaultResumeWorkspacePath(state, targetWorktreeId)
-  return workspacePath && parseWslUncPath(workspacePath) ? 'linux' : CLIENT_PLATFORM
-}
-
-function getAiVaultResumeWorkspacePath(
-  state: Pick<AppState, 'folderWorkspaces' | 'worktreesByRepo'>,
-  worktreeId: string | null | undefined
-): string | null {
-  if (!worktreeId) {
-    return null
-  }
-  const workspaceScope = parseWorkspaceKey(worktreeId)
-  if (workspaceScope?.type === 'folder') {
-    return (
-      state.folderWorkspaces.find((workspace) => workspace.id === workspaceScope.folderWorkspaceId)
-        ?.folderPath ?? null
-    )
-  }
-  const targetWorktreeId =
-    workspaceScope?.type === 'worktree' ? workspaceScope.worktreeId : worktreeId
-  return (
-    Object.values(state.worktreesByRepo ?? {})
-      .flat()
-      .find((candidate) => candidate.id === targetWorktreeId)?.path ?? null
-  )
 }

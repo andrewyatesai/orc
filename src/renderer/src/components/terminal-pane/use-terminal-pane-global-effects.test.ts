@@ -31,7 +31,8 @@ const mocks = vi.hoisted(() => ({
 
 const reactRefState = vi.hoisted(() => ({
   slots: [] as { current: unknown }[],
-  index: 0
+  index: 0,
+  effectPhase: null as 'layout' | 'passive' | null
 }))
 
 function beginHookRender(): void {
@@ -49,12 +50,21 @@ vi.mock('react', async (importOriginal) => {
     ...actual,
     useCallback: <T extends (...args: never[]) => unknown>(callback: T) => callback,
     useEffect: (effect: () => void | (() => void)) => {
-      effect()
+      reactRefState.effectPhase = 'passive'
+      try {
+        effect()
+      } finally {
+        reactRefState.effectPhase = null
+      }
     },
-    // Why: visibility suspend/resume runs in useLayoutEffect so WebGL is live
-    // before the first paint of a revealed worktree (avoids DOM bold flash).
+    // macOS visibility suspend/resume runs here before reveal paint.
     useLayoutEffect: (effect: () => void | (() => void)) => {
-      effect()
+      reactRefState.effectPhase = 'layout'
+      try {
+        effect()
+      } finally {
+        reactRefState.effectPhase = null
+      }
     },
     useRef: <T>(value: T) => {
       const index = reactRefState.index
@@ -160,7 +170,8 @@ function useMountForFileDrop(
     isWorktreeActive?: boolean
     isSyncFitEnabled?: boolean
     paneCount?: number
-  } = {}
+  } = {},
+  useGlobalEffects: typeof useTerminalPaneGlobalEffects = useTerminalPaneGlobalEffects
 ): {
   onFileDrop: DropCallback
   manager: {
@@ -171,6 +182,7 @@ function useMountForFileDrop(
     fitAllRevealedPanes: ReturnType<typeof vi.fn>
   }
   paneTransports: Map<number, never>
+  renderingEffectPhases: ('layout' | 'passive' | null)[]
 } {
   let onFileDrop: DropCallback = () => {
     throw new Error('onFileDrop callback was not registered')
@@ -179,9 +191,10 @@ function useMountForFileDrop(
     onFileDrop = callback
     return vi.fn()
   })
+  const renderingEffectPhases: ('layout' | 'passive' | null)[] = []
   const manager = {
     getPanes: vi.fn(() => []),
-    resumeRendering: vi.fn(),
+    resumeRendering: vi.fn(() => renderingEffectPhases.push(reactRefState.effectPhase)),
     suspendRendering: vi.fn(),
     getActivePane: vi.fn(() => null),
     fitAllRevealedPanes: vi.fn()
@@ -189,7 +202,7 @@ function useMountForFileDrop(
   const paneTransports = new Map<number, never>()
 
   beginHookRender()
-  useTerminalPaneGlobalEffects({
+  useGlobalEffects({
     tabId: options.tabId ?? 'tab-1',
     worktreeId: options.worktreeId ?? 'wt-1',
     cwd: options.cwd,
@@ -206,7 +219,7 @@ function useMountForFileDrop(
     toggleExpandPane: vi.fn()
   })
 
-  return { onFileDrop, manager, paneTransports }
+  return { onFileDrop, manager, paneTransports, renderingEffectPhases }
 }
 
 describe('useTerminalPaneGlobalEffects', () => {
@@ -239,6 +252,26 @@ describe('useTerminalPaneGlobalEffects', () => {
     ;(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = MockResizeObserver
   })
 
+  it.each([
+    ['darwin', 'layout'],
+    ['win32', 'passive'],
+    ['linux', 'passive']
+  ] as const)('runs visibility transitions in the %s effect phase', async (platform, phase) => {
+    window.api.platform = {
+      get: () => ({ platform, osRelease: 'test', displayServer: null })
+    }
+    vi.resetModules()
+    const { useTerminalPaneGlobalEffects: usePlatformTerminalPaneGlobalEffects } =
+      await import('./use-terminal-pane-global-effects')
+
+    const { renderingEffectPhases } = useMountForFileDrop(
+      { isActive: true, isVisible: true },
+      usePlatformTerminalPaneGlobalEffects
+    )
+
+    expect(renderingEffectPhases).toEqual([phase])
+  })
+
   afterEach(() => {
     for (const manager of registeredManagers.splice(0)) {
       unregisterLivePaneManager(manager)
@@ -250,7 +283,7 @@ describe('useTerminalPaneGlobalEffects', () => {
   })
 
   it('resumes WebGL and fits before flushing backlog so paint is GPU and grid is stable', () => {
-    // Why: resume before flush avoids DOM bold flash; fit before flush avoids
+    // On macOS resume before flush avoids DOM bold flash; fit before flush avoids
     // writing backlog onto the transient DOM↔WebGL one-column-off grid.
     const order: string[] = []
     const terminalA = { name: 'terminal-a' }
