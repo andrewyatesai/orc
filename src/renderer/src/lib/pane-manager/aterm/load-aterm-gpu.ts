@@ -1,6 +1,7 @@
-import init, { AtermGpuTerminal } from './aterm_gpu_web.js'
+import type { AtermGpuTerminal } from './aterm_gpu_web.js'
 import wasmUrl from './aterm_gpu_web_bg.wasm?url'
 import { loadAtermFontBytes } from './load-aterm-font'
+import { registerAtermGpuGlue } from './aterm-wasm-module-registry'
 
 export type LoadedAtermGpu = {
   AtermGpuTerminal: typeof AtermGpuTerminal
@@ -19,11 +20,11 @@ let loadPromise: Promise<LoadedAtermGpu> | null = null
 async function loadAtermGpuOnce(): Promise<LoadedAtermGpu> {
   // Share the font fetch with the CPU loader (load-aterm-font) so the face is
   // fetched once and a GPU→CPU swap reuses these bytes instead of re-fetching.
-  const [initOutput, fontBytes] = await Promise.all([
-    init({ module_or_path: wasmUrl }),
-    loadAtermFontBytes()
-  ])
-  return { AtermGpuTerminal, fontBytes, memory: initOutput.memory }
+  // The glue module is dynamic-imported so it stays out of the eager entry chunk.
+  const [glue, fontBytes] = await Promise.all([import('./aterm_gpu_web.js'), loadAtermFontBytes()])
+  registerAtermGpuGlue(glue)
+  const initOutput = await glue.default({ module_or_path: wasmUrl })
+  return { AtermGpuTerminal: glue.AtermGpuTerminal, fontBytes, memory: initOutput.memory }
 }
 
 export async function loadAtermGpu(): Promise<LoadedAtermGpu> {

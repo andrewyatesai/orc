@@ -69,6 +69,19 @@ async function injectTextClass(payload: FallbackFontsPayload): Promise<string[]>
   // Fresh module per call: the per-module handle memos are process-scoped.
   vi.resetModules()
   stubFontsApi(payload)
+  // The SUT reaches the glue through the load-time registry; seed the fresh
+  // (post-reset) registry instance with the mocked modules.
+  const registry = await import('./aterm-wasm-module-registry')
+  registry.registerAtermCpuGlue(
+    (await import('./aterm_wasm.js')) as unknown as Parameters<
+      typeof registry.registerAtermCpuGlue
+    >[0]
+  )
+  registry.registerAtermGpuGlue(
+    (await import('./aterm_gpu_web.js')) as unknown as Parameters<
+      typeof registry.registerAtermGpuGlue
+    >[0]
+  )
   const { createLazyFallbackFontInjector } = await import('./inject-terminal-fallback-fonts')
   const { ops, term } = makeRecordingTerm()
   const requestRedraw = vi.fn()

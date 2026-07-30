@@ -26,6 +26,12 @@ vi.mock('ssh2', () => {
   }
 })
 
+// Why: the SUT reaches ssh2 through the lazy loader; serve it the mock above.
+vi.mock('./ssh2-module', async () => {
+  const ssh2 = await import('ssh2')
+  return { loadSsh2: () => ssh2 }
+})
+
 import { createIdentityFilteredAgent } from './ssh-agent-identity-filter'
 
 const TEST_HOME = '/home/testuser'

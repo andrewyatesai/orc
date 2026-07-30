@@ -1,8 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { utils, type BaseAgent, type ParsedKey } from 'ssh2'
+import type { BaseAgent, ParsedKey } from 'ssh2'
 import type { SshTarget } from '../../shared/ssh-types'
 import type { SshResolvedConfig } from './ssh-config-parser'
 import { createIdentityFilteredAgent } from './ssh-agent-identity-filter'
+import { loadSsh2 } from './ssh2-module'
 import { resolveSshConfigHomePath } from './ssh-config-path-expansion'
 
 // Why: ssh2 only tries keys that are explicitly provided. Users with keys in
@@ -124,7 +125,7 @@ export function resolvePrivateKey(
 }
 
 function isUnencryptedPrivateKey(contents: Buffer): boolean {
-  const parsed = utils.parseKey(contents) as ParsedKey | ParsedKey[] | Error
+  const parsed = loadSsh2().utils.parseKey(contents) as ParsedKey | ParsedKey[] | Error
   if (parsed instanceof Error) {
     return false
   }

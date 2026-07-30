@@ -1,15 +1,14 @@
 import { readFileSync } from 'node:fs'
-import {
+import type {
   BaseAgent,
-  createAgent,
-  utils,
-  type IdentityCallback,
-  type ParsedKey,
-  type PublicKeyEntry,
-  type SignCallback,
-  type SigningRequestOptions
+  IdentityCallback,
+  ParsedKey,
+  PublicKeyEntry,
+  SignCallback,
+  SigningRequestOptions
 } from 'ssh2'
 import { resolveSshConfigHomePath } from './ssh-config-path-expansion'
+import { loadSsh2 } from './ssh2-module'
 
 type AgentPublicKey = ParsedKey | Buffer | string | PublicKeyEntry
 
@@ -24,53 +23,75 @@ function comparablePublicKey(key: AgentPublicKey): ParsedKey | Buffer | string {
   return key
 }
 
-class IdentityFilteredAgent extends BaseAgent<ParsedKey | Buffer | string> {
-  readonly kind = 'identity-filtered-agent'
-  declare getStream?: BaseAgent['getStream']
+type IdentityFilteredAgentCtor = new (
+  socketPath: string,
+  agent: BaseAgent,
+  allowedKeys: ParsedKey[]
+) => BaseAgent<ParsedKey | Buffer | string>
 
-  constructor(
-    readonly socketPath: string,
-    private readonly agent: BaseAgent,
-    private readonly allowedKeys: ParsedKey[]
-  ) {
-    super()
-    if (agent.getStream) {
-      this.getStream = agent.getStream.bind(agent)
-    }
+let lazyCtor: IdentityFilteredAgentCtor | null = null
+
+// Why: the class extends ssh2's BaseAgent VALUE, which as a top-level class
+// would force the ~25ms ssh2 require at module load on the startup path (the
+// reason ssh2 moved behind loadSsh2()). Define it on first agent construction.
+function identityFilteredAgentCtor(): IdentityFilteredAgentCtor {
+  if (lazyCtor) {
+    return lazyCtor
   }
+  const ssh2 = loadSsh2()
+  class IdentityFilteredAgent extends ssh2.BaseAgent<ParsedKey | Buffer | string> {
+    readonly kind = 'identity-filtered-agent'
+    declare getStream?: BaseAgent['getStream']
 
-  getIdentities(callback: IdentityCallback): void {
-    this.agent.getIdentities((error, keys) => {
-      if (error) {
-        callback(error)
+    constructor(
+      readonly socketPath: string,
+      private readonly agent: BaseAgent,
+      private readonly allowedKeys: ParsedKey[]
+    ) {
+      super()
+      if (agent.getStream) {
+        this.getStream = agent.getStream.bind(agent)
+      }
+    }
+
+    getIdentities(callback: IdentityCallback): void {
+      this.agent.getIdentities((error, keys) => {
+        if (error) {
+          callback(error)
+          return
+        }
+        callback(
+          undefined,
+          keys?.filter((key) =>
+            this.allowedKeys.some((allowedKey) => allowedKey.equals(comparablePublicKey(key)))
+          ) ?? []
+        )
+      })
+    }
+
+    sign(
+      pubKey: ParsedKey | Buffer | string,
+      data: Buffer,
+      optionsOrCallback?: SigningRequestOptions | SignCallback,
+      callback?: SignCallback
+    ): void {
+      if (typeof optionsOrCallback === 'function') {
+        this.agent.sign(pubKey, data, optionsOrCallback)
         return
       }
-      callback(
-        undefined,
-        keys?.filter((key) =>
-          this.allowedKeys.some((allowedKey) => allowedKey.equals(comparablePublicKey(key)))
-        ) ?? []
-      )
-    })
-  }
-
-  sign(
-    pubKey: ParsedKey | Buffer | string,
-    data: Buffer,
-    optionsOrCallback?: SigningRequestOptions | SignCallback,
-    callback?: SignCallback
-  ): void {
-    if (typeof optionsOrCallback === 'function') {
-      this.agent.sign(pubKey, data, optionsOrCallback)
-      return
+      this.agent.sign(pubKey, data, optionsOrCallback ?? {}, callback)
     }
-    this.agent.sign(pubKey, data, optionsOrCallback ?? {}, callback)
   }
+  lazyCtor = IdentityFilteredAgent
+  return lazyCtor
 }
 
 function parseIdentityKeyFile(filePath: string): ParsedKey | undefined {
   try {
-    const parsed = utils.parseKey(readFileSync(filePath)) as ParsedKey | ParsedKey[] | Error
+    const parsed = loadSsh2().utils.parseKey(readFileSync(filePath)) as
+      | ParsedKey
+      | ParsedKey[]
+      | Error
     if (parsed instanceof Error) {
       return undefined
     }
@@ -102,5 +123,6 @@ export function createIdentityFilteredAgent(
   }
   // Why: IdentitiesOnly must not offer every key loaded in the agent. ssh2 has
   // no built-in equivalent, so wrap the agent and expose only IdentityFile keys.
-  return new IdentityFilteredAgent(agentSocket, createAgent(agentSocket), identityKeys)
+  const Ctor = identityFilteredAgentCtor()
+  return new Ctor(agentSocket, loadSsh2().createAgent(agentSocket), identityKeys)
 }

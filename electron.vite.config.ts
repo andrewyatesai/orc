@@ -5,6 +5,8 @@ import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { createPlainNodeEntryGuardPlugin } from './build-plugins/plain-node-entry-guard'
+import { createMainCompileCacheBootstrapPlugin } from './build-plugins/main-compile-cache-bootstrap'
+import { createChunkModuleDumpPlugin } from './build-plugins/renderer-chunk-module-dump'
 import {
   createRendererChunkBudgetPlugin,
   createRendererWorkerChunkBudgetPlugin
@@ -251,7 +253,11 @@ export default defineConfig({
             'src/main/agent-hooks/managed-agent-hook-controls.ts'
           )
         },
-        plugins: [createStartupDiagnosticsBootstrapPlugin(), createPlainNodeEntryGuardPlugin()]
+        plugins: [
+          createMainCompileCacheBootstrapPlugin(),
+          createStartupDiagnosticsBootstrapPlugin(),
+          createPlainNodeEntryGuardPlugin()
+        ]
       }
     },
     // Why: compile-time substitution for the telemetry gate. See the block
@@ -318,6 +324,7 @@ export default defineConfig({
     plugins: [
       react(),
       tailwindcss(),
+      createChunkModuleDumpPlugin(),
       createRendererChunkBudgetPlugin('desktop'),
       // Why: inject a strict enforcing CSP into the packaged renderer HTML (build-only, so
       // dev HMR keeps its relaxed policy). See build-plugins/renderer-content-security-policy.ts.

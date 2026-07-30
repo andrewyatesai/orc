@@ -14,7 +14,7 @@ import {
   syncTerminalScrollIntentFromViewport
 } from '../terminal-scroll-intent'
 import type { TerminalScrollIntentTarget } from '../terminal-scroll-intent-types'
-import { encode_key_with_mode } from './aterm_wasm.js'
+import { atermCpuGlue } from './aterm-wasm-module-registry'
 import type { AtermPredictionEcho } from './aterm-prediction-echo'
 import type { AtermTerminal } from './aterm_wasm.js'
 
@@ -26,7 +26,13 @@ export function selectAtermEngineKeyEncoder(term: AtermTerminal): AtermEngineKey
   return typeof term.encode_key === 'function'
     ? (key, mods, eventType, baseLayoutKey) => term.encode_key(key, mods, eventType, baseLayoutKey)
     : (key, mods, eventType, baseLayoutKey) =>
-        encode_key_with_mode(key, mods, eventType, baseLayoutKey, term.keyboard_mode_bits)
+        atermCpuGlue().encode_key_with_mode(
+          key,
+          mods,
+          eventType,
+          baseLayoutKey,
+          term.keyboard_mode_bits
+        )
 }
 
 const HOST_KEY_BYTES_DECODER = new TextDecoder()

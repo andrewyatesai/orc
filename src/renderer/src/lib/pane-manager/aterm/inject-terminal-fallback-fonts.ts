@@ -1,5 +1,5 @@
-import { register_font as registerCpuFont, type AtermTerminal } from './aterm_wasm.js'
-import { register_font as registerGpuFont } from './aterm_gpu_web.js'
+import type { AtermTerminal } from './aterm_wasm.js'
+import { atermCpuGlue, atermGpuGlue } from './aterm-wasm-module-registry'
 
 // LAZY OS fallback fonts for the IN-PROCESS aterm paths (E1): the engine reports
 // which injectable face CLASS a `.notdef` miss needed (take_missing_font_classes,
@@ -37,7 +37,7 @@ type TextClassHandles = {
 }
 
 function moduleRegister(engine: 'cpu' | 'gpu'): (bytes: Uint8Array) => number {
-  return engine === 'cpu' ? registerCpuFont : registerGpuFont
+  return engine === 'cpu' ? atermCpuGlue().register_font : atermGpuGlue().register_font
 }
 
 // Per-module, per-class registration memos: the classed IPC read happens once per

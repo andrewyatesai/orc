@@ -12,10 +12,14 @@ import {
 } from './aterm-textarea-input'
 import type { AtermTerminal } from './aterm_wasm.js'
 
-// Keep these DOM tests off the real (uninitialized) wasm module.
+// Keep these DOM tests off the real (uninitialized) wasm module; the SUT
+// reaches the glue via the load-time registry, so seed it with the mock.
 vi.mock('./aterm_wasm.js', () => ({
   encode_key_with_mode: vi.fn(() => new Uint8Array(0))
 }))
+import * as mockedCpuGlue from './aterm_wasm.js'
+import { registerAtermCpuGlue } from './aterm-wasm-module-registry'
+registerAtermCpuGlue(mockedCpuGlue as unknown as Parameters<typeof registerAtermCpuGlue>[0])
 
 type Harness = {
   textarea: HTMLTextAreaElement
