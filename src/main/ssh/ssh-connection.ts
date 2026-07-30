@@ -1,6 +1,6 @@
 /* eslint-disable max-lines -- Why: SSH connection lifecycle, credential retries, reconnect policy, and transport fallback are intentionally co-located so state transitions stay auditable in one file. */
 import * as net from 'node:net'
-import { Client as SshClient } from 'ssh2'
+import type { Client as SshClient } from 'ssh2'
 import type { ChildProcess } from 'node:child_process'
 import type { ClientChannel, ConnectConfig, SFTPWrapper } from 'ssh2'
 import type { SshTarget, SshConnectionState, SshConnectionStatus } from '../../shared/ssh-types'
@@ -50,6 +50,7 @@ import {
 } from './sftp-namespace-resolution'
 import type { FileUploadSession } from '../providers/types'
 import { isSshSessionLimitError } from './ssh-session-limit-error'
+import { loadSsh2 } from './ssh2-module'
 import {
   createLinkedSshFileTransferSignal,
   raceSftpFileTransferWithAbort
@@ -1154,7 +1155,7 @@ export class SshConnection {
 
   private doSsh2Connect(config: ConnectConfig, connectGeneration: number): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      const client = new SshClient()
+      const client = new (loadSsh2().Client)()
       let settled = false
 
       // Why: ssh2 does no host-key checking of its own; verify against known_hosts +

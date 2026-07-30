@@ -15,11 +15,15 @@ import { encode_key_with_mode } from './aterm_wasm.js'
 import type { AtermTerminal } from './aterm_wasm.js'
 import type { TerminalScrollIntentTarget } from '../terminal-scroll-intent-types'
 
-// The module under test imports the wasm glue for the worker-path free-function
-// encoder; keep these DOM tests off the real (uninitialized) wasm module.
+// The module under test reaches the wasm glue for the worker-path free-function
+// encoder via the load-time registry; keep these DOM tests off the real
+// (uninitialized) wasm module and seed the registry with the mock.
 vi.mock('./aterm_wasm.js', () => ({
   encode_key_with_mode: vi.fn(() => new Uint8Array([0x1b, 0x4f, 0x41]))
 }))
+import * as mockedCpuGlue from './aterm_wasm.js'
+import { registerAtermCpuGlue } from './aterm-wasm-module-registry'
+registerAtermCpuGlue(mockedCpuGlue as unknown as Parameters<typeof registerAtermCpuGlue>[0])
 
 // Spy the scroll-intent seam so we can assert Shift+PageUp/Down records intent on the
 // facade (the direct engine scroll must not skip the seam a keyed remount restores).

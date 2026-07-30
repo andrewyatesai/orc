@@ -7,6 +7,7 @@ import {
 } from '../../../shared/execution-host'
 import { parseWorkspaceKey } from '../../../shared/workspace-scope'
 import { getRepoIdFromWorktreeId } from '../../../shared/worktree-id'
+import { listKnownRuntimeHostIds } from '../../../shared/workspace-session-runtime-hosts'
 import {
   mergeWorkspaceSessionsFromHosts,
   splitWorkspaceSessionByHost,
@@ -274,19 +275,9 @@ export function persistWorkspaceSessionByHostSync(
   }
 }
 
-/** Collect the distinct runtime hosts owning any persisted repo. */
-export function listKnownRuntimeHostIds(
-  repos: readonly Pick<Repo, 'connectionId' | 'executionHostId'>[]
-): ExecutionHostId[] {
-  const hostIds = new Set<ExecutionHostId>()
-  for (const repo of repos) {
-    const parsed = parseExecutionHostId(getRepoExecutionHostId(repo))
-    if (parsed?.kind === 'runtime') {
-      hostIds.add(parsed.id)
-    }
-  }
-  return [...hostIds]
-}
+// Why: moved to shared so main's startup-snapshot handler enumerates the same
+// per-host partitions; re-exported to keep this module the renderer entry point.
+export { listKnownRuntimeHostIds }
 
 /** Boot-time hydration: fetch the local partition plus one partition per known
  *  runtime host (from loaded repos and saved runtime ids), then merge them into

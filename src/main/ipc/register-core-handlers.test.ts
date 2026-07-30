@@ -25,6 +25,8 @@ const {
   registerShellHandlersMock,
   registerPetHandlersMock,
   registerSessionHandlersMock,
+  registerStartupSnapshotHandlerMock,
+  setTrustedStartupSnapshotWebContentsIdMock,
   registerUIHandlersMock,
   setTrustedUIRendererWebContentsIdMock,
   registerFilesystemHandlersMock,
@@ -90,6 +92,8 @@ const {
   registerShellHandlersMock: vi.fn(),
   registerPetHandlersMock: vi.fn(),
   registerSessionHandlersMock: vi.fn(),
+  registerStartupSnapshotHandlerMock: vi.fn(),
+  setTrustedStartupSnapshotWebContentsIdMock: vi.fn(),
   registerUIHandlersMock: vi.fn(),
   setTrustedUIRendererWebContentsIdMock: vi.fn(),
   registerFilesystemHandlersMock: vi.fn(),
@@ -266,6 +270,11 @@ vi.mock('./session', () => ({
   registerSessionHandlers: registerSessionHandlersMock
 }))
 
+vi.mock('./startup-snapshot', () => ({
+  registerStartupSnapshotHandler: registerStartupSnapshotHandlerMock,
+  setTrustedStartupSnapshotWebContentsId: setTrustedStartupSnapshotWebContentsIdMock
+}))
+
 vi.mock('./ui', () => ({
   registerUIHandlers: registerUIHandlersMock,
   setTrustedUIRendererWebContentsId: setTrustedUIRendererWebContentsIdMock
@@ -408,6 +417,8 @@ describe('registerCoreHandlers', () => {
     registerShellHandlersMock.mockReset()
     registerPetHandlersMock.mockReset()
     registerSessionHandlersMock.mockReset()
+    registerStartupSnapshotHandlerMock.mockReset()
+    setTrustedStartupSnapshotWebContentsIdMock.mockReset()
     registerUIHandlersMock.mockReset()
     setTrustedUIRendererWebContentsIdMock.mockReset()
     registerFilesystemHandlersMock.mockReset()
@@ -529,6 +540,9 @@ describe('registerCoreHandlers', () => {
     expect(registerTelemetryHandlersMock).toHaveBeenCalledWith(store)
     expect(registerOrcaProfileHandlersMock).toHaveBeenCalledWith(store, { onBeforeRelaunch })
     expect(registerSessionHandlersMock).toHaveBeenCalledWith(store)
+    // keybindings is undefined in this call, so the snapshot omits that piece.
+    expect(registerStartupSnapshotHandlerMock).toHaveBeenCalledWith(store, undefined)
+    expect(setTrustedStartupSnapshotWebContentsIdMock).toHaveBeenCalledWith(null)
     expect(registerUIHandlersMock).toHaveBeenCalledWith(store)
     expect(registerEmulatorFrameStreamHandlersMock).toHaveBeenCalled()
     expect(registerEmulatorVideoStreamHandlersMock).toHaveBeenCalled()
@@ -643,7 +657,9 @@ describe('registerCoreHandlers', () => {
     expect(setTrustedBrowserRendererWebContentsIdMock).toHaveBeenCalledWith(42)
     expect(setTrustedClipboardRendererWebContentsIdMock).toHaveBeenCalledWith(42)
     expect(setTrustedUIRendererWebContentsIdMock).toHaveBeenCalledWith(42)
+    expect(setTrustedStartupSnapshotWebContentsIdMock).toHaveBeenCalledWith(42)
     // IPC handlers should NOT be registered again
+    expect(registerStartupSnapshotHandlerMock).not.toHaveBeenCalled()
     expect(registerCliHandlersMock).not.toHaveBeenCalled()
     expect(registerPreflightHandlersMock).not.toHaveBeenCalled()
     expect(registerBrowserHandlersMock).not.toHaveBeenCalled()

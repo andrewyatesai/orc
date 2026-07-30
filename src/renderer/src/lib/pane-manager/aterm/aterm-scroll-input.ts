@@ -1,5 +1,5 @@
 import type { AtermTerminal } from './aterm_wasm.js'
-import { encode_key_with_mode } from './aterm_wasm.js'
+import { atermCpuGlue } from './aterm-wasm-module-registry'
 import { shouldForwardMouse } from './aterm-mouse-input'
 import type { AtermMetrics } from './aterm-grid-reflow'
 import { shouldNoteAtermMatrixRainActivity } from './aterm-effects-activity-gate'
@@ -57,7 +57,7 @@ export function attachAtermScrollInput(deps: AtermScrollDeps): AtermScrollInput 
   const encodeArrow = (key: 'ArrowUp' | 'ArrowDown'): Uint8Array | undefined =>
     typeof term.encode_key === 'function'
       ? term.encode_key(key, 0, 0, null)
-      : encode_key_with_mode(key, 0, 0, null, term.keyboard_mode_bits)
+      : atermCpuGlue().encode_key_with_mode(key, 0, 0, null, term.keyboard_mode_bits)
 
   const sendArrowPresses = (lines: number): void => {
     const bytes = encodeArrow(lines > 0 ? 'ArrowDown' : 'ArrowUp')

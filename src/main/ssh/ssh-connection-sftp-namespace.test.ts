@@ -15,6 +15,12 @@ vi.mock('ssh2', () => ({
   utils: { parseKey: vi.fn() }
 }))
 
+// Why: the SUT reaches ssh2 through the lazy loader; serve it the mock above.
+vi.mock('./ssh2-module', async () => {
+  const ssh2 = await import('ssh2')
+  return { loadSsh2: () => ssh2 }
+})
+
 vi.mock('./ssh-system-fallback', () => ({
   getOrcaControlSocketPath: vi.fn().mockReturnValue(null),
   spawnSystemSsh: vi.fn(),

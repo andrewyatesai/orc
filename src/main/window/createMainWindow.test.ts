@@ -141,8 +141,8 @@ describe('createMainWindow', () => {
 
     loadMainWindow(win)
 
-    expect(browserWindowInstance.loadFile).toHaveBeenCalledTimes(1)
-    expect(browserWindowInstance.loadURL).not.toHaveBeenCalled()
+    expect(browserWindowInstance.loadFile).not.toHaveBeenCalled()
+    expect(browserWindowInstance.loadURL).toHaveBeenCalledWith('orca://app/index.html')
   })
 
   it('enables renderer sandboxing and opens external links safely', () => {
@@ -3100,12 +3100,12 @@ describe('createMainWindow', () => {
         exitCode: 5
       } as Electron.RenderProcessGoneDetails
     )
-    expect(browserWindowInstance.loadFile).toHaveBeenCalledTimes(1)
+    expect(browserWindowInstance.loadURL).toHaveBeenCalledTimes(1)
 
     vi.advanceTimersByTime(250)
 
-    expect(browserWindowInstance.loadFile).toHaveBeenCalledTimes(2)
-    expect(browserWindowInstance.loadURL).not.toHaveBeenCalled()
+    expect(browserWindowInstance.loadURL).toHaveBeenCalledTimes(2)
+    expect(browserWindowInstance.loadFile).not.toHaveBeenCalled()
 
     consoleError.mockRestore()
   })
@@ -3127,8 +3127,8 @@ describe('createMainWindow', () => {
     )
     vi.advanceTimersByTime(250)
 
-    expect(browserWindowInstance.loadFile).toHaveBeenCalledTimes(1)
-    expect(browserWindowInstance.loadURL).not.toHaveBeenCalled()
+    expect(browserWindowInstance.loadURL).toHaveBeenCalledTimes(1)
+    expect(browserWindowInstance.loadFile).not.toHaveBeenCalled()
 
     consoleError.mockRestore()
   })
@@ -3152,8 +3152,8 @@ describe('createMainWindow', () => {
     shouldRecover = false
     vi.advanceTimersByTime(250)
 
-    expect(browserWindowInstance.loadFile).toHaveBeenCalledTimes(1)
-    expect(browserWindowInstance.loadURL).not.toHaveBeenCalled()
+    expect(browserWindowInstance.loadURL).toHaveBeenCalledTimes(1)
+    expect(browserWindowInstance.loadFile).not.toHaveBeenCalled()
 
     consoleError.mockRestore()
   })
@@ -3174,8 +3174,8 @@ describe('createMainWindow', () => {
     windowHandlers['render-process-gone']?.({} as never, details)
     vi.advanceTimersByTime(250)
 
-    expect(browserWindowInstance.loadFile).toHaveBeenCalledTimes(2)
-    expect(browserWindowInstance.loadURL).not.toHaveBeenCalled()
+    expect(browserWindowInstance.loadURL).toHaveBeenCalledTimes(2)
+    expect(browserWindowInstance.loadFile).not.toHaveBeenCalled()
 
     consoleError.mockRestore()
   })
@@ -3197,8 +3197,8 @@ describe('createMainWindow', () => {
     )
     vi.advanceTimersByTime(250)
 
-    expect(browserWindowInstance.loadFile).toHaveBeenCalledTimes(1)
-    expect(browserWindowInstance.loadURL).not.toHaveBeenCalled()
+    expect(browserWindowInstance.loadURL).toHaveBeenCalledTimes(1)
+    expect(browserWindowInstance.loadFile).not.toHaveBeenCalled()
 
     consoleError.mockRestore()
   })
@@ -3221,8 +3221,8 @@ describe('createMainWindow', () => {
     windowHandlers.close({ preventDefault: vi.fn() } as never)
     vi.advanceTimersByTime(250)
 
-    expect(browserWindowInstance.loadFile).toHaveBeenCalledTimes(1)
-    expect(browserWindowInstance.loadURL).not.toHaveBeenCalled()
+    expect(browserWindowInstance.loadURL).toHaveBeenCalledTimes(1)
+    expect(browserWindowInstance.loadFile).not.toHaveBeenCalled()
 
     consoleError.mockRestore()
   })
@@ -3246,12 +3246,12 @@ describe('createMainWindow', () => {
     driveCrashCycle()
     driveCrashCycle()
     // 1 initial load + 3 recoveries.
-    expect(browserWindowInstance.loadFile).toHaveBeenCalledTimes(4)
+    expect(browserWindowInstance.loadURL).toHaveBeenCalledTimes(4)
     expect(onRendererRecoveryExhausted).not.toHaveBeenCalled()
 
     // 4th crash within the window: breaker is open, no further reload.
     driveCrashCycle()
-    expect(browserWindowInstance.loadFile).toHaveBeenCalledTimes(4)
+    expect(browserWindowInstance.loadURL).toHaveBeenCalledTimes(4)
     expect(onRendererRecoveryExhausted).toHaveBeenCalledTimes(1)
     expect(onRendererRecoveryExhausted).toHaveBeenCalledWith(
       expect.objectContaining({ recentRecoveryCount: 3 })
@@ -3289,10 +3289,10 @@ describe('createMainWindow', () => {
       driveLaunchFailure()
       driveLaunchFailure()
       driveLaunchFailure()
-      expect(browserWindowInstance.loadFile).toHaveBeenCalledTimes(4)
+      expect(browserWindowInstance.loadURL).toHaveBeenCalledTimes(4)
 
       driveLaunchFailure()
-      expect(browserWindowInstance.loadFile).toHaveBeenCalledTimes(4)
+      expect(browserWindowInstance.loadURL).toHaveBeenCalledTimes(4)
       expect(onRendererRecoveryExhausted).toHaveBeenCalledOnce()
       expect(onRendererRecoveryExhausted).toHaveBeenCalledWith(
         expect.objectContaining({ details, recentRecoveryCount: 3 })

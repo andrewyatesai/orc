@@ -5,6 +5,7 @@ import type { Store } from '../persistence'
 import { rectHasVisibleAreaOnAnyDisplay } from './window-bounds-validation'
 import { sendToTrustedUIRenderer } from '../ipc/ui'
 import { installPrivilegedWindowNavigationPolicy } from './privileged-window-navigation'
+import { installRendererSchemeHandler, rendererPageUrl } from '../startup/renderer-scheme'
 import { stepUIZoomLevel, type UIZoomDirection } from '../../shared/ui-zoom-level'
 import { nativeZoomCommandMatchesKeybindings } from '../../shared/window-shortcut-policy'
 import {
@@ -101,11 +102,13 @@ function broadcastPopoutOpenChanged(open: boolean): void {
 function loadDashboardPopout(window: BrowserWindow, view: string): void {
   const search = `view=${encodeURIComponent(view)}`
   // Why: mirror loadMainWindow's dev/prod branch — the dev server serves the
-  // second HTML entry, prod loads the emitted file.
+  // second HTML entry, prod loads the emitted file over orca://app.
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
     void window.loadURL(`${process.env.ELECTRON_RENDERER_URL}/popout.html?${search}`)
   } else {
-    void window.loadFile(join(__dirname, '../renderer/popout.html'), { search })
+    // Why: the popout's isolated partition has its own protocol registry.
+    installRendererSchemeHandler(window.webContents.session)
+    void window.loadURL(rendererPageUrl('popout.html', search))
   }
 }
 

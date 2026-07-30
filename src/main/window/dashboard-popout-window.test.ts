@@ -31,7 +31,8 @@ const {
       isDestroyed: () => this.destroyed,
       session: {
         setPermissionRequestHandler: vi.fn(),
-        setPermissionCheckHandler: vi.fn()
+        setPermissionCheckHandler: vi.fn(),
+        protocol: { handle: vi.fn() }
       },
       on: (event: string, cb: (...args: unknown[]) => void) => {
         ;(this.webContentsHandlers[event] ||= []).push(cb)
@@ -221,14 +222,13 @@ describe('createOrFocusDashboardPopout', () => {
     expect(win.show).toHaveBeenCalledTimes(1)
   })
 
-  it('loads the prod file entry with the requested view', () => {
+  it('loads the prod orca://app entry with the requested view', () => {
     createOrFocusDashboardPopout(makeStore() as never, 'kanban')
     const win = instances[0]
-    expect(win.loadURL).not.toHaveBeenCalled()
-    expect(win.loadFile).toHaveBeenCalledTimes(1)
-    const [file, options] = win.loadFile.mock.calls[0]
-    expect(String(file)).toMatch(/renderer[\\/]popout\.html$/)
-    expect(options).toEqual({ search: 'view=kanban' })
+    expect(win.loadFile).not.toHaveBeenCalled()
+    expect(win.loadURL).toHaveBeenCalledWith('orca://app/popout.html?view=kanban')
+    // Why: the popout's isolated partition needs its own orca:// handler installed.
+    expect(win.webContents.session.protocol.handle).toHaveBeenCalledTimes(1)
   })
 
   it('loads the dev server URL with the requested view when in dev', () => {

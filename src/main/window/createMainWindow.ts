@@ -43,6 +43,7 @@ import {
   type KeybindingOverrides
 } from '../../shared/keybindings'
 import { getMainE2EConfig } from '../e2e-config'
+import { rendererPageUrl } from '../startup/renderer-scheme-request-handler'
 import { buildEditableContextMenuTemplate } from './editable-context-menu'
 import { clearTrustedUIRendererWebContentsId, setTrustedUIRendererWebContentsId } from '../ipc/ui'
 import { resolveWindowCloseAction } from './window-close-decision'
@@ -214,7 +215,8 @@ export function loadMainWindow(mainWindow: BrowserWindow): void {
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
     void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
-    void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    // Why: orca://app (not file://) so Chromium writes V8 code cache for the eager bundle.
+    void mainWindow.loadURL(rendererPageUrl('index.html'))
   }
 }
 
@@ -295,7 +297,10 @@ export function createMainWindow(
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
-      webviewTag: true
+      webviewTag: true,
+      // Why: write the code cache on first launch instead of after Chromium's
+      // heat heuristic, so launch 2 already skips parse+compile.
+      v8CacheOptions: 'bypassHeatCheck'
     }
   })
   const rendererWebContentsId = mainWindow.webContents.id

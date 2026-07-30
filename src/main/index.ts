@@ -133,6 +133,7 @@ import {
 } from './startup/single-instance-lock'
 import { shouldDeferLaunchForUpdateInstall } from './startup/update-install-launch-gate'
 import { registerOrcaProtocolClient } from './startup/deep-link-scheme-registration'
+import { installRendererSchemeHandler, registerRendererScheme } from './startup/renderer-scheme'
 import { createDeepLinkRouter, extractDeepLinkFromArgv } from './startup/deep-link-routing'
 import { createMainDeepLinkDispatcher, DEEP_LINK_UI_CHANNEL } from './ipc/deep-links'
 import { startEventLoopStallProbe } from './startup/event-loop-stall-probe'
@@ -764,6 +765,8 @@ if (hasSingleInstanceLock) {
     ...getMainProcessLifecycleIdentity()
   })
   configureElectronNetworkCompatibility()
+  // Why: the privileged-scheme table locks at app-ready; codeCache needs it.
+  registerRendererScheme()
   enableRendererHeapHeadroom()
   maybeApplyGpuFallbackForThisLaunch()
   if (!gpuFallbackActiveThisLaunch) {
@@ -1952,6 +1955,8 @@ function shouldSuppressCodexAutoApprovalSyntheticTitleFromHook(args: {
 
 app.whenReady().then(async () => {
   logStartupMilestone('app-ready')
+  // Why: must precede every window load; renderer pages are orca://app URLs now.
+  installRendererSchemeHandler()
   // Why: install certificate decisions before any webview or headless window issues its first TLS request.
   app.on(
     'certificate-error',

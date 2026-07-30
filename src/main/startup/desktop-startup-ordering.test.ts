@@ -110,4 +110,22 @@ describe('startup ordering', () => {
     expect(desktopSetWebContents).toBeGreaterThanOrEqual(0)
     expect(desktopAutomationStart).toBeGreaterThan(desktopSetWebContents)
   })
+
+  it('registers the orca:// scheme before app-ready and installs its handler after', () => {
+    const source = readFileSync(join(process.cwd(), 'src/main/index.ts'), 'utf8')
+    const schemeRegister = source.indexOf('registerRendererScheme()')
+    const appReady = source.indexOf('app.whenReady().then(')
+    const handlerInstall = source.indexOf('installRendererSchemeHandler()')
+    const windowOpen = source.indexOf('Promise.resolve(openMainWindow())')
+
+    // Chromium locks the privileged-scheme table at ready: a registration moved
+    // inside whenReady still typechecks but silently loses standard/codeCache
+    // privileges — the whole point of the migration.
+    expect(schemeRegister).toBeGreaterThanOrEqual(0)
+    expect(appReady).toBeGreaterThan(schemeRegister)
+    // protocol.handle needs a live default session (post-ready), and every
+    // window load depends on it being installed first.
+    expect(handlerInstall).toBeGreaterThan(appReady)
+    expect(windowOpen).toBeGreaterThan(handlerInstall)
+  })
 })

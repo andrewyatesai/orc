@@ -290,6 +290,29 @@ describe('registerClipboardHandlers', () => {
     expect(getSshFilesystemProviderMock).not.toHaveBeenCalled()
   })
 
+  it('accepts the packaged orca://app renderer origin and rejects other orca:// hosts', async () => {
+    clipboardReadTextMock.mockReturnValue('clipboard text')
+    registerClipboardHandlers({} as never)
+
+    const handlers = getRegisteredHandlers()
+    await expect(
+      handlers.get('clipboard:readText')?.(
+        makeClipboardEvent({ getURL: () => 'orca://app/index.html' })
+      )
+    ).resolves.toBe('clipboard text')
+    // Why: orca:// is also the deep-link scheme — only the exact app host is trusted.
+    await expect(
+      handlers.get('clipboard:readText')?.(
+        makeClipboardEvent({ getURL: () => 'orca://focus/term_x' })
+      )
+    ).rejects.toThrow('Unauthorized clipboard IPC sender')
+    await expect(
+      handlers.get('clipboard:readText')?.(
+        makeClipboardEvent({ getURL: () => 'orca://app.evil/index.html' })
+      )
+    ).rejects.toThrow('Unauthorized clipboard IPC sender')
+  })
+
   it('writes local files through the trusted clipboard IPC handler', async () => {
     registerClipboardHandlers({} as never)
 

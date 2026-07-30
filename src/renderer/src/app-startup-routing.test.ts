@@ -16,6 +16,8 @@ const VIEW_PERSISTENCE = 'src/renderer/src/app-shell/use-app-view-persistence.ts
 const SESSION_PERSISTENCE = 'src/renderer/src/app-shell/use-app-session-persistence.ts'
 const RECOVERY = 'src/renderer/src/app-shell/app-startup-recovery.ts'
 const SSH_RECONNECT = 'src/renderer/src/app-shell/app-startup-ssh-reconnect.ts'
+const MAIN_ENTRY = 'src/renderer/src/main.tsx'
+const SNAPSHOT = 'src/renderer/src/app-shell/app-startup-snapshot.ts'
 
 describe('renderer startup runtime routing', () => {
   it('hydrates persisted UI before local catalog and worktree hydration', () => {
@@ -34,14 +36,12 @@ describe('renderer startup runtime routing', () => {
     const settingsIndex = indexInStartupBlock('actions.fetchSettings()')
     const uiGetIndex = indexInStartupBlock("timeRendererStartupStep('ui-get'")
     const hydrateUiIndex = indexInStartupBlock("timeRendererStartupSyncStep('hydrate-persisted-ui'")
-    const localReposIndex = indexInStartupBlock(
-      "actions.fetchReposForAllHosts({ remoteHosts: 'skip' })"
-    )
+    const localReposIndex = indexInStartupBlock("timeRendererStartupStep('fetch-repos-local'")
     const localGroupsIndex = indexInStartupBlock(
-      "actions.fetchProjectGroupsForAllHosts({ remoteHosts: 'skip' })"
+      "timeRendererStartupStep('fetch-project-groups-local'"
     )
     const localFoldersIndex = indexInStartupBlock(
-      "actions.fetchFolderWorkspacesForAllHosts({ remoteHosts: 'skip' })"
+      "timeRendererStartupStep('fetch-folder-workspaces-local'"
     )
     const sessionIndex = indexInStartupBlock("timeRendererStartupStep('session-get'")
     const hydrationWorktreesIndex = source.indexOf(
@@ -107,6 +107,98 @@ describe('renderer startup runtime routing', () => {
     expect(startupBlock).not.toContain('await Promise.all([')
     // The eager full scan must stay off the startup-critical path (it moved to the deferred refresh).
     expect(startupBlock).not.toContain("actions.fetchAllWorktrees({ hydrationPurge: 'defer' })")
+  })
+
+  it('adopts the batched boot snapshot before any hydrate action, keeping each live fallback', () => {
+    const source = read(HYDRATION)
+    const adoptIndex = source.indexOf("'startup-snapshot-adopt'")
+    const settingsIndex = source.indexOf("timeRendererStartupStep('fetch-settings'")
+
+    // The singleton primed in main.tsx is adopted (never re-fetched) before the first hydrate step.
+    expect(adoptIndex).toBeGreaterThanOrEqual(0)
+    expect(adoptIndex).toBeLessThan(settingsIndex)
+    expect(source).toContain('await primeStartupSnapshot()')
+    // The git-wasm gate joins the adopt step: store hydration and the reconnect path run
+    // synchronous wasm consumers (agent-resume plan builders) that must never see a
+    // pre-ready null fallback now that createRoot no longer waits for the wasm.
+    const adoptBlock = source.slice(adoptIndex, settingsIndex)
+    expect(adoptBlock).toContain('awaitGitWasmReadyForStartupHydration()')
+
+    // Every snapshot-served piece keeps its individual-channel fallback so a null
+    // snapshot reproduces today's chain (and its error/recovery semantics) exactly.
+    expect(source).toContain('await actions.fetchSettings()')
+    expect(source).toContain('await actions.fetchKeybindings()')
+    expect(source).toContain('window.api.ui.get()')
+    expect(source).toContain('window.api.onboarding.get()')
+    expect(source).toContain('listRuntimeSessionHostIdsForStartup()')
+    // The boot session merge reads snapshot partitions first, live session:get for misses.
+    expect(source).toContain(
+      'createBootSessionApi(window.api.session, snapshot?.sessionPartitionsByHostId)'
+    )
+    // Snapshot browser profiles are NOT adopted yet: the browser slice owns remote-runtime
+    // routing and the per-host merge, so the boot chain must keep calling the action.
+    expect(source).toContain('actions.fetchBrowserSessionProfiles()')
+
+    // The snapshot singleton must never reject — hydration errors have to surface on the
+    // individual channels the recovery path owns.
+    const snapshotSource = read(SNAPSHOT)
+    expect(snapshotSource).toContain('snapshotPromise ??=')
+    expect(snapshotSource).toContain('return null')
+  })
+
+  it('hydrates the local boot catalog from the snapshot with zero round-trips, keeping live fallbacks', () => {
+    const source = read(HYDRATION)
+
+    // Each boot catalog fetch stays local-only AND consumes the snapshot rows when present.
+    const reposBlock = source.slice(
+      source.indexOf("timeRendererStartupStep('fetch-repos-local'"),
+      source.indexOf("timeRendererStartupStep('fetch-project-groups-local'")
+    )
+    expect(reposBlock).toContain("remoteHosts: 'skip'")
+    // Why gate on all three pieces: the prefetched repo catalog carries projects +
+    // host setups too; a partial snapshot must fall back to the live channel whole
+    // so hydration is byte-identical to today's path.
+    expect(reposBlock).toContain(
+      'snapshot?.repos && snapshot.projects && snapshot.projectHostSetups'
+    )
+    const groupsBlock = source.slice(
+      source.indexOf("timeRendererStartupStep('fetch-project-groups-local'"),
+      source.indexOf("timeRendererStartupStep('fetch-folder-workspaces-local'")
+    )
+    expect(groupsBlock).toContain("remoteHosts: 'skip'")
+    expect(groupsBlock).toContain('prefetchedLocal: snapshot?.projectGroups')
+    const foldersBlock = source.slice(
+      source.indexOf("timeRendererStartupStep('fetch-folder-workspaces-local'"),
+      source.indexOf("timeRendererStartupStep('session-get'")
+    )
+    expect(foldersBlock).toContain("remoteHosts: 'skip'")
+    expect(foldersBlock).toContain('prefetchedLocal: snapshot?.folderWorkspaces')
+
+    // The deferred remote refresh must keep the live channels (no prefetched rows):
+    // repos:list still runs there so its enrichment effects keep their refresh cadence.
+    const remoteRefreshBlock = source.slice(
+      source.indexOf('async function refreshRemoteCatalogAfterHydration'),
+      source.indexOf('type StartupHydrationParams')
+    )
+    expect(remoteRefreshBlock).toContain('actions.fetchReposForAllHosts()')
+    expect(remoteRefreshBlock).toContain('actions.fetchProjectGroupsForAllHosts()')
+    expect(remoteRefreshBlock).toContain('actions.fetchFolderWorkspacesForAllHosts()')
+    expect(remoteRefreshBlock).not.toContain('prefetchedLocal')
+  })
+
+  it('renders immediately and primes the boot snapshot before createRoot (main.tsx)', () => {
+    const source = read(MAIN_ENTRY)
+    const primeIndex = source.indexOf('void primeStartupSnapshot()')
+
+    // The snapshot IPC and the wasm compile both start at module scope, before mount.
+    expect(source).toContain('void startGitWasm()')
+    expect(primeIndex).toBeGreaterThanOrEqual(0)
+    expect(primeIndex).toBeLessThan(source.indexOf('function renderApp'))
+    // renderApp is invoked synchronously at module scope, not deferred behind a promise.
+    expect(source).toMatch(/^renderApp\(\)$/m)
+    // createRoot is no longer gated on the git wasm; the hydration chain awaits it instead.
+    expect(source).not.toContain('.then(renderApp)')
+    expect(source).not.toContain('gitWasmReady')
   })
 
   it('refreshes remote catalogs after startup hydration succeeds', () => {

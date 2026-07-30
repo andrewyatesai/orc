@@ -1,4 +1,5 @@
 import type { OnboardingState } from '../../../shared/types'
+import type { StartupSnapshot } from '../../../shared/startup-snapshot'
 import {
   getRepoExecutionHostId,
   parseExecutionHostId,
@@ -22,8 +23,10 @@ import {
 } from '../startup/startup-diagnostics'
 import { useAppStore } from '../store'
 import { WORKTREE_REFRESH_CONCURRENCY } from '../store/slices/worktrees'
+import { awaitGitWasmReadyForStartupHydration } from '../lib/git-wasm/git-wasm-startup-gate'
 import { reconnectSshTargetsForStartup } from './app-startup-ssh-reconnect'
 import { recoverFromStartupHydrationFailure } from './app-startup-recovery'
+import { createBootSessionApi, primeStartupSnapshot } from './app-startup-snapshot'
 
 type AppStoreState = ReturnType<typeof useAppStore.getState>
 
@@ -32,6 +35,8 @@ export type StartupHydrationActions = Pick<
   | 'fetchOrcaProfiles'
   | 'fetchSettings'
   | 'fetchKeybindings'
+  | 'setKeybindingSnapshot'
+  | 'hydrateRuntimeEnvironmentStatuses'
   | 'hydratePersistedUI'
   | 'fetchReposForAllHosts'
   | 'fetchProjectGroupsForAllHosts'
@@ -120,24 +125,54 @@ export async function runAppStartupHydration({
   // Why (issue #1158): track whether success-path reconnect started so the catch doesn't re-run it — re-entering on partially-mutated state would double-set ptyIds and drain pending* twice.
   let reconnectStarted = false
   try {
+    // Why: the batched snapshot read (primed at module scope in main.tsx, so it
+    // overlapped mount) replaces the serial per-store IPC chain; the git-wasm
+    // gate joins it because every hydrate step below may run synchronous wasm
+    // helpers (catalog normalizers, persisted-UI task providers, agent-resume
+    // plan builders) whose pre-ready null fallback would stick in store state.
+    // Both promises never reject; a null snapshot falls back per piece to the
+    // individual channels, keeping today's error and recovery semantics.
+    const snapshot: StartupSnapshot | null = await timeRendererStartupStep(
+      'startup-snapshot-adopt',
+      async () => {
+        const wasmGate = awaitGitWasmReadyForStartupHydration()
+        const adopted = await primeStartupSnapshot()
+        await wasmGate
+        return adopted
+      }
+    )
     // Why: nothing in the hydration chain reads profile state synchronously, so don't let it add a serial IPC round-trip before fetchSettings.
     void actions.fetchOrcaProfiles()
     // Why: repo/worktree hydration routes through settings.activeRuntimeEnvironmentId; load settings first so a persisted remote runtime doesn't hydrate stale local state.
-    await timeRendererStartupStep('fetch-settings', () => actions.fetchSettings())
+    await timeRendererStartupStep('fetch-settings', async () => {
+      if (snapshot?.settings) {
+        // Why: mirrors the settings-slice fetchSettings minus the IPC read (incl. its fire-and-forget runtime health probe).
+        useAppStore.setState({ settings: snapshot.settings })
+        void actions.hydrateRuntimeEnvironmentStatuses()
+        return
+      }
+      await actions.fetchSettings()
+    })
     // Why: hidden-at-launch PTYs can query OSC 10/11 before any pane mounts; publish view attributes as soon as settings exist so main's silent-until-push responder has data.
     publishTerminalViewAttributesAtAppStart(useAppStore.getState().settings, getSystemPrefersDark())
     // Why: start keybindings + onboarding now so their IPC overlaps the local catalog scans; await them at their original spots. The .catch marks rejections handled if an earlier await throws first.
     // Why: browser session profiles are NOT started early — on a remote runtime the RPC may be unconnected and a failed fetch clears the list.
-    const keybindingsPromise = timeRendererStartupStep('fetch-keybindings', () =>
-      actions.fetchKeybindings()
-    )
+    const keybindingsPromise = timeRendererStartupStep('fetch-keybindings', async () => {
+      if (snapshot?.keybindings) {
+        actions.setKeybindingSnapshot(snapshot.keybindings)
+        return
+      }
+      await actions.fetchKeybindings()
+    })
     keybindingsPromise.catch(() => {})
     const onboardingPromise = timeRendererStartupStep('onboarding-get', () =>
-      window.api.onboarding.get()
+      snapshot?.onboarding ? Promise.resolve(snapshot.onboarding) : window.api.onboarding.get()
     )
     onboardingPromise.catch(() => {})
     // Why: await ui.get() (not overlap) so persisted view settings hydrate before the local catalog/session steps and first paint reflects them.
-    const persistedUI = await timeRendererStartupStep('ui-get', () => window.api.ui.get())
+    const persistedUI = await timeRendererStartupStep('ui-get', () =>
+      snapshot?.ui ? Promise.resolve(snapshot.ui) : window.api.ui.get()
+    )
     uiHydrated = timeRendererStartupSyncStep('hydrate-persisted-ui', () =>
       hydratePersistedUIAfterStartupRead({
         persistedUI,
@@ -148,24 +183,48 @@ export async function runAppStartupHydration({
     // Why: list-runtime-session-hosts reads no repo state, so overlap it with the repo scan
     // instead of paying its IPC round-trip serially before repos. .catch marks rejections handled
     // if an earlier await throws first; the value is awaited below and surfaces any error there.
-    const runtimeHostsPromise = timeRendererStartupStep(
-      'list-runtime-session-hosts',
-      listRuntimeSessionHostIdsForStartup
+    const runtimeHostsPromise = timeRendererStartupStep('list-runtime-session-hosts', () =>
+      snapshot?.runtimeEnvironments
+        ? Promise.resolve(
+            snapshot.runtimeEnvironments.map((environment) =>
+              toRuntimeExecutionHostId(environment.id)
+            )
+          )
+        : listRuntimeSessionHostIdsForStartup()
     )
     runtimeHostsPromise.catch(() => {})
     // Why: saved remote runtimes can spend the full connect timeout; load only the local catalog for first paint and refresh remotes after hydration.
+    // Snapshot rows hydrate the local catalog with ZERO round-trips (repos:list's
+    // promotion/enrichment already ran main-side in the snapshot handler); any
+    // missing piece falls back to the live channels, which keep those effects.
     await timeRendererStartupStep('fetch-repos-local', () =>
-      actions.fetchReposForAllHosts({ remoteHosts: 'skip' })
+      actions.fetchReposForAllHosts({
+        remoteHosts: 'skip',
+        prefetchedLocal:
+          snapshot?.repos && snapshot.projects && snapshot.projectHostSetups
+            ? {
+                repos: snapshot.repos,
+                projects: snapshot.projects,
+                projectHostSetups: snapshot.projectHostSetups
+              }
+            : undefined
+      })
     )
     // Why: folder workspaces merge against projectGroups (repos.ts fetchFolderWorkspacesForAllHosts),
     // so keep this two-step catalog chain internally ordered; it is otherwise independent of
     // repos/worktrees/session and overlaps the session-scoped hydration chain below.
     const localCatalogChain = (async () => {
       await timeRendererStartupStep('fetch-project-groups-local', () =>
-        actions.fetchProjectGroupsForAllHosts({ remoteHosts: 'skip' })
+        actions.fetchProjectGroupsForAllHosts({
+          remoteHosts: 'skip',
+          prefetchedLocal: snapshot?.projectGroups
+        })
       )
       await timeRendererStartupStep('fetch-folder-workspaces-local', () =>
-        actions.fetchFolderWorkspacesForAllHosts({ remoteHosts: 'skip' })
+        actions.fetchFolderWorkspacesForAllHosts({
+          remoteHosts: 'skip',
+          prefetchedLocal: snapshot?.folderWorkspaces
+        })
       )
     })()
     // Why: chain session-get off runtimeHostsPromise instead of awaiting the host ids here, so the
@@ -176,7 +235,7 @@ export async function runAppStartupHydration({
       // Why: include saved runtime host ids so per-host worktree session slices restore from local settings without waiting on network reachability; unreadable partitions skip.
       timeRendererStartupStep('session-get', () =>
         fetchWorkspaceSessionWithRuntimeHostOwners(
-          window.api.session,
+          createBootSessionApi(window.api.session, snapshot?.sessionPartitionsByHostId),
           useAppStore.getState().repos,
           startupRuntimeHostIds
         )
@@ -242,6 +301,9 @@ export async function runAppStartupHydration({
       actions.pruneLastVisitedTimestamps()
       actions.seedActiveWorktreeLastVisitedIfMissing()
     })
+    // Why: snapshot.browserSessionProfiles stays unused until the browser slice
+    // can adopt it — the action routes remote-runtime hosts through RPC and owns
+    // the per-host list merge, so bypassing it would change those semantics.
     await timeRendererStartupStep('fetch-browser-session-profiles', () =>
       actions.fetchBrowserSessionProfiles()
     )

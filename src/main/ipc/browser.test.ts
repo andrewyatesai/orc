@@ -200,6 +200,33 @@ describe('registerBrowserHandlers', () => {
     expect(cancelDownloadMock).not.toHaveBeenCalled()
   })
 
+  it('trusts the packaged orca://app renderer origin but no other orca:// host', () => {
+    cancelDownloadMock.mockReturnValue(true)
+    registerBrowserHandlers()
+
+    const cancelHandler = handleMock.mock.calls.find(
+      ([channel]) => channel === 'browser:cancelDownload'
+    )?.[1] as (event: { sender: Electron.WebContents }, args: { downloadId: string }) => boolean
+
+    const senderAt = (url: string): { sender: Electron.WebContents } => ({
+      sender: {
+        id: 91,
+        isDestroyed: () => false,
+        getType: () => 'window',
+        getURL: () => url
+      } as Electron.WebContents
+    })
+
+    expect(cancelHandler(senderAt('orca://app/index.html'), { downloadId: 'download-1' })).toBe(
+      true
+    )
+    // Why: orca:// is also the deep-link scheme — only the exact app host is trusted.
+    expect(cancelHandler(senderAt('orca://focus/term_x'), { downloadId: 'download-2' })).toBe(false)
+    expect(cancelHandler(senderAt('orca://appx/index.html'), { downloadId: 'download-3' })).toBe(
+      false
+    )
+  })
+
   it('allows only the trusted renderer to approve an exact certificate challenge', () => {
     registerBrowserHandlers()
     const proceedHandler = handleMock.mock.calls.find(

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 import {
   createAtermWorkerPrewarm,
+  shouldSkipAtermEnginePrewarm,
   type AtermWorkerPrewarmDeps,
   type AtermWorkerPrewarmHold
 } from './aterm-worker-prewarm'
@@ -128,5 +129,98 @@ describe('createAtermWorkerPrewarm', () => {
     await h.rejectAcquire(new Error('fonts failed'))
     // No throw, no unhandled rejection: the real pane open surfaces errors.
     expect(h.acquire).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('warmNow (session-restore immediate warm)', () => {
+  it('acquires immediately and still releases the bounded hold when no pane ever mounts', async () => {
+    vi.useFakeTimers()
+    const h = makeHarness()
+    h.prewarm.warmNow()
+    expect(h.acquire).toHaveBeenCalledTimes(1)
+    const hold = makeHold()
+    await h.resolveAcquire(hold)
+    // Memory-over-warmth survives the restore warm: no leaked worker slot.
+    vi.advanceTimersByTime(HOLD_MS)
+    expect(hold.release).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancels a pending idle attempt, and a late-fired schedule cannot double-acquire', () => {
+    const h = makeHarness()
+    h.prewarm.arm()
+    h.prewarm.warmNow()
+    expect(h.cancelSchedule).toHaveBeenCalledTimes(1)
+    h.runScheduled()
+    expect(h.acquire).toHaveBeenCalledTimes(1)
+  })
+
+  it('is idempotent (a second warmNow cannot leak a second slot)', () => {
+    const h = makeHarness()
+    h.prewarm.warmNow()
+    h.prewarm.warmNow()
+    expect(h.acquire).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not re-acquire after the idle prewarm already warmed', async () => {
+    const h = makeHarness()
+    h.prewarm.arm()
+    h.runScheduled()
+    await h.resolveAcquire(makeHold())
+    h.prewarm.warmNow()
+    expect(h.acquire).toHaveBeenCalledTimes(1)
+  })
+
+  it('releases its hold exactly once when a real pane takes over', async () => {
+    vi.useFakeTimers()
+    const h = makeHarness()
+    h.prewarm.warmNow()
+    const hold = makeHold()
+    await h.resolveAcquire(hold)
+    h.prewarm.notePaneAcquired()
+    expect(hold.release).toHaveBeenCalledTimes(1)
+    vi.advanceTimersByTime(HOLD_MS)
+    expect(hold.release).toHaveBeenCalledTimes(1)
+  })
+
+  it('is a no-op once a real pane owns the worker', () => {
+    const h = makeHarness()
+    h.prewarm.notePaneAcquired()
+    h.prewarm.warmNow()
+    expect(h.acquire).not.toHaveBeenCalled()
+  })
+
+  it('releases immediately when a real pane arrives mid-acquire', async () => {
+    const h = makeHarness()
+    h.prewarm.warmNow()
+    h.prewarm.notePaneAcquired()
+    const hold = makeHold()
+    await h.resolveAcquire(hold)
+    expect(hold.release).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('shouldSkipAtermEnginePrewarm', () => {
+  const productionEnv = {
+    hasWindow: true,
+    hasWorker: true,
+    mode: 'production',
+    e2eExposeStore: false
+  }
+
+  it('allows the warm in a production renderer', () => {
+    expect(shouldSkipAtermEnginePrewarm(productionEnv)).toBe(false)
+  })
+
+  it('skips under e2e exposeStore (specs assert on lazy worker creation)', () => {
+    expect(shouldSkipAtermEnginePrewarm({ ...productionEnv, e2eExposeStore: true })).toBe(true)
+  })
+
+  it('skips under unit tests', () => {
+    expect(shouldSkipAtermEnginePrewarm({ ...productionEnv, mode: 'test' })).toBe(true)
+  })
+
+  it('skips without window or Worker', () => {
+    expect(shouldSkipAtermEnginePrewarm({ ...productionEnv, hasWindow: false })).toBe(true)
+    expect(shouldSkipAtermEnginePrewarm({ ...productionEnv, hasWorker: false })).toBe(true)
   })
 })

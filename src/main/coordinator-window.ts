@@ -16,6 +16,7 @@ import {
 } from '../shared/coordinator-daemon-tunnel'
 import { getDaemonEndpointPaths } from './daemon/daemon-init'
 import { PROTOCOL_VERSION } from './daemon/types'
+import { rendererPageUrl } from './startup/renderer-scheme-request-handler'
 
 let coordinatorWindow: BrowserWindow | null = null
 // One live tunnel-socket set per coordinator window; keyed by the renderer-
@@ -65,7 +66,8 @@ export function openCoordinatorWindow(): void {
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
     void window.loadURL(`${process.env.ELECTRON_RENDERER_URL}/coordinator.html`)
   } else {
-    void window.loadFile(join(__dirname, '../renderer/coordinator.html'))
+    // Why: orca://app (not file://) — same code-cache-served origin as the main window.
+    void window.loadURL(rendererPageUrl('coordinator.html'))
   }
 }
 
