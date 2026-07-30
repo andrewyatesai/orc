@@ -1,10 +1,17 @@
 # Orca Modes — Roadmap
 
-**Status: deferred, not in progress.** The foundation is landed and green
-(see [`app-modes-conclusion.md`](./app-modes-conclusion.md), `main` at `3e7e6babf`);
-this is the forward plan for whenever the build resumes. Written to be picked up cold:
+**Status: deferred, not in progress.** The *mode* foundation is landed and green
+(see [`app-modes-conclusion.md`](./app-modes-conclusion.md), `main` at `3e7e6babf`).
+The *orchestration* foundation Phase 2 stands on was not, at that commit: the CLI still
+dropped `--task` from `orchestration ask`, `orchestration run-log` had a spec and no
+handler (`registry-parity.test.ts` red), and a restart stranded dispatches that held
+`maxConcurrent` slots forever. That tail closed in `1bef9915a` (2026-07-30), so Phase 2's
+premise below is true as of HEAD and was not true when this file was written.
+This is the forward plan for whenever the build resumes. Written to be picked up cold:
 every phase names its entry points, the machinery it consumes, and a definition of done.
-The full architecture behind each item is [`app-modes.md`](./app-modes.md).
+The full architecture behind each item is [`app-modes.md`](./app-modes.md); the follow-on
+engine work — durable ownership, verified submit, transactional gates, account routing —
+is [`alab-auto-mode-design.md`](./alab-auto-mode-design.md).
 
 ## Ground rules carried forward
 
@@ -38,18 +45,28 @@ with the toast; E2E pin via the env var.
 
 ## Phase 2 — ALab mode
 
-*Recomposition over machinery that now works: gates answer their askers, run logs exist,
-stranded runs are failed at startup, unattended dispatch is fail-closed.*
+**Superseded by [`alab-auto-mode-design.md`](./alab-auto-mode-design.md) §9 (R3)** once that
+build starts: R3 delivers this entire surface list *plus* BurnMeter, the exception lanes,
+the OrchestratorPane grant handoff and the New Mission dialog, and depends on Phase 1 only.
+Read the list below as the floor.
+
+*Recomposition over machinery that now works — true as of `1bef9915a` (2026-07-30), not at
+the commit this file was pinned to: gates answer their askers, run logs exist and have a CLI
+reader, stranded runs are failed at startup and orphaned dispatches reconciled at run start,
+unattended dispatch is fail-closed, and the coordinator dispatches only into panes it created
+or can verify are running an agent.*
 
 - Mode-gated shell: swap `AppPageRouter` content for the supervisory layout via the
   three prop-driven slots in `AppWorkspaceShell` (`app-modes.md` §5.2, §8.3). Files,
   diffs, tabs hidden but mounted.
 - **Gate queue** — reads `orchestration.gateList`; resolving calls `gateResolve` (which
   now answers the blocked worker). The "Nothing is waiting on you" empty state is
-  truthful since `ask --task` creates real gates.
+  truthful since `ask --task` creates real gates — from the CLI too, since `1bef9915a`.
 - **Run health / exceptions** — reads `orchestration.runLog` (stall warnings, retries,
-  terminal-creation failures) and `runList`; a run interrupted by restart shows as
-  failed, not running.
+  terminal-creation failures); a run interrupted by restart shows as failed, not running.
+  There is no `runList` method yet (`run`, `runStop`, `runLog` are the run methods) — the
+  `mission-progress.ts` + split-counter row of `app-modes.md` §8.1 is the one Phase-0 item
+  still unlanded, and this bullet is what consumes it.
 - **Mission strip + fleet roster** — group by `coordinatorHandle ?? orchestrationRunId`
   (§13 Q9); per-worker launch-posture badge from `getTerminalAgentLaunchProfile`
   (§13 Q11: show yolo honestly).
@@ -92,7 +109,8 @@ folder (codex Seatbelt verified on the machine).
 
 Condensed from `app-modes.md` §13 — each has a recommendation recorded there:
 lock semantics (Q1, Phase 3) · sandbox claims vs. reality in copy (Q2, Phase 3) ·
-`ask` verb with two answerers (Q4, **decide before more Phase-2 CLI surface**) ·
+`ask` verb with two answerers (Q4, **now overdue** — `1bef9915a` shipped the `ask --task`
+CLI half, so both answerers are live) ·
 the 2am problem scope (Q5, Phase 2) · mobile gate control (Q6, Phase 2) ·
 fleet grouping key (Q9, **decide before FleetBoard headers are written**).
 

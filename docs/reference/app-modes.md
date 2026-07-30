@@ -678,27 +678,32 @@ One typed bag, `src/renderer/src/i18n/story-world-copy.ts`, shaped like `hosted-
 
 ## 8. Mode: ALab
 
-### 8.1 Phase 0: the engine is not wired up
+### 8.1 Phase 0: the engine, now wired up (landed `2ebbe5f8f` 2026-07-28, `1bef9915a` 2026-07-30)
 
-The supervision surfaces are recomposition. The human-in-the-loop escalation path is not. Three verified breaks must be fixed before any UI is worth building:
+The supervision surfaces are recomposition. The human-in-the-loop escalation path was not. Three verified breaks had to be fixed before any UI was worth building — **all three are fixed at HEAD**, the RPC/Rust/preamble halves in `2ebbe5f8f`, the CLI tail in `1bef9915a`. They are kept below as written because the reason each was a break is the acceptance criterion for the surface that consumes it (§8.3–§8.5); each now carries what landed.
 
 1. **`orchestration.ask` never creates a gate.** It builds its payload as `JSON.stringify({ question, options })` (`orchestration.ts:624`) with no task field; `AskParams` has none; the CLI's `allowedFlags` are `to, question, options, timeout-ms, from`. `Coordinator.handleDecisionGateMessage` then hard-rejects it: `if (!payload.taskId || !payload.question) { … return }` (`coordinator.ts:313-316`). A queue built on `gateList` renders "Nothing is waiting on you" while a worker is blocked.
+   *Landed:* `2ebbe5f8f` added `AskParams.task`, the `taskId` payload fold and a direct `db.createGate({ …, originMessageId })` in the ask handler (`src/main/runtime/rpc/methods/orchestration.ts:615-646`) plus the `task` flag on the spec (`src/cli/specs/orchestration.ts:116`) — but the CLI *handler* still dropped the flag, so no CLI-originated ask opened a gate until `1bef9915a` forwarded it (`src/cli/handlers/orchestration.ts:636`).
 2. **Resolving a gate strands the worker.** `gateResolve` calls `db.resolveGate` and returns the row; it inserts no message. The blocked worker wakes only on `getThreadMessagesFor`, whose sole producer is `orchestration.reply`. The *task* does resume (`resolve_gate` runs `UPDATE tasks SET status = 'ready'`), so the board clears while the worker hangs to its timeout — the worst possible failure, because it looks fixed.
+   *Landed in `2ebbe5f8f`:* `origin_message_id` as schema v7→v8 (`rust/crates/orca-runtime/src/orchestration_schema.rs:239-248`), answered by `deliverGateResolutionToOrigin` called from `gateResolve` (`src/main/runtime/rpc/methods/orchestration-gates.ts:213`), which returns `answeredOrigin` so the caller can tell a coupled gate from a `gateCreate` one.
 3. **The coordinator's entire diagnostic stream is discarded.** `onLog` defaults to `() => {}` (`coordinator.ts:97`) and the only production construction site (`orchestration-gates.ts:87`) supplies none. The 10-minute stale-heartbeat warning — the *only* hang detector in the codebase — the circuit-breaker retry counter, terminal-creation failures (followed by a bare `return`, so a mission can stall silently forever), lifecycle rejections and "Stuck: N tasks blocked" are all generated and thrown away.
+   *Landed:* `2ebbe5f8f` attached a bounded per-run ring at construction (`orchestration-gates.ts:104-111`) and exposed `orchestration.runLog` (`:221`); the reader `orca orchestration run-log` arrived only in `1bef9915a` — until then the spec had a path and no handler, which is exactly what `registry-parity.test.ts` failed on.
 
 Phase 0 fixes:
 
-| Change | Files |
-| --- | --- |
-| `task: OptionalString` on `AskParams`, `'task'` in the CLI `allowedFlags`, folded into the payload as `taskId`; create the `DecisionGateRow` directly in the ask handler stamped with `originMessageId` (do not wait for the coordinator tick — when the addressed handle is an orchestrator *agent* the message goes into its PTY and no gate is ever created). | `rpc/methods/orchestration.ts`, `cli/specs/orchestration.ts` |
-| Nullable `origin_message_id` on `decision_gates`; `gateResolve` looks up the origin and inserts the thread reply, then `deliverPendingMessagesForHandle` + `notifyMessageArrived` — the same three calls `orchestration.reply` already makes. | `rust/crates/orca-runtime/src/orchestration.rs` + `GATE_COLUMNS`, `orchestration/gate-reply-coupling.ts` |
-| `onLog` wired to a bounded per-run ring (500 entries), exposed as `orchestration.runLog`. | `orchestration/coordinator-run-log.ts`, `orchestration-gates.ts:87` |
-| `preamble.ts`: teach `--task-id`, correct `--timeout-ms 600000` to the 30-minute `ASK_MAX_TIMEOUT_MS` the code actually allows. | `orchestration/preamble.ts` |
-| `mission-progress.ts` + split counters on `runList`. | new |
+| Change | Files | Status |
+| --- | --- | --- |
+| `task: OptionalString` on `AskParams`, `'task'` in the CLI `allowedFlags`, folded into the payload as `taskId`; create the `DecisionGateRow` directly in the ask handler stamped with `originMessageId` (do not wait for the coordinator tick — when the addressed handle is an orchestrator *agent* the message goes into its PTY and no gate is ever created). | `rpc/methods/orchestration.ts`, `cli/specs/orchestration.ts` | `2ebbe5f8f`; CLI handler forwarding `1bef9915a` |
+| Nullable `origin_message_id` on `decision_gates`; `gateResolve` looks up the origin and inserts the thread reply, then `deliverPendingMessagesForHandle` + `notifyMessageArrived` — the same three calls `orchestration.reply` already makes. | `rust/crates/orca-runtime/src/orchestration.rs` + `GATE_COLUMNS`, `orchestration/gate-reply-coupling.ts` | `2ebbe5f8f` (schema v7→v8) |
+| `onLog` wired to a bounded per-run ring (500 entries), exposed as `orchestration.runLog`. | `orchestration/coordinator-run-log.ts`, `orchestration-gates.ts:87` | `2ebbe5f8f`; CLI reader `1bef9915a` |
+| `preamble.ts`: teach `--task-id`, correct `--timeout-ms 600000` to the 30-minute `ASK_MAX_TIMEOUT_MS` the code actually allows. | `orchestration/preamble.ts` | `2ebbe5f8f`, with one deviation (below) |
+| `mission-progress.ts` + split counters on `runList`. | new | **not landed** |
 
-**Two of these are shared-core changes driven by one mode, and must be reviewed as such, not slipped in as UI tasks:**
+**What remains.** Only the last row — and it has no seat to sit in yet: there is no `orchestration.runList` method (`run`, `runStop`, `runLog` are the run methods), so §8.3's `MissionStrip` split counters have nothing to read. The preamble deviation: it teaches `--task` and *documents* the 30-minute clamp rather than raising the printed example, which stays `--timeout-ms 600000` — a budget a worker can afford to wait (`orchestration/preamble.ts:114-125`). `1bef9915a` also closed three defects this section never listed: restart-orphaned dispatches held `maxConcurrent` slots forever, the dispatch loop would drive the human's own shells, and dispatch raced agent startup. Those, and the follow-on engine work this mode ultimately needs — durable ownership, verified submit, transactional gates, account routing — are [`alab-auto-mode-design.md`](./alab-auto-mode-design.md) (§11 catalogues the repairs; §9 supersedes the roadmap's Phase-2 surface list).
 
-- **The Rust column.** `decision_gates` gains a nullable column. Migration story: the column is nullable and read defensively, so gates created by an older build read `origin_message_id = null` and skip the reply insert (behaving exactly as today). A downgrade sees an unknown column and ignores it. State this in the migration comment; the design spends real effort on `orca-data.json` downgrade safety and the orchestration DB deserves the same.
+**Two of these were shared-core changes driven by one mode, and were reviewed as such, not slipped in as UI tasks:**
+
+- **The Rust column.** `decision_gates` gained a nullable column (v7→v8). Migration story: the column is nullable and read defensively, so gates created by an older build read `origin_message_id = null` and skip the reply insert (behaving exactly as today). A downgrade sees an unknown column and ignores it. State this in the migration comment; the design spends real effort on `orca-data.json` downgrade safety and the orchestration DB deserves the same.
 - **`preamble.ts` is the worker behavioral contract**, pinned by an 89-line snapshot at `src/main/runtime/orchestration/__snapshots__/preamble.test.ts.snap`. The regenerated snapshot diff *is* the reviewable artifact. Already-running fleets keep their injected preamble until their workers restart.
 
 ### 8.2 Two orchestrators, one word
@@ -707,7 +712,7 @@ The `Coordinator` **class** (`coordinator.ts:78-525`) is a deterministic dispatc
 
 Every surface addresses one or the other explicitly. `MissionStrip` addresses the class (stop dispatching, stop and interrupt). `OrchestratorPane` addresses the agent (a composer sending a structured `orchestration.send`, not raw keystrokes, so the exchange is durable and auditable).
 
-Relatedly: **`ask` and gates are disjoint subsystems that share a vocabulary.** `ask` is agent↔agent — it blocks on a *reply*, which only another agent produces; the `Coordinator` class has no reply path, so `ask --to <autopilot-handle>` runs to timeout today. Gates are the human checkpoint. Phase 0 makes `ask --task` also reach a human, which is better but means `ask` has two possible answerers — see §13.
+Relatedly: **`ask` and gates are disjoint subsystems that share a vocabulary.** `ask` is agent↔agent — it blocks on a *reply*, which only another agent produces; the `Coordinator` class has no reply path, so `ask --to <autopilot-handle>` runs to timeout today. Gates are the human checkpoint. Phase 0 made `ask --task` also reach a human, which is better but means `ask` has two possible answerers — see §13. That is live at HEAD, CLI included, so the question is no longer hypothetical.
 
 ### 8.3 Layout
 
@@ -1014,7 +1019,7 @@ Without the pin, a Phase 0 build would read `{"appMode":"alab"}` from disk and a
 
 The selector and ALab's manifest land together; ALab's *features* arrive behind it incrementally. Remove the pin.
 
-- **ALab Phase 0 engine wiring** (§8.1) — five changes, incl. the Rust column and the preamble snapshot.
+- **ALab Phase 0 engine wiring** (§8.1) — five changes, incl. the Rust column and the preamble snapshot. *Four landed ahead of this phase (`2ebbe5f8f`, `1bef9915a`); only `mission-progress.ts` + `runList` counters remain.*
 - Menu template split + `app-mode-menu-section.ts` + `fleet-menu-section.ts`; `app-mode-side-effects.ts`.
 - `AppModePane.tsx` + `app-mode-search.ts` + the `useSettingsNavigationMetadata.ts` import; `AppModeScopeBadge`; the switch toast with Undo; the `app-modes` feature tip at index 0.
 - `orca mode show`/`set` + `appMode` in `orca status --json`.

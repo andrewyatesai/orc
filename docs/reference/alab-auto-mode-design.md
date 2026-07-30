@@ -238,18 +238,74 @@ Not a wrapper around `sendTerminalAgentPrompt`'s fixed 500 ms + bare `\r`. Phase
    treats it as proof a turn was submitted (`agent-hooks/server.ts:827`). The ladder:
 
    1. **Same-pane, post-arm, adapter-certified `UserPromptSubmit`** (or equivalent)
-      correlated to the submitted prompt → `submitted: yes`.
+      attributed to this operation → `submitted: yes`.
    2. **Adapter-certified native state transition** → `yes` only where the adapter
       certifies it; otherwise `unknown`.
    3. **Display/content change** → observation only. Generic `agent-working` is any
       non-working→working title transition (`shared/agent-title-status.ts:48`) with no
       operation or prompt correlation, and a content change can be a repaint, a stale
       spinner, or a terminal query reply. **Neither may return `yes`** — uncertified
-      evidence returns `submitted: 'unknown'`, which §5.2 already forbids retrying.
+      evidence returns `submitted: 'unknown'`, which forbids retrying.
+
+### 5.2a Measured: the R0 spike result
+
+The spike §12 gates on has run (2026-07-30, against HEAD), and its verifier refuted
+enough of it to change this section. What survived:
+
+| Agent | Submit hook | Per-turn key | Native title state | Verdict |
+| --- | --- | --- | --- | --- |
+| claude | `UserPromptSubmit` (prompt text) | ✗ | ✓ | certify via lease (below) |
+| codex | `UserPromptSubmit` (prompt text) | ✗ | ✓ working | certify via lease |
+| cursor | `beforeSubmitPrompt` | ✗ | ✗ (title is Orca-synthesized — circular) | certify via lease |
+| droid | `UserPromptSubmit` | ✗ | ✗ (defers to hook) | certify via lease; **no fallback tier** |
+| grok | `user_prompt_submit` | ✗ | collapse | certify via lease |
+| opencode | ✗ (no submit event) | **✓ `promptInteractionKey`** | ✗ | certify; plugin has a documented drop path |
+| gemini | ✗ (`BeforeAgent`, prompt-less) | ✗ | ✓ | **`unknown` only** |
+
+Only claude (2.1.220) and codex (0.146.0) are installed on this machine, so **five rows
+rest on Orca-authored fixtures** — which prove Orca's *parser* accepts a prompt, not
+that the vendor CLI emits one. That is the same standard the spike used to withhold
+certification from gemini, so those five are provisional until a live probe; §10's
+matrix reads accordingly.
+
+**The decisive finding: nothing in the payload distinguishes two submissions to the
+same pane seconds apart.** `promptInteractionKey` exists only for
+opencode/mimo-code/command-code; `stateStartedAt` deliberately does *not* advance when
+consecutive events share a state (`agent-hooks/server.ts:871`) — the manager's normal
+case is submitting into an already-`working` pane; `receivedAt` is watermark-inflated
+on relayed panes; and prompt text cannot be a key because it is capped to a 200-char
+single-line preview (`agent-status-field-normalization.ts:13`) with lossy dispatch
+compaction, after the paste path already rewrote ESC bytes. Orca's own code states the
+limit: *"hooks prove a turn was submitted but not which UI launched the terminal"*
+(`server.ts:938`).
+
+**The resolution is the lease, not the payload.** §5.1's input coordinator already
+grants *exclusive automated write* on the pane, and §5.4 turns any human input into a
+preemption. So within a held lease, the first post-arm submit hook on that pane **is**
+this operation's — the ambiguity the payload cannot resolve is one the coordinator
+excludes by construction. That makes attribution sound without a new protocol, with two
+honest caveats:
+
+- **Nesting.** A child agent of the same type posts to the same endpoint and pane, and
+  `inheritedFromActivePane` is `false` for identical types
+  (`agent-status-identity.ts:59`), so a claude-inside-claude child's submit is
+  indistinguishable from the lead's. Since a child's submit is causally downstream of
+  the manager's, first-after-arm still attributes correctly; a *second* hook inside the
+  window is not evidence of a second submission and must not be read as one.
+- **`launchToken`** (`agent-hook-listener.ts:278`, minted at `orca-runtime.ts:22552`,
+  posted back by every hook script) is the better pane/incarnation discriminator than a
+  hook `source` field and is already plumbed — R0 uses it to reject stale panes. It is
+  inherited by children, so it does not solve nesting either.
+
+**One real hole, and R0 must close it:** the HTTP hook handler drops events for panes
+in the closed-tab set *before* normalization and answers `204` regardless
+(`server.ts:1823,1830`), and that set is cleared only at server stop. A real submit can
+therefore be silently discarded with a success response. The verifier must be able to
+tell "no hook arrived" from "the hook was dropped", or it will report `unknown` for
+submissions that in fact landed.
 
    So the certified manager-backend allowlist (§6.5) and the "verified submit" row of
-   §10 are keyed on **which agents emit a correlatable submit hook**, and R0's first
-   task (§12) measures that per agent instead of assuming it.
+   §10 are keyed on this table, now measured rather than assumed.
 
    ▸ **OSC-133 command-start is not available and was removed as the top tier**
    (v2 claimed it). The fact union carries only command-*finished* (133;D)
@@ -292,22 +348,30 @@ ordinal, with bounded per-PTY retention, an explicit `cursor_gap` resync result,
 atomic replay-then-park registration, and deterministic fairness across panes. The
 incarnation component is what makes it agree with §5.1's pinning contract.
 
-▸▸ **Corrected — no facts flow headlessly, and R0's sensing work is bigger, not
-smaller.** An intermediate v3 edit claimed the agent-state callbacks escape the
-headless gate because they sit outside the `terminalSideEffectConsumerAvailable`
-spread. They do sit outside it, but every one of them calls
-`recordTerminalSideEffectFact`, which returns immediately when there is no consumer
-(`orca-runtime.ts:8174`) — and the sink then forwards to a `BrowserWindow`. Synthetic
-hook-title ingestion likewise returns with no window (`index.ts:1770`). So under
-`orca serve`, and for remote-runtime panes, **the entire fact stream is absent**, not
-just `bell`/`command-finished`/`pr-link`/`2031-subscribe`.
+▸▸▸ **Corrected three times; this version is measured.** The fact *stream* is indeed
+consumer-gated — `recordTerminalSideEffectFact` returns immediately with no consumer
+(`orca-runtime.ts:8246`) and the sink forwards to a `BrowserWindow`. But an earlier
+edit then over-claimed that agent state itself is absent headlessly. It is **not**:
+`applyTrackedPtyTitle` (`orca-runtime.ts:8510-8529`) sits outside the gate, computes
+`detectAgentStatusFromTitle`, writes `pty.lastAgentStatus`, and resolves tui-idle
+waiters — which is precisely how the existing `terminal.wait --for tui-idle` already
+works under `orca serve` (`rpc/methods/terminal.ts:922`). The hook tap
+`subscribeEnrichedStatus` likewise runs headlessly by design (`server.ts:599,522`).
 
-R0 therefore builds a **main-owned event bus with a bounded per-PTY journal**, with
-the renderer, `terminal.await`, and the health service as independent subscribers —
-fact production no longer keyed to renderer presence, and the scanners enabled per
-watched or health-relevant PTY. This is the load-bearing R0 item; the design's whole
-sensing story rests on it. Trackers are also rebuilt at the window boundary
-(`:8538`), so a long-lived watcher must survive a tracker swap mid-await.
+So R0's sensing item is a **publication** problem, not a production one, and it is
+correspondingly smaller: state is computed, it just has nowhere to go. R0 adds the
+main-owned bus + bounded per-PTY journal as the *publication* layer, with the
+renderer, `terminal.await`, and the health service as independent subscribers, and
+leaves the deliberate headless skip of the per-chunk bell/133/URL scans
+(`orca-runtime.ts:8443`, a commented perf decision) intact — enabling those per watched
+or health-relevant PTY only. Two constraints the journal must satisfy that today's
+surfaces do not: the enriched-status tap has **no replay and no per-pane sequence**
+(`server.ts:598`), and `getStatusSnapshot` is last-status-per-pane, so a
+`working→done` pair collapses between polls; and trackers are disposed wholesale at the
+window boundary (`orca-runtime.ts:8616`), so a long-lived watcher must survive that
+swap. Tier 1 is additionally gated on the agent-status-hooks setting
+(`index.ts:834`) — with hooks off it does not exist at all, which §6.5's capability
+probe must detect rather than silently degrade.
 
 `terminal.turn` is then a convenience composition (submit + await), not the primitive.
 
@@ -783,9 +847,12 @@ roadmap Phase 1 (mode selector) only.
 | live-resume rotation (R1b) | per-provider proof | per-provider proof | ❌ | ❌ | per-provider proof |
 | manager seat | certified backends³ | certified backends³ | workers only | ❌ | certified backends³ |
 
-¹ `submitted: 'yes'` only for agents whose adapter certifies a correlatable submit
-signal (§5.2); everything else honestly reports `'unknown'`. The R0 spike fills this in
-per agent — it is measured, not assumed.
+¹ Per the measured table in §5.2a: claude, codex, cursor, droid and grok certify via
+the input lease (five of those rows still provisional on a live probe — only claude and
+codex were installed when the spike ran); opencode certifies via its
+`promptInteractionKey`; gemini reports `'unknown'` only. Attribution comes from the
+exclusive lease, not the payload — no agent except opencode/mimo-code/command-code
+carries a per-turn key.
 ² Unattended shared-store rotation is out of scope for v1: Orca cannot prove such a
 store is drained (§8.2a).
 ³ Not "any of the ~34 catalog agents" — the allowlist is whatever passes the §6.5
@@ -821,10 +888,13 @@ atomicity) + audit ledger; doc reconciliation; continuous provider-session captu
 the load-bearing item: no facts exist headlessly today) and the `provider-limit` fact
 on it; input coordinator + `submitAgentPrompt` + `await` with `{runtimeId,
 ptyIncarnationId, eventSeq}` cursors + CLI faces, behind the experimental flag; the
-grant check *and its R0 issuer* (§6.6). **First task, before the rest:** measure the
-submit-evidence ladder per agent against real claude and codex — which emit a
-correlatable `UserPromptSubmit`, which only transition state, which give nothing —
-because §5.2's tiers and §10's matrix are keyed on that answer. *Done when:* an agent
+grant check *and its R0 issuer* (§6.6). ~~First task: measure the submit-evidence
+ladder per agent.~~ **Done — §5.2a.** It changed three things: attribution comes from
+the input lease rather than the payload (no per-turn key exists for five of seven
+agents), the sensing item is publication not production (so smaller), and the
+closed-tab hook drop (`server.ts:1823`) must be made detectable. Remaining spike work:
+a live probe of cursor/droid/grok/opencode/gemini, whose rows rest on Orca-authored
+fixtures rather than observed vendor behavior. *Done when:* an agent
 in one terminal drives a verified turn against a sibling TUI agent via the CLI alone —
 local and SSH — with honest `submitted` evidence (`yes` only where certified,
 `unknown` otherwise); kill-tests at each submit phase produce truthful phase results;
