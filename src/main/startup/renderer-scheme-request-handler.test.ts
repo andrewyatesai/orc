@@ -6,6 +6,7 @@ import {
   RENDERER_ORIGIN,
   contentTypeForPath,
   createRendererSchemeRequestHandler,
+  crossOriginIsolationEnabled,
   isRendererSchemeSenderUrl,
   rendererPageUrl
 } from './renderer-scheme-request-handler'
@@ -51,6 +52,14 @@ describe('contentTypeForPath', () => {
   })
 })
 
+describe('crossOriginIsolationEnabled', () => {
+  it("is OFF by default and enables only on the exact documented '1'", () => {
+    expect(crossOriginIsolationEnabled({})).toBe(false)
+    expect(crossOriginIsolationEnabled({ ORCA_CROSS_ORIGIN_ISOLATION: '0' })).toBe(false)
+    expect(crossOriginIsolationEnabled({ ORCA_CROSS_ORIGIN_ISOLATION: '1' })).toBe(true)
+  })
+})
+
 describe('createRendererSchemeRequestHandler', () => {
   let rootDir: string
   let outsideDir: string
@@ -64,6 +73,8 @@ describe('createRendererSchemeRequestHandler', () => {
     mkdirSync(join(rootDir, 'assets'))
     writeFileSync(join(rootDir, 'assets', 'entry.js'), 'console.log(1)')
     writeFileSync(join(rootDir, 'assets', 'a b.js'), 'console.log(2)')
+    writeFileSync(join(rootDir, 'assets', 'engine.wasm'), Buffer.from([0x00, 0x61, 0x73, 0x6d]))
+    writeFileSync(join(rootDir, 'assets', 'main.css'), 'body{}')
     writeFileSync(join(outsideDir, 'secret.txt'), 'secret')
     mounts.clear()
     handler = createRendererSchemeRequestHandler({ rootDir, mounts })
@@ -134,6 +145,57 @@ describe('createRendererSchemeRequestHandler', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toBe('text/javascript')
     expect(await response.text()).toBe('')
+  })
+
+  describe('cross-origin isolation headers (moonshot rung 2)', () => {
+    it('serves COOP+COEP on documents, including the root default', async () => {
+      for (const url of ['orca://app/index.html', 'orca://app/']) {
+        const response = await get(url)
+        expect(response.headers.get('cross-origin-opener-policy'), url).toBe('same-origin')
+        expect(response.headers.get('cross-origin-embedder-policy'), url).toBe('credentialless')
+      }
+    })
+
+    it('serves COEP but not COOP on scripts — worker entrypoints need their own COEP', async () => {
+      const response = await get('orca://app/assets/entry.js')
+      expect(response.headers.get('cross-origin-embedder-policy')).toBe('credentialless')
+      expect(response.headers.get('cross-origin-opener-policy')).toBeNull()
+    })
+
+    it('serves neither on non-script subresources', async () => {
+      for (const url of ['orca://app/assets/engine.wasm', 'orca://app/assets/main.css']) {
+        const response = await get(url)
+        expect(response.headers.get('cross-origin-opener-policy'), url).toBeNull()
+        expect(response.headers.get('cross-origin-embedder-policy'), url).toBeNull()
+      }
+    })
+
+    it('keeps document headers on HEAD responses', async () => {
+      const response = await handler(new Request('orca://app/index.html', { method: 'HEAD' }))
+      expect(response.headers.get('cross-origin-opener-policy')).toBe('same-origin')
+      expect(response.headers.get('cross-origin-embedder-policy')).toBe('credentialless')
+    })
+
+    it('omits headers on error responses', async () => {
+      const response = await get('orca://app/missing.html')
+      expect(response.status).toBe(404)
+      expect(response.headers.get('cross-origin-opener-policy')).toBeNull()
+      expect(response.headers.get('cross-origin-embedder-policy')).toBeNull()
+    })
+
+    it('serves no isolation headers anywhere at the opt-in default (off)', async () => {
+      const disabled = createRendererSchemeRequestHandler({
+        rootDir,
+        mounts,
+        crossOriginIsolation: crossOriginIsolationEnabled({})
+      })
+      for (const url of ['orca://app/index.html', 'orca://app/assets/entry.js']) {
+        const response = await disabled(new Request(url))
+        expect(response.status, url).toBe(200)
+        expect(response.headers.get('cross-origin-opener-policy'), url).toBeNull()
+        expect(response.headers.get('cross-origin-embedder-policy'), url).toBeNull()
+      }
+    })
   })
 
   it('serves mounts registered after handler creation, escape-checked', async () => {

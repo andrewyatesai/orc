@@ -79,9 +79,30 @@ export function contentTypeForPath(filePath: string): string {
   return CONTENT_TYPE_BY_EXTENSION[extension] ?? 'application/octet-stream'
 }
 
+/**
+ * Rung-2 COOP/COEP headers, OPT-IN (ORCA_CROSS_ORIGIN_ISOLATION=1): the COOP
+ * browsing-context-group swap costs a measured ~35ms of window load (89→125ms
+ * A/B, medians n=6) and NOTHING in the shipped renderer consumes
+ * crossOriginIsolated yet. The wiring is validated end-to-end (webview guests
+ * LOAD under COEP — browser-tab e2e; isolation probe true; durable+growable
+ * SAB works), so the first real consumer (aterm wasm threads) flips the
+ * default and nets the swap cost against its win. Evaluated once per handler
+ * install — flipping mid-session would split documents and their workers
+ * across incompatible embedder policies.
+ */
+export function crossOriginIsolationEnabled(env: NodeJS.ProcessEnv): boolean {
+  return env.ORCA_CROSS_ORIGIN_ISOLATION === '1'
+}
+
 export type RendererSchemeHandlerOptions = {
   /** Directory the scheme serves (out/renderer). Resolved once; escapes rejected. */
   rootDir: string
+  /**
+   * Serve the COOP/COEP pair that makes orca://app documents crossOriginIsolated
+   * (durable SAB + wasm threads — moonshot rung 2). Default on; the install site
+   * flips it off via the ORCA_DISABLE_CROSS_ORIGIN_ISOLATION kill-switch.
+   */
+  crossOriginIsolation?: boolean
   /**
    * Extra first-segment mounts, e.g. 'feature-wall-assets' → <resources dir>.
    * Same-origin so CSP 'self' covers them; each mount root is escape-checked
@@ -168,9 +189,28 @@ export function createRendererSchemeRequestHandler(
       return errorResponse(404, 'not found')
     }
 
-    const headers = {
-      'content-type': contentTypeForPath(filePath),
+    const contentType = contentTypeForPath(filePath)
+    const headers: Record<string, string> = {
+      'content-type': contentType,
       'content-length': String(size)
+    }
+    // COOP/COEP scoped by response role (per HTML spec, verified 2026-07-30):
+    // - documents (.html): the only place isolation takes effect; COOP is
+    //   top-level-document-only, so it goes nowhere else.
+    // - scripts (.js): COEP only — a network-fetched dedicated worker takes its
+    //   embedder policy from its OWN response (no same-origin inheritance; only
+    //   blob:/data: workers inherit), so the aterm render worker script must
+    //   carry it or fail to load. Ignored on non-worker scripts, so blanket-on-JS
+    //   is safe.
+    // - everything else (.wasm, .css, images…): nothing — all same-origin, and
+    //   credentialless waives CORP for no-credential cross-origin fetches anyway.
+    if (options.crossOriginIsolation !== false) {
+      if (contentType.startsWith('text/html')) {
+        headers['cross-origin-opener-policy'] = 'same-origin'
+        headers['cross-origin-embedder-policy'] = 'credentialless'
+      } else if (contentType === 'text/javascript') {
+        headers['cross-origin-embedder-policy'] = 'credentialless'
+      }
     }
     if (request.method === 'HEAD') {
       return new Response(null, { status: 200, headers })

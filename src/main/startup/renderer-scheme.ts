@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { protocol, type Session } from 'electron'
 import {
   createRendererSchemeRequestHandler,
+  crossOriginIsolationEnabled,
   RENDERER_SCHEME
 } from './renderer-scheme-request-handler'
 
@@ -76,7 +77,11 @@ export function installRendererSchemeHandler(targetSession?: Session): void {
     RENDERER_SCHEME,
     createRendererSchemeRequestHandler({
       rootDir: join(__dirname, '../renderer'),
-      mounts: rendererSchemeMounts
+      mounts: rendererSchemeMounts,
+      // Opt-in read per install, not per request: responses flipping isolation
+      // mid-session would leave documents and their workers split across
+      // incompatible embedder policies.
+      crossOriginIsolation: crossOriginIsolationEnabled(process.env)
     })
   )
 }

@@ -45,6 +45,21 @@ Re-run any time: `node tools/orc-electron/run-killcheck.mjs` (or `pnpm fork:kill
 It re-derives the verdict; if a future Electron major flips it to `FORK-PATCH-JUSTIFIED`,
 the origin-isolation patch re-enters scope.
 
+**Status 2026-07-30 — rung-2 wiring SHIPPED + VALIDATED in-app; OPT-IN pending a
+consumer.** The `orca://app` handler (`src/main/startup/renderer-scheme-request-handler.ts`)
+serves `COOP: same-origin` + `COEP: credentialless` on documents, and `COEP:
+credentialless` on script responses too — the spec has **no same-origin inheritance for
+network-fetched dedicated workers** (only blob:/data: workers inherit), so the aterm
+render worker's entry script must carry its own COEP or fail to load. The Phase-0
+guest-LOAD caveat is CLOSED: with the headers on, the full browser-tab e2e suite passes
+(6/6 — real `<webview>` guests load cross-origin HTTP content, retain form state,
+handle new-tab gestures), the main window probes `crossOriginIsolated === true` on
+`orca://app`, and durable+growable `SharedArrayBuffer` works. **Default is OFF**
+(`ORCA_CROSS_ORIGIN_ISOLATION=1` enables, read once per handler install): the COOP
+browsing-context-group swap measures ~35ms of window load (89→125ms A/B, medians n=6)
+and nothing in the shipped renderer consumes isolation yet — the first real consumer
+(aterm wasm threads) flips the default and nets the swap cost against its win.
+
 ## What the fork is still genuinely for (needs a real rebuild — Rung 3/4)
 
 The kill-check retires the *origin-isolation* item, not the fork. These remain real and
@@ -79,10 +94,12 @@ rung-2 — no fork rebuild. Turning that on in the REAL app is a bounded, gauntl
    `file://` during migration for the dev-server path / rollback).
 3. **Then COOP:same-origin + COEP:credentialless on the `orca://` responses** → `crossOriginIsolated`
    → durable/growable SAB + high-res timers + **wasm threads** (+1.8–2.9× on parallelizable stages).
-4. **In-app Phase-0 confirm** (the kill-check caveat): verify the app's REAL `<webview>` guests (browser
-   tabs, their partitions + preload) LOAD — not just attach — under COEP before enabling in prod. If a
-   real guest breaks, that flips the fork verdict to `FORK-PATCH-JUSTIFIED` for the origin-isolation
-   patch after all.
+   ✅ wired + validated 2026-07-30, OPT-IN via `ORCA_CROSS_ORIGIN_ISOLATION=1`
+   (see the status note above for the measured COOP swap cost and default rationale).
+4. **In-app Phase-0 confirm** (the kill-check caveat): ✅ CLOSED 2026-07-30 — with the headers on,
+   the browser-tab e2e suite passes 6/6 (real `<webview>` guests LOAD cross-origin HTTP content,
+   retain form state, handle new-tab gestures), `crossOriginIsolated === true` probed in the live
+   main window, durable+growable SAB verified. The origin-isolation fork patch stays retired.
 
 Risk: invasive (serving + IPC trust). Gate every step on `pnpm gauntlet` + the existing e2e; ship
 behind a flag; keep the `file://` path as rollback. This is product-surface work, not a fork rebuild.
