@@ -196,10 +196,14 @@ describe('installNativeDeps (via deployAndLaunchRelay)', () => {
     const reinstall = execCalls.findLast((c) => c.includes('npm install')) ?? ''
     expect(reinstall).toContain('@parcel/watcher@')
     expect(reinstall).not.toContain('node-pty@')
-    // The skip path must stop here: rebuilding is pointless on a host with no compiler.
-    // (The fork's FIRST attempt folds a scoped `npm rebuild` into its hardened install
-    // command — that attempt failed before the fold ran, so only the reinstall matters.)
-    expect(reinstall).not.toContain('npm rebuild')
+    // Security: dropping node-pty removes the gyp build, not the risk of an unrelated
+    // transitive lifecycle script, so the skip path must keep whole-tree scripts off.
+    expect(reinstall).toContain('--ignore-scripts ')
+    expect(reinstall).not.toContain('--ignore-scripts=false')
+    // Only the trusted dep may be rebuilt by name, and never node-pty.
+    const skipRebuild = execCalls.findLast((c) => c.includes('npm rebuild')) ?? ''
+    expect(skipRebuild).toContain('@parcel/watcher')
+    expect(skipRebuild).not.toContain('node-pty')
     // node-pty is legitimately absent, so its probe result must not raise the degraded-mode alarm.
     const warnMessages = warnSpy.mock.calls.map((args) => String(args[0] ?? ''))
     expect(warnMessages.some((m) => m.includes('[ssh-relay][WATCHER-MISSING-NPTY-SKIPPED]'))).toBe(
@@ -233,7 +237,8 @@ describe('installNativeDeps (via deployAndLaunchRelay)', () => {
     expect(vi.mocked(finalizeInstall)).toHaveBeenCalledTimes(1)
     const execCalls = vi.mocked(execCommand).mock.calls.map(([, c]) => c)
     const reinstall = execCalls.findLast((c) => c.includes('npm install')) ?? ''
-    expect(reinstall).not.toContain('npm rebuild')
+    expect(reinstall).toContain('--ignore-scripts ')
+    expect(reinstall).not.toContain('--ignore-scripts=false')
   })
 
   it('hard-fails on a gyp error when the remote toolchain is actually complete', async () => {

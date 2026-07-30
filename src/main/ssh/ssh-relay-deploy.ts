@@ -1013,9 +1013,11 @@ async function installNativeDepsWithoutNodePty(
   const resetCommand = resetNativeDepsCommand(hostPlatform, [
     ...new Set<RelayNativeDepName>([...resetDeps, 'node-pty'])
   ])
-  // Why: no `npm rebuild` here — this host provably has no compiler, so any gyp run
-  // would fail; the remaining dep loads from its prebuilt. Scripts stay enabled on
-  // install because with node-pty pruned, gyp never runs anyway.
+  // Why: same scripts scoping as installNativeDeps — dropping node-pty removes the
+  // gyp build, NOT the risk of an unrelated transitive preinstall/postinstall, and
+  // this tree has no lockfile pinning it. Whole-tree lifecycle scripts stay off; the
+  // one trusted dep is then rebuilt by name, tolerating failure because this host has
+  // no compiler by definition and the caller's probe reports an unloadable watcher.
   // Why: POSIX-only command shape (`;` chaining, `2>&1`) — safe because the only caller is gated on a
   // linux platform. Widen that gate and this needs the Windows branch installNativeDeps already has.
   await execHostCommand(
@@ -1025,10 +1027,34 @@ async function installNativeDepsWithoutNodePty(
       hostPlatform,
       nodePath,
       remoteDir,
-      `${resetCommand}; npm install --ignore-scripts=false --omit=dev --no-audit --no-fund ${installArgs} 2>&1`
+      `${resetCommand}; npm install --ignore-scripts --omit=dev --no-audit --no-fund ${installArgs} 2>&1`
     ),
     { timeoutMs: NATIVE_DEPS_COMMAND_TIMEOUT_MS, signal }
   )
+  const rebuildArgs = Object.keys(deps).map(shellEscape).join(' ')
+  try {
+    await execHostCommand(
+      conn,
+      hostPlatform,
+      commandWithNodePath(
+        hostPlatform,
+        nodePath,
+        remoteDir,
+        `npm rebuild --ignore-scripts=false ${rebuildArgs} 2>&1`
+      ),
+      { timeoutMs: NATIVE_DEPS_COMMAND_TIMEOUT_MS, signal }
+    )
+  } catch (err) {
+    if (isUnconfirmedSshCommandTermination(err)) {
+      throw err
+    }
+    signal?.throwIfAborted()
+    // Why: the watcher ships prebuilts, so a failed rebuild is usually harmless; the
+    // caller's require() probe decides whether file watching is actually dead.
+    console.warn(
+      `[ssh-relay][NPTY-SKIP-REBUILD-SKIPPED] ${remoteDir}: ${(err as Error).message}`
+    )
+  }
 }
 
 /**

@@ -23,6 +23,7 @@
 // own serialize cache) and the worker is terminated; the next pane open lazily
 // recreates a fresh one. Retirement is one-shot per generation.
 
+import AtermRenderWorker from './aterm-render-worker?worker'
 import { loadAterm } from './load-aterm'
 import { e2eConfig } from '@/lib/e2e-config'
 import type {
@@ -347,9 +348,11 @@ export async function loadSharedWorkerFontClass(cls: AtermFontClass): ReturnType
 }
 
 const productionHost = createAtermSharedWorkerHost({
-  // Vite (renderer worker:{format:'es'}) bundles the worker from this URL.
-  createWorker: () =>
-    new Worker(new URL('./aterm-render-worker.ts', import.meta.url), { type: 'module' }),
+  // Why the `?worker` form, not `new URL(..., import.meta.url)`: rolldown-vite
+  // collapses that pattern to `self.location.href`, which under orca://app is
+  // index.html — the worker then fails to load and every pane silently drops to
+  // the in-process engine. `?worker` emits the asset and references it by hash.
+  createWorker: () => new AtermRenderWorker(),
   loadFonts: loadSharedWorkerFonts,
   loadFontClass: loadSharedWorkerFontClass
 })

@@ -66,7 +66,8 @@ export function makeRepairToolchainSkipExecResponses(): ExecResponse[] {
     '', // SFTP-namespace install-owner marker (repair)
     { reject: 'gyp ERR! stack Error: not found: make' },
     'PKG apk', // toolchain probe: no HAVE lines
-    '', // reset both deps + reinstall without node-pty
+    '', // reset both deps + reinstall without node-pty (scripts off)
+    '', // npm rebuild @parcel/watcher (name-scoped, tolerated on failure)
     'ORCA-NATIVE-DEPS-MISSING:node-pty\nMISSING\n', // watcher probe: only node-pty still absent
     '', // cat probe stderr
     '', // rm -f probe stderr
@@ -117,8 +118,10 @@ export function makeExecResponses(opts: {
     ]
   }
   if (opts.npmInstall !== 'ok') {
-    // Skip path, exactly as production runs it: no chmod-prebuilds (node-pty is gone) and no rebuild
-    // (it provably can't compile here). The probe still runs to catch a dead @parcel/watcher.
+    // Skip path, exactly as production runs it: no chmod-prebuilds (node-pty is gone); the
+    // install keeps whole-tree lifecycle scripts off and is followed by a name-scoped rebuild
+    // of the one trusted dep, whose failure is tolerated. The probe still runs to catch a
+    // dead @parcel/watcher.
     return [
       '__ORCA_REMOTE_PLATFORM__ Linux x86_64',
       '/home/u',
@@ -126,7 +129,8 @@ export function makeExecResponses(opts: {
       '', // chmod +x node
       opts.npmInstall, // npm install rejects on the missing compiler
       opts.toolchainProbe ?? 'HAVE python3\nPKG dnf',
-      '', // rm -rf node-pty + reinstall without it
+      '', // rm -rf node-pty + reinstall without it (scripts off)
+      '', // npm rebuild @parcel/watcher (name-scoped, tolerated on failure)
       // node-pty is always reported missing here; the probe never resolves OK, so cat + rm both run.
       opts.nodePtySkipWatcher === 'missing'
         ? 'ORCA-NATIVE-DEPS-MISSING:node-pty,@parcel/watcher\nMISSING\n'

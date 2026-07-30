@@ -12,6 +12,7 @@ import {
   createRendererWorkerChunkBudgetPlugin
 } from './build-plugins/renderer-chunk-budget'
 import { createRendererContentSecurityPolicyPlugin } from './build-plugins/renderer-content-security-policy'
+import { createWorkerUrlGuardPlugin } from './build-plugins/worker-url-guard'
 import { computeOrcaBuildInfoLiteral } from './build-plugins/orca-build-info'
 import packageJson from './package.json' with { type: 'json' }
 
@@ -325,7 +326,8 @@ export const electronViteConfig: UserConfig = {
       createRendererChunkBudgetPlugin('desktop'),
       // Why: inject a strict enforcing CSP into the packaged renderer HTML (build-only, so
       // dev HMR keeps its relaxed policy). See build-plugins/renderer-content-security-policy.ts.
-      createRendererContentSecurityPolicyPlugin()
+      createRendererContentSecurityPolicyPlugin(),
+      createWorkerUrlGuardPlugin()
     ],
     worker: {
       format: 'es',
