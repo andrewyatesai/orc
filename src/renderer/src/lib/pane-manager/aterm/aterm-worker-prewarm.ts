@@ -1,4 +1,6 @@
 import { acquireAtermSharedWorkerPane } from './aterm-shared-render-worker'
+import { loadAterm } from './load-aterm'
+import { markAtermWarmPhase } from './aterm-first-terminal-frame-milestone'
 import { scheduleAfterInputQuiet } from '@/lib/input-quiet-scheduler'
 import { e2eConfig } from '@/lib/e2e-config'
 
@@ -24,6 +26,10 @@ export type AtermWorkerPrewarmHold = { release: () => void }
 
 export type AtermWorkerPrewarmDeps = {
   acquire: () => Promise<AtermWorkerPrewarmHold>
+  /** The main-thread half of the warm (wasm compile + primary font fetch), run
+   *  BEFORE acquire so each half gets its own milestone. Free: acquire's own
+   *  font load awaits the very same cached promise. */
+  loadEngineAssets: () => Promise<unknown>
   /** Schedule the idle prewarm attempt; returns a canceller. */
   schedule: (run: () => void) => () => void
   holdMs: number
@@ -63,9 +69,17 @@ export function createAtermWorkerPrewarm(deps: AtermWorkerPrewarmDeps): AtermWor
       return
     }
     warmStarted = true
+    markAtermWarmPhase('warm-start')
     deps
-      .acquire()
+      .loadEngineAssets()
+      .then(() => {
+        markAtermWarmPhase('wasm-ready')
+        return deps.acquire()
+      })
       .then((pane) => {
+        // Stamped before the race check: the worker IS warm either way, and the
+        // real-pane branch below is exactly the case worth timing.
+        markAtermWarmPhase('worker-ready')
         if (paneSeen) {
           // A real pane raced ahead and owns the worker now — the warm-up
           // already happened; drop the redundant slot immediately.
@@ -111,6 +125,7 @@ export function createAtermWorkerPrewarm(deps: AtermWorkerPrewarmDeps): AtermWor
 
 const productionPrewarm = createAtermWorkerPrewarm({
   acquire: acquireAtermSharedWorkerPane,
+  loadEngineAssets: loadAterm,
   schedule: (run) =>
     scheduleAfterInputQuiet(run, {
       delayMs: PREWARM_IDLE_DELAY_MS,

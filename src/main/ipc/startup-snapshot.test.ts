@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { StartupSnapshot } from '../../shared/startup-snapshot'
 import { STARTUP_SNAPSHOT_CHANNEL } from '../../shared/startup-snapshot'
 import type { Store } from '../persistence'
@@ -60,11 +60,16 @@ function invokeSnapshot(senderId = 7): StartupSnapshot {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers()
   handlers.clear()
   listProfilesMock.mockReset().mockReturnValue([{ id: 'profile-1' }])
   listEnvironmentsMock.mockReset().mockReturnValue([{ id: 'env-1', name: 'Env', endpoints: [] }])
   setTrustedStartupSnapshotWebContentsId(null)
   setRepoListSideEffectsRunner(null)
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('registerStartupSnapshotHandler', () => {
@@ -137,17 +142,54 @@ describe('registerStartupSnapshotHandler', () => {
   it('replays the repos:list side effects exactly once, before repos are read', () => {
     const store = createFakeStore()
     const promotedRepo = { id: 'r1', connectionId: null, executionHostId: null, kind: 'git' }
-    const runner = vi.fn(() => {
+    const runDeferringGitProbe = vi.fn(() => {
       // Simulates the #8125 folder→git promotion mutating the store mid-request.
       ;(store.getRepos as ReturnType<typeof vi.fn>).mockReturnValue([promotedRepo])
+      return null
     })
-    setRepoListSideEffectsRunner(runner)
+    setRepoListSideEffectsRunner(runDeferringGitProbe)
     registerStartupSnapshotHandler(store)
 
     const snapshot = invokeSnapshot()
-    expect(runner).toHaveBeenCalledTimes(1)
+    expect(runDeferringGitProbe).toHaveBeenCalledTimes(1)
     // No promotion lost: the payload carries the post-promotion rows.
     expect(snapshot.repos).toEqual([promotedRepo])
+  })
+
+  // The git-touching half of promotion spawns git synchronously; blocking the
+  // snapshot on it would delay settings/ui/keybindings/session for every consumer.
+  it('returns the payload without waiting on the deferred git probe', async () => {
+    const store = createFakeStore()
+    const probedRepo = { id: 'r1', connectionId: null, executionHostId: null, kind: 'git' }
+    const probeGitCandidates = vi.fn(() => {
+      ;(store.getRepos as ReturnType<typeof vi.fn>).mockReturnValue([probedRepo])
+    })
+    setRepoListSideEffectsRunner(() => probeGitCandidates)
+    registerStartupSnapshotHandler(store)
+
+    const snapshot = invokeSnapshot()
+    // The handler is already done and the probe has not run: no spawn was awaited.
+    expect(probeGitCandidates).not.toHaveBeenCalled()
+    expect(snapshot.repos).toHaveLength(2)
+
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(probeGitCandidates).toHaveBeenCalledTimes(1)
+    // The promotion that missed this payload converges through repos:changed,
+    // which makes the renderer re-list and read the row the probe just wrote.
+    expect(store.getRepos()).toEqual([probedRepo])
+  })
+
+  it('keeps serving snapshots when the deferred git probe throws', async () => {
+    const store = createFakeStore()
+    setRepoListSideEffectsRunner(() => () => {
+      throw new Error('git missing')
+    })
+    registerStartupSnapshotHandler(store)
+
+    expect(invokeSnapshot().repos).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(invokeSnapshot().repos).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(5_000)
   })
 
   it('serves the snapshot even when repo handlers have not installed the side-effect runner', () => {

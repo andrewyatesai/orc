@@ -1,9 +1,11 @@
 import {
   getWorktreeExecutionHostId,
-  parseExecutionHostId
+  LOCAL_EXECUTION_HOST_ID,
+  parseExecutionHostId,
+  type ExecutionHostId
 } from '../../../../../shared/execution-host'
 import { getRepoIdFromWorktreeId } from '../../../../../shared/worktree-id'
-import type { Repo, Worktree } from '../../../../../shared/types'
+import type { Repo, WorkspaceSessionState, Worktree } from '../../../../../shared/types'
 import { warmAtermSharedWorkerForImminentPane } from './aterm-worker-prewarm'
 
 /** The slice of store state the restore-warm decision reads — structural so
@@ -73,6 +75,88 @@ export function warmAtermEngineForSessionRestore(snapshot: SessionRestoreWarmSna
   if (!sessionRestoreHasLocalTerminalPanes(snapshot)) {
     return
   }
+  warmAtermSharedWorkerForImminentPane()
+}
+
+/** The raw persisted session fields the boot-snapshot warm reads. */
+type StartupSessionPartition = Pick<
+  WorkspaceSessionState,
+  'activeWorktreeId' | 'tabsByWorktree' | 'activeWorktreeIdsOnShutdown' | 'remoteSessionIdsByTabId'
+>
+
+/** The boot-snapshot slice the early warm reads — structural so the hydration
+ *  chain passes the StartupSnapshot it already holds, unchanged. */
+export type StartupSnapshotWarmSource = {
+  repos?: readonly Pick<Repo, 'id' | 'connectionId' | 'executionHostId'>[]
+  sessionPartitionsByHostId?: Partial<Record<ExecutionHostId, StartupSessionPartition>>
+}
+
+/** Project the LOCAL session partition onto the reconnect-shaped decision input.
+ *  Only the local partition matters: runtime-owned worktrees are split into
+ *  their own partitions (SSH deliberately stays local), so a runtime restore
+ *  simply produces no candidates here. */
+function toSessionRestoreWarmSnapshot(
+  source: StartupSnapshotWarmSource
+): SessionRestoreWarmSnapshot | null {
+  const session = source.sessionPartitionsByHostId?.[LOCAL_EXECUTION_HOST_ID]
+  // Without catalog rows the repo lookup carries no connectionId, and an SSH
+  // restore would read as local — decline rather than hold a worker for it.
+  if (!session?.activeWorktreeId || !source.repos) {
+    return null
+  }
+  const tabsByWorktree = session.tabsByWorktree ?? {}
+  // Mirrors hydrateTabsSession's derivation from the same raw session data:
+  // shutdown ids are authoritative when present, else worktrees whose tabs
+  // still carry a ptyId. Validation against the catalog is what hydration adds;
+  // the predicate's own tab/host checks stand in for it here.
+  const shutdownIds =
+    session.activeWorktreeIdsOnShutdown ??
+    Object.entries(tabsByWorktree)
+      .filter(([, tabs]) => tabs.some((tab) => tab.ptyId))
+      .map(([worktreeId]) => worktreeId)
+  const remoteSessionIds = session.remoteSessionIdsByTabId ?? {}
+  const pendingReconnectTabByWorktree: Record<string, string[]> = {}
+  for (const worktreeId of shutdownIds) {
+    const liveTabIds = (tabsByWorktree[worktreeId] ?? [])
+      .filter((tab) => tab.ptyId || remoteSessionIds[tab.id])
+      .map((tab) => tab.id)
+    if (liveTabIds.length > 0) {
+      pendingReconnectTabByWorktree[worktreeId] = liveTabIds
+    }
+  }
+  return {
+    activeWorktreeId: session.activeWorktreeId,
+    pendingReconnectWorktreeIds: shutdownIds,
+    pendingReconnectTabByWorktree,
+    tabsByWorktree,
+    // The worktree catalog is not hydrated this early, so no per-worktree
+    // hostId is available — safe here because `runtime:*` worktrees are the
+    // only ones partitioned OUT of the local session
+    // (workspace-session-host-persistence.ts:165-170), so they cannot appear in
+    // this partition at all. SSH deliberately DOES stay local, and it is caught
+    // by the repo-level connectionId check the predicate falls back to via the
+    // repo id embedded in the composite worktree id.
+    worktreesByRepo: {},
+    repos: source.repos
+  }
+}
+
+/** Warm from the BOOT SNAPSHOT's session partition — the earliest moment the
+ *  "will restore local terminals" answer exists, ~100ms ahead of reconnect
+ *  (which stays the fallback below). Declines WITHOUT spending the single
+ *  attempt when the snapshot lacks the rows the local/SSH call needs, so a
+ *  degraded snapshot still warms at reconnect with hydrated store state. */
+export function warmAtermEngineForStartupSnapshot(
+  source: StartupSnapshotWarmSource | null | undefined
+): void {
+  if (warmAttempted || !source) {
+    return
+  }
+  const snapshot = toSessionRestoreWarmSnapshot(source)
+  if (!snapshot || !sessionRestoreHasLocalTerminalPanes(snapshot)) {
+    return
+  }
+  warmAttempted = true
   warmAtermSharedWorkerForImminentPane()
 }
 

@@ -141,6 +141,20 @@ export async function runAppStartupHydration({
         return adopted
       }
     )
+    // Why: the snapshot's local session partition is the EARLIEST point the
+    // "will restore local terminals" answer exists — ~100ms before reconnect,
+    // which stays the fallback. Warming here overlaps the multi-second aterm
+    // engine cold boot with the rest of hydration. Dynamic import keeps the
+    // aterm chain out of the budget-gated eager entry (same reason
+    // reconnectPersistedTerminals imports it dynamically).
+    if (snapshot) {
+      void import('@/lib/pane-manager/aterm/aterm-session-restore-warm')
+        .then((warm) => warm.warmAtermEngineForStartupSnapshot(snapshot))
+        .catch(() => {
+          // Best-effort: reconnect's own warm and the first pane open both
+          // re-run this path and surface any real error there.
+        })
+    }
     // Why: nothing in the hydration chain reads profile state synchronously, so don't let it add a serial IPC round-trip before fetchSettings.
     void actions.fetchOrcaProfiles()
     // Why: repo/worktree hydration routes through settings.activeRuntimeEnvironmentId; load settings first so a persisted remote runtime doesn't hydrate stale local state.

@@ -75,6 +75,23 @@ export function derivePhases(events) {
       'renderer-startup-hydration-done',
       'renderer-first-terminal-frame'
     ),
+    // The engine cold boot the session-restore warm overlaps, split into its
+    // phases so a first-terminal regression names the stage that moved.
+    atermWarmStartToWasmReady: deltaPreferInApp(
+      events,
+      'renderer-aterm-warm-start',
+      'renderer-aterm-wasm-ready'
+    ),
+    atermWasmReadyToWorkerReady: deltaPreferInApp(
+      events,
+      'renderer-aterm-wasm-ready',
+      'renderer-aterm-worker-ready'
+    ),
+    atermWorkerReadyToFirstTerminalFrame: deltaPreferInApp(
+      events,
+      'renderer-aterm-worker-ready',
+      'renderer-first-terminal-frame'
+    ),
     rendererReconnectTerminalsMs:
       eventDetailsNumber(events, 'renderer-reconnect-terminals-done', 'durationMs') ??
       delta(

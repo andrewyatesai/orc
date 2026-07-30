@@ -17,3 +17,22 @@ export function markFirstAtermTerminalFramePresented(): void {
   fired = true
   logRendererStartupDiagnostic('first-terminal-frame')
 }
+
+/** The warm-path phases that precede the first frame, in the order the engine
+ *  reaches them. They split the otherwise opaque workspace-ready→first-frame
+ *  pool into: idle before the warm starts, main-thread wasm compile + primary
+ *  font fetch, worker spawn + font handoff, then pane mount → present. */
+export type AtermWarmPhase = 'warm-start' | 'wasm-ready' | 'worker-ready'
+
+const firedWarmPhases = new Set<AtermWarmPhase>()
+
+/** Stamp one warm phase ('renderer-aterm-<phase>'). Fire-once per phase and
+ *  PII-free — the phase name only; the diagnostics channel adds the renderer
+ *  clock and no-ops entirely unless startup diagnostics are enabled. */
+export function markAtermWarmPhase(phase: AtermWarmPhase): void {
+  if (firedWarmPhases.has(phase)) {
+    return
+  }
+  firedWarmPhases.add(phase)
+  logRendererStartupDiagnostic(`aterm-${phase}`)
+}

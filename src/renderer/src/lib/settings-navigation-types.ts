@@ -35,6 +35,7 @@ export type SettingsNavTarget =
   | 'stats'
   | 'ssh'
   | 'experimental'
+  | 'plugins'
   | 'agents'
   | 'orchestration'
   | 'linear'

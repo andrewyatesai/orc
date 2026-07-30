@@ -9,8 +9,12 @@ import {
   resetSessionRestoreWarmForTest,
   sessionRestoreHasLocalTerminalPanes,
   warmAtermEngineForSessionRestore,
-  type SessionRestoreWarmSnapshot
+  warmAtermEngineForStartupSnapshot,
+  type SessionRestoreWarmSnapshot,
+  type StartupSnapshotWarmSource
 } from './aterm-session-restore-warm'
+import type { TerminalTab } from '../../../../../shared/types'
+import type { StartupSnapshot } from '../../../../../shared/startup-snapshot'
 
 const LOCAL_WT = 'repo-local::/wt-local'
 const SSH_WT = 'repo-ssh::/home/user/remote'
@@ -185,5 +189,145 @@ describe('warmAtermEngineForSessionRestore', () => {
       })
     )
     expect(warmSpy).not.toHaveBeenCalled()
+  })
+})
+
+function makeTab(id: string, ptyId: string | null = 'pty-1'): TerminalTab {
+  return {
+    id,
+    ptyId,
+    worktreeId: LOCAL_WT,
+    title: 'Terminal',
+    customTitle: null,
+    color: null,
+    sortOrder: 0,
+    createdAt: 0
+  }
+}
+
+function makeStartupSource(
+  overrides: Partial<StartupSnapshotWarmSource> = {}
+): StartupSnapshotWarmSource {
+  return {
+    repos: [{ id: 'repo-local', connectionId: null }],
+    sessionPartitionsByHostId: {
+      local: {
+        activeWorktreeId: LOCAL_WT,
+        tabsByWorktree: { [LOCAL_WT]: [makeTab('tab-1')] },
+        activeWorktreeIdsOnShutdown: [LOCAL_WT]
+      }
+    },
+    ...overrides
+  }
+}
+
+describe('warmAtermEngineForStartupSnapshot', () => {
+  beforeEach(() => {
+    warmSpy.mockClear()
+    resetSessionRestoreWarmForTest()
+  })
+
+  it('accepts the boot StartupSnapshot verbatim (the hydration call site passes it through)', () => {
+    const callSite: (snapshot: StartupSnapshot | null) => void = warmAtermEngineForStartupSnapshot
+    callSite(null)
+    expect(warmSpy).not.toHaveBeenCalled()
+  })
+
+  it('warms once from the boot snapshot, well before reconnect starts', () => {
+    warmAtermEngineForStartupSnapshot(makeStartupSource())
+    warmAtermEngineForStartupSnapshot(makeStartupSource())
+    expect(warmSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves the reconnect fallback a no-op once it has warmed', () => {
+    warmAtermEngineForStartupSnapshot(makeStartupSource())
+    warmAtermEngineForSessionRestore(localRestoreSnapshot())
+    expect(warmSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('derives the pending set from tab ptyIds when activeWorktreeIdsOnShutdown is absent', () => {
+    warmAtermEngineForStartupSnapshot(
+      makeStartupSource({
+        sessionPartitionsByHostId: {
+          local: {
+            activeWorktreeId: LOCAL_WT,
+            tabsByWorktree: { [LOCAL_WT]: [makeTab('tab-1', 'pty-7')] }
+          }
+        }
+      })
+    )
+    expect(warmSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not warm when no tab held a live pty at shutdown', () => {
+    warmAtermEngineForStartupSnapshot(
+      makeStartupSource({
+        sessionPartitionsByHostId: {
+          local: {
+            activeWorktreeId: LOCAL_WT,
+            tabsByWorktree: { [LOCAL_WT]: [makeTab('tab-1', null)] }
+          }
+        }
+      })
+    )
+    expect(warmSpy).not.toHaveBeenCalled()
+  })
+
+  it('does not warm for an SSH restore (the repo carries the connectionId)', () => {
+    warmAtermEngineForStartupSnapshot({
+      repos: [{ id: 'repo-ssh', connectionId: 'ssh-target-1' }],
+      sessionPartitionsByHostId: {
+        local: {
+          activeWorktreeId: SSH_WT,
+          tabsByWorktree: { [SSH_WT]: [makeTab('tab-1')] },
+          activeWorktreeIdsOnShutdown: [SSH_WT]
+        }
+      }
+    })
+    expect(warmSpy).not.toHaveBeenCalled()
+  })
+
+  it('ignores a restore whose active worktree lives in a runtime partition', () => {
+    // Runtime-owned worktrees are split out of the local partition, so the
+    // local slice carries the active pointer but no restorable tabs for it.
+    warmAtermEngineForStartupSnapshot({
+      repos: [{ id: 'repo-local', connectionId: null }],
+      sessionPartitionsByHostId: {
+        local: { activeWorktreeId: 'repo-runtime::/wt', tabsByWorktree: {} }
+      }
+    })
+    expect(warmSpy).not.toHaveBeenCalled()
+  })
+
+  it('declines without spending the attempt when the snapshot has no catalog rows', () => {
+    // A degraded snapshot cannot tell local from SSH; reconnect must still warm.
+    warmAtermEngineForStartupSnapshot(makeStartupSource({ repos: undefined }))
+    expect(warmSpy).not.toHaveBeenCalled()
+    warmAtermEngineForSessionRestore(localRestoreSnapshot())
+    expect(warmSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('declines without spending the attempt when the local session partition is missing', () => {
+    warmAtermEngineForStartupSnapshot({ repos: [] })
+    warmAtermEngineForStartupSnapshot(null)
+    warmAtermEngineForStartupSnapshot(undefined)
+    expect(warmSpy).not.toHaveBeenCalled()
+    warmAtermEngineForSessionRestore(localRestoreSnapshot())
+    expect(warmSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('declines without spending the attempt when the session has no active worktree', () => {
+    // hydrateTabsSession can still fall back to the active repo's main worktree,
+    // so the reconnect-start trigger keeps the last word.
+    warmAtermEngineForStartupSnapshot(
+      makeStartupSource({
+        sessionPartitionsByHostId: {
+          local: { activeWorktreeId: null, tabsByWorktree: {} }
+        }
+      })
+    )
+    expect(warmSpy).not.toHaveBeenCalled()
+    warmAtermEngineForSessionRestore(localRestoreSnapshot())
+    expect(warmSpy).toHaveBeenCalledTimes(1)
   })
 })
