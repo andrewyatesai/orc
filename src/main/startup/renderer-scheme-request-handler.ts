@@ -99,8 +99,9 @@ export type RendererSchemeHandlerOptions = {
   rootDir: string
   /**
    * Serve the COOP/COEP pair that makes orca://app documents crossOriginIsolated
-   * (durable SAB + wasm threads — moonshot rung 2). Default on; the install site
-   * flips it off via the ORCA_DISABLE_CROSS_ORIGIN_ISOLATION kill-switch.
+   * (durable SAB + wasm threads — moonshot rung 2). The install site passes
+   * crossOriginIsolationEnabled(process.env): opt-in via ORCA_CROSS_ORIGIN_ISOLATION=1
+   * until the first isolation consumer flips the default (see that function's why).
    */
   crossOriginIsolation?: boolean
   /**
