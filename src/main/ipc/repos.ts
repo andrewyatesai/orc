@@ -90,7 +90,11 @@ import { getCohortAtEmit } from '../telemetry/cohort-classifier'
 import type { RepoMethod } from '../../shared/telemetry-events'
 import { detectRepoIconAndUpstream } from '../repo-icon-autodetect'
 import { enrichMissingRepoGitRemoteIdentities } from '../repo-git-remote-identity-enrichment'
-import { promoteFolderReposWithGitRepositories } from '../repo-folder-git-promotion'
+import {
+  collectFolderReposNeedingGitProbe,
+  promoteFolderReposFromGitProbe,
+  promoteFolderReposWithGitRepositories
+} from '../repo-folder-git-promotion'
 import { setRepoListSideEffectsRunner } from './repo-list-boot-side-effects'
 import {
   getProjectHostSetupForRepo,
@@ -1202,12 +1206,8 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
   ipcMain.removeHandler('sparsePresets:save')
   ipcMain.removeHandler('sparsePresets:remove')
 
-  const runRepoListSideEffects = (): void => {
-    // Why: kind is captured at add time; re-detect here so a later `git init`
-    // in a folder project surfaces the Git tab (issue #8125).
-    promoteFolderReposWithGitRepositories(store, {
-      onChanged: () => notifyReposChanged(mainWindow)
-    })
+  const promotionOptions = { onChanged: () => notifyReposChanged(mainWindow) }
+  const runRepoEnrichment = (): void => {
     enrichMissingRepoGitRemoteIdentities(store, {
       onChanged: () => notifyReposChanged(mainWindow)
     })
@@ -1216,8 +1216,24 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
       onChanged: () => notifyReposChanged(mainWindow)
     })
   }
+  const runRepoListSideEffects = (): void => {
+    // Why: kind is captured at add time; re-detect here so a later `git init`
+    // in a folder project surfaces the Git tab (issue #8125).
+    promoteFolderReposWithGitRepositories(store, promotionOptions)
+    runRepoEnrichment()
+  }
   // Why: the boot chain reads the catalog from the startup snapshot instead of repos:list; the snapshot handler replays these effects through this seam.
-  setRepoListSideEffectsRunner(runRepoListSideEffects)
+  setRepoListSideEffectsRunner(() => {
+    // Only git can classify a marker, and its probe spawns synchronously — so
+    // the snapshot path just triages candidates (one stat each) and hands the
+    // probe back to run off the critical path; promotions reach the renderer
+    // through the repos:changed broadcast it already refetches on.
+    const needGitProbe = collectFolderReposNeedingGitProbe(store)
+    runRepoEnrichment()
+    return needGitProbe.length > 0
+      ? () => promoteFolderReposFromGitProbe(store, needGitProbe, promotionOptions)
+      : null
+  })
 
   ipcMain.handle('repos:list', () => {
     runRepoListSideEffects()

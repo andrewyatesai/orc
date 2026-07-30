@@ -42,7 +42,10 @@ function listPublicRuntimeEnvironmentsForSnapshot(): PublicKnownRuntimeEnvironme
  *  repos:list's promotion/enrichment side effects (issue #8125 folder→git
  *  promotion, git-identity + username enrichment) replay here through the seam
  *  registerRepoHandlers installs — before repos are read, so promotions land
- *  in this payload exactly as a repos:list response would carry them. */
+ *  in this payload exactly as a repos:list response would carry them. The one
+ *  part that can spawn git (promotion's rev-parse probe for an ambiguous `.git`
+ *  marker) is scheduled off this handler by the seam and converges through
+ *  repos:changed, so no consumer of this payload waits on a subprocess. */
 export function registerStartupSnapshotHandler(
   store: Store,
   keybindings?: KeybindingService
