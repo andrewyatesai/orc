@@ -36,6 +36,10 @@ import { registerDeveloperPermissionHandlers } from './developer-permissions'
 import { registerComputerUsePermissionHandlers } from './computer-use-permissions'
 import { setTrustedBrowserRendererWebContentsId, setAgentBrowserBridgeRef } from './browser'
 import { registerSessionHandlers } from './session'
+import {
+  registerStartupSnapshotHandler,
+  setTrustedStartupSnapshotWebContentsId
+} from './startup-snapshot'
 import { registerSettingsHandlers } from './settings'
 import { registerDiagnosticsHandlers } from './diagnostics'
 import { registerSkillsHandlers } from './skills'
@@ -124,6 +128,7 @@ export function registerCoreHandlers(
   setTrustedBrowserRendererWebContentsId(mainWindowWebContentsId)
   setTrustedClipboardRendererWebContentsId(mainWindowWebContentsId)
   setTrustedUIRendererWebContentsId(mainWindowWebContentsId)
+  setTrustedStartupSnapshotWebContentsId(mainWindowWebContentsId)
   setAgentBrowserBridgeRef(runtime.getAgentBrowserBridge())
   if (registered) {
     return
@@ -187,6 +192,8 @@ export function registerCoreHandlers(
   registerShellHandlers(store)
   registerPetHandlers()
   registerSessionHandlers(store)
+  // Why: one batched boot read replacing the renderer's serial startup IPC chain.
+  registerStartupSnapshotHandler(store, keybindings)
   registerUIHandlers(store)
   registerEmulatorFrameStreamHandlers()
   registerEmulatorVideoStreamHandlers()

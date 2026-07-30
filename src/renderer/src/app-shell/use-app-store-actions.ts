@@ -18,6 +18,8 @@ export function useAppStoreActions() {
       fetchOrcaProfiles: s.fetchOrcaProfiles,
       fetchSettings: s.fetchSettings,
       fetchKeybindings: s.fetchKeybindings,
+      setKeybindingSnapshot: s.setKeybindingSnapshot,
+      hydrateRuntimeEnvironmentStatuses: s.hydrateRuntimeEnvironmentStatuses,
       initGitHubCache: s.initGitHubCache,
       refreshAllGitHub: s.refreshAllGitHub,
       reportVisibleGitHubPRRefreshCandidates: s.reportVisibleGitHubPRRefreshCandidates,

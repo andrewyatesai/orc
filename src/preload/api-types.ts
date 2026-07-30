@@ -14,6 +14,7 @@ import type {
   HostedReviewProvider
 } from '../shared/hosted-review'
 import type { NativeFileDropPayload } from '../shared/native-file-drop'
+import type { StartupSnapshot } from '../shared/startup-snapshot'
 import type { DashboardSnapshot, DashboardRevealAgentArgs } from '../shared/dashboard-snapshot'
 import type {
   TerminalPreviewConnectResult,
@@ -2231,6 +2232,10 @@ export type PreloadApi = {
       family: string,
       fontWeight?: number
     ) => Promise<{ primary: Uint8Array | null; bold: Uint8Array | null }>
+  }
+  startup: {
+    /** One batched read of everything the boot hydration chain needs. */
+    getSnapshot: () => Promise<StartupSnapshot>
   }
   settings: {
     get: () => Promise<GlobalSettings>

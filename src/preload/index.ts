@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron'
 import { preloadE2EConfig } from './e2e-config'
 import { glApi } from './gitlab'
 import type { AppIdentity } from '../shared/app-identity'
+import type { StartupSnapshot } from '../shared/startup-snapshot'
 import type { OrcaDeepLinkUiEvent } from '../shared/orca-deep-link'
 import type { DashboardSnapshot, DashboardRevealAgentArgs } from '../shared/dashboard-snapshot'
 import type {
@@ -1904,6 +1905,12 @@ const api = {
       fontWeight?: number
     ): Promise<{ primary: Uint8Array | null; bold: Uint8Array | null }> =>
       ipcRenderer.invoke('fonts:resolveTerminalFontFaces', family, fontWeight)
+  },
+
+  startup: {
+    // Why: ONE invoke replaces the boot chain's 8+ serialized store reads; the
+    // renderer falls back to the individual channels when this is absent.
+    getSnapshot: (): Promise<StartupSnapshot> => ipcRenderer.invoke('startup:getSnapshot')
   },
 
   settings: {
