@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
 import { app, BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import type { AppIdentity } from '../../shared/app-identity'
@@ -9,6 +8,7 @@ import type { FloatingTerminalCwdRequest, MarkdownDocument } from '../../shared/
 import { relaunchApp } from '../app-relaunch'
 import type { Store } from '../persistence'
 import { getDevInstanceIdentity } from '../startup/dev-instance-identity'
+import { registerRendererSchemeMount, RENDERER_ORIGIN } from '../startup/renderer-scheme'
 import { isPwshAvailable } from '../pwsh'
 import { isWslAvailable, listWslDistros } from '../wsl'
 import { isGitBashAvailable } from '../git-bash'
@@ -98,7 +98,11 @@ function getFeatureWallAssetBaseUrl(): string {
     return new URL(`/@fs${absoluteVitePath}/`, process.env.ELECTRON_RENDERER_URL).toString()
   }
 
-  return `${pathToFileURL(assetDir).toString()}/`
+  // Why: the production renderer is an orca://app document, and its CSP allows
+  // only same-origin media — file:// URLs no longer load. Mount the asset dir
+  // on the renderer scheme instead.
+  registerRendererSchemeMount('feature-wall', assetDir)
+  return `${RENDERER_ORIGIN}/feature-wall/`
 }
 
 function resolveDevFeatureWallAssetDir(): string {

@@ -34,6 +34,7 @@ import {
   isValidBrowserAnnotationViewportBridgeToken,
   type BrowserSetAnnotationViewportBridgeArgs
 } from '../../shared/browser-annotation-viewport-bridge'
+import { isRendererSchemeSenderUrl } from '../startup/renderer-scheme-request-handler'
 
 let trustedBrowserRendererWebContentsId: number | null = null
 let agentBrowserBridgeRef: AgentBrowserBridge | null = null
@@ -164,7 +165,9 @@ function isTrustedBrowserRenderer(sender: Electron.WebContents): boolean {
     }
   }
 
-  return senderUrl.startsWith('file://')
+  // Why: exact orca://app origin (never a scheme prefix — orca:// is also the
+  // deep-link scheme); file:// remains for windows not yet on the app scheme.
+  return isRendererSchemeSenderUrl(senderUrl) || senderUrl.startsWith('file://')
 }
 
 export function registerBrowserHandlers(): void {

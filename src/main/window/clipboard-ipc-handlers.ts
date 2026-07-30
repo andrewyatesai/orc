@@ -31,6 +31,7 @@ import {
   type ClipboardFileResult
 } from './clipboard-file-copy'
 import { readClipboardFilePaths, type ClipboardFileReadDeps } from './clipboard-file-read'
+import { isRendererSchemeSenderUrl } from '../startup/renderer-scheme-request-handler'
 import {
   cleanupExpiredRemoteClipboardFiles,
   writeRemoteFileToClipboard
@@ -314,5 +315,7 @@ function isTrustedClipboardRenderer(sender: WebContents): boolean {
     }
   }
 
-  return senderUrl.startsWith('file://')
+  // Why: exact orca://app origin (never a scheme prefix — orca:// is also the
+  // deep-link scheme); file:// remains for windows not yet on the app scheme.
+  return isRendererSchemeSenderUrl(senderUrl) || senderUrl.startsWith('file://')
 }
