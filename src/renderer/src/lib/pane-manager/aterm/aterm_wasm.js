@@ -186,11 +186,11 @@ export class AtermTerminal {
         return ret;
     }
     /**
-     * The LIVE application cursor colour (OSC 12) as packed `0x00RRGGBB`, or
-     * `undefined` while unset / after an OSC 112 reset — i.e. the host/theme
-     * default applies. Read per frame so glow/trail colour derivation can
-     * follow app-driven cursor-colour changes (the renderer already draws
-     * the cursor itself with this colour).
+     * The dedicated LIVE application cursor colour (OSC 12) as packed
+     * `0x00RRGGBB`, or `undefined` after OSC 21 `cursor=` selected dynamic
+     * foreground-following behavior (and in a raw unconfigured core). OSC 112
+     * restores the host-configured cursor baseline. Read per frame so
+     * glow/trail colour derivation can follow app-driven cursor changes.
      * @returns {number | undefined}
      */
     get cursor_color() {
