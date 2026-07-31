@@ -28,8 +28,7 @@ export type RecipeRepoResult =
 
 export function listRecipes(
   store: Store,
-  repoId: string,
-  pluginRecipes: readonly OrcaVmRecipe[] = []
+  repoId: string
 ): EphemeralVmRecipeListResult {
   const repo = store.getRepo(repoId)
   if (!repo || isFolderRepo(repo)) {
@@ -54,14 +53,13 @@ export function listRecipes(
   return {
     status: 'ok',
     repoPath: repo.path,
-    recipes: combineEphemeralVmRecipes(hooks?.environmentRecipes ?? [], pluginRecipes),
+    recipes: [...(hooks?.environmentRecipes ?? [])],
     diagnostics: hooks?.environmentRecipeDiagnostics ?? []
   }
 }
 
 export function listRecipeCatalog(
-  store: Store,
-  pluginRecipes: readonly OrcaVmRecipe[] = []
+  store: Store
 ): EphemeralVmRecipeCatalogEntry[] {
   return store
     .getRepos()
@@ -72,7 +70,7 @@ export function listRecipeCatalog(
         repoId: repo.id,
         repoName: repo.displayName,
         repoPath: repo.path,
-        recipes: combineEphemeralVmRecipes(hooks?.environmentRecipes ?? [], pluginRecipes),
+        recipes: [...(hooks?.environmentRecipes ?? [])],
         diagnostics: hooks?.environmentRecipeDiagnostics ?? []
       }
     })
@@ -110,8 +108,8 @@ export function getRuntimeRecipeContext(
   if (!repo.ok) {
     throw new Error(repo.message)
   }
-  // Pre-snapshot runtimes can only be attributed to repo-owned recipes. Never
-  // substitute a later same-id plugin recipe for an older runtime lifecycle.
+  // Pre-snapshot runtimes can only be attributed to repo-owned recipes: never
+  // substitute a later same-id recipe for an older runtime lifecycle.
   const recipe =
     runtime.recipe ??
     (loadHooks(repo.repo.path)?.environmentRecipes ?? []).find(
@@ -125,24 +123,13 @@ export function getRuntimeRecipeContext(
 
 export function resolveRecipeForRepo(
   repoPath: string,
-  recipeId: string,
-  pluginRecipes: readonly OrcaVmRecipe[] = []
+  recipeId: string
 ): OrcaVmRecipe | null {
   return (
-    combineEphemeralVmRecipes(loadHooks(repoPath)?.environmentRecipes ?? [], pluginRecipes).find(
+    (loadHooks(repoPath)?.environmentRecipes ?? []).find(
       (recipe) => recipe.id === recipeId
     ) ?? null
   )
-}
-
-/** Project-owned recipes are authoritative for their repository and shadow
- * same-id global plugin recipes without disabling the rest of the pack. */
-export function combineEphemeralVmRecipes(
-  repoRecipes: readonly OrcaVmRecipe[],
-  pluginRecipes: readonly OrcaVmRecipe[]
-): OrcaVmRecipe[] {
-  const repoIds = new Set(repoRecipes.map((recipe) => recipe.id))
-  return [...repoRecipes, ...pluginRecipes.filter((recipe) => !repoIds.has(recipe.id))]
 }
 
 function failedRecipeRepo(repoPath: string | null, message: string): RecipeRepoResult {
