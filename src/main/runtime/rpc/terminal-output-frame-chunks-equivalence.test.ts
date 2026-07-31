@@ -475,7 +475,10 @@ describe('iterateTerminalOutputFrameChunks equivalence with the pre-optimization
       expectEquivalent(data, { seq: 88_888, rawLength: data.length }, `fuzz-cap seq trial=${trial}`)
       expectEquivalent(data, { seq: 88_888 }, `fuzz-cap delayed trial=${trial}`)
     }
-  }, 15_000)
+    // 60s, not upstream's 15s: the fuzz is seeded and deterministic, so the only
+    // way it misses the deadline is wall-clock — 2,400 near-cap comparisons lose
+    // that race when the full suite saturates the machine.
+  }, 60_000)
 
   it('keeps every emitted frame within the wire cap and reassembles to the input', () => {
     const data = `${'a'.repeat(200 * 1024)}${SURROGATE_PAIR.repeat(4096)}${LONE_HIGH}`
