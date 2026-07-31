@@ -381,6 +381,7 @@ describe('electron-builder config', () => {
       await mkdir(join(resourcesDir, 'node_modules', 'zod'), { recursive: true })
 
       const sources = new Map([
+        ['out\\main\\bootstrap.js', 'require("./index.js")'],
         ['out\\main\\index.js', 'const z = require("zod")'],
         ['out\\main\\agent-hooks\\managed-agent-hook-controls.js', 'const YAML = require("yaml")']
       ])
@@ -407,6 +408,7 @@ describe('electron-builder config', () => {
       await mkdir(join(resourcesDir, 'node_modules', 'zod'), { recursive: true })
 
       const sources = new Map([
+        ['out/main/bootstrap.js', 'require("./index.js")'],
         ['out/main/index.js', 'const z = require("zod")'],
         ['out/main/agent-hooks/managed-agent-hook-controls.js', 'const YAML = require("yaml")'],
         // The missing dep is reachable ONLY from a chunk, never from an entrypoint.
@@ -432,6 +434,7 @@ describe('electron-builder config', () => {
       await mkdir(join(resourcesDir, 'node_modules', 'ssh2'), { recursive: true })
 
       const sources = new Map([
+        ['out\\main\\bootstrap.js', 'require("./index.js")'],
         ['out\\main\\index.js', 'const z = require("zod")'],
         ['out\\main\\agent-hooks\\managed-agent-hook-controls.js', 'const YAML = require("yaml")'],
         ['out\\main\\chunks\\ssh-connection-deferred-abc123.js', 'const ssh = require("ssh2")']
@@ -451,7 +454,7 @@ describe('electron-builder config', () => {
     const resourcesDir = await mkdtemp(join(tmpdir(), 'orca-runtime-deps-missing-entry-'))
     try {
       await writeFile(join(resourcesDir, 'app.asar'), '', 'utf8')
-      // Only a chunk is present; the required index.js entrypoint is missing.
+      // Only a chunk is present; every required entrypoint is missing.
       const sources = new Map([['out/main/chunks/some-deferred-abc123.js', 'const x = 1']])
       const asar = {
         listPackage: () => [...sources.keys()].map((entry) => `/${entry}`),
@@ -459,7 +462,7 @@ describe('electron-builder config', () => {
       }
 
       expect(() => verifyPackagedMainRuntimeDeps(resourcesDir, asar)).toThrow(
-        /out\/main\/index\.js was not found/
+        /out\/main\/bootstrap\.js was not found/
       )
     } finally {
       await rm(resourcesDir, { recursive: true, force: true })
