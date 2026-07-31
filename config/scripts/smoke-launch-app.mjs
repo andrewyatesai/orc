@@ -39,11 +39,32 @@ function readArg(flag, fallback) {
 
 const settleMs = readArg('--settle-ms', 12000)
 
+// Why: the unpackaged bundle is NOT the shipped artifact. Whole failure classes
+// only exist once packaged — app.isPackaged-gated startup code, asar resolution,
+// Resources/node_modules — and one of them (a main entry calling a function its
+// sibling entry no longer exported) shipped an app that could not open a window
+// while this smoke, driving out/main/index.js, stayed green.
+function readPathArg(flag) {
+  const index = process.argv.indexOf(flag)
+  return index >= 0 && process.argv[index + 1] ? process.argv[index + 1] : null
+}
+const packagedApp = readPathArg('--app')
+
 if (process.platform !== 'darwin' && process.platform !== 'linux') {
   console.log('[smoke-launch] unsupported platform; skipping')
   process.exit(0)
 }
-if (!existsSync(mainPath)) {
+// A packaged .app is driven through its own binary, so Electron reports itself
+// packaged and the asar layout is the real one.
+const packagedBinary = packagedApp
+  ? path.join(packagedApp, 'Contents', 'MacOS', path.basename(packagedApp).replace(/\.app$/, ''))
+  : null
+
+if (packagedBinary && !existsSync(packagedBinary)) {
+  console.error(`[smoke-launch] no executable at ${packagedBinary}`)
+  process.exit(1)
+}
+if (!packagedBinary && !existsSync(mainPath)) {
   console.error(
     `[smoke-launch] ${path.relative(repoRoot, mainPath)} is missing — run \`pnpm run build:electron-vite\` first.`
   )
@@ -69,7 +90,7 @@ const failures = []
 let app
 try {
   app = await electron.launch({
-    args: [mainPath],
+    ...(packagedBinary ? { executablePath: packagedBinary, args: [] } : { args: [mainPath] }),
     cwd: repoRoot,
     env: { ...process.env, ORCA_ALLOW_NO_TELEMETRY: '1' },
     timeout: readArg('--launch-timeout-ms', 60000)
