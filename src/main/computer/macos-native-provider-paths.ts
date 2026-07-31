@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { outMainDirectory } from '../out-main-directory'
 
 export function resolveMacOSComputerUseAppPath(): string | null {
   const override = process.env.ORCA_COMPUTER_MACOS_HELPER_APP_PATH
@@ -10,7 +11,7 @@ export function resolveMacOSComputerUseAppPath(): string | null {
   const packaged = [join(process.resourcesPath ?? '', 'Orca Computer Use.app')]
   const dev = [
     join(process.cwd(), 'native/computer-use-macos/.build/release/Orca Computer Use.app'),
-    resolve(__dirname, '../../native/computer-use-macos/.build/release/Orca Computer Use.app')
+    resolve(outMainDirectory(), '../../native/computer-use-macos/.build/release/Orca Computer Use.app')
   ]
   const candidates = process.resourcesPath ? [...packaged, ...dev] : dev
 
@@ -36,7 +37,7 @@ export function resolveMacOSNativeProviderPath(): string | null {
   const dev = [
     join(process.cwd(), 'native/computer-use-macos/.build/debug/orca-computer-use-macos'),
     join(process.cwd(), 'native/computer-use-macos/.build/release/orca-computer-use-macos'),
-    resolve(__dirname, '../../native/computer-use-macos/.build/debug/orca-computer-use-macos')
+    resolve(outMainDirectory(), '../../native/computer-use-macos/.build/debug/orca-computer-use-macos')
   ]
   const candidates = process.resourcesPath ? [...packaged, ...dev] : dev
 

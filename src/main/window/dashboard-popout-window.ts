@@ -14,6 +14,7 @@ import {
   type KeybindingInput,
   type KeybindingOverrides
 } from '../../shared/keybindings'
+import { outMainDirectory } from '../out-main-directory'
 
 const MIN_WIDTH = 480
 const MIN_HEIGHT = 360
@@ -170,7 +171,7 @@ export function createOrFocusDashboardPopout(
     // window is frameless because it draws its own titlebar; the dashboard has
     // no such chrome yet, so a native frame is the correct default here.
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      preload: join(outMainDirectory(), '../preload/index.js'),
       sandbox: true,
       // Why: Chromium shares zoom by origin; a separate in-memory session keeps pop-out zoom window-local.
       partition: DASHBOARD_POPOUT_PARTITION,

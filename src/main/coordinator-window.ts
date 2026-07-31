@@ -17,6 +17,7 @@ import {
 import { getDaemonEndpointPaths } from './daemon/daemon-init'
 import { PROTOCOL_VERSION } from './daemon/types'
 import { rendererPageUrl } from './startup/renderer-scheme-request-handler'
+import { outMainDirectory } from './out-main-directory'
 
 let coordinatorWindow: BrowserWindow | null = null
 // One live tunnel-socket set per coordinator window; keyed by the renderer-
@@ -40,7 +41,7 @@ export function openCoordinatorWindow(): void {
     autoHideMenuBar: true,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#0a0a0a' : '#ffffff',
     webPreferences: {
-      preload: join(__dirname, '../preload/coordinator.js'),
+      preload: join(outMainDirectory(), '../preload/coordinator.js'),
       sandbox: true
     }
   })

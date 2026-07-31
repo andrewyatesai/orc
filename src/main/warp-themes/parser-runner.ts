@@ -2,6 +2,7 @@ import { Worker } from 'node:worker_threads'
 import { app } from 'electron'
 import { join } from 'node:path'
 import type { ParsedWarpThemeResult, ParseWarpThemeOptions } from './parser'
+import { outMainDirectory } from '../out-main-directory'
 
 export const WARP_THEME_PARSE_TIMEOUT_MS = 1_000
 
@@ -13,7 +14,7 @@ function getParserWorkerPath(): string {
   if (app.isPackaged) {
     return join(process.resourcesPath, 'app.asar', 'out', 'main', 'warp-theme-parser-worker.js')
   }
-  return join(__dirname, 'warp-theme-parser-worker.js')
+  return join(outMainDirectory(), 'warp-theme-parser-worker.js')
 }
 
 function isParsedWarpThemeResult(value: unknown): value is ParsedWarpThemeResult {

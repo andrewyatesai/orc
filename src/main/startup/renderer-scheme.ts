@@ -17,6 +17,7 @@ export {
   RENDERER_ORIGIN,
   RENDERER_SCHEME
 } from './renderer-scheme-request-handler'
+import { outMainDirectory } from '../out-main-directory'
 
 export function registerRendererScheme(): void {
   protocol.registerSchemesAsPrivileged([
@@ -76,7 +77,7 @@ export function installRendererSchemeHandler(targetSession?: Session): void {
   sessionProtocol.handle(
     RENDERER_SCHEME,
     createRendererSchemeRequestHandler({
-      rootDir: join(__dirname, '../renderer'),
+      rootDir: join(outMainDirectory(), '../renderer'),
       mounts: rendererSchemeMounts,
       // Opt-in read per install, not per request: responses flipping isolation
       // mid-session would leave documents and their workers split across

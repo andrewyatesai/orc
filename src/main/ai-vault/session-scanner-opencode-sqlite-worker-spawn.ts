@@ -4,6 +4,7 @@ import { Worker } from 'node:worker_threads'
 import type { AiVaultScanIssue, AiVaultSession } from '../../shared/ai-vault-types'
 import type { SessionFileCandidate } from './session-scanner-types'
 import { OpenCodeSqliteWorkerClient } from './session-scanner-opencode-sqlite-worker-client'
+import { outMainDirectory } from '../out-main-directory'
 
 // Why: resolve the built worker entry + own the process-wide shared client so
 // the client class stays free of Electron (require'd lazily here) and the
@@ -25,7 +26,7 @@ function resolveWorkerEntryPath(): string {
       'session-scanner-opencode-sqlite-worker-entry.js'
     )
   }
-  return join(__dirname, 'session-scanner-opencode-sqlite-worker-entry.js')
+  return join(outMainDirectory(), 'session-scanner-opencode-sqlite-worker-entry.js')
 }
 
 function defaultWorkerFactory(): Worker {

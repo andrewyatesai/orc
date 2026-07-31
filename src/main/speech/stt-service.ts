@@ -8,6 +8,7 @@ import { getCatalogModel } from './model-catalog'
 import type { ModelManager } from './model-manager'
 import { OpenAiTranscriptionSession } from './openai-transcription-client'
 import { readOpenAiSpeechApiKey } from './openai-api-key-store'
+import { outMainDirectory } from '../out-main-directory'
 
 export const START_DICTATION_TIMEOUT_MS = 60_000
 const STOP_DICTATION_TIMEOUT_MS = 60_000
@@ -485,7 +486,7 @@ export class SttService {
     if (app.isPackaged) {
       return join(process.resourcesPath, 'app.asar', 'out', 'main', 'stt-worker.js')
     }
-    return join(__dirname, 'stt-worker.js')
+    return join(outMainDirectory(), 'stt-worker.js')
   }
 
   private clearIdleTeardownTimer(): void {

@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { outMainDirectory } from '../out-main-directory'
 
 export type DesktopScriptPlatform = 'linux' | 'windows'
 
@@ -31,7 +32,7 @@ export function resolveDesktopScriptProviderPath(
   const packaged = [join(process.resourcesPath ?? '', directory, filename)]
   const dev = [
     join(process.cwd(), sourceDirectory, filename),
-    resolve(__dirname, '../../', sourceDirectory, filename)
+    resolve(outMainDirectory(), '../../', sourceDirectory, filename)
   ]
   const candidates = process.resourcesPath ? [...packaged, ...dev] : dev
 

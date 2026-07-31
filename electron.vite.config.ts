@@ -4,6 +4,7 @@ import { defineConfig, type UserConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { createPlainNodeEntryGuardPlugin } from './build-plugins/plain-node-entry-guard'
+import { createMainOutputRelativePathGuardPlugin } from './build-plugins/main-output-relative-path-guard'
 import { createPreloadBridgeGuardPlugin } from './build-plugins/preload-bridge-guard'
 import { createMainCompileCacheBootstrapPlugin } from './build-plugins/main-compile-cache-bootstrap'
 import { createChunkModuleDumpPlugin } from './build-plugins/renderer-chunk-module-dump'
@@ -244,7 +245,8 @@ export const electronViteConfig: UserConfig = {
         plugins: [
           createMainCompileCacheBootstrapPlugin(),
           createStartupDiagnosticsBootstrapPlugin(),
-          createPlainNodeEntryGuardPlugin()
+          createPlainNodeEntryGuardPlugin(),
+          createMainOutputRelativePathGuardPlugin()
         ]
       }
     },

@@ -52,6 +52,7 @@ import { closeDashboardPopout } from './dashboard-popout-window'
 import { installPrivilegedWindowNavigationPolicy } from './privileged-window-navigation'
 import { isMacosTahoeOrNewer } from './macos-tahoe-release'
 import { reflowRendererViewport } from './renderer-viewport-reflow'
+import { outMainDirectory } from '../out-main-directory'
 
 // Why: show/restore/resume can overlap before the size nudge resets; never capture the temporary width as the next baseline.
 const activeRepaintJiggles = new WeakSet<BrowserWindow>()
@@ -295,7 +296,7 @@ export function createMainWindow(
     icon: getAppIconPath(settings?.appIcon),
     ...platformBlurOptions,
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      preload: join(outMainDirectory(), '../preload/index.js'),
       sandbox: true,
       webviewTag: true,
       // Why: write the code cache on first launch instead of after Chromium's
