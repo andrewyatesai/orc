@@ -6,6 +6,7 @@ import {
   createRendererChunkBudgetPlugin,
   createRendererWorkerChunkBudgetPlugin
 } from './build-plugins/renderer-chunk-budget'
+import { computeOrcaBuildInfoLiteral } from './build-plugins/orca-build-info'
 
 export default defineConfig({
   root: resolve('src/renderer'),
@@ -14,7 +15,12 @@ export default defineConfig({
   base: './',
   plugins: [react(), tailwindcss(), createRendererChunkBudgetPlugin('web')],
   define: {
-    ORCA_FEATURE_WALL_ENABLED: 'true'
+    ORCA_FEATURE_WALL_ENABLED: 'true',
+    // Why: Settings → General renders ORCA_BUILD_INFO unconditionally. Without the
+    // define here it survives as a free identifier and the pane throws
+    // ReferenceError in the web client — the desktop config defines it, so no
+    // desktop test or build can see the gap.
+    ORCA_BUILD_INFO: computeOrcaBuildInfoLiteral()
   },
   resolve: {
     alias: {

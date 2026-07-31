@@ -301,6 +301,9 @@ export const electronViteConfig: UserConfig = {
       // 4.25 MiB per entry's full static closure, and 4.75 MiB per lazy file.
       chunkSizeWarningLimit: 5_000,
       rollupOptions: {
+        // Why: a shared chunk must never import an HTML entry whose module mounts
+        // a different React root (index/coordinator/popout are separate roots).
+        preserveEntrySignatures: 'strict',
         input: {
           index: resolve('src/renderer/index.html'),
           // Coordinator v0's own entry (docs/rust-migration/coordinator-v0-design.md):

@@ -23,11 +23,20 @@ const PRELOAD_ENTRY_CONSUMERS: Readonly<Record<string, string>> = {
 export function createPreloadBridgeGuardPlugin(): Plugin {
   return {
     name: 'orca-preload-bridge-guard',
-    generateBundle(_options: NormalizedOutputOptions, bundle: OutputBundle) {
+    generateBundle(options: NormalizedOutputOptions, bundle: OutputBundle) {
       const chunks = Object.values(bundle).filter(
         (item): item is OutputChunk => item.type === 'chunk'
       )
       const problems: string[] = []
+
+      // Why: the `.js` name alone is not the contract — an ESM module under a .js
+      // name is equally unloadable as a sandboxed preload, and that is the half of
+      // the original regression a filename check cannot see.
+      if (options.format !== 'cjs') {
+        problems.push(
+          `preload build emits "${options.format}" modules; a sandboxed preload must be CommonJS`
+        )
+      }
 
       for (const [entryName, consumer] of Object.entries(PRELOAD_ENTRY_CONSUMERS)) {
         const entry = chunks.find((chunk) => chunk.isEntry && chunk.name === entryName)

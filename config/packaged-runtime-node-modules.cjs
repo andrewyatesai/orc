@@ -224,6 +224,9 @@ function findAsarEntry(entries, expectedPath) {
 }
 
 const REQUIRED_PACKAGED_MAIN_FILES = [
+  // The app entry package.json `main` points at; emitted as a plugin ASSET, so a
+  // bundler change can drop it without failing any build.
+  'out/main/bootstrap.js',
   'out/main/index.js',
   'out/main/agent-hooks/managed-agent-hook-controls.js'
 ]

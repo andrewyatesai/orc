@@ -23,9 +23,11 @@ export function computeOrcaBuildInfoLiteral(): string {
   // aterm is a pinned git submodule; its checked-out commit IS the engine version.
   const atermRevFull = git('-C rust/aterm rev-parse HEAD')
   const atermRev = atermRevFull ? atermRevFull.slice(0, 12) : 'unknown'
-  // The last upstream re-sync: most recent commit whose subject starts with
-  // "Merge upstream" (the convention these merges use); pull the version + hash out.
-  const mergeLine = git('log -1 --grep="Merge upstream" --format="%h %s"')
+  // The last upstream re-sync. Both subject conventions are in history —
+  // "Merge upstream stablyai/orca (…)" and "merge: upstream stablyai/orca v… (…)" —
+  // so match case-insensitively or the newest sync is missed and About reports a
+  // stale alignment (a 1.4.161 build claimed v1.4.147-rc.4).
+  const mergeLine = git('log -1 -i -E --grep="^merge:? upstream" --format="%h %s"')
   let upstreamAligned = 'unknown'
   if (mergeLine) {
     const sep = mergeLine.indexOf(' ')

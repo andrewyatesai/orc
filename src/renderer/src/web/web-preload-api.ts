@@ -2976,7 +2976,6 @@ function createUpdaterApi(): NonNullable<Partial<PreloadApi>['updater']> {
     download: () => Promise.resolve(),
     quitAndInstall: () => Promise.resolve(),
     dismissNudge: () => Promise.resolve(),
-    dismissAvailableUpdate: () => Promise.resolve(),
     onStatus: () => noopUnsubscribe,
     onClearDismissal: () => noopUnsubscribe
   }

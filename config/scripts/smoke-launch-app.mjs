@@ -90,6 +90,11 @@ try {
 const window = await app.firstWindow()
 // Bind BEFORE waiting: boot-time errors fire early and are otherwise missed.
 window.on('pageerror', (error) => failures.push(`pageerror: ${String(error).split('\n')[0]}`))
+// Why: a preload that fails to load is SILENT — Electron reports it only here, the
+// renderer just sees window.api === undefined, and the error boundary it lands in
+// still renders text, so the mount checks below pass. This is how a broken preload
+// shipped once already.
+window.on('preloaderror', (error) => failures.push(`preload: ${String(error).split('\n')[0]}`))
 window.on('console', (message) => {
   const text = message.text()
   if (message.type() === 'error' && FATAL.some((pattern) => pattern.test(text))) {
@@ -102,13 +107,25 @@ await window.waitForTimeout(settleMs)
 
 const mounted = await window.evaluate(() => ({
   childCount: document.body?.childElementCount ?? 0,
-  hasText: (document.body?.innerText ?? '').trim().length > 0
+  hasText: (document.body?.innerText ?? '').trim().length > 0,
+  // The preload bridge: undefined means Electron loaded no preload at all.
+  hasBridge: typeof window.api === 'object' && window.api !== null,
+  // The error boundary renders text and children, so the checks above cannot see it.
+  crashed: (document.body?.innerText ?? '').includes('hit a renderer error')
 }))
 
 await app.close()
 
 if (!mounted.hasText || mounted.childCount === 0) {
   failures.push('renderer mounted nothing — blank window')
+}
+
+if (!mounted.hasBridge) {
+  failures.push('window.api is undefined — the preload bridge did not load')
+}
+
+if (mounted.crashed) {
+  failures.push('renderer rendered its error boundary instead of the app shell')
 }
 
 if (failures.length > 0) {
