@@ -72,8 +72,8 @@ function renderSidebar(
                 installStatus: 'up-to-date'
               },
               {
-                id: 'plugins',
-                title: 'Plugins',
+                id: 'agents',
+                title: 'Agents',
                 icon: Puzzle
               }
             ]
