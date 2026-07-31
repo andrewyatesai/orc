@@ -202,6 +202,12 @@ export const electronViteConfig: UserConfig = {
   main: {
     build: {
       rollupOptions: {
+        // Why: without this, rolldown may park a module shared by two entries
+        // INSIDE one entry's chunk and have the other require it from there —
+        // then tree-shake the symbol out, because the hosting entry never uses
+        // it. index.js shipped a call to a function its sibling entry does not
+        // export, and the packaged app died before its first window.
+        preserveEntrySignatures: 'strict',
         // Why: every main runtime dependency resolves from packaged node_modules
         // (the fork has no Node daemon entry, so nothing needs bundling).
         external: isExternalMainModule,

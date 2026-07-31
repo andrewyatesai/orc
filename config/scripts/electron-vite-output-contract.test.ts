@@ -36,6 +36,15 @@ describe('Electron Vite output contract', () => {
     )
   })
 
+  // Why: without this the bundler may host a module shared by two main entries
+  // inside one entry's chunk, then tree-shake the symbol because that entry does
+  // not use it — the other entry ships a call to a function nobody exports. That
+  // crashed the PACKAGED app before its first window while every dev launch, and
+  // all 41k tests, stayed green.
+  it('isolates main entry side effects behind strict facades', () => {
+    expect(electronViteConfig.main?.build?.rollupOptions?.preserveEntrySignatures).toBe('strict')
+  })
+
   it('rejects prototype properties as build targets', () => {
     expect(targetConfig).toContain('Object.prototype.hasOwnProperty.call(configByTarget, target)')
   })
