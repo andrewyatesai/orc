@@ -73,6 +73,12 @@ import {
 } from '../../shared/agent-session-resume'
 import { isCommandCodeNewTurnWhileWorking } from '../../shared/command-code-turn-boundary'
 import { clearDaemonRosterCache, resolveClaudeForkParentSessionId } from './daemon-roster-resolver'
+import {
+  ClosedPaneHookSuppressionLog,
+  type SuppressedClosedPaneHookEntry,
+  type SuppressedClosedPaneHookRecord,
+  type SuppressedHookContext
+} from './closed-pane-hook-suppression'
 
 export type { AgentHookSource }
 
@@ -554,6 +560,8 @@ export class AgentHookServer {
   private promptSentHashSalt = randomBytes(16).toString('hex')
   private closedAgentStatusTabIds = new Set<string>()
   private closedAgentStatusPaneKeys = new Set<string>()
+  // Why: suppressed hooks still answer 204, so record them or the drop is invisible to a submit verifier.
+  private readonly closedPaneHookSuppression = new ClosedPaneHookSuppressionLog()
   private connectionTimestampWatermarkById = new Map<string, number>()
   // Why: skip disk writes when the JSON exactly matches the last write; guards against re-firing trailing timers when nothing changed.
   private lastWrittenJson: string | null = null
@@ -613,6 +621,18 @@ export class AgentHookServer {
     return Array.from(this.state.lastStatusByPaneKey.values(), (entry) =>
       toAgentStatusIpcPayload(entry as EnrichedAgentHookEventPayload)
     )
+  }
+
+  /** Hooks dropped because Orca believes the pane is closed. Polled after a submit to tell
+   *  "no hook ever arrived" from "a hook arrived and was dropped"; a pull accessor rather than
+   *  a `subscribeEnrichedStatus` emission because a closed pane must not push status at all. */
+  getSuppressedHookRecord(paneKey: string): SuppressedClosedPaneHookRecord | undefined {
+    // Why: recorded under the owner key, so accept either the physical or the aliased key.
+    return this.closedPaneHookSuppression.get(this.resolvePaneKeyAlias(paneKey))
+  }
+
+  getSuppressedHookSnapshot(): SuppressedClosedPaneHookEntry[] {
+    return this.closedPaneHookSuppression.snapshot()
   }
 
   /** Provider-session identities, including Pi's metadata-only rows. */
@@ -822,7 +842,7 @@ export class AgentHookServer {
     }
   }
 
-  private shouldSuppressClosedTabStatus(paneKey: string): boolean {
+  private isClosedForAgentStatus(paneKey: string): boolean {
     const ownerPaneKey = this.resolvePaneKeyAlias(paneKey)
     if (
       this.closedAgentStatusPaneKeys.has(paneKey) ||
@@ -835,6 +855,21 @@ export class AgentHookServer {
       return false
     }
     return this.closedAgentStatusTabIds.has(tabId)
+  }
+
+  /** Predicate plus its audit trail: every ingest path that drops a hook here must name itself,
+   *  so no future call site can discard one silently. Only true hook arrivals are recorded —
+   *  a terminal OSC status parse is not a submission and would bury the hook it shadows. */
+  private shouldSuppressClosedTabStatus(paneKey: string, context: SuppressedHookContext): boolean {
+    if (!this.isClosedForAgentStatus(paneKey)) {
+      return false
+    }
+    if (context.ingest !== 'terminal') {
+      // Why the owner key: reads alias-resolve, so recording the raw key would file the
+      // record where no accessor looks.
+      this.closedPaneHookSuppression.record(this.resolvePaneKeyAlias(paneKey), context)
+    }
+    return true
   }
 
   private markPaneClosedForAgentStatus(paneKey: string): void {
@@ -1557,7 +1592,7 @@ export class AgentHookServer {
       return
     }
     const tabId = paneKey !== physicalPaneKey ? parsedPaneKey.tabId : reportedTabId
-    if (this.shouldSuppressClosedTabStatus(paneKey)) {
+    if (this.shouldSuppressClosedTabStatus(paneKey, { ingest: 'terminal' })) {
       return
     }
     const worktreeId =
@@ -1682,7 +1717,13 @@ export class AgentHookServer {
     // so trust the pinned pane's own identity (as the HTTP body path does).
     const tabId =
       usedSessionPin || paneKey !== physicalPaneKey ? parsedPaneKey.tabId : reportedTabId
-    if (this.shouldSuppressClosedTabStatus(paneKey)) {
+    if (
+      this.shouldSuppressClosedTabStatus(paneKey, {
+        ingest: 'relay',
+        hookEventName:
+          typeof envelope.hookEventName === 'string' ? envelope.hookEventName : undefined
+      })
+    ) {
       return
     }
     const worktreeId =
@@ -1820,7 +1861,14 @@ export class AgentHookServer {
         const sessionAttributedBody = this.normalizeHookBodyProviderSessionPane(body)
         const aliasedBody = this.normalizeHookBodyPaneKeyAlias(sessionAttributedBody)
         const normalized = normalizeHookPayload(this.state, source, aliasedBody, this.env)
-        if (normalized && !this.shouldSuppressClosedTabStatus(normalized.paneKey)) {
+        if (
+          normalized &&
+          !this.shouldSuppressClosedTabStatus(normalized.paneKey, {
+            ingest: 'http',
+            source,
+            hookEventName: normalized.hookEventName
+          })
+        ) {
           const enriched = this.applyNormalizedStatus(normalized)
           this.scheduleAssistantMessageRetry(source, aliasedBody, enriched)
         }
@@ -1881,6 +1929,7 @@ export class AgentHookServer {
     this.promptSentDedupeByPaneKey.clear()
     this.closedAgentStatusTabIds.clear()
     this.closedAgentStatusPaneKeys.clear()
+    this.closedPaneHookSuppression.clear()
     this.connectionTimestampWatermarkById.clear()
     this.legacyPaneKeyAliases.clear()
     clearAllListenerCaches(this.state)
