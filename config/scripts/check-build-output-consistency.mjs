@@ -14,7 +14,7 @@
 // Advisory by default (exit 0) so it can be run anywhere; `--strict` makes it a
 // gate. Usage: node config/scripts/check-build-output-consistency.mjs [--strict]
 
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 
 const repoRoot = path.resolve(import.meta.dirname, '../..')
@@ -34,6 +34,42 @@ const present = OUTPUTS.filter((entry) => existsSync(entry.file))
 if (present.length < 2) {
   console.log('[check-build-output] out/ is not fully built yet; nothing to compare.')
   process.exit(0)
+}
+
+// Why this runs BEFORE the mtime heuristic: the real failure is not "old", it is
+// "gone". `build:electron-vite` REPLACES out/main with its bundle, deleting the
+// tsc-emitted files out/cli requires (out/main/daemon/client.js and friends), and
+// a rebuild inside the tolerance window below leaves that invisible. Resolve the
+// CLI's actual cross-tree requires instead of guessing from timestamps.
+const cliDir = path.join(repoRoot, 'out', 'cli')
+const CROSS_TREE_REQUIRE = /require\(["'](\.\.\/[^"']*\/main\/[^"']+)["']\)/g
+const missingTargets = new Map()
+const walk = (dir) => {
+  for (const item of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, item.name)
+    if (item.isDirectory()) {
+      walk(full)
+    } else if (item.name.endsWith('.js')) {
+      for (const match of readFileSync(full, 'utf8').matchAll(CROSS_TREE_REQUIRE)) {
+        const resolved = path.resolve(path.dirname(full), match[1])
+        const found = existsSync(resolved) || existsSync(`${resolved}.js`)
+        if (!found) {
+          missingTargets.set(path.relative(repoRoot, resolved), path.relative(repoRoot, full))
+        }
+      }
+    }
+  }
+}
+if (existsSync(cliDir)) {
+  walk(cliDir)
+}
+if (missingTargets.size > 0) {
+  console.error('[check-build-output] the built CLI requires files that out/main no longer has:')
+  for (const [target, importer] of missingTargets) {
+    console.error(`  - ${target} (required by ${importer})`)
+  }
+  console.error('  A bundled main build replaced them. Fix: pnpm run build:cli')
+  process.exit(1)
 }
 
 const stamped = present.map((entry) => ({ ...entry, mtimeMs: statSync(entry.file).mtimeMs }))
