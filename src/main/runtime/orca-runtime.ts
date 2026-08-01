@@ -874,6 +874,18 @@ import {
   shouldModelAnswerHiddenPtyQueries
 } from './terminal-model-query-authority'
 import { terminalHostRowAnchorLedger } from './terminal-host-row-anchor'
+import {
+  TerminalEventJournal,
+  type EventCursor,
+  type JournalGapReason,
+  type PtyEventSource
+} from './terminal-event-journal'
+import {
+  awaitFirstTerminalEvent,
+  type TerminalAwaitPane,
+  type TerminalAwaitResult
+} from './terminal-multi-pane-await'
+import { TERMINAL_AWAIT_CONSUMER_GATED_FACT_KINDS } from './terminal-await-fact-kinds'
 // Why: the query-reply election derives "visible host" from the same hidden-mark state the delivery gate reads, so election and delivery cannot diverge (#9156).
 import { isHiddenRendererPty } from '../ipc/pty-hidden-delivery-gate'
 import {
@@ -1419,6 +1431,10 @@ type RuntimePtyTitleTrackerEntry = {
   // pty:sideEffect emission per chunk, preserving byte order (titles in
   // sequence, then bell). Timer-fired facts emit immediately between chunks.
   pendingFacts: TerminalSideEffectFact[]
+  // Why: the journal is published to whether or not a renderer consumer exists,
+  // so its per-chunk batch is accumulated separately from pendingFacts (which
+  // stays empty under headless serve).
+  pendingJournalFacts: TerminalSideEffectFact[]
   // Why: Command Code lacks hooks, so its working/done state is scraped from
   // TUI output. Null when no side-effect consumer exists (headless serve) —
   // the scrape produces facts only.
@@ -1426,6 +1442,14 @@ type RuntimePtyTitleTrackerEntry = {
   // Why: Codex fatal stream errors finalize the TUI without the Stop hook
   // (#7202); the scrape emits codex-stream-error facts for renderer repair.
   codexErrorDetector: { observe: (data: string) => boolean } | null
+}
+
+/** Why titles are withheld from the bounded journal: a working pane repaints
+ *  its spinner ~12.5x/sec, so retaining title facts would evict every real
+ *  transition within seconds. The derived agent-* facts carry the same state
+ *  for automation readers, and only on an actual transition. */
+function isJournalPublishableFact(fact: TerminalSideEffectFact): boolean {
+  return fact.kind !== 'title'
 }
 
 // Why: the full OSC 9999 payload flows through emitTerminalAgentStatusEvents and
@@ -2779,6 +2803,19 @@ export class OrcaRuntimeService {
   // intra-chunk working→idle transitions the renderer does (issue #1083).
   // Lazily created like agentStatusOscProcessorsByPtyId; disposed on PTY exit.
   private ptyTitleTrackersByPtyId = new Map<string, RuntimePtyTitleTrackerEntry>()
+  // Why: the renderer's pty:sideEffect sink exists only when a window is up, so
+  // under `orca serve` no fact reached a consumer at all. The journal is the
+  // publication layer terminal.await reads — independent of renderer presence.
+  private readonly terminalEventJournal = new TerminalEventJournal()
+  // Why: the cursor's incarnation component must change on respawn and at no
+  // other time, so it is minted once per process behind a ptyId and read from
+  // here afterwards. Cleared with the PTY record.
+  private readonly ptyJournalIncarnationById = new Map<string, string>()
+  // Why: the newest ordinal this runtime has issued per pane, so the await
+  // boundary can refuse a cursor naming a position that was never handed out —
+  // including on a pane that has not published yet, where the journal has no
+  // record to compare against. Fed by every publish; reset by rotation.
+  private readonly ptyJournalHeadSeqById = new Map<string, number>()
   // Why: the Command Code output detector arms early from the launch command
   // when known (banner detection covers user-typed launches), mirroring the
   // renderer detector's startupCommand seed.
@@ -7627,6 +7664,9 @@ export class OrcaRuntimeService {
       pty.connected = true
       pty.disconnectedAt = null
     }
+    // Why: rotate the journal now rather than at the respawned pane's first
+    // fact, so a reader still holding the dead incarnation's cursor learns.
+    this.beginPtyJournalIncarnation(ptyId)
     for (const leaf of this.getLeavesForPty(ptyId)) {
       leaf.connected = true
       leaf.writable = this.graphStatus === 'ready'
@@ -8126,11 +8166,20 @@ export class OrcaRuntimeService {
   }
 
   /** Emit the facts batched while applying one chunk/frame as a single
-   *  pty:sideEffect batch, preserving byte order. */
+   *  pty:sideEffect batch, preserving byte order. Publishes the same chunk to
+   *  the event journal first — one wake per chunk, not one per fact. */
   private flushPendingTerminalSideEffectFacts(
     ptyId: string,
     entry: RuntimePtyTitleTrackerEntry
   ): void {
+    if (entry.pendingJournalFacts.length > 0) {
+      const journalFacts = entry.pendingJournalFacts
+      entry.pendingJournalFacts = []
+      this.notePtyJournalHead(
+        ptyId,
+        this.terminalEventJournal.publishBatch(this.ptyEventSourceFor(ptyId), journalFacts)
+      )
+    }
     if (entry.pendingFacts.length === 0) {
       return
     }
@@ -8242,17 +8291,225 @@ export class OrcaRuntimeService {
   }
 
   /** Record one derived side-effect fact: batched per chunk while applying
-   *  bytes, emitted immediately for between-chunk facts (stale-title timer). */
+   *  bytes, emitted immediately for between-chunk facts (stale-title timer).
+   *  Journal publication runs alongside the renderer emission, never instead of
+   *  it — Classic's pty:sideEffect shape, ordering and batching are unchanged. */
   private recordTerminalSideEffectFact(ptyId: string, fact: TerminalSideEffectFact): void {
+    const entry = this.ptyTitleTrackersByPtyId.get(ptyId)
+    if (isJournalPublishableFact(fact)) {
+      if (entry?.applyingChunk) {
+        entry.pendingJournalFacts.push(fact)
+      } else {
+        this.notePtyJournalHead(
+          ptyId,
+          this.terminalEventJournal.publish(this.ptyEventSourceFor(ptyId), fact)
+        )
+      }
+    }
     if (!this.onTerminalSideEffects || !this.terminalSideEffectConsumerAvailable) {
       return
     }
-    const entry = this.ptyTitleTrackersByPtyId.get(ptyId)
     if (entry?.applyingChunk) {
       entry.pendingFacts.push(fact)
       return
     }
     this.emitTerminalSideEffectBatch(ptyId, [fact])
+  }
+
+  /** Cursor identity for one PTY incarnation. Pinned, never re-derived per
+   *  publish: `incarnationId` is filled in late on plenty of live records (SSH
+   *  reconnect, exit-proof backfill, state restore), and re-deriving would read
+   *  that as a respawn — wiping retention and telling every reader the pane
+   *  restarted when it did not. */
+  private ptyEventSourceFor(ptyId: string): PtyEventSource {
+    const pinned = this.ptyJournalIncarnationById.get(ptyId)
+    return {
+      runtimeId: this.runtimeId,
+      ptyId,
+      ptyIncarnationId: pinned ?? this.pinPtyJournalIncarnation(ptyId)
+    }
+  }
+
+  /** The one place a journal incarnation id is minted: a real spawn (or a
+   *  daemon session replacing this ptyId). Everything else reads the pin. */
+  private pinPtyJournalIncarnation(ptyId: string): string {
+    // Why sticky: the pin IS the journal's identity, so renaming it rotates the journal
+    // at the next publish — wiping retention and telling every reader the pane
+    // respawned. A pane keeps the identity it was first seen under until a real
+    // respawn replaces it through beginPtyJournalIncarnation.
+    const pinned = this.ptyJournalIncarnationById.get(ptyId)
+    if (pinned !== undefined) {
+      return pinned
+    }
+    const incarnationId =
+      this.ptysById.get(ptyId)?.incarnationId ?? this.provisionalPtyJournalIncarnation(ptyId)
+    this.ptyJournalIncarnationById.set(ptyId, incarnationId)
+    return incarnationId
+  }
+
+  /** Stands in until the pane's real incarnation id is known. Adopting the real one
+   *  later renames the same process — it is not a respawn. */
+  private provisionalPtyJournalIncarnation(ptyId: string): string {
+    return `runtime:${this.runtimeId}:${this.getPtyLifecycleGeneration(ptyId)}`
+  }
+
+  private isProvisionalPtyJournalIncarnation(incarnationId: string): boolean {
+    return incarnationId.startsWith(`runtime:${this.runtimeId}:`)
+  }
+
+  /** A new process is now behind this ptyId: re-pin, then rotate the journal so
+   *  readers holding the dead incarnation's cursor learn from their next read.
+   *
+   *  Why the equality check: the SSH relay calls onPtySpawned again when it
+   *  REATTACHES to a still-running remote process (a wifi flap or a wake), not only
+   *  on a real respawn. Rotating there would wipe retention and tell every reader the
+   *  pane restarted when it never did — so an unchanged incarnation is a no-op. */
+  private beginPtyJournalIncarnation(ptyId: string): void {
+    const previous = this.ptyJournalIncarnationById.get(ptyId)
+    const announced =
+      this.ptysById.get(ptyId)?.incarnationId ?? this.provisionalPtyJournalIncarnation(ptyId)
+    // Not every onPtySpawned is a new process: the SSH relay re-announces the same one
+    // after a reattach, and a pane first seen under a provisional id later learns its
+    // real name. Only one real id succeeding a DIFFERENT real id is a respawn; anything
+    // else keeps the identity the journal already has.
+    if (
+      previous !== undefined &&
+      (previous === announced || this.isProvisionalPtyJournalIncarnation(previous))
+    ) {
+      return
+    }
+    this.ptyJournalIncarnationById.set(ptyId, announced)
+    this.notePtyJournalHead(
+      ptyId,
+      this.terminalEventJournal.beginIncarnation(this.ptyEventSourceFor(ptyId))
+    )
+  }
+
+  private notePtyJournalHead(ptyId: string, head: EventCursor): void {
+    this.ptyJournalHeadSeqById.set(ptyId, head.eventSeq)
+  }
+
+  /** Journal cursor for a reader that has none: the newest retained position,
+   *  so a first arm means "tell me what happens next" rather than replaying
+   *  whatever history the pane happens to still hold. */
+  private terminalEventStartCursor(ptyId: string): EventCursor {
+    const head = this.terminalEventJournal.headCursor(ptyId)
+    if (head) {
+      return head
+    }
+    const source = this.ptyEventSourceFor(ptyId)
+    return {
+      runtimeId: source.runtimeId,
+      ptyIncarnationId: source.ptyIncarnationId,
+      // Why not simply 0: a dropped pane reports no head, but the ordinals it
+      // issued are still what its tombstone answers about, so a fresh reader
+      // starting below them would gap for history it never asked to see.
+      eventSeq: this.ptyJournalHeadSeqById.get(ptyId) ?? 0
+    }
+  }
+
+  /** Resolve one `terminal.await` pane. Throws terminal_handle_stale for a
+   *  handle this runtime does not own — including a remote-runtime pane, whose
+   *  bytes never transit here; that pane's await belongs to its own runtime. */
+  resolveTerminalEventPane(handle: string, cursor?: EventCursor): TerminalAwaitPane {
+    const runtimePty = this.getLivePtyForHandle(handle)
+    const ptyId = runtimePty ? runtimePty.pty.ptyId : this.getLiveLeafForHandle(handle).leaf.ptyId
+    if (!ptyId) {
+      throw new Error('terminal_handle_stale')
+    }
+    const resyncReason = cursor ? this.refuseTerminalEventCursor(ptyId, cursor) : null
+    if (!cursor || resyncReason) {
+      return {
+        terminal: handle,
+        ptyId,
+        cursor: this.terminalEventStartCursor(ptyId),
+        ...(resyncReason ? { resyncReason } : {})
+      }
+    }
+    return { terminal: handle, ptyId, cursor }
+  }
+
+  /** This RPC is the trust boundary for a client-supplied cursor: it claims a
+   *  position only this runtime can have issued, so anything else must resync
+   *  rather than be handed to the journal as if it were true. Mirrors the
+   *  journal's own precedence — identity first, then ordinal range. */
+  private refuseTerminalEventCursor(ptyId: string, cursor: EventCursor): JournalGapReason | null {
+    if (
+      cursor.runtimeId !== this.runtimeId ||
+      cursor.ptyIncarnationId !== this.ptyEventSourceFor(ptyId).ptyIncarnationId
+    ) {
+      return 'incarnation-changed'
+    }
+    if (!Number.isSafeInteger(cursor.eventSeq) || cursor.eventSeq < 0) {
+      return 'cursor-out-of-range'
+    }
+    // Why the runtime's own high-water mark and not the journal's head cursor:
+    // the journal reports no head for a pane that has not published *and* for
+    // one it has dropped, and a dropped pane's own gaps resume at an ordinal
+    // well past zero. Bounding against what this runtime actually issued covers
+    // both without refusing a cursor the journal itself just handed out.
+    const issuedSeq = this.ptyJournalHeadSeqById.get(ptyId) ?? 0
+    return cursor.eventSeq > issuedSeq ? 'cursor-out-of-range' : null
+  }
+
+  awaitTerminalEvents(
+    panes: readonly TerminalAwaitPane[],
+    options: {
+      kinds?: readonly string[]
+      timeoutMs: number
+      signal?: AbortSignal
+    }
+  ): Promise<TerminalAwaitResult> {
+    const requested = options.kinds
+    const filter = requested ? new Set<string>(requested) : null
+    return awaitFirstTerminalEvent({
+      journal: this.terminalEventJournal,
+      panes,
+      ...(filter
+        ? { matches: (fact: TerminalSideEffectFact): boolean => filter.has(fact.kind) }
+        : {}),
+      ...(requested
+        ? { unproducibleKinds: (): string[] => this.unproducibleTerminalFactKinds(requested) }
+        : {}),
+      isPaneLive: (ptyId) => this.isTerminalEventPaneLive(ptyId),
+      timeoutMs: options.timeoutMs,
+      signal: options.signal
+    })
+  }
+
+  /** Which of `kinds` nothing can currently emit. bell/133/pr-link/2031/
+   *  command-code/codex facts come from per-chunk scanners this runtime builds
+   *  only for a renderer consumer, so under `orca serve` — or after the last
+   *  window closes mid-poll — awaiting them would park forever on silence. */
+  private unproducibleTerminalFactKinds(kinds: readonly string[]): string[] {
+    if (this.terminalSideEffectConsumerAvailable) {
+      return []
+    }
+    return kinds.filter((kind) => TERMINAL_AWAIT_CONSUMER_GATED_FACT_KINDS.has(kind))
+  }
+
+  private isTerminalEventPaneLive(ptyId: string): boolean {
+    const pty = this.ptysById.get(ptyId)
+    if (pty) {
+      return pty.connected || this.isPtyInsideRelayRecoveryGrace(pty)
+    }
+    return this.getLeavesForPty(ptyId).some((leaf) => leaf.connected)
+  }
+
+  /** Relay loss is recoverable, and the runtime already keeps such a pane
+   *  addressable through a bounded grace — same shape as the SSH surface
+   *  retention in hasRecentExpiredSshLeasePane, widened to the liveness sweep
+   *  that drops `connected` while recording no exit code at all. An abnormal
+   *  (or absent) code on a connection-owned pane is transport failure, not
+   *  process death; reporting `exit` there turns a wifi flap into a permanent
+   *  false death for every automation watching the pane. */
+  private isPtyInsideRelayRecoveryGrace(pty: RuntimePtyWorktreeRecord): boolean {
+    if (pty.connectionId === null || (pty.lastExitCode !== null && pty.lastExitCode >= 0)) {
+      return false
+    }
+    return (
+      pty.disconnectedAt !== null && Date.now() - pty.disconnectedAt <= SSH_PANE_RECOVERY_GRACE_MS
+    )
   }
 
   private emitTerminalSideEffectBatch(
@@ -8478,6 +8735,7 @@ export class OrcaRuntimeService {
       lastMobileTitleGateKey: null,
       chunkTouchedSessionTabs: false,
       pendingFacts: [],
+      pendingJournalFacts: [],
       // Why: command-code facts exist only for the pty:sideEffect channel —
       // headless serve skips the per-chunk scrape entirely. The detector
       // self-arms on the Command Code banner; the spawn command (when main
@@ -8594,6 +8852,9 @@ export class OrcaRuntimeService {
     // Why: a replacement daemon session can reuse the PTY id, but title/parser
     // state from the prior process must not bleed into its snapshots or chunks.
     this.disposePtyTitleTracker(ptyId)
+    // Why: same reasoning for the journal — this is a different process behind
+    // the same ptyId, which is exactly what the cursor's incarnation encodes.
+    this.beginPtyJournalIncarnation(ptyId)
     this.oscTitleScanTailByPtyId.delete(ptyId)
     this.osc7ScanTailByPtyId.delete(ptyId)
     this.agentStatusOscProcessorsByPtyId.delete(ptyId)
@@ -11510,6 +11771,11 @@ export class OrcaRuntimeService {
       // Why: permanent process exit is absence, not a starting/sleeping tab.
       // Retire before publishing so paired clients never persist a ghost.
       this.retireMobileSessionSurfacesForPty(ptyId, exit.incarnationId, exit.exactSurfaces)
+      // Why here and not on every exit path: a pane that can still come back
+      // (relay loss, preserved handleless surface) must keep its retention and
+      // its parked readers. A pane that cannot settles them now with an
+      // explicit pty-dropped gap instead of waiting out a liveness poll.
+      this.terminalEventJournal.dropPty(ptyId)
     }
 
     for (const leaf of this.getLeavesForPty(ptyId)) {
@@ -26346,6 +26612,11 @@ export class OrcaRuntimeService {
   private dropDisconnectedPtyRecord(ptyId: string): void {
     // Why: pruning can remove a PTY without the normal exit callback.
     this.advancePtyLifecycleGeneration(ptyId)
+    // Why: the pane is no longer addressable, so parked journal readers must be
+    // settled with a pty-dropped gap instead of waiting out their timeout.
+    this.terminalEventJournal.dropPty(ptyId)
+    this.ptyJournalIncarnationById.delete(ptyId)
+    this.ptyJournalHeadSeqById.delete(ptyId)
     this.ptysById.delete(ptyId)
     this.recentPtyOutputById.delete(ptyId)
     this.clearWaitBlockedCheckState(ptyId)

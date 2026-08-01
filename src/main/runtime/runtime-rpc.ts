@@ -421,6 +421,12 @@ function longPollClassOf(request: RpcRequest): LongPollClass | null {
   if (request.method === 'terminal.wait') {
     return 'wait'
   }
+  // Why: one await multiplexes a whole watch set, so it meters as a single
+  // 'wait' slot — and it needs the same keepalive + disconnect abort wiring,
+  // which only long-poll classification provides.
+  if (request.method === 'terminal.await') {
+    return 'wait'
+  }
   // Why: orchestration.ask blocks unconditionally (default 600 s) holding the
   // RPC open until a reply lands or the deadline passes, so it needs the same
   // keepalive as check --wait or the 30 s socket idle timer tears it down. It
