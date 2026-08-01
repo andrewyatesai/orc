@@ -10,8 +10,8 @@ patches, and the evidence gates that decide **which** fork work is actually warr
 
 - **Rung 1 — flags on the stock binary.** SAB flags: ✅ landed (Wave 1). Flag sweep done.
 - **Rung 2 — `orca://` + COOP/COEP → `crossOriginIsolated`.** The header path on the
-  stock binary. Unlocks durable/growable SAB, high-res timers, **wasm threads**
-  (+1.8–2.9× on parallelizable stages atop SIMD). **← the current high-value target.**
+  stock binary. Unlocks durable/growable SAB and high-res timers. ✅ shipped, default OFF —
+  wasm threads (the intended consumer) were REFUTED 2026-07-31; see the status note.
 - **Rung 3 — the one justified electron-patch rebuild.** macOS low-latency canvas;
   pointer-compression-off whale variant; workload-PGO/BOLT.
 - **Rung 4 — the fork.** origin-isolation, component stripping, custom V8 snapshot, etc.
@@ -57,8 +57,32 @@ handle new-tab gestures), the main window probes `crossOriginIsolated === true` 
 `orca://app`, and durable+growable `SharedArrayBuffer` works. **Default is OFF**
 (`ORCA_CROSS_ORIGIN_ISOLATION=1` enables, read once per handler install): the COOP
 browsing-context-group swap measures ~35ms of window load (89→125ms A/B, medians n=6)
-and nothing in the shipped renderer consumes isolation yet — the first real consumer
-(aterm wasm threads) flips the default and nets the swap cost against its win.
+and nothing in the shipped renderer consumes isolation yet.
+
+**⚑ The named consumer is REFUTED — 2026-07-31 (wasm-threads scoping).** aterm wasm
+threads were the thing meant to earn that 35ms back. They do not:
+
+- **Shared memory breaks the zero-copy CPU present.** `new ImageData(sharedView)` throws
+  in Chromium *with and without* `crossOriginIsolated`, and both present paths depend on
+  it (`aterm-frame-painter.ts:132-137`, `aterm-worker-band-present.ts:30-33`, annotated
+  "no copy out of wasm at all"). The workaround measures **+0.13ms @1280×800 → +0.44ms
+  @2560×1440** per frame — roughly DOUBLING a 0.137ms typing present — paid on every
+  platform, every frame, whether or not a thread ever spawns.
+- **+2.06 MiB per attached thread** (measured: 33 pages each), and wasm memory never shrinks.
+- **The prize is bursty, not hot-path**: the one cleanly parallel stage is the search index
+  build, and its fan-out fights `FEDERATED_WORKER_INDEX_BUDGET_BYTES` — the serialization
+  it would remove is a memory *admission rule*, not an oversight.
+- **The target number is stale.** It derives from `perf-baseline-wasm.json`, whose own
+  comment calls the floors "conservative min-of-2 medians" (2026-07-22); a comparable lane
+  understates the shipping build by ~11%. The real target is unknown and smaller.
+
+Cheaper path to the same stage: the incremental lifecycle index already in the engine
+(`aterm-search/src/lifecycle_index.rs:60-64`) DELETES the rebuild instead of parallelizing
+it — no isolation, no nightly, no `-Z build-std`, no present regression. Cost that before
+threads are ever scoped again.
+
+Isolation therefore stays OFF, and the wiring stays in place unused (it costs nothing while
+off) for a future consumer that is NOT threads — e.g. a durable-SAB byte-ring transport.
 
 ## What the fork is still genuinely for (needs a real rebuild — Rung 3/4)
 
@@ -78,7 +102,7 @@ multi-hour, ~30–60GB operation — **kicked deliberately, gauntlet-gated, neve
 
 ## ⇒ The honest next runtime step: Rung-2 in-app serving (scoped 2026-07-18)
 
-The kill-check proved the prize (durable SAB + wasm threads) is reachable on stock Electron 43 via
+The kill-check proved the prize (durable SAB; wasm threads since refuted) is reachable on stock Electron 43 via
 rung-2 — no fork rebuild. Turning that on in the REAL app is a bounded, gauntlet-testable change:
 
 1. **Serve the renderer from a privileged `orca://` scheme instead of `file://`.** Today it loads via
@@ -93,7 +117,8 @@ rung-2 — no fork rebuild. Turning that on in the REAL app is a bounded, gauntl
    Replace with an `isTrustedAppOrigin(senderUrl)` helper accepting the `orca://app` origin (keep
    `file://` during migration for the dev-server path / rollback).
 3. **Then COOP:same-origin + COEP:credentialless on the `orca://` responses** → `crossOriginIsolated`
-   → durable/growable SAB + high-res timers + **wasm threads** (+1.8–2.9× on parallelizable stages).
+   → durable/growable SAB + high-res timers. (**wasm threads REFUTED 2026-07-31** — see the
+   status note above: shared memory breaks the zero-copy CPU present on every platform.)
    ✅ wired + validated 2026-07-30, OPT-IN via `ORCA_CROSS_ORIGIN_ISOLATION=1`
    (see the status note above for the measured COOP swap cost and default rationale).
 4. **In-app Phase-0 confirm** (the kill-check caveat): ✅ CLOSED 2026-07-30 — with the headers on,
