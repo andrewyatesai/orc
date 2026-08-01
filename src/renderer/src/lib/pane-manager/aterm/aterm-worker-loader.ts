@@ -12,6 +12,7 @@ import type { AtermDrawStrategy } from './aterm-draw-strategy'
 import type { AtermWorkerState } from './aterm-render-worker-protocol'
 import { attachAtermWorkerRainFacade } from './aterm-worker-rain-facade'
 import { chromeCssMargins } from './aterm-chrome-box'
+import { loadAterm } from './load-aterm'
 import { probeAtermSpillWorkerCompositing } from './aterm-spill-worker-probe'
 import type { AtermEffectsTarget } from './aterm-effects-settings'
 
@@ -40,6 +41,16 @@ export async function loadAtermWorkerEngine(
   config: AtermDrawerBuildConfig
 ): Promise<AtermPendingStrategy> {
   const { canvas, themeColors, fontPx, lineHeight } = config
+
+  // Why, and NOT awaited: a worker-backed term has no `term.encode_key`, so every
+  // keystroke routes through the MAIN-THREAD CPU glue
+  // (selectAtermEngineKeyEncoder -> atermCpuGlue()), which throws until
+  // loadAterm() registers it. The worker path stopped loading it when the font
+  // fetch was decoupled from the engine load (36bb9a7926); the idle prewarm is
+  // the only other loader and is skipped under e2e and cancelled once a real pane
+  // acquires — so in that ordering typing threw. Kick it here, unawaited:
+  // awaiting would restore the very dependency that commit removed.
+  void loadAterm().catch(() => undefined)
 
   // Fallible (font/asset fetch) BEFORE the canvas transfer, so a failure here throws
   // with the canvas still intact and loadAtermStrategy can fall back in-process.
