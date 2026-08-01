@@ -24,7 +24,7 @@
 // recreates a fresh one. Retirement is one-shot per generation.
 
 import AtermRenderWorker from './aterm-render-worker?worker'
-import { loadAterm } from './load-aterm'
+import { loadAtermFontBytes } from './load-aterm-font'
 import { e2eConfig } from '@/lib/e2e-config'
 import type {
   AtermFontClass,
@@ -317,8 +317,13 @@ export function createAtermSharedWorkerHost(deps: SharedWorkerHostDeps): AtermSh
 // The boot payload is just the bundled primary (loadAterm caches the asset fetch);
 // its failure must be loud — no face, no engine.
 async function loadSharedWorkerFonts(): Promise<SharedWorkerFonts> {
-  const { fontBytes } = await loadAterm()
-  return { primary: fontBytes }
+  // Why the direct font fetch: this used to `await loadAterm()` and keep only
+  // its fontBytes, which gated the worker's font post — and therefore the whole
+  // pane engine build — behind the full compile+instantiate of the 3.9MB CPU
+  // module. The worker never uses that instance: on the GPU path it compiles
+  // aterm_gpu_web itself, and on the CPU path it compiles its own. loadAterm()
+  // shares this exact promise for the face, so the bytes are identical.
+  return { primary: await loadAtermFontBytes() }
 }
 
 // One missed class from the main process (per-class cached there); the bytes are
