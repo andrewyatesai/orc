@@ -40,7 +40,7 @@ describe('markAtermWarmPhase', () => {
     ])
   })
 
-  it('latches phases independently of the first-frame marker', async () => {
+  it('latches warm phases independently of the first-frame marker', async () => {
     const { markAtermWarmPhase, markFirstAtermTerminalFramePresented } = await import(
       './aterm-first-terminal-frame-milestone'
     )
@@ -49,6 +49,67 @@ describe('markAtermWarmPhase', () => {
     expect(logSpy.mock.calls.map(([event]) => event)).toEqual([
       'first-terminal-frame',
       'aterm-warm-start'
+    ])
+  })
+})
+
+describe('markTerminalPaneBootPhase', () => {
+  it('emits each pane-boot stage once, in the order the boot reached it', async () => {
+    const { markTerminalPaneBootPhase } = await import('./aterm-first-terminal-frame-milestone')
+    markTerminalPaneBootPhase('boot-start')
+    markTerminalPaneBootPhase('layout-replayed')
+    markTerminalPaneBootPhase('scrollback-restored')
+    markTerminalPaneBootPhase('boot-settled')
+    markTerminalPaneBootPhase('pty-connect-start')
+    markTerminalPaneBootPhase('fit-measured')
+    markTerminalPaneBootPhase('pty-bound')
+    expect(logSpy.mock.calls.map(([event]) => event)).toEqual([
+      'pane-boot-start',
+      'pane-layout-replayed',
+      'pane-scrollback-restored',
+      'pane-boot-settled',
+      'pane-pty-connect-start',
+      'pane-fit-measured',
+      'pane-pty-bound'
+    ])
+  })
+
+  it('stays silent for every pane after the first — later tabs and splits re-run the same calls', async () => {
+    const { markTerminalPaneBootPhase } = await import('./aterm-first-terminal-frame-milestone')
+    // First (restored) pane boots.
+    markTerminalPaneBootPhase('boot-start')
+    markTerminalPaneBootPhase('layout-replayed')
+    markTerminalPaneBootPhase('pty-bound')
+    logSpy.mockClear()
+    // A second tab / user split walks the identical sequence.
+    markTerminalPaneBootPhase('boot-start')
+    markTerminalPaneBootPhase('layout-replayed')
+    markTerminalPaneBootPhase('pty-connect-start')
+    markTerminalPaneBootPhase('pty-bound')
+    expect(logSpy.mock.calls.map(([event]) => event)).toEqual(['pane-pty-connect-start'])
+  })
+
+  it('swallows a diagnostics-channel throw so the PTY bind chokepoint cannot break', async () => {
+    const { markTerminalPaneBootPhase } = await import('./aterm-first-terminal-frame-milestone')
+    logSpy.mockImplementationOnce(() => {
+      throw new TypeError('startupDiagnostic(...).catch is not a function')
+    })
+    expect(() => markTerminalPaneBootPhase('pty-bound')).not.toThrow()
+    // Still latched: a failed emit must not turn into a retry on every later pane.
+    markTerminalPaneBootPhase('pty-bound')
+    expect(logSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('latches independently of the warm phases and the first-frame marker', async () => {
+    const { markAtermWarmPhase, markFirstAtermTerminalFramePresented, markTerminalPaneBootPhase } =
+      await import('./aterm-first-terminal-frame-milestone')
+    markAtermWarmPhase('worker-ready')
+    markTerminalPaneBootPhase('boot-start')
+    markFirstAtermTerminalFramePresented()
+    expect(logSpy.mock.calls.map(([event]) => event)).toEqual([
+      'aterm-worker-ready',
+      'pane-boot-start',
+      'first-terminal-frame'
     ])
   })
 })

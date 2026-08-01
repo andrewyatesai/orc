@@ -59,6 +59,70 @@ describe('derivePhases first-terminal-frame lane', () => {
   })
 })
 
+// The pane half of the tail, in the order a restored boot emits it. rendererT is
+// the one renderer clock all these milestones share.
+function paneBootEvents() {
+  const lines = [
+    ['[startup] renderer-aterm-worker-ready t=1520 rendererT=610', 1530],
+    ['[startup] renderer-pane-boot-start t=1700 rendererT=790', 1712],
+    ['[startup] renderer-pane-layout-replayed t=1720 rendererT=810', 1731],
+    ['[startup] renderer-pane-scrollback-restored t=1760 rendererT=850', 1770],
+    ['[startup] renderer-pane-boot-settled t=1770 rendererT=860', 1780],
+    ['[startup] renderer-pane-pty-connect-start t=1786 rendererT=876', 1795],
+    ['[startup] renderer-pane-fit-measured t=1787 rendererT=877', 1796],
+    ['[startup] renderer-pane-pty-bound t=1870 rendererT=960', 1881]
+  ]
+  return lines.map(([line, harnessMs]) => ({ ...parseStartupLine(line), harnessMs }))
+}
+
+describe('derivePhases pane-boot lane', () => {
+  it('splits worker-ready → first frame into the pane boot stages', () => {
+    const phases = derivePhases([...restoredRunEvents(), ...paneBootEvents()])
+    expect(phases.totalToPaneBootStart).toBe(1712)
+    expect(phases.paneBootStartToLayoutReplayed).toBe(20)
+    expect(phases.paneLayoutReplayedToScrollbackRestored).toBe(40)
+    expect(phases.paneScrollbackRestoredToBootSettled).toBe(10)
+    // fit and the deferred connect both measure from boot-settled, not each other.
+    expect(phases.paneBootSettledToPtyConnectStart).toBe(16)
+    expect(phases.paneBootSettledToFitMeasured).toBe(17)
+    expect(phases.panePtyConnectStartToPtyBound).toBe(84)
+    expect(phases.paneBootStartToFirstTerminalFrame).toBe(150)
+    expect(phases.paneBootSettledToFirstTerminalFrame).toBe(80)
+  })
+
+  it('reports a negative pty-bound → first-frame delta when the paint beats the daemon', () => {
+    // first-terminal-frame rendererT=940 lands before pty-bound rendererT=960.
+    const phases = derivePhases([...restoredRunEvents(), ...paneBootEvents()])
+    expect(phases.panePtyBoundToFirstTerminalFrame).toBe(-20)
+  })
+
+  it('yields null (not NaN) for every pane phase when no terminal restores', () => {
+    const phases = derivePhases(restoredRunEvents())
+    for (const name of [
+      'totalToPaneBootStart',
+      'paneBootStartToLayoutReplayed',
+      'paneLayoutReplayedToScrollbackRestored',
+      'paneScrollbackRestoredToBootSettled',
+      'paneBootSettledToFitMeasured',
+      'paneBootSettledToPtyConnectStart',
+      'panePtyConnectStartToPtyBound',
+      'panePtyBoundToFirstTerminalFrame',
+      'paneBootStartToFirstTerminalFrame',
+      'paneBootSettledToFirstTerminalFrame'
+    ]) {
+      expect(phases[name], name).toBeNull()
+    }
+  })
+
+  it('falls back to harness arrival times when a pane milestone lost its clocks', () => {
+    const events = [...restoredRunEvents(), ...paneBootEvents()].map((event) =>
+      event.event === 'renderer-pane-boot-start' ? { ...event, details: {} } : event
+    )
+    const phases = derivePhases(events)
+    expect(phases.paneBootStartToLayoutReplayed).toBe(1731 - 1712)
+  })
+})
+
 describe('assertWaitEventCanFire', () => {
   it('rejects first-terminal-frame waits under --state-profile none, naming the fix', () => {
     expect(() =>

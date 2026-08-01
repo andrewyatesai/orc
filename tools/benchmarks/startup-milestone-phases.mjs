@@ -92,6 +92,64 @@ export function derivePhases(events) {
       'renderer-aterm-worker-ready',
       'renderer-first-terminal-frame'
     ),
+    // The other half of that tail: the first pane's own boot. worker-ready is an
+    // NOTE: worker-ready and pane-boot-start RACE — the engine warm and the React
+    // mount are independent, and bench data shows either can land first. A delta
+    // between them is signed noise, not a phase, so it is deliberately NOT derived.
+    // Both are reported against the shared timeline instead.
+    totalToPaneBootStart: eventTime(events, 'renderer-pane-boot-start', 'harness'),
+    paneBootStartToLayoutReplayed: deltaPreferInApp(
+      events,
+      'renderer-pane-boot-start',
+      'renderer-pane-layout-replayed'
+    ),
+    paneLayoutReplayedToScrollbackRestored: deltaPreferInApp(
+      events,
+      'renderer-pane-layout-replayed',
+      'renderer-pane-scrollback-restored'
+    ),
+    paneScrollbackRestoredToBootSettled: deltaPreferInApp(
+      events,
+      'renderer-pane-scrollback-restored',
+      'renderer-pane-boot-settled'
+    ),
+    // fit and the deferred PTY connect are BOTH rAF-scheduled off boot-settled and
+    // either can win the frame, so both measure from it — never from each other.
+    paneBootSettledToFitMeasured: deltaPreferInApp(
+      events,
+      'renderer-pane-boot-settled',
+      'renderer-pane-fit-measured'
+    ),
+    paneBootSettledToPtyConnectStart: deltaPreferInApp(
+      events,
+      'renderer-pane-boot-settled',
+      'renderer-pane-pty-connect-start'
+    ),
+    // The daemon create-or-attach round trip.
+    panePtyConnectStartToPtyBound: deltaPreferInApp(
+      events,
+      'renderer-pane-pty-connect-start',
+      'renderer-pane-pty-bound'
+    ),
+    // Negative when the engine paints before the PTY binds — that is the useful
+    // reading (the first frame does not wait on the daemon), not an error.
+    panePtyBoundToFirstTerminalFrame: deltaPreferInApp(
+      events,
+      'renderer-pane-pty-bound',
+      'renderer-first-terminal-frame'
+    ),
+    // The whole pane half, for comparison against atermWorkerReadyToFirstTerminalFrame.
+    paneBootStartToFirstTerminalFrame: deltaPreferInApp(
+      events,
+      'renderer-pane-boot-start',
+      'renderer-first-terminal-frame'
+    ),
+    // Residual after the synchronous boot: the async engine-build tail.
+    paneBootSettledToFirstTerminalFrame: deltaPreferInApp(
+      events,
+      'renderer-pane-boot-settled',
+      'renderer-first-terminal-frame'
+    ),
     rendererReconnectTerminalsMs:
       eventDetailsNumber(events, 'renderer-reconnect-terminals-done', 'durationMs') ??
       delta(

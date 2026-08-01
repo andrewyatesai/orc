@@ -157,12 +157,15 @@ async function buildCrate(key, wasmBindgen, atermSource) {
   const { dir, stem } = CRATES[key]
   console.log(`\n[aterm-wasm] building ${key} (${dir}) …`)
   // Build from ROOT (online ancestry) via --manifest-path so the web deps
-  // resolve from crates.io, not the offline rust/vendor. Inherit aterm's native
-  // [profile.release] as-is: opt-level=3 + fat LTO. The per-frame render, glyph
-  // layout, and ALL effects run in this wasm every frame (even on the WebGL2 GPU
-  // path), so hot-loop speed drives animation smoothness — a size-opt override
-  // (opt-level="z") made the wasm visibly chunkier than the native opt-3 build.
-  // A few MB more download is a non-issue; smoothness is the product.
+  // resolve from crates.io, not the offline rust/vendor. Inherit aterm's
+  // [profile.release] as-is: fat LTO + `strip = true` (which is why the shipped
+  // blobs carry no name section), with the two web crates ALREADY overridden to
+  // opt-level="z" by [profile.release.package.*] — only their dependency closure
+  // (aterm-core/-render/-effects, wgpu) stays at opt-level 3. That split is
+  // deliberate: the per-frame render, glyph layout, and ALL effects run in this
+  // wasm every frame (even on the WebGL2 GPU path), so hot-loop speed drives
+  // animation smoothness, and a whole-closure size override was measured to make
+  // the wasm visibly chunkier. A few MB more download is a non-issue.
   await runWasmCargo(
     [
       'build',
@@ -200,8 +203,18 @@ async function buildCrate(key, wasmBindgen, atermSource) {
 
   const bg = join(pkg, `${stem}_bg.wasm`)
   const before = statSync(bg).size
-  // -O3 (speed), NOT -Oz (size): match the native opt-3 profile so wasm-opt's
-  // pass reinforces the cargo speed build instead of trading it back for bytes.
+  // -O3 (speed), NOT -Oz (size): match the dependency closure's opt-3 profile so
+  // wasm-opt's pass reinforces the cargo speed build instead of trading it back.
+  //
+  // Post-pass size knobs are EXHAUSTED — measured 2026-07-31 on the shipped blobs
+  // (reproduce with tools/wasm-blob-composition.mjs + wasm-opt against a copy):
+  // a second -O3 recovers 0.06%; -Oz on top only 0.9% (CPU) / 1.6% (GPU) and costs
+  // speed; --strip-debug/--strip-dwarf find nothing (release build); the `name`
+  // section is already gone via profile `strip = true`; and --strip-producers
+  // /--strip-target-features frees just 274 B while binaryen's re-encode adds
+  // ~4.4 KB, so stripping them is a net LOSS. Nor is panic="abort" a lever:
+  // wasm32-unknown-unknown already defaults to it. The remaining bytes are
+  // structural (code 79-81%, data 18-21%) and only move engine-side.
   run('wasm-opt', ['-O3', ...WASM_OPT_FEATURES, '-o', bg, bg])
   assertNoEmbeddedLocalBuildPaths(readFileSync(bg), {
     root: ROOT,

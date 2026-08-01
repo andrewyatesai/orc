@@ -79,6 +79,7 @@ import {
   type TerminalScrollbackDeepRestoreSource
 } from './terminal-scrollback-deep-restore'
 import { atermAppKeyProtocolNegotiated } from '@/lib/pane-manager/aterm/aterm-key-encoding'
+import { markTerminalPaneBootPhase } from '@/lib/pane-manager/aterm/aterm-first-terminal-frame-milestone'
 import { scheduleTerminalInitialRenderSettled } from './terminal-initial-render-settle'
 import { resolveTerminalLayoutActiveLeafId } from './terminal-layout-leaf-ids'
 import { pruneUnboundTerminalLayoutLeaves } from './terminal-layout-unbound-leaf-prune'
@@ -671,6 +672,9 @@ export function useTerminalPaneLifecycle({
     if (!container) {
       return
     }
+    // Startup attribution: the pane half of the worker-ready→first-frame tail
+    // starts here (React has mounted the container; nothing pane-shaped exists yet).
+    markTerminalPaneBootPhase('boot-start', tabId)
     const expandedStyleSnapshots = expandedStyleSnapshotRef.current
     const paneTransports = paneTransportsRef.current
     const panePtyBindings = panePtyBindingsRef.current
@@ -863,9 +867,10 @@ export function useTerminalPaneLifecycle({
         }
         if (focusActive) {
           fitAndFocusPanes(manager)
-          return
+        } else {
+          fitPanes(manager)
         }
-        fitPanes(manager)
+        markTerminalPaneBootPhase('fit-measured', tabId)
       })
     }
 
@@ -1699,6 +1704,9 @@ export function useTerminalPaneLifecycle({
       window.__paneManagers.set(tabId, manager)
     }
     const restoredPaneByLeafId = replayTerminalLayout(manager, initialLayoutRef.current, isActive)
+    // Panes now exist: their engine builds are in flight and their PTY connects
+    // are scheduled (createInitialPane opens the aterm pane BEFORE onPaneCreated).
+    markTerminalPaneBootPhase('layout-replayed', tabId)
 
     const restoredBuffers = initialLayoutRef.current.buffersByLeafId
     restoreScrollbackBuffers(
@@ -1731,6 +1739,9 @@ export function useTerminalPaneLifecycle({
         })
       )
     }
+    // Restored bytes are in the facades (deep hydration armed) — the last bulk
+    // main-thread work standing between the mount and the first paint.
+    markTerminalPaneBootPhase('scrollback-restored', tabId)
     if (restoredBuffers && initialLayoutRef.current.scrollbackRefsByLeafId) {
       const layoutWithoutRestoredBuffers = { ...initialLayoutRef.current }
       delete layoutWithoutRestoredBuffers.buffersByLeafId
@@ -1834,6 +1845,9 @@ export function useTerminalPaneLifecycle({
     queueResizeAll(isActive)
     persistLayoutSnapshot()
     scheduleRuntimeGraphSync()
+    // Synchronous boot work is done; everything left (fit, PTY, first paint) is
+    // rAF/IPC-driven, so this is the fork point the later stages measure from.
+    markTerminalPaneBootPhase('boot-settled', tabId)
     if (onInitialRenderSettledRef.current) {
       cancelInitialRenderSettle = scheduleTerminalInitialRenderSettled({
         manager,

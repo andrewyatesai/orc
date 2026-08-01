@@ -36,3 +36,47 @@ export function markAtermWarmPhase(phase: AtermWarmPhase): void {
   firedWarmPhases.add(phase)
   logRendererStartupDiagnostic(`aterm-${phase}`)
 }
+
+/** The FIRST booting pane's own stages — the other half of the opaque
+ *  worker-ready→first-frame tail, which the warm phases above cannot see because
+ *  it is React mount + pane wiring, not engine boot. In the order the lifecycle
+ *  reaches them, EXCEPT that 'fit-measured' and 'pty-connect-start' are both
+ *  rAF-scheduled and either can land first — derive both from 'boot-settled',
+ *  never from each other. */
+export type TerminalPaneBootPhase =
+  | 'boot-start'
+  | 'layout-replayed'
+  | 'scrollback-restored'
+  | 'boot-settled'
+  | 'fit-measured'
+  | 'pty-connect-start'
+  | 'pty-bound'
+
+const firedPaneBootPhases = new Set<TerminalPaneBootPhase>()
+let timedPaneId: string | null = null
+
+/** Stamp one pane-boot stage ('renderer-pane-<phase>'). Latched to ONE pane: the
+ *  first to reach 'boot-start' claims the lane and every later phase from any
+ *  other pane is dropped. Per-phase latching alone was not enough — a multi-tab
+ *  restore boots several panes concurrently, so the phases could interleave and
+ *  describe different panes, producing a timeline that reads coherent but is
+ *  arithmetic across two objects. PII-free (phase name only). */
+export function markTerminalPaneBootPhase(phase: TerminalPaneBootPhase, paneId?: string): void {
+  if (paneId !== undefined) {
+    if (timedPaneId === null && phase === 'boot-start') {
+      timedPaneId = paneId
+    } else if (timedPaneId !== paneId) {
+      return
+    }
+  }
+  if (firedPaneBootPhases.has(phase)) {
+    return
+  }
+  firedPaneBootPhases.add(phase)
+  try {
+    logRendererStartupDiagnostic(`pane-${phase}`)
+  } catch {
+    // 'pty-bound' sits on the PTY spawn/attach chokepoint: a host whose
+    // startupDiagnostic isn't promise-returning must not break the bind.
+  }
+}
