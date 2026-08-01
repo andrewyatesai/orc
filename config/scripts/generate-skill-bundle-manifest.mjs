@@ -9,6 +9,7 @@ import {
   assertReleasedHistoryPreserved,
   stabilizeReleasedHistory
 } from './skill-release-history-stability.mjs'
+import { verifySkillPackagePayload, writeSkillPackagePayload } from './skill-package-payload.mjs'
 
 // Why: the three artifacts version independently — bumping one shape must not
 // rewrite the others or bypass the registry's schema-gated append-only guard.
@@ -27,6 +28,13 @@ const RELEASE_MAPPING_PATH = path.join(OUTPUT_ROOT, 'release-mapping.json')
 // shipped. A release cut may append the second without regenerating the first.
 const CONTENT_ADDRESSED_PATHS = [CURRENT_MANIFEST_PATH, SNAPSHOT_REGISTRY_PATH]
 const ALL_ARTIFACT_PATHS = [...CONTENT_ADDRESSED_PATHS, RELEASE_MAPPING_PATH]
+// Why: the shipped skill bytes are content-addressed too — the manifest's
+// exactSha256 is what binds them, so they are verified wherever it is.
+const PAYLOAD_ROOTS = {
+  skillsRoot: SKILLS_ROOT,
+  packagesRoot: path.join(OUTPUT_ROOT, 'packages'),
+  repoRoot: REPO_ROOT
+}
 
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex')
@@ -624,6 +632,7 @@ async function main() {
     ? releasedHistoryFromTags(committedRegistry, committedMapping)
     : releasedHistoryFromCommitted(committedRegistry, committedMapping)
   const artifacts = await buildArtifacts(releasedHistory)
+  const payload = { ...PAYLOAD_ROOTS, manifest: artifacts.currentManifest }
 
   if (releaseVersion) {
     // Why: the row names revisions the committed registry must already contain,
@@ -631,6 +640,7 @@ async function main() {
     // provenance without regenerating them. If regeneration disagrees with what
     // is committed, the row would name a revision this tag does not ship.
     await verifyArtifacts(artifacts, CONTENT_ADDRESSED_PATHS)
+    await verifySkillPackagePayload(payload)
     appendReleaseRow(artifacts, releaseVersion)
   }
 
@@ -643,6 +653,11 @@ async function main() {
   const shouldWrite = releaseVersion !== null || argv.includes('--write')
   const writePaths = releaseVersion ? [RELEASE_MAPPING_PATH] : ALL_ARTIFACT_PATHS
   await (shouldWrite ? writeArtifacts(artifacts, writePaths) : verifyArtifacts(artifacts))
+  // Why: a release cut stages only the mapping row. Emitting the payload here
+  // would leave the cut with unstaged drift, so that mode verifies it above.
+  if (!releaseVersion) {
+    await (shouldWrite ? writeSkillPackagePayload(payload) : verifySkillPackagePayload(payload))
+  }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === import.meta.filename) {

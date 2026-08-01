@@ -36,7 +36,8 @@ const temporaryDirectories = []
 // sandbox copy needs its siblings beside it or the script cannot even load.
 const GENERATOR_MODULES = [
   'generate-skill-bundle-manifest.mjs',
-  'skill-release-history-stability.mjs'
+  'skill-release-history-stability.mjs',
+  'skill-package-payload.mjs'
 ]
 
 async function createPackage() {
@@ -66,6 +67,7 @@ async function createReleaseSandbox() {
   return {
     generate: (...args) => execFileSync(process.execPath, [script, ...args], { stdio: 'pipe' }),
     read: (name) => readFile(path.join(root, 'resources', 'skills', name), 'utf8'),
+    payloadPath: (...segments) => path.join(root, 'resources', 'skills', 'packages', ...segments),
     editSkill: (body) => writeFile(path.join(skillRoot, 'SKILL.md'), body)
   }
 }
@@ -479,6 +481,21 @@ describe('skill bundle manifest generator', () => {
       /Generated skill artifacts are stale/
     )
     expect(JSON.parse(await sandbox.read('release-mapping.json')).releases).toHaveLength(1)
+  })
+
+  it('emits the skill payload on --write and only verifies it on --release', async () => {
+    const sandbox = await createReleaseSandbox()
+
+    sandbox.generate('--write')
+    expect(await readFile(sandbox.payloadPath('demo', 'SKILL.md'), 'utf8')).toBe('demo skill\n')
+
+    await writeFile(sandbox.payloadPath('demo', 'SKILL.md'), 'tampered\n')
+    expect(() => sandbox.generate('--release', 'v1.4.156')).toThrow(
+      /Generated skill artifacts are stale/
+    )
+
+    // A cut stages only the mapping row, so it must never rewrite the payload.
+    expect(await readFile(sandbox.payloadPath('demo', 'SKILL.md'), 'utf8')).toBe('tampered\n')
   })
 
   it('freezes a revision once a release records it, and only until then', async () => {
