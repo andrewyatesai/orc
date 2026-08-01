@@ -1,4 +1,4 @@
-import type { OutputBundle, OutputChunk, Plugin } from 'rollup'
+import type { OutputBundle, OutputChunk, Plugin } from 'rolldown'
 
 // Why: modules that resolve sibling output files (preloads, workers, the
 // orca:// renderer root) used `join(__dirname, '../…')`, which is only correct

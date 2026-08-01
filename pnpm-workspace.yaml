@@ -1,0 +1,37 @@
+# pnpm 10 stopped reading the `pnpm` field in package.json; these settings live here now.
+# Without this file the overrides, the node-pty patch, and the build allowlist are
+# silently dropped the next time the lockfile is regenerated.
+
+shamefullyHoist: true
+minimumReleaseAge: 4320
+
+overrides:
+  '@modelcontextprotocol/sdk>@hono/node-server': "2.0.10"
+  'monaco-editor>dompurify': "3.4.12"
+
+supportedArchitectures:
+  os:
+    - "current"
+    - "darwin"
+    - "linux"
+    - "win32"
+  cpu:
+    - "current"
+    - "x64"
+    - "arm64"
+
+onlyBuiltDependencies:
+  - "@parcel/watcher"
+  - "cpu-features"
+  - "esbuild"
+  - "node-pty"
+  - "sherpa-onnx"
+
+ignoredBuiltDependencies:
+  - "agent-browser"
+  - "electron-winstaller"
+  - "msw"
+  - "ssh2"
+
+patchedDependencies:
+  'node-pty@1.1.0': "config/patches/node-pty@1.1.0.patch"

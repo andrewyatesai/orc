@@ -301,41 +301,6 @@
     "node": "24"
   },
   "packageManager": "pnpm@10.24.0+sha512.01ff8ae71b4419903b65c60fb2dc9d34cf8bb6e06d03bde112ef38f7a34d6904c424ba66bea5cdcf12890230bf39f9580473140ed9c946fef328b6e5238a345a",
-  "pnpm": {
-    "overrides": {
-      "@modelcontextprotocol/sdk>@hono/node-server": "2.0.10",
-      "monaco-editor>dompurify": "3.4.12"
-    },
-    "supportedArchitectures": {
-      "os": [
-        "current",
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "cpu": [
-        "current",
-        "x64",
-        "arm64"
-      ]
-    },
-    "ignoredBuiltDependencies": [
-      "agent-browser",
-      "electron-winstaller",
-      "msw",
-      "ssh2"
-    ],
-    "onlyBuiltDependencies": [
-      "@parcel/watcher",
-      "cpu-features",
-      "esbuild",
-      "node-pty",
-      "sherpa-onnx"
-    ],
-    "patchedDependencies": {
-      "node-pty@1.1.0": "config/patches/node-pty@1.1.0.patch"
-    }
-  },
   "reactDoctor": {
     "rules": {
       "react-doctor/js-combine-iterations": "off"
