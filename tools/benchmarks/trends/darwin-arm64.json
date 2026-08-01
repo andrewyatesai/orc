@@ -30,6 +30,29 @@
         "engine_throughput_cjk_ms": 1.8493,
         "engine_comparative_aterm_cjk_mibps": 576.95
       }
+    },
+    {
+      "capturedAt": "2026-08-01T17:41:53.509Z",
+      "label": "reseed",
+      "commit": "36bb9a7926",
+      "metrics": {
+        "keydown_to_frame_p50_ms": 1.1000001430511475,
+        "keydown_to_frame_p95_ms": 1.7000000476837158,
+        "render_half_cpu_p50_ms": 0.8999998569488525,
+        "render_half_gpu_p50_ms": 0.09999990463256836,
+        "cpu_frame_80x24_sparse_ms": 0.6483333329359691,
+        "gpu_frame_80x24_sparse_ms": 0.0850000003973643,
+        "gpu_frame_200x50_full_ms": 0.25166666706403096,
+        "wasm_kb_per_pane": 5952,
+        "startup_did_finish_load_ms": 377.2,
+        "startup_workspace_ready_ms": 498,
+        "engine_throughput_ascii_ms": null,
+        "engine_comparative_aterm_ascii_mibps": null,
+        "engine_throughput_sgr_ms": null,
+        "engine_comparative_aterm_sgr_mibps": null,
+        "engine_throughput_cjk_ms": null,
+        "engine_comparative_aterm_cjk_mibps": null
+      }
     }
   ]
 }
