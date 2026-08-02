@@ -45,6 +45,24 @@ const HISTORY = {
   }
 }
 
+const AGENT_TRANSCRIPT = {
+  agentTranscript: {
+    schema: 1,
+    handle: 'term-1',
+    available: true,
+    detail: null,
+    agent: 'claude',
+    sessionId: 'sess-1',
+    host: { kind: 'local' },
+    path: '/p/sess-1.jsonl',
+    turns: [],
+    hasMoreBefore: false,
+    previousOffset: null,
+    limited: false,
+    blindSpots: []
+  }
+}
+
 describe('terminal context CLI', () => {
   afterEach(() => {
     vi.restoreAllMocks()
@@ -184,6 +202,32 @@ describe('terminal context CLI', () => {
     })
   })
 
+  it('sends an agent-transcript window with the backward-paging offset', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const { call, run } = invoke(
+      'terminal agent-transcript',
+      ['terminal', 'agent-transcript', '--terminal', 'term-1', '--limit', '5', '--before', '900'],
+      AGENT_TRANSCRIPT
+    )
+    await run()
+    expect(call).toHaveBeenCalledWith('terminal.agentTranscript', {
+      terminal: 'term-1',
+      limit: 5,
+      before: 900
+    })
+  })
+
+  it('omits --before when it was not given, so the runtime returns the live tail', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const { call, run } = invoke(
+      'terminal agent-transcript',
+      ['terminal', 'agent-transcript'],
+      AGENT_TRANSCRIPT
+    )
+    await run()
+    expect(call.mock.calls[0]![1]).not.toHaveProperty('before')
+  })
+
   it('sends search flags as booleans the runtime understands', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
     const { call, run } = invoke(
@@ -241,7 +285,8 @@ describe('terminal context CLI', () => {
       ['terminal', 'search', '--query', 'x', '--regex', '--case-sensitive', '--max-matches', '3'],
       ['terminal', 'blocks', '--limit', '2', '--json'],
       ['terminal', 'block-text', '--block', '1', '--limit', '5', '--json'],
-      ['terminal', 'agent-view', '--json']
+      ['terminal', 'agent-view', '--json'],
+      ['terminal', 'agent-transcript', '--limit', '5', '--before', '900', '--json']
     ]
     for (const argv of cases) {
       const parsed = parseArgs(

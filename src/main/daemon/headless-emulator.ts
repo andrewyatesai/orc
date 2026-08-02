@@ -28,7 +28,13 @@ import {
   readEmulatorContextExtents,
   type EmulatorContextExtents
 } from './emulator-context-extents'
-import type { TerminalSnapshot, TerminalModes } from './types'
+import {
+  UNREADABLE_INLINE_IMAGES,
+  readEmulatorInlineImages,
+  type EmulatorInlineImageRead,
+  type EmulatorInlineImageRequest
+} from './emulator-inline-images'
+import type { TerminalSnapshot } from './types'
 import type { TerminalViewAttributes } from '../../shared/terminal-view-attributes'
 import type { TerminalOscLinkRange } from '../../shared/terminal-osc-link-ranges'
 
@@ -306,7 +312,14 @@ export class HeadlessEmulator {
     return buildEmulatorSnapshotReport({
       run: (op, call, fallback) => this.engineCall(op, call, fallback),
       term: this.term,
-      modes: this.getModes(),
+      // The engine half of the mode set is read inside, under the same poison
+      // guard as the serialize; these are the stream-scanned half.
+      modeScanners: {
+        mouseTrackingMode: () => this.privateModes.mouseTrackingMode(),
+        sgrMouseMode: () => this.privateModes.sgrMouseMode(),
+        sgrMousePixelsMode: () => this.privateModes.sgrMousePixelsMode(),
+        kittyKeyboardFlags: this.kittyKeyboard.flags
+      },
       scrollbackRows: opts.scrollbackRows,
       cols: this.cols,
       rows: this.rows,
@@ -352,16 +365,20 @@ export class HeadlessEmulator {
     )
   }
 
+  /** An engine read the context verbs make, guarded by BOTH gates: a disposed
+   *  emulator and a poisoned one must answer the same explicit `degraded` value,
+   *  because every one of these reads feeds a caller that has to distinguish
+   *  "nothing there" from "could not look". */
+  private guardedRead<T>(op: string, read: () => T, degraded: T): T {
+    return this.disposed ? degraded : this.engineCall(op, read, () => degraded)
+  }
+
   /** Fed §2.4 host-side search, stable rows — contract documented in
    *  headless-emulator-scrollback-search.ts. Null = degrade to unavailable. */
   searchScrollback(opts: EmulatorScrollbackSearchQuery): EmulatorScrollbackSearchOutcome | null {
-    return this.disposed
-      ? null
-      : this.engineCall(
-          'searchScrollback',
-          () => searchEmulatorScrollback(this.term, opts),
-          () => null
-        )
+    const read = (): EmulatorScrollbackSearchOutcome | null =>
+      searchEmulatorScrollback(this.term, opts)
+    return this.guardedRead('searchScrollback', read, null)
   }
 
   /** Context window around a STABLE host row (same module for the contract). */
@@ -370,30 +387,31 @@ export class HeadlessEmulator {
     before: number,
     after: number
   ): EmulatorSearchContextWindow | null {
-    return this.disposed
-      ? null
-      : this.engineCall(
-          'searchContext',
-          () => emulatorSearchContext(this.term, hostRow, before, after),
-          () => null
-        )
+    const read = (): EmulatorSearchContextWindow | null =>
+      emulatorSearchContext(this.term, hostRow, before, after)
+    return this.guardedRead('searchContext', read, null)
   }
 
   /** Retained history depth + visible cursor in one hop, for windowed context
    *  reads (`terminal.history`, `terminal.agentView`). Null fields mean the
    *  engine could not answer — never a fabricated zero. */
   contextExtents(): EmulatorContextExtents {
-    const blind = (): EmulatorContextExtents => UNREADABLE_CONTEXT_EXTENTS
     const read = (): EmulatorContextExtents => readEmulatorContextExtents(this.term)
-    return this.disposed ? blind() : this.engineCall('contextExtents', read, blind)
+    return this.guardedRead('contextExtents', read, UNREADABLE_CONTEXT_EXTENTS)
+  }
+
+  /** Inline images on the visible grid. The outcome separates "none here" from
+   *  "this addon cannot see images" from "this engine cannot answer" — see
+   *  emulator-inline-images.ts. */
+  inlineImages(request: EmulatorInlineImageRequest): EmulatorInlineImageRead {
+    const read = (): EmulatorInlineImageRead => readEmulatorInlineImages(this.term, request)
+    return this.guardedRead('inlineImages', read, UNREADABLE_INLINE_IMAGES)
   }
 
   /** Stable origin row; null when the addon predates it or the engine is poisoned. */
   retainedOriginRow(): number | null {
-    const readOrigin = this.term.retainedOriginRow?.bind(this.term)
-    return this.disposed || !readOrigin
-      ? null
-      : this.engineCall('retainedOriginRow', readOrigin, () => null)
+    const read = this.term.retainedOriginRow?.bind(this.term)
+    return read ? this.guardedRead('retainedOriginRow', read, null) : null
   }
 
   getCwd(): string | null {
@@ -431,33 +449,6 @@ export class HeadlessEmulator {
       this.term.dispose()
     } catch {
       // A poisoned engine may throw even here; GC still reclaims the handle.
-    }
-  }
-
-  private getModes(): TerminalModes {
-    // Screen/input modes come straight from the aterm engine (false once
-    // poisoned)…
-    const engineModes = this.engineCall(
-      'modes',
-      () => ({
-        bracketedPaste: this.term.bracketedPaste(),
-        applicationCursor: this.term.applicationCursor(),
-        alternateScreen: this.term.isAlternateScreen()
-      }),
-      () => ({ bracketedPaste: false, applicationCursor: false, alternateScreen: false })
-    )
-    // …mouse modes come from the raw-stream scanner (see privateModes).
-    const mouseTrackingMode = this.privateModes.mouseTrackingMode()
-    return {
-      ...engineModes,
-      mouseTracking: mouseTrackingMode !== 'none',
-      mouseTrackingMode,
-      sgrMouseMode: this.privateModes.sgrMouseMode(),
-      sgrMousePixelsMode: this.privateModes.sgrMousePixelsMode(),
-      // Engine-independent (aterm napi doesn't expose kitty flags); the query
-      // responder re-seeds from this. Deliberately NOT added to rehydrate — the
-      // renderer re-negotiates the protocol on reconnect.
-      kittyKeyboardFlags: this.kittyKeyboard.flags
     }
   }
 }

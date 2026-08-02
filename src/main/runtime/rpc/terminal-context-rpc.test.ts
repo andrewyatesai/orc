@@ -12,6 +12,7 @@ import type {
   TerminalCommandBlocksResult,
   TerminalHistoryWindow
 } from '../../../shared/terminal-context-protocol'
+import type { TerminalAgentTranscript } from '../../../shared/agent-transcript-protocol'
 
 const HISTORY: TerminalHistoryWindow = {
   schema: 1,
@@ -88,6 +89,23 @@ const AGENT_VIEW: TerminalAgentView = {
   blindSpots: [{ capability: 'video', reason: 'requires-present-path', detail: 'x' }]
 }
 
+const AGENT_TRANSCRIPT: TerminalAgentTranscript = {
+  schema: 1,
+  handle: 't-1',
+  available: false,
+  unavailable: 'remote-host',
+  detail: 'This pane runs over SSH connection conn-7.',
+  agent: 'claude',
+  sessionId: 'sess-1',
+  host: { kind: 'ssh', connectionId: 'conn-7' },
+  path: '/home/u/.claude/projects/p/sess-1.jsonl',
+  turns: [],
+  hasMoreBefore: false,
+  previousOffset: null,
+  limited: false,
+  blindSpots: [{ capability: 'agent-screen-state', reason: 'transcript-lags-pty', detail: 'x' }]
+}
+
 function stubRuntime(overrides: Partial<OrcaRuntimeService> = {}): OrcaRuntimeService {
   return {
     getRuntimeId: () => 'test-runtime',
@@ -95,6 +113,7 @@ function stubRuntime(overrides: Partial<OrcaRuntimeService> = {}): OrcaRuntimeSe
     listTerminalCommandBlocks: vi.fn().mockReturnValue(BLOCKS),
     readTerminalCommandBlockText: vi.fn().mockReturnValue(BLOCK_TEXT),
     readTerminalAgentView: vi.fn().mockResolvedValue(AGENT_VIEW),
+    readTerminalAgentTranscript: vi.fn().mockResolvedValue(AGENT_TRANSCRIPT),
     ...overrides
   } as unknown as OrcaRuntimeService
 }
@@ -200,6 +219,34 @@ describe('terminal.agentView', () => {
     } as unknown as Partial<OrcaRuntimeService>)
     const response = await dispatch(runtime, 'terminal.agentView', {
       terminal: 'gone'
+    })
+    expect(response.ok).toBe(false)
+  })
+})
+
+describe('terminal.agentTranscript', () => {
+  it('carries a named refusal through the dispatcher instead of an empty result', async () => {
+    const runtime = stubRuntime()
+    const response = await dispatch(runtime, 'terminal.agentTranscript', { terminal: 't-1' })
+    const result = (response as { result: { agentTranscript: TerminalAgentTranscript } }).result
+    expect(result.agentTranscript).toEqual(AGENT_TRANSCRIPT)
+    expect(result.agentTranscript.unavailable).toBe('remote-host')
+    expect(runtime.readTerminalAgentTranscript).toHaveBeenCalledWith('t-1', {})
+  })
+
+  it('forwards the window and the backward-paging offset', async () => {
+    const runtime = stubRuntime()
+    await dispatch(runtime, 'terminal.agentTranscript', { terminal: 't-1', limit: 5, before: 900 })
+    expect(runtime.readTerminalAgentTranscript).toHaveBeenCalledWith('t-1', {
+      limit: 5,
+      before: 900
+    })
+  })
+
+  it('rejects a negative offset rather than silently clamping it', async () => {
+    const response = await dispatch(stubRuntime(), 'terminal.agentTranscript', {
+      terminal: 't-1',
+      before: -1
     })
     expect(response.ok).toBe(false)
   })

@@ -1,8 +1,9 @@
 /**
  * Context-management verbs for a driving AI — `terminal.history`,
- * `terminal.blocks`, `terminal.blockText`, `terminal.agentView`.
+ * `terminal.blocks`, `terminal.blockText`, `terminal.images`,
+ * `terminal.agentView`, `terminal.agentTranscript`.
  *
- * Why a sibling module and not more entries in terminal.ts: these four are one
+ * Why a sibling module and not more entries in terminal.ts: these are one
  * capability (orient in a pane you are not looking at) and share one honesty
  * contract — every result names the channels it could not serve rather than
  * returning a plausible empty, the same no-silent-downgrade rule
@@ -34,6 +35,21 @@ const TerminalBlockTextParams = TerminalHandle.extend({
   // command print" question.
   index: z.number().int().nonnegative().optional(),
   limit: OptionalFiniteNumber
+})
+
+const TerminalImagesParams = TerminalHandle.extend({
+  // Default off: a placement can be megabytes and this is a JSON socket, so a
+  // caller opts in once it knows which image it wants.
+  includeBytes: z.boolean().optional(),
+  maxBytesPerImage: OptionalFiniteNumber,
+  maxTotalBytes: OptionalFiniteNumber
+})
+
+const TerminalAgentTranscriptParams = TerminalHandle.extend({
+  // Turns, newest-last. Omitted means the runtime's default window.
+  limit: OptionalFiniteNumber,
+  // A byte offset from a previous result's `previousOffset`, to page older.
+  before: z.number().int().nonnegative().optional()
 })
 
 export const TERMINAL_CONTEXT_METHODS: RpcAnyMethod[] = [
@@ -71,10 +87,34 @@ export const TERMINAL_CONTEXT_METHODS: RpcAnyMethod[] = [
     })
   }),
   defineMethod({
+    name: 'terminal.images',
+    params: TerminalImagesParams,
+    handler: async (params, { runtime, signal }) => ({
+      images: await runtime.readTerminalInlineImages(params.terminal, {
+        ...(params.includeBytes !== undefined ? { includeBytes: params.includeBytes } : {}),
+        ...(params.maxBytesPerImage !== undefined
+          ? { maxBytesPerImage: params.maxBytesPerImage }
+          : {}),
+        ...(params.maxTotalBytes !== undefined ? { maxTotalBytes: params.maxTotalBytes } : {}),
+        signal
+      })
+    })
+  }),
+  defineMethod({
     name: 'terminal.agentView',
     params: TerminalHandle,
     handler: async (params, { runtime }) => ({
       agentView: await runtime.readTerminalAgentView(params.terminal)
+    })
+  }),
+  defineMethod({
+    name: 'terminal.agentTranscript',
+    params: TerminalAgentTranscriptParams,
+    handler: async (params, { runtime }) => ({
+      agentTranscript: await runtime.readTerminalAgentTranscript(params.terminal, {
+        ...(params.limit !== undefined ? { limit: params.limit } : {}),
+        ...(params.before !== undefined ? { before: params.before } : {})
+      })
     })
   })
 ]

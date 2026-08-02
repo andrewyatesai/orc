@@ -91,7 +91,9 @@ export const HANDLER_GROUPS: readonly HandlerGroup[] = [
       'terminal search',
       'terminal blocks',
       'terminal block-text',
-      'terminal agent-view'
+      'terminal images',
+      'terminal agent-view',
+      'terminal agent-transcript'
     ],
     load: async () => (await import('./handlers/terminal-context.js')).TERMINAL_CONTEXT_HANDLERS
   },

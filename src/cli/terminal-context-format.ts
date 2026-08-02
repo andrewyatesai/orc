@@ -12,6 +12,12 @@ import type {
   TerminalContextBlindSpot,
   TerminalHistoryWindow
 } from '../shared/terminal-context-protocol'
+import type {
+  AgentTranscriptBlock,
+  AgentTranscriptHost,
+  AgentTranscriptTurn,
+  TerminalAgentTranscript
+} from '../shared/agent-transcript-protocol'
 import type { RemoteTerminalSearchResult } from '../shared/terminal-remote-search-protocol'
 import { sanitizeUntrustedTerminalText } from './terminal-safe-text'
 
@@ -110,6 +116,54 @@ export function formatTerminalAgentView(result: TerminalAgentView): string {
   const head = [`status: ${result.status}`, agent, screen, history, block].join('\n')
   const body = result.screen.available ? `\n\n${terminalLines(result.screen.rows)}` : ''
   return `${head}${body}${blindSpotFooter(result.blindSpots)}`
+}
+
+function formatTranscriptHost(host: AgentTranscriptHost): string {
+  if (host.kind === 'ssh') {
+    return `ssh ${host.connectionId}`
+  }
+  return host.kind === 'wsl' ? `wsl ${host.distro ?? 'unknown-distro'}` : 'local'
+}
+
+function formatTranscriptBlock(block: AgentTranscriptBlock): string {
+  const cut = 'truncated' in block && block.truncated ? ' [truncated]' : ''
+  if (block.kind === 'text') {
+    return `${terminalLines(block.text.split('\n'))}${cut}`
+  }
+  if (block.kind === 'tool-call') {
+    return `[tool-call ${sanitizeUntrustedTerminalText(block.name)}] ${terminalLines(block.input.split('\n'))}${cut}`
+  }
+  if (block.kind === 'tool-result') {
+    return `[tool-result${block.isError ? ' error' : ''}]\n${terminalLines(block.output.split('\n'))}${cut}`
+  }
+  return `[image ${sanitizeUntrustedTerminalText(block.ref ?? block.alt ?? 'unnamed')}]`
+}
+
+function formatTranscriptTurn(turn: AgentTranscriptTurn): string {
+  return `${turn.role}: ${turn.blocks.map(formatTranscriptBlock).join('\n')}`
+}
+
+export function formatTerminalAgentTranscript(result: TerminalAgentTranscript): string {
+  const identity = `agent: ${result.agent ?? 'unknown'}  session: ${result.sessionId ?? 'unknown'}  host: ${formatTranscriptHost(result.host)}`
+  if (!result.available) {
+    // Why this shape: the reason token, the sentence, and the identity Orca DID
+    // resolve — so "I could not look" never reads as "the agent said nothing".
+    return `Agent transcript unavailable: ${result.unavailable ?? 'unknown'}.\n${result.detail ?? ''}\n${identity}${result.path ? `\nreported path: ${result.path}` : ''}`
+  }
+  const paging = [
+    result.hasMoreBefore && result.previousOffset !== null
+      ? `older: --before ${result.previousOffset}`
+      : null,
+    result.limited ? 'limited: bodies trimmed to the character budget' : null
+  ]
+    .filter((entry): entry is string => entry !== null)
+    .join('  |  ')
+  const header = `${identity}\n${result.path}\n${result.turns.length} turn(s)${paging ? `  |  ${paging}` : ''}`
+  const body =
+    result.turns.length === 0
+      ? 'This transcript exists and records no turns yet.'
+      : result.turns.map(formatTranscriptTurn).join('\n\n')
+  return `${header}\n\n${body}${blindSpotFooter(result.blindSpots)}`
 }
 
 export function formatTerminalSearch(result: RemoteTerminalSearchResult): string {

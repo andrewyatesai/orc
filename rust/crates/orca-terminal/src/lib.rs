@@ -8,6 +8,7 @@
 
 pub mod color_scheme_protocol;
 pub mod headless;
+pub mod inline_images;
 pub mod scrollback_search;
 
 pub use color_scheme_protocol::{
@@ -16,5 +17,8 @@ pub use color_scheme_protocol::{
 };
 pub use headless::{
     Cell, CellAttrs, Color, HeadlessTerminal, MouseTracking, TerminalSnapshot, DEFAULT_SCROLLBACK,
+};
+pub use inline_images::{
+    InlineImageEncoding, InlineImagePayload, InlineImagePlacement, InlineImageReadOptions,
 };
 pub use scrollback_search::{replay_for_search, MatchSummary, SearchOptions, SearchOutcome};

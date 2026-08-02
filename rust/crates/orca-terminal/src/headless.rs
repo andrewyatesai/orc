@@ -140,6 +140,14 @@ impl HeadlessTerminal {
         Self { inner, serialize_cache: None }
     }
 
+    /// The aterm engine behind this adapter, for sibling modules in this crate
+    /// that read aterm APIs Orca's stable surface deliberately does not mirror
+    /// (inline-image placements). Crate-internal: `HeadlessTerminal` stays the
+    /// anti-corruption layer for everyone outside.
+    pub(crate) fn engine(&self) -> &Terminal {
+        &self.inner
+    }
+
     /// The unified scrollback retention total (ring + staged + store), as set
     /// at construction from the P4-forwarded rows value. `None` = unlimited.
     pub fn scrollback_line_limit(&self) -> Option<usize> {

@@ -54,6 +54,39 @@ pub struct JsSearchContextWindow {
     pub origin_row: f64,
 }
 
+/// One inline image on the visible grid (`terminal.images`). One entry per
+/// PLACEMENT, not per covered cell.
+///
+/// `payloadState` is the honesty field: `included` / `not-requested` /
+/// `too-large` / `budget-exhausted`. `base64` is set only for `included` — an
+/// oversized payload is withheld whole, never truncated, because a prefix of a
+/// PNG is a corrupt PNG rather than a smaller one.
+#[napi(object)]
+pub struct JsInlineImage {
+    /// Top-left of the covered bounding box, in visible-grid coordinates.
+    pub row: u32,
+    pub col: u32,
+    /// The FULL footprint as placed; `coveredCells` says how much is on screen.
+    pub cell_rows: u32,
+    pub cell_cols: u32,
+    pub covered_cells: u32,
+    /// `png` | `rgba8` | `unknown`.
+    pub format: String,
+    /// Source raster size — `rgba8` (sixel) only; null for container formats
+    /// whose header this layer deliberately does not parse.
+    pub pixel_width: Option<u32>,
+    pub pixel_height: Option<u32>,
+    /// Retained payload size, reported whether or not the bytes came back. f64
+    /// because a payload can exceed u32 in principle (engine cap is 16 MiB).
+    pub byte_len: f64,
+    /// Kitty `z=`: negative draws behind the cell's text.
+    pub z_index: i32,
+    /// FNV-1a 64 as hex — an identity hint for polling callers, not a checksum.
+    pub fingerprint: String,
+    pub payload_state: String,
+    pub base64: Option<String>,
+}
+
 #[napi(js_name = "HeadlessTerminal")]
 pub struct JsHeadlessTerminal {
     // Option so dispose() can drop the engine (grid + tiered scrollback)
@@ -271,6 +304,71 @@ impl JsHeadlessTerminal {
             inner.search_context(abs_row as usize, before as usize, after as usize);
         let origin_row = inner.retained_origin_row() as f64;
         JsSearchContextWindow { lines, first_abs_row: first as u32, origin_row }
+    }
+
+    /// Inline images (iTerm2 OSC 1337 / sixel / Kitty) currently on the VISIBLE
+    /// grid, in reading order — one entry per placement.
+    ///
+    /// An empty result means "none on screen now", never "this pane emitted
+    /// none": the engine drops image refs when a row scrolls off, so a caller
+    /// must pair this with the retained-history depth to tell those apart.
+    /// Metadata-only unless `includeBytes`; the two byte budgets are applied
+    /// exactly as given (Orca clamps them at the RPC edge).
+    #[napi(catch_unwind)]
+    pub fn inline_images(
+        &self,
+        include_bytes: Option<bool>,
+        max_bytes_per_image: Option<f64>,
+        max_total_bytes: Option<f64>,
+    ) -> Vec<JsInlineImage> {
+        let Some(inner) = self.inner.as_ref() else {
+            return Vec::new();
+        };
+        let budget = |value: Option<f64>| -> usize {
+            value.filter(|v| v.is_finite() && *v > 0.0).map_or(0, |v| v as usize)
+        };
+        let placements = inner.inline_images(orca_terminal::InlineImageReadOptions {
+            include_bytes: include_bytes.unwrap_or(false),
+            max_bytes_per_image: budget(max_bytes_per_image),
+            max_total_bytes: budget(max_total_bytes),
+        });
+        placements
+            .into_iter()
+            .map(|image| {
+                let (format, pixel_width, pixel_height) = match image.encoding {
+                    orca_terminal::InlineImageEncoding::Png => ("png", None, None),
+                    orca_terminal::InlineImageEncoding::Rgba8 { width, height } => {
+                        ("rgba8", Some(u32::from(width)), Some(u32::from(height)))
+                    }
+                    orca_terminal::InlineImageEncoding::Unknown => ("unknown", None, None),
+                };
+                let (payload_state, base64) = match image.payload {
+                    orca_terminal::InlineImagePayload::NotRequested => ("not-requested", None),
+                    orca_terminal::InlineImagePayload::TooLarge => ("too-large", None),
+                    orca_terminal::InlineImagePayload::BudgetExhausted => {
+                        ("budget-exhausted", None)
+                    }
+                    orca_terminal::InlineImagePayload::Base64(encoded) => {
+                        ("included", Some(encoded))
+                    }
+                };
+                JsInlineImage {
+                    row: image.row as u32,
+                    col: image.col as u32,
+                    cell_rows: u32::from(image.cell_rows),
+                    cell_cols: u32::from(image.cell_cols),
+                    covered_cells: image.covered_cells as u32,
+                    format: format.to_string(),
+                    pixel_width,
+                    pixel_height,
+                    byte_len: image.byte_len as f64,
+                    z_index: image.z_index,
+                    fingerprint: format!("{:016x}", image.fingerprint),
+                    payload_state: payload_state.to_string(),
+                    base64,
+                }
+            })
+            .collect()
     }
 
     /// Stable absolute row of retained history index 0 (fed §2.4): monotonic

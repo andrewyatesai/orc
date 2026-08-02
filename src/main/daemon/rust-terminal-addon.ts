@@ -62,6 +62,35 @@ export type RustHeadlessTerminalHandle = {
    *  monotonic across eviction/clear, settled before read. Absent on
    *  pre-Wave-5 addons — callers must feature-detect. */
   retainedOriginRow?(): number
+  /** Inline images (OSC-1337 / sixel / Kitty) on the VISIBLE grid, one entry per
+   *  placement, in reading order. Empty means "none on screen now" — the engine
+   *  drops image refs on scroll-off, so it never means "none were emitted".
+   *  Metadata-only unless `includeBytes`; oversized payloads are withheld whole
+   *  (`payloadState`), never truncated. Absent on addons built before
+   *  `terminal.images` — callers must feature-detect, because a missing binding
+   *  is "cannot see", not "nothing there". */
+  inlineImages?(
+    includeBytes?: boolean,
+    maxBytesPerImage?: number,
+    maxTotalBytes?: number
+  ): RustInlineImage[]
+}
+
+/** One inline-image placement as the addon marshals it. */
+export type RustInlineImage = {
+  row: number
+  col: number
+  cellRows: number
+  cellCols: number
+  coveredCells: number
+  format: string
+  pixelWidth?: number | null
+  pixelHeight?: number | null
+  byteLen: number
+  zIndex: number
+  fingerprint: string
+  payloadState: string
+  base64?: string | null
 }
 
 export type RustHeadlessTerminalCtor = new (

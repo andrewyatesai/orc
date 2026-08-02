@@ -28,7 +28,7 @@ serve with work, and what genuinely needs `aterm-gui`.*
 | OSC-133 block expand/collapse | ❌ | ✅ engine API complete (`toggle_block_collapsed`, …) | ❌ not needed |
 | Expanding an **agent TUI's** own `… +N lines` | ❌ **bytes do not exist in the stream** | ⚠️ only by driving the keystroke, or reading the agent's transcript file | ❌ can't help either |
 | Inline images (sixel / OSC 1337 / Kitty) — parsed & retained | ✅ **in the grid, feature already on** | ✅ expose payload via napi | — |
-| Inline images — payload reachable from an agent | ❌ | ✅ moderate | — |
+| Inline images — payload reachable from an agent | ✅ **`terminal.images` (built, §6.5)** | — | — |
 | Pane pixels (a rendered PNG) | ❌ | ✅ **Orca has its own RGBA framebuffer + canvas** | ❌ not needed |
 | Pane pixels for a *parked/headless* pane | ❌ | ⚠️ needs an offscreen render path | — |
 | Video (temporal frame sequence) | ❌ | ⚠️ big; recommendation in §6 | ⚠️ or link it |
@@ -428,13 +428,13 @@ even advertises the capability to apps — DA1 reports sixel support for
 aterm-rendered panes (`src/renderer/src/components/terminal-pane/terminal-capability-replies.ts:7-9`),
 so programs that gate on `;4` will actually send sixel into Orca.
 
-### 6.2 What blocks a driving AI from getting them
+### 6.2 What blocked a driving AI from getting them
 
-Three walls, all inside Orca, none in aterm:
+Three walls, all inside Orca, none in aterm. **Two are now gone** — see §6.5:
 
-1. **`orca-terminal` exposes no image accessor.** Its `Cell` is `{ ch, attrs }` only (`rust/crates/orca-terminal/src/headless.rs:73-84`); nothing in its public surface touches `CellExtra::image()`.
-2. **Nothing crosses napi.** `src/main/daemon/rust-terminal-addon.ts:10-65` has no image method.
-3. **Images do not survive scroll-off in the headless seam.** `set_scrollback_text_only(true)` (`headless.rs:127`) routes scrolled rows through `extract_hyperlinks_only_into` (`scroll_convert.rs:839-842`, `:1008-1053`), which preserves OSC-8 spans and **discards image refs**. An image is retrievable only while it is on the visible grid.
+1. ~~**`orca-terminal` exposes no image accessor.**~~ Its `Cell` is still `{ ch, attrs }`, but `HeadlessTerminal::inline_images` (`rust/crates/orca-terminal/src/inline_images.rs`) now reads placements over `Terminal::images_row`.
+2. ~~**Nothing crosses napi.**~~ `inlineImages` is bound (`native/orca-node/src/lib.rs`, typed at `src/main/daemon/rust-terminal-addon.ts`).
+3. **Images do not survive scroll-off in the headless seam.** `set_scrollback_text_only(true)` (`headless.rs:127`) routes scrolled rows through `extract_hyperlinks_only_into` (`scroll_convert.rs:839-842`, `:1008-1053`), which preserves OSC-8 spans and **discards image refs**. An image is retrievable only while it is on the visible grid. **This one stands**, and `terminal.images` declares it rather than hiding it.
 
 The renderer wasm is no better as a source: it exposes no image accessor either
 (`src/renderer/src/lib/pane-manager/aterm/aterm_wasm.d.ts` has no `image` member) —
@@ -469,10 +469,46 @@ Useful as a fallback, not as the mechanism.)
 
 ### 6.4 Verdict — §5
 
-* **Today:** the engine parses and retains inline images; **no agent-reachable surface exposes them at all.** The honest gap is entirely Orca-side plumbing.
-* **Recommended:** build **(A)**. It is engine-native, higher fidelity than a re-render, and works for every pane including headless/parked/SSH. Then optionally (B) for "show me the pane as the human sees it" on mounted panes.
+* **Today:** option (A) is **built** — `terminal.images` (§6.5). The engine parses and retains inline images and an agent-reachable verb now hands back the payload.
+* **Optional next:** (B) for "show me the pane as the human sees it" on mounted panes.
 * **Needs aterm-gui:** nothing. `aterm-gui`'s `image` verb is itself a re-render from retained engine input via `cell_frame_into` (`rust/aterm/docs/INTROSPECTION.md:44-56`; `App::render_image` at `rust/aterm/crates/aterm-gui/src/lib.rs:13239`) — the same input Orca has.
-* **Caveat to design around:** images vanish from the headless engine once they scroll off. Capture on the visible grid, or accept the loss.
+* **Caveat designed around, not solved:** images vanish from the headless engine once they scroll off. `terminal.images` reports the size of the region it could not scan so an empty answer is never mistaken for a fact.
+
+### 6.5 What shipped — `terminal.images`
+
+RPC `terminal.images` / CLI `orca terminal images`. One entry per **placement**, not
+per covered cell: a footprint covers `rows x cols` cells that all point at one
+`Arc<ImageData>`, so they are coalesced by (payload identity, origin) — the same
+image drawn twice on screen is correctly two placements.
+
+* Rust: `HeadlessTerminal::inline_images` (`rust/crates/orca-terminal/src/inline_images.rs`)
+  over `Terminal::images_row` (`render_cells.rs:534`), which covers OSC-1337 and
+  sixel directly and synthesizes Kitty Unicode placeholders through the same
+  `ImageRef` shape.
+* napi: `inlineImages(includeBytes, maxBytesPerImage, maxTotalBytes)`.
+* Wire: `src/shared/terminal-inline-images-protocol.ts`; assembly and budgets in
+  `src/main/runtime/terminal-inline-images.ts`.
+
+Fidelity: the bytes are the program's own — the PNG from `imgcat`, or the
+engine-decoded RGBA8 raster for sixel (the engine decodes sixel itself because
+the renderer carries no sixel codec). Not a re-render.
+
+Bounds, because a placement can be megabytes and this crosses a JSON socket:
+metadata by default, `--bytes` to opt in, 256 KiB per image and 1 MiB per call by
+default (4 MiB / 8 MiB ceilings). An oversized payload is **withheld whole** with
+`payloadState: too-large` — never truncated, because a prefix of a PNG is a
+corrupt PNG rather than a smaller one.
+
+The three answers a driver must be able to tell apart:
+
+| Situation | Response |
+| --- | --- |
+| No images on this pane | `available: true`, `images: []`, `unscannableHistoryRows: 0` |
+| Images may have scrolled away | `available: true`, `images: []`, `unscannableHistoryRows: > 0` |
+| This build cannot see images | `available: false`, `unavailable: 'addon-too-old'` |
+
+plus `no-headless-engine` (parked/cold pane) and `engine-unavailable` (poisoned
+engine). The scroll-off blind spot rides on every result, including a full one.
 
 ---
 
@@ -586,10 +622,10 @@ hand-rolling bytes. This is the (b1) half of §4, and it is what makes the drive
 genuinely *interactive* rather than a prompt-poster. Requires the input-lease work
 from `alab-auto-mode-design.md:194-211`.
 
-**6. `terminal.images` — structured inline images.** ~1 week. `visible_images()`
-over `CellExtra::image()` (`extra.rs:527`) → napi → RPC. Highest-fidelity graphics
-answer, works on every pane including headless/parked/SSH. Note the scroll-off
-caveat (§5.2.3).
+**6. `terminal.images` — structured inline images. ✅ BUILT (§6.5).**
+`HeadlessTerminal::inline_images` over `Terminal::images_row` → napi → RPC + CLI.
+Highest-fidelity graphics answer, works on every pane including headless/parked/
+SSH. The scroll-off caveat (§6.2.3) is declared in every response, not hidden.
 
 **7. Cold/parked search — the three daemon handlers.** ~1 week. The kernel
 (`scrollback_search.rs:271`), the replay adapter
@@ -620,7 +656,9 @@ Stated plainly, because the owner would rather know:
 * **Colour of scrolled-off history is gone** in the headless seam, by a deliberate
   performance decision (`headless.rs:122-127`, `scroll_convert.rs:834-842`).
   Recoverable only by disabling `scrollback_text_only` and paying the flood cost.
-* **Inline images vanish on scroll-off** for the same reason. Capture while visible.
+* **Inline images vanish on scroll-off** for the same reason. `terminal.images`
+  reads the visible grid and reports how many history rows it could not scan;
+  there is no way to learn retroactively that an image was once there.
 * **Cold/parked search does not work today**, despite three-quarters of the
   implementation existing.
 * **Nothing renderer-side reaches a background agent.** Pixels, canvas capture,

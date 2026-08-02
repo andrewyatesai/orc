@@ -92,6 +92,23 @@ export const TERMINAL_COMMAND_SPECS: CommandSpec[] = [
     examples: ['orca terminal block-text --json', 'orca terminal block-text --block 7 --json']
   },
   {
+    path: ['terminal', 'images'],
+    summary: 'List the inline images on a terminal’s visible screen',
+    usage:
+      'orca terminal images [--terminal <handle>] [--bytes] [--max-bytes <n>] [--max-total-bytes <n>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'terminal', 'bytes', 'max-bytes', 'max-total-bytes'],
+    notes: [
+      'Returns the original bytes the program emitted (an iTerm2 OSC-1337 PNG, or the engine-decoded RGBA8 raster of a sixel) — not a screenshot of the pane.',
+      'Metadata only by default; pass --bytes for base64 payloads. An image over the per-image cap is withheld whole rather than truncated, and says so.',
+      'Scope is the VISIBLE grid. The engine discards image payloads when a row scrolls off, so an empty result plus a non-zero unscannableHistoryRows means "not on screen now", not "this pane emitted none".',
+      'A build with no image binding answers available:false with addon-too-old — never an empty list.'
+    ],
+    examples: [
+      'orca terminal images --json',
+      'orca terminal images --terminal term_abc123 --bytes --max-bytes 1048576 --json'
+    ]
+  },
+  {
     path: ['terminal', 'agent-view'],
     summary: 'One-shot orientation: screen, agent status, last block, history depth',
     usage: 'orca terminal agent-view [--terminal <handle>] [--json]',
@@ -101,6 +118,24 @@ export const TERMINAL_COMMAND_SPECS: CommandSpec[] = [
       'The screen is the engine’s plain-text grid: no colour, no inline images. The result names those blind spots explicitly, so "cannot see" is distinguishable from "not there".'
     ],
     examples: ['orca terminal agent-view --json', 'orca terminal agent-view --terminal term_abc123']
+  },
+  {
+    path: ['terminal', 'agent-transcript'],
+    summary: 'Read the agent’s own transcript for a pane, including collapsed tool output',
+    usage:
+      'orca terminal agent-transcript [--terminal <handle>] [--limit <turns>] [--before <offset>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'terminal', 'limit', 'before'],
+    notes: [
+      'When an agent TUI prints "… +N lines" those lines never reached the terminal, so no terminal read can recover them — this reads the agent’s own file, where they are untruncated.',
+      'Turns are newest-last; --before takes the previousOffset a prior result returned, to page older.',
+      'Readers exist for claude, openclaude, codex and grok. Any other agent, a pane with no reported session, or a pane whose agent runs on another host is refused BY NAME — never as an empty turn list.',
+      'An SSH pane’s transcript is a file on the remote host: the refusal names the connection and the path there.',
+      'It is not a screen. An in-flight turn or a pending permission prompt is not in it yet — use terminal agent-view for what the pane shows now.'
+    ],
+    examples: [
+      'orca terminal agent-transcript --json',
+      'orca terminal agent-transcript --terminal term_abc123 --limit 5 --json'
+    ]
   },
   {
     path: ['terminal', 'send'],

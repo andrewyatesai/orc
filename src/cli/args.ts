@@ -29,6 +29,7 @@ const GLOBAL_VALUE_FLAGS = new Set(['pairing-code', 'environment'])
 export const BOOLEAN_FLAGS = new Set([
   'all',
   'attachments',
+  'bytes',
   'case-sensitive',
   'children',
   'comments',

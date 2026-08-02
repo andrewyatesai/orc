@@ -888,12 +888,24 @@ import {
   terminalScrollbackSourceFor
 } from './terminal-scrollback-window'
 import { buildTerminalAgentView } from './terminal-agent-view'
+import {
+  buildTerminalInlineImagesResult,
+  type TerminalInlineImagesOptions
+} from './terminal-inline-images'
 import type {
   TerminalAgentView,
   TerminalCommandBlockText,
   TerminalCommandBlocksResult,
   TerminalHistoryWindow
 } from '../../shared/terminal-context-protocol'
+import type { TerminalInlineImagesResult } from '../../shared/terminal-inline-images-protocol'
+import type {
+  AgentTranscriptHost,
+  TerminalAgentTranscript
+} from '../../shared/agent-transcript-protocol'
+import { resolveAgentTranscriptSource } from './agent-transcript-source'
+import { readAgentTranscriptForSource } from './agent-transcript-read'
+import { buildUnavailableAgentTranscript } from './terminal-agent-transcript'
 import {
   TerminalEventJournal,
   type EventCursor,
@@ -9723,6 +9735,41 @@ export class OrcaRuntimeService {
     return buildTerminalHistoryWindow(terminalScrollbackSourceFor(state.emulator), opts)
   }
 
+  /** `terminal.images`: the inline images (OSC-1337 / sixel / Kitty) on this
+   *  pane's visible grid — the original bytes the program emitted, not a
+   *  re-render. Metadata unless bytes are asked for; budgets and every honesty
+   *  branch live in terminal-inline-images.ts. */
+  async readTerminalInlineImages(
+    handle: string,
+    opts: TerminalInlineImagesOptions & { signal?: AbortSignal } = {}
+  ): Promise<TerminalInlineImagesResult> {
+    const ptyId = this.resolveLeafForHandle(handle)?.ptyId
+    if (!ptyId) {
+      throw new Error('terminal_not_found')
+    }
+    const state = this.headlessTerminals.get(ptyId)
+    if (!state) {
+      return buildTerminalInlineImagesResult(null, opts)
+    }
+    // Same settle contract as history/search: an image drawn by a chunk already
+    // accepted must be on the grid this read observes.
+    await state.writeChain
+    if (opts.signal?.aborted) {
+      throw new Error('terminal_images_aborted')
+    }
+    const size = state.emulator.getAppliedSize()
+    return buildTerminalInlineImagesResult(
+      {
+        gridRows: size.rows,
+        gridCols: size.cols,
+        alternateScreen: state.emulator.isAlternateScreen,
+        scrollbackRows: state.emulator.contextExtents().scrollbackRows,
+        read: (request) => state.emulator.inlineImages(request)
+      },
+      opts
+    )
+  }
+
   /** The retained transcript `terminal.read` pages, in the cursor space block
    *  boundaries are recorded in. Null when no PTY record exists. */
   private terminalTranscriptWindow(ptyId: string): TerminalTranscriptWindow | null {
@@ -9800,6 +9847,93 @@ export class OrcaRuntimeService {
         : null,
       transcript: this.terminalTranscriptWindow(ptyId)
     })
+  }
+
+  /** Hook rows for one pane. The narrow per-pane getter is the production path;
+   *  the snapshot index is the fallback for embedders that never wired it. */
+  private getAgentHookRowsForPaneKey(paneKey: string): AgentStatusIpcPayload[] {
+    const direct = this.getAgentProviderSessionRowsForPaneFn?.(paneKey)
+    if (direct) {
+      return direct
+    }
+    return (
+      indexAgentStatusRowsByPaneKey(this.getAgentProviderSessionSnapshotFn?.() ?? []).get(
+        paneKey
+      ) ?? []
+    )
+  }
+
+  /** Which machine owns this pane's filesystem — the question that decides
+   *  whether an agent transcript is readable from here at all. */
+  /** Null when the pane's host cannot be determined. Why not default to local: the
+   *  host decides WHICH filesystem holds the transcript, so guessing reads this
+   *  machine's files and reports them as the agent's — a wrong transcript is worse
+   *  than none, and it would look like a fact. */
+  private resolveAgentTranscriptHost(ptyId: string): AgentTranscriptHost | null {
+    const pty = this.ptysById.get(ptyId) ?? null
+    if (!pty) {
+      return null
+    }
+    if (pty.connectionId) {
+      return { kind: 'ssh', connectionId: pty.connectionId }
+    }
+    if (pty.isWsl) {
+      return { kind: 'wsl', distro: this.wslDistroByPtyId.get(ptyId) ?? pty.wslDistro }
+    }
+    return { kind: 'local' }
+  }
+
+  /** `terminal.agentTranscript`: the agent's OWN record of this session, read
+   *  from the file its CLI writes. This is the only surface where a collapsed
+   *  "… +N lines" tool result still exists — those bytes never reached the PTY
+   *  (visibility map §5.2), so no terminal read can recover them. */
+  async readTerminalAgentTranscript(
+    handle: string,
+    opts: { limit?: number; before?: number } = {}
+  ): Promise<TerminalAgentTranscript> {
+    const ptyId = this.resolveLeafForHandle(handle)?.ptyId
+    if (!ptyId) {
+      throw new Error('terminal_not_found')
+    }
+    const pty = this.ptysById.get(ptyId) ?? null
+    const paneKey = this.getPaneKeyForTerminalHandle(handle)
+    const host = this.resolveAgentTranscriptHost(ptyId)
+    if (!host) {
+      // No host, no filesystem to look at. Refuse by name rather than reading this
+      // machine and presenting it as the agent's record.
+      return buildUnavailableAgentTranscript({
+        handle,
+        unavailable: 'read-failed',
+        detail:
+          "This pane's host could not be determined (its PTY record is gone), so no filesystem was searched. Re-resolve the terminal and retry.",
+        agent: pty?.foregroundAgent ?? pty?.launchAgent ?? null,
+        sessionId: null,
+        host: null,
+        path: null
+      })
+    }
+    const source = resolveAgentTranscriptSource({
+      hookRows: paneKey ? this.getAgentHookRowsForPaneKey(paneKey) : [],
+      paneAgent: pty?.foregroundAgent ?? pty?.launchAgent ?? null,
+      host,
+      canBridgeWslPaths: process.platform === 'win32'
+    })
+    return source.readable
+      ? readAgentTranscriptForSource({
+          handle,
+          source,
+          ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+          ...(opts.before !== undefined ? { before: opts.before } : {})
+        })
+      : buildUnavailableAgentTranscript({
+          handle,
+          unavailable: source.unavailable,
+          detail: source.detail,
+          agent: source.agentName,
+          sessionId: source.sessionId,
+          host: source.host,
+          path: source.reportedPath
+        })
   }
 
   /** Current emulator incarnation for a PTY (fed §2.4 anchor validity), or

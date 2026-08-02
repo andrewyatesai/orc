@@ -22,7 +22,14 @@ export const TERMINAL_CONTEXT_SCHEMA_VERSION = 1
  *  (§9 of the visibility map — the no-silent-downgrade rule `terminal.await`
  *  already follows for unproducible fact kinds). */
 export type TerminalContextBlindSpot = {
-  capability: 'styles' | 'graphics' | 'video' | 'agent-collapsed-output'
+  capability:
+    | 'styles'
+    | 'graphics'
+    | 'video'
+    | 'agent-collapsed-output'
+    /** What the pane is painting right now, as opposed to what the agent has
+     *  already committed to its transcript — see agent-transcript-protocol.ts. */
+    | 'agent-screen-state'
   /** Machine token; stable across releases. */
   reason: string
   /** One sentence naming the cause, for a human reading `--json` output. */
@@ -36,11 +43,23 @@ export const TERMINAL_SCROLLBACK_STYLES_BLIND_SPOT: TerminalContextBlindSpot = {
     'The headless engine stores scrolled-off rows as text (set_scrollback_text_only): colour and attributes are dropped on scroll-off, so history rows are plain text.'
 }
 
+/** Text-shaped results carry no pixels, and the engine keeps image payloads only
+ *  while they are on the visible grid. `terminal.images` closes the first half
+ *  of that; nothing can close the second. */
 export const TERMINAL_GRAPHICS_BLIND_SPOT: TerminalContextBlindSpot = {
   capability: 'graphics',
-  reason: 'inline-images-not-exposed',
+  reason: 'images-not-in-text-rows',
   detail:
-    'The engine parses and retains sixel/OSC-1337/Kitty payloads, but no accessor crosses the napi boundary yet, so this call cannot report whether inline images are present.'
+    'These rows are plain text: an inline sixel/OSC-1337/Kitty image on them is not represented here. Read terminal.images for what is on the visible grid — and note the engine discards image payloads once a row scrolls off, so an image already in history is unrecoverable.'
+}
+
+/** The one image blind spot no accessor can close, stated where `terminal.images`
+ *  returns an empty list. */
+export const TERMINAL_SCROLLED_OFF_GRAPHICS_BLIND_SPOT: TerminalContextBlindSpot = {
+  capability: 'graphics',
+  reason: 'images-dropped-on-scroll-off',
+  detail:
+    'The headless engine stores scrolled-off rows as text (set_scrollback_text_only), which keeps hyperlink spans and discards inline-image payloads. Only images still on the visible grid are readable, and there is no way to know retroactively that one was there.'
 }
 
 export const TERMINAL_VIDEO_BLIND_SPOT: TerminalContextBlindSpot = {
