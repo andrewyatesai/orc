@@ -1,8 +1,8 @@
-//! Schema creation + `user_version` migrations for the orchestration DB,
-//! ported from `src/main/runtime/orchestration/db.ts` (`createTables` /
-//! `migrate`). SQL strings are byte-copies of the TS template literals
+//! Schema creation + `user_version` migrations for the orchestration DB.
+//! Pre-v9 SQL is a byte-copy of the deleted TS twin's template literals
 //! (indentation and trailing whitespace included) so the `sqlite_master.sql`
-//! text of a Rust-created database matches a TS-created one exactly.
+//! text of an in-the-field database still matches; v9 and later are authored
+//! here, because Rust is now the sole owner of this schema.
 
 use orca_store::{Database, StoreError};
 use rusqlite::OptionalExtension;
@@ -15,10 +15,22 @@ use rusqlite::OptionalExtension;
 // messages.recipient_pane_key so delivery follows the pane when the addressed
 // handle goes stale (#9163 delivery-follows-identity); v7 → v8
 // decision_gates.origin_message_id so resolving a gate can reply to the ask that
-// opened it, instead of unblocking the task while the worker hangs to timeout.
-pub(crate) const SCHEMA_VERSION: i64 = 8;
+// opened it, instead of unblocking the task while the worker hangs to timeout;
+// v8 → v9 durable run ownership + gate policy + the waiting_gate dispatch state
+// (see the ladder step, which also carries the downgrade fence).
+pub(crate) const SCHEMA_VERSION: i64 = 9;
 
-/// Byte-copy of the db.ts `createTables` exec template.
+/// Full-schema creation. Pre-v9 text is the db.ts `createTables` byte-copy; the
+/// v9 columns are appended at the END of each table body so a migrated DB (where
+/// `ALTER TABLE ADD COLUMN` can only append) has the same column ORDER as a fresh one.
+///
+/// No CHECK on `phase` / `gate_resolution_policy`: v9 exists partly because
+/// `dispatch_contexts.status` carried one and SQLite cannot widen it in place.
+/// Both value sets are still open (design §13 Q2), so constraining them here
+/// would buy a table rebuild later; the services validate before writing.
+/// Indexes over v9-added columns are NOT here — a legacy DB reaches
+/// `create_tables` before the ladder adds those columns (see
+/// `create_v9_indexes_and_fence_if_possible`).
 const CREATE_TABLES_SQL: &str = r#"
       CREATE TABLE IF NOT EXISTS messages (
         id            TEXT NOT NULL,
@@ -62,7 +74,8 @@ const CREATE_TABLES_SQL: &str = r#"
         deps          TEXT NOT NULL DEFAULT '[]',
         result        TEXT,
         created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-        completed_at  TEXT
+        completed_at  TEXT,
+        run_id        TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
@@ -74,13 +87,14 @@ const CREATE_TABLES_SQL: &str = r#"
         assignee_handle     TEXT,
         assignee_pane_key   TEXT,
         status              TEXT NOT NULL DEFAULT 'pending'
-          CHECK(status IN ('pending', 'dispatched', 'completed', 'failed', 'circuit_broken')),
+          CHECK(status IN ('pending', 'dispatched', 'waiting_gate', 'completed', 'failed', 'circuit_broken')),
         failure_count       INTEGER NOT NULL DEFAULT 0,
         last_failure        TEXT,
         dispatched_at       TEXT,
         completed_at        TEXT,
         created_at          TEXT NOT NULL DEFAULT (datetime('now')),
-        last_heartbeat_at   TEXT
+        last_heartbeat_at   TEXT,
+        run_id              TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_dispatch_task ON dispatch_contexts(task_id);
@@ -96,7 +110,16 @@ const CREATE_TABLES_SQL: &str = r#"
         resolution    TEXT,
         created_at    TEXT NOT NULL DEFAULT (datetime('now')),
         resolved_at   TEXT,
-        origin_message_id TEXT
+        origin_message_id TEXT,
+        run_id        TEXT,
+        category      TEXT,
+        default_option TEXT,
+        manager_deadline_at TEXT,
+        hard_deadline_at TEXT,
+        policy_snapshot TEXT,
+        resolved_by   TEXT,
+        resolution_reason TEXT,
+        version       INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE INDEX IF NOT EXISTS idx_gates_task ON decision_gates(task_id);
@@ -110,8 +133,52 @@ const CREATE_TABLES_SQL: &str = r#"
         coordinator_handle  TEXT NOT NULL,
         poll_interval_ms    INTEGER NOT NULL DEFAULT 2000,
         created_at          TEXT NOT NULL DEFAULT (datetime('now')),
-        completed_at        TEXT
+        completed_at        TEXT,
+        gate_resolution_policy TEXT NOT NULL DEFAULT 'human-only',
+        gate_category_allowlist TEXT NOT NULL DEFAULT '[]'
       );
+
+      CREATE TABLE IF NOT EXISTS audit_events (
+        id              TEXT PRIMARY KEY,
+        run_id          TEXT,
+        actor           TEXT NOT NULL,
+        action          TEXT NOT NULL,
+        target_pane_key TEXT,
+        target_handle   TEXT,
+        evidence_ref    TEXT,
+        detail          TEXT,
+        created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_audit_run ON audit_events(run_id);
+
+      CREATE TRIGGER IF NOT EXISTS trg_audit_events_append_only
+        BEFORE UPDATE ON audit_events
+      BEGIN
+        SELECT RAISE(ABORT, 'audit_events is append-only');
+      END;
+
+      CREATE TABLE IF NOT EXISTS rotation_sagas (
+        id                      TEXT PRIMARY KEY,
+        provider                TEXT NOT NULL,
+        phase                   TEXT NOT NULL DEFAULT 'planned',
+        source_route_key        TEXT,
+        target_route_key        TEXT NOT NULL,
+        target_store_key        TEXT,
+        reservation_fence       INTEGER NOT NULL DEFAULT 0,
+        reservation_expires_at  TEXT NOT NULL,
+        reservation_released_at TEXT,
+        last_error              TEXT,
+        created_at              TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at              TEXT
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_rotation_target_route
+        ON rotation_sagas(target_route_key) WHERE reservation_released_at IS NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_rotation_target_store
+        ON rotation_sagas(target_store_key) WHERE reservation_released_at IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_rotation_provider
+        ON rotation_sagas(provider, reservation_released_at);
     "#;
 
 /// Byte-copy of the db.ts v1 → v2 messages-table rebuild exec template
@@ -156,17 +223,112 @@ const MESSAGES_HEARTBEAT_REBUILD_SQL: &str = r#"
             CREATE INDEX idx_thread ON messages(thread_id);
           "#;
 
+/// v8 → v9 dispatch_contexts rebuild — the `messages` precedent above, applied to
+/// the status CHECK that must learn `waiting_gate` (§6.2). Every v8 column is
+/// copied by name, `run_id` arrives with the new body, and the two indexes
+/// DROP TABLE removed are recreated. The rebuilt column order matches the fresh
+/// schema, which also converges the v1-migrated order (assignee_pane_key had
+/// landed at the end there via ALTER).
+const DISPATCH_WAITING_GATE_REBUILD_SQL: &str = r#"
+            CREATE TABLE dispatch_contexts_new (
+              id                  TEXT PRIMARY KEY,
+              task_id             TEXT NOT NULL,
+              assignee_handle     TEXT,
+              assignee_pane_key   TEXT,
+              status              TEXT NOT NULL DEFAULT 'pending'
+                CHECK(status IN ('pending', 'dispatched', 'waiting_gate', 'completed', 'failed', 'circuit_broken')),
+              failure_count       INTEGER NOT NULL DEFAULT 0,
+              last_failure        TEXT,
+              dispatched_at       TEXT,
+              completed_at        TEXT,
+              created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+              last_heartbeat_at   TEXT,
+              run_id              TEXT
+            );
+            INSERT INTO dispatch_contexts_new (
+              id, task_id, assignee_handle, assignee_pane_key, status,
+              failure_count, last_failure, dispatched_at, completed_at,
+              created_at, last_heartbeat_at
+            )
+            SELECT
+              id, task_id, assignee_handle, assignee_pane_key, status,
+              failure_count, last_failure, dispatched_at, completed_at,
+              created_at, last_heartbeat_at
+            FROM dispatch_contexts;
+            DROP TABLE dispatch_contexts;
+            ALTER TABLE dispatch_contexts_new RENAME TO dispatch_contexts;
+
+            CREATE INDEX idx_dispatch_task ON dispatch_contexts(task_id);
+            CREATE INDEX idx_dispatch_status ON dispatch_contexts(status);
+          "#;
+
+/// Indexes + the downgrade fence over columns the v9 ladder adds. Split out of
+/// `CREATE_TABLES_SQL` because a legacy DB runs `create_tables` first, when
+/// `run_id` does not exist yet and these statements would fail; the ladder calls
+/// this again once the columns are there. DROP TABLE in the rebuild above takes
+/// the trigger with it, which is the other reason it is created here (after).
+const V9_INDEX_AND_FENCE_SQL: &str = r#"
+      CREATE INDEX IF NOT EXISTS idx_tasks_run ON tasks(run_id);
+      CREATE INDEX IF NOT EXISTS idx_gates_run ON decision_gates(run_id);
+
+      CREATE TRIGGER IF NOT EXISTS trg_dispatch_waiting_gate_fence
+        BEFORE INSERT ON dispatch_contexts
+        WHEN EXISTS (
+          SELECT 1 FROM dispatch_contexts d
+          WHERE d.status = 'waiting_gate'
+            AND (d.assignee_handle = NEW.assignee_handle
+              OR d.assignee_pane_key = NEW.assignee_pane_key)
+        )
+      BEGIN
+        SELECT RAISE(ABORT, 'assignee is parked in waiting_gate: refusing a second dispatch (schema v9)');
+      END;
+    "#;
+
+/// §6.2's "one active gate per task", as the SQLite idiom: a partial unique
+/// index. Non-unique `idx_gates_task` stays for the task-scoped lookups.
+const ONE_PENDING_GATE_INDEX_SQL: &str =
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_gates_one_pending_per_task ON decision_gates(task_id) WHERE status = 'pending'";
+
+/// Columns v9 adds by `ALTER TABLE`, applied in this order. All nullable except
+/// the three that are invariant operands: a CAS `version` may not be null
+/// (legacy rows backfill to 0), and the per-run gate policy + its category
+/// allowlist must read fail-closed rather than force every consumer to decide
+/// what a null policy means. `dispatch_contexts.run_id` is absent on purpose —
+/// it arrives with the table rebuild.
+const V9_ADDED_COLUMNS: &[(&str, &str, &str)] = &[
+    ("tasks", "run_id", "run_id TEXT"),
+    ("decision_gates", "run_id", "run_id TEXT"),
+    ("decision_gates", "category", "category TEXT"),
+    ("decision_gates", "default_option", "default_option TEXT"),
+    ("decision_gates", "manager_deadline_at", "manager_deadline_at TEXT"),
+    ("decision_gates", "hard_deadline_at", "hard_deadline_at TEXT"),
+    ("decision_gates", "policy_snapshot", "policy_snapshot TEXT"),
+    ("decision_gates", "resolved_by", "resolved_by TEXT"),
+    ("decision_gates", "resolution_reason", "resolution_reason TEXT"),
+    ("decision_gates", "version", "version INTEGER NOT NULL DEFAULT 0"),
+    (
+        "coordinator_runs",
+        "gate_resolution_policy",
+        "gate_resolution_policy TEXT NOT NULL DEFAULT 'human-only'",
+    ),
+    (
+        "coordinator_runs",
+        "gate_category_allowlist",
+        "gate_category_allowlist TEXT NOT NULL DEFAULT '[]'",
+    ),
+];
+
 // Why: written with \n escapes (not a raw string) because the statement has no
 // terminating `;`, so SQLite stores the trailing "\n    " into sqlite_master.sql
 // — literal trailing whitespace in source would be fragile.
 const UNDELIVERED_INBOX_INDEX_SQL: &str =
     "\n      CREATE INDEX IF NOT EXISTS idx_messages_undelivered_inbox\n        ON messages(to_handle, read, delivered_at, sequence)\n    ";
 
-/// TS `createTables`: idempotent full-schema creation, then the
-/// delivered_at-gated inbox index.
+/// Idempotent full-schema creation, then the two column-gated index sets.
 pub(crate) fn create_tables(db: &Database) -> Result<(), StoreError> {
     db.exec(CREATE_TABLES_SQL)?;
-    create_undelivered_inbox_index_if_possible(db)
+    create_undelivered_inbox_index_if_possible(db)?;
+    create_v9_indexes_and_fence_if_possible(db)
 }
 
 /// TS `migrate`: incremental `user_version` ladder inside one transaction.
@@ -248,7 +410,32 @@ fn apply_version_ladder(db: &Database, current: i64) -> Result<(), StoreError> {
             db.exec("ALTER TABLE decision_gates ADD COLUMN origin_message_id TEXT")?;
         }
     }
+    // v8 → v9: durable run ownership (`run_id` on tasks/dispatches/gates), the
+    // gate policy + CAS columns, the per-run gateResolutionPolicy, one pending
+    // gate per task, the audit ledger and rotation sagas, and the `waiting_gate`
+    // dispatch state — which needs a table rebuild, not an ALTER, because SQLite
+    // cannot widen the status CHECK in place.
+    //
+    // NOT DOWNGRADE-SAFE, and this is the fence. `migrate` deliberately accepts a
+    // future-version DB (the `current >= SCHEMA_VERSION` early return above), so a
+    // v8 binary opens a v9 file happily — and every active-dispatch predicate it
+    // has knows only 'pending'/'dispatched', so it reads a pane parked in
+    // `waiting_gate` as free and hands it a second task. `trg_dispatch_waiting_gate_fence`
+    // makes SQLite itself abort that INSERT, so an old binary fails loudly instead
+    // of double-dispatching. Reverting a v9 file to v8 is still unsupported; the
+    // fence only removes the silence.
+    if current < 9 {
+        if !dispatch_status_check_allows_waiting_gate(db)? {
+            db.exec(DISPATCH_WAITING_GATE_REBUILD_SQL)?;
+        }
+        for (table, column, declaration) in V9_ADDED_COLUMNS {
+            if !has_column(db, table, column)? {
+                db.exec(&format!("ALTER TABLE {table} ADD COLUMN {declaration}"))?;
+            }
+        }
+    }
     create_undelivered_inbox_index_if_possible(db)?;
+    create_v9_indexes_and_fence_if_possible(db)?;
     db.exec(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))
 }
 
@@ -257,6 +444,37 @@ fn create_undelivered_inbox_index_if_possible(db: &Database) -> Result<(), Store
         return Ok(());
     }
     db.exec(UNDELIVERED_INBOX_INDEX_SQL)
+}
+
+/// Whether `dispatch_contexts.status` already accepts 'waiting_gate'. Read from
+/// `sqlite_master` rather than attempted-and-rolled-back INSERT: the ladder runs
+/// inside the migration transaction, where a CHECK failure would poison it.
+fn dispatch_status_check_allows_waiting_gate(db: &Database) -> Result<bool, StoreError> {
+    let conn = db.connection();
+    let mut stmt =
+        conn.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'dispatch_contexts'")?;
+    let sql: Option<String> = stmt.query_row([], |row| row.get(0)).optional()?;
+    // A missing table means `create_tables` will build the current shape, so there is
+    // nothing to rebuild.
+    Ok(sql.is_none_or(|sql| sql.contains("waiting_gate")))
+}
+
+/// v9's indexes and downgrade fence, skipped while the columns they name are absent.
+/// A legacy DB reaches `create_tables` before the ladder has added `run_id`, and the
+/// ladder calls this again once it has.
+///
+/// The one-pending-gate index is applied separately and its failure is swallowed: a
+/// field database that already holds two pending gates for one task cannot build the
+/// unique index, and refusing to open would strand a user's whole orchestration DB over
+/// an invariant that only constrains new writes. The gate service enforces it either way;
+/// this index is defence in depth, not the mechanism.
+fn create_v9_indexes_and_fence_if_possible(db: &Database) -> Result<(), StoreError> {
+    if !has_column(db, "tasks", "run_id")? || !has_column(db, "decision_gates", "run_id")? {
+        return Ok(());
+    }
+    db.exec(V9_INDEX_AND_FENCE_SQL)?;
+    let _ = db.exec(ONE_PENDING_GATE_INDEX_SQL);
+    Ok(())
 }
 
 fn has_column(db: &Database, table: &str, column: &str) -> Result<bool, StoreError> {

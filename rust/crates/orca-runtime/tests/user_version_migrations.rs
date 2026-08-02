@@ -129,7 +129,16 @@ const GATES_SQL: &str = r#"CREATE TABLE decision_gates (
         resolution    TEXT,
         created_at    TEXT NOT NULL DEFAULT (datetime('now')),
         resolved_at   TEXT,
-        origin_message_id TEXT
+        origin_message_id TEXT,
+        run_id        TEXT,
+        category      TEXT,
+        default_option TEXT,
+        manager_deadline_at TEXT,
+        hard_deadline_at TEXT,
+        policy_snapshot TEXT,
+        resolved_by   TEXT,
+        resolution_reason TEXT,
+        version       INTEGER NOT NULL DEFAULT 0
       )"#;
 
 /// Same table reached via the v7 -> v8 ALTER: SQLite appends the column to the
@@ -144,7 +153,7 @@ const GATES_MIGRATED_SQL: &str = r#"CREATE TABLE decision_gates (
         resolution    TEXT,
         created_at    TEXT NOT NULL DEFAULT (datetime('now')),
         resolved_at   TEXT
-      , origin_message_id TEXT)"#;
+      , origin_message_id TEXT, run_id TEXT, category TEXT, default_option TEXT, manager_deadline_at TEXT, hard_deadline_at TEXT, policy_snapshot TEXT, resolved_by TEXT, resolution_reason TEXT, version INTEGER NOT NULL DEFAULT 0)"#;
 
 const RUNS_SQL: &str = r#"CREATE TABLE coordinator_runs (
         id                  TEXT PRIMARY KEY,
@@ -154,7 +163,9 @@ const RUNS_SQL: &str = r#"CREATE TABLE coordinator_runs (
         coordinator_handle  TEXT NOT NULL,
         poll_interval_ms    INTEGER NOT NULL DEFAULT 2000,
         created_at          TEXT NOT NULL DEFAULT (datetime('now')),
-        completed_at        TEXT
+        completed_at        TEXT,
+        gate_resolution_policy TEXT NOT NULL DEFAULT 'human-only',
+        gate_category_allowlist TEXT NOT NULL DEFAULT '[]'
       )"#;
 
 const MESSAGES_FRESH_SQL: &str = r#"CREATE TABLE messages (
@@ -195,7 +206,8 @@ const TASKS_FRESH_SQL: &str = r#"CREATE TABLE tasks (
         deps          TEXT NOT NULL DEFAULT '[]',
         result        TEXT,
         created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-        completed_at  TEXT
+        completed_at  TEXT,
+        run_id        TEXT
       )"#;
 
 const DISPATCH_FRESH_SQL: &str = r#"CREATE TABLE dispatch_contexts (
@@ -204,13 +216,14 @@ const DISPATCH_FRESH_SQL: &str = r#"CREATE TABLE dispatch_contexts (
         assignee_handle     TEXT,
         assignee_pane_key   TEXT,
         status              TEXT NOT NULL DEFAULT 'pending'
-          CHECK(status IN ('pending', 'dispatched', 'completed', 'failed', 'circuit_broken')),
+          CHECK(status IN ('pending', 'dispatched', 'waiting_gate', 'completed', 'failed', 'circuit_broken')),
         failure_count       INTEGER NOT NULL DEFAULT 0,
         last_failure        TEXT,
         dispatched_at       TEXT,
         completed_at        TEXT,
         created_at          TEXT NOT NULL DEFAULT (datetime('now')),
-        last_heartbeat_at   TEXT
+        last_heartbeat_at   TEXT,
+        run_id              TEXT
       )"#;
 
 // Why: the TS index template has no terminating `;`, so SQLite stores its
@@ -265,46 +278,131 @@ const TASKS_MIGRATED_SQL: &str = r#"CREATE TABLE tasks (
         result        TEXT,
         created_at    TEXT NOT NULL DEFAULT (datetime('now')),
         completed_at  TEXT
-      , created_by_terminal_handle TEXT, task_title TEXT, display_name TEXT)"#;
+      , created_by_terminal_handle TEXT, task_title TEXT, display_name TEXT, run_id TEXT)"#;
 
-const DISPATCH_MIGRATED_SQL: &str = r#"CREATE TABLE dispatch_contexts (
-        id              TEXT PRIMARY KEY,
-        task_id         TEXT NOT NULL,
-        assignee_handle TEXT,
-        status          TEXT NOT NULL DEFAULT 'pending'
-          CHECK(status IN ('pending', 'dispatched', 'completed', 'failed', 'circuit_broken')),
-        failure_count   INTEGER NOT NULL DEFAULT 0,
-        last_failure    TEXT,
-        dispatched_at   TEXT,
-        completed_at    TEXT,
-        created_at      TEXT NOT NULL DEFAULT (datetime('now'))
-      , last_heartbeat_at TEXT, assignee_pane_key TEXT)"#;
+/// v9 REBUILDS this table (SQLite cannot widen the status CHECK in place), so unlike every
+/// other migrated table its stored text is the rebuild's — quoted name, rebuild indentation.
+/// That is the visible proof the rebuild ran rather than an ALTER.
+const DISPATCH_MIGRATED_SQL: &str = r#"CREATE TABLE "dispatch_contexts" (
+              id                  TEXT PRIMARY KEY,
+              task_id             TEXT NOT NULL,
+              assignee_handle     TEXT,
+              assignee_pane_key   TEXT,
+              status              TEXT NOT NULL DEFAULT 'pending'
+                CHECK(status IN ('pending', 'dispatched', 'waiting_gate', 'completed', 'failed', 'circuit_broken')),
+              failure_count       INTEGER NOT NULL DEFAULT 0,
+              last_failure        TEXT,
+              dispatched_at       TEXT,
+              completed_at        TEXT,
+              created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+              last_heartbeat_at   TEXT,
+              run_id              TEXT
+            )"#;
+
+/// coordinator_runs reaches v9 by ALTER, so its two policy columns are appended.
+const RUNS_MIGRATED_SQL: &str = r#"CREATE TABLE coordinator_runs (
+        id                  TEXT PRIMARY KEY,
+        spec                TEXT NOT NULL,
+        status              TEXT NOT NULL DEFAULT 'idle'
+          CHECK(status IN ('idle', 'running', 'completed', 'failed')),
+        coordinator_handle  TEXT NOT NULL,
+        poll_interval_ms    INTEGER NOT NULL DEFAULT 2000,
+        created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+        completed_at        TEXT
+      , gate_resolution_policy TEXT NOT NULL DEFAULT 'human-only', gate_category_allowlist TEXT NOT NULL DEFAULT '[]')"#;
 
 type MasterEntry = (&'static str, &'static str, Option<&'static str>);
 
 /// `SELECT type, name, sql FROM sqlite_master ORDER BY name` of a TS-fresh DB.
+// ── v9 objects ──
+
+const AUDIT_SQL: &str = r#"CREATE TABLE audit_events (
+        id              TEXT PRIMARY KEY,
+        run_id          TEXT,
+        actor           TEXT NOT NULL,
+        action          TEXT NOT NULL,
+        target_pane_key TEXT,
+        target_handle   TEXT,
+        evidence_ref    TEXT,
+        detail          TEXT,
+        created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+      )"#;
+
+const ROTATION_SQL: &str = r#"CREATE TABLE rotation_sagas (
+        id                      TEXT PRIMARY KEY,
+        provider                TEXT NOT NULL,
+        phase                   TEXT NOT NULL DEFAULT 'planned',
+        source_route_key        TEXT,
+        target_route_key        TEXT NOT NULL,
+        target_store_key        TEXT,
+        reservation_fence       INTEGER NOT NULL DEFAULT 0,
+        reservation_expires_at  TEXT NOT NULL,
+        reservation_released_at TEXT,
+        last_error              TEXT,
+        created_at              TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at              TEXT
+      )"#;
+
+const ROTATION_PROVIDER_IDX_SQL: &str = "CREATE INDEX idx_rotation_provider\n        ON rotation_sagas(provider, reservation_released_at)";
+const ROTATION_ROUTE_IDX_SQL: &str = "CREATE UNIQUE INDEX idx_rotation_target_route\n        ON rotation_sagas(target_route_key) WHERE reservation_released_at IS NULL";
+const ROTATION_STORE_IDX_SQL: &str = "CREATE UNIQUE INDEX idx_rotation_target_store\n        ON rotation_sagas(target_store_key) WHERE reservation_released_at IS NULL";
+const ONE_PENDING_GATE_IDX_SQL: &str = "CREATE UNIQUE INDEX idx_gates_one_pending_per_task ON decision_gates(task_id) WHERE status = 'pending'";
+
+const AUDIT_APPEND_ONLY_TRIGGER_SQL: &str = r#"CREATE TRIGGER trg_audit_events_append_only
+        BEFORE UPDATE ON audit_events
+      BEGIN
+        SELECT RAISE(ABORT, 'audit_events is append-only');
+      END"#;
+
+/// The v9 downgrade fence: a v8 binary knows only 'pending'/'dispatched', so it would
+/// read a pane parked in `waiting_gate` as free. SQLite refuses the second dispatch.
+const WAITING_GATE_FENCE_TRIGGER_SQL: &str = r#"CREATE TRIGGER trg_dispatch_waiting_gate_fence
+        BEFORE INSERT ON dispatch_contexts
+        WHEN EXISTS (
+          SELECT 1 FROM dispatch_contexts d
+          WHERE d.status = 'waiting_gate'
+            AND (d.assignee_handle = NEW.assignee_handle
+              OR d.assignee_pane_key = NEW.assignee_pane_key)
+        )
+      BEGIN
+        SELECT RAISE(ABORT, 'assignee is parked in waiting_gate: refusing a second dispatch (schema v9)');
+      END"#;
+
 fn expected_fresh_master() -> Vec<MasterEntry> {
     vec![
+        ("table", "audit_events", Some(AUDIT_SQL)),
         ("table", "coordinator_runs", Some(RUNS_SQL)),
         ("table", "decision_gates", Some(GATES_SQL)),
         ("table", "dispatch_contexts", Some(DISPATCH_FRESH_SQL)),
+        ("index", "idx_audit_run", Some("CREATE INDEX idx_audit_run ON audit_events(run_id)")),
         ("index", "idx_dispatch_status", Some("CREATE INDEX idx_dispatch_status ON dispatch_contexts(status)")),
         ("index", "idx_dispatch_task", Some("CREATE INDEX idx_dispatch_task ON dispatch_contexts(task_id)")),
+        ("index", "idx_gates_one_pending_per_task", Some(ONE_PENDING_GATE_IDX_SQL)),
+        ("index", "idx_gates_run", Some("CREATE INDEX idx_gates_run ON decision_gates(run_id)")),
         ("index", "idx_gates_status", Some("CREATE INDEX idx_gates_status ON decision_gates(status)")),
         ("index", "idx_gates_task", Some("CREATE INDEX idx_gates_task ON decision_gates(task_id)")),
         ("index", "idx_inbox", Some("CREATE INDEX idx_inbox ON messages(to_handle, read)")),
         ("index", "idx_messages_id", Some("CREATE UNIQUE INDEX idx_messages_id ON messages(id)")),
         ("index", "idx_messages_undelivered_inbox", Some(UNDELIVERED_IDX_FRESH_SQL)),
+        ("index", "idx_rotation_provider", Some(ROTATION_PROVIDER_IDX_SQL)),
+        ("index", "idx_rotation_target_route", Some(ROTATION_ROUTE_IDX_SQL)),
+        ("index", "idx_rotation_target_store", Some(ROTATION_STORE_IDX_SQL)),
         ("index", "idx_tasks_parent", Some("CREATE INDEX idx_tasks_parent ON tasks(parent_id)")),
+        ("index", "idx_tasks_run", Some("CREATE INDEX idx_tasks_run ON tasks(run_id)")),
         ("index", "idx_tasks_status", Some("CREATE INDEX idx_tasks_status ON tasks(status)")),
         ("index", "idx_thread", Some("CREATE INDEX idx_thread ON messages(thread_id)")),
         ("table", "messages", Some(MESSAGES_FRESH_SQL)),
+        ("table", "rotation_sagas", Some(ROTATION_SQL)),
+        ("index", "sqlite_autoindex_audit_events_1", None),
         ("index", "sqlite_autoindex_coordinator_runs_1", None),
         ("index", "sqlite_autoindex_decision_gates_1", None),
         ("index", "sqlite_autoindex_dispatch_contexts_1", None),
+        ("index", "sqlite_autoindex_rotation_sagas_1", None),
         ("index", "sqlite_autoindex_tasks_1", None),
         ("table", "sqlite_sequence", Some("CREATE TABLE sqlite_sequence(name,seq)")),
         ("table", "tasks", Some(TASKS_FRESH_SQL)),
+        ("trigger", "trg_audit_events_append_only", Some(AUDIT_APPEND_ONLY_TRIGGER_SQL)),
+        ("trigger", "trg_dispatch_waiting_gate_fence", Some(WAITING_GATE_FENCE_TRIGGER_SQL)),
     ]
 }
 
@@ -313,6 +411,7 @@ fn expected_migrated_v1_master() -> Vec<MasterEntry> {
     let mut master = expected_fresh_master();
     for entry in &mut master {
         entry.2 = match entry.1 {
+            "coordinator_runs" => Some(RUNS_MIGRATED_SQL),
             "decision_gates" => Some(GATES_MIGRATED_SQL),
             "dispatch_contexts" => Some(DISPATCH_MIGRATED_SQL),
             "idx_messages_undelivered_inbox" => Some(UNDELIVERED_IDX_REBUILD_SQL),
@@ -393,7 +492,7 @@ fn fresh_open_matches_ts_fresh_database() {
     drop(open_orchestration(&path).unwrap());
 
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(user_version(&conn), 8, "fresh DB lands on SCHEMA_VERSION");
+    assert_eq!(user_version(&conn), 9, "fresh DB lands on SCHEMA_VERSION");
     let journal: String = conn.query_row("PRAGMA journal_mode", [], |row| row.get(0)).unwrap();
     assert_eq!(journal, "wal", "journal_mode=WAL persists in the DB file");
     assert_master_matches(&dump_master(&conn), &expected_fresh_master());
@@ -415,7 +514,7 @@ fn v1_database_migrates_to_current_preserving_data() {
     drop(open_orchestration(&path).unwrap());
 
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(user_version(&conn), 8);
+    assert_eq!(user_version(&conn), 9);
     assert_master_matches(&dump_master(&conn), &expected_migrated_v1_master());
 
     // Row-level goldens from the TS-migrated fixture.
@@ -429,14 +528,16 @@ fn v1_database_migrates_to_current_preserving_data() {
     assert_eq!(
         dump_rows(&conn, "tasks", "id"),
         vec![
-            "id=task_a1|parent_id=NULL|spec=build the thing|status=completed|deps=[]|result=done|created_at=2025-01-02 03:00:00|completed_at=2025-01-02 04:00:00|created_by_terminal_handle=NULL|task_title=NULL|display_name=NULL",
-            r#"id=task_a2|parent_id=task_a1|spec=test the thing|status=pending|deps=["task_a1"]|result=NULL|created_at=2025-01-02 03:00:01|completed_at=NULL|created_by_terminal_handle=NULL|task_title=NULL|display_name=NULL"#,
+            "id=task_a1|parent_id=NULL|spec=build the thing|status=completed|deps=[]|result=done|created_at=2025-01-02 03:00:00|completed_at=2025-01-02 04:00:00|created_by_terminal_handle=NULL|task_title=NULL|display_name=NULL|run_id=NULL",
+            r#"id=task_a2|parent_id=task_a1|spec=test the thing|status=pending|deps=["task_a1"]|result=NULL|created_at=2025-01-02 03:00:01|completed_at=NULL|created_by_terminal_handle=NULL|task_title=NULL|display_name=NULL|run_id=NULL"#,
         ]
     );
     assert_eq!(
         dump_rows(&conn, "dispatch_contexts", "id"),
         vec![
-            "id=ctx_a1|task_id=task_a1|assignee_handle=worker-1|status=completed|failure_count=1|last_failure=flaky once|dispatched_at=2025-01-02 03:10:00|completed_at=2025-01-02 04:00:00|created_at=2025-01-02 03:10:00|last_heartbeat_at=NULL|assignee_pane_key=NULL",
+            // v9 REBUILT this table, so assignee_pane_key sits where a fresh schema puts it
+            // rather than where the v6 ALTER appended it: same data, fresh column order.
+            "id=ctx_a1|task_id=task_a1|assignee_handle=worker-1|assignee_pane_key=NULL|status=completed|failure_count=1|last_failure=flaky once|dispatched_at=2025-01-02 03:10:00|completed_at=2025-01-02 04:00:00|created_at=2025-01-02 03:10:00|last_heartbeat_at=NULL|run_id=NULL",
         ]
     );
     assert_eq!(
@@ -444,13 +545,13 @@ fn v1_database_migrates_to_current_preserving_data() {
         vec![
             // origin_message_id=NULL: a gate written before v8 has no ask to answer, so the
             // resolve path skips the thread reply and behaves exactly as it did pre-migration.
-            r#"id=gate_a1|task_id=task_a1|question=Proceed?|options=["yes","no"]|status=resolved|resolution=yes|created_at=2025-01-02 03:20:00|resolved_at=2025-01-02 03:25:00|origin_message_id=NULL"#,
+            r#"id=gate_a1|task_id=task_a1|question=Proceed?|options=["yes","no"]|status=resolved|resolution=yes|created_at=2025-01-02 03:20:00|resolved_at=2025-01-02 03:25:00|origin_message_id=NULL|run_id=NULL|category=NULL|default_option=NULL|manager_deadline_at=NULL|hard_deadline_at=NULL|policy_snapshot=NULL|resolved_by=NULL|resolution_reason=NULL|version=0"#,
         ]
     );
     assert_eq!(
         dump_rows(&conn, "coordinator_runs", "id"),
         vec![
-            "id=run_a1|spec=orchestrate|status=running|coordinator_handle=coordinator|poll_interval_ms=2000|created_at=2025-01-02 03:00:00|completed_at=NULL",
+            "id=run_a1|spec=orchestrate|status=running|coordinator_handle=coordinator|poll_interval_ms=2000|created_at=2025-01-02 03:00:00|completed_at=NULL|gate_resolution_policy=human-only|gate_category_allowlist=[]",
         ]
     );
     assert_eq!(dump_rows(&conn, "sqlite_sequence", "name"), vec!["name=messages|seq=2"]);
@@ -487,7 +588,7 @@ fn already_current_open_is_a_noop() {
         let conn = Connection::open(&path).unwrap();
         (user_version(&conn), dump_master(&conn), dump_rows(&conn, "tasks", "id"))
     };
-    assert_eq!(version_before, 8);
+    assert_eq!(version_before, 9);
 
     drop(open_orchestration(&path).unwrap());
 
@@ -576,7 +677,7 @@ fn v6_database_migrates_to_v7_adding_recipient_pane_key() {
     drop(open_orchestration(&path).unwrap());
 
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(user_version(&conn), 8, "v6 ladder row advances through v8");
+    assert_eq!(user_version(&conn), 9, "v6 ladder row advances through v9");
     let messages_sql: String = conn
         .query_row(
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'messages'",
