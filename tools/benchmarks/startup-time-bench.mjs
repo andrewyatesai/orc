@@ -122,6 +122,11 @@ function parseArgs(argv) {
       case '--linger-ms':
         args.lingerMs = Number(next())
         break
+      // `pnpm bench:first-terminal -- --active-tab-index 7` forwards the bare
+      // separator through to argv; rejecting it makes every documented pnpm
+      // invocation fail on its own separator.
+      case '--':
+        break
       default:
         throw new Error(`Unknown argument: ${argv[i]}`)
     }

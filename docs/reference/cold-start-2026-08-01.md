@@ -93,14 +93,17 @@ Each cost real investigation. Each is refuted by measurement, not opinion.
    **synchronously**. `pnpm bench:first-terminal` now prints a `[bench] queue`
    table; `--active-tab-index` moves the active tab off `tabs[0]`, which is both
    the empirical proof of item 1 and the only way to see a non-trivial queue
-   position. **The numbers have not been collected yet — that run is the next
-   step, and item 3 stays blocked until it exists.**
-3. **Then decide** whether visible-first admission is worth doing. Both numbers
-   ≈ 0 ⇒ the visible pane is already in the first admitted pair and the change
-   wins nothing — drop it. A multi-wave wait ⇒ implement, and note that fixing it
-   means reordering the *initial* grant, not just releases. Measure total
-   background-completion alongside, so a foreground win cannot hide a restore
-   regression.
+   position. **Run on 2026-08-02 — see item 3.**
+3. **Then decide** whether visible-first admission is worth doing. — **DECIDED
+   2026-08-02: IMPLEMENT.** Measured with 8 restored tabs: with the active tab
+   LAST, the pane that presented was admitted last (admitIndex 7) after waiting
+   541ms for a slot, and time-to-first-terminal-frame was 1259ms vs 1019ms with
+   the active tab first. ~240ms is the honest end-to-end figure (541ms is the
+   ceiling — the winner's own build is cheaper once the engine is warm). All 8
+   panes enqueue in ONE React commit, so the *initial* grant is what must be
+   reordered, not just releases. Measure total background-completion alongside,
+   so a foreground win cannot hide a restore regression. See
+   `cold-start-roadmap.md` for the table.
 4. **Remaining lead:** start the worker's own module compile at worker boot
    instead of at first pane init. Must not read settings before they hydrate and
    must not add work to terminal-less launches.

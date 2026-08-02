@@ -5,11 +5,12 @@
 Companions: `cold-start-2026-08-01.md` (measured state + four closed doors) and
 `cold-start-serialization-review.md` (external design review of leads 3/4).
 
-**Every figure below is ANALYSIS, not measurement.** Analysis was wrong four
-times out of four in the session that produced it (see the closed-doors section
-of the companion doc). Items 1 and 2 existed to stop that pattern, which is why
-they ranked first while saving nothing — both have now landed, and item 1
-promptly proved the point by refuting this document's own proposed fix.
+**Every figure below is ANALYSIS unless marked MEASURED.** Analysis was wrong
+four times out of four in the session that produced it (see the closed-doors
+section of the companion doc). Items 1 and 2 existed to stop that pattern, which
+is why they ranked first while saving nothing. Both have now landed — and both
+promptly earned their place: item 1 by refuting this document's own proposed fix,
+item 2 by measuring item 3 at ~240ms after this table had guessed 0–200ms.
 
 ## The ceiling that constrains everything
 
@@ -30,8 +31,8 @@ a slice. Anything removing a *wait* is where the return is.
 | # | Item | Est. saving | Effort | Confidence |
 |---|---|---|---|---|
 | 1 | Milestone lane resolved from the frame — **LANDED** (`afc9424ad2`) | 0ms (correctness) | done | Shipped |
-| 2 | Queue trace — **LANDED** (`0560e12f20`), not yet run | 0ms (decision data) | done | Shipped |
-| 3 | Visible-first pane admission | 0–200ms | 1 day | **Gated on running #2** |
+| 2 | Queue trace — **LANDED** (`0560e12f20`) and RUN | 0ms (decision data) | done | Shipped |
+| 3 | Visible-first pane admission | **~240ms MEASURED** (ceiling 541ms) | 1 day | **High — now the top item** |
 | 4 | Worker compiles its module at boot | 50–150ms | 1 day | Medium |
 | 5 | Prewarm de-chain — **LANDED** (`ba6f7e0039`) | 0–160ms | done | Unverified |
 | 6 | PTY attach started earlier | 40–60ms | 1 day | Medium |
@@ -62,31 +63,60 @@ winning lane, with original timestamps, once the frame NAMES its pane. The lane
 becomes an outcome, so it cannot be left unclaimed while a frame is reported —
 which was the second prior attempt's failure mode.
 
-Item 3's payoff is somewhere in 0–200ms and **nothing narrows it until the item-2
-trace is actually RUN**. The build queue runs 2-wide FIFO and grants the first two
-slots synchronously, so if the winning pane is already in that first pair the
-change wins nothing — the external review calls it illusory absent the trace.
+And the payoff was immediate: the trace item 2 added turned item 3 from a
+0–200ms guess into a measured ~240ms — see the next section. The external review
+was right that the change would be illusory IF the winning pane were already in
+the first admitted pair. It is not; it is admitted last.
 
-## The next concrete step
+## Item 3 is no longer a guess — it MEASURED, and it is the top item
 
-The instrumentation exists; the measurement does not. On a quiet machine:
+Run on 2026-08-02, 5 iterations each, 8 restored tabs:
 
 ```sh
-pnpm bench:first-terminal -- --label active0 --active-tab-index 0
-pnpm bench:first-terminal -- --label active7 --active-tab-index 7
+pnpm bench:first-terminal -- --label active0 --active-tab-index 0 --iterations 5
+pnpm bench:first-terminal -- --label active7 --active-tab-index 7 --iterations 5
 ```
 
-Read the `[bench] queue` table. **Decision rule, fixed before the data:** median
-`firstFramePaneAdmitIndex <= 1` with a ~0 `firstFramePaneQueueWaitMs` ⇒ the winner
-was already in the first synchronous pair, so drop item 3. A material wait ⇒ that
-wait is the CEILING on item 3's payoff — quote it, never a prediction — and note
-that fixing it means reordering the *initial* grant, not just releases. Measure
-total background completion alongside, so a foreground win cannot hide a restore
-regression. Interleave A/B in one quiet window; absolute medians swing ~30% with
-machine load and <5% is noise.
+| metric (median) | active tab 0 | active tab 7 |
+|---|---|---|
+| totalToDidFinishLoad | 368ms | 386ms |
+| totalToWorkspaceReady | 519ms | 540ms |
+| **totalToFirstTerminalFrame** | **1019ms** | **1259ms** |
+| paneBootStartToFirstTerminalFrame | 404ms | 643ms |
+| firstFramePaneAdmitIndex | 0 | **7** |
+| firstFramePaneQueueWaitMs | 0 | **541** |
+| firstFramePaneSyncGrant | true | false |
+| panesEnqueuedAtAdmit | 8 | 8 |
 
-The two runs are also the empirical proof of item 1: both must now produce a
-coherent lane, where before the change the `active7` run mixed two objects.
+**The decision rule (written before the data) says implement.** The winning pane
+was admitted LAST, after seven hidden panes, having waited 541ms for a slot.
+
+Read it carefully, because two numbers differ and both matter:
+
+- **541ms is the ceiling**, not the payoff. The winner's own build was only 101ms
+  at that point (vs 375ms when it built first), because the engine is warm by
+  then — so part of the wait is time that would be spent anyway.
+- **~240ms is the measured end-to-end cost**, the honest figure to quote.
+
+That 240ms is not machine noise, and the run carries its own control: every phase
+BEFORE the pane path moved only 4–5% between the two runs (368→386, 519→540)
+while time-to-first-terminal moved 44%. The difference is specific to the pane
+path. Still worth an interleaved A/B before landing a fix — these two runs were
+sequential, not interleaved.
+
+`panesEnqueuedAtAdmit: 8` in both runs settles the open question: all eight tabs
+enqueue in ONE React commit, so the admission order is fully determined at that
+moment and reordering the *initial* grant is both possible and necessary —
+reordering only the releases would not help.
+
+Note the shape of the win: it does nothing when the user's active tab is already
+first, and recovers ~240ms when it is last. Measure total background completion
+alongside, so a foreground win cannot hide a restore regression.
+
+This is also the **empirical proof of item 1**: both runs produced a coherent
+lane, and in the `active7` run the reported lane is the pane at enqueue index 7 —
+the active tab — not the tab that mounted first. Under the old latch that
+timeline would have described tab 0 while the frame came from tab 7.
 
 ## Why 8 and 9 estimate poorly *for cold start*
 
@@ -114,11 +144,13 @@ a rounding error and could be negative at the FFI boundary.
 
 ## Suggested scheduling
 
-1. ~~**One session:** items 1 + 2.~~ **Done** — both landed. The instrumentation
-   that produces the decision data for 3 now exists.
-2. **Next, and it is cheap:** run the two commands above on a quiet machine.
-   Until that output exists, item 3 has no defensible estimate.
-3. **Then** whichever of 3/4/6 the data justifies, one at a time, each measured
+1. ~~**One session:** items 1 + 2.~~ **Done** — both landed, and the trace has
+   been run. Item 3 now has a measured number instead of a guess.
+2. **Next: item 3.** The data justifies it — ~240ms measured, and it is the
+   largest remaining item on this roadmap. Admit the pane whose tab is active
+   FIRST; all eight panes enqueue in one commit, so the initial grant is the
+   thing to reorder.
+3. **Then** whichever of 4/6 the data justifies, one at a time, each measured
    by interleaved A/B on a quiet machine.
 4. Realistic total recovery from the ~900ms: **150–300ms**, and treat the top of
    that range skeptically.
