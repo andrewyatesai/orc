@@ -84,6 +84,17 @@ export const HANDLER_GROUPS: readonly HandlerGroup[] = [
     ],
     load: async () => (await import('./handlers/terminal.js')).TERMINAL_HANDLERS
   },
+  {
+    name: 'terminal-context',
+    keys: [
+      'terminal history',
+      'terminal search',
+      'terminal blocks',
+      'terminal block-text',
+      'terminal agent-view'
+    ],
+    load: async () => (await import('./handlers/terminal-context.js')).TERMINAL_CONTEXT_HANDLERS
+  },
   ...BROWSER_HANDLER_GROUPS,
   {
     name: 'orchestration',

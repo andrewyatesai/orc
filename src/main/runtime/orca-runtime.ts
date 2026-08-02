@@ -877,6 +877,23 @@ import {
   shouldModelAnswerHiddenPtyQueries
 } from './terminal-model-query-authority'
 import { terminalHostRowAnchorLedger } from './terminal-host-row-anchor'
+import { terminalCommandBlockLedger } from './terminal-command-blocks'
+import {
+  buildTerminalCommandBlockText,
+  buildTerminalCommandBlocksResult,
+  type TerminalTranscriptWindow
+} from './terminal-command-block-reads'
+import {
+  buildTerminalHistoryWindow,
+  terminalScrollbackSourceFor
+} from './terminal-scrollback-window'
+import { buildTerminalAgentView } from './terminal-agent-view'
+import type {
+  TerminalAgentView,
+  TerminalCommandBlockText,
+  TerminalCommandBlocksResult,
+  TerminalHistoryWindow
+} from '../../shared/terminal-context-protocol'
 import {
   TerminalEventJournal,
   type EventCursor,
@@ -7961,6 +7978,14 @@ export class OrcaRuntimeService {
       pty.tailLinesTotal += nextTail.newCompleteLines
       pty.preview = buildPreview(pty.tailBuffer, pty.tailPartialLine)
       this.scheduleWaitBlockedCheck(ptyId, normalized.text, at)
+      // Why here and not beside the other OSC scanners: block boundaries are
+      // recorded in the transcript cursor space this fold just advanced, so
+      // terminal.blockText and terminal.read --cursor read the same lines.
+      terminalCommandBlockLedger().ingest(ptyId, data, {
+        cursorBefore: ptyTailBefore?.linesTotal ?? pty.tailLinesTotal,
+        cursorAfter: pty.tailLinesTotal,
+        at
+      })
     }
 
     for (const leaf of this.getLeavesForPty(ptyId)) {
@@ -9672,6 +9697,109 @@ export class OrcaRuntimeService {
       firstHostRow: window.firstHostRow,
       incarnation: state.incarnation
     }
+  }
+
+  /** `terminal.history`: a WINDOW of this pane's engine scrollback in stable
+   *  host rows — the same coordinates `terminal.search` returns, so a match row
+   *  feeds straight back as `from`. Arithmetic: terminal-scrollback-window.ts. */
+  async readTerminalHistory(
+    handle: string,
+    opts: { from?: number; count?: number; signal?: AbortSignal } = {}
+  ): Promise<TerminalHistoryWindow> {
+    const ptyId = this.resolveLeafForHandle(handle)?.ptyId
+    if (!ptyId) {
+      throw new Error('terminal_not_found')
+    }
+    const state = this.headlessTerminals.get(ptyId)
+    if (!state) {
+      return buildTerminalHistoryWindow(null, opts)
+    }
+    // Same contract as search: every byte already accepted for this PTY must be
+    // visible, or a just-printed row is missing from the window that asked for it.
+    await state.writeChain
+    if (opts.signal?.aborted) {
+      throw new Error('terminal_history_aborted')
+    }
+    return buildTerminalHistoryWindow(terminalScrollbackSourceFor(state.emulator), opts)
+  }
+
+  /** The retained transcript `terminal.read` pages, in the cursor space block
+   *  boundaries are recorded in. Null when no PTY record exists. */
+  private terminalTranscriptWindow(ptyId: string): TerminalTranscriptWindow | null {
+    const pty = this.ptysById.get(ptyId)
+    return pty ? { lines: pty.tailTranscriptBuffer, linesTotal: pty.tailLinesTotal } : null
+  }
+
+  /** `terminal.blocks`: the OSC-133 command blocks observed on this pane. */
+  listTerminalCommandBlocks(
+    handle: string,
+    opts: { limit?: number } = {}
+  ): TerminalCommandBlocksResult {
+    const ptyId = this.resolveLeafForHandle(handle)?.ptyId
+    if (!ptyId) {
+      throw new Error('terminal_not_found')
+    }
+    return buildTerminalCommandBlocksResult(
+      terminalCommandBlockLedger().snapshot(ptyId, opts.limit),
+      this.terminalTranscriptWindow(ptyId)
+    )
+  }
+
+  /** `terminal.blockText`: one block's output, or the newest block when no
+   *  index is named. Never silently empty — see the outcome vocabulary. */
+  readTerminalCommandBlockText(
+    handle: string,
+    opts: { index?: number; limit?: number } = {}
+  ): TerminalCommandBlockText {
+    const ptyId = this.resolveLeafForHandle(handle)?.ptyId
+    if (!ptyId) {
+      throw new Error('terminal_not_found')
+    }
+    const ledger = terminalCommandBlockLedger()
+    const block = opts.index === undefined ? ledger.last(ptyId) : ledger.get(ptyId, opts.index)
+    return buildTerminalCommandBlockText(block, this.terminalTranscriptWindow(ptyId), {
+      limit: opts.limit
+    })
+  }
+
+  /** `terminal.agentView`: screen + agent state + last block + whether history
+   *  exists above, from one settled read (assembly: terminal-agent-view.ts). */
+  async readTerminalAgentView(handle: string): Promise<TerminalAgentView> {
+    const ptyId = this.resolveLeafForHandle(handle)?.ptyId
+    if (!ptyId) {
+      throw new Error('terminal_not_found')
+    }
+    const [agentStatus, liveness] = await Promise.all([
+      this.getTerminalAgentStatus(handle),
+      this.resolveTerminalLiveness(ptyId)
+    ])
+    const state = this.headlessTerminals.get(ptyId)
+    await state?.writeChain
+    const extents = state?.emulator.contextExtents() ?? null
+    const size = state?.emulator.getAppliedSize() ?? null
+    return buildTerminalAgentView({
+      handle,
+      status: liveness.status,
+      screen:
+        state && size
+          ? {
+              rows: state.emulator.getVisibleLines(),
+              cols: size.cols,
+              rowCount: size.rows,
+              cursor: extents?.cursor ?? null,
+              alternateScreen: state.emulator.isAlternateScreen
+            }
+          : null,
+      agent: { isRunningAgent: agentStatus.isRunningAgent, status: agentStatus.status },
+      lastBlock: terminalCommandBlockLedger().last(ptyId),
+      scrollback: state
+        ? {
+            originRow: state.emulator.retainedOriginRow(),
+            scrollbackRows: extents?.scrollbackRows ?? null
+          }
+        : null,
+      transcript: this.terminalTranscriptWindow(ptyId)
+    })
   }
 
   /** Current emulator incarnation for a PTY (fed §2.4 anchor validity), or
@@ -26856,6 +26984,9 @@ export class OrcaRuntimeService {
     // settled with a pty-dropped gap instead of waiting out their timeout.
     this.terminalEventJournal.dropPty(ptyId)
     this.terminalInputCoordinator.disposePty(ptyId)
+    // Why: block cursors name positions in a transcript that dies with this
+    // record; a respawn reusing the id must not inherit stale boundaries.
+    terminalCommandBlockLedger().dropPty(ptyId)
     this.ptyJournalIncarnationById.delete(ptyId)
     this.ptyJournalHeadSeqById.delete(ptyId)
     this.ptysById.delete(ptyId)

@@ -23,6 +23,11 @@ import {
   isEngineCursorOnEmptyPromptLine
 } from './headless-emulator-cursor-line'
 import { buildEmulatorSnapshotReport } from './headless-emulator-snapshot-report'
+import {
+  UNREADABLE_CONTEXT_EXTENTS,
+  readEmulatorContextExtents,
+  type EmulatorContextExtents
+} from './emulator-context-extents'
 import type { TerminalSnapshot, TerminalModes } from './types'
 import type { TerminalViewAttributes } from '../../shared/terminal-view-attributes'
 import type { TerminalOscLinkRange } from '../../shared/terminal-osc-link-ranges'
@@ -360,7 +365,11 @@ export class HeadlessEmulator {
   }
 
   /** Context window around a STABLE host row (same module for the contract). */
-  searchContext(hostRow: number, before: number, after: number): EmulatorSearchContextWindow | null {
+  searchContext(
+    hostRow: number,
+    before: number,
+    after: number
+  ): EmulatorSearchContextWindow | null {
     return this.disposed
       ? null
       : this.engineCall(
@@ -368,6 +377,15 @@ export class HeadlessEmulator {
           () => emulatorSearchContext(this.term, hostRow, before, after),
           () => null
         )
+  }
+
+  /** Retained history depth + visible cursor in one hop, for windowed context
+   *  reads (`terminal.history`, `terminal.agentView`). Null fields mean the
+   *  engine could not answer — never a fabricated zero. */
+  contextExtents(): EmulatorContextExtents {
+    const blind = (): EmulatorContextExtents => UNREADABLE_CONTEXT_EXTENTS
+    const read = (): EmulatorContextExtents => readEmulatorContextExtents(this.term)
+    return this.disposed ? blind() : this.engineCall('contextExtents', read, blind)
   }
 
   /** Stable origin row; null when the addon predates it or the engine is poisoned. */

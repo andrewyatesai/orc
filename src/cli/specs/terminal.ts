@@ -36,6 +36,73 @@ export const TERMINAL_COMMAND_SPECS: CommandSpec[] = [
     ]
   },
   {
+    path: ['terminal', 'history'],
+    summary: 'Read a window of a terminal’s engine scrollback',
+    usage: 'orca terminal history [--terminal <handle>] [--from <row>] [--count <n>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'terminal', 'from', 'count'],
+    notes: [
+      'Reads the engine’s own scrollback, which is deeper than the transcript terminal read pages.',
+      '--from takes a stable host row: feed it a row from terminal search, or the previousHostRow/nextHostRow this verb returns, to walk backward and forward without losing your place.',
+      'Rows span history AND the visible screen, so omitting --from shows what is on screen right now.',
+      'History rows are plain text: the engine drops colour and inline images when a row scrolls off.'
+    ],
+    examples: [
+      'orca terminal history --json',
+      'orca terminal history --terminal term_abc123 --from 4200 --count 400 --json'
+    ]
+  },
+  {
+    path: ['terminal', 'search'],
+    summary: 'Search a terminal’s history and visible screen',
+    usage:
+      'orca terminal search [--terminal <handle>] --query <text> [--regex] [--case-sensitive] [--max-matches <n>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'terminal', 'query', 'regex', 'case-sensitive', 'max-matches'],
+    notes: [
+      'Scope is the pane’s retained history plus its visible grid, newest match first.',
+      'An invalid regex yields zero matches rather than an error.',
+      'Match rows are stable host rows: pass one to terminal history --from to read the surrounding output.'
+    ],
+    examples: [
+      'orca terminal search --query "error" --json',
+      'orca terminal search --terminal term_abc123 --query "^FAIL" --regex --max-matches 20'
+    ]
+  },
+  {
+    path: ['terminal', 'blocks'],
+    summary: 'List the shell command blocks recorded for a terminal',
+    usage: 'orca terminal blocks [--terminal <handle>] [--limit <n>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'terminal', 'limit'],
+    notes: [
+      'Blocks come from OSC 133, which Orca’s own shell hooks emit, so they cover instrumented shell panes.',
+      'A pane running an agent CLI is ONE block for its whole session — use terminal agent-view or terminal read there instead.',
+      'Block boundaries are transcript cursors: pass startCursor to terminal read --cursor to replay the same lines.'
+    ],
+    examples: ['orca terminal blocks --json', 'orca terminal blocks --limit 5']
+  },
+  {
+    path: ['terminal', 'block-text'],
+    summary: 'Read one command block’s output',
+    usage:
+      'orca terminal block-text [--terminal <handle>] [--block <index>] [--limit <n>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'terminal', 'block', 'limit'],
+    notes: [
+      'Omit --block for the newest block: "what did that last command print".',
+      'outcome distinguishes text from evicted (the lines aged out of the transcript) and no-such-block; it is never a silently empty result.'
+    ],
+    examples: ['orca terminal block-text --json', 'orca terminal block-text --block 7 --json']
+  },
+  {
+    path: ['terminal', 'agent-view'],
+    summary: 'One-shot orientation: screen, agent status, last block, history depth',
+    usage: 'orca terminal agent-view [--terminal <handle>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'terminal'],
+    notes: [
+      'One call instead of read + agentStatus + blocks + history, all from the same settled instant.',
+      'The screen is the engine’s plain-text grid: no colour, no inline images. The result names those blind spots explicitly, so "cannot see" is distinguishable from "not there".'
+    ],
+    examples: ['orca terminal agent-view --json', 'orca terminal agent-view --terminal term_abc123']
+  },
+  {
     path: ['terminal', 'send'],
     summary: 'Send input to a live terminal',
     usage:
