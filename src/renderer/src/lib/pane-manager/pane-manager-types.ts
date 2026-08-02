@@ -4,6 +4,7 @@ import type { GlobalSettings } from '../../../../shared/types'
 import type { TerminalLeafId } from '../../../../shared/stable-pane-id'
 import type { AtermPaneController } from './aterm/aterm-pane-renderer'
 import type { AtermTerminalFacade } from './aterm/aterm-terminal-facade'
+import type { AtermPaneBuildQueueTrace } from './aterm/aterm-pane-build-queue'
 import type {
   AtermFitAddonFacade,
   AtermSearchAddonFacade,
@@ -224,6 +225,9 @@ export type ManagedPaneInternal = {
   // PaneManagerOptions.bootMilestoneLaneId, carried on the pane so the first
   // presented frame can name its own lane without a registry walk.
   bootMilestoneLaneId?: string
+  // What this pane's engine build waited for in the admission queue; reported
+  // to startup diagnostics only by the pane that presents the first frame.
+  buildQueueTrace?: AtermPaneBuildQueueTrace
 } & ManagedPane
 
 export type DropZone = 'top' | 'bottom' | 'left' | 'right'

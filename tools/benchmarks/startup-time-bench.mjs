@@ -50,6 +50,7 @@ import { delimiter, join, resolve } from 'node:path'
 import {
   assertWaitEventCanFire,
   derivePhases,
+  deriveQueueTrace,
   parseStartupLine
 } from './startup-milestone-phases.mjs'
 
@@ -67,6 +68,7 @@ function parseArgs(argv) {
     timeoutMs: 240000,
     stateProfile: 'none',
     sessionTabs: 0,
+    activeTabIndex: 0,
     githubRepos: 0,
     ghHangMs: 0,
     waitForEvent: 'did-finish-load',
@@ -102,6 +104,12 @@ function parseArgs(argv) {
       case '--session-tabs':
         args.sessionTabs = Number(next())
         break
+      // Which restored tab is ACTIVE. The fixture used to hardcode tabs[0], which
+      // made it both first-mounted and active — the one arrangement under which a
+      // first-to-boot-start attribution looks coherent. Move it to prove otherwise.
+      case '--active-tab-index':
+        args.activeTabIndex = Number(next())
+        break
       case '--github-repos':
         args.githubRepos = Number(next())
         break
@@ -127,7 +135,7 @@ function parseArgs(argv) {
  * tiny. Layout mirrors Chromium cache dirs plus a few Orca-owned dirs.
  */
 function ensureFixture(fixtureDir, options) {
-  const { fileCount, stateProfile, sessionTabs, githubRepos } = options
+  const { fileCount, stateProfile, sessionTabs, githubRepos, activeTabIndex } = options
   const manifestPath = join(fixtureDir, 'bench-fixture-manifest.json')
   if (existsSync(manifestPath)) {
     try {
@@ -136,6 +144,7 @@ function ensureFixture(fixtureDir, options) {
         manifest.files === fileCount &&
         manifest.stateProfile === stateProfile &&
         manifest.sessionTabs === sessionTabs &&
+        manifest.activeTabIndex === activeTabIndex &&
         (manifest.githubRepos ?? 0) === githubRepos
       ) {
         console.log(`[fixture] reusing ${fixtureDir} (${fileCount} files, state=${stateProfile})`)
@@ -171,7 +180,8 @@ function ensureFixture(fixtureDir, options) {
   const persistedStateBytes = writePersistedStateFixture(fixtureDir, {
     stateProfile,
     sessionTabs,
-    githubRepos
+    githubRepos,
+    activeTabIndex
   })
   writeFileSync(
     manifestPath,
@@ -179,6 +189,7 @@ function ensureFixture(fixtureDir, options) {
       files: fileCount,
       stateProfile,
       sessionTabs,
+      activeTabIndex,
       githubRepos,
       persistedStateBytes,
       createdAt: Date.now()
@@ -235,7 +246,10 @@ function buildGithubRepoFixtures(fixtureDir, githubRepos) {
   return repos
 }
 
-function writePersistedStateFixture(fixtureDir, { stateProfile, sessionTabs, githubRepos }) {
+function writePersistedStateFixture(
+  fixtureDir,
+  { stateProfile, sessionTabs, githubRepos, activeTabIndex }
+) {
   const dataPath = join(fixtureDir, 'orca-data.json')
   if (stateProfile === 'none' && githubRepos === 0) {
     try {
@@ -293,7 +307,8 @@ function writePersistedStateFixture(fixtureDir, { stateProfile, sessionTabs, git
       expandedLeafId: null
     }
   }
-  activeTabIdByWorktree[worktreeId] = tabs[0]?.id ?? null
+  const activeTab = tabs[Math.min(Math.max(0, activeTabIndex ?? 0), tabs.length - 1)]
+  activeTabIdByWorktree[worktreeId] = activeTab?.id ?? null
   const state = {
     schemaVersion: 1,
     repos: [
@@ -321,7 +336,7 @@ function writePersistedStateFixture(fixtureDir, { stateProfile, sessionTabs, git
     workspaceSession: {
       activeRepoId: repoId,
       activeWorktreeId: worktreeId,
-      activeTabId: tabs[0]?.id ?? null,
+      activeTabId: activeTab?.id ?? null,
       tabsByWorktree: {
         [worktreeId]: tabs
       },
@@ -502,7 +517,7 @@ async function main() {
       join(
         os.tmpdir(),
         'orca-startup-bench',
-        `userdata-${args.files}-${args.stateProfile}-${args.sessionTabs}-gh${args.githubRepos}`
+        `userdata-${args.files}-${args.stateProfile}-${args.sessionTabs}-a${args.activeTabIndex}-gh${args.githubRepos}`
       )
   )
   mkdirSync(fixtureDir, { recursive: true })
@@ -510,6 +525,7 @@ async function main() {
     fileCount: args.files,
     stateProfile: args.stateProfile,
     sessionTabs: args.sessionTabs,
+    activeTabIndex: args.activeTabIndex,
     githubRepos: args.githubRepos
   })
   const ghShimDir = writeGhShim(fixtureDir, args.ghHangMs)
@@ -534,7 +550,7 @@ async function main() {
       launchEnv
     })
     const phases = derivePhases(result.events)
-    iterations.push({ ...result, phases })
+    iterations.push({ ...result, phases, queueTrace: deriveQueueTrace(result.events) })
     console.log(
       `${result.outcome} total=${formatMs(phases.totalToDidFinishLoad)} acl=${formatMs(phases.aclGrantMs)} maxStall=${formatMs(phases.maxEventLoopStallMs)}`
     )
@@ -546,6 +562,20 @@ async function main() {
   const summary = {}
   for (const name of phaseNames) {
     summary[name] = median(iterations.map((iteration) => iteration.phases[name]))
+  }
+
+  // Counts and booleans, kept OUT of the phase map: every phase is formatted and
+  // stored as a duration, so an admitIndex of 1 would print as "1ms".
+  const queueTraceNames = Object.keys(
+    iterations.find((iteration) => iteration.queueTrace)?.queueTrace ?? {}
+  )
+  const queueTraceMedian = {}
+  for (const name of queueTraceNames) {
+    const values = iterations.map((iteration) => iteration.queueTrace?.[name] ?? null)
+    queueTraceMedian[name] =
+      typeof values.find((value) => value !== null) === 'boolean'
+        ? (values.filter((value) => value === true).length > values.length / 2)
+        : median(values)
   }
 
   const resultsDir = join(scriptDir, 'results')
@@ -564,12 +594,14 @@ async function main() {
         fixtureFiles: args.files,
         stateProfile: args.stateProfile,
         sessionTabs: args.sessionTabs,
+        activeTabIndex: args.activeTabIndex,
         githubRepos: args.githubRepos,
         ghHangMs: args.ghHangMs,
         waitForEvent: args.waitForEvent,
         exe: sanitizeLocalPath(args.exe),
         iterations,
-        summaryMedianMs: summary
+        summaryMedianMs: summary,
+        queueTraceMedian
       },
       null,
       2
@@ -581,6 +613,14 @@ async function main() {
   console.log('|---|---|')
   for (const name of phaseNames) {
     console.log(`| ${name} | ${formatMs(summary[name])} |`)
+  }
+  if (queueTraceNames.length > 0) {
+    console.log('\n[bench] queue (the pane that presented the first frame)')
+    console.log('| field | median |')
+    console.log('|---|---|')
+    for (const name of queueTraceNames) {
+      console.log(`| ${name} | ${queueTraceMedian[name]} |`)
+    }
   }
   console.log(`\n[bench] results written to ${outPath}`)
 }

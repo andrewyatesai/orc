@@ -180,6 +180,47 @@ describe('markTerminalPaneBootPhase', () => {
     expect(logSpy).toHaveBeenCalledWith('pane-boot-start', { rendererT: 33 })
   })
 
+  it('reports the build-queue wait for the winning pane alone', async () => {
+    const { markTerminalPaneBootPhase, markFirstAtermTerminalFramePresented } = await import(
+      './aterm-first-terminal-frame-milestone'
+    )
+    now = 5
+    markTerminalPaneBootPhase('boot-start', { laneId: 'tab-a' })
+    now = 60
+    markFirstAtermTerminalFramePresented(() => ({
+      laneId: 'tab-a',
+      paneId: 'leaf-1',
+      queue: {
+        enqueueIndex: 5,
+        admitIndex: 3,
+        waitMs: 142,
+        syncGrant: false,
+        selfAdmitted: false,
+        buildMs: 88,
+        suspendedAtBuild: false,
+        enqueuedAtAdmit: 8
+      }
+    }))
+    await settleFrameResolution()
+    // One event, for the pane that painted: the bench parser takes the first
+    // match by name, so a per-build event would resolve to the wrong pane.
+    expect(events().filter((event) => event === 'pane-build-queue')).toHaveLength(1)
+    expect(logSpy).toHaveBeenCalledWith(
+      'pane-build-queue',
+      expect.objectContaining({ admitIndex: 3, waitMs: 142, enqueuedAtAdmit: 8 })
+    )
+  })
+
+  it('omits the build-queue event when the winning pane never recorded one', async () => {
+    const { markTerminalPaneBootPhase, markFirstAtermTerminalFramePresented } = await import(
+      './aterm-first-terminal-frame-milestone'
+    )
+    markTerminalPaneBootPhase('boot-start', { laneId: 'tab-a' })
+    markFirstAtermTerminalFramePresented(() => ({ laneId: 'tab-a', paneId: 'leaf-1' }))
+    await settleFrameResolution()
+    expect(events()).toEqual(['first-terminal-frame', 'pane-boot-start'])
+  })
+
   it('swallows a diagnostics-channel throw so the PTY bind chokepoint cannot break', async () => {
     const { markTerminalPaneBootPhase, markFirstAtermTerminalFramePresented } = await import(
       './aterm-first-terminal-frame-milestone'

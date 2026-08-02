@@ -1,4 +1,5 @@
 import { logRendererStartupDiagnostic } from '@/startup/startup-diagnostics'
+import type { AtermPaneBuildQueueTrace } from './aterm-pane-build-queue'
 
 // Time-to-first-usable-terminal was unmeasured: every startup milestone ends at
 // workspace-ready, but the aterm engine cold boot lands AFTER it. This fire-once
@@ -11,6 +12,8 @@ let fired = false
 export type TerminalPaneBootFrameOrigin = {
   laneId: string
   paneId: string
+  /** What this pane's engine build waited for; absent if it never built. */
+  queue?: AtermPaneBuildQueueTrace
 }
 
 /** Who is reporting a boot phase. Tab-scoped phases omit `paneId` because no pane
@@ -187,6 +190,11 @@ function resolvePaneBootLaneFromFrame(
     }
     resolvedLaneId = origin.laneId
     resolvedPaneId = origin.paneId
+    if (origin.queue !== undefined) {
+      // Emitted ONLY for the winning pane: the parser takes the first match by
+      // name, so one event per build would silently resolve to the wrong pane.
+      logRendererStartupDiagnostic('pane-build-queue', { ...origin.queue })
+    }
     const phases = bufferedLanes.get(origin.laneId)
     bufferedLanes.clear()
     if (phases === undefined) {

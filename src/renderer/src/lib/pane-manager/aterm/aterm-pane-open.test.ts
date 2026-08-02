@@ -20,11 +20,7 @@ vi.mock('../pane-manager-registry', () => ({
   getRegisteredTabIdsForController: vi.fn(() => [])
 }))
 
-import {
-  ATERM_PANE_BUILD_CUE_DELAY_MS,
-  createAtermPaneBuildQueue,
-  openAtermPane
-} from './aterm-pane-open'
+import { ATERM_PANE_BUILD_CUE_DELAY_MS, openAtermPane } from './aterm-pane-open'
 import { createAtermPaneController } from './aterm-pane-renderer'
 
 type Deferred = {
@@ -84,45 +80,6 @@ async function flushMicrotasks(rounds = 12): Promise<void> {
 afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
-})
-
-describe('createAtermPaneBuildQueue', () => {
-  it('admits up to the limit and hands freed slots to waiters in FIFO order', async () => {
-    const queue = createAtermPaneBuildQueue(2)
-    const order: number[] = []
-    await queue.admit()
-    await queue.admit()
-    const third = queue.admit().then(() => order.push(3))
-    const fourth = queue.admit().then(() => order.push(4))
-    await flushMicrotasks()
-    expect(order).toEqual([])
-    queue.release()
-    await third
-    expect(order).toEqual([3])
-    queue.release()
-    await fourth
-    expect(order).toEqual([3, 4])
-  })
-
-  it('self-admits a waiter past the limit after the fallback deadline', async () => {
-    vi.useFakeTimers()
-    const queue = createAtermPaneBuildQueue(1)
-    await queue.admit()
-    let admitted = false
-    const waiter = queue.admit().then(() => {
-      admitted = true
-    })
-    await flushMicrotasks()
-    expect(admitted).toBe(false)
-    // A wedged build must not dam the queue forever.
-    vi.advanceTimersByTime(20_000)
-    await waiter
-    expect(admitted).toBe(true)
-    // Both releases stay consistent (no negative counts / stuck slots).
-    queue.release()
-    queue.release()
-    await queue.admit()
-  })
 })
 
 describe('openAtermPane', () => {

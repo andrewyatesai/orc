@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   assertWaitEventCanFire,
   derivePhases,
+  deriveQueueTrace,
   parseStartupLine
 } from './startup-milestone-phases.mjs'
 
@@ -126,6 +127,42 @@ describe('derivePhases pane-boot lane', () => {
     )
     const phases = derivePhases(events)
     expect(phases.paneBootStartToLayoutReplayed).toBe(1867 - 1866)
+  })
+})
+
+describe('deriveQueueTrace', () => {
+  const queueEvent = (details) => ({
+    ...parseStartupLine(`[startup] renderer-pane-build-queue ${details}`),
+    harnessMs: 1872
+  })
+
+  it('reads the winning pane admission, keeping counts and booleans out of the phase map', () => {
+    const events = [
+      ...restoredRunEvents(),
+      ...paneBootEvents(),
+      queueEvent(
+        'admitIndex=3 enqueueIndex=5 waitMs=142 buildMs=88 syncGrant=false ' +
+          'selfAdmitted=false suspendedAtBuild=false enqueuedAtAdmit=8'
+      )
+    ]
+    expect(deriveQueueTrace(events)).toEqual({
+      firstFramePaneAdmitIndex: 3,
+      firstFramePaneEnqueueIndex: 5,
+      firstFramePaneQueueWaitMs: 142,
+      firstFramePaneBuildMs: 88,
+      firstFramePaneSyncGrant: false,
+      firstFramePaneSelfAdmitted: false,
+      firstFramePaneSuspendedAtBuild: false,
+      panesEnqueuedAtAdmit: 8
+    })
+    // The decision numbers must never leak into the duration-formatted table.
+    const phases = derivePhases(events)
+    expect(phases.firstFramePaneAdmitIndex).toBeUndefined()
+    expect(phases.panesEnqueuedAtAdmit).toBeUndefined()
+  })
+
+  it('returns null when the trace is absent, so an old run still parses', () => {
+    expect(deriveQueueTrace([...restoredRunEvents(), ...paneBootEvents()])).toBeNull()
   })
 })
 

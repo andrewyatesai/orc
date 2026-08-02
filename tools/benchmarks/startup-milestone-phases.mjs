@@ -163,6 +163,37 @@ export function derivePhases(events) {
   }
 }
 
+/**
+ * The winning pane's own wait for an engine-build slot, reported by
+ * 'renderer-pane-build-queue' (emitted once, for the pane that presented the
+ * first frame). Deliberately NOT part of derivePhases: every derived phase is
+ * printed and stored as a duration, and an admitIndex of 1 must never render
+ * as "1ms".
+ *
+ * Decision rule this exists to settle: admitIndex <= 1 with a ~0 queueWaitMs
+ * means the winner was already in the first synchronous pair, so visible-first
+ * admission wins nothing. A real queueWaitMs IS the ceiling on what it could
+ * recover — quote that, never a prediction.
+ */
+export function deriveQueueTrace(events) {
+  const entry = events.find((event) => event.event === 'renderer-pane-build-queue')
+  if (!entry) {
+    return null
+  }
+  const number = (key) => (typeof entry.details[key] === 'number' ? entry.details[key] : null)
+  const boolean = (key) => (typeof entry.details[key] === 'boolean' ? entry.details[key] : null)
+  return {
+    firstFramePaneAdmitIndex: number('admitIndex'),
+    firstFramePaneEnqueueIndex: number('enqueueIndex'),
+    firstFramePaneQueueWaitMs: number('waitMs'),
+    firstFramePaneBuildMs: number('buildMs'),
+    firstFramePaneSyncGrant: boolean('syncGrant'),
+    firstFramePaneSelfAdmitted: boolean('selfAdmitted'),
+    firstFramePaneSuspendedAtBuild: boolean('suspendedAtBuild'),
+    panesEnqueuedAtAdmit: number('enqueuedAtAdmit')
+  }
+}
+
 function maxEventDetailsNumber(events, name, key) {
   let max = null
   for (const event of events) {

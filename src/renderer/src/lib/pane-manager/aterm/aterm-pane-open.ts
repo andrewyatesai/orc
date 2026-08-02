@@ -14,62 +14,10 @@ import { flushPendingAtermRainPulsesAtControllerAttach } from './aterm-rain-puls
 import { makePaneKey } from '../../../../../shared/stable-pane-id'
 import { getRegisteredTabIdsForController } from '../pane-manager-registry'
 import { engineColorToCss } from '../../terminal-themes/engine-color-css'
-
-// Session restore opens many panes in one tick, and CONCURRENT engine builds
-// contend (wasm compile + font parse + GL acquire) — stretching every pane's
-// first frame toward the worker's 15s deadline (see aterm-worker-loader).
-// Admit a few builds at a time so the first panes paint fast and the rest
-// follow; queued panes are never blank (their container carries the theme
-// background from createPaneDOM) and their facades keep buffering PTY output.
-const MAX_CONCURRENT_PANE_BUILDS = 2
-// Safety valve: a wedged build (hung asset fetch) must not dam the queue for
-// every later pane — a waiter self-admits past the limit after this long.
-const PANE_BUILD_ADMIT_FALLBACK_MS = 20_000
-
-export type AtermPaneBuildQueue = {
-  admit: () => Promise<void>
-  release: () => void
-}
-
-/** FIFO admission gate for pane engine builds (factory exported for tests). */
-export function createAtermPaneBuildQueue(limit: number): AtermPaneBuildQueue {
-  let inFlight = 0
-  const waiting: (() => void)[] = []
-  return {
-    admit: (): Promise<void> => {
-      if (inFlight < limit) {
-        inFlight++
-        return Promise.resolve()
-      }
-      return new Promise((resolve) => {
-        const entry = (): void => {
-          clearTimeout(fallback)
-          resolve()
-        }
-        const fallback = setTimeout(() => {
-          const index = waiting.indexOf(entry)
-          if (index >= 0) {
-            // Self-admit past the limit rather than wait on a wedged build; the
-            // matching release() keeps the count consistent either way.
-            waiting.splice(index, 1)
-            inFlight++
-            resolve()
-          }
-        }, PANE_BUILD_ADMIT_FALLBACK_MS)
-        waiting.push(entry)
-      })
-    },
-    release: (): void => {
-      const next = waiting.shift()
-      if (next) {
-        // Hand the slot straight to the next queued build; inFlight unchanged.
-        next()
-        return
-      }
-      inFlight = Math.max(0, inFlight - 1)
-    }
-  }
-}
+import {
+  createAtermPaneBuildQueue,
+  MAX_CONCURRENT_PANE_BUILDS
+} from './aterm-pane-build-queue'
 
 const paneBuildQueue = createAtermPaneBuildQueue(MAX_CONCURRENT_PANE_BUILDS)
 
@@ -106,14 +54,25 @@ async function openAtermPaneAdmitted(
     clearTimeout(cueTimer)
     pane.container.style.cursor = ''
   }
-  await paneBuildQueue.admit()
+  const admission = await paneBuildQueue.admit()
+  const enqueuedAtAdmit = paneBuildQueue.snapshot().enqueued
   if (pane.disposed) {
     clearCue()
     paneBuildQueue.release()
     return
   }
+  const buildStartedAt = performance.now()
   try {
     const controller = await buildAtermPaneController(pane, linkContext)
+    // Startup attribution: recorded on every pane, but only ever read from the
+    // one that presents the first frame — that pane's wait is the ceiling on
+    // what visible-first admission could win.
+    pane.buildQueueTrace = {
+      ...admission,
+      buildMs: Math.round(performance.now() - buildStartedAt),
+      suspendedAtBuild: pane.startRenderingSuspended === true,
+      enqueuedAtAdmit
+    }
     // If the pane was torn down while wasm/font loaded, drop the controller.
     if (pane.disposed) {
       controller.dispose()
@@ -187,7 +146,11 @@ function buildAtermPaneController(
       getPaneBootMilestoneOrigin: () =>
         pane.bootMilestoneLaneId === undefined
           ? null
-          : { laneId: pane.bootMilestoneLaneId, paneId: pane.leafId },
+          : {
+              laneId: pane.bootMilestoneLaneId,
+              paneId: pane.leafId,
+              queue: pane.buildQueueTrace
+            },
       getMacOptionIsMeta: () => pane.terminal.options.macOptionIsMeta === true,
       // The pane facade IS the scroll-intent target keyboard-handlers records
       // against; hand it to the input paths that scroll the engine directly
