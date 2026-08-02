@@ -2,7 +2,10 @@ import {
   markTerminalInteractivePresentStart,
   measureTerminalFramePresented
 } from '../../../../../shared/terminal-perf-marks'
-import { markFirstAtermTerminalFramePresented } from './aterm-first-terminal-frame-milestone'
+import {
+  markFirstAtermTerminalFramePresented,
+  type TerminalPaneBootFrameOrigin
+} from './aterm-first-terminal-frame-milestone'
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
 import type { AtermDrawScheduler } from './aterm-draw-scheduler'
 import type { AtermEffectsDrive } from './aterm-effects-drive'
@@ -40,6 +43,9 @@ type AtermPanePresenterDeps = {
    *  one-frame ring lag on keystroke echo). Unset when the engine lacks the
    *  spill export surface. */
   spillBlit?: () => void
+  /** This pane's startup-diagnostics identity. Passed as a getter and invoked
+   *  only on the frame the milestone fires, so the paint path pays nothing. */
+  getBootMilestoneOrigin?: () => TerminalPaneBootFrameOrigin | null
 }
 
 export function createAtermPanePresenter(deps: AtermPanePresenterDeps): AtermPanePresenter {
@@ -65,7 +71,9 @@ export function createAtermPanePresenter(deps: AtermPanePresenterDeps): AtermPan
     deps.effectsDrive.beforeFrame()
     strategy.drawFrame()
     // Startup milestone: the first terminal frame just presented (fire-once).
-    markFirstAtermTerminalFramePresented()
+    // Hand over the GETTER — the milestone reads it only on the frame it fires,
+    // and it is what names this pane as the owner of the boot timeline.
+    markFirstAtermTerminalFramePresented(deps.getBootMilestoneOrigin)
     deps.spillBlit?.()
     searchOverlay?.paint(deps.getSearchMatches(), deps.getSearchActiveIndex())
     a11yMirror.schedule()

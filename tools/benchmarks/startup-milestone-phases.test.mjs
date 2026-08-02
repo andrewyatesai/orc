@@ -59,17 +59,20 @@ describe('derivePhases first-terminal-frame lane', () => {
   })
 })
 
-// The pane half of the tail, in the order a restored boot emits it. rendererT is
-// the one renderer clock all these milestones share.
+// The pane half of the tail, on the wire as the renderer actually emits it: the
+// phases are BUFFERED and flushed in one microtask once the first presented frame
+// (harnessMs 1863) names the owning pane, so every pane line ARRIVES after the
+// frame while carrying the rendererT of when it happened. pty-bound is emitted
+// live, because it lands after the lane is already resolved.
 function paneBootEvents() {
   const lines = [
     ['[startup] renderer-aterm-worker-ready t=1520 rendererT=610', 1530],
-    ['[startup] renderer-pane-boot-start t=1700 rendererT=790', 1712],
-    ['[startup] renderer-pane-layout-replayed t=1720 rendererT=810', 1731],
-    ['[startup] renderer-pane-scrollback-restored t=1760 rendererT=850', 1770],
-    ['[startup] renderer-pane-boot-settled t=1770 rendererT=860', 1780],
-    ['[startup] renderer-pane-pty-connect-start t=1786 rendererT=876', 1795],
-    ['[startup] renderer-pane-fit-measured t=1787 rendererT=877', 1796],
+    ['[startup] renderer-pane-boot-start t=1852 rendererT=790', 1866],
+    ['[startup] renderer-pane-layout-replayed t=1852 rendererT=810', 1867],
+    ['[startup] renderer-pane-scrollback-restored t=1853 rendererT=850', 1868],
+    ['[startup] renderer-pane-boot-settled t=1853 rendererT=860', 1869],
+    ['[startup] renderer-pane-pty-connect-start t=1854 rendererT=876', 1870],
+    ['[startup] renderer-pane-fit-measured t=1854 rendererT=877', 1871],
     ['[startup] renderer-pane-pty-bound t=1870 rendererT=960', 1881]
   ]
   return lines.map(([line, harnessMs]) => ({ ...parseStartupLine(line), harnessMs }))
@@ -78,7 +81,10 @@ function paneBootEvents() {
 describe('derivePhases pane-boot lane', () => {
   it('splits worker-ready → first frame into the pane boot stages', () => {
     const phases = derivePhases([...restoredRunEvents(), ...paneBootEvents()])
-    expect(phases.totalToPaneBootStart).toBe(1712)
+    // Reconstructed from the frame's own arrival (1863) minus the same-clock
+    // boot-start→frame delta (150) — NOT the 1866 flush arrival, which would
+    // report the pane boot as having started after the frame it precedes.
+    expect(phases.totalToPaneBootStart).toBe(1713)
     expect(phases.paneBootStartToLayoutReplayed).toBe(20)
     expect(phases.paneLayoutReplayedToScrollbackRestored).toBe(40)
     expect(phases.paneScrollbackRestoredToBootSettled).toBe(10)
@@ -119,7 +125,7 @@ describe('derivePhases pane-boot lane', () => {
       event.event === 'renderer-pane-boot-start' ? { ...event, details: {} } : event
     )
     const phases = derivePhases(events)
-    expect(phases.paneBootStartToLayoutReplayed).toBe(1731 - 1712)
+    expect(phases.paneBootStartToLayoutReplayed).toBe(1867 - 1866)
   })
 })
 

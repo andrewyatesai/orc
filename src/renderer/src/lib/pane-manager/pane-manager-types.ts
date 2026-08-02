@@ -69,6 +69,11 @@ export type PaneManagerOptions = {
   // helpers log warnings that are hard to correlate without knowing which
   // tab/worktree the PaneManager belongs to.
   debugLabel?: string
+  // Startup-diagnostics join key only (the owning tab id): it lets the pane that
+  // presents the first frame name whose boot phases the bench should read. The
+  // manager never acts on it — pane-manager-registry deliberately owns tab
+  // identity instead.
+  bootMilestoneLaneId?: string
 }
 
 export type PaneStyleOptions = {
@@ -216,6 +221,9 @@ export type ManagedPaneInternal = {
   // hidden/background manager's panes paint no frames until resumeRendering().
   startRenderingSuspended?: boolean
   debugLabel: string | null
+  // PaneManagerOptions.bootMilestoneLaneId, carried on the pane so the first
+  // presented frame can name its own lane without a registry walk.
+  bootMilestoneLaneId?: string
 } & ManagedPane
 
 export type DropZone = 'top' | 'bottom' | 'left' | 'right'

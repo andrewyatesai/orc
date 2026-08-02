@@ -674,7 +674,7 @@ export function useTerminalPaneLifecycle({
     }
     // Startup attribution: the pane half of the worker-ready→first-frame tail
     // starts here (React has mounted the container; nothing pane-shaped exists yet).
-    markTerminalPaneBootPhase('boot-start', tabId)
+    markTerminalPaneBootPhase('boot-start', { laneId: tabId })
     const expandedStyleSnapshots = expandedStyleSnapshotRef.current
     const paneTransports = paneTransportsRef.current
     const panePtyBindings = panePtyBindingsRef.current
@@ -870,7 +870,7 @@ export function useTerminalPaneLifecycle({
         } else {
           fitPanes(manager)
         }
-        markTerminalPaneBootPhase('fit-measured', tabId)
+        markTerminalPaneBootPhase('fit-measured', { laneId: tabId })
       })
     }
 
@@ -1693,7 +1693,10 @@ export function useTerminalPaneLifecycle({
       // aterm-gpu-auto-policy reads this setting when wiring each pane to choose
       // the GPU vs CPU drawer.
       terminalGpuAcceleration: settingsRef.current?.terminalGpuAcceleration ?? 'auto',
-      debugLabel: `tab:${tabId}/wt:${worktreeId}`
+      debugLabel: `tab:${tabId}/wt:${worktreeId}`,
+      // Startup attribution: the pane that presents the first frame reports this
+      // lane, which is how the bench learns whose boot phases to read.
+      bootMilestoneLaneId: tabId
     })
 
     managerRef.current = manager
@@ -1706,7 +1709,7 @@ export function useTerminalPaneLifecycle({
     const restoredPaneByLeafId = replayTerminalLayout(manager, initialLayoutRef.current, isActive)
     // Panes now exist: their engine builds are in flight and their PTY connects
     // are scheduled (createInitialPane opens the aterm pane BEFORE onPaneCreated).
-    markTerminalPaneBootPhase('layout-replayed', tabId)
+    markTerminalPaneBootPhase('layout-replayed', { laneId: tabId })
 
     const restoredBuffers = initialLayoutRef.current.buffersByLeafId
     restoreScrollbackBuffers(
@@ -1741,7 +1744,7 @@ export function useTerminalPaneLifecycle({
     }
     // Restored bytes are in the facades (deep hydration armed) — the last bulk
     // main-thread work standing between the mount and the first paint.
-    markTerminalPaneBootPhase('scrollback-restored', tabId)
+    markTerminalPaneBootPhase('scrollback-restored', { laneId: tabId })
     if (restoredBuffers && initialLayoutRef.current.scrollbackRefsByLeafId) {
       const layoutWithoutRestoredBuffers = { ...initialLayoutRef.current }
       delete layoutWithoutRestoredBuffers.buffersByLeafId
@@ -1847,7 +1850,7 @@ export function useTerminalPaneLifecycle({
     scheduleRuntimeGraphSync()
     // Synchronous boot work is done; everything left (fit, PTY, first paint) is
     // rAF/IPC-driven, so this is the fork point the later stages measure from.
-    markTerminalPaneBootPhase('boot-settled', tabId)
+    markTerminalPaneBootPhase('boot-settled', { laneId: tabId })
     if (onInitialRenderSettledRef.current) {
       cancelInitialRenderSettle = scheduleTerminalInitialRenderSettled({
         manager,

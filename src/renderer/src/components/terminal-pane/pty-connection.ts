@@ -3090,7 +3090,7 @@ export function connectPanePty(
     activePanePtyBindingBoundAt = performance.now()
     // Same chokepoint, startup lens: the daemon create-or-attach round trip has
     // landed. Fire-once, so it times the first booting pane only.
-    markTerminalPaneBootPhase('pty-bound')
+    markTerminalPaneBootPhase('pty-bound', { laneId: deps.tabId, paneId: pane.leafId })
     registerSideEffectFactConsumerForPty(ptyId)
     syncHiddenRendererPtyDelivery()
     deps.syncPanePtyLayoutBinding(pane.id, ptyId)
@@ -4686,7 +4686,7 @@ export function connectPanePty(
     }
     // Startup attribution: the deferred connect frame actually ran, so the gap
     // back to pane-boot-settled is the rAF/startup-grid wait, not daemon time.
-    markTerminalPaneBootPhase('pty-connect-start')
+    markTerminalPaneBootPhase('pty-connect-start', { laneId: deps.tabId, paneId: pane.leafId })
     safeFit(pane)
     const cols = pane.terminal.cols
     const rows = pane.terminal.rows

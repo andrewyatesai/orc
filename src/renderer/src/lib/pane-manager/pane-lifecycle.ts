@@ -116,7 +116,8 @@ export function createPaneDOM(
     pendingSplitScrollRafIds: [],
     pendingSplitScrollTimerId: null,
     pendingSplitScrollBufferDisposable: null,
-    debugLabel: options.debugLabel ?? null
+    debugLabel: options.debugLabel ?? null,
+    bootMilestoneLaneId: options.bootMilestoneLaneId
   }
 
   // Focus handler: clicking a pane makes it active and explicitly focuses the

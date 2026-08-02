@@ -92,12 +92,12 @@ export function derivePhases(events) {
       'renderer-aterm-worker-ready',
       'renderer-first-terminal-frame'
     ),
-    // The other half of that tail: the first pane's own boot. worker-ready is an
+    // The other half of that tail: the presenting pane's own boot.
     // NOTE: worker-ready and pane-boot-start RACE — the engine warm and the React
     // mount are independent, and bench data shows either can land first. A delta
     // between them is signed noise, not a phase, so it is deliberately NOT derived.
     // Both are reported against the shared timeline instead.
-    totalToPaneBootStart: eventTime(events, 'renderer-pane-boot-start', 'harness'),
+    totalToPaneBootStart: totalToPaneBootStartTime(events),
     paneBootStartToLayoutReplayed: deltaPreferInApp(
       events,
       'renderer-pane-boot-start',
@@ -190,6 +190,28 @@ function delta(events, from, to) {
 
 // Prefer the in-app t= clock (immune to stderr pipe jitter); fall back to
 // harness arrival times when either line lost its t detail.
+/**
+ * Spawn → pane-boot-start, reconstructed rather than read.
+ *
+ * The renderer BUFFERS its pane-boot phases and flushes them once the first
+ * presented frame names the pane that owns the timeline, so a pane line's stderr
+ * arrival now marks the flush, not the phase. Anchor to the frame (whose arrival
+ * is still its own) and walk back along the same-clock rendererT delta — which
+ * also drops the pipe jitter the old direct read carried.
+ */
+function totalToPaneBootStartTime(events) {
+  const frameArrival = eventTime(events, 'renderer-first-terminal-frame', 'harness')
+  const bootStartToFrame = deltaPreferInApp(
+    events,
+    'renderer-pane-boot-start',
+    'renderer-first-terminal-frame'
+  )
+  if (frameArrival !== null && bootStartToFrame !== null) {
+    return Math.round((frameArrival - bootStartToFrame) * 10) / 10
+  }
+  return eventTime(events, 'renderer-pane-boot-start', 'harness')
+}
+
 function deltaPreferInApp(events, from, to) {
   // Renderer-originated milestones carry rendererT (one performance.now()
   // clock) — same-clock deltas avoid the IPC-arrival jitter in main's t=.

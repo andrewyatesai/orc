@@ -11,6 +11,7 @@ import type { AtermRendererReplySurface } from './aterm-renderer-reply-surface'
 import type { AtermThemeColors } from './aterm-theme-colors'
 import type { AtermRainPulse } from '../../../../../shared/aterm-rain-signal'
 import type { TerminalScrollIntentTarget } from '../terminal-scroll-intent-types'
+import type { TerminalPaneBootFrameOrigin } from './aterm-first-terminal-frame-milestone'
 
 /** Base cell font size in CSS px; scaled by devicePixelRatio for device-px
  *  rendering. Shared home so the wiring (dpr re-rasterize) and the pane renderer
@@ -313,6 +314,10 @@ export type AtermPaneController = AtermRendererReplySurface & {
 /** Optional renderer settings the controller reads live (per-press / per-frame)
  *  so a settings change takes effect without recreating the pane. */
 export type AtermPaneControllerOptions = {
+  /** This pane's startup-diagnostics identity, read ONCE — on the single frame
+   *  the first-terminal-frame milestone fires — to resolve whose boot phases the
+   *  bench reads. Null when the pane carries no lane. */
+  getPaneBootMilestoneOrigin?: () => TerminalPaneBootFrameOrigin | null
   /** Latest macOptionIsMeta (xterm's option of the same name); controls whether
    *  macOS Option meta-prefixes or composes a glyph. Defaults to false. */
   getMacOptionIsMeta?: () => boolean

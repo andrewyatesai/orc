@@ -253,7 +253,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
 
   // Wire the paint path now that the strategy + grid reflow exist: the rAF draw and
   // the interactive presentNow fast path share one presenter.
-  const presenter = createAtermPanePresenter({
+  ;({ draw, presentNow } = createAtermPanePresenter({
     strategy,
     searchOverlay,
     a11yMirror,
@@ -264,10 +264,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     getSearchMatches: searchState.getSearchMatches,
     getSearchActiveIndex: searchState.getSearchActiveIndex,
     effectsDrive,
-    spillBlit: spill.spillBlit
-  })
-  draw = presenter.draw
-  presentNow = presenter.presentNow
+    spillBlit: spill.spillBlit,
+    getBootMilestoneOrigin: controllerOptions?.getPaneBootMilestoneOrigin
+  }))
 
   // Honor terminalFontFamily + terminalFontWeight: swap in the host-resolved
   // weight-closest face (+ the family's real bold face for SGR bold, when it ships

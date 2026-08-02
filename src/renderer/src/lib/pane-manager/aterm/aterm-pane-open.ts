@@ -182,6 +182,12 @@ function buildAtermPaneController(
     // sync by applyTerminalAppearance) so toggles take effect without a rebuild.
     // copy-on-select reads app settings live (default false).
     {
+      // Startup attribution: if THIS pane presents the first frame, it names the
+      // lane whose buffered boot phases the bench reads. Read once, on that frame.
+      getPaneBootMilestoneOrigin: () =>
+        pane.bootMilestoneLaneId === undefined
+          ? null
+          : { laneId: pane.bootMilestoneLaneId, paneId: pane.leafId },
       getMacOptionIsMeta: () => pane.terminal.options.macOptionIsMeta === true,
       // The pane facade IS the scroll-intent target keyboard-handlers records
       // against; hand it to the input paths that scroll the engine directly
