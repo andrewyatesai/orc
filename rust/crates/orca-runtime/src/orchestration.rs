@@ -15,6 +15,17 @@ use orca_store::{Database, OpenOptions, StoreError};
 use rusqlite::{params, params_from_iter, OptionalExtension, Row as SqlRow, ToSql};
 use serde::Serialize;
 
+// v9 surfaces, split by the concern each one owns rather than by table.
+pub mod audit_ledger;
+pub mod gate_resolution;
+pub mod rotation_reservations;
+
+pub use audit_ledger::{AuditEvent, NewAuditEvent, AUDIT_EVENT_COLUMNS};
+pub use gate_resolution::GateResolutionOutcome;
+pub use rotation_reservations::{
+    NewRotationReservation, ReservationClaim, RotationSaga, ROTATION_SAGA_COLUMNS,
+};
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct NewMessage {
     pub id: String,
@@ -30,6 +41,18 @@ pub struct NewMessage {
     // Why: recorded at send time so delivery can re-resolve the pane's current
     // handle after the addressed handle goes stale (#9163).
     pub recipient_pane_key: Option<String>,
+}
+
+/// The v9 policy columns a gate is opened with (design §6.3). All optional: a
+/// gate opened by today's `ask` path carries none of them and stays human-only.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NewGatePolicy {
+    pub run_id: Option<String>,
+    pub category: Option<String>,
+    pub default_option: Option<String>,
+    pub manager_deadline_at: Option<String>,
+    pub hard_deadline_at: Option<String>,
+    pub policy_snapshot: Option<String>,
 }
 
 // Row structs are FULL rows (every column) with field names + `Serialize` output
@@ -68,6 +91,9 @@ pub struct Task {
     pub result: Option<String>,
     pub created_at: String,
     pub completed_at: Option<String>,
+    /// Owning run (v9). Null for a task created before any run exists, and for
+    /// every task a pre-v9 build wrote — run-unfiltered reads must keep working.
+    pub run_id: Option<String>,
 }
 
 /// A task row plus its active dispatch (LEFT JOIN), for `list_tasks_with_dispatch`.
@@ -94,6 +120,8 @@ pub struct DispatchContext {
     pub completed_at: Option<String>,
     pub created_at: String,
     pub last_heartbeat_at: Option<String>,
+    /// Owning run (v9); null for legacy rows and for dispatches opened outside a run.
+    pub run_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -110,6 +138,18 @@ pub struct DecisionGate {
     /// gates created directly via `gateCreate`, and for every gate written by a
     /// pre-v8 build — read defensively, never assume it is present.
     pub origin_message_id: Option<String>,
+    pub run_id: Option<String>,
+    /// Policy category (v9). Null means "uncategorized", which §6.3 treats as
+    /// fail-closed human-only — never as "any category".
+    pub category: Option<String>,
+    pub default_option: Option<String>,
+    pub manager_deadline_at: Option<String>,
+    pub hard_deadline_at: Option<String>,
+    pub policy_snapshot: Option<String>,
+    pub resolved_by: Option<String>,
+    pub resolution_reason: Option<String>,
+    /// CAS operand — NOT NULL DEFAULT 0, so legacy rows read 0 rather than null.
+    pub version: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -121,19 +161,32 @@ pub struct CoordinatorRun {
     pub poll_interval_ms: i64,
     pub created_at: String,
     pub completed_at: Option<String>,
+    /// Per-run gate policy (v9), NOT NULL so a legacy run reads the fail-closed
+    /// default rather than forcing every consumer to invent one.
+    pub gate_resolution_policy: String,
+    /// JSON string array; only meaningful under `manager-delegated`.
+    pub gate_category_allowlist: String,
 }
 
 // Column lists keep every SELECT and its row_to_* reader in lock-step order.
 const MESSAGE_COLUMNS: &str =
     "id, from_handle, to_handle, subject, body, type, priority, thread_id, payload, read, sequence, created_at, delivered_at, sender_pane_key, recipient_pane_key";
 const TASK_COLUMNS: &str =
-    "id, parent_id, created_by_terminal_handle, task_title, display_name, spec, status, deps, result, created_at, completed_at";
+    "id, parent_id, created_by_terminal_handle, task_title, display_name, spec, status, deps, result, created_at, completed_at, run_id";
 const DISPATCH_COLUMNS: &str =
-    "id, task_id, assignee_handle, assignee_pane_key, status, failure_count, last_failure, dispatched_at, completed_at, created_at, last_heartbeat_at";
+    "id, task_id, assignee_handle, assignee_pane_key, status, failure_count, last_failure, dispatched_at, completed_at, created_at, last_heartbeat_at, run_id";
 const GATE_COLUMNS: &str =
-    "id, task_id, question, options, status, resolution, created_at, resolved_at, origin_message_id";
+    "id, task_id, question, options, status, resolution, created_at, resolved_at, origin_message_id, run_id, category, default_option, manager_deadline_at, hard_deadline_at, policy_snapshot, resolved_by, resolution_reason, version";
 const RUN_COLUMNS: &str =
-    "id, spec, status, coordinator_handle, poll_interval_ms, created_at, completed_at";
+    "id, spec, status, coordinator_handle, poll_interval_ms, created_at, completed_at, gate_resolution_policy, gate_category_allowlist";
+/// Every dispatch state that still holds its assignee. `waiting_gate` belongs
+/// here: a worker parked on a gate keeps its lease, so treating it as free is
+/// precisely the double-dispatch v9's fence trigger exists to make loud.
+pub(crate) const ACTIVE_DISPATCH_STATUSES: &str = "'pending', 'dispatched', 'waiting_gate'";
+/// A task is adoptable only while it is still live work. A `completed`/`failed`
+/// task predates the run in every meaningful sense, and stamping today's run onto
+/// last month's history would poison every run-scoped summary built from it.
+pub(crate) const ADOPTABLE_TASK_STATUSES: &str = "'pending', 'ready', 'dispatched', 'blocked'";
 
 pub struct OrchestrationDb {
     db: Database,
@@ -369,13 +422,16 @@ impl OrchestrationDb {
         created_by: Option<&str>,
         task_title: Option<&str>,
         display_name: Option<&str>,
+        // v9: set when a run already exists (tasks minted mid-run are owned at
+        // birth). `None` is the pre-run case the adoption transaction resolves.
+        run_id: Option<&str>,
     ) -> Result<Task, StoreError> {
         let deps_json = serde_json::to_string(deps).unwrap_or_else(|_| "[]".to_string());
         let status = if deps.is_empty() { "ready" } else { "pending" };
         self.db.connection().execute(
-            "INSERT INTO tasks (id, parent_id, created_by_terminal_handle, task_title, display_name, spec, status, deps)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![id, parent_id, created_by, task_title, display_name, spec, status, deps_json],
+            "INSERT INTO tasks (id, parent_id, created_by_terminal_handle, task_title, display_name, spec, status, deps, run_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![id, parent_id, created_by, task_title, display_name, spec, status, deps_json, run_id],
         )?;
         self.get_task(id)?
             .ok_or_else(|| StoreError::Message("task vanished after insert".into()))
@@ -387,24 +443,32 @@ impl OrchestrationDb {
         Ok(stmt.query_row([id], row_to_task).optional()?)
     }
 
-    /// Tasks, optionally filtered by status, oldest first (TS `listTasks`; the
-    /// shim maps its `ready` filter to `status = 'ready'`).
-    pub fn list_tasks(&self, status: Option<&str>) -> Result<Vec<Task>, StoreError> {
+    /// Tasks, optionally filtered by status and/or owning run, oldest first (TS
+    /// `listTasks`; the shim maps its `ready` filter to `status = 'ready'`).
+    ///
+    /// A `run_id` of `None` means NO run filter — every task lists, including the
+    /// un-owned rows a pre-v9 install left behind. Only an explicit run narrows.
+    pub fn list_tasks(&self, status: Option<&str>, run_id: Option<&str>) -> Result<Vec<Task>, StoreError> {
         let conn = self.db.connection();
-        match status {
-            Some(status) => {
-                let mut stmt = conn.prepare(&format!(
-                    "SELECT {TASK_COLUMNS} FROM tasks WHERE status = ?1 ORDER BY created_at"
-                ))?;
-                let rows = stmt.query_map([status], row_to_task)?;
-                Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
-            }
-            None => {
-                let mut stmt = conn.prepare(&format!("SELECT {TASK_COLUMNS} FROM tasks ORDER BY created_at"))?;
-                let rows = stmt.query_map([], row_to_task)?;
-                Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
-            }
+        let mut sql = format!("SELECT {TASK_COLUMNS} FROM tasks");
+        let mut binds: Vec<&dyn ToSql> = Vec::new();
+        let mut clauses: Vec<&str> = Vec::new();
+        if let Some(status) = &status {
+            clauses.push("status = ?");
+            binds.push(status as &dyn ToSql);
         }
+        if let Some(run_id) = &run_id {
+            clauses.push("run_id = ?");
+            binds.push(run_id as &dyn ToSql);
+        }
+        if !clauses.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&clauses.join(" AND "));
+        }
+        sql.push_str(" ORDER BY created_at");
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_from_iter(binds), row_to_task)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
     /// Tasks with their active dispatch's assignee + id (TS `listTasksWithDispatch`).
@@ -420,7 +484,7 @@ impl OrchestrationDb {
                SELECT dc.* FROM dispatch_contexts dc
                INNER JOIN (
                  SELECT task_id, MAX(rowid) AS max_rowid FROM dispatch_contexts
-                 WHERE status IN ('pending', 'dispatched') GROUP BY task_id
+                 WHERE status IN ({ACTIVE_DISPATCH_STATUSES}) GROUP BY task_id
                ) latest ON latest.task_id = dc.task_id AND latest.max_rowid = dc.rowid
              ) d ON d.task_id = t.id
              {where_clause}
@@ -515,6 +579,7 @@ impl OrchestrationDb {
         assignee_handle: &str,
         id: &str,
         assignee_pane_key: Option<&str>,
+        run_id: Option<&str>,
     ) -> Result<DispatchContext, StoreError> {
         let task = self
             .get_task(task_id)?
@@ -529,7 +594,7 @@ impl OrchestrationDb {
         // Handle match covers legacy rows without pane keys.
         let mut conflict: Option<(String, String)> = conn
             .query_row(
-                "SELECT id, task_id FROM dispatch_contexts WHERE assignee_handle = ?1 AND status IN ('pending','dispatched') LIMIT 1",
+                &format!("SELECT id, task_id FROM dispatch_contexts WHERE assignee_handle = ?1 AND status IN ({ACTIVE_DISPATCH_STATUSES}) LIMIT 1"),
                 [assignee_handle],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
@@ -540,7 +605,7 @@ impl OrchestrationDb {
         if conflict.is_none() {
             if let Some(pane_key) = assignee_pane_key {
                 let mut stmt = conn.prepare(
-                    "SELECT id, task_id, assignee_pane_key FROM dispatch_contexts WHERE assignee_pane_key IS NOT NULL AND status IN ('pending','dispatched')",
+                    &format!("SELECT id, task_id, assignee_pane_key FROM dispatch_contexts WHERE assignee_pane_key IS NOT NULL AND status IN ({ACTIVE_DISPATCH_STATUSES})"),
                 )?;
                 let rows = stmt.query_map([], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?))
@@ -564,9 +629,21 @@ impl OrchestrationDb {
             [task_id],
             |row| row.get(0),
         )?;
+        // Why claim here: adoption runs once, at run start, so a task created MID-run is
+        // un-owned forever and every run-scoped count silently omits live work. The run
+        // that dispatches it owns it — and COALESCE means an already-owned task keeps the
+        // run that adopted it, so a second orchestrator cannot steal another's task.
+        if let Some(run_id) = run_id {
+            conn.execute(
+                "UPDATE tasks SET run_id = COALESCE(run_id, ?2) WHERE id = ?1",
+                params![task_id, run_id],
+            )?;
+        }
         conn.execute(
-            "INSERT INTO dispatch_contexts (id, task_id, assignee_handle, assignee_pane_key, status, failure_count, dispatched_at)
-             VALUES (?1, ?2, ?3, ?4, 'dispatched', ?5, datetime('now'))",
+            // The dispatch inherits the task's run, so a run's dispatch rows and its task
+            // rows always agree about ownership.
+            "INSERT INTO dispatch_contexts (id, task_id, assignee_handle, assignee_pane_key, status, failure_count, dispatched_at, run_id)
+             VALUES (?1, ?2, ?3, ?4, 'dispatched', ?5, datetime('now'), (SELECT run_id FROM tasks WHERE id = ?2))",
             params![id, task_id, assignee_handle, assignee_pane_key, prior_failures],
         )?;
         conn.execute("UPDATE tasks SET status = 'dispatched' WHERE id = ?1", params![task_id])?;
@@ -593,7 +670,7 @@ impl OrchestrationDb {
     pub fn get_active_dispatch_for_terminal(&self, handle: &str) -> Result<Option<DispatchContext>, StoreError> {
         let conn = self.db.connection();
         let mut stmt = conn.prepare(&format!(
-            "SELECT {DISPATCH_COLUMNS} FROM dispatch_contexts WHERE assignee_handle = ?1 AND status IN ('pending','dispatched') LIMIT 1"
+            "SELECT {DISPATCH_COLUMNS} FROM dispatch_contexts WHERE assignee_handle = ?1 AND status IN ({ACTIVE_DISPATCH_STATUSES}) LIMIT 1"
         ))?;
         Ok(stmt.query_row([handle], row_to_dispatch).optional()?)
     }
@@ -616,6 +693,11 @@ impl OrchestrationDb {
 
     // db.ts `completeActiveDispatchForTask`: close the newest still-open dispatch
     // for a task (used when the task completes or is gated).
+    /// Deliberately NOT `ACTIVE_DISPATCH_STATUSES`: `create_gate` calls this, so
+    /// including `waiting_gate` would let the legacy gate-open path close the very
+    /// park §6.2 asks for. A parked dispatch is released by `resolve_pending_gate`
+    /// or by worker-loss reconciliation (`fail_active_dispatch_for_task`), and
+    /// `list_dispatches_waiting_gate` surfaces any that outlive their gate.
     pub fn complete_active_dispatch_for_task(&self, task_id: &str) -> Result<(), StoreError> {
         let active: Option<String> = self
             .db
@@ -638,7 +720,7 @@ impl OrchestrationDb {
             .db
             .connection()
             .query_row(
-                "SELECT id FROM dispatch_contexts WHERE task_id = ?1 AND status IN ('pending','dispatched') ORDER BY rowid DESC LIMIT 1",
+                &format!("SELECT id FROM dispatch_contexts WHERE task_id = ?1 AND status IN ({ACTIVE_DISPATCH_STATUSES}) ORDER BY rowid DESC LIMIT 1"),
                 params![task_id],
                 |r| r.get(0),
             )
@@ -732,10 +814,19 @@ impl OrchestrationDb {
         question: &str,
         options: &[&str],
         origin_message_id: Option<&str>,
+        policy: &NewGatePolicy,
     ) -> Result<DecisionGate, StoreError> {
         self.db.connection().execute(
-            "INSERT INTO decision_gates (id, task_id, question, options, origin_message_id) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![id, task_id, question, json_string_array(options), origin_message_id],
+            // Why COALESCE: a gate belongs to whatever run owns its task, and no caller
+            // knows the run — `ask --task` has a task id and nothing else. Inheriting here
+            // is what makes a run's pending-gate count non-zero in production.
+            "INSERT INTO decision_gates (id, task_id, question, options, origin_message_id, run_id, category, default_option, manager_deadline_at, hard_deadline_at, policy_snapshot)
+             VALUES (?1, ?2, ?3, ?4, ?5, COALESCE(?6, (SELECT run_id FROM tasks WHERE id = ?2)), ?7, ?8, ?9, ?10, ?11)",
+            params![
+                id, task_id, question, json_string_array(options), origin_message_id,
+                policy.run_id, policy.category, policy.default_option,
+                policy.manager_deadline_at, policy.hard_deadline_at, policy.policy_snapshot,
+            ],
         )?;
         self.complete_active_dispatch_for_task(task_id)?;
         self.db
@@ -776,8 +867,15 @@ impl OrchestrationDb {
         Ok(stmt.query_row([id], row_to_gate).optional()?)
     }
 
-    /// Gates filtered by task and/or status, oldest first (TS `listGates`).
-    pub fn list_gates(&self, task_id: Option<&str>, status: Option<&str>) -> Result<Vec<DecisionGate>, StoreError> {
+    /// Gates filtered by task, status and/or owning run, oldest first (TS
+    /// `listGates`). As with `list_tasks`, a `None` run is "no filter" so
+    /// un-owned legacy gates still list.
+    pub fn list_gates(
+        &self,
+        task_id: Option<&str>,
+        status: Option<&str>,
+        run_id: Option<&str>,
+    ) -> Result<Vec<DecisionGate>, StoreError> {
         let conn = self.db.connection();
         let mut sql = format!("SELECT {GATE_COLUMNS} FROM decision_gates");
         let mut binds: Vec<&dyn ToSql> = Vec::new();
@@ -789,6 +887,10 @@ impl OrchestrationDb {
         if let Some(status) = &status {
             clauses.push("status = ?");
             binds.push(status as &dyn ToSql);
+        }
+        if let Some(run_id) = &run_id {
+            clauses.push("run_id = ?");
+            binds.push(run_id as &dyn ToSql);
         }
         if !clauses.is_empty() {
             sql.push_str(" WHERE ");
@@ -802,20 +904,82 @@ impl OrchestrationDb {
 
     // ---- coordinator runs ----
 
+    /// Open a run AND adopt every un-owned live task in one `BEGIN IMMEDIATE`
+    /// transaction (design §4, adoption option two).
+    ///
+    /// Why adoption is part of run creation and not a follow-up call: `taskCreate`
+    /// runs before any run exists, so without it a fresh run owns nothing and the
+    /// whole of today's create-tasks-then-run workflow is stranded. Doing it in a
+    /// separate statement would leave a window where a second starting run adopts
+    /// the same rows; SQLite's write lock is what makes "exactly one run adopts a
+    /// given task" true, and the loser observes it by adopting zero.
     pub fn create_coordinator_run(
         &self,
         id: &str,
         spec: &str,
         coordinator_handle: &str,
         poll_interval_ms: Option<i64>,
+        gate_resolution_policy: Option<&str>,
+        gate_category_allowlist: Option<&str>,
     ) -> Result<CoordinatorRun, StoreError> {
-        self.db.connection().execute(
-            "INSERT INTO coordinator_runs (id, spec, status, coordinator_handle, poll_interval_ms)
-             VALUES (?1, ?2, 'running', ?3, ?4)",
-            params![id, spec, coordinator_handle, poll_interval_ms.unwrap_or(2000)],
-        )?;
+        self.db.exec("BEGIN IMMEDIATE")?;
+        let opened = self
+            .insert_run_and_adopt(id, spec, coordinator_handle, poll_interval_ms, gate_resolution_policy, gate_category_allowlist)
+            .and_then(|()| self.db.exec("COMMIT"));
+        if let Err(err) = opened {
+            self.db.exec("ROLLBACK")?;
+            return Err(err);
+        }
         self.coordinator_run_by_id(id)?
             .ok_or_else(|| StoreError::Message("coordinator run vanished after insert".into()))
+    }
+
+    fn insert_run_and_adopt(
+        &self,
+        id: &str,
+        spec: &str,
+        coordinator_handle: &str,
+        poll_interval_ms: Option<i64>,
+        gate_resolution_policy: Option<&str>,
+        gate_category_allowlist: Option<&str>,
+    ) -> Result<(), StoreError> {
+        let conn = self.db.connection();
+        conn.execute(
+            "INSERT INTO coordinator_runs (id, spec, status, coordinator_handle, poll_interval_ms, gate_resolution_policy, gate_category_allowlist)
+             VALUES (?1, ?2, 'running', ?3, ?4, COALESCE(?5, 'human-only'), COALESCE(?6, '[]'))",
+            params![id, spec, coordinator_handle, poll_interval_ms.unwrap_or(2000), gate_resolution_policy, gate_category_allowlist],
+        )?;
+        conn.execute(
+            &format!(
+                "UPDATE tasks SET run_id = ?1 WHERE run_id IS NULL AND status IN ({ADOPTABLE_TASK_STATUSES})"
+            ),
+            params![id],
+        )?;
+        // The gates and dispatches follow their task, so a run-filtered gate or
+        // dispatch query agrees with the run-filtered task query it was derived from.
+        conn.execute(
+            "UPDATE decision_gates SET run_id = ?1
+             WHERE run_id IS NULL AND task_id IN (SELECT id FROM tasks WHERE run_id = ?1)",
+            params![id],
+        )?;
+        conn.execute(
+            "UPDATE dispatch_contexts SET run_id = ?1
+             WHERE run_id IS NULL AND task_id IN (SELECT id FROM tasks WHERE run_id = ?1)",
+            params![id],
+        )?;
+        Ok(())
+    }
+
+    /// Bounded run history, newest first — the supervisor wake brief's feed
+    /// (design §4). A real `ORDER BY … LIMIT … OFFSET` query, never a full read
+    /// the caller slices: run history is unbounded and grows for the life of an install.
+    pub fn list_coordinator_runs(&self, limit: i64, offset: i64) -> Result<Vec<CoordinatorRun>, StoreError> {
+        let conn = self.db.connection();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {RUN_COLUMNS} FROM coordinator_runs ORDER BY created_at DESC, rowid DESC LIMIT ?1 OFFSET ?2"
+        ))?;
+        let rows = stmt.query_map(params![limit, offset], row_to_coordinator)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
     pub fn coordinator_run_by_id(&self, id: &str) -> Result<Option<CoordinatorRun>, StoreError> {
@@ -869,7 +1033,7 @@ impl OrchestrationDb {
         let conn = self.db.connection();
         let mut busy: std::collections::HashSet<String> = {
             let mut stmt = conn.prepare(
-                "SELECT DISTINCT assignee_handle FROM dispatch_contexts WHERE status IN ('pending','dispatched') AND assignee_handle IS NOT NULL",
+                &format!("SELECT DISTINCT assignee_handle FROM dispatch_contexts WHERE status IN ({ACTIVE_DISPATCH_STATUSES}) AND assignee_handle IS NOT NULL"),
             )?;
             let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
             let collected: rusqlite::Result<std::collections::HashSet<String>> = rows.collect();
@@ -892,8 +1056,9 @@ impl OrchestrationDb {
     }
 
     pub fn reset_all(&self) -> Result<(), StoreError> {
+        // audit_events refuses UPDATE, not DELETE — a full reset may drop it.
         self.db.exec(
-            "DELETE FROM coordinator_runs; DELETE FROM decision_gates; DELETE FROM dispatch_contexts; DELETE FROM tasks; DELETE FROM messages;",
+            "DELETE FROM rotation_sagas; DELETE FROM audit_events; DELETE FROM coordinator_runs; DELETE FROM decision_gates; DELETE FROM dispatch_contexts; DELETE FROM tasks; DELETE FROM messages;",
         )
     }
 
@@ -927,12 +1092,22 @@ impl OrchestrationDb {
             self.all(&format!("SELECT {GATE_COLUMNS} FROM decision_gates ORDER BY rowid"), row_to_gate)?;
         let coordinator_runs =
             self.all(&format!("SELECT {RUN_COLUMNS} FROM coordinator_runs ORDER BY rowid"), row_to_coordinator)?;
+        let audit_events = self.all(
+            &format!("SELECT {AUDIT_EVENT_COLUMNS} FROM audit_events ORDER BY rowid"),
+            audit_ledger::row_to_audit_event,
+        )?;
+        let rotation_sagas = self.all(
+            &format!("SELECT {ROTATION_SAGA_COLUMNS} FROM rotation_sagas ORDER BY rowid"),
+            rotation_reservations::row_to_rotation_saga,
+        )?;
         Ok(serde_json::json!({
             "messages": messages,
             "tasks": tasks,
             "dispatch_contexts": dispatch_contexts,
             "decision_gates": decision_gates,
             "coordinator_runs": coordinator_runs,
+            "audit_events": audit_events,
+            "rotation_sagas": rotation_sagas,
         }))
     }
 }
@@ -1020,6 +1195,7 @@ fn row_to_task(row: &SqlRow<'_>) -> rusqlite::Result<Task> {
         result: row.get(8)?,
         created_at: row.get(9)?,
         completed_at: row.get(10)?,
+        run_id: row.get(11)?,
     })
 }
 
@@ -1036,6 +1212,7 @@ fn row_to_dispatch(row: &SqlRow<'_>) -> rusqlite::Result<DispatchContext> {
         completed_at: row.get(8)?,
         created_at: row.get(9)?,
         last_heartbeat_at: row.get(10)?,
+        run_id: row.get(11)?,
     })
 }
 
@@ -1050,6 +1227,15 @@ fn row_to_gate(row: &SqlRow<'_>) -> rusqlite::Result<DecisionGate> {
         created_at: row.get(6)?,
         resolved_at: row.get(7)?,
         origin_message_id: row.get(8)?,
+        run_id: row.get(9)?,
+        category: row.get(10)?,
+        default_option: row.get(11)?,
+        manager_deadline_at: row.get(12)?,
+        hard_deadline_at: row.get(13)?,
+        policy_snapshot: row.get(14)?,
+        resolved_by: row.get(15)?,
+        resolution_reason: row.get(16)?,
+        version: row.get(17)?,
     })
 }
 
@@ -1062,6 +1248,8 @@ fn row_to_coordinator(row: &SqlRow<'_>) -> rusqlite::Result<CoordinatorRun> {
         poll_interval_ms: row.get(4)?,
         created_at: row.get(5)?,
         completed_at: row.get(6)?,
+        gate_resolution_policy: row.get(7)?,
+        gate_category_allowlist: row.get(8)?,
     })
 }
 

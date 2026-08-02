@@ -1,8 +1,3 @@
-import { randomBytes } from 'node:crypto'
-import {
-  requireRustGitBinding,
-  type RustOrchestrationStoreHandle
-} from '../../daemon/rust-git-addon'
 import type {
   MessageType,
   MessagePriority,
@@ -10,19 +5,25 @@ import type {
   DispatchStatus,
   GateStatus,
   CoordinatorStatus,
+  GateResolutionPolicy,
   MessageRow,
   TaskRow,
   DispatchContextRow,
   DecisionGateRow,
-  CoordinatorRun
+  CoordinatorRun,
+  AuditEventRow,
+  RotationSagaRow,
+  GateResolutionOutcome,
+  ReservationClaimOutcome
 } from './types'
 import { buildOrchestrationTaskDisplayMetadata } from '../../../shared/orchestration-task-display'
-import {
-  messageListFromJson,
-  messageRowFromJson,
-  optionalMessageRowFromJson
-} from './db-message-timestamp'
 import { listFromJson, optRowFromJson, rowFromJson } from './db-row-json'
+import { OrchestrationMessageStore } from './message-store'
+import { generateId } from './row-id'
+import { AuditLedgerStore } from './audit-ledger'
+import { GatePolicyStore } from './gate-resolution'
+import { RotationReservationStore } from './rotation-reservations'
+import { RunOwnershipStore } from './run-ownership'
 
 export type {
   MessageType,
@@ -31,41 +32,46 @@ export type {
   DispatchStatus,
   GateStatus,
   CoordinatorStatus,
+  GateResolutionPolicy,
   MessageRow,
   TaskRow,
   DispatchContextRow,
   DecisionGateRow,
-  CoordinatorRun
+  CoordinatorRun,
+  AuditEventRow,
+  RotationSagaRow,
+  GateResolutionOutcome,
+  ReservationClaimOutcome
 }
 
 // The join shape returned by listTasksWithDispatch: a task row plus the active
 // dispatch's assignee/id (or null when the task has no live dispatch).
 type TaskWithDispatchRow = TaskRow & { assignee_handle: string | null; dispatch_id: string | null }
 
-// Ids stay `<prefix>_<hex>` (the shim owns generation, not Rust): orca-runtime.ts
-// extracts task ids with `/task_[A-Za-z0-9]+/`, so the format is a contract.
-function generateId(prefix: string): string {
-  return `${prefix}_${randomBytes(6).toString('hex')}`
-}
-
-// Why: the store treats an empty filter as "no filter"; normalize before crossing napi.
-function typesFilter(types?: MessageType[]): MessageType[] | undefined {
-  return types && types.length > 0 ? types : undefined
-}
-
 // Why: this class is a thin delegating shim over the orca-runtime SQLite store
 // (the `OrchestrationStore` napi class). The `node:sqlite` twin — schema,
 // migrations, every query — was deleted; Rust is the sole implementation. The
 // shim keeps only the JS-side nondeterminism the Rust store must NOT own so the
-// bytes stay identical to the deleted TS store: generated ids, the two
-// `new Date().toISOString()` completion stamps, the UTF-16-aware display
-// derivation, and the RFC3339 exposure of message timestamps (see
+// bytes stay identical to the deleted TS store: generated ids, the
+// `new Date().toISOString()` completion/CAS/reservation stamps, the UTF-16-aware
+// display derivation, and the RFC3339 exposure of message timestamps (see
 // db-message-timestamp.ts). Everything else marshals through JSON
 // (the store serializes each row to its TS Row shape). Row-returning getters map
 // the store's `null` (absent row) back to `undefined` to preserve the old
 // return contract.
-export class OrchestrationDb {
-  private store: RustOrchestrationStoreHandle
+//
+// Messages live in the base class; schema v9's four concerns (run ownership,
+// gate policy, the audit ledger, rotation reservations) hang off the properties
+// below rather than flattening into this class.
+export class OrchestrationDb extends OrchestrationMessageStore {
+  /** Bounded run history — see run-ownership.ts for the adoption story. */
+  readonly runs: RunOwnershipStore
+  /** CAS gate resolution + `waiting_gate` dispatch parking (design §6.2). */
+  readonly gatePolicy: GatePolicyStore
+  /** Append-only ledger (design §7). */
+  readonly audit: AuditLedgerStore
+  /** Rotation-saga reservations (design §8.3). */
+  readonly rotations: RotationReservationStore
 
   // Why: buildAgentOrchestrationByPaneKey rebuilds context on every 16ms graph
   // publish, issuing ~2 napi dispatch lookups per terminal. The overwhelming
@@ -75,110 +81,11 @@ export class OrchestrationDb {
   private hasAnyDispatchContextsCache: boolean | undefined
 
   constructor(dbPath: string | ':memory:') {
-    // Lazy-require so merely importing this module never forces the native addon
-    // to load — only an actual store instantiation depends on it.
-    this.store = new (requireRustGitBinding().OrchestrationStore)(dbPath)
-  }
-
-  // ── Messages ──
-
-  insertMessage(msg: {
-    from: string
-    to: string
-    subject: string
-    body?: string
-    type?: MessageType
-    priority?: MessagePriority
-    threadId?: string
-    payload?: string
-    senderPaneKey?: string
-    recipientPaneKey?: string
-  }): MessageRow {
-    // senderPaneKey is the remint-stable pane identity persisted with the row so
-    // worker_done/heartbeat lifecycle authority survives handle remints (v6 col).
-    // recipientPaneKey lets delivery follow the pane after the addressed handle
-    // goes stale (#9163, v7 col).
-    return messageRowFromJson(
-      this.store.insertMessage(
-        generateId('msg'),
-        msg.from,
-        msg.to,
-        msg.subject,
-        msg.body ?? '',
-        msg.type ?? 'status',
-        msg.priority ?? 'normal',
-        msg.threadId ?? null,
-        msg.payload ?? null,
-        msg.senderPaneKey ?? null,
-        msg.recipientPaneKey ?? null
-      )
-    )
-  }
-
-  getUnreadMessages(toHandle: string, types?: MessageType[]): MessageRow[] {
-    return messageListFromJson(this.store.getUnreadMessages(toHandle, typesFilter(types)))
-  }
-
-  // Why: rewrites a superseded worker_done/heartbeat into a high-priority
-  // rejection (subject/body/payload marker) so it stays auditable but is never
-  // read back as an actionable completion/liveness signal. The marker
-  // construction is deterministic, so it lives in the Rust store, not here.
-  convertLifecycleMessageToRejection(messageId: string, reason: string): MessageRow | undefined {
-    return optionalMessageRowFromJson(
-      this.store.convertLifecycleMessageToRejection(messageId, reason)
-    )
-  }
-
-  getUndeliveredUnreadMessages(toHandle: string, types?: MessageType[]): MessageRow[] {
-    return messageListFromJson(
-      this.store.getUndeliveredUnreadMessages(toHandle, typesFilter(types))
-    )
-  }
-
-  getAllMessages(toHandle: string, limit = 20): MessageRow[] {
-    return messageListFromJson(this.store.getAllMessages(toHandle, limit))
-  }
-
-  getMessageById(id: string): MessageRow | undefined {
-    return optionalMessageRowFromJson(this.store.getMessageById(id))
-  }
-
-  markAsRead(ids: string[]): void {
-    if (ids.length === 0) {
-      return
-    }
-    this.store.markAsRead(ids)
-  }
-
-  markAsDelivered(ids: string[]): void {
-    if (ids.length === 0) {
-      return
-    }
-    this.store.markAsDelivered(ids)
-  }
-
-  // Why: superseded lifecycle messages stay queryable through history but must
-  // not be consumed or injected after their dispatch has finished. The store
-  // preserves an existing delivered_at (COALESCE) rather than restamping it.
-  markAsReadAndDelivered(ids: string[]): void {
-    if (ids.length === 0) {
-      return
-    }
-    this.store.markAsReadAndDelivered(ids)
-  }
-
-  getInbox(limit = 20): MessageRow[] {
-    return messageListFromJson(this.store.getInbox(limit))
-  }
-
-  getAllMessagesForHandle(toHandle: string, limit = 100, types?: MessageType[]): MessageRow[] {
-    return messageListFromJson(
-      this.store.getAllMessagesForHandle(toHandle, limit, typesFilter(types))
-    )
-  }
-
-  getThreadMessagesFor(threadId: string, toHandle: string, afterSequence?: number): MessageRow[] {
-    return messageListFromJson(this.store.getThreadMessagesFor(threadId, toHandle, afterSequence))
+    super(dbPath)
+    this.runs = new RunOwnershipStore(this.store)
+    this.gatePolicy = new GatePolicyStore(this.store)
+    this.audit = new AuditLedgerStore(this.store)
+    this.rotations = new RotationReservationStore(this.store)
   }
 
   // ── Tasks ──
@@ -190,6 +97,9 @@ export class OrchestrationDb {
     deps?: string[]
     parentId?: string
     createdByTerminalHandle?: string
+    /** Owns the task at birth. Omitted before a run exists — that is the case
+     *  `createCoordinatorRun`'s adoption transaction resolves. */
+    runId?: string
   }): TaskRow {
     // The UTF-16-aware label derivation stays in JS; the resolved strings are
     // passed to the store so Rust needs no port of it.
@@ -206,7 +116,8 @@ export class OrchestrationDb {
         task.deps ?? [],
         task.createdByTerminalHandle ?? null,
         display.taskTitle || null,
-        display.displayName || null
+        display.displayName || null,
+        task.runId ?? null
       )
     )
   }
@@ -215,9 +126,11 @@ export class OrchestrationDb {
     return optRowFromJson<TaskRow>(this.store.getTask(id))
   }
 
-  listTasks(filter?: { status?: TaskStatus; ready?: boolean }): TaskRow[] {
+  // An omitted runId is "no run filter", so un-owned legacy tasks still list;
+  // it never means "un-owned only".
+  listTasks(filter?: { status?: TaskStatus; ready?: boolean; runId?: string }): TaskRow[] {
     const status = filter?.ready ? 'ready' : filter?.status
-    return listFromJson<TaskRow>(this.store.listTasks(status))
+    return listFromJson<TaskRow>(this.store.listTasks(status, filter?.runId))
   }
 
   listTasksWithDispatch(filter?: { status?: TaskStatus; ready?: boolean }): TaskWithDispatchRow[] {
@@ -243,7 +156,10 @@ export class OrchestrationDb {
     // Why: the pane key is the remint-stable identity behind the handle;
     // recording it at dispatch time lets the store lock out a reminted handle
     // reopening a second concurrent dispatch on the same pane (v6 col).
-    assigneePaneKey?: string
+    assigneePaneKey?: string,
+    /** The dispatching run claims an un-owned task, so work created mid-run is
+     *  still counted; an already-owned task keeps the run that adopted it. */
+    runId?: string
   ): DispatchContextRow {
     // The store throws the same guard-path messages the TS twin did
     // (`Task not found: …`, `… is <status>; only ready …`, `Terminal … already
@@ -253,7 +169,8 @@ export class OrchestrationDb {
         taskId,
         assigneeHandle,
         generateId('ctx'),
-        assigneePaneKey ?? null
+        assigneePaneKey ?? null,
+        runId ?? null
       )
     )
     this.hasAnyDispatchContextsCache = true
@@ -339,6 +256,14 @@ export class OrchestrationDb {
     question: string
     options?: string[]
     originMessageId?: string
+    /** v9 policy columns. All optional: a gate opened by today's `ask` path
+     *  carries none of them and stays human-only by §6.3's fail-closed rule. */
+    runId?: string
+    category?: string
+    defaultOption?: string
+    managerDeadlineAt?: string
+    hardDeadlineAt?: string
+    policySnapshot?: string
   }): DecisionGateRow {
     return rowFromJson<DecisionGateRow>(
       this.store.createGate(
@@ -346,11 +271,18 @@ export class OrchestrationDb {
         gate.taskId,
         gate.question,
         gate.options ?? [],
-        gate.originMessageId ?? null
+        gate.originMessageId ?? null,
+        gate.runId ?? null,
+        gate.category ?? null,
+        gate.defaultOption ?? null,
+        gate.managerDeadlineAt ?? null,
+        gate.hardDeadlineAt ?? null,
+        gate.policySnapshot ?? null
       )
     )
   }
 
+  // Legacy last-writer-wins resolution. The CAS path is db.gatePolicy.resolvePending.
   resolveGate(gateId: string, resolution: string): DecisionGateRow | undefined {
     return optRowFromJson<DecisionGateRow>(this.store.resolveGate(gateId, resolution))
   }
@@ -359,8 +291,10 @@ export class OrchestrationDb {
     return optRowFromJson<DecisionGateRow>(this.store.timeoutGate(gateId))
   }
 
-  listGates(filter?: { taskId?: string; status?: GateStatus }): DecisionGateRow[] {
-    return listFromJson<DecisionGateRow>(this.store.listGates(filter?.taskId, filter?.status))
+  listGates(filter?: { taskId?: string; status?: GateStatus; runId?: string }): DecisionGateRow[] {
+    return listFromJson<DecisionGateRow>(
+      this.store.listGates(filter?.taskId, filter?.status, filter?.runId)
+    )
   }
 
   getGate(id: string): DecisionGateRow | undefined {
@@ -369,17 +303,25 @@ export class OrchestrationDb {
 
   // ── Coordinator Runs ──
 
+  /** Opens the run AND adopts every un-owned live task into it, atomically —
+   *  see run-ownership.ts for why adoption is the option that shipped. */
   createCoordinatorRun(run: {
     spec: string
     coordinatorHandle: string
     pollIntervalMs?: number
+    /** Defaults to `human-only` in SQL, so an omitted policy is fail-closed. */
+    gateResolutionPolicy?: GateResolutionPolicy
+    /** Delegable gate categories; only meaningful under `manager-delegated`. */
+    gateCategoryAllowlist?: string[]
   }): CoordinatorRun {
     return rowFromJson<CoordinatorRun>(
       this.store.createCoordinatorRun(
         generateId('run'),
         run.spec,
         run.coordinatorHandle,
-        run.pollIntervalMs
+        run.pollIntervalMs,
+        run.gateResolutionPolicy ?? null,
+        run.gateCategoryAllowlist ? JSON.stringify(run.gateCategoryAllowlist) : null
       )
     )
   }
@@ -419,13 +361,5 @@ export class OrchestrationDb {
   resetTasks(): void {
     this.store.resetTasks()
     this.hasAnyDispatchContextsCache = undefined
-  }
-
-  resetMessages(): void {
-    this.store.resetMessages()
-  }
-
-  close(): void {
-    this.store.close()
   }
 }

@@ -7,6 +7,7 @@ import {
   getRequiredStringFlag
 } from '../flags'
 import { RuntimeClientError } from '../runtime-client'
+import { runOrchestrationRunList } from './orchestration-run-list'
 import { getTerminalHandle } from '../selectors'
 import {
   clampOrchestrationAskTimeoutMs,
@@ -538,7 +539,8 @@ export const ORCHESTRATION_HANDLERS: Record<string, CommandHandler> = {
     }>('orchestration.taskList', {
       status: getOptionalStringFlag(flags, 'status'),
       ready: flags.has('ready') ? true : undefined,
-      brief: brief ? true : undefined
+      brief: brief ? true : undefined,
+      runId: getOptionalStringFlag(flags, 'run')
     })
     // Why: only older runtimes (no spec_truncated) skip server-side abbreviation and need this client-side fallback.
     const needsClientAbbreviation =
@@ -710,6 +712,8 @@ export const ORCHESTRATION_HANDLERS: Record<string, CommandHandler> = {
     printResult(result, json, (r) => `Run ${r.runId} stopped`)
   },
 
+  'orchestration run-list': runOrchestrationRunList,
+
   'orchestration run-log': async ({ flags, client, json }) => {
     const result = await client.call<{
       runId: string
@@ -764,7 +768,8 @@ export const ORCHESTRATION_HANDLERS: Record<string, CommandHandler> = {
       count: number
     }>('orchestration.gateList', {
       task: getOptionalStringFlag(flags, 'task'),
-      status: getOptionalStringFlag(flags, 'status')
+      status: getOptionalStringFlag(flags, 'status'),
+      runId: getOptionalStringFlag(flags, 'run')
     })
     printResult(result, json, (r) => {
       if (r.gates.length === 0) {

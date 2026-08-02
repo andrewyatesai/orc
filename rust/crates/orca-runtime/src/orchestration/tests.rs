@@ -21,7 +21,7 @@ fn status_of(db: &OrchestrationDb, id: &str) -> String {
 }
 
 fn new_task(db: &OrchestrationDb, id: &str, spec: &str, deps: &[&str]) {
-    db.create_task(id, spec, None, deps, None, None, None).unwrap();
+    db.create_task(id, spec, None, deps, None, None, None, None).unwrap();
 }
 
 #[test]
@@ -102,11 +102,11 @@ fn delivered_marker_is_distinct_from_read_replay_guard() {
 #[test]
 fn create_task_deps_drive_initial_status_and_display() {
     let db = OrchestrationDb::open_in_memory().unwrap();
-    db.create_task("t1", "build the parser", None, &[], Some("term-1"), Some("Parser"), Some("Build parser"))
+    db.create_task("t1", "build the parser", None, &[], Some("term-1"), Some("Parser"), Some("Build parser"), None)
         .unwrap();
     new_task(&db, "t2", "write tests", &["t1"]);
 
-    let all = db.list_tasks(None).unwrap();
+    let all = db.list_tasks(None, None).unwrap();
     assert_eq!(all.len(), 2);
     assert_eq!(all[0].status, "ready"); // no deps
     assert_eq!(all[0].task_title.as_deref(), Some("Parser"));
@@ -143,7 +143,7 @@ fn list_tasks_with_dispatch_surfaces_only_active_assignee() {
     let db = OrchestrationDb::open_in_memory().unwrap();
     new_task(&db, "ready", "ready task", &[]);
     new_task(&db, "active", "active task", &[]);
-    db.create_dispatch_context("active", "term-worker", "ctx1", None).unwrap();
+    db.create_dispatch_context("active", "term-worker", "ctx1", None, None).unwrap();
 
     let rows = db.list_tasks_with_dispatch(None).unwrap();
     let ready_row = rows.iter().find(|r| r.task.id == "ready").unwrap();
@@ -165,9 +165,9 @@ fn list_tasks_with_dispatch_surfaces_only_active_assignee() {
 fn decision_gate_blocks_task_and_resolution_unblocks_it() {
     let db = OrchestrationDb::open_in_memory().unwrap();
     new_task(&db, "t1", "spec", &[]);
-    db.create_dispatch_context("t1", "worker-1", "ctx1", None).unwrap();
+    db.create_dispatch_context("t1", "worker-1", "ctx1", None, None).unwrap();
 
-    let gate = db.create_gate("g1", "t1", "Proceed?", &["yes", "no"], None).unwrap();
+    let gate = db.create_gate("g1", "t1", "Proceed?", &["yes", "no"], None, &NewGatePolicy::default()).unwrap();
     assert_eq!(gate.status, "pending");
     assert_eq!(gate.origin_message_id, None);
     assert_eq!(gate.options, "[\"yes\",\"no\"]");
@@ -178,13 +178,13 @@ fn decision_gate_blocks_task_and_resolution_unblocks_it() {
     assert_eq!(resolved.status, "resolved");
     assert_eq!(resolved.resolution.as_deref(), Some("yes"));
     assert_eq!(status_of(&db, "t1"), "ready");
-    assert!(db.list_gates(Some("t1"), Some("pending")).unwrap().is_empty());
-    assert_eq!(db.list_gates(None, None).unwrap().len(), 1);
+    assert!(db.list_gates(Some("t1"), Some("pending"), None).unwrap().is_empty());
+    assert_eq!(db.list_gates(None, None, None).unwrap().len(), 1);
 
     // Missing gate resolves to None.
     assert!(db.resolve_gate("nope", "x").unwrap().is_none());
 
-    db.create_gate("g2", "t1", "Again?", &["ok"], None).unwrap();
+    db.create_gate("g2", "t1", "Again?", &["ok"], None, &NewGatePolicy::default()).unwrap();
     assert_eq!(status_of(&db, "t1"), "blocked");
     let timed = db.timeout_gate("g2").unwrap().unwrap();
     assert_eq!(timed.status, "timeout");
@@ -198,20 +198,20 @@ fn dispatch_requires_ready_task_and_one_active_per_assignee() {
     new_task(&db, "t1", "spec1", &["dep"]); // pending
     new_task(&db, "t2", "spec2", &[]); // ready
 
-    assert!(db.create_dispatch_context("t1", "worker-1", "ctx0", None).is_err());
-    let err = db.create_dispatch_context("nope", "worker-1", "ctxX", None).unwrap_err();
+    assert!(db.create_dispatch_context("t1", "worker-1", "ctx0", None, None).is_err());
+    let err = db.create_dispatch_context("nope", "worker-1", "ctxX", None, None).unwrap_err();
     assert!(err.to_string().contains("Task not found: nope"), "{err}");
 
     db.update_task_status("dep", "completed", None, Some("2026-01-01T00:00:00.000Z")).unwrap();
     assert_eq!(status_of(&db, "t1"), "ready");
 
-    let ctx = db.create_dispatch_context("t1", "worker-1", "ctx1", None).unwrap();
+    let ctx = db.create_dispatch_context("t1", "worker-1", "ctx1", None, None).unwrap();
     assert_eq!(ctx.status, "dispatched");
     assert_eq!(status_of(&db, "t1"), "dispatched");
     assert_eq!(db.get_active_dispatch_for_terminal("worker-1").unwrap().unwrap().id, "ctx1");
 
     // The exact "for task" error text is load-bearing for CLI UX.
-    let err = db.create_dispatch_context("t2", "worker-1", "ctx2", None).unwrap_err();
+    let err = db.create_dispatch_context("t2", "worker-1", "ctx2", None, None).unwrap_err();
     assert_eq!(
         err.to_string(),
         "Terminal worker-1 already has an active dispatch (ctx1 for task t1)"
@@ -219,7 +219,7 @@ fn dispatch_requires_ready_task_and_one_active_per_assignee() {
 
     assert_eq!(db.complete_dispatch("ctx1").unwrap(), 1);
     assert!(db.get_active_dispatch_for_terminal("worker-1").unwrap().is_none());
-    let ctx3 = db.create_dispatch_context("t2", "worker-1", "ctx3", None).unwrap();
+    let ctx3 = db.create_dispatch_context("t2", "worker-1", "ctx3", None, None).unwrap();
     assert_eq!(ctx3.task_id, "t2");
     assert_eq!(db.get_latest_dispatch_for_terminal("worker-1").unwrap().unwrap().id, "ctx3");
 }
@@ -230,7 +230,7 @@ fn fail_dispatch_carries_failures_and_trips_circuit_breaker_at_three() {
     new_task(&db, "t1", "spec", &[]);
 
     for (ctx_id, expected_count) in [("ctx1", 1_i64), ("ctx2", 2)] {
-        let ctx = db.create_dispatch_context("t1", "worker-1", ctx_id, None).unwrap();
+        let ctx = db.create_dispatch_context("t1", "worker-1", ctx_id, None, None).unwrap();
         assert_eq!(ctx.failure_count, expected_count - 1); // carried forward
         let failed = db.fail_dispatch(ctx_id, "boom").unwrap().unwrap();
         assert_eq!(failed.status, "failed");
@@ -239,7 +239,7 @@ fn fail_dispatch_carries_failures_and_trips_circuit_breaker_at_three() {
         assert_eq!(status_of(&db, "t1"), "ready");
     }
 
-    db.create_dispatch_context("t1", "worker-1", "ctx3", None).unwrap();
+    db.create_dispatch_context("t1", "worker-1", "ctx3", None, None).unwrap();
     let broken = db.fail_dispatch("ctx3", "boom").unwrap().unwrap();
     assert_eq!(broken.status, "circuit_broken");
     assert_eq!(broken.failure_count, 3);
@@ -252,7 +252,7 @@ fn fail_dispatch_carries_failures_and_trips_circuit_breaker_at_three() {
 fn heartbeat_only_touches_dispatched_and_stale_detector_respects_threshold() {
     let db = OrchestrationDb::open_in_memory().unwrap();
     new_task(&db, "t1", "spec", &[]);
-    db.create_dispatch_context("t1", "worker-1", "ctx1", None).unwrap();
+    db.create_dispatch_context("t1", "worker-1", "ctx1", None, None).unwrap();
 
     // Fresh dispatch, no heartbeat, is stale against a future threshold.
     let future = "2999-01-01 00:00:00";
@@ -289,7 +289,7 @@ fn stale_detector_compares_by_time_across_space_and_iso_t_formats() {
     // operands makes the compare time-correct.
     let db = OrchestrationDb::open_in_memory().unwrap();
     new_task(&db, "t1", "spec", &[]);
-    db.create_dispatch_context("t1", "worker-1", "ctx1", None).unwrap();
+    db.create_dispatch_context("t1", "worker-1", "ctx1", None, None).unwrap();
     db.set_dispatch_timestamps("ctx1", Some("2026-07-14 10:00:00"), None).unwrap();
 
     // ISO-T threshold 5 min AFTER dispatched_at → genuinely stale.
@@ -310,7 +310,7 @@ fn stale_detector_compares_by_time_across_space_and_iso_t_formats() {
 fn set_dispatch_timestamps_backdates_for_the_grace_window() {
     let db = OrchestrationDb::open_in_memory().unwrap();
     new_task(&db, "t1", "spec", &[]);
-    db.create_dispatch_context("t1", "worker-1", "ctx1", None).unwrap();
+    db.create_dispatch_context("t1", "worker-1", "ctx1", None, None).unwrap();
 
     // With dispatched_at ≈ now (2026) and no heartbeat, a mid-2026 threshold does
     // not make it stale (dispatched_at not < threshold — the grace shields it).
@@ -326,7 +326,7 @@ fn set_dispatch_timestamps_backdates_for_the_grace_window() {
 #[test]
 fn coordinator_run_lifecycle_and_idle_terminals() {
     let db = OrchestrationDb::open_in_memory().unwrap();
-    let run = db.create_coordinator_run("run1", "ship it", "coordinator-a", None).unwrap();
+    let run = db.create_coordinator_run("run1", "ship it", "coordinator-a", None, None, None).unwrap();
     assert_eq!(run.status, "running");
     assert_eq!(run.poll_interval_ms, 2000);
     assert_eq!(db.active_coordinator_run().unwrap().unwrap().id, "run1");
@@ -336,14 +336,14 @@ fn coordinator_run_lifecycle_and_idle_terminals() {
     assert!(done.completed_at.is_some());
     assert!(db.active_coordinator_run().unwrap().is_none());
 
-    let custom = db.create_coordinator_run("run2", "spec", "coordinator-b", Some(500)).unwrap();
+    let custom = db.create_coordinator_run("run2", "spec", "coordinator-b", Some(500), None, None).unwrap();
     assert_eq!(custom.poll_interval_ms, 500);
 
     // Idle terminals: handles seen in messages, minus those with active dispatches.
     db.send_message(&msg("m1", "worker-a", "hi")).unwrap();
     db.send_message(&msg("m2", "worker-b", "hi")).unwrap();
     new_task(&db, "t1", "spec", &[]);
-    db.create_dispatch_context("t1", "worker-a", "ctx1", None).unwrap();
+    db.create_dispatch_context("t1", "worker-a", "ctx1", None, None).unwrap();
     let idle = db.get_idle_terminals(&["coordinator"]).unwrap();
     assert!(idle.contains(&"worker-b".to_string()));
     assert!(!idle.contains(&"worker-a".to_string())); // busy
@@ -355,9 +355,9 @@ fn active_coordinator_runs_lists_every_running_row_newest_first() {
     let db = OrchestrationDb::open_in_memory().unwrap();
     assert!(db.active_coordinator_runs().unwrap().is_empty());
 
-    db.create_coordinator_run("run1", "spec-a", "coordinator-a", None).unwrap();
-    db.create_coordinator_run("run2", "spec-b", "coordinator-b", None).unwrap();
-    db.create_coordinator_run("run3", "spec-c", "coordinator-c", None).unwrap();
+    db.create_coordinator_run("run1", "spec-a", "coordinator-a", None, None, None).unwrap();
+    db.create_coordinator_run("run2", "spec-b", "coordinator-b", None, None, None).unwrap();
+    db.create_coordinator_run("run3", "spec-c", "coordinator-c", None, None, None).unwrap();
     db.update_coordinator_run("run2", "failed", Some("2026-01-01T00:00:00.000Z")).unwrap();
 
     let active: Vec<String> = db.active_coordinator_runs().unwrap().into_iter().map(|r| r.id).collect();
@@ -370,11 +370,11 @@ fn reset_helpers_clear_the_right_tables() {
     let db = OrchestrationDb::open_in_memory().unwrap();
     db.send_message(&msg("m1", "a", "hi")).unwrap();
     new_task(&db, "t1", "spec", &[]);
-    db.create_dispatch_context("t1", "worker-1", "ctx1", None).unwrap();
+    db.create_dispatch_context("t1", "worker-1", "ctx1", None, None).unwrap();
 
     db.reset_tasks().unwrap();
     assert_eq!(db.get_inbox(10).unwrap().len(), 1);
-    assert!(db.list_tasks(None).unwrap().is_empty());
+    assert!(db.list_tasks(None, None).unwrap().is_empty());
     assert!(db.dispatch_context_by_id("ctx1").unwrap().is_none());
 
     db.reset_messages().unwrap();
@@ -389,7 +389,7 @@ fn gate_round_trips_its_origin_message_id() {
     let db = OrchestrationDb::open_in_memory().unwrap();
     new_task(&db, "t1", "spec", &[]);
 
-    let gate = db.create_gate("g1", "t1", "Ship it?", &["yes"], Some("msg-42")).unwrap();
+    let gate = db.create_gate("g1", "t1", "Ship it?", &["yes"], Some("msg-42"), &NewGatePolicy::default()).unwrap();
     assert_eq!(gate.origin_message_id.as_deref(), Some("msg-42"));
 
     // Survives the re-read paths the resolve flow actually uses.
@@ -401,10 +401,10 @@ fn gate_round_trips_its_origin_message_id() {
     assert_eq!(resolved.origin_message_id.as_deref(), Some("msg-42"));
 
     // A directly-created gate (orchestration.gateCreate) has no origin and must stay null.
-    db.create_gate("g2", "t1", "No origin?", &[], None).unwrap();
+    db.create_gate("g2", "t1", "No origin?", &[], None, &NewGatePolicy::default()).unwrap();
     assert_eq!(db.gate_by_id("g2").unwrap().unwrap().origin_message_id, None);
     assert_eq!(
-        db.list_gates(Some("t1"), None).unwrap().iter().filter(|g| g.origin_message_id.is_some()).count(),
+        db.list_gates(Some("t1"), None, None).unwrap().iter().filter(|g| g.origin_message_id.is_some()).count(),
         1
     );
 }

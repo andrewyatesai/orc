@@ -13,6 +13,16 @@ function gate(overrides: Partial<DecisionGateRow> = {}): DecisionGateRow {
     created_at: '2026-01-01 00:00:00',
     resolved_at: '2026-01-01 00:05:00',
     origin_message_id: 'msg_ask',
+    // A gate a pre-v9 build wrote: every policy column null, version backfilled to 0.
+    run_id: null,
+    category: null,
+    default_option: null,
+    manager_deadline_at: null,
+    hard_deadline_at: null,
+    policy_snapshot: null,
+    resolved_by: null,
+    resolution_reason: null,
+    version: 0,
     ...overrides
   }
 }

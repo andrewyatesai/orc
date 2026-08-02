@@ -5,6 +5,7 @@ import type { CoordinatorRun, GateStatus, OrchestrationDb } from '../../orchestr
 import { Coordinator } from '../../orchestration/coordinator'
 import { CoordinatorRunLogRegistry } from '../../orchestration/coordinator-run-log'
 import { deliverGateResolutionToOrigin } from '../../orchestration/gate-reply-coupling'
+import { countRunTasks } from '../../orchestration/run-progress'
 
 // Why: live coordinators are keyed by run id so orchestration.runStop can
 // target one without touching the others. Runs are keyed by coordinator
@@ -64,8 +65,30 @@ const RunLogParams = z.object({
 
 const GateListParams = z.object({
   task: OptionalString,
-  status: z.enum(['pending', 'resolved', 'timeout']).optional()
+  status: z.enum(['pending', 'resolved', 'timeout']).optional(),
+  runId: OptionalString
 })
+
+const RunListParams = z.object({
+  limit: OptionalFiniteNumber,
+  offset: OptionalFiniteNumber
+})
+
+// Why bounded: run history grows for the life of an install and every page costs
+// a per-run task read, so an unbounded page would scan the whole workspace.
+const DEFAULT_RUN_LIST_LIMIT = 20
+const MAX_RUN_LIST_LIMIT = 100
+
+function clampRunListLimit(requested: number | undefined): number {
+  if (requested === undefined) {
+    return DEFAULT_RUN_LIST_LIMIT
+  }
+  return Math.min(Math.max(Math.trunc(requested), 1), MAX_RUN_LIST_LIMIT)
+}
+
+function clampRunListOffset(requested: number | undefined): number {
+  return requested === undefined ? 0 : Math.max(Math.trunc(requested), 0)
+}
 
 export const ORCHESTRATION_GATE_METHODS: RpcMethod[] = [
   // Why: Section 4.12 — orchestration.run returns immediately with a run ID.
@@ -248,9 +271,40 @@ export const ORCHESTRATION_GATE_METHODS: RpcMethod[] = [
       const db = runtime.getOrchestrationDb()
       const gates = db.listGates({
         taskId: params.task,
-        status: params.status as GateStatus
+        status: params.status as GateStatus,
+        // An omitted runId is "no run filter", so gates from before v9 still list.
+        runId: params.runId
       })
       return { gates, count: gates.length }
+    }
+  }),
+
+  // Why: run history is the supervisor's wake brief — after a restart it is the
+  // only way to tell what the workspace was doing. It reads the paginated
+  // coordinator_runs accessor, NOT the debug table dump the first attempt used.
+  defineMethod({
+    name: 'orchestration.runList',
+    params: RunListParams,
+    handler: (params, { runtime }) => {
+      const db = runtime.getOrchestrationDb()
+      const limit = clampRunListLimit(params.limit)
+      const offset = clampRunListOffset(params.offset)
+      // One extra row answers "is there another page?" without a COUNT(*) scan.
+      const page = db.runs.list({ limit: limit + 1, offset })
+      const runs = page.slice(0, limit).map((run) => ({
+        ...run,
+        // Why: a durable row still says `running` after a restart killed its
+        // loop, so status alone cannot separate a live coordinator from a
+        // stranded one. The in-memory registry is the only witness to that.
+        live: activeCoordinators.has(run.id),
+        // Why per run: these counters were once workspace-wide and identical on
+        // every row, so a run that ended last week reported today's numbers.
+        tasks: countRunTasks(db.listTasks({ runId: run.id })),
+        // Why gates too: `blocked` says the work stopped; this says a human is
+        // what it stopped on, which is the only one the supervisor can act on.
+        pendingGates: db.listGates({ runId: run.id, status: 'pending' }).length
+      }))
+      return { runs, count: runs.length, limit, offset, hasMore: page.length > limit }
     }
   })
 ]

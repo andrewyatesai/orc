@@ -80,9 +80,13 @@ export const ORCHESTRATION_COMMAND_SPECS: CommandSpec[] = [
   {
     path: ['orchestration', 'task-list'],
     summary: 'List orchestration tasks',
-    usage: 'orca orchestration task-list [--status <status>] [--ready] [--brief] [--json]',
-    allowedFlags: [...GLOBAL_FLAGS, 'status', 'ready', 'brief'],
-    notes: ['--brief collapses whitespace and caps each spec at 160 characters.']
+    usage:
+      'orca orchestration task-list [--status <status>] [--ready] [--run <run_id>] [--brief] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'status', 'ready', 'run', 'brief'],
+    notes: [
+      '--brief collapses whitespace and caps each spec at 160 characters.',
+      '--run narrows to one coordinator run; tasks created before any run exists are un-owned and only appear without it.'
+    ]
   },
   {
     path: ['orchestration', 'task-update'],
@@ -136,6 +140,17 @@ export const ORCHESTRATION_COMMAND_SPECS: CommandSpec[] = [
     allowedFlags: [...GLOBAL_FLAGS, 'run', 'from']
   },
   {
+    path: ['orchestration', 'run-list'],
+    summary: 'List coordinator runs, newest first, with per-run split counters',
+    usage: 'orca orchestration run-list [--limit <n>] [--offset <n>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'limit', 'offset'],
+    notes: [
+      'Counters are split, never a fraction: a failed task never counts toward done.',
+      '"no live loop" means the row still reads running but no coordinator is in memory — usually a restart stranded it; run-stop clears it.',
+      'Default page is 20 runs (max 100). Page with --offset when the output says there are more.'
+    ]
+  },
+  {
     path: ['orchestration', 'run-log'],
     summary: "Show a coordinator run's diagnostic tail (stalls, retries, stuck tasks)",
     usage: 'orca orchestration run-log [--run <run_id>] [--from <handle>] [--json]',
@@ -157,8 +172,9 @@ export const ORCHESTRATION_COMMAND_SPECS: CommandSpec[] = [
   {
     path: ['orchestration', 'gate-list'],
     summary: 'List decision gates',
-    usage: 'orca orchestration gate-list [--task <task_id>] [--status <status>] [--json]',
-    allowedFlags: [...GLOBAL_FLAGS, 'task', 'status']
+    usage:
+      'orca orchestration gate-list [--task <task_id>] [--status <status>] [--run <run_id>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'task', 'status', 'run']
   },
   {
     path: ['orchestration', 'reset'],

@@ -142,7 +142,8 @@ const TaskListParams = z.object({
   status: z.enum(['pending', 'ready', 'dispatched', 'completed', 'failed', 'blocked']).optional(),
   ready: OptionalBoolean,
   // Why: server-side truncation keeps --brief cheap over SSH/relay instead of shipping full specs the CLI throws away.
-  brief: OptionalBoolean
+  brief: OptionalBoolean,
+  runId: OptionalString
 })
 
 const TaskUpdateParams = z.object({
@@ -442,7 +443,11 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
         status: params.status as TaskStatus,
         ready: params.ready
       })
-      const tasks = joined.map((row) => {
+      // Why filtered here and not in SQL: the dispatch-join accessor takes no run
+      // bind, and this read was already whole-workspace, so narrowing the response
+      // costs nothing extra. An omitted runId stays "no filter", never "un-owned".
+      const owned = params.runId ? joined.filter((row) => row.run_id === params.runId) : joined
+      const tasks = owned.map((row) => {
         const { assignee_handle, dispatch_id, ...base } = row
         if (base.status === 'dispatched') {
           return { ...base, assignee_handle, dispatch_id }

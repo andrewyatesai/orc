@@ -519,7 +519,10 @@ export class Coordinator {
     const dispatch = this.db.createDispatchContext(
       task.id,
       targetHandle,
-      this.runtime.getTerminalPaneKey?.(targetHandle) ?? undefined
+      this.runtime.getTerminalPaneKey?.(targetHandle) ?? undefined,
+      // Adoption runs once at run start, so a task created mid-run would stay
+      // un-owned and drop out of every run-scoped count. Dispatching it claims it.
+      this.state.runId || undefined
     )
 
     // Why: dispatched agents use orca-dev in dev mode to reach the dev runtime's socket, not production (Section 6.4).

@@ -12,7 +12,8 @@
 //! because inserts happen in the same order → same rowids → same placeholders.
 
 use orca_runtime::orchestration::{
-    CoordinatorRun, DecisionGate, DispatchContext, Message, NewMessage, OrchestrationDb, Task,
+    CoordinatorRun, DecisionGate, DispatchContext, Message, NewGatePolicy, NewMessage,
+    OrchestrationDb, Task,
 };
 use rusqlite::Connection;
 use serde_json::{json, Value};
@@ -130,7 +131,7 @@ fn run_op_sequence(input: &Value) -> Value {
                 let parent = op.get("parentId").map(|v| resolve_ref(Some(v), &created));
                 let created_by = opt_str_field(op, "createdBy");
                 let ok = db
-                    .create_task(&gen, &str_field(op, "spec"), parent.as_deref(), &deps_ref, created_by.as_deref(), None, None)
+                    .create_task(&gen, &str_field(op, "spec"), parent.as_deref(), &deps_ref, created_by.as_deref(), None, None, None)
                     .is_ok();
                 if ok {
                     created_id = Some(gen);
@@ -153,6 +154,7 @@ fn run_op_sequence(input: &Value) -> Value {
                     &str_field(op, "assignee"),
                     &gen,
                     opt_str_field(op, "assigneePaneKey").as_deref(),
+                    opt_str_field(op, "runId").as_deref(),
                 ) {
                     Ok(_) => {
                         created_id = Some(gen);
@@ -183,7 +185,7 @@ fn run_op_sequence(input: &Value) -> Value {
                 let options_ref: Vec<&str> = options.iter().map(String::as_str).collect();
                 let origin = op.get("originMessageId").and_then(Value::as_str);
                 let ok = db
-                    .create_gate(&gen, &task, &str_field(op, "question"), &options_ref, origin)
+                    .create_gate(&gen, &task, &str_field(op, "question"), &options_ref, origin, &NewGatePolicy::default())
                     .is_ok();
                 if ok {
                     created_id = Some(gen);
@@ -202,7 +204,7 @@ fn run_op_sequence(input: &Value) -> Value {
             "createCoordinatorRun" => {
                 let poll = op.get("pollIntervalMs").and_then(Value::as_i64);
                 let ok = db
-                    .create_coordinator_run(&gen, &str_field(op, "spec"), &str_field(op, "coordinator"), poll)
+                    .create_coordinator_run(&gen, &str_field(op, "spec"), &str_field(op, "coordinator"), poll, None, None)
                     .is_ok();
                 if ok {
                     created_id = Some(gen);
@@ -224,7 +226,7 @@ fn run_op_sequence(input: &Value) -> Value {
             ),
             "listTasks" => {
                 let status = opt_str_field(op, "status");
-                Pending::Tasks(db.list_tasks(status.as_deref()).unwrap_or_default())
+                Pending::Tasks(db.list_tasks(status.as_deref(), None).unwrap_or_default())
             }
             "getTask" => {
                 let task = resolve_ref(op.get("task"), &created);
@@ -233,7 +235,7 @@ fn run_op_sequence(input: &Value) -> Value {
             "listGates" => {
                 let task = resolve_ref(op.get("task"), &created);
                 let status = opt_str_field(op, "status");
-                Pending::Gates(db.list_gates(Some(&task), status.as_deref()).unwrap_or_default())
+                Pending::Gates(db.list_gates(Some(&task), status.as_deref(), None).unwrap_or_default())
             }
             "getStaleDispatches" => {
                 Pending::Dispatches(db.get_stale_dispatches(&str_field(op, "threshold")).unwrap_or_default())

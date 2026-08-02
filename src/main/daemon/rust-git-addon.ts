@@ -82,10 +82,12 @@ export type RustOrchestrationStoreHandle = {
     deps: string[],
     createdBy: string | null,
     taskTitle: string | null,
-    displayName: string | null
+    displayName: string | null,
+    runId: string | null
   ): string
   getTask(id: string): string | null
-  listTasks(status: string | undefined): string
+  /** `runId` undefined is "no run filter" — un-owned legacy rows still list. */
+  listTasks(status: string | undefined, runId: string | undefined): string
   listTasksWithDispatch(status: string | undefined): string
   updateTaskStatus(
     id: string,
@@ -98,7 +100,9 @@ export type RustOrchestrationStoreHandle = {
     taskId: string,
     assigneeHandle: string,
     id: string,
-    assigneePaneKey: string | null
+    assigneePaneKey: string | null,
+    /** The dispatching run claims the task when it has no owner yet (v9). */
+    runId: string | null
   ): string
   getDispatchContext(taskId: string): string | null
   getDispatchContextById(id: string): string | null
@@ -121,19 +125,81 @@ export type RustOrchestrationStoreHandle = {
     taskId: string,
     question: string,
     options: string[],
-    originMessageId: string | null
+    originMessageId: string | null,
+    runId: string | null,
+    category: string | null,
+    defaultOption: string | null,
+    managerDeadlineAt: string | null,
+    hardDeadlineAt: string | null,
+    policySnapshot: string | null
   ): string
   resolveGate(id: string, resolution: string): string | null
+  /** CAS resolve (v9). Returns a tagged-outcome JSON — a lost race is a result,
+   *  not a throw, so the loser can read the winner's committed row. */
+  resolvePendingGate(
+    id: string,
+    expectedVersion: number,
+    resolution: string,
+    resolvedBy: string,
+    resolutionReason: string | null,
+    resolvedAt: string
+  ): string
+  /** Park the task's active dispatch on its gate instead of completing it. */
+  parkDispatchWaitingGate(taskId: string): string | null
+  listDispatchesWaitingGate(): string
+  getPendingGateForTask(taskId: string): string | null
   timeoutGate(id: string): string | null
-  listGates(taskId: string | undefined, status: string | undefined): string
+  listGates(
+    taskId: string | undefined,
+    status: string | undefined,
+    runId: string | undefined
+  ): string
   getGate(id: string): string | null
   // coordinator runs
+  /** Opens the run and adopts every un-owned live task into it, atomically (v9). */
   createCoordinatorRun(
     id: string,
     spec: string,
     coordinatorHandle: string,
-    pollIntervalMs: number | undefined
+    pollIntervalMs: number | undefined,
+    gateResolutionPolicy: string | null,
+    gateCategoryAllowlist: string | null
   ): string
+  /** Bounded run history, newest first — a real LIMIT/OFFSET query (v9). */
+  listCoordinatorRuns(limit: number, offset: number): string
+  /** Append-only audit ledger (v9); the schema trigger refuses UPDATE. */
+  appendAuditEvent(
+    id: string,
+    runId: string | null,
+    actor: string,
+    action: string,
+    targetPaneKey: string | null,
+    targetHandle: string | null,
+    evidenceRef: string | null,
+    detail: string | null
+  ): string
+  listAuditEvents(runId: string | undefined, limit: number, offset: number): string
+  /** Sweep expired reservations and claim the target in one transaction (v9). */
+  claimRotationReservation(
+    id: string,
+    provider: string,
+    targetRouteKey: string,
+    targetStoreKey: string | null,
+    sourceRouteKey: string | null,
+    expiresAt: string,
+    now: string
+  ): string
+  releaseRotationReservation(id: string, fence: number, now: string): boolean
+  renewRotationReservation(id: string, fence: number, expiresAt: string, now: string): boolean
+  advanceRotationSagaPhase(
+    id: string,
+    fence: number,
+    phase: string,
+    lastError: string | null,
+    now: string
+  ): string | null
+  getRotationSaga(id: string): string | null
+  listLiveRotationSagas(provider: string | undefined): string
   getCoordinatorRun(id: string): string | null
   updateCoordinatorRun(id: string, status: string, completedAt: string | null): string | null
   getActiveCoordinatorRun(): string | null

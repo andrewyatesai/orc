@@ -732,7 +732,9 @@ pub fn orca_dispatch(module: String, function: String, input_json: String) -> St
 // SQLite datetime('now') — byte-identical to what the deleted TS store wrote.
 // Row methods marshal via the TS Row JSON (serde output matches types.ts). ---
 
-use orca_runtime::orchestration::{NewMessage, OrchestrationDb};
+use orca_runtime::orchestration::{
+    NewAuditEvent, NewGatePolicy, NewMessage, NewRotationReservation, OrchestrationDb,
+};
 
 fn napi_err<E: std::fmt::Display>(err: E) -> napi::Error {
     napi::Error::from_reason(err.to_string())
@@ -876,10 +878,11 @@ impl JsOrchestrationStore {
         created_by: Option<String>,
         task_title: Option<String>,
         display_name: Option<String>,
+        run_id: Option<String>,
     ) -> napi::Result<String> {
         let deps: Vec<&str> = deps.iter().map(String::as_str).collect();
         self.store()?
-            .create_task(&id, &spec, parent_id.as_deref(), &deps, created_by.as_deref(), task_title.as_deref(), display_name.as_deref())
+            .create_task(&id, &spec, parent_id.as_deref(), &deps, created_by.as_deref(), task_title.as_deref(), display_name.as_deref(), run_id.as_deref())
             .map(|t| row_json(&t))
             .map_err(napi_err)
     }
@@ -890,8 +893,8 @@ impl JsOrchestrationStore {
     }
 
     #[napi(catch_unwind)]
-    pub fn list_tasks(&self, status: Option<String>) -> napi::Result<String> {
-        self.store()?.list_tasks(status.as_deref()).map(|t| row_json(&t)).map_err(napi_err)
+    pub fn list_tasks(&self, status: Option<String>, run_id: Option<String>) -> napi::Result<String> {
+        self.store()?.list_tasks(status.as_deref(), run_id.as_deref()).map(|t| row_json(&t)).map_err(napi_err)
     }
 
     #[napi(catch_unwind)]
@@ -917,9 +920,9 @@ impl JsOrchestrationStore {
     // ---- dispatch contexts ----
 
     #[napi(catch_unwind)]
-    pub fn create_dispatch_context(&self, task_id: String, assignee_handle: String, id: String, assignee_pane_key: Option<String>) -> napi::Result<String> {
+    pub fn create_dispatch_context(&self, task_id: String, assignee_handle: String, id: String, assignee_pane_key: Option<String>, run_id: Option<String>) -> napi::Result<String> {
         self.store()?
-            .create_dispatch_context(&task_id, &assignee_handle, &id, assignee_pane_key.as_deref())
+            .create_dispatch_context(&task_id, &assignee_handle, &id, assignee_pane_key.as_deref(), run_id.as_deref())
             .map(|d| row_json(&d))
             .map_err(napi_err)
     }
@@ -985,6 +988,7 @@ impl JsOrchestrationStore {
     // ---- decision gates ----
 
     #[napi(catch_unwind)]
+    #[allow(clippy::too_many_arguments)]
     pub fn create_gate(
         &self,
         id: String,
@@ -992,12 +996,52 @@ impl JsOrchestrationStore {
         question: String,
         options: Vec<String>,
         origin_message_id: Option<String>,
+        run_id: Option<String>,
+        category: Option<String>,
+        default_option: Option<String>,
+        manager_deadline_at: Option<String>,
+        hard_deadline_at: Option<String>,
+        policy_snapshot: Option<String>,
     ) -> napi::Result<String> {
         let options: Vec<&str> = options.iter().map(String::as_str).collect();
+        let policy = NewGatePolicy { run_id, category, default_option, manager_deadline_at, hard_deadline_at, policy_snapshot };
         self.store()?
-            .create_gate(&id, &task_id, &question, &options, origin_message_id.as_deref())
+            .create_gate(&id, &task_id, &question, &options, origin_message_id.as_deref(), &policy)
             .map(|g| row_json(&g))
             .map_err(napi_err)
+    }
+
+    /// CAS gate resolution (schema v9) — returns the tagged outcome JSON, never throws
+    /// on a lost race, so a loser can read the winner's committed row.
+    #[napi(catch_unwind)]
+    pub fn resolve_pending_gate(
+        &self,
+        id: String,
+        expected_version: f64,
+        resolution: String,
+        resolved_by: String,
+        resolution_reason: Option<String>,
+        resolved_at: String,
+    ) -> napi::Result<String> {
+        self.store()?
+            .resolve_pending_gate(&id, expected_version as i64, &resolution, &resolved_by, resolution_reason.as_deref(), &resolved_at)
+            .map(|o| row_json(&o))
+            .map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn park_dispatch_waiting_gate(&self, task_id: String) -> napi::Result<Option<String>> {
+        Ok(self.store()?.park_dispatch_waiting_gate(&task_id).map_err(napi_err)?.map(|d| row_json(&d)))
+    }
+
+    #[napi(catch_unwind)]
+    pub fn list_dispatches_waiting_gate(&self) -> napi::Result<String> {
+        self.store()?.list_dispatches_waiting_gate().map(|d| row_json(&d)).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn get_pending_gate_for_task(&self, task_id: String) -> napi::Result<Option<String>> {
+        Ok(self.store()?.pending_gate_for_task(&task_id).map_err(napi_err)?.map(|g| row_json(&g)))
     }
 
     #[napi(catch_unwind)]
@@ -1011,8 +1055,11 @@ impl JsOrchestrationStore {
     }
 
     #[napi(catch_unwind)]
-    pub fn list_gates(&self, task_id: Option<String>, status: Option<String>) -> napi::Result<String> {
-        self.store()?.list_gates(task_id.as_deref(), status.as_deref()).map(|g| row_json(&g)).map_err(napi_err)
+    pub fn list_gates(&self, task_id: Option<String>, status: Option<String>, run_id: Option<String>) -> napi::Result<String> {
+        self.store()?
+            .list_gates(task_id.as_deref(), status.as_deref(), run_id.as_deref())
+            .map(|g| row_json(&g))
+            .map_err(napi_err)
     }
 
     #[napi(catch_unwind)]
@@ -1023,11 +1070,113 @@ impl JsOrchestrationStore {
     // ---- coordinator runs ----
 
     #[napi(catch_unwind)]
-    pub fn create_coordinator_run(&self, id: String, spec: String, coordinator_handle: String, poll_interval_ms: Option<f64>) -> napi::Result<String> {
+    pub fn create_coordinator_run(
+        &self,
+        id: String,
+        spec: String,
+        coordinator_handle: String,
+        poll_interval_ms: Option<f64>,
+        gate_resolution_policy: Option<String>,
+        gate_category_allowlist: Option<String>,
+    ) -> napi::Result<String> {
         self.store()?
-            .create_coordinator_run(&id, &spec, &coordinator_handle, poll_interval_ms.map(|n| n as i64))
+            .create_coordinator_run(
+                &id,
+                &spec,
+                &coordinator_handle,
+                poll_interval_ms.map(|n| n as i64),
+                gate_resolution_policy.as_deref(),
+                gate_category_allowlist.as_deref(),
+            )
             .map(|r| row_json(&r))
             .map_err(napi_err)
+    }
+
+    /// Bounded run history, newest first (schema v9) — a real LIMIT/OFFSET query.
+    #[napi(catch_unwind)]
+    pub fn list_coordinator_runs(&self, limit: f64, offset: f64) -> napi::Result<String> {
+        self.store()?.list_coordinator_runs(limit as i64, offset as i64).map(|r| row_json(&r)).map_err(napi_err)
+    }
+
+    // ---- audit ledger (v9) ----
+
+    #[napi(catch_unwind)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn append_audit_event(
+        &self,
+        id: String,
+        run_id: Option<String>,
+        actor: String,
+        action: String,
+        target_pane_key: Option<String>,
+        target_handle: Option<String>,
+        evidence_ref: Option<String>,
+        detail: Option<String>,
+    ) -> napi::Result<String> {
+        let event = NewAuditEvent { id, run_id, actor, action, target_pane_key, target_handle, evidence_ref, detail };
+        self.store()?.append_audit_event(&event).map(|e| row_json(&e)).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn list_audit_events(&self, run_id: Option<String>, limit: f64, offset: f64) -> napi::Result<String> {
+        self.store()?
+            .list_audit_events(run_id.as_deref(), limit as i64, offset as i64)
+            .map(|e| row_json(&e))
+            .map_err(napi_err)
+    }
+
+    // ---- rotation-saga reservations (v9) ----
+
+    #[napi(catch_unwind)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn claim_rotation_reservation(
+        &self,
+        id: String,
+        provider: String,
+        target_route_key: String,
+        target_store_key: Option<String>,
+        source_route_key: Option<String>,
+        expires_at: String,
+        now: String,
+    ) -> napi::Result<String> {
+        let request = NewRotationReservation { id, provider, source_route_key, target_route_key, target_store_key, expires_at, now };
+        self.store()?.claim_rotation_reservation(&request).map(|c| row_json(&c)).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn release_rotation_reservation(&self, id: String, fence: f64, now: String) -> napi::Result<bool> {
+        self.store()?.release_rotation_reservation(&id, fence as i64, &now).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn renew_rotation_reservation(&self, id: String, fence: f64, expires_at: String, now: String) -> napi::Result<bool> {
+        self.store()?.renew_rotation_reservation(&id, fence as i64, &expires_at, &now).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn advance_rotation_saga_phase(
+        &self,
+        id: String,
+        fence: f64,
+        phase: String,
+        last_error: Option<String>,
+        now: String,
+    ) -> napi::Result<Option<String>> {
+        Ok(self
+            .store()?
+            .advance_rotation_saga_phase(&id, fence as i64, &phase, last_error.as_deref(), &now)
+            .map_err(napi_err)?
+            .map(|s| row_json(&s)))
+    }
+
+    #[napi(catch_unwind)]
+    pub fn get_rotation_saga(&self, id: String) -> napi::Result<Option<String>> {
+        Ok(self.store()?.rotation_saga_by_id(&id).map_err(napi_err)?.map(|s| row_json(&s)))
+    }
+
+    #[napi(catch_unwind)]
+    pub fn list_live_rotation_sagas(&self, provider: Option<String>) -> napi::Result<String> {
+        self.store()?.list_live_rotation_sagas(provider.as_deref()).map(|s| row_json(&s)).map_err(napi_err)
     }
 
     #[napi(catch_unwind)]

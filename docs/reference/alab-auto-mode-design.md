@@ -563,6 +563,283 @@ selection only. Every member also resolves to a **StoreKey**, which is what §8.
 eligibility table reads. Cross-provider fallback is **a handoff, not a rotation**
 (§8.4), off by default.
 
+### 8.1a The virtual account — one identity, many credentials
+
+The owner's requirement, in their words: *"I want an abstraction where it feels like to
+the orca user that there is ONE account but actually there may be multiple credentials.
+Simply forking history will be insufficient. Design this properly. And this will be true
+for codex and gemini, too."*
+
+So: **one entry per provider**, several real credentials underneath, the router moving
+between them as quota runs out — and the part v4 got wrong, **one unbroken session
+history across the move**.
+
+**The type.** A **VirtualAccount** is `provider` + a stable Orca-minted id + a
+user-chosen display name + an **ordered set of RouteKey members** + **one history root
+per execution host** + an optional pinned member. It is a **new layer above RouteKey,
+not a change to RouteKey.** Three reasons, all of them §3a's:
+
+- RouteKey answers *"which subscription am I spending, on which host."* Health
+  observations, on-demand probes, reservations and (through StoreKey) drains all have
+  to name exactly one credential on exactly one host, and a rotation exists precisely
+  to be a transaction **between two of them**. Widening RouteKey to mean "the pool"
+  re-merges the identities round three separated: §8.2's per-source observations have
+  no single bucket for a pool, §8.2a's transition table has no single StoreKey for a
+  pool, and §8.2c cannot acquire a pool as one lock operand.
+- `system-default` must stay a member, and only RouteKey can carry that tag. A user
+  who never adds a second credential has the virtual account `{system-default}` and
+  nothing about their install changes.
+- The pool is a **presentation + policy grouping plus exactly one new physical
+  property** — the history root. It introduces **no new lock scope**: every mutation
+  still acquires RouteKeys and StoreKeys through §8.2c's multi-key coordinator. That
+  is the soundness claim the rest of §8 rests on, and it is why this layer can be
+  added without reopening §8.2a/§8.2b/§8.2c.
+
+**Second new type: `ConversationRef`** — `provider` + provider session id + transcript
+reference + the VirtualAccount that owns it. Deliberately **not** keyed by RouteKey or
+StoreKey, because the whole promise is that a conversation outlives the credential that
+opened it. Today the inverse is true and Orca says so in its own comments: Codex pins
+`CODEX_HOME` to the home that owns the rollout, so *"a cold-restored pane can come back
+on an account the user already switched away from"*
+(`src/main/codex/codex-pane-launch-account.ts:19-21`), and `CODEX_HOME` *"is baked into
+a PTY's environment at spawn and can never be changed afterwards"*
+(`codex/codex-pane-account-registry.ts:8-9`). Those two sentences are the bug the
+abstraction has to delete.
+
+▸ **§3a gains these two rows when this lands** (a §11 reconciliation item, not a silent
+edit): VirtualAccount — *"which account does the user think they are using"* — consumers
+chains, quota display, rotation policy, history root; ConversationRef — *"which
+conversation is this, independent of who paid for it"* — consumers resume, saga capture,
+AI Vault.
+
+**Chains become the member list.** §8.1's per-provider ordered chain is the virtual
+account's member order. It moves off a flat per-provider `agentAccountChains` onto the
+virtual-account row, because a user with a work pool and a personal pool needs two
+orders, not one.
+
+▸▸ **Grouping is user-declared, never inferred.** Orca already treats email +
+organization + runtime scope as the identity of a managed Claude account
+(`claude-accounts/claude-duplicate-account.ts:33-56`), and two credentials under that
+model can be two different people or two different orgs. Auto-grouping them would
+unify billing *and* transcript history across a boundary many users treat as hard.
+Default: one credential, one virtual account — byte-identical to today. Grouping is an
+explicit act; grouping across differing `organizationUuid` warns. §13.9.
+
+### 8.1b History unification — the crux
+
+**What "history" actually is, per provider** (verified at HEAD on this machine, claude
+2.1.220 / codex-cli 0.146.0):
+
+- **Claude.** `<CLAUDE_CONFIG_DIR>/projects/<cwd-slug>/<session-uuid>.jsonl` **plus a
+  sibling `<session-uuid>/` directory** holding `subagents/`, `tool-results/` and
+  `workflows/` — a session is not one file. Above it sit `history.jsonl` (prompt
+  history) and `.claude.json`, which Orca resolves **inside** the config dir whenever
+  `CLAUDE_CONFIG_DIR` is set (`claude-accounts/runtime-paths.ts:27-33`) and which
+  carries `projects[].lastSessionId` — what `-c/--continue` reopens — plus per-project
+  trust and MCP servers. Resume is also cwd-scoped: *"`claude --resume <id>` only finds
+  the transcript under the project dir keyed by the start cwd"*
+  (`ai-vault/session-scanner-accumulator.ts:189-192`).
+- **Codex.** `<CODEX_HOME>/sessions/YYYY/MM/DD/rollout-*.jsonl[.zst]`
+  (`codex/codex-session-resume-home.ts:10-14`) — in the **same** `CODEX_HOME` as
+  `auth.json`.
+- **Gemini.** `~/.gemini/tmp` per Orca's own scanner
+  (`ai-vault/session-scanner-source-discovery.ts:18`); credentials at
+  `~/.gemini/oauth_creds.json` (`rate-limits/gemini-oauth-sources.ts:8`).
+
+**Two consumers a fork breaks that v4 never counted.** Beyond the CLI's own `/resume`
+picker: Orca's **AI Vault** hardcodes `~/.claude/projects`
+(`ai-vault/session-scanner-source-discovery.ts:14`) and **native chat** re-derives the
+same path per call (`native-chat/session-file-resolver.ts:18-20`). Both were explicitly
+taught to search *multiple Codex homes* (`session-file-resolver.ts:28-34`;
+`ai-vault/session-scanner-codex-paths.ts:11-27`) and **neither knows about a second
+Claude config dir**. So a per-credential `CLAUDE_CONFIG_DIR` does not merely fork the
+CLI's picker — it makes Orca's own session surfaces blind to everything the rotated-to
+credential does.
+
+▸▸ **And the tree already decided this, deliberately, before the design proposed the
+opposite.** `shared/types.ts:2931`: *"Why: persist only per-account auth (not a
+`CLAUDE_CONFIG_DIR` swap) so switching accounts doesn't fork Claude's shared
+chat/session context."* §8.5's per-account config-dir lane reverses a shipped,
+documented product decision. The owner's requirement restores it.
+
+**The options, honestly costed:**
+
+| Strategy | Mechanism | What it costs / where it fails |
+| --- | --- | --- |
+| **A. Shared history root, per-credential auth** | history path is fixed per pool; the credential is chosen by something else — env token, keychain contents, or a settings file | Only possible where the provider separates auth from the history root. **Codex cannot** (auth.json lives in `CODEX_HOME` beside `sessions/`; `codex --help` 0.146.0 exposes no separate auth path, only `$CODEX_HOME/<name>.config.toml` profile layering). For Claude it is unproven and gated on two probes below. Cheapest by far when it works: no bridge, no copy, no fork, and AI Vault/native chat keep working unchanged. |
+| **B. Swap the credential inside one store** | one config dir per *pool*; rotation rewrites the auth material in place | Unified history by construction — it is what Claude ships today. Cost: **no two credentials of one pool can be live at once** (§8.2a's same-StoreKey row), so rotation inside a pool is drain-then-swap, and §8.2a's unprovable-drain blocker applies. |
+| **C. Symlink the history tree** | each per-credential home's `sessions`/`projects` is a link to one Orca-owned tree | **Known-bad at file level for Codex** — *"Codex resume ignores symlinked JSONL sessions"* (`codex/codex-session-link.ts:8-9`). Directory-level linking is **unverified** (risk, not a claim). Windows rejects symlink creation outside developer mode — Orca already carries a copy fallback for exactly that (`codex/codex-home-paths.ts:148-165`). And Orca's standing rule is to *"never symlink into or mutate `~/.codex`"* (`codex-accounts/runtime-home-service.ts:254-256`), so the shared tree must be Orca-owned, which re-raises the migration question. |
+| **D. Hardlink bridge** | rollouts are hardlinked between homes so every home lists the same inode | **Shipped and tested for Codex** — *"each conversation stays one physical log no matter how many homes list it"* (`codex/codex-account-session-bridge.ts:8-17,87-105`). Costs: point-in-time (a conversation opened under B is absent from A's home until the next bridge run); cross-volume fallback is a symlink, which Codex resume ignores — a **silent** failure today; the Windows/WSL boundary needs the link made inside the distro (`runtime-home-service.ts:376`); compression to `.zst` rewrites a rollout and may break the link (**unverified — risk**). Unifies transcripts only, nothing else in the home. |
+| **E. Orca-owned conversation index** | a durable map from ConversationRef to the credential that opened it | **Necessary but never sufficient.** It exists today (`codex/codex-pane-account-registry.ts`) and it is the mechanism that *produces* the owner's complaint: it makes conversations sticky to credentials. Keep it — the saga and the audit ledger need it — but it answers "who opened this", not "can it move". |
+| **F. Copy transcripts on rotation** | copy the session artifacts into the target's store at rotation | Divergence: §8.3's own failure list already names "transcript appended while captured", and the source may still be writing. Claude sessions are a `.jsonl` **plus a sidecar directory**, so it is a tree copy, not a file copy. Codex may compress after the copy, leaving two artifacts that are not the same conversation. O(size) per rotation, and it defeats D's one-physical-log invariant. **Not recommended anywhere.** |
+
+**The rule that generalizes.** *The history root is a property of the VirtualAccount,
+never of the credential.* A lane that cannot honor it is **not eligible to hold more
+than one credential** — it degrades to a one-member pool, and §10's matrix says so
+rather than the UI implying a rotation that cannot happen.
+
+**Claude — recommended: one store per virtual account. The per-credential config dir is
+withdrawn.**
+
+- *Preferred, pending probes:* strategy **A** — the pool's config dir stays
+  `~/.claude` and the credential rides on `CLAUDE_CODE_OAUTH_TOKEN`, which Orca already
+  knows as an auth env var it *strips* today
+  (`claude-accounts/environment.ts:1-6,18-25`) and which `claude setup-token` mints
+  against a subscription (`claude --help`, 2.1.220: *"Set up a long-lived
+  authentication token (requires Claude subscription)"*). If it works, the pool gets
+  unified history **and** concurrency.
+- ▸▸ **One probe must come first, and it may kill every per-pane Claude credential
+  lane — including the withdrawn one.** Orca's code records the same behavior in two
+  independent places: *"Claude Code >=2.1.206 hosts new TUI sessions in a shared
+  background daemon whose workers inherit the DAEMON's env"* (`ipc/pty.ts:1305-1309`;
+  `agent-hooks/server.ts:541-545`) — that is why spawn-time `--session-id` pinning
+  exists at all. What is **verified** is that hook commands carry the daemon's stale
+  `ORCA_PANE_KEY`. What is **unverified**, and decisive, is whether the session worker
+  also resolves `CLAUDE_CONFIG_DIR` / auth from the daemon's env rather than from the
+  pane that launched it. If it does, the second pane's credential is silently ignored,
+  and no amount of env patching gives per-pane credentials on Claude. **R1 gate: probe
+  this before building any Claude lane.** Recorded as a risk, not a finding.
+- *Second probe, only if the first passes:* does the CLI **write a refreshed credential
+  back** into the shared store when the token arrived by env? A write-back is exactly
+  the store-mixing §8.2a forbids. Does the usage/quota fetch attribute to the env
+  token's subscription? Unknown.
+- ▸ *Rejected third channel:* `--settings` + `apiKeyHelper` also selects auth without
+  touching the config dir, but it supplies an **API key**, which moves billing from the
+  subscription to API credits — it routes around the very quota the router exists to
+  route. Reject unless a helper can be shown to return an OAuth subscription token.
+- *Fallback if either probe fails:* strategy **B** — the pool owns one store and
+  rotation swaps the credential in place. That is today's shipped shape, so the work is
+  not a new lane but §8.2a's drain. **One real improvement is available there:** make
+  the pool's store an **Orca-owned** `CLAUDE_CONFIG_DIR` rather than `~/.claude`. Today
+  Orca cannot prove a shared-store drain because `claude` typed in Terminal.app uses
+  the same store; an Orca-owned store is not the machine default, which shrinks the
+  unprovable surface from *any process on the machine* to *any shell Orca spawned that
+  inherited the env var* — and Orca can close that remainder by keying the live-PTY
+  gate on the **injected env var** instead of the spawn-command regex
+  (`ipc/pty.ts:1297-1304`, consumed at `3429,3433` and `4556,4560`). It does **not**
+  close the migration question: an Orca-owned store starts empty. Seeding it is a
+  one-time hardlink of `projects/**` plus the sidecar dirs; `history.jsonl` **cannot**
+  be shared, because both stores would append to it. Net honest position: **a one-time
+  fork from the user's own `~/.claude`, versus a fork per credential forever.** §13.10.
+- ▸▸ **What this costs, stated rather than hidden: concurrency inside a pool.** Under
+  strategy B, two credentials of one virtual account cannot be live simultaneously, so
+  R1a's *"the source finishes as a handoff while new launches route onward"* does not
+  hold **inside** a pool — only across pools. §12's R1 done-when ("two Claude accounts
+  on disjoint StoreKeys run concurrently") must be re-read as **two virtual accounts**,
+  and intra-pool rotation is drain-then-swap. That is the price of the requirement.
+  Strategy A is the only path that buys both, which is what makes its probe worth
+  running first. §13.11.
+
+**Codex — recommended: keep per-credential homes, unify by hardlink, re-point the
+resume pin.**
+
+Codex genuinely cannot do strategy A: `auth.json` and `sessions/` are the same tree, and
+0.146.0 has no way to point them apart — `codex login --with-api-key` /
+`--with-access-token` take a credential on **stdin** but still persist it into
+`CODEX_HOME`, and the only other per-home knob is `$CODEX_HOME/<name>.config.toml`
+profile layering (`codex --help`, `codex login --help`, 0.146.0). So the per-credential
+`CODEX_HOME` stays — and
+history unification for Codex **already exists and is the model for the whole
+abstraction**: `startCodexAccountSessionBridgeInBackground` hardlinks every
+Orca-visible home's rollouts into the launching account's home *"so switching accounts
+no longer hides the user's conversations"*
+(`codex-accounts/runtime-home-service.ts:268-303`;
+`codex/codex-account-session-bridge.ts:8-17`). Three changes turn it into the
+abstraction:
+
+1. **Scope the bridge to the virtual account.** Today's source list is *every*
+   Orca-visible home (`runtime-home-service.ts:280-289`), which unifies across pools
+   the user may have separated on purpose. Bridge **within** a pool; cross-pool
+   visibility stays an AI Vault concern, not a `/resume` concern.
+2. **Re-point the resume pin at the live member.** The provenance path short-circuits
+   before ranking — the first trusted home containing the rollout wins
+   (`codex/codex-session-resume-home.ts:57-81`) — and with a pool the *same inode* sits
+   under every member, so "first match" can resume on an exhausted credential.
+   `rankTrustedCodexHomesForRescan` already ranks the selected account's home first
+   (`:159-195`); the rule becomes: **among members of one virtual account holding the
+   same conversation, resume under the member the router says is live.** Outside a
+   pool, today's origin-pin is unchanged — it is what stops a stray rollout from
+   resuming on the wrong credential (`:91-103`). §13.12.
+3. **Stop the silent symlink fallback.** `linkCodexSessionFile` falls back to a symlink
+   across volumes (`codex/codex-session-link.ts:20-33`) while its own neighbouring
+   comment records that Codex resume ignores symlinked sessions — so the fallback
+   manufactures a listed-but-unresumable conversation. Under a virtual account that
+   reads to the user as *"my history vanished."* Make it a surfaced degradation with a
+   named cause.
+
+Residual Codex costs, honestly: the bridge is point-in-time (it runs at launch and at
+selection, `runtime-home-service.ts:264,302` — a conversation opened under B is absent
+from A's home until the next run); `.zst` compression may rewrite a rollout into a new
+inode and strand the link (**unverified — risk**); the Windows/WSL boundary needs the
+link made inside the distro (`runtime-home-service.ts:376`); and SSH gets nothing,
+because Orca deliberately injects no credentials over SSH (§8.5).
+
+**Gemini — one credential, and say so plainly.**
+
+- There is **no Gemini managed-account store**. Settings carry `codexManagedAccounts`
+  and `claudeManagedAccounts` only (`shared/types.ts:2928,2932`); Gemini's entire
+  durable configuration is the boolean `geminiCliOAuthEnabled`
+  (`main/index.ts:2228`). Credentials are read from a **hardcoded**
+  `~/.gemini/oauth_creds.json` (`rate-limits/gemini-oauth-sources.ts:8,55-78`), written
+  **back** to that same path on refresh (`:80-87`), with a second source that reads
+  **OpenCode's** `auth.json` (`:30-53`). Orca reads and mutates the user's single real
+  credential store, and one of its two sources belongs to a different CLI entirely.
+- Gemini is **not installed** on the machine this design was written against, so no
+  claim about a Gemini home/env override is verifiable here. §5.2a's standard applies:
+  fixtures prove Orca's parser, not vendor behavior.
+- **Therefore v1: Gemini is a one-member virtual account.** The user sees one entry
+  with one bar — which is already true — and the UI offers **no** chain, **no**
+  rotation and **no** combined figure for it. Making it multi-credential needs three
+  unbuilt things: a managed-account store, an auth path that is not the user's real
+  home, and a verified way to point the CLI at both. Saying "Gemini rotates" before
+  those exist is the papering-over the owner ruled out. §13.13.
+
+Same verdict, same reason, for kimi/grok/minimax (§13.6): one-member pools until a
+managed store exists.
+
+### 8.1c What the user sees
+
+The status bar is already one row per provider — `ProviderRateLimits` is per provider
+with a single snapshot (`shared/rate-limit-types.ts:48-67`) and visibility is decided
+per provider (`status-bar/status-bar-provider-visibility.ts:55-66`). The virtual account
+**keeps that row** and changes what fills it.
+
+- **Combined quota is not a sum, and the design must not fake one.** §8.2 already
+  refuses "100% is one bit": windows are per-bucket and per-model, resets are
+  independent, and members may be on different plans. The row shows two facts and
+  invents no third: **(1) the live member's bar for the relevant bucket** — the number
+  that governs the very next request — and **(2) a pool line: "N of M credentials
+  available · earliest reset HH:MM"**. An `unknown` member counts as neither available
+  nor exhausted; §8.2's rule that unknown never authorizes a rotation applies unchanged
+  to the display.
+- **Rotation is announced; identity is not.** This is how §2's honesty rule and "feels
+  like one account" reconcile: **what never changes is the name and the history; what
+  is always visible is the plumbing.** The pool's name survives the rotation, the
+  conversation survives it, and the rotation surfaces as a BurnMeter tick plus a
+  non-blocking `rotation-performed` row in the ExceptionsQueue (§9), with source and
+  target RouteKeys in the ledger (§7). The user is never **asked** which credential to
+  use and is always **able** to see which is live — the row expands to the member list
+  (email/org, host, per-member bar, live marker). Honest is *"you are on your Anthropic
+  account; it moved from work@… to personal@… at 14:02."* Dishonest is a silent move —
+  and equally dishonest, in the other direction, is a modal that makes the user
+  adjudicate plumbing.
+- **Exhaustion speaks in the singular.** `chain-exhausted` becomes *"your Claude account
+  is out until 18:00"* — one account, one reset, because with a pool that is now
+  literally true.
+- **Pinning stays, and is loud.** Choosing a credential is a user act today; under a
+  pool the router owns it. A user with a work credential must still be able to force it
+  for a client workspace, so a member may be **pinned** per workspace or per run. A pin
+  **disables rotation for that lane and says so on the row** — "pinned · will not
+  rotate" — rather than silently failing to rotate at the limit.
+- **Sign-in is the one place the abstraction must leak.** Adding a credential is the
+  existing add-account flow, and a reauth prompt names the **member**, not the pool,
+  because the user has to know which login to complete. Leak loudly rather than make
+  them guess.
+- **§10 needs a row when this lands** (a §11 reconciliation item, not a silent edit):
+  *virtual account with >1 credential* — local/WSL for codex, local for claude **gated
+  on §8.1b's two probes**, ❌ for gemini and every other single-store provider, ❌ for
+  SSH.
+
 ### 8.2 `AccountHealthService`
 
 Durable per-**RouteKey** observations: per-window state
@@ -711,6 +988,14 @@ item for those lanes.** The floor is verified against real CLI behavior in R1a's
 integration matrix, not inferred from in-tree comments. (§8.5's "no shared-store
 materialization" phrasing is superseded by this paragraph.)
 
+▸ **Read "per-account lane" as "per-*virtual*-account lane" after §8.1a.** The
+mechanics are unchanged — one config dir, one `sha256(configDir)` keychain item, one
+store mutex — only the granularity moved: a lane is now one **pool**, not one
+credential, because a per-credential config dir forks session history (§8.1b). Two
+pools of the same provider still need everything this paragraph specifies; two
+credentials *inside* one pool no longer get separate lanes, which is the concurrency
+§13.11 records as the price of the requirement.
+
 ### 8.2c One auth mutation domain
 
 ▸ Single-use refresh tokens can double-rotate today: `fetchManagedAccountUsage`
@@ -771,10 +1056,16 @@ ledger; the saga captures the provider session id + transcript reference before 
 teardown.
 
 ▸ **Cross-account resume must be proven per provider before the saga relies on it.**
-Codex deliberately refuses resuming a session from a different home
-(`src/main/codex/codex-session-resume-home.ts:79`), and per-account `CLAUDE_CONFIG_DIR` forks
-`~/.claude` session history, so `claude --resume <sid>` under account B against
-account A's transcript is unverified. R1 therefore ships in two stages:
+▸▸ *Both halves of v3's sentence were imprecise, and §8.1b replaces them.* Codex does
+not refuse a foreign-home resume outright — it **pins `CODEX_HOME` to the home that owns
+the rollout**, and drops the resume argv only when it cannot place that rollout under a
+trusted home (`src/main/codex/codex-session-resume-home.ts:16-23,57-81,105-130`). The
+effect is that **the transcript picks the credential**, which is exactly backwards for a
+virtual account; §8.1b re-points that pin at the live pool member. And per-account
+`CLAUDE_CONFIG_DIR` is withdrawn, so the Claude question is no longer "resume A's
+transcript under B's config dir" but "resume A's transcript after the credential
+**inside one store** was swapped" — a different, smaller, still-unproven claim.
+R1 therefore ships in two stages:
 **R1a — rotation-at-boundary**: new launches route to the healthy account; a limited
 live session finishes as a *handoff* — a structured checkpoint (task state, files
 touched, next step — the worker itself is asked to produce it while still functional
@@ -795,6 +1086,11 @@ so the overlapping case is drain-then-rotate, or a human-confirmed action.
 Always a handoff (different model, different conversation): explicit checkpoint, new
 session, stated in the mission dialog when enabled. Never silent.
 
+▸ With §8.1a the boundary is crisp and states itself in the UI: **inside** a virtual
+account the router rotates credentials and the conversation survives; **across** virtual
+accounts — including two pools of the *same* provider the user chose to keep apart — it
+is always a handoff. **A pool boundary is a conversation boundary.**
+
 ### 8.5 Credential-safety repairs (R1 prerequisites)
 
 - ▸ The inactive-usage preview flow on macOS temporarily writes then deletes the
@@ -803,12 +1099,22 @@ session, stated in the mission dialog when enabled. Never silent.
   §3a StoreKey lock, taken by that flow too, before R1 enables concurrent accounts.
   ▸▸ Note this probe path spawns hidden PTYs that never enter the live gate at all
   (§8.2a), so the lock — not the gate — is what protects it.
-- Claude host per-account `CLAUDE_CONFIG_DIR` lane (the WSL branch of
-  `prepareForClaudeLaunch` is the shape; envPatch + `stripAuthEnv`), **plus** the
-  darwin keychain contract and CLI version floor of §8.2b — which supersedes the
-  "no shared-store materialization" phrasing. Existing installs keep the shared lane
-  until opted in; the session-history fork is disclosed at opt-in. Statusline
-  attribution binds via RouteKey (§8.2), not the posted config dir.
+- ▸▸ **The Claude host per-account `CLAUDE_CONFIG_DIR` lane is withdrawn** (§8.1b). It
+  forks session history per credential — which the one-account requirement rules out —
+  it blinds Orca's own AI Vault and native-chat resolvers, and it reverses a deliberate
+  shipped decision recorded in the tree at `shared/types.ts:2931`. What survives from
+  this bullet is everything that was never about the config dir: the darwin keychain
+  contract and CLI version floor of §8.2b, still required wherever two Claude **stores**
+  must run at once (now two *virtual accounts*, not two credentials of one pool), and
+  statusline attribution binding via RouteKey (§8.2) rather than the posted config dir.
+  Which store a pool owns — `~/.claude` or an Orca-owned dir — is §13.10; the two probes
+  that decide whether per-credential auth is possible at all are in §8.1b.
+- ▸ Gemini's **usage fetch mutates the user's real credential file**:
+  `saveGeminiCredentials` rewrites `~/.gemini/oauth_creds.json` after a token refresh
+  (`rate-limits/gemini-oauth-sources.ts:8,80-87`), outside §8.2c's mutation domain and
+  with no store lock — the same defect class as `fetchManagedAccountUsage`. Fix it with
+  the rest of §8.2c even though Gemini is a one-member pool in v1 (§8.1b), precisely
+  because the file it rewrites is the user's only Gemini login.
 - `accountId` (tagged identity) through `prepareForClaudeLaunch` /
   `getSelectedCodexHomePath`, `SleepingAgentLaunchConfig`, and `TerminalCreateParams` —
   additive, resume-surviving.
@@ -928,8 +1234,11 @@ criterion passes with chains, manager actions, and takeover legible in the UI.
 
 ## 13. Open decisions (owner)
 
-1. **Claude per-account config dirs** — opt-in disclosure UX for the session-history
-   fork; recommendation: new accounts per-account, existing shared until opted in.
+1. ~~**Claude per-account config dirs** — opt-in disclosure UX for the session-history
+   fork.~~ **Withdrawn** by the one-account requirement (§8.1b): a per-credential
+   session-history fork is ruled out, it blinds Orca's own AI Vault and native-chat
+   resolvers, and it reverses the shipped decision at `shared/types.ts:2931`. The live
+   questions are now 13.10 and 13.11.
 2. **Gate category taxonomy** — the fixed fail-closed set (§6.3) plus what a run may
    add; recommendation: ship the fixed set, allowlist extends only the delegable side.
 3. **Audit preview retention** — operator-visible previews of submitted text on/off by
@@ -942,7 +1251,9 @@ criterion passes with chains, manager actions, and takeover legible in the UI.
    recommendation: graduate to a real setting in R1.
 6. **Non-managed providers** (gemini/kimi/grok/minimax are single-account today) —
    recommendation: chains cover claude+codex; a generic env-home account abstraction
-   is a later design.
+   is a later design. ▸ §8.1b makes the *presentation* uniform without pretending the
+   capability is: they are **one-member virtual accounts**, which is honest and needs
+   no new store. See 13.13 for Gemini specifically.
 7. **Claude CLI version floor for the per-account darwin lane** (§8.2b) — concurrent
    lanes require dropping the legacy-keychain co-write, which pre-2.1 CLIs depend on.
    Recommendation: set the floor, enforce it before every lane launch, and refuse the
@@ -950,7 +1261,42 @@ criterion passes with chains, manager actions, and takeover legible in the UI.
 8. **Shared-store rotation posture** (§8.2a) — v1 makes it human-confirmed because
    Orca cannot prove such a store is drained (a `claude` typed into any shell, or run
    outside Orca, is invisible). Recommendation: keep it confirmed-only, and treat
-   "prove the drain" as its own project rather than a rung of this one.
+   "prove the drain" as its own project rather than a rung of this one. ▸ §8.1b's
+   Orca-owned-store option is the one lever that materially shrinks it — see 13.10.
+9. **Virtual-account grouping policy** (§8.1a) — may Orca ever group two credentials
+   into one pool on its own? Recommendation: **no**. Default one credential per pool
+   (byte-identical to today), grouping is an explicit user act, and grouping across
+   differing `organizationUuid` warns before it unifies billing *and* transcript
+   history across a work/personal boundary.
+10. **The Claude lane, pending two probes** (§8.1b) — (a) does a Claude ≥2.1.206
+    session worker resolve `CLAUDE_CONFIG_DIR`/auth from the shared daemon's env rather
+    than the launching pane's? If yes, **no** per-pane Claude credential lane works at
+    all. (b) Does a `CLAUDE_CODE_OAUTH_TOKEN` credential select the subscription without
+    the CLI writing back into the shared store? Recommendation: run (a) before writing
+    any Claude routing code; if either fails, fall back to one store per pool with the
+    credential swapped in place, and decide separately whether that store is `~/.claude`
+    (no migration, weaker drain proof) or an Orca-owned dir (a **one-time** history
+    fork from the user's own `~/.claude`, `history.jsonl` unshareable, but a drain Orca
+    can nearly prove). Recommendation leans Orca-owned **only if** the live-PTY gate is
+    re-keyed to the injected env var first.
+11. **Concurrency inside a Claude pool** (§8.1b) — the requirement's real price: with one
+    store per pool, two credentials of the same pool cannot be live at once, so
+    intra-pool rotation is drain-then-swap and §12's R1 done-when has to be re-read as
+    "two **virtual accounts** on disjoint StoreKeys". Recommendation: accept it —
+    unified history is the requirement, load-spreading is not a goal, and probe (a)
+    above is the only route to both.
+12. **Codex resume re-pin** (§8.1b) — inside a pool, a resumed pane may come back on a
+    *different* member than the one that opened the conversation, because every member
+    hardlinks the same rollout. Recommendation: yes inside a pool (that is the
+    abstraction), never outside it (the origin-pin is what stops a stray rollout
+    resuming on the wrong credential). Flag it in release notes: today's behavior is
+    the opposite and users have learned it.
+13. **Gemini's presentation** (§8.1b) — show it as a one-member virtual account, or
+    exclude it from the abstraction entirely? Recommendation: show it, with no chain, no
+    rotation affordance and no combined figure, because that is what is true; revisit
+    only when a Gemini managed-account store, a non-real-home auth path, and a verified
+    CLI pointer all exist. Gemini was not installed when this was written, so every
+    Gemini capability claim here is unverified by construction.
 
 ## 14. Explicitly deferred, on purpose
 

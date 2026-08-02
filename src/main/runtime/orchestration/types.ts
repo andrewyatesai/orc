@@ -12,11 +12,23 @@ export type MessagePriority = 'normal' | 'high' | 'urgent'
 
 export type TaskStatus = 'pending' | 'ready' | 'dispatched' | 'completed' | 'failed' | 'blocked'
 
-export type DispatchStatus = 'pending' | 'dispatched' | 'completed' | 'failed' | 'circuit_broken'
+/** `waiting_gate` (schema v9) parks a dispatch on an open gate instead of
+ *  completing it, so the worker keeps its lease across the gate (design §6.2). */
+export type DispatchStatus =
+  | 'pending'
+  | 'dispatched'
+  | 'waiting_gate'
+  | 'completed'
+  | 'failed'
+  | 'circuit_broken'
 
 export type GateStatus = 'pending' | 'resolved' | 'timeout'
 
 export type CoordinatorStatus = 'idle' | 'running' | 'completed' | 'failed'
+
+/** Per-run gate policy (design §6.3). `human-only` is the default everywhere,
+ *  including inside ALab missions; the other two are human pre-authorizations. */
+export type GateResolutionPolicy = 'human-only' | 'standing-order' | 'manager-delegated'
 
 export type MessageRow = {
   id: string
@@ -48,6 +60,10 @@ export type TaskRow = {
   result: string | null
   created_at: string
   completed_at: string | null
+  /** Owning run (v9). Null while no run has adopted the task — a task created
+   *  before any run exists, or one a pre-v9 build wrote. Read defensively: an
+   *  un-owned task is normal, not a broken row. */
+  run_id: string | null
 }
 
 export type DispatchContextRow = {
@@ -62,6 +78,8 @@ export type DispatchContextRow = {
   completed_at: string | null
   created_at: string
   last_heartbeat_at: string | null
+  /** Owning run (v9); null for legacy rows and dispatches opened outside a run. */
+  run_id: string | null
 }
 
 export type DecisionGateRow = {
@@ -76,6 +94,23 @@ export type DecisionGateRow = {
   /** The `ask` message this gate answers, when one opened it. Null for gates from
    *  `gateCreate`, and for every gate written before schema v8 — always read defensively. */
   origin_message_id: string | null
+  run_id: string | null
+  /** Null means uncategorized, which §6.3 makes fail-closed human-only — it is
+   *  never "any category". Every gate a pre-v9 build wrote reads null here. */
+  category: string | null
+  /** Applied on `hard_deadline_at` under `standing-order`; null disables fallthrough. */
+  default_option: string | null
+  manager_deadline_at: string | null
+  hard_deadline_at: string | null
+  /** JSON blob of the policy in force when the gate opened, so an audit read does
+   *  not depend on the run row still saying what it said then. */
+  policy_snapshot: string | null
+  /** `human` | `manager:<handle>` | `service:<name>`; null until resolved. */
+  resolved_by: string | null
+  resolution_reason: string | null
+  /** CAS operand — NOT NULL DEFAULT 0, so this is required, never nullable: a
+   *  legacy row reads 0 and a caller can still present it to `resolvePendingGate`. */
+  version: number
 }
 
 export type CoordinatorRun = {
@@ -86,4 +121,72 @@ export type CoordinatorRun = {
   poll_interval_ms: number
   created_at: string
   completed_at: string | null
+  /** NOT NULL (v9): a run written before v9 backfills to the fail-closed default
+   *  rather than leaving every consumer to decide what a null policy means. */
+  gate_resolution_policy: GateResolutionPolicy
+  /** JSON string array of delegable gate categories; only read under `manager-delegated`. */
+  gate_category_allowlist: string
 }
+
+/** Append-only ledger row (design §7). The schema's UPDATE trigger aborts, so a
+ *  correction is another event — there is deliberately no update path. */
+export type AuditEventRow = {
+  id: string
+  /** Null for events recorded outside any run (grant changes, takeovers). */
+  run_id: string | null
+  actor: string
+  action: string
+  target_pane_key: string | null
+  target_handle: string | null
+  evidence_ref: string | null
+  /** Redacted JSON detail — §7 forbids raw credentials or submitted text here. */
+  detail: string | null
+  created_at: string
+}
+
+/** `planned → source-quiesced → session-captured → target-prepared → target-spawned
+ *  → resume-verified → committed`, with `needs-human` as the terminal failure. */
+export type RotationSagaPhase =
+  | 'planned'
+  | 'source-quiesced'
+  | 'session-captured'
+  | 'target-prepared'
+  | 'target-spawned'
+  | 'resume-verified'
+  | 'committed'
+  | 'needs-human'
+
+export type RotationSagaRow = {
+  id: string
+  provider: string
+  phase: RotationSagaPhase
+  /** RouteKey strings (design §3a) — never bare account ids. */
+  source_route_key: string | null
+  target_route_key: string
+  /** Null means no credential surface to lock; NULLs stay distinct under the
+   *  partial unique index, so they never collide with each other. */
+  target_store_key: string | null
+  /** Monotonic per target. A saga that renews and finds this moved has lost the
+   *  reservation and must stop. */
+  reservation_fence: number
+  reservation_expires_at: string
+  /** Null while the reservation is live — that is exactly what the partial unique
+   *  indexes key on, so expiry alone does not free the target. */
+  reservation_released_at: string | null
+  last_error: string | null
+  created_at: string
+  updated_at: string | null
+}
+
+/** Why a union rather than `DecisionGateRow | undefined`: a CAS loser must be able
+ *  to tell "someone else already resolved this" — and read their answer — from
+ *  "no such gate". Collapsing both to undefined loses the committed result. */
+export type GateResolutionOutcome =
+  | { outcome: 'resolved'; gate: DecisionGateRow; resumed_dispatch_id: string | null }
+  | { outcome: 'version_conflict'; gate: DecisionGateRow }
+  | { outcome: 'not_found' }
+
+export type ReservationClaimOutcome =
+  | { outcome: 'claimed'; saga: RotationSagaRow; swept_expired: number }
+  /** Carries the live holder so a caller can name WHICH saga owns the successor. */
+  | { outcome: 'conflict'; holder: RotationSagaRow }
