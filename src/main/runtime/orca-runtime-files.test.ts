@@ -1423,7 +1423,7 @@ describe('RuntimeFileCommands', () => {
     it('opens host-qualified Windows SSH worktree file URLs with a drive path', async () => {
       const resolveTerminalFileUriHostname = vi.fn(() => 'remote-host')
       const { commands, store } = createRuntimeFileCommands({
-        path: 'C:/Users/me/repo',
+        path: 'C:/userhome/me/repo',
         resolveTerminalFileUriHostname
       })
       store.getRepo.mockReturnValue({ connectionId: 'ssh-1' })
@@ -1433,7 +1433,7 @@ describe('RuntimeFileCommands', () => {
 
       const result = await commands.resolveTerminalPath(
         'id:wt-1',
-        '//remote-host/C:/Users/me/repo/src/app.ts',
+        '//remote-host/C:/userhome/me/repo/src/app.ts',
         null,
         'client-a',
         'term-1'
@@ -1441,13 +1441,13 @@ describe('RuntimeFileCommands', () => {
 
       expect(result).toMatchObject({
         relativePath: 'src/app.ts',
-        absolutePath: 'C:/Users/me/repo/src/app.ts',
+        absolutePath: 'C:/userhome/me/repo/src/app.ts',
         exists: true,
         openTarget: {
           kind: 'worktree-file',
           provider: 'ssh',
           relativePath: 'src/app.ts',
-          absolutePath: 'C:/Users/me/repo/src/app.ts'
+          absolutePath: 'C:/userhome/me/repo/src/app.ts'
         }
       })
     })

@@ -47,7 +47,7 @@ const PROCESS_TABLE_JSON = JSON.stringify(
         ProcessId: shell + 1,
         ParentProcessId: shell,
         Name: 'node.exe',
-        CommandLine: 'node C:/Users/dev/AppData/codex/bin/codex.js',
+        CommandLine: 'node C:/userhome/dev/AppData/codex/bin/codex.js',
         ExecutablePath: 'C:/Program Files/nodejs/node.exe'
       }
     ]

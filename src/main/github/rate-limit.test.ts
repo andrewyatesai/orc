@@ -214,7 +214,9 @@ describe('shared-quota host scoping', () => {
     ).toBe(false)
     // Regular Windows/POSIX cwds keep sharing the native github.com budget.
     expect(spendsSharedGitHubComQuota({ host: 'github.com' }, { cwd: 'C:\\repos\\a' })).toBe(true)
-    expect(spendsSharedGitHubComQuota({ host: 'github.com' }, { cwd: '/Users/me/repo' })).toBe(true)
+    expect(spendsSharedGitHubComQuota({ host: 'github.com' }, { cwd: '/userhome/me/repo' })).toBe(
+      true
+    )
   })
 
   it('bypasses the guard and spend for a WSL UNC cwd', async () => {

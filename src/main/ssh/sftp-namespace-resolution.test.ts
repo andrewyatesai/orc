@@ -312,7 +312,7 @@ describe('resolveSftpTransferPathIfMapped', () => {
     expect(lstatCalls).toEqual([])
   })
 
-  // Why: Windows SFTP reports drive paths like /C:/Users/alice, which break the POSIX prefix contract.
+  // Why: Windows SFTP reports drive paths like /C:/userhome/alice, which break the POSIX prefix contract.
   it('ignores a mapping on a Windows host', async () => {
     const { sftp, realpathCalls } = makeSftp({
       startPath: '/homes/alice',
@@ -333,7 +333,7 @@ describe('resolveSftpTransferPathIfMapped', () => {
       startPath: '/homes/alice',
       lstat: divergentLstat('/homes/alice')
     })
-    const windowsPath = 'C:\\Users\\alice\\relay\\.version'
+    const windowsPath = 'C:\\userhome\\alice\\relay\\.version'
 
     const resolved = await resolveSftpTransferPathIfMapped(sftp, windowsPath, {
       sftpNamespace: mapping

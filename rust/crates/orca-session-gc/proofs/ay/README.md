@@ -1,7 +1,7 @@
 # orca-session-gc — ay proof certificate
 
 Machine-checked safety certificate for the daemon session-history GC planner,
-discharged by [`ay`](../../../../../..) (SAT/SMT/CHC solver) on hand-encoded
+discharged by [`ay`](https://github.com/alabsystems/ay) (SAT/SMT/CHC solver) on hand-encoded
 SMT-LIB2. This is the "machine-checked safety certificates on the emitted code" half
 of the moonshot **E1** claim; the differential parity corpus
 ([`../../parity-corpus.txt`](../../parity-corpus.txt), run by BOTH the Rust core and

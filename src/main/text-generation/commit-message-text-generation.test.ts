@@ -633,7 +633,7 @@ describe('generateCommitMessageFromContext', () => {
         missingBinaryLocation: 'remote PATH',
         execute: async () => ({
           stdout: 'You are generating a single git commit message for /secret/repo',
-          stderr: 'raw failure output with /Users/thebr/My Repo/secret/file.ts',
+          stderr: 'raw failure output with /userhome/thebr/My Repo/secret/file.ts',
           exitCode: 1,
           timedOut: false
         })
@@ -663,7 +663,7 @@ describe('generateCommitMessageFromContext', () => {
         cwd: '/repo',
         missingBinaryLocation: 'remote PATH',
         execute: async () => ({
-          stdout: 'ERROR: fatal: C:\\Users\\Brennan Doe\\secret\\file.ts failed',
+          stdout: 'ERROR: fatal: C:\\userhome\\Brennan Doe\\secret\\file.ts failed',
           stderr: '',
           exitCode: 1,
           timedOut: false
@@ -794,7 +794,7 @@ describe('generateCommitMessageFromContext', () => {
         missingBinaryLocation: 'remote PATH',
         execute: async () => ({
           stdout: '',
-          stderr: 'ERROR: run /login then check /Users/name/repo',
+          stderr: 'ERROR: run /login then check /userhome/name/repo',
           exitCode: 1,
           timedOut: false
         })
@@ -824,7 +824,7 @@ describe('generateCommitMessageFromContext', () => {
         missingBinaryLocation: 'remote PATH',
         execute: async () => ({
           stdout: '',
-          stderr: '401: {"message":"Invalid key loaded from /Users/name/.config/pi/auth.json"}',
+          stderr: '401: {"message":"Invalid key loaded from /userhome/name/.config/pi/auth.json"}',
           exitCode: 1,
           timedOut: false
         })
@@ -854,7 +854,7 @@ describe('generateCommitMessageFromContext', () => {
         missingBinaryLocation: 'remote PATH',
         execute: async () => ({
           stdout: '',
-          stderr: '401: {"message":"Invalid key loaded from C:\\\\Users\\\\name\\\\auth.json"}',
+          stderr: '401: {"message":"Invalid key loaded from C:\\\\userhome\\\\name\\\\auth.json"}',
           exitCode: 1,
           timedOut: false
         })
@@ -885,7 +885,7 @@ describe('generateCommitMessageFromContext', () => {
         execute: async () => ({
           stdout: '',
           stderr:
-            '401: Visit https://console.anthropic.com/settings/keys then check /Users/name/.config/pi/auth.json',
+            '401: Visit https://console.anthropic.com/settings/keys then check /userhome/name/.config/pi/auth.json',
           exitCode: 1,
           timedOut: false
         })
@@ -916,7 +916,7 @@ describe('generateCommitMessageFromContext', () => {
         missingBinaryLocation: 'remote PATH',
         execute: async () => ({
           stdout: '',
-          stderr: '401: {"message":"rejected credential_path=/Users/name/.config/pi/auth.json"}',
+          stderr: '401: {"message":"rejected credential_path=/userhome/name/.config/pi/auth.json"}',
           exitCode: 1,
           timedOut: false
         })
@@ -932,12 +932,12 @@ describe('generateCommitMessageFromContext', () => {
   it.each([
     [
       'comma-prefixed list path',
-      '401: {"message":"candidate list a,/Users/name/creds rejected"}',
+      '401: {"message":"candidate list a,/userhome/name/creds rejected"}',
       'Pi CLI command failed with code 1: 401: {"message":"candidate list a,[path] rejected"}'
     ],
     [
       'non-drive colon-prefixed path',
-      '401: {"message":"slot 1:/Users/name/alt failed"}',
+      '401: {"message":"slot 1:/userhome/name/alt failed"}',
       'Pi CLI command failed with code 1: 401: {"message":"slot 1:[path] failed"}'
     ]
   ])('redacts a %s in provider bodies', async (_shape, stderr, expected) => {

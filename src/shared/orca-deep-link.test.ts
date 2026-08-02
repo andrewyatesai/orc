@@ -34,7 +34,7 @@ describe('parseOrcaDeepLink', () => {
   })
 
   it('round-trips worktree ids containing :: and /', () => {
-    const worktreeId = 'repo-1::/Users/dev/src/my repo/worktrees/feature'
+    const worktreeId = 'repo-1::/userhome/dev/src/my repo/worktrees/feature'
     const parsed = parseOrcaDeepLink(`orca://worktree/${encodeURIComponent(worktreeId)}`)
     expect(parsed).toEqual({ kind: 'worktree', worktreeId })
   })

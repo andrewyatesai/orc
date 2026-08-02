@@ -8,6 +8,7 @@ import {
   emojiFixtureMarkdownTableScript,
   emojiFixtureTableWidthMarker,
   longMarkdownTableScript,
+  NARROW_SIGNER_DID_HEAD,
   narrowSignerMarkdownTableScript
 } from './terminal-long-table-fixture-scripts'
 import {
@@ -558,7 +559,7 @@ test.describe('Terminal long table scroll restore repro', () => {
 
       const content = await getTerminalContent(orcaPage, 30_000)
       expect(content).toContain('Signer')
-      expect(content).toContain('did:key:z6Mkuw5kQqz1QvZ9f3d2aB7f19f0cAC7B4F3c9E725')
+      expect(content).toContain(NARROW_SIGNER_DID_HEAD)
       expect(content).toContain(marker)
 
       const screenshotPath = testInfo.outputPath('narrow-signer-table-after-switch-scroll.png')

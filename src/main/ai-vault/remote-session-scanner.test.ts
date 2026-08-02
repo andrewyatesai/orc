@@ -555,7 +555,7 @@ describe('scanRemoteAiVaultSessions', () => {
   it('builds resume commands with the remote host platform', async () => {
     const provider = new MemoryRemoteProvider()
     provider.addFile(
-      'C:/Users/Ada/.codex/sessions/win.jsonl',
+      'C:/userhome/Ada/.codex/sessions/win.jsonl',
       jsonLines([
         {
           timestamp: '2026-07-04T03:00:00.000Z',
@@ -578,14 +578,14 @@ describe('scanRemoteAiVaultSessions', () => {
     const result = await scanRemoteAiVaultSessions({
       provider,
       executionHostId: 'ssh:win-box',
-      remoteHome: 'C:/Users/Ada',
+      remoteHome: 'C:/userhome/Ada',
       hostPlatform: getRemoteHostPlatform('win32-x64')
     })
 
     expect(result.issues).toEqual([])
     expect(result.sessions[0]?.executionHostPlatform).toBe('win32')
     expect(result.sessions[0]?.resumeCommand).toBe(
-      'cmd /d /s /c "cd /d ""C:/repo/app"" && set ""CODEX_HOME=C:/Users/Ada/.codex"" && codex resume ""win-session"""'
+      'cmd /d /s /c "cd /d ""C:/repo/app"" && set ""CODEX_HOME=C:/userhome/Ada/.codex"" && codex resume ""win-session"""'
     )
   })
 
@@ -593,7 +593,7 @@ describe('scanRemoteAiVaultSessions', () => {
     const provider = new MemoryRemoteProvider()
     const sessionId = 'dddddddd-eeee-4fff-8aaa-bbbbbbbbbbbb'
     provider.addFile(
-      `C:/Users/Ada/.gemini/antigravity-cli/brain/${sessionId}/.system_generated/logs/transcript.jsonl`,
+      `C:/userhome/Ada/.gemini/antigravity-cli/brain/${sessionId}/.system_generated/logs/transcript.jsonl`,
       jsonLines([
         {
           source: 'USER_EXPLICIT',
@@ -605,7 +605,7 @@ describe('scanRemoteAiVaultSessions', () => {
       30
     )
     provider.addFile(
-      'C:/Users/Ada/.gemini/antigravity-cli/history.jsonl',
+      'C:/userhome/Ada/.gemini/antigravity-cli/history.jsonl',
       jsonLines([
         {
           display: 'Windows Antigravity title',
@@ -619,7 +619,7 @@ describe('scanRemoteAiVaultSessions', () => {
     const result = await scanRemoteAiVaultSessions({
       provider,
       executionHostId: 'ssh:win-box',
-      remoteHome: 'C:/Users/Ada',
+      remoteHome: 'C:/userhome/Ada',
       hostPlatform: getRemoteHostPlatform('win32-x64')
     })
 

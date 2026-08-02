@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const platformMock = vi.hoisted(() => vi.fn())
-const homedirMock = vi.hoisted(() => vi.fn(() => '/Users/alice'))
+const homedirMock = vi.hoisted(() => vi.fn(() => '/userhome/alice'))
 type MockDirectoryEntry = {
   name: string
   isDirectory: () => boolean
@@ -38,7 +38,7 @@ describe('getWarpThemeDirectories', () => {
   beforeEach(() => {
     vi.unstubAllEnvs()
     platformMock.mockReset()
-    homedirMock.mockReturnValue('/Users/alice')
+    homedirMock.mockReturnValue('/userhome/alice')
     readdirSyncMock.mockReset()
     readdirSyncMock.mockReturnValue([])
   })
@@ -46,12 +46,12 @@ describe('getWarpThemeDirectories', () => {
   it('returns macOS Warp channel theme directories in stable-first order', () => {
     platformMock.mockReturnValue('darwin')
     expect(getWarpThemeDirectories()).toEqual([
-      '/Users/alice/.warp/themes',
-      '/Users/alice/.warp-preview/themes',
-      '/Users/alice/.warp-oss/themes',
-      '/Users/alice/.warp-dev/themes',
-      '/Users/alice/.warp-local/themes',
-      '/Users/alice/.warp-integration/themes'
+      '/userhome/alice/.warp/themes',
+      '/userhome/alice/.warp-preview/themes',
+      '/userhome/alice/.warp-oss/themes',
+      '/userhome/alice/.warp-dev/themes',
+      '/userhome/alice/.warp-local/themes',
+      '/userhome/alice/.warp-integration/themes'
     ])
   })
 
@@ -65,13 +65,13 @@ describe('getWarpThemeDirectories', () => {
     ])
 
     expect(getWarpThemeDirectories()).toEqual([
-      '/Users/alice/.warp/themes',
-      '/Users/alice/.warp-preview/themes',
-      '/Users/alice/.warp-oss/themes',
-      '/Users/alice/.warp-dev/themes',
-      '/Users/alice/.warp-local/themes',
-      '/Users/alice/.warp-integration/themes',
-      '/Users/alice/.warp-future/themes'
+      '/userhome/alice/.warp/themes',
+      '/userhome/alice/.warp-preview/themes',
+      '/userhome/alice/.warp-oss/themes',
+      '/userhome/alice/.warp-dev/themes',
+      '/userhome/alice/.warp-local/themes',
+      '/userhome/alice/.warp-integration/themes',
+      '/userhome/alice/.warp-future/themes'
     ])
   })
 
@@ -114,35 +114,35 @@ describe('getWarpThemeDirectories', () => {
     vi.stubEnv('XDG_DATA_HOME', 'relative-data-home')
 
     expect(getWarpThemeDirectories()).toEqual([
-      '/Users/alice/.local/share/warp-terminal/themes',
-      '/Users/alice/.local/share/warp-terminal-preview/themes',
-      '/Users/alice/.local/share/warp-oss/themes',
-      '/Users/alice/.local/share/warp-terminal-dev/themes',
-      '/Users/alice/.local/share/warp-terminal-local/themes',
-      '/Users/alice/.local/share/warp-terminal-integration/themes'
+      '/userhome/alice/.local/share/warp-terminal/themes',
+      '/userhome/alice/.local/share/warp-terminal-preview/themes',
+      '/userhome/alice/.local/share/warp-oss/themes',
+      '/userhome/alice/.local/share/warp-terminal-dev/themes',
+      '/userhome/alice/.local/share/warp-terminal-local/themes',
+      '/userhome/alice/.local/share/warp-terminal-integration/themes'
     ])
-    expect(readdirSyncMock).toHaveBeenCalledWith('/Users/alice/.local/share', {
+    expect(readdirSyncMock).toHaveBeenCalledWith('/userhome/alice/.local/share', {
       withFileTypes: true
     })
   })
 
   it('returns Windows app data channel directories with Windows separators', () => {
     platformMock.mockReturnValue('win32')
-    homedirMock.mockReturnValue('C:\\Users\\alice')
-    vi.stubEnv('APPDATA', 'C:\\Users\\alice\\AppData\\Roaming')
+    homedirMock.mockReturnValue('C:\\userhome\\alice')
+    vi.stubEnv('APPDATA', 'C:\\userhome\\alice\\AppData\\Roaming')
     expect(getWarpThemeDirectories()).toEqual([
-      'C:\\Users\\alice\\AppData\\Roaming\\warp\\Warp\\data\\themes',
-      'C:\\Users\\alice\\AppData\\Roaming\\warp\\WarpPreview\\data\\themes',
-      'C:\\Users\\alice\\AppData\\Roaming\\warp\\WarpOss\\data\\themes',
-      'C:\\Users\\alice\\AppData\\Roaming\\warp\\WarpDev\\data\\themes',
-      'C:\\Users\\alice\\AppData\\Roaming\\warp\\WarpLocal\\data\\themes',
-      'C:\\Users\\alice\\AppData\\Roaming\\warp\\WarpIntegration\\data\\themes'
+      'C:\\userhome\\alice\\AppData\\Roaming\\warp\\Warp\\data\\themes',
+      'C:\\userhome\\alice\\AppData\\Roaming\\warp\\WarpPreview\\data\\themes',
+      'C:\\userhome\\alice\\AppData\\Roaming\\warp\\WarpOss\\data\\themes',
+      'C:\\userhome\\alice\\AppData\\Roaming\\warp\\WarpDev\\data\\themes',
+      'C:\\userhome\\alice\\AppData\\Roaming\\warp\\WarpLocal\\data\\themes',
+      'C:\\userhome\\alice\\AppData\\Roaming\\warp\\WarpIntegration\\data\\themes'
     ])
   })
 
   it('adds dynamic Windows Warp app data directories', () => {
     platformMock.mockReturnValue('win32')
-    vi.stubEnv('APPDATA', 'C:\\Users\\alice\\AppData\\Roaming')
+    vi.stubEnv('APPDATA', 'C:\\userhome\\alice\\AppData\\Roaming')
     readdirSyncMock.mockReturnValue([
       directoryEntry('WarpFuture'),
       directoryEntry('WarpPreview'),
@@ -150,20 +150,20 @@ describe('getWarpThemeDirectories', () => {
     ])
 
     expect(getWarpThemeDirectories()).toEqual([
-      'C:\\Users\\alice\\AppData\\Roaming\\warp\\Warp\\data\\themes',
-      'C:\\Users\\alice\\AppData\\Roaming\\warp\\WarpPreview\\data\\themes',
-      'C:\\Users\\alice\\AppData\\Roaming\\warp\\WarpOss\\data\\themes',
-      'C:\\Users\\alice\\AppData\\Roaming\\warp\\WarpDev\\data\\themes',
-      'C:\\Users\\alice\\AppData\\Roaming\\warp\\WarpLocal\\data\\themes',
-      'C:\\Users\\alice\\AppData\\Roaming\\warp\\WarpIntegration\\data\\themes',
-      'C:\\Users\\alice\\AppData\\Roaming\\warp\\WarpFuture\\data\\themes'
+      'C:\\userhome\\alice\\AppData\\Roaming\\warp\\Warp\\data\\themes',
+      'C:\\userhome\\alice\\AppData\\Roaming\\warp\\WarpPreview\\data\\themes',
+      'C:\\userhome\\alice\\AppData\\Roaming\\warp\\WarpOss\\data\\themes',
+      'C:\\userhome\\alice\\AppData\\Roaming\\warp\\WarpDev\\data\\themes',
+      'C:\\userhome\\alice\\AppData\\Roaming\\warp\\WarpLocal\\data\\themes',
+      'C:\\userhome\\alice\\AppData\\Roaming\\warp\\WarpIntegration\\data\\themes',
+      'C:\\userhome\\alice\\AppData\\Roaming\\warp\\WarpFuture\\data\\themes'
     ])
   })
 })
 
 describe('warpThemeSourceLabelForDirectory', () => {
   it('labels macOS and Linux theme directories by their Warp data home', () => {
-    expect(warpThemeSourceLabelForDirectory('/Users/alice/.warp-preview/themes')).toBe(
+    expect(warpThemeSourceLabelForDirectory('/userhome/alice/.warp-preview/themes')).toBe(
       '.warp-preview'
     )
     expect(warpThemeSourceLabelForDirectory('/data/alice/warp-terminal-preview/themes')).toBe(
@@ -174,13 +174,13 @@ describe('warpThemeSourceLabelForDirectory', () => {
   it('labels Windows theme directories by app folder instead of data', () => {
     expect(
       warpThemeSourceLabelForDirectory(
-        'C:\\Users\\alice\\AppData\\Roaming\\warp\\WarpPreview\\data\\themes'
+        'C:\\userhome\\alice\\AppData\\Roaming\\warp\\WarpPreview\\data\\themes'
       )
     ).toBe('WarpPreview')
   })
 
   it('falls back to the nearest non-empty parent for unfamiliar shapes', () => {
-    expect(warpThemeSourceLabelForDirectory('/Users/alice/custom/themes')).toBe('custom')
-    expect(warpThemeSourceLabelForDirectory('/Users/alice/custom')).toBe('custom')
+    expect(warpThemeSourceLabelForDirectory('/userhome/alice/custom/themes')).toBe('custom')
+    expect(warpThemeSourceLabelForDirectory('/userhome/alice/custom')).toBe('custom')
   })
 })

@@ -50,7 +50,7 @@ function writeIndex(activeProfileId = 'personal'): void {
 
 function writeProfileState(profileId: string, repos: Repo[]): void {
   const state: PersistedState = {
-    ...getDefaultPersistedState('/Users/tester'),
+    ...getDefaultPersistedState('/userhome/tester'),
     repos
   }
   const dataFile = join(testState.dir, 'profiles', profileId, 'orca-data.json')

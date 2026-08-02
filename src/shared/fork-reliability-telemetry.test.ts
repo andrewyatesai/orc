@@ -39,7 +39,7 @@ describe('fork reliability event schemas', () => {
 
   it('rejects free-form strings so no payload can carry PII or terminal content', () => {
     expect(
-      daemonLaunchFailedSchema.safeParse({ error_class: '/Users/someone/orca-daemon: ENOENT' })
+      daemonLaunchFailedSchema.safeParse({ error_class: '/userhome/someone/orca-daemon: ENOENT' })
         .success
     ).toBe(false)
     expect(daemonDegradedFallbackSchema.safeParse({ reason: 'some raw error text' }).success).toBe(

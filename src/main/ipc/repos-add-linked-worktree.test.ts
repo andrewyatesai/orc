@@ -69,8 +69,8 @@ vi.mock('./ssh', () => ({ getActiveMultiplexer: vi.fn() }))
 
 import { registerRepoHandlers } from './repos'
 
-const MAIN_CHECKOUT = '/Users/dev/projects/orca'
-const LINKED_WORKTREE = '/Users/dev/orca/workspaces/orca/pr-3235'
+const MAIN_CHECKOUT = '/userhome/dev/projects/orca'
+const LINKED_WORKTREE = '/userhome/dev/orca/workspaces/orca/pr-3235'
 
 type AddResult = { repo: Repo } | { error: string }
 
@@ -140,16 +140,18 @@ describe('repos:add with git worktrees', () => {
     mockStore.getRepos.mockReturnValue([trackedMainRepo()])
     getLinkedWorktreeMainRepoRootMock.mockReturnValue(null)
 
-    const result = await callAdd({ path: '/Users/dev/projects/other' })
+    const result = await callAdd({ path: '/userhome/dev/projects/other' })
 
     expect(mockStore.addRepo).toHaveBeenCalledTimes(1)
-    expect(result).toEqual({ repo: expect.objectContaining({ path: '/Users/dev/projects/other' }) })
+    expect(result).toEqual({
+      repo: expect.objectContaining({ path: '/userhome/dev/projects/other' })
+    })
   })
 
   it('does not consult worktree detection for folder projects', async () => {
     mockStore.getRepos.mockReturnValue([trackedMainRepo()])
 
-    await callAdd({ path: '/Users/dev/notes', kind: 'folder' })
+    await callAdd({ path: '/userhome/dev/notes', kind: 'folder' })
 
     expect(getLinkedWorktreeMainRepoRootMock).not.toHaveBeenCalled()
     expect(mockStore.addRepo).toHaveBeenCalledTimes(1)
@@ -157,11 +159,11 @@ describe('repos:add with git worktrees', () => {
 
   it('matches the tracked main checkout across path separator differences', async () => {
     mockStore.getRepos.mockReturnValue([
-      { ...trackedMainRepo(), path: 'C:\\Users\\dev\\projects\\orca' } as Repo
+      { ...trackedMainRepo(), path: 'C:\\userhome\\dev\\projects\\orca' } as Repo
     ])
-    getLinkedWorktreeMainRepoRootMock.mockReturnValue('C:/Users/dev/projects/orca')
+    getLinkedWorktreeMainRepoRootMock.mockReturnValue('C:/userhome/dev/projects/orca')
 
-    const result = await callAdd({ path: 'C:/Users/dev/worktrees/pr-3235' })
+    const result = await callAdd({ path: 'C:/userhome/dev/worktrees/pr-3235' })
 
     expect(result).toEqual({ repo: expect.objectContaining({ id: 'main-repo-id' }) })
     expect(mockStore.addRepo).not.toHaveBeenCalled()

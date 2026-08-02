@@ -133,7 +133,7 @@ describe('shouldDeferRemoteFileBrowserPasteResolve', () => {
   })
 
   it('treats oversized slash-containing paste as too large for path resolving', () => {
-    const pastedPathList = 'C:/Users/alice/project/file.txt\n'.repeat(3_000)
+    const pastedPathList = 'C:/userhome/alice/project/file.txt\n'.repeat(3_000)
 
     expect(isRemoteFileBrowserPathResolveTextTooLarge(pastedPathList)).toBe(true)
   })

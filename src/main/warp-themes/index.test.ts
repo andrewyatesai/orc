@@ -6,7 +6,7 @@ const opendirMock = vi.hoisted(() => vi.fn())
 const readFileMock = vi.hoisted(() => vi.fn())
 const realpathMock = vi.hoisted(() => vi.fn((filePath: string) => Promise.resolve(filePath)))
 const statMock = vi.hoisted(() => vi.fn())
-const getWarpThemeDirectoriesMock = vi.hoisted(() => vi.fn(() => ['/Users/alice/.warp/themes']))
+const getWarpThemeDirectoriesMock = vi.hoisted(() => vi.fn(() => ['/userhome/alice/.warp/themes']))
 const parseWarpThemeYamlWithTimeoutMock = vi.hoisted(() => vi.fn())
 const showOpenDialogMock = vi.hoisted(() => vi.fn())
 
@@ -100,7 +100,7 @@ function mockStat(filePath: string) {
 describe('previewWarpThemeImport', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    getWarpThemeDirectoriesMock.mockReturnValue(['/Users/alice/.warp/themes'])
+    getWarpThemeDirectoriesMock.mockReturnValue(['/userhome/alice/.warp/themes'])
     statMock.mockImplementation(mockStat)
     readFileMock.mockResolvedValue(VALID_THEME)
     realpathMock.mockImplementation((filePath: string) => Promise.resolve(filePath))
@@ -155,14 +155,14 @@ describe('previewWarpThemeImport', () => {
 
   it('merges themes from multiple readable Warp directories', async () => {
     getWarpThemeDirectoriesMock.mockReturnValue([
-      '/Users/alice/.warp/themes',
-      '/Users/alice/.warp-preview/themes'
+      '/userhome/alice/.warp/themes',
+      '/userhome/alice/.warp-preview/themes'
     ])
     opendirMock.mockImplementation((directoryPath: string) => {
-      if (directoryPath === '/Users/alice/.warp/themes') {
+      if (directoryPath === '/userhome/alice/.warp/themes') {
         return Promise.resolve(mockDirectory([fileEntry('stable.yaml')]))
       }
-      if (directoryPath === '/Users/alice/.warp-preview/themes') {
+      if (directoryPath === '/userhome/alice/.warp-preview/themes') {
         return Promise.resolve(mockDirectory([fileEntry('preview.yaml')]))
       }
       return Promise.resolve(mockDirectory([]))
@@ -171,22 +171,22 @@ describe('previewWarpThemeImport', () => {
     const preview = await previewWarpThemeImport({} as Store, { kind: 'auto' })
 
     expect(readFileMock.mock.calls.map(([filePath]) => filePath)).toEqual([
-      path.join('/Users/alice/.warp/themes', 'stable.yaml'),
-      path.join('/Users/alice/.warp-preview/themes', 'preview.yaml')
+      path.join('/userhome/alice/.warp/themes', 'stable.yaml'),
+      path.join('/userhome/alice/.warp-preview/themes', 'preview.yaml')
     ])
     expect(preview.themes.map((theme) => theme.sourceLabel)).toEqual(['.warp', '.warp-preview'])
   })
 
   it('continues scanning when an earlier Warp directory is empty', async () => {
     getWarpThemeDirectoriesMock.mockReturnValue([
-      '/Users/alice/.warp/themes',
-      '/Users/alice/.warp-oss/themes'
+      '/userhome/alice/.warp/themes',
+      '/userhome/alice/.warp-oss/themes'
     ])
     opendirMock.mockImplementation((directoryPath: string) => {
-      if (directoryPath === '/Users/alice/.warp/themes') {
+      if (directoryPath === '/userhome/alice/.warp/themes') {
         return Promise.resolve(mockDirectory([]))
       }
-      if (directoryPath === '/Users/alice/.warp-oss/themes') {
+      if (directoryPath === '/userhome/alice/.warp-oss/themes') {
         return Promise.resolve(mockDirectory([fileEntry('oss.yaml')]))
       }
       return Promise.resolve(mockDirectory([]))
@@ -196,32 +196,32 @@ describe('previewWarpThemeImport', () => {
 
     expect(preview.found).toBe(true)
     expect(readFileMock.mock.calls.map(([filePath]) => filePath)).toEqual([
-      path.join('/Users/alice/.warp-oss/themes', 'oss.yaml')
+      path.join('/userhome/alice/.warp-oss/themes', 'oss.yaml')
     ])
     expect(preview.themes.map((theme) => theme.sourceLabel)).toEqual(['.warp-oss'])
   })
 
   it('dedupes symlinked theme files by canonical path while preserving stable-first order', async () => {
     getWarpThemeDirectoriesMock.mockReturnValue([
-      '/Users/alice/.warp/themes',
-      '/Users/alice/.warp-preview/themes'
+      '/userhome/alice/.warp/themes',
+      '/userhome/alice/.warp-preview/themes'
     ])
     opendirMock.mockImplementation((directoryPath: string) => {
-      if (directoryPath === '/Users/alice/.warp/themes') {
+      if (directoryPath === '/userhome/alice/.warp/themes') {
         return Promise.resolve(mockDirectory([fileEntry('shared.yaml')]))
       }
-      if (directoryPath === '/Users/alice/.warp-preview/themes') {
+      if (directoryPath === '/userhome/alice/.warp-preview/themes') {
         return Promise.resolve(mockDirectory([fileEntry('shared.yaml')]))
       }
       return Promise.resolve(mockDirectory([]))
     })
-    realpathMock.mockResolvedValue('/Users/alice/.warp/themes/shared.yaml')
+    realpathMock.mockResolvedValue('/userhome/alice/.warp/themes/shared.yaml')
 
     const preview = await previewWarpThemeImport({} as Store, { kind: 'auto' })
 
     expect(preview.themes).toHaveLength(1)
     expect(readFileMock).toHaveBeenCalledWith(
-      path.join('/Users/alice/.warp/themes', 'shared.yaml'),
+      path.join('/userhome/alice/.warp/themes', 'shared.yaml'),
       'utf-8'
     )
     expect(preview.themes[0]?.sourceLabel).toBe('.warp')
@@ -238,15 +238,15 @@ describe('previewWarpThemeImport', () => {
 
     expect(preview.found).toBe(true)
     expect(readFileMock).toHaveBeenCalledWith(
-      path.join('/Users/alice/.warp/themes', 'linked.yaml'),
+      path.join('/userhome/alice/.warp/themes', 'linked.yaml'),
       'utf-8'
     )
   })
 
   it('dedupes theme files by normalized resolved path when canonical paths are unavailable', async () => {
     getWarpThemeDirectoriesMock.mockReturnValue([
-      '/Users/alice/.warp/themes',
-      '/Users/alice/.warp/themes/../themes'
+      '/userhome/alice/.warp/themes',
+      '/userhome/alice/.warp/themes/../themes'
     ])
     opendirMock.mockResolvedValue(mockDirectory([fileEntry('same.yaml')]))
     realpathMock.mockRejectedValue(new Error('realpath unavailable'))
@@ -259,18 +259,18 @@ describe('previewWarpThemeImport', () => {
 
   it('applies the theme file cap globally across merged auto-discovery directories', async () => {
     getWarpThemeDirectoriesMock.mockReturnValue([
-      '/Users/alice/.warp/themes',
-      '/Users/alice/.warp-preview/themes'
+      '/userhome/alice/.warp/themes',
+      '/userhome/alice/.warp-preview/themes'
     ])
     opendirMock.mockImplementation((directoryPath: string) => {
-      if (directoryPath === '/Users/alice/.warp/themes') {
+      if (directoryPath === '/userhome/alice/.warp/themes') {
         return Promise.resolve(
           mockDirectory(
             Array.from({ length: 150 }, (_, index) => fileEntry(`stable-${index}.yaml`))
           )
         )
       }
-      if (directoryPath === '/Users/alice/.warp-preview/themes') {
+      if (directoryPath === '/userhome/alice/.warp-preview/themes') {
         return Promise.resolve(
           mockDirectory(
             Array.from({ length: 150 }, (_, index) => fileEntry(`preview-${index}.yaml`))
@@ -292,18 +292,18 @@ describe('previewWarpThemeImport', () => {
 
   it('reports the theme cap when later Warp directories contain themes after the cap is full', async () => {
     getWarpThemeDirectoriesMock.mockReturnValue([
-      '/Users/alice/.warp/themes',
-      '/Users/alice/.warp-preview/themes'
+      '/userhome/alice/.warp/themes',
+      '/userhome/alice/.warp-preview/themes'
     ])
     opendirMock.mockImplementation((directoryPath: string) => {
-      if (directoryPath === '/Users/alice/.warp/themes') {
+      if (directoryPath === '/userhome/alice/.warp/themes') {
         return Promise.resolve(
           mockDirectory(
             Array.from({ length: 200 }, (_, index) => fileEntry(`stable-${index}.yaml`))
           )
         )
       }
-      if (directoryPath === '/Users/alice/.warp-preview/themes') {
+      if (directoryPath === '/userhome/alice/.warp-preview/themes') {
         return Promise.resolve(mockDirectory([fileEntry('preview.yaml')]))
       }
       return Promise.resolve(mockDirectory([]))
@@ -313,7 +313,7 @@ describe('previewWarpThemeImport', () => {
 
     expect(preview.themes).toHaveLength(200)
     expect(readFileMock).not.toHaveBeenCalledWith(
-      path.join('/Users/alice/.warp-preview/themes', 'preview.yaml'),
+      path.join('/userhome/alice/.warp-preview/themes', 'preview.yaml'),
       'utf-8'
     )
     expect(preview.skippedFiles).toContainEqual({
@@ -323,8 +323,8 @@ describe('previewWarpThemeImport', () => {
   })
 
   it('keeps scanning later directories for unique themes after duplicate canonical files', async () => {
-    const stableDirectory = '/Users/alice/.warp/themes'
-    const previewDirectory = '/Users/alice/.warp-preview/themes'
+    const stableDirectory = '/userhome/alice/.warp/themes'
+    const previewDirectory = '/userhome/alice/.warp-preview/themes'
     getWarpThemeDirectoriesMock.mockReturnValue([stableDirectory, previewDirectory])
     opendirMock.mockImplementation((directoryPath: string) => {
       if (directoryPath === stableDirectory) {
@@ -363,7 +363,7 @@ describe('previewWarpThemeImport', () => {
 
   it('reports bounded skips when local Warp folders are unreadable', async () => {
     opendirMock.mockRejectedValue(
-      new Error("EACCES: permission denied, scandir '/Users/alice/.warp/themes'")
+      new Error("EACCES: permission denied, scandir '/userhome/alice/.warp/themes'")
     )
 
     const preview = await previewWarpThemeImport({} as Store, { kind: 'auto' })
@@ -376,8 +376,8 @@ describe('previewWarpThemeImport', () => {
 
   it('labels root skipped entries by auto-discovered Warp data home', async () => {
     getWarpThemeDirectoriesMock.mockReturnValue([
-      '/Users/alice/.warp/themes',
-      '/Users/alice/.warp-preview/themes'
+      '/userhome/alice/.warp/themes',
+      '/userhome/alice/.warp-preview/themes'
     ])
     opendirMock.mockRejectedValue(new Error('permission denied'))
 
@@ -402,7 +402,7 @@ describe('previewWarpThemeImport', () => {
     const nullPreview = await previewWarpThemeImport({} as Store, null)
     const extraFieldPreview = await previewWarpThemeImport({} as Store, {
       kind: 'auto',
-      path: '/Users/alice/.warp/themes'
+      path: '/userhome/alice/.warp/themes'
     })
 
     expect(preview).toEqual({
@@ -464,8 +464,8 @@ describe('previewWarpThemeImport', () => {
   })
 
   it('keeps same-basename manual file ids stable independent of dialog order', async () => {
-    const firstPath = path.join('/Users/alice/light', 'duplicate.yaml')
-    const secondPath = path.join('/Users/alice/dark', 'duplicate.yaml')
+    const firstPath = path.join('/userhome/alice/light', 'duplicate.yaml')
+    const secondPath = path.join('/userhome/alice/dark', 'duplicate.yaml')
     readFileMock.mockImplementation((filePath: string) =>
       filePath === firstPath
         ? VALID_THEME.replace("background: '#111111'", "background: '#222222'")
@@ -489,7 +489,7 @@ describe('previewWarpThemeImport', () => {
     const ids = firstPreview.themes.map((theme) => theme.id)
     expect(ids).toHaveLength(2)
     expect(new Set(ids).size).toBe(2)
-    expect(ids.join(' ')).not.toContain('/Users/alice')
+    expect(ids.join(' ')).not.toContain('/userhome/alice')
     expect(ids.every((id) => id.startsWith('warp:duplicate:duplicate-yaml-'))).toBe(true)
   })
 
@@ -507,7 +507,7 @@ describe('previewWarpThemeImport', () => {
       currentTime = 10
       return Promise.resolve({
         canceled: false,
-        filePaths: [path.join('/Users/alice/themes', 'manual.yaml')]
+        filePaths: [path.join('/userhome/alice/themes', 'manual.yaml')]
       })
     })
 
@@ -527,7 +527,7 @@ describe('previewWarpThemeImport', () => {
       currentTime = 10
       return Promise.resolve({
         canceled: false,
-        filePaths: ['/Users/alice/themes']
+        filePaths: ['/userhome/alice/themes']
       })
     })
 
@@ -561,8 +561,8 @@ describe('previewWarpThemeImport', () => {
 
     expect(preview.found).toBe(true)
     expect(readFileMock.mock.calls.map(([filePath]) => filePath)).toEqual([
-      path.join('/Users/alice/.warp/themes', 'standard', 'tokyo-night.yaml'),
-      path.join('/Users/alice/.warp/themes', 'warp_bundled', 'dracula.yml')
+      path.join('/userhome/alice/.warp/themes', 'standard', 'tokyo-night.yaml'),
+      path.join('/userhome/alice/.warp/themes', 'warp_bundled', 'dracula.yml')
     ])
     expect(preview.themes.map((theme) => theme.sourceLabel)).toEqual(['.warp', '.warp'])
   })
@@ -614,7 +614,7 @@ describe('previewWarpThemeImport', () => {
       reason: 'Only the first 200 theme files were scanned.'
     })
     expect(opendirMock).not.toHaveBeenCalledWith(
-      path.join('/Users/alice/.warp/themes', 'warp_bundled'),
+      path.join('/userhome/alice/.warp/themes', 'warp_bundled'),
       expect.anything()
     )
   })
@@ -698,12 +698,12 @@ describe('previewWarpThemeImport', () => {
 
   it('reports capped manually selected theme files after deterministic YAML sorting', async () => {
     const themePaths = Array.from({ length: 201 }, (_, index) =>
-      path.join('/Users/alice/warp-themes', `theme-${String(index).padStart(3, '0')}.yaml`)
+      path.join('/userhome/alice/warp-themes', `theme-${String(index).padStart(3, '0')}.yaml`)
     )
     showOpenDialogMock.mockResolvedValue({
       canceled: false,
       filePaths: [
-        path.join('/Users/alice/warp-themes', 'aaa-not-theme.txt'),
+        path.join('/userhome/alice/warp-themes', 'aaa-not-theme.txt'),
         ...themePaths
       ].toReversed()
     })
@@ -721,11 +721,11 @@ describe('previewWarpThemeImport', () => {
 
   it('does not report the manual theme cap for extra non-YAML selections', async () => {
     const themePaths = Array.from({ length: 200 }, (_, index) =>
-      path.join('/Users/alice/warp-themes', `theme-${String(index).padStart(3, '0')}.yaml`)
+      path.join('/userhome/alice/warp-themes', `theme-${String(index).padStart(3, '0')}.yaml`)
     )
     showOpenDialogMock.mockResolvedValue({
       canceled: false,
-      filePaths: [...themePaths, path.join('/Users/alice/warp-themes', 'readme.txt')]
+      filePaths: [...themePaths, path.join('/userhome/alice/warp-themes', 'readme.txt')]
     })
 
     const preview = await previewWarpThemeImport({} as Store, { kind: 'chooseFile' })
@@ -758,7 +758,7 @@ describe('previewWarpThemeImport', () => {
 
   it('does not copy absolute folder paths into skipped reasons', async () => {
     opendirMock.mockRejectedValue(
-      new Error("ENOENT: no such file or directory, scandir '/Users/alice/.warp/themes'")
+      new Error("ENOENT: no such file or directory, scandir '/userhome/alice/.warp/themes'")
     )
 
     const preview = await previewWarpThemeImport({} as Store, { kind: 'auto' })
@@ -770,7 +770,9 @@ describe('previewWarpThemeImport', () => {
     opendirMock.mockResolvedValue(mockDirectory([fileEntry('private.yml')]))
     statMock.mockImplementation((filePath: string) => {
       if (filePath.endsWith('private.yml')) {
-        throw new Error("EACCES: permission denied, stat '/Users/alice/.warp/themes/private.yml'")
+        throw new Error(
+          "EACCES: permission denied, stat '/userhome/alice/.warp/themes/private.yml'"
+        )
       }
       return mockStat(filePath)
     })

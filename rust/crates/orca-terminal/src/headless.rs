@@ -706,15 +706,15 @@ mod tests {
     #[test]
     fn tracks_cwd_via_osc7() {
         let mut term = HeadlessTerminal::new(24, 80);
-        term.process_str("\x1b]7;file://hostname/Users/me/project\x07");
-        assert_eq!(term.cwd(), Some("/Users/me/project"));
+        term.process_str("\x1b]7;file://hostname/userhome/me/project\x07");
+        assert_eq!(term.cwd(), Some("/userhome/me/project"));
     }
 
     #[test]
     fn osc7_decodes_percent_escapes_and_empty_host() {
         let mut term = HeadlessTerminal::new(24, 80);
-        term.process_str("\x1b]7;file:///Users/me/my%20repo\x07");
-        assert_eq!(term.cwd(), Some("/Users/me/my repo"));
+        term.process_str("\x1b]7;file:///userhome/me/my%20repo\x07");
+        assert_eq!(term.cwd(), Some("/userhome/me/my repo"));
     }
 
     #[test]

@@ -27,14 +27,14 @@ function makeState(): DropRepinState {
     activeWorktreeId: 'repo-1::worktree-1',
     folderWorkspaces: [],
     projectGroups: [],
-    repos: [{ id: 'repo-1', path: '/Users/ada/repo' }],
+    repos: [{ id: 'repo-1', path: '/userhome/ada/repo' }],
     projects: [{ id: 'repo-1', sourceRepoIds: ['repo-1'] }],
     settings: {
       agentDefaultArgs: { claude: '', codex: '' },
       agentDefaultEnv: { claude: {}, codex: {} }
     },
     worktreesByRepo: {
-      'repo-1': [{ id: 'repo-1::worktree-1', repoId: 'repo-1', path: '/Users/ada/repo' }]
+      'repo-1': [{ id: 'repo-1::worktree-1', repoId: 'repo-1', path: '/userhome/ada/repo' }]
     }
   } as unknown as DropRepinState
 }
@@ -56,7 +56,7 @@ describe('buildAiVaultDropRepinStartup', () => {
   it('repins a payload with a cwd to the substituted home', () => {
     const startup = buildAiVaultDropRepinStartup({
       state: makeState(),
-      payload: payload({ sessionCwd: '/Users/ada/repo' }),
+      payload: payload({ sessionCwd: '/userhome/ada/repo' }),
       substituteCodexHome: SELECTED_HOME,
       worktreeId: 'repo-1::worktree-1'
     })
@@ -64,7 +64,7 @@ describe('buildAiVaultDropRepinStartup', () => {
     expect(startup).not.toBeNull()
     expect(startup?.command).toContain(`CODEX_HOME='${SELECTED_HOME}'`)
     expect(startup?.command).not.toContain(RECORDED_HOME)
-    expect(startup?.command).toContain("cd '/Users/ada/repo' && ")
+    expect(startup?.command).toContain("cd '/userhome/ada/repo' && ")
   })
 
   it('repins a payload whose session has no cwd instead of keeping the wrong-account command', () => {

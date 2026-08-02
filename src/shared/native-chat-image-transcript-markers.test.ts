@@ -27,11 +27,11 @@ describe('normalizeImageTranscriptMessages', () => {
 
   it('converts a lone [Image: source] turn (no prompt) into an image-ref instead of raw text', () => {
     const out = normalizeImageTranscriptMessages([
-      userText('a', '[Image: source: /Users/me/Pictures/hero-image-2.png]')
+      userText('a', '[Image: source: /userhome/me/Pictures/hero-image-2.png]')
     ])
     expect(out).toHaveLength(1)
     expect(out[0]!.blocks).toEqual([
-      { type: 'image-ref', path: '/Users/me/Pictures/hero-image-2.png' }
+      { type: 'image-ref', path: '/userhome/me/Pictures/hero-image-2.png' }
     ])
   })
 

@@ -183,7 +183,7 @@ describe('system SSH forward process', () => {
           identitiesOnly: false,
           proxyUseFdpass: false,
           controlMaster: 'auto',
-          controlPath: '/Users/me/.ssh/cm/%r@%h:%p',
+          controlPath: '/userhome/me/.ssh/cm/%r@%h:%p',
           controlPersist: '10m'
         }
       }

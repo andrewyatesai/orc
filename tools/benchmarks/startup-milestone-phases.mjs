@@ -82,10 +82,11 @@ export function derivePhases(events) {
       'renderer-aterm-warm-start',
       'renderer-aterm-wasm-ready'
     ),
-    // wasm-ready and worker-ready now RACE (the prewarm runs them as independent
-    // lanes), so subtracting them yields a signed non-phase. Both are reported
-    // against the shared timeline instead.
-    totalToAtermWorkerReady: eventTime(events, 'renderer-aterm-worker-ready', 'harness'),
+    atermWasmReadyToWorkerReady: deltaPreferInApp(
+      events,
+      'renderer-aterm-wasm-ready',
+      'renderer-aterm-worker-ready'
+    ),
     atermWorkerReadyToFirstTerminalFrame: deltaPreferInApp(
       events,
       'renderer-aterm-worker-ready',

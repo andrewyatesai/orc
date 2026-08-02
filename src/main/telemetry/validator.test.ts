@@ -98,7 +98,7 @@ describe('validate', () => {
     const result = validate('agent_error', {
       error_class: 'unknown',
       agent_kind: 'claude-code',
-      error_message: 'at /Users/alice/secret/path/index.ts:42'
+      error_message: 'at /userhome/alice/secret/path/index.ts:42'
     } as never)
     expect(result.ok).toBe(false)
   })
@@ -107,7 +107,7 @@ describe('validate', () => {
     const result = validate('agent_error', {
       error_class: 'unknown',
       agent_kind: 'claude-code',
-      error_stack: 'Error: boom\n    at /Users/alice/...'
+      error_stack: 'Error: boom\n    at /userhome/alice/...'
     } as never)
     expect(result.ok).toBe(false)
   })

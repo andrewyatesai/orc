@@ -16,10 +16,10 @@ function session(overrides: Partial<AiVaultSession> = {}): AiVaultSession {
     agent: 'claude',
     sessionId: 'session-1',
     title: 'Resume target',
-    cwd: '/Users/ada/repo/app',
+    cwd: '/userhome/ada/repo/app',
     branch: null,
     model: null,
-    filePath: '/Users/ada/.claude/session.jsonl',
+    filePath: '/userhome/ada/.claude/session.jsonl',
     codexHome: null,
     createdAt: null,
     updatedAt: null,
@@ -74,7 +74,7 @@ describe('mobile AI Vault resume target guards', () => {
     }
   ]
   const repos = [
-    { id: 'local-repo', path: '/Users/ada/repo', connectionId: null },
+    { id: 'local-repo', path: '/userhome/ada/repo', connectionId: null },
     { id: 'ssh-repo', path: '/home/ada/ssh-repo', connectionId: 'builder' },
     {
       id: 'runtime-repo',
@@ -84,7 +84,7 @@ describe('mobile AI Vault resume target guards', () => {
     }
   ]
   const folderWorkspaces = [
-    { id: 'folder-local', projectGroupId: 'group-local', folderPath: '/Users/ada/folder' },
+    { id: 'folder-local', projectGroupId: 'group-local', folderPath: '/userhome/ada/folder' },
     {
       id: 'folder-ssh',
       projectGroupId: 'group-local',
@@ -162,11 +162,11 @@ describe('mobile AI Vault resume target guards', () => {
 
   it('resolves project-scope rows to the matched session worktree before the route worktree', () => {
     const target = resolveMobileAiVaultSessionResumeTarget({
-      session: session({ cwd: '/Users/ada/repo/feature/src' }),
+      session: session({ cwd: '/userhome/ada/repo/feature/src' }),
       activeWorktreeId: 'route-wt',
       worktrees: [
-        worktree({ worktreeId: 'route-wt', path: '/Users/ada/repo/main' }),
-        worktree({ worktreeId: 'session-wt', path: '/Users/ada/repo/feature' })
+        worktree({ worktreeId: 'route-wt', path: '/userhome/ada/repo/main' }),
+        worktree({ worktreeId: 'session-wt', path: '/userhome/ada/repo/feature' })
       ],
       repos
     })
@@ -174,20 +174,20 @@ describe('mobile AI Vault resume target guards', () => {
       status: 'ready',
       worktreeId: 'session-wt',
       targetStatus: 'local',
-      workspacePath: '/Users/ada/repo/feature',
+      workspacePath: '/userhome/ada/repo/feature',
       terminalPlatform: null
     })
   })
 
   it('falls back to the active route worktree when the session worktree is archived', () => {
     const target = resolveMobileAiVaultSessionResumeTarget({
-      session: session({ cwd: '/Users/ada/repo/archive/src' }),
+      session: session({ cwd: '/userhome/ada/repo/archive/src' }),
       activeWorktreeId: 'route-wt',
       worktrees: [
-        worktree({ worktreeId: 'route-wt', path: '/Users/ada/repo/main' }),
+        worktree({ worktreeId: 'route-wt', path: '/userhome/ada/repo/main' }),
         worktree({
           worktreeId: 'archived-wt',
-          path: '/Users/ada/repo/archive',
+          path: '/userhome/ada/repo/archive',
           isArchived: true
         })
       ],
@@ -197,17 +197,21 @@ describe('mobile AI Vault resume target guards', () => {
       status: 'ready',
       worktreeId: 'route-wt',
       targetStatus: 'local',
-      workspacePath: '/Users/ada/repo/main',
+      workspacePath: '/userhome/ada/repo/main',
       terminalPlatform: null
     })
   })
 
   it('blocks runtime targets when no supported fallback is available', () => {
     const target = resolveMobileAiVaultSessionResumeTarget({
-      session: session({ cwd: '/Users/ada/runtime/app' }),
+      session: session({ cwd: '/userhome/ada/runtime/app' }),
       activeWorktreeId: 'runtime-wt',
       worktrees: [
-        worktree({ worktreeId: 'runtime-wt', repoId: 'runtime-repo', path: '/Users/ada/runtime' })
+        worktree({
+          worktreeId: 'runtime-wt',
+          repoId: 'runtime-repo',
+          path: '/userhome/ada/runtime'
+        })
       ],
       repos
     })
@@ -240,7 +244,7 @@ describe('mobile AI Vault resume target guards', () => {
       session: session({ cwd: '/home/ada/ssh-repo/feature/src' }),
       activeWorktreeId: 'route-wt',
       worktrees: [
-        worktree({ worktreeId: 'route-wt', path: '/Users/ada/repo/main' }),
+        worktree({ worktreeId: 'route-wt', path: '/userhome/ada/repo/main' }),
         worktree({
           worktreeId: 'ssh-session-wt',
           repoId: 'ssh-repo',
@@ -253,7 +257,7 @@ describe('mobile AI Vault resume target guards', () => {
       status: 'ready',
       worktreeId: 'route-wt',
       targetStatus: 'local',
-      workspacePath: '/Users/ada/repo/main',
+      workspacePath: '/userhome/ada/repo/main',
       terminalPlatform: null
     })
   })
@@ -311,14 +315,14 @@ describe('mobile AI Vault resume target guards', () => {
 
   it('blocks folder workspaces when folder metadata is unavailable', () => {
     const target = resolveMobileAiVaultSessionResumeTarget({
-      session: session({ cwd: '/Users/ada/folder/src' }),
+      session: session({ cwd: '/userhome/ada/folder/src' }),
       activeWorktreeId: 'folder:missing-folder',
       worktrees: [
         worktree({
           worktreeId: 'folder:missing-folder',
           repoId: 'folder-workspace:group-local',
           workspaceKind: 'folder-workspace',
-          path: '/Users/ada/folder'
+          path: '/userhome/ada/folder'
         })
       ],
       repos,
@@ -333,25 +337,25 @@ describe('mobile AI Vault resume target guards', () => {
 
   it('blocks folder workspaces with mixed candidate repo hosts as unknown', () => {
     const target = resolveMobileAiVaultSessionResumeTarget({
-      session: session({ cwd: '/Users/ada/mixed/src' }),
+      session: session({ cwd: '/userhome/ada/mixed/src' }),
       activeWorktreeId: 'folder:folder-mixed',
       worktrees: [
         worktree({
           worktreeId: 'folder:folder-mixed',
           repoId: 'folder-workspace:group-local',
           workspaceKind: 'folder-workspace',
-          path: '/Users/ada/mixed'
+          path: '/userhome/ada/mixed'
         })
       ],
       repos: [
         {
           id: 'local-in-folder',
-          path: '/Users/ada/mixed/local',
+          path: '/userhome/ada/mixed/local',
           connectionId: null
         },
         {
           id: 'ssh-in-folder',
-          path: '/Users/ada/mixed/ssh',
+          path: '/userhome/ada/mixed/ssh',
           connectionId: 'builder'
         }
       ],
@@ -359,7 +363,7 @@ describe('mobile AI Vault resume target guards', () => {
         {
           id: 'folder-mixed',
           projectGroupId: 'group-local',
-          folderPath: '/Users/ada/mixed'
+          folderPath: '/userhome/ada/mixed'
         }
       ],
       projectGroups

@@ -145,7 +145,7 @@ const localReadyHostOption: ProjectHostSetupOption = {
   repoId: 'repo-a',
   label: 'Local Mac',
   detail: 'Orca',
-  path: '/Users/alice/orca'
+  path: '/userhome/alice/orca'
 }
 
 const devboxNeedsSetupHostOption: ProjectHostSetupOption = {
@@ -760,7 +760,7 @@ describe('NewWorkspaceComposerCard folder task source mode', () => {
           kind: 'ready',
           id: 'setup-local',
           label: 'Local Mac',
-          path: '/Users/alice/orca'
+          path: '/userhome/alice/orca'
         },
         {
           kind: 'ready',
@@ -816,7 +816,7 @@ describe('NewWorkspaceComposerCard folder task source mode', () => {
           id: 'setup-local',
           hostId: 'local',
           label: 'Local Mac',
-          path: '/Users/alice/orca'
+          path: '/userhome/alice/orca'
         },
         {
           kind: 'ready',
@@ -854,7 +854,7 @@ describe('NewWorkspaceComposerCard folder task source mode', () => {
           kind: 'ready',
           id: 'setup-local',
           label: 'Local Mac',
-          path: '/Users/alice/orca'
+          path: '/userhome/alice/orca'
         },
         {
           kind: 'ready',

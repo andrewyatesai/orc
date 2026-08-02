@@ -118,19 +118,19 @@ describe('terminal-history', () => {
 
   describe('hashWorktreeId', () => {
     it('produces deterministic output for the same input', () => {
-      const a = hashWorktreeId('repo-1::/Users/foo/worktree-a')
-      const b = hashWorktreeId('repo-1::/Users/foo/worktree-a')
+      const a = hashWorktreeId('repo-1::/userhome/foo/worktree-a')
+      const b = hashWorktreeId('repo-1::/userhome/foo/worktree-a')
       expect(a).toBe(b)
     })
 
     it('produces different output for different inputs', () => {
-      const a = hashWorktreeId('repo-1::/Users/foo/worktree-a')
-      const b = hashWorktreeId('repo-1::/Users/foo/worktree-b')
+      const a = hashWorktreeId('repo-1::/userhome/foo/worktree-a')
+      const b = hashWorktreeId('repo-1::/userhome/foo/worktree-b')
       expect(a).not.toBe(b)
     })
 
     it('produces a 16-character hex string', () => {
-      const hash = hashWorktreeId('repo-1::/Users/foo/worktree-a')
+      const hash = hashWorktreeId('repo-1::/userhome/foo/worktree-a')
       expect(hash).toMatch(/^[0-9a-f]{16}$/)
     })
   })
@@ -379,7 +379,7 @@ describe('terminal-history', () => {
       try {
         parseWslPathMock.mockReturnValue({ distro: 'Ubuntu', linuxPath: '/home/user/project' })
         toLinuxPathMock.mockReturnValue(
-          '/mnt/c/Users/user/AppData/Roaming/Orca/terminal-history-wsl/Ubuntu/abc123/bash_history'
+          '/mnt/c/userhome/user/AppData/Roaming/Orca/terminal-history-wsl/Ubuntu/abc123/bash_history'
         )
         mkdirSyncMock.mockReturnValue(undefined)
         existsSyncMock.mockReturnValue(true)
@@ -436,7 +436,7 @@ describe('terminal-history', () => {
         toLinuxPathMock.mockImplementation((p: string) => p.replace(/^C:\\/i, '/mnt/c/'))
         mkdirSyncMock.mockReturnValue(undefined)
         existsSyncMock.mockReturnValue(true)
-        getPathMock.mockReturnValue('C:\\Users\\alice\\AppData\\Roaming\\Orca')
+        getPathMock.mockReturnValue('C:\\userhome\\alice\\AppData\\Roaming\\Orca')
 
         const env: Record<string, string> = {}
         const result = injectHistoryEnv(env, 'repo-1::C:\\repo', '/bin/bash', 'C:\\repo', {

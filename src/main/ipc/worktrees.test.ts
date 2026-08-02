@@ -6932,7 +6932,7 @@ describe('registerWorktreeHandlers', () => {
     expect(addWorktreeMock).not.toHaveBeenCalled()
   })
 
-  it.each(['/Users/me/repo/packages/web', 'C:\\repo\\packages\\web', '\\\\server\\share\\repo'])(
+  it.each(['/userhome/me/repo/packages/web', 'C:\\repo\\packages\\web', '\\\\server\\share\\repo'])(
     'rejects absolute sparse checkout directory before normalization: %s',
     async (directory) => {
       await expect(

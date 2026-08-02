@@ -52,7 +52,7 @@ const readyOption: ProjectHostSetupOption = {
   repoId: 'local-repo',
   label: 'Local Mac',
   detail: 'Orca',
-  path: '/Users/alice/orca'
+  path: '/userhome/alice/orca'
 }
 
 const needsSetupOption: NeedsSetupProjectHostOption = {

@@ -65,7 +65,7 @@ describe('discoverAndroidSdk', () => {
   })
 
   it('uses the darwin default SDK location with unsuffixed tools', () => {
-    const home = '/Users/erik'
+    const home = '/userhome/erik'
     const sdkRoot = join(home, 'Library', 'Android', 'sdk')
     const result = discoverAndroidSdk({
       env: {},
@@ -97,12 +97,12 @@ describe('discoverAndroidSdk', () => {
   })
 
   it('uses the win32 default with LOCALAPPDATA and .exe/.bat tools', () => {
-    const localAppData = 'C:\\Users\\erik\\AppData\\Local'
+    const localAppData = 'C:\\userhome\\erik\\AppData\\Local'
     const sdkRoot = join(localAppData, 'Android', 'Sdk')
     const result = discoverAndroidSdk({
       env: { LOCALAPPDATA: localAppData },
       platform: 'win32',
-      homedir: 'C:\\Users\\erik',
+      homedir: 'C:\\userhome\\erik',
       exists: existsIn(sdkToolsFor(sdkRoot, true))
     })
 
@@ -115,7 +115,7 @@ describe('discoverAndroidSdk', () => {
   })
 
   it('falls back to AppData\\Local on win32 when LOCALAPPDATA is unset', () => {
-    const home = 'C:\\Users\\erik'
+    const home = 'C:\\userhome\\erik'
     const sdkRoot = join(home, 'AppData', 'Local', 'Android', 'Sdk')
     const result = discoverAndroidSdk({
       env: {},

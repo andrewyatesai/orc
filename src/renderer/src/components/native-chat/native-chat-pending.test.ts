@@ -86,7 +86,7 @@ describe('prunePendingSends', () => {
 
   it('drops an attachment pending send once a prefixed transcript prompt advances', () => {
     const pending = [
-      { ...pendingOf('p1', 'what do you see'), imagePaths: ['/Users/me/Downloads/3d.png'] }
+      { ...pendingOf('p1', 'what do you see'), imagePaths: ['/userhome/me/Downloads/3d.png'] }
     ]
     const next = prunePendingSends(pending, [
       userMessage('m1', '[Image #1] what do you see'),

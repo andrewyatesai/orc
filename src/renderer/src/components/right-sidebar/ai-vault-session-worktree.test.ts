@@ -231,9 +231,9 @@ describe('extractWorktreePathFromSessionTitle', () => {
   it('reads worktree paths embedded in session titles', () => {
     expect(
       extractWorktreePathFromSessionTitle(
-        'Inspect PR #6229 - Worktree: /Users/ada/projects/orca/fix-tabs'
+        'Inspect PR #6229 - Worktree: /userhome/ada/projects/orca/fix-tabs'
       )
-    ).toBe('/Users/ada/projects/orca/fix-tabs')
+    ).toBe('/userhome/ada/projects/orca/fix-tabs')
     expect(extractWorktreePathFromSessionTitle('Worktree: /tmp/orca-worker')).toBe(
       '/tmp/orca-worker'
     )
@@ -248,12 +248,12 @@ describe('resolveAiVaultSessionWorktreeDisplay', () => {
           ...baseSession,
           cwd: null,
           branch: null,
-          title: 'Fix tabs - Worktree: /Users/ada/projects/orca/fix-tabs'
+          title: 'Fix tabs - Worktree: /userhome/ada/projects/orca/fix-tabs'
         },
         worktrees: [makeWorktree()],
         activeWorktreeId: null
       })?.path
-    ).toBe('/Users/ada/projects/orca/fix-tabs')
+    ).toBe('/userhome/ada/projects/orca/fix-tabs')
 
     expect(
       resolveAiVaultSessionWorktreeDisplay({
@@ -267,7 +267,7 @@ describe('resolveAiVaultSessionWorktreeDisplay', () => {
 
 describe('aiVaultWorktreeCompactPath', () => {
   it('keeps the last two path segments for dense detail rows', () => {
-    expect(aiVaultWorktreeCompactPath('/Users/ada/projects/orca/improve-agent-session')).toBe(
+    expect(aiVaultWorktreeCompactPath('/userhome/ada/projects/orca/improve-agent-session')).toBe(
       'orca/improve-agent-session'
     )
   })

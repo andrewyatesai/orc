@@ -37,7 +37,7 @@ afterEach(() => {
 describe('swift build cache staleness', () => {
   it('reports a cache recorded under a different absolute path as stale', () => {
     const pkg = makePackage()
-    writeDescription(pkg, '/Users/someone/old-repo/native/computer-use-macos')
+    writeDescription(pkg, '/userhome/someone/old-repo/native/computer-use-macos')
     expect(swiftBuildCacheIsStale(pkg)).toBe(true)
   })
 
@@ -57,7 +57,7 @@ describe('swift build cache staleness', () => {
 
   it('clears a stale cache and reports that it did', () => {
     const pkg = makePackage()
-    writeDescription(pkg, '/Users/someone/old-repo/native/computer-use-macos')
+    writeDescription(pkg, '/userhome/someone/old-repo/native/computer-use-macos')
     expect(clearStaleSwiftBuildCache(pkg, 'test')).toBe(true)
     expect(existsSync(path.join(pkg, '.build'))).toBe(false)
   })

@@ -151,7 +151,7 @@ describe('registerCrashReportingHandlers', () => {
     } as never)
 
     const result = await handlers.get('crashReports:copyLatestDiagnostics')?.(null, {
-      notes: 'extra /Users/alice/project'
+      notes: 'extra /userhome/alice/project'
     })
 
     expect(result).toEqual({ ok: true })
@@ -175,7 +175,7 @@ describe('registerCrashReportingHandlers', () => {
     } as never)
 
     const result = await handlers.get('crashReports:copyLatestDiagnostics')?.(null, {
-      notes: 'after opening /Users/alice/project'
+      notes: 'after opening /userhome/alice/project'
     })
 
     expect(result).toEqual({ ok: true })
@@ -203,7 +203,7 @@ describe('registerCrashReportingHandlers', () => {
       reportId: pending.id,
       notes: 'current notes',
       submissionFailure: {
-        error: 'fallback failed at C:\\Users\\alice\\Orca',
+        error: 'fallback failed at C:\\userhome\\alice\\Orca',
         diagnosticContext: {
           status: 'not_uploaded',
           reason: 'attachment token=super-secret-value',
@@ -255,7 +255,7 @@ describe('registerCrashReportingHandlers', () => {
 
     const result = await handlers.get('crashReports:submit')?.(null, {
       reportId: pending.id,
-      notes: 'extra /Users/alice/project',
+      notes: 'extra /userhome/alice/project',
       submitAnonymously: false,
       githubLogin: 'trusted-user',
       githubEmail: null
@@ -303,7 +303,7 @@ describe('registerCrashReportingHandlers', () => {
     } as never)
 
     const result = await handlers.get('crashReports:submit')?.(null, {
-      notes: 'blank window after opening /Users/alice/project',
+      notes: 'blank window after opening /userhome/alice/project',
       submitAnonymously: false,
       githubLogin: 'trusted-user',
       githubEmail: null
@@ -667,8 +667,8 @@ describe('registerCrashReportingHandlers', () => {
       boundaryId: 'terminal.workbench',
       surface: 'terminal-workbench',
       errorName: 'TypeError',
-      errorMessage: 'Cannot read /Users/alice/project/token=abc123',
-      errorStack: 'TypeError: nope\n    at /Users/alice/project/App.tsx:12:1',
+      errorMessage: 'Cannot read /userhome/alice/project/token=abc123',
+      errorStack: 'TypeError: nope\n    at /userhome/alice/project/App.tsx:12:1',
       componentStack: 'at Terminal\nat App',
       activeView: 'terminal',
       activeModal: 'none',
@@ -700,7 +700,7 @@ describe('registerCrashReportingHandlers', () => {
           boundary_id: 'terminal.workbench',
           surface: 'terminal-workbench',
           error_name: 'TypeError',
-          error_message: 'Cannot read /Users/alice/project/token=abc123',
+          error_message: 'Cannot read /userhome/alice/project/token=abc123',
           active_view: 'terminal',
           active_modal: 'none',
           active_tab_type: 'terminal',

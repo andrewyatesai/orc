@@ -527,8 +527,8 @@ describe('SshPtyProvider', () => {
     it('uses Windows PATH delimiters for native Windows SSH bridge env', async () => {
       mux.request.mockResolvedValue({ id: 'pty-bridge' })
       provider = new SshPtyProvider('conn-1', mux as never, {
-        binDir: 'C:/Users/me/.orca-relay/bin',
-        relayDir: 'C:/Users/me/.orca-remote/relay-v1',
+        binDir: 'C:/userhome/me/.orca-relay/bin',
+        relayDir: 'C:/userhome/me/.orca-remote/relay-v1',
         nodePath: 'C:/Program Files/nodejs/node.exe',
         sockPath: '\\\\.\\pipe\\orca-relay-123',
         pathDelimiter: ';'
@@ -545,10 +545,10 @@ describe('SshPtyProvider', () => {
         rows: 40,
         cwd: undefined,
         env: {
-          Path: 'C:/Users/me/.orca-relay/bin;C:/Windows/System32;C:/Tools',
+          Path: 'C:/userhome/me/.orca-relay/bin;C:/Windows/System32;C:/Tools',
           [POWERLEVEL10K_WIZARD_DISABLE_ENV]: 'true',
-          ORCA_REMOTE_CLI_BIN_DIR: 'C:/Users/me/.orca-relay/bin',
-          ORCA_RELAY_DIR: 'C:/Users/me/.orca-remote/relay-v1',
+          ORCA_REMOTE_CLI_BIN_DIR: 'C:/userhome/me/.orca-relay/bin',
+          ORCA_RELAY_DIR: 'C:/userhome/me/.orca-remote/relay-v1',
           ORCA_RELAY_NODE_PATH: 'C:/Program Files/nodejs/node.exe',
           ORCA_RELAY_SOCKET_PATH: '\\\\.\\pipe\\orca-relay-123'
         }

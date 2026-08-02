@@ -53,7 +53,7 @@ describe('resolveAgentForegroundProcess', () => {
     // suspended codex (pid 101, stat 'T', no '+') is a backgrounded descendant.
     mockPs(
       [
-        '101 100 T    node /Users/dev/.nvm/versions/node/bin/codex',
+        '101 100 T    node /userhome/dev/.nvm/versions/node/bin/codex',
         '102 100 S+   vim notes.txt'
       ].join('\n')
     )
@@ -62,7 +62,7 @@ describe('resolveAgentForegroundProcess', () => {
   })
 
   it('still reports a foreground agent', async () => {
-    mockPs(['101 100 S+   node /Users/dev/.nvm/versions/node/bin/codex'].join('\n'))
+    mockPs(['101 100 S+   node /userhome/dev/.nvm/versions/node/bin/codex'].join('\n'))
 
     await expect(resolveAgentForegroundProcess(100, 'node')).resolves.toBe('codex')
   })
@@ -89,7 +89,7 @@ describe('resolveAgentForegroundProcess', () => {
   })
 
   it('treats a fresh POSIX snapshot missing the PTY root as unavailable', async () => {
-    mockPs('101 999 S+ node /Users/dev/.nvm/versions/node/bin/codex')
+    mockPs('101 999 S+ node /userhome/dev/.nvm/versions/node/bin/codex')
 
     await expect(
       resolveAgentForegroundProcessWithAvailability(100, 'zsh', { fresh: true })
@@ -170,7 +170,7 @@ describe('resolveAgentForegroundProcess', () => {
 
   it('does not report a stopped agent after the shell regains foreground', async () => {
     mockPs(
-      ['100 99 Ss+  bash -i', '101 100 T    node /Users/dev/.nvm/versions/node/bin/codex'].join(
+      ['100 99 Ss+  bash -i', '101 100 T    node /userhome/dev/.nvm/versions/node/bin/codex'].join(
         '\n'
       )
     )
@@ -182,7 +182,7 @@ describe('resolveAgentForegroundProcess', () => {
     // No '+' marker at all (e.g. a detached/daemon descendant tree) — the
     // recognized agent may still be the best available signal.
     mockPs(
-      ['100 99 Ss   bash -i', '101 100 S    node /Users/dev/.nvm/versions/node/bin/codex'].join(
+      ['100 99 Ss   bash -i', '101 100 S    node /userhome/dev/.nvm/versions/node/bin/codex'].join(
         '\n'
       )
     )

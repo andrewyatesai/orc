@@ -338,8 +338,8 @@ describe('SshRelaySession', () => {
       },
       platform: 'win32-x64',
       hostPlatform: getRemoteHostPlatform('win32-x64'),
-      remoteHome: 'C:/Users/me',
-      remoteRelayDir: 'C:/Users/me/.orca-remote/relay-v1',
+      remoteHome: 'C:/userhome/me',
+      remoteRelayDir: 'C:/userhome/me/.orca-remote/relay-v1',
       nodePath: 'C:/Program Files/nodejs/node.exe',
       sockPath: '\\\\.\\pipe\\orca-relay-123'
     })
@@ -439,8 +439,8 @@ describe('SshRelaySession', () => {
       },
       platform: 'win32-x64',
       hostPlatform: getRemoteHostPlatform('win32-x64'),
-      remoteHome: 'C:/Users/me',
-      remoteRelayDir: 'C:/Users/me/.orca-remote/relay-v1',
+      remoteHome: 'C:/userhome/me',
+      remoteRelayDir: 'C:/userhome/me/.orca-remote/relay-v1',
       nodePath: 'C:/Program Files/nodejs/node.exe',
       sockPath: '\\\\.\\pipe\\orca-relay-123'
     })
@@ -453,7 +453,7 @@ describe('SshRelaySession', () => {
     expect(vi.mocked(execCommand).mock.calls[0]?.[1]).toContain('powershell.exe')
     expect(vi.mocked(execCommand).mock.calls[0]?.[2]).toEqual({ wrapCommand: false })
     expect(mockConn.writeFile).toHaveBeenCalledWith(
-      'C:/Users/me/.orca-relay/bin/orca-launcher.cs',
+      'C:/userhome/me/.orca-relay/bin/orca-launcher.cs',
       expect.stringContaining('ProcessStartInfo'),
       { hostPlatform: getRemoteHostPlatform('win32-x64') }
     )

@@ -42,21 +42,21 @@ afterEach(() => {
 
 describe('getGhosttyConfigPaths', () => {
   it('returns macOS paths with XDG precedence when XDG_CONFIG_HOME is not set', () => {
-    homedirMock.mockReturnValue('/Users/alice')
+    homedirMock.mockReturnValue('/userhome/alice')
     platformMock.mockReturnValue('darwin')
     delete process.env.XDG_CONFIG_HOME
 
     const paths = getGhosttyConfigPaths()
     expect(paths).toEqual([
-      '/Users/alice/.config/ghostty/config.ghostty',
-      '/Users/alice/.config/ghostty/config',
-      '/Users/alice/Library/Application Support/com.mitchellh.ghostty/config.ghostty',
-      '/Users/alice/Library/Application Support/com.mitchellh.ghostty/config'
+      '/userhome/alice/.config/ghostty/config.ghostty',
+      '/userhome/alice/.config/ghostty/config',
+      '/userhome/alice/Library/Application Support/com.mitchellh.ghostty/config.ghostty',
+      '/userhome/alice/Library/Application Support/com.mitchellh.ghostty/config'
     ])
   })
 
   it('returns macOS paths with XDG_CONFIG_HOME override', () => {
-    homedirMock.mockReturnValue('/Users/alice')
+    homedirMock.mockReturnValue('/userhome/alice')
     platformMock.mockReturnValue('darwin')
     process.env.XDG_CONFIG_HOME = '/custom/xdg'
 
@@ -64,8 +64,8 @@ describe('getGhosttyConfigPaths', () => {
     expect(paths).toEqual([
       '/custom/xdg/ghostty/config.ghostty',
       '/custom/xdg/ghostty/config',
-      '/Users/alice/Library/Application Support/com.mitchellh.ghostty/config.ghostty',
-      '/Users/alice/Library/Application Support/com.mitchellh.ghostty/config'
+      '/userhome/alice/Library/Application Support/com.mitchellh.ghostty/config.ghostty',
+      '/userhome/alice/Library/Application Support/com.mitchellh.ghostty/config'
     ])
   })
 
@@ -94,14 +94,14 @@ describe('getGhosttyConfigPaths', () => {
   })
 
   it('returns Windows paths', () => {
-    homedirMock.mockReturnValue('C:\\Users\\Charlie')
+    homedirMock.mockReturnValue('C:\\userhome\\Charlie')
     platformMock.mockReturnValue('win32')
-    process.env.APPDATA = 'C:\\Users\\Charlie\\AppData\\Roaming'
+    process.env.APPDATA = 'C:\\userhome\\Charlie\\AppData\\Roaming'
 
     const paths = getGhosttyConfigPaths()
     expect(paths).toEqual([
-      path.win32.join('C:\\Users\\Charlie\\AppData\\Roaming', 'ghostty', 'config.ghostty'),
-      path.win32.join('C:\\Users\\Charlie\\AppData\\Roaming', 'ghostty', 'config')
+      path.win32.join('C:\\userhome\\Charlie\\AppData\\Roaming', 'ghostty', 'config.ghostty'),
+      path.win32.join('C:\\userhome\\Charlie\\AppData\\Roaming', 'ghostty', 'config')
     ])
   })
 
@@ -113,30 +113,30 @@ describe('getGhosttyConfigPaths', () => {
 
 describe('findGhosttyConfigPath', () => {
   it('returns macOS XDG path when file exists', async () => {
-    homedirMock.mockReturnValue('/Users/alice')
+    homedirMock.mockReturnValue('/userhome/alice')
     platformMock.mockReturnValue('darwin')
     delete process.env.XDG_CONFIG_HOME
 
     statMock.mockImplementation(async (p: string) => {
-      if (p === '/Users/alice/.config/ghostty/config') {
+      if (p === '/userhome/alice/.config/ghostty/config') {
         return { isFile: () => true }
       }
       throw enoent()
     })
 
     const result = await findGhosttyConfigPath()
-    expect(result).toBe('/Users/alice/.config/ghostty/config')
+    expect(result).toBe('/userhome/alice/.config/ghostty/config')
   })
 
   it('prefers macOS XDG path over Application Support when both exist', async () => {
-    homedirMock.mockReturnValue('/Users/alice')
+    homedirMock.mockReturnValue('/userhome/alice')
     platformMock.mockReturnValue('darwin')
     delete process.env.XDG_CONFIG_HOME
 
     statMock.mockImplementation(async (p: string) => {
       if (
-        p === '/Users/alice/.config/ghostty/config' ||
-        p === '/Users/alice/Library/Application Support/com.mitchellh.ghostty/config'
+        p === '/userhome/alice/.config/ghostty/config' ||
+        p === '/userhome/alice/Library/Application Support/com.mitchellh.ghostty/config'
       ) {
         return { isFile: () => true }
       }
@@ -144,50 +144,50 @@ describe('findGhosttyConfigPath', () => {
     })
 
     const result = await findGhosttyConfigPath()
-    expect(result).toBe('/Users/alice/.config/ghostty/config')
+    expect(result).toBe('/userhome/alice/.config/ghostty/config')
   })
 
   it('returns macOS app-support path when XDG files are missing', async () => {
-    homedirMock.mockReturnValue('/Users/alice')
+    homedirMock.mockReturnValue('/userhome/alice')
     platformMock.mockReturnValue('darwin')
     delete process.env.XDG_CONFIG_HOME
 
     statMock.mockImplementation(async (p: string) => {
-      if (p === '/Users/alice/Library/Application Support/com.mitchellh.ghostty/config') {
+      if (p === '/userhome/alice/Library/Application Support/com.mitchellh.ghostty/config') {
         return { isFile: () => true }
       }
       throw enoent()
     })
 
     const result = await findGhosttyConfigPath()
-    expect(result).toBe('/Users/alice/Library/Application Support/com.mitchellh.ghostty/config')
+    expect(result).toBe('/userhome/alice/Library/Application Support/com.mitchellh.ghostty/config')
   })
 
   it('returns macOS config.ghostty fallback when config is missing', async () => {
-    homedirMock.mockReturnValue('/Users/alice')
+    homedirMock.mockReturnValue('/userhome/alice')
     platformMock.mockReturnValue('darwin')
     delete process.env.XDG_CONFIG_HOME
 
     statMock.mockImplementation(async (p: string) => {
-      if (p === '/Users/alice/.config/ghostty/config.ghostty') {
+      if (p === '/userhome/alice/.config/ghostty/config.ghostty') {
         return { isFile: () => true }
       }
       throw enoent()
     })
 
     const result = await findGhosttyConfigPath()
-    expect(result).toBe('/Users/alice/.config/ghostty/config.ghostty')
+    expect(result).toBe('/userhome/alice/.config/ghostty/config.ghostty')
   })
 
   it('returns all existing config files in Ghostty load order', async () => {
-    homedirMock.mockReturnValue('/Users/alice')
+    homedirMock.mockReturnValue('/userhome/alice')
     platformMock.mockReturnValue('darwin')
     delete process.env.XDG_CONFIG_HOME
 
     statMock.mockImplementation(async (p: string) => {
       if (
-        p === '/Users/alice/.config/ghostty/config' ||
-        p === '/Users/alice/.config/ghostty/config.ghostty'
+        p === '/userhome/alice/.config/ghostty/config' ||
+        p === '/userhome/alice/.config/ghostty/config.ghostty'
       ) {
         return { isFile: () => true }
       }
@@ -196,13 +196,13 @@ describe('findGhosttyConfigPath', () => {
 
     const result = await findGhosttyConfigPaths()
     expect(result).toEqual([
-      '/Users/alice/.config/ghostty/config.ghostty',
-      '/Users/alice/.config/ghostty/config'
+      '/userhome/alice/.config/ghostty/config.ghostty',
+      '/userhome/alice/.config/ghostty/config'
     ])
   })
 
   it('returns null when no config exists on macOS', async () => {
-    homedirMock.mockReturnValue('/Users/alice')
+    homedirMock.mockReturnValue('/userhome/alice')
     platformMock.mockReturnValue('darwin')
     statMock.mockRejectedValue(enoent())
 
@@ -259,7 +259,7 @@ describe('findGhosttyConfigPath', () => {
   })
 
   it('returns macOS XDG_CONFIG_HOME override path when file exists', async () => {
-    homedirMock.mockReturnValue('/Users/alice')
+    homedirMock.mockReturnValue('/userhome/alice')
     platformMock.mockReturnValue('darwin')
     process.env.XDG_CONFIG_HOME = '/custom/xdg'
 
@@ -284,11 +284,11 @@ describe('findGhosttyConfigPath', () => {
   })
 
   it('returns Windows path when file exists', async () => {
-    homedirMock.mockReturnValue('C:\\Users\\Charlie')
+    homedirMock.mockReturnValue('C:\\userhome\\Charlie')
     platformMock.mockReturnValue('win32')
-    process.env.APPDATA = 'C:\\Users\\Charlie\\AppData\\Roaming'
+    process.env.APPDATA = 'C:\\userhome\\Charlie\\AppData\\Roaming'
     const expectedPath = path.win32.join(
-      'C:\\Users\\Charlie\\AppData\\Roaming',
+      'C:\\userhome\\Charlie\\AppData\\Roaming',
       'ghostty',
       'config'
     )
@@ -305,11 +305,11 @@ describe('findGhosttyConfigPath', () => {
   })
 
   it('returns Windows config.ghostty fallback when config is missing', async () => {
-    homedirMock.mockReturnValue('C:\\Users\\Charlie')
+    homedirMock.mockReturnValue('C:\\userhome\\Charlie')
     platformMock.mockReturnValue('win32')
-    process.env.APPDATA = 'C:\\Users\\Charlie\\AppData\\Roaming'
+    process.env.APPDATA = 'C:\\userhome\\Charlie\\AppData\\Roaming'
     const expectedPath = path.win32.join(
-      'C:\\Users\\Charlie\\AppData\\Roaming',
+      'C:\\userhome\\Charlie\\AppData\\Roaming',
       'ghostty',
       'config.ghostty'
     )

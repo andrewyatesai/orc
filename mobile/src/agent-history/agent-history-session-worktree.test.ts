@@ -29,8 +29,8 @@ function worktree(overrides: Partial<Worktree> & { worktreeId: string; path: str
 describe('resolveMobileAgentHistorySessionWorktree', () => {
   it('matches the active worktree when session cwd is inside it', () => {
     const resolved = resolveMobileAgentHistorySessionWorktree({
-      session: session('/Users/ada/repo/app/src'),
-      worktrees: [worktree({ worktreeId: 'wt-1', path: '/Users/ada/repo/app' })],
+      session: session('/userhome/ada/repo/app/src'),
+      worktrees: [worktree({ worktreeId: 'wt-1', path: '/userhome/ada/repo/app' })],
       activeWorktreeId: 'wt-1'
     })
     expect(resolved).toMatchObject({ status: 'current', worktreeId: 'wt-1' })
@@ -38,10 +38,10 @@ describe('resolveMobileAgentHistorySessionWorktree', () => {
 
   it('prefers the longest active path match', () => {
     const resolved = resolveMobileAgentHistorySessionWorktree({
-      session: session('/Users/ada/repo/app/packages/mobile'),
+      session: session('/userhome/ada/repo/app/packages/mobile'),
       worktrees: [
-        worktree({ worktreeId: 'root', path: '/Users/ada/repo' }),
-        worktree({ worktreeId: 'app', path: '/Users/ada/repo/app' })
+        worktree({ worktreeId: 'root', path: '/userhome/ada/repo' }),
+        worktree({ worktreeId: 'app', path: '/userhome/ada/repo/app' })
       ],
       activeWorktreeId: 'root'
     })
@@ -50,9 +50,9 @@ describe('resolveMobileAgentHistorySessionWorktree', () => {
 
   it('marks archived worktrees as unavailable for resume', () => {
     const resolved = resolveMobileAgentHistorySessionWorktree({
-      session: session('/Users/ada/repo/app'),
+      session: session('/userhome/ada/repo/app'),
       worktrees: [
-        worktree({ worktreeId: 'archived', path: '/Users/ada/repo/app', isArchived: true })
+        worktree({ worktreeId: 'archived', path: '/userhome/ada/repo/app', isArchived: true })
       ],
       activeWorktreeId: 'other'
     })
@@ -63,8 +63,8 @@ describe('resolveMobileAgentHistorySessionWorktree', () => {
   it('returns null when the session cwd has no active worktree match', () => {
     expect(
       resolveMobileAgentHistorySessionWorktree({
-        session: session('/Users/ada/missing'),
-        worktrees: [worktree({ worktreeId: 'wt-1', path: '/Users/ada/repo/app' })],
+        session: session('/userhome/ada/missing'),
+        worktrees: [worktree({ worktreeId: 'wt-1', path: '/userhome/ada/repo/app' })],
         activeWorktreeId: 'wt-1'
       })
     ).toBeNull()

@@ -47,7 +47,7 @@ describe('wrapShellSpawnForMacosTccAttribution', () => {
     origDisable = process.env.ORCA_DISABLE_MACOS_LOGIN_SHELL
     delete process.env.ORCA_DISABLE_MACOS_LOGIN_SHELL
     existsSyncMock.mockReturnValue(true)
-    userInfoMock.mockReturnValue({ username: 'ada', homedir: '/Users/ada' })
+    userInfoMock.mockReturnValue({ username: 'ada', homedir: '/userhome/ada' })
     execFileMock.mockImplementation(
       (_file: string, _args: string[], _options: unknown, callback: ExecFileCallback) => {
         callback(null, 'ORCA_LOGIN_PREFLIGHT_OK', '')
@@ -82,7 +82,7 @@ describe('wrapShellSpawnForMacosTccAttribution', () => {
       '/usr/bin/login',
       ['-flpq', 'ada', '/usr/bin/printf', 'ORCA_LOGIN_PREFLIGHT_OK'],
       {
-        cwd: '/Users/ada',
+        cwd: '/userhome/ada',
         encoding: 'utf8',
         killSignal: 'SIGKILL',
         maxBuffer: 1024,
@@ -147,7 +147,7 @@ describe('wrapShellSpawnForMacosTccAttribution', () => {
 
     await expect(prepareMacosTccLoginShell()).resolves.toEqual(ACCEPTED_OUTCOME)
 
-    expect(ptyProbeMock).toHaveBeenCalledWith('ada', '/Users/ada', 500, 1_024)
+    expect(ptyProbeMock).toHaveBeenCalledWith('ada', '/userhome/ada', 500, 1_024)
     expect(wrapShellSpawnForMacosTccAttribution('/bin/zsh', ['-l']).file).toBe('/usr/bin/login')
   })
 
@@ -164,7 +164,7 @@ describe('wrapShellSpawnForMacosTccAttribution', () => {
 
     await expect(prepareMacosTccLoginShell()).resolves.toEqual(ACCEPTED_OUTCOME)
 
-    expect(ptyProbeMock).toHaveBeenCalledWith('ada', '/Users/ada', 500, 1_024)
+    expect(ptyProbeMock).toHaveBeenCalledWith('ada', '/userhome/ada', 500, 1_024)
     expect(wrapShellSpawnForMacosTccAttribution('/bin/zsh', ['-l']).file).toBe('/usr/bin/login')
   })
 
@@ -565,7 +565,7 @@ describe('wrapShellSpawnForMacosTccAttribution', () => {
 
   it('falls back to the plain spawn when the username is empty', () => {
     setPlatform('darwin')
-    userInfoMock.mockReturnValue({ username: '', homedir: '/Users/ada' })
+    userInfoMock.mockReturnValue({ username: '', homedir: '/userhome/ada' })
     expect(wrapShellSpawnForMacosTccAttribution('/bin/zsh', ['-l'])).toEqual({
       file: '/bin/zsh',
       args: ['-l']
@@ -611,7 +611,7 @@ describe('probeMacosLoginSessionAlive', () => {
     origDisable = process.env.ORCA_DISABLE_MACOS_LOGIN_SHELL
     delete process.env.ORCA_DISABLE_MACOS_LOGIN_SHELL
     existsSyncMock.mockReturnValue(true)
-    userInfoMock.mockReturnValue({ username: 'ada', homedir: '/Users/ada' })
+    userInfoMock.mockReturnValue({ username: 'ada', homedir: '/userhome/ada' })
     execFileMock.mockImplementation(
       (_file: string, _args: string[], _options: unknown, callback: ExecFileCallback) => {
         callback(null, 'ORCA_LOGIN_PREFLIGHT_OK', '')
@@ -810,7 +810,7 @@ describe('probeMacosLoginSessionAlive', () => {
     const outcome = await probeMacosLoginSessionAlive()
     expect(outcome).toEqual({ ok: true, conclusive: true, reason: 'accepted' })
     expect(execFileMock).toHaveBeenCalledOnce()
-    expect(ptyProbeMock).toHaveBeenCalledWith('ada', '/Users/ada', 4_000, 1_024, undefined)
+    expect(ptyProbeMock).toHaveBeenCalledWith('ada', '/userhome/ada', 4_000, 1_024, undefined)
     expect(wrapShellSpawnForMacosTccAttribution('/bin/zsh', ['-l']).file).toBe('/usr/bin/login')
   })
 

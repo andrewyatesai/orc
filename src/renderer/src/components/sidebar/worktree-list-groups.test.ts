@@ -441,7 +441,7 @@ describe('buildRows with pinned worktrees', () => {
     const localRepo: Repo = {
       ...repo,
       id: 'local-sample-app',
-      path: '/Users/alice/work/sample-app',
+      path: '/userhome/alice/work/sample-app',
       displayName: 'sample-app',
       gitRemoteIdentity: {
         canonicalKey: 'git.company.test/team/sample-app',
@@ -477,7 +477,7 @@ describe('buildRows with pinned worktrees', () => {
       ...worktree,
       id: 'wt-local-sample-app',
       repoId: localRepo.id,
-      path: '/Users/alice/work/sample-app-feature'
+      path: '/userhome/alice/work/sample-app-feature'
     }
     const sshWorktree: Worktree = {
       ...worktree,
@@ -564,7 +564,7 @@ describe('buildRows with pinned worktrees', () => {
       ...worktree,
       id: 'wt-local-first',
       repoId: localRepo.id,
-      path: '/Users/alice/work/sample-app-a'
+      path: '/userhome/alice/work/sample-app-a'
     }
     const sshWorktree: Worktree = {
       ...worktree,
@@ -576,7 +576,7 @@ describe('buildRows with pinned worktrees', () => {
       ...worktree,
       id: 'wt-local-second',
       repoId: localRepo.id,
-      path: '/Users/alice/work/sample-app-c'
+      path: '/userhome/alice/work/sample-app-c'
     }
     const projection = projectHostSetupProjectionFromRepos([localRepo, sshRepo])
     const rows = buildRows(
@@ -990,7 +990,7 @@ describe('buildRows with pinned worktrees', () => {
     const windowsRepo: Repo = {
       ...repo,
       id: 'repo-windows',
-      path: String.raw`C:\Users\alice\git\orca`,
+      path: String.raw`C:\userhome\alice\git\orca`,
       displayName: 'orca',
       executionHostId: runtimeHostId
     }
@@ -1005,7 +1005,7 @@ describe('buildRows with pinned worktrees', () => {
       ...worktree,
       id: 'wt-windows',
       repoId: windowsRepo.id,
-      path: String.raw`C:\Users\alice\git\orca\feature`
+      path: String.raw`C:\userhome\alice\git\orca\feature`
     }
     const wslWorktree: Worktree = {
       ...worktree,
@@ -1070,7 +1070,7 @@ describe('buildRows with pinned worktrees', () => {
     const runtimeRepo: Repo = {
       ...remoteRepo,
       id: 'repo-runtime',
-      path: '/Users/alice/runtime-orca',
+      path: '/userhome/alice/runtime-orca',
       connectionId: null,
       executionHostId: 'runtime:03ef704c-b180-4b10-998d-e28fbd5de9a3'
     }
@@ -3543,11 +3543,11 @@ describe('buildRows workspace lineage nesting', () => {
 
   it('nests stable-update resolved legacy lineage when generalized lineage is absent', () => {
     const parentId =
-      '32a0226d-9f33-42e8-8b7b-24867dea06d4::/Users/jinwoo/orca/workspaces/orca/assigned-issues'
+      '32a0226d-9f33-42e8-8b7b-24867dea06d4::/userhome/jinwoo/orca/workspaces/orca/assigned-issues'
     const childId =
-      '32a0226d-9f33-42e8-8b7b-24867dea06d4::/Users/jinwoo/orca/workspaces/orca/issue-9276-nested-ssh-runtime-routing'
+      '32a0226d-9f33-42e8-8b7b-24867dea06d4::/userhome/jinwoo/orca/workspaces/orca/issue-9276-nested-ssh-runtime-routing'
     const secondChildId =
-      '32a0226d-9f33-42e8-8b7b-24867dea06d4::/Users/jinwoo/orca/workspaces/orca/issue-9744-terminal-close-lifecycle'
+      '32a0226d-9f33-42e8-8b7b-24867dea06d4::/userhome/jinwoo/orca/workspaces/orca/issue-9744-terminal-close-lifecycle'
     const resolvedParent: ResolvedLineageWorktree = {
       ...parent,
       id: parentId,

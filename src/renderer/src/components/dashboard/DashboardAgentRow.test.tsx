@@ -352,7 +352,7 @@ describe('DashboardAgentRow', () => {
   it('reserves a real working tool line before tool metadata arrives', () => {
     const emptyToolMarkup = renderRow(makeAgent())
     const activeToolMarkup = renderRow(
-      makeAgent({}, { toolName: 'ListDir', toolInput: '/Users/nwparker/orca' })
+      makeAgent({}, { toolName: 'ListDir', toolInput: '/userhome/nwparker/orca' })
     )
 
     // Why: Antigravity emits working hooks without tool metadata between

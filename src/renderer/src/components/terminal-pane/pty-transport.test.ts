@@ -179,7 +179,7 @@ describe('createIpcPtyTransport', () => {
     const resumeProviderSession = {
       key: 'session_id' as const,
       id: 'session-a',
-      transcriptPath: '/Users/example/.codex/sessions/2026/07/20/rollout-a.jsonl'
+      transcriptPath: '/userhome/example/.codex/sessions/2026/07/20/rollout-a.jsonl'
     }
     const transport = createIpcPtyTransport({ resumeProviderSession })
 
@@ -352,7 +352,7 @@ describe('createIpcPtyTransport', () => {
     })
     const sshTransport = createIpcPtyTransport({
       connectionId: 'ssh-1',
-      cwd: 'C:\\Users\\alice\\repo',
+      cwd: 'C:\\userhome\\alice\\repo',
       shellOverride: 'cmd.exe'
     })
 

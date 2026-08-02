@@ -140,7 +140,7 @@ describe('ClaudeHookService.install', () => {
                 hooks: [
                   {
                     type: 'command',
-                    command: '/Users/old/.orca/agent-hooks/claude-hook.sh'
+                    command: '/userhome/old/.orca/agent-hooks/claude-hook.sh'
                   }
                 ]
               }
@@ -170,7 +170,7 @@ describe('ClaudeHookService.install', () => {
       expect(legacyCommands.some((command: string) => isClaudeManagedCommand(command))).toBe(true)
       expect(
         legacyCommands.some((command: string) =>
-          command.includes('/Users/old/.orca/agent-hooks/claude-hook.sh')
+          command.includes('/userhome/old/.orca/agent-hooks/claude-hook.sh')
         )
       ).toBe(false)
       expect(isClaudeManagedCommand(legacy.hooks.StopFailure[0].hooks[0].command)).toBe(true)
@@ -308,7 +308,7 @@ describe('ClaudeHookService.install', () => {
   })
 
   // Why: #6078 — Claude Code runs hooks through Git Bash, and an unquoted path
-  // with a space (e.g. `C:/Users/Jane Doe`) splits at the space. The managed
+  // with a space (e.g. `C:/userhome/Jane Doe`) splits at the space. The managed
   // command must use an encoded launcher so Git Bash/cmd.exe never splits or
   // expands the raw path before invoking the managed .cmd.
   it.skipIf(process.platform !== 'win32')(

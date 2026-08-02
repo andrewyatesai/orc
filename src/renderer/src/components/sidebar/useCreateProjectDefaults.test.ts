@@ -88,7 +88,7 @@ describe('useCreateProjectDefaults', () => {
         }
       }
     })
-    mocks.getDefaultCreateProjectParent.mockResolvedValue('/Users/alice/orca/projects')
+    mocks.getDefaultCreateProjectParent.mockResolvedValue('/userhome/alice/orca/projects')
   })
 
   it('auto-fills the local default parent and reports Git availability', async () => {
@@ -97,8 +97,8 @@ describe('useCreateProjectDefaults', () => {
     const { setCreateParent } = useHarness()
     await flushAsync()
 
-    expect(setCreateParent).toHaveBeenCalledWith('/Users/alice/orca/projects')
-    expect(mocks.stateValues[DEFAULT_PARENT_STATE]).toBe('/Users/alice/orca/projects')
+    expect(setCreateParent).toHaveBeenCalledWith('/userhome/alice/orca/projects')
+    expect(mocks.stateValues[DEFAULT_PARENT_STATE]).toBe('/userhome/alice/orca/projects')
     expect(mocks.stateValues[GIT_AVAILABILITY_STATE]).toBe('available')
     expect(mocks.getDefaultCreateProjectParent).toHaveBeenCalled()
     expect(mocks.callRuntimeRpc).not.toHaveBeenCalled()
@@ -111,8 +111,8 @@ describe('useCreateProjectDefaults', () => {
     await flushAsync()
 
     expect(mocks.getDefaultCreateProjectParent).toHaveBeenCalled()
-    expect(setCreateParent).toHaveBeenCalledWith('/Users/alice/orca/projects')
-    expect(mocks.stateValues[DEFAULT_PARENT_STATE]).toBe('/Users/alice/orca/projects')
+    expect(setCreateParent).toHaveBeenCalledWith('/userhome/alice/orca/projects')
+    expect(mocks.stateValues[DEFAULT_PARENT_STATE]).toBe('/userhome/alice/orca/projects')
   })
 
   it('keeps the local default marker after the auto-filled parent rerenders the hook', async () => {
@@ -120,9 +120,9 @@ describe('useCreateProjectDefaults', () => {
 
     useHarness()
     await flushAsync()
-    useHarness({ createParent: '/Users/alice/orca/projects' })
+    useHarness({ createParent: '/userhome/alice/orca/projects' })
 
-    expect(mocks.stateValues[DEFAULT_PARENT_STATE]).toBe('/Users/alice/orca/projects')
+    expect(mocks.stateValues[DEFAULT_PARENT_STATE]).toBe('/userhome/alice/orca/projects')
   })
 
   it('reports unavailable Git without changing the fixed project kind', async () => {
@@ -180,11 +180,11 @@ describe('useCreateProjectDefaults', () => {
 
     const local = useHarness()
     await flushAsync()
-    expect(local.setCreateParent).toHaveBeenCalledWith('/Users/alice/orca/projects')
+    expect(local.setCreateParent).toHaveBeenCalledWith('/userhome/alice/orca/projects')
 
     const runtime = useHarness({
       activeRuntimeEnvironmentId: 'env-1',
-      createParent: '/Users/alice/orca/projects'
+      createParent: '/userhome/alice/orca/projects'
     })
 
     expect(runtime.result.createParentDefaultPending).toBe(true)
@@ -209,12 +209,12 @@ describe('useCreateProjectDefaults', () => {
     mocks.browseRuntimeServerDirectory.mockResolvedValue({ resolvedPath: '/home/alice' })
     mocks.callRuntimeRpc.mockResolvedValue({ available: true })
 
-    const local = useHarness({ createParent: '/Users/alice/orca/projects' })
-    local.result.markCreateParentTouched('/Users/alice/orca/projects/pr5115-target-switch')
+    const local = useHarness({ createParent: '/userhome/alice/orca/projects' })
+    local.result.markCreateParentTouched('/userhome/alice/orca/projects/pr5115-target-switch')
 
     const runtime = useHarness({
       activeRuntimeEnvironmentId: 'env-1',
-      createParent: '/Users/alice/orca/projects/pr5115-target-switch'
+      createParent: '/userhome/alice/orca/projects/pr5115-target-switch'
     })
     await flushAsync()
 

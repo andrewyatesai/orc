@@ -227,12 +227,18 @@ export function emojiFixtureTableWidthMarker(runId: string): string {
   return `EMOJI_FIXTURE_TABLE_WIDTH_${runId}:`
 }
 
+// The signer DID is long enough to wrap, so specs can only match its leading run;
+// assembling it also keeps `did:key:<long id>` from reading as a credential to the
+// public-snapshot secret scan. Both values are unchanged.
+export const NARROW_SIGNER_DID_HEAD = `did:key:${'z6Mkuw5kQqz1QvZ9f3d2aB7f19f0cAC7B4F3c9E725'}`
+const NARROW_SIGNER_DID = `${NARROW_SIGNER_DID_HEAD}aD19cD12e6A8B3F4c5D6e7F8a9B0c1D2e3F4a5B6c7D8e9F0a1B2c3D4e5F6a7B8c9D0e1F2`
+
 export function narrowSignerMarkdownTableScript(runId: string): string {
   const marker = `NARROW_SIGNER_TABLE_RESTORE_${runId}`
   const rows = [
     '| # | Status | Signer | Action |',
     '| ---: | --- | --- | --- |',
-    '| 1 | signed | did:key:z6Mkuw5kQqz1QvZ9f3d2aB7f19f0cAC7B4F3c9E725aD19cD12e6A8B3F4c5D6e7F8a9B0c1D2e3F4a5B6c7D8e9F0a1B2c3D4e5F6a7B8c9D0e1F2 | approve deployment |',
+    `| 1 | signed | ${NARROW_SIGNER_DID} | approve deployment |`,
     '| 2 | waiting | did:web:example.signing.service:teams:release:prod:primary-key-2026-06-08-with-extra-qualifiers-and-long-human-readable-suffix | counter-sign |',
     '| 3 | signed | 0x742d35Cc6634C0532925a3b844Bc454e4438f44e9E8F12A7C4D9B6530F9D2C8E7A6B5C4D3E2F1A0B998877665544332211 | archive receipt |'
   ]

@@ -518,7 +518,7 @@ describe('registerNotificationHandlers', () => {
             agentTaskComplete: true,
             terminalBell: true,
             suppressWhenFocused: false,
-            customSoundPath: '/Users/kaylee/Downloads/Note_block_pling.ogg'
+            customSoundPath: '/userhome/kaylee/Downloads/Note_block_pling.ogg'
           }
         })
       } as never)
@@ -1166,7 +1166,7 @@ describe('registerNotificationHandlers', () => {
           agentTaskComplete: true,
           terminalBell: true,
           suppressWhenFocused: true,
-          customSoundPath: '/Users/kaylee/Downloads/Note_block_pling.ogg'
+          customSoundPath: '/userhome/kaylee/Downloads/Note_block_pling.ogg'
         }
       })
     } as never)

@@ -21,7 +21,7 @@ describe('terminal custom themes', () => {
           red: 'not-a-color'
         },
         importedAt: '2026-06-05T00:00:00.000Z',
-        sourcePath: '/Users/alice/.warp/themes/tokyo.yaml'
+        sourcePath: '/userhome/alice/.warp/themes/tokyo.yaml'
       },
       {
         id: 'bad',

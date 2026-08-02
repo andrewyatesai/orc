@@ -50,9 +50,9 @@ export const TERMINAL_FILE_LINK_TAP_CONFORMANCE_CASES: TerminalFileLinkTapConfor
   },
   {
     name: 'directory segment containing a space',
-    lineText: '/Users/me/My Project/readme.md done',
+    lineText: '/userhome/me/My Project/readme.md done',
     tapText: 'readme',
-    expected: { pathText: '/Users/me/My Project/readme.md', line: null, column: null }
+    expected: { pathText: '/userhome/me/My Project/readme.md', line: null, column: null }
   },
   {
     name: 'spaced path with line and column',

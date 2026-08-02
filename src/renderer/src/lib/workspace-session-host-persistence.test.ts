@@ -297,7 +297,7 @@ describe('fetchWorkspaceSessionFromHosts', () => {
   })
 
   it('keeps same-id local repo worktrees in the local partition', async () => {
-    const localWorktreeId = 'same-repo::/Users/me/project'
+    const localWorktreeId = 'same-repo::/userhome/me/project'
     const remoteWorktreeId = 'same-repo::/srv/project'
     const patch = vi.fn().mockResolvedValue(undefined)
 

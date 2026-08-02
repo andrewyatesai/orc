@@ -95,7 +95,7 @@ ORCA terminal send --terminal <handle> --text "<task brief>" --enter --json
 
 An Orca worktree is Orca's tracked view of a repo checkout, its metadata, terminals, browser tabs, and UI state.
 
-Think of its id as a two-part address: `<repoId>::<worktreePath>`. For example, `repo-123::/Users/me/orca/fix-login` means “the `fix-login` checkout inside repo `repo-123`.” Always copy the complete `id` field from `orca worktree create --json` or `orca worktree list --json`; `repo-123` alone identifies only the repo.
+Think of its id as a two-part address: `<repoId>::<worktreePath>`. For example, `repo-123::/home/me/orca/fix-login` means “the `fix-login` checkout inside repo `repo-123`.” Always copy the complete `id` field from `orca worktree create --json` or `orca worktree list --json`; `repo-123` alone identifies only the repo.
 
 Common commands:
 

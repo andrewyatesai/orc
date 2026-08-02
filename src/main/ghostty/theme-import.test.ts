@@ -14,7 +14,7 @@ vi.mock('fs/promises', () => ({
 
 vi.mock('os', () => ({
   platform: vi.fn(() => 'darwin'),
-  homedir: vi.fn(() => '/Users/alice')
+  homedir: vi.fn(() => '/userhome/alice')
 }))
 
 import { previewGhosttyImport } from './index'
@@ -49,8 +49,8 @@ function createStore(settings: Record<string, unknown> = {}): Store {
 
 describe('previewGhosttyImport theme references', () => {
   it('resolves a theme reference into color overrides', async () => {
-    const configPath = '/Users/alice/Library/Application Support/com.mitchellh.ghostty/config'
-    const themePath = '/Users/alice/.config/ghostty/themes/Tomorrow Night Bright'
+    const configPath = '/userhome/alice/Library/Application Support/com.mitchellh.ghostty/config'
+    const themePath = '/userhome/alice/.config/ghostty/themes/Tomorrow Night Bright'
     statMock.mockImplementation(async (p: string) => {
       if (p === configPath || p === themePath) {
         return { isFile: () => true, size: 128 }
@@ -78,8 +78,8 @@ describe('previewGhosttyImport theme references', () => {
   })
 
   it('lets explicit config colors override theme colors', async () => {
-    const configPath = '/Users/alice/Library/Application Support/com.mitchellh.ghostty/config'
-    const themePath = '/Users/alice/.config/ghostty/themes/night'
+    const configPath = '/userhome/alice/Library/Application Support/com.mitchellh.ghostty/config'
+    const themePath = '/userhome/alice/.config/ghostty/themes/night'
     statMock.mockImplementation(async (p: string) => {
       if (p === configPath || p === themePath) {
         return { isFile: () => true, size: 128 }
@@ -107,8 +107,8 @@ describe('previewGhosttyImport theme references', () => {
   })
 
   it('resolves an absolute theme path without probing theme search dirs', async () => {
-    const configPath = '/Users/alice/Library/Application Support/com.mitchellh.ghostty/config'
-    const themePath = '/Users/alice/themes/work'
+    const configPath = '/userhome/alice/Library/Application Support/com.mitchellh.ghostty/config'
+    const themePath = '/userhome/alice/themes/work'
     statMock.mockImplementation(async (p: string) => {
       if (p === configPath || p === themePath) {
         return { isFile: () => true, size: 128 }
@@ -132,13 +132,13 @@ describe('previewGhosttyImport theme references', () => {
     })
     expect(statMock).toHaveBeenCalledWith(themePath)
     expect(statMock).not.toHaveBeenCalledWith(
-      '/Users/alice/.config/ghostty/themes/Users/alice/themes/work'
+      '/userhome/alice/.config/ghostty/themes/userhome/alice/themes/work'
     )
     expect(result.unsupportedKeys).toEqual([])
   })
 
   it('marks an unresolvable theme as unsupported', async () => {
-    const configPath = '/Users/alice/Library/Application Support/com.mitchellh.ghostty/config'
+    const configPath = '/userhome/alice/Library/Application Support/com.mitchellh.ghostty/config'
     statMock.mockImplementation(async (p: string) => {
       if (p === configPath) {
         return { isFile: () => true, size: 128 }
@@ -154,7 +154,7 @@ describe('previewGhosttyImport theme references', () => {
   })
 
   it('marks light:/dark: theme pairs as unsupported', async () => {
-    const configPath = '/Users/alice/Library/Application Support/com.mitchellh.ghostty/config'
+    const configPath = '/userhome/alice/Library/Application Support/com.mitchellh.ghostty/config'
     statMock.mockImplementation(async (p: string) => {
       if (p === configPath) {
         return { isFile: () => true, size: 128 }

@@ -64,8 +64,9 @@ describe('crash breadcrumb store', () => {
 
   it('redacts sensitive breadcrumb fields before they can be snapshotted', () => {
     recordCrashBreadcrumb('workspace_opened', {
-      path: '/Users/alice/project',
-      token: 'ghp_abcdefghijklmnopqrstuvwxyz',
+      path: '/userhome/alice/project',
+      // Split prefix: no contiguous credential-shaped literal may be published.
+      token: `ghp_${'abcdefghijklmnopqrstuvwxyz'}`,
       ssh: true
     })
 

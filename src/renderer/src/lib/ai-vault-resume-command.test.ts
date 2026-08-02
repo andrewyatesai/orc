@@ -35,7 +35,7 @@ function makeState(args: {
     activeWorktreeId: 'repo-1::worktree-1',
     folderWorkspaces: [],
     projectGroups: [],
-    repos: [{ id: 'repo-1', path: 'C:\\Users\\alice\\repo' }],
+    repos: [{ id: 'repo-1', path: 'C:\\userhome\\alice\\repo' }],
     projects: [
       {
         id: 'repo-1',
@@ -73,7 +73,7 @@ describe('ai vault resume command runtime', () => {
   it('queues a PowerShell-valid command for the default Windows shell', () => {
     // Why: the queued command is typed into the live tab shell (default
     // PowerShell), which mis-parses the cmd `""`-doubled wrapper (#6152).
-    const state = makeState({ worktreePath: 'C:\\Users\\alice\\repo' })
+    const state = makeState({ worktreePath: 'C:\\userhome\\alice\\repo' })
 
     expect(
       buildQueuedAiVaultResumeCommand({
@@ -82,16 +82,16 @@ describe('ai vault resume command runtime', () => {
         session: {
           agent: 'claude',
           sessionId: 'session one',
-          cwd: 'C:\\Users\\alice\\repo',
+          cwd: 'C:\\userhome\\alice\\repo',
           codexHome: null
         }
       })
-    ).toBe("Set-Location -LiteralPath 'C:\\Users\\alice\\repo'; claude '--resume' 'session one'")
+    ).toBe("Set-Location -LiteralPath 'C:\\userhome\\alice\\repo'; claude '--resume' 'session one'")
   })
 
   it('queues direct cmd syntax when the configured Windows shell is cmd.exe', () => {
     const state = makeState({
-      worktreePath: 'C:\\Users\\alice\\repo',
+      worktreePath: 'C:\\userhome\\alice\\repo',
       terminalWindowsShell: 'cmd.exe'
     })
 
@@ -102,16 +102,16 @@ describe('ai vault resume command runtime', () => {
         session: {
           agent: 'claude',
           sessionId: 'session one',
-          cwd: 'C:\\Users\\alice\\repo',
+          cwd: 'C:\\userhome\\alice\\repo',
           codexHome: null
         }
       })
-    ).toBe('cd /d "C:\\Users\\alice\\repo" && claude "--resume" "session one"')
+    ).toBe('cd /d "C:\\userhome\\alice\\repo" && claude "--resume" "session one"')
   })
 
   it('queues a POSIX command for the Git Bash Windows shell', () => {
     const state = makeState({
-      worktreePath: 'C:\\Users\\alice\\repo',
+      worktreePath: 'C:\\userhome\\alice\\repo',
       terminalWindowsShell: 'git-bash'
     })
 
@@ -122,17 +122,17 @@ describe('ai vault resume command runtime', () => {
         session: {
           agent: 'claude',
           sessionId: 'session one',
-          cwd: 'C:\\Users\\alice\\repo',
+          cwd: 'C:\\userhome\\alice\\repo',
           codexHome: null
         }
       })
-    ).toBe("cd 'C:\\Users\\alice\\repo' && claude '--resume' 'session one'")
+    ).toBe("cd 'C:\\userhome\\alice\\repo' && claude '--resume' 'session one'")
   })
 
   it('follows the live Windows shell for non-resumable agents in the fallback path', () => {
     // Why: agents without a TUI startup plan (e.g. cursor) queue through the
     // shared-builder fallback, which must quote for the live shell too (#6152).
-    const state = makeState({ worktreePath: 'C:\\Users\\alice\\repo' })
+    const state = makeState({ worktreePath: 'C:\\userhome\\alice\\repo' })
 
     expect(
       buildQueuedAiVaultResumeCommand({
@@ -141,19 +141,19 @@ describe('ai vault resume command runtime', () => {
         session: {
           agent: 'cursor',
           sessionId: 'session one',
-          cwd: 'C:\\Users\\alice\\repo',
+          cwd: 'C:\\userhome\\alice\\repo',
           codexHome: null
         }
       })
     ).toBe(
-      "Set-Location -LiteralPath 'C:\\Users\\alice\\repo'; cursor-agent --resume 'session one'"
+      "Set-Location -LiteralPath 'C:\\userhome\\alice\\repo'; cursor-agent --resume 'session one'"
     )
   })
 
   it('queues a PowerShell-valid local OMP resume by absolute transcript path', () => {
     // Regression: local rebuilds must forward session.filePath so OMP resumes by
     // path, and queued Windows commands must match the live tab shell.
-    const state = makeState({ worktreePath: 'C:\\Users\\alice\\repo' })
+    const state = makeState({ worktreePath: 'C:\\userhome\\alice\\repo' })
 
     const command = buildQueuedAiVaultResumeCommand({
       state,
@@ -161,21 +161,21 @@ describe('ai vault resume command runtime', () => {
       session: {
         agent: 'omp',
         sessionId: '019f27cd-4268-7000-96e7-62f42a55c144',
-        filePath: 'C:\\Users\\alice\\.omp\\agent\\sessions\\repo\\sess.jsonl',
-        cwd: 'C:\\Users\\alice\\repo',
+        filePath: 'C:\\userhome\\alice\\.omp\\agent\\sessions\\repo\\sess.jsonl',
+        cwd: 'C:\\userhome\\alice\\repo',
         codexHome: null
       }
     })
 
     expect(command).toBe(
-      "Set-Location -LiteralPath 'C:\\Users\\alice\\repo'; omp --resume 'C:\\Users\\alice\\.omp\\agent\\sessions\\repo\\sess.jsonl'"
+      "Set-Location -LiteralPath 'C:\\userhome\\alice\\repo'; omp --resume 'C:\\userhome\\alice\\.omp\\agent\\sessions\\repo\\sess.jsonl'"
     )
     expect(command).not.toContain('019f27cd-4268-7000-96e7-62f42a55c144')
   })
 
   it('queues a direct local OMP resume when cmd.exe is configured', () => {
     const state = makeState({
-      worktreePath: 'C:\\Users\\alice\\repo',
+      worktreePath: 'C:\\userhome\\alice\\repo',
       terminalWindowsShell: 'cmd.exe'
     })
 
@@ -186,13 +186,13 @@ describe('ai vault resume command runtime', () => {
         session: {
           agent: 'omp',
           sessionId: '019f27cd-4268-7000-96e7-62f42a55c144',
-          filePath: 'C:\\Users\\alice\\.omp\\agent\\sessions\\repo\\sess.jsonl',
-          cwd: 'C:\\Users\\alice\\repo',
+          filePath: 'C:\\userhome\\alice\\.omp\\agent\\sessions\\repo\\sess.jsonl',
+          cwd: 'C:\\userhome\\alice\\repo',
           codexHome: null
         }
       })
     ).toBe(
-      'cd /d "C:\\Users\\alice\\repo" && omp --resume "C:\\Users\\alice\\.omp\\agent\\sessions\\repo\\sess.jsonl"'
+      'cd /d "C:\\userhome\\alice\\repo" && omp --resume "C:\\userhome\\alice\\.omp\\agent\\sessions\\repo\\sess.jsonl"'
     )
   })
 
@@ -200,7 +200,7 @@ describe('ai vault resume command runtime', () => {
     // Regression: pi rejects `--session <id>` (#8876), so the provider session
     // must carry filePath as the transcript-path resume locator.
     const state = makeState({
-      worktreePath: 'C:\\Users\\alice\\repo',
+      worktreePath: 'C:\\userhome\\alice\\repo',
       localWindowsRuntimePreference: { kind: 'wsl', distro: 'Ubuntu' }
     })
 
@@ -226,7 +226,7 @@ describe('ai vault resume command runtime', () => {
     // Why: invalid configured CLI args void the startup plan; the fallback must
     // still resume pi by path, never by the bare session id.
     const state = makeState({
-      worktreePath: 'C:\\Users\\alice\\repo',
+      worktreePath: 'C:\\userhome\\alice\\repo',
       localWindowsRuntimePreference: { kind: 'wsl', distro: 'Ubuntu' }
     })
     state.settings = { ...state.settings, agentDefaultArgs: { pi: "'" } } as never
@@ -250,7 +250,7 @@ describe('ai vault resume command runtime', () => {
     // Why: without a transcript path pi has nothing to resume from, so the
     // command must not carry a bare session id the CLI rejects (#8876).
     const state = makeState({
-      worktreePath: 'C:\\Users\\alice\\repo',
+      worktreePath: 'C:\\userhome\\alice\\repo',
       localWindowsRuntimePreference: { kind: 'wsl', distro: 'Ubuntu' }
     })
 
@@ -271,7 +271,7 @@ describe('ai vault resume command runtime', () => {
 
   it('copies syntax that matches the configured cmd shell', () => {
     const state = makeState({
-      worktreePath: 'C:\\Users\\alice\\repo',
+      worktreePath: 'C:\\userhome\\alice\\repo',
       terminalWindowsShell: 'cmd.exe'
     })
 
@@ -282,15 +282,15 @@ describe('ai vault resume command runtime', () => {
         session: {
           agent: 'claude',
           sessionId: 'session one',
-          cwd: 'C:\\Users\\alice\\repo',
+          cwd: 'C:\\userhome\\alice\\repo',
           codexHome: null
         }
       })
-    ).toBe('cd /d "C:\\Users\\alice\\repo" && claude "--resume" "session one"')
+    ).toBe('cd /d "C:\\userhome\\alice\\repo" && claude "--resume" "session one"')
   })
 
   it('copies syntax that matches the configured PowerShell shell', () => {
-    const state = makeState({ worktreePath: 'C:\\Users\\alice\\repo' })
+    const state = makeState({ worktreePath: 'C:\\userhome\\alice\\repo' })
 
     expect(
       buildAiVaultResumeCopyCommandForWorktree({
@@ -299,15 +299,15 @@ describe('ai vault resume command runtime', () => {
         session: {
           agent: 'claude',
           sessionId: 'session one',
-          cwd: 'C:\\Users\\alice\\repo',
+          cwd: 'C:\\userhome\\alice\\repo',
           codexHome: null
         }
       })
-    ).toBe("Set-Location -LiteralPath 'C:\\Users\\alice\\repo'; claude '--resume' 'session one'")
+    ).toBe("Set-Location -LiteralPath 'C:\\userhome\\alice\\repo'; claude '--resume' 'session one'")
   })
 
   it('copies a real-home Codex command that clears inherited homes in PowerShell', () => {
-    const state = makeState({ worktreePath: 'C:\\Users\\alice\\repo' })
+    const state = makeState({ worktreePath: 'C:\\userhome\\alice\\repo' })
 
     expect(
       buildAiVaultResumeCopyCommandForWorktree({
@@ -315,18 +315,18 @@ describe('ai vault resume command runtime', () => {
         session: {
           agent: 'codex',
           sessionId: 'session one',
-          cwd: 'C:\\Users\\alice\\repo',
+          cwd: 'C:\\userhome\\alice\\repo',
           codexHome: null
         }
       })
     ).toBe(
-      "Remove-Item Env:CODEX_HOME -ErrorAction SilentlyContinue; Remove-Item Env:ORCA_CODEX_HOME -ErrorAction SilentlyContinue; Set-Location -LiteralPath 'C:\\Users\\alice\\repo'; codex 'resume' 'session one'"
+      "Remove-Item Env:CODEX_HOME -ErrorAction SilentlyContinue; Remove-Item Env:ORCA_CODEX_HOME -ErrorAction SilentlyContinue; Set-Location -LiteralPath 'C:\\userhome\\alice\\repo'; codex 'resume' 'session one'"
     )
   })
 
   it('copies a real-home Codex command that clears inherited homes in cmd', () => {
     const state = makeState({
-      worktreePath: 'C:\\Users\\alice\\repo',
+      worktreePath: 'C:\\userhome\\alice\\repo',
       terminalWindowsShell: 'cmd.exe'
     })
 
@@ -336,12 +336,12 @@ describe('ai vault resume command runtime', () => {
         session: {
           agent: 'codex',
           sessionId: 'session one',
-          cwd: 'C:\\Users\\alice\\repo',
+          cwd: 'C:\\userhome\\alice\\repo',
           codexHome: null
         }
       })
     ).toBe(
-      'set "CODEX_HOME=" & set "ORCA_CODEX_HOME=" & cd /d "C:\\Users\\alice\\repo" && codex "resume" "session one"'
+      'set "CODEX_HOME=" & set "ORCA_CODEX_HOME=" & cd /d "C:\\userhome\\alice\\repo" && codex "resume" "session one"'
     )
   })
 
@@ -390,7 +390,7 @@ describe('ai vault resume command runtime', () => {
 
   it('uses configured agent defaults for resumable session history entries', () => {
     const state = makeState({
-      worktreePath: 'C:\\Users\\alice\\repo',
+      worktreePath: 'C:\\userhome\\alice\\repo',
       localWindowsRuntimePreference: { kind: 'wsl', distro: 'Ubuntu' }
     })
     state.settings = {
@@ -425,7 +425,7 @@ describe('ai vault resume command runtime', () => {
 
   it('uses POSIX command wrapping for Windows-path projects forced to WSL', () => {
     const state = makeState({
-      worktreePath: 'C:\\Users\\alice\\repo',
+      worktreePath: 'C:\\userhome\\alice\\repo',
       localWindowsRuntimePreference: { kind: 'wsl', distro: 'Ubuntu' }
     })
 
@@ -464,7 +464,7 @@ describe('ai vault resume command runtime', () => {
   })
 
   it('uses POSIX command wrapping for folder workspaces with their own SSH target', () => {
-    const state = makeState({ worktreePath: 'C:\\Users\\alice\\repo' })
+    const state = makeState({ worktreePath: 'C:\\userhome\\alice\\repo' })
     state.activeWorktreeId = 'folder:folder-1'
     state.folderWorkspaces = [
       {
@@ -493,7 +493,7 @@ describe('ai vault resume command runtime', () => {
   })
 
   it('uses POSIX command wrapping for WSL UNC folder workspaces on Windows clients', () => {
-    const state = makeState({ worktreePath: 'C:\\Users\\alice\\repo' })
+    const state = makeState({ worktreePath: 'C:\\userhome\\alice\\repo' })
     state.activeWorktreeId = 'folder:folder-1'
     state.folderWorkspaces = [
       {
@@ -695,16 +695,16 @@ describe('ai vault resume command runtime', () => {
         session: {
           agent: 'codex',
           sessionId: 'session one',
-          cwd: 'C:/Users/alice/repo',
-          codexHome: 'C:/Users/alice/.codex',
+          cwd: 'C:/userhome/alice/repo',
+          codexHome: 'C:/userhome/alice/.codex',
           executionHostId: 'ssh:win-box',
           executionHostPlatform: 'win32',
           resumeCommand:
-            'cmd /d /s /c "cd /d ""C:/Users/alice/repo"" && set ""CODEX_HOME=C:/Users/alice/.codex"" && codex resume ""session one"""'
+            'cmd /d /s /c "cd /d ""C:/userhome/alice/repo"" && set ""CODEX_HOME=C:/userhome/alice/.codex"" && codex resume ""session one"""'
         }
       })
     ).toBe(
-      "Set-Location -LiteralPath 'C:/Users/alice/repo'; $env:CODEX_HOME='C:/Users/alice/.codex'; my-codex 'resume' 'session one'"
+      "Set-Location -LiteralPath 'C:/userhome/alice/repo'; $env:CODEX_HOME='C:/userhome/alice/.codex'; my-codex 'resume' 'session one'"
     )
   })
 

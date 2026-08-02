@@ -5,7 +5,7 @@ import type { Repo } from '../../../shared/types'
 function makeRepo(overrides: Partial<Repo> = {}): Repo {
   return {
     id: 'repo-1',
-    path: '/Users/test/src/orca',
+    path: '/userhome/test/src/orca',
     displayName: 'stablyai/orca',
     badgeColor: '#22c55e',
     addedAt: 0,

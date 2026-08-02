@@ -37,7 +37,7 @@ describe('parseSparsePresetDirectories', () => {
     })
   })
 
-  it.each(['/Users/me/repo/packages/web', 'C:\\repo\\packages\\web', '\\\\server\\share\\repo'])(
+  it.each(['/userhome/me/repo/packages/web', 'C:\\repo\\packages\\web', '\\\\server\\share\\repo'])(
     'rejects absolute directory input before normalization: %s',
     (entry) => {
       expect(parseSparsePresetDirectories(entry)).toEqual({

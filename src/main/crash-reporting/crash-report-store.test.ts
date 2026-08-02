@@ -36,12 +36,12 @@ function input(reason = 'crashed'): CrashReportCreateInput {
     arch: process.arch,
     electronVersion: '41',
     chromeVersion: '141',
-    details: { path: '/Users/alice/project', code: 5 },
+    details: { path: '/userhome/alice/project', code: 5 },
     breadcrumbs: [
       {
         createdAt: '2026-05-16T01:00:00.000Z',
         name: 'workspace_opened',
-        data: { path: '/Users/alice/project', ssh: false }
+        data: { path: '/userhome/alice/project', ssh: false }
       }
     ]
   }

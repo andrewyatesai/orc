@@ -60,10 +60,10 @@ describe('computeRemoteRelayDir agreement', () => {
   })
 
   it('applies Windows segment rules on the windows flavor', () => {
-    expect(computeRemoteRelayDir('C:\\Users\\u', VERSION, 'windows')).toBe(
-      `C:/Users/u/.orca-remote/relay-${VERSION}`
+    expect(computeRemoteRelayDir('C:\\userhome\\u', VERSION, 'windows')).toBe(
+      `C:/userhome/u/.orca-remote/relay-${VERSION}`
     )
-    expect(() => computeRemoteRelayDir('C:\\Users\\u', '0.1.0 ', 'windows')).toThrow(
+    expect(() => computeRemoteRelayDir('C:\\userhome\\u', '0.1.0 ', 'windows')).toThrow(
       'Unsafe remote path segment'
     )
   })
@@ -133,7 +133,7 @@ describe('install directory command', () => {
   })
 
   it('is the plain directory command when no namespace applies', () => {
-    expect(makeRelayInstallDirectoryCommand(WINDOWS, 'C:\\Users\\alice\\relay')).not.toContain(
+    expect(makeRelayInstallDirectoryCommand(WINDOWS, 'C:\\userhome\\alice\\relay')).not.toContain(
       '.sftp-namespace-'
     )
     expect(makeRelayInstallDirectoryCommand(LINUX, SHELL_RELAY_DIR)).not.toContain('touch ')

@@ -69,7 +69,7 @@ describe('enqueueGitHubPRRefresh host guard', () => {
 
   it('enqueues the local handler for a local-host repo', () => {
     const store = createTestStore()
-    seed(store, { id: 'local-1', path: '/Users/me/code/local-1', name: 'local-1', kind: 'git' })
+    seed(store, { id: 'local-1', path: '/userhome/me/code/local-1', name: 'local-1', kind: 'git' })
 
     store.getState().enqueueGitHubPRRefresh('wt-1', 'active', 80)
 
@@ -78,7 +78,7 @@ describe('enqueueGitHubPRRefresh host guard', () => {
 
   it('enqueues the local handler for a known local repo while a runtime is focused', () => {
     const store = createTestStore()
-    seed(store, { id: 'local-1', path: '/Users/me/code/local-1', name: 'local-1', kind: 'git' })
+    seed(store, { id: 'local-1', path: '/userhome/me/code/local-1', name: 'local-1', kind: 'git' })
     store.setState({ settings: { activeRuntimeEnvironmentId: 'env-win' } as never })
 
     store.getState().enqueueGitHubPRRefresh('wt-1', 'active', 80)
@@ -91,7 +91,7 @@ describe('enqueueGitHubPRRefresh host guard', () => {
     const store = createTestStore()
     seed(store, {
       id: 'local-2',
-      path: '/Users/me/code/local-2',
+      path: '/userhome/me/code/local-2',
       name: 'local-2',
       kind: 'git',
       executionHostId: LOCAL_EXECUTION_HOST_ID
@@ -106,7 +106,7 @@ describe('enqueueGitHubPRRefresh host guard', () => {
     const store = createTestStore()
     seed(store, {
       id: 'rt-1',
-      path: '/Users/lobster/orca/workspaces/openclaw/imessage-performance',
+      path: '/userhome/lobster/orca/workspaces/openclaw/imessage-performance',
       name: 'imessage-performance',
       kind: 'git',
       executionHostId: 'runtime:env-1'

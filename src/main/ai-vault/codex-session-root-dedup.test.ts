@@ -6,10 +6,10 @@ import {
 } from './codex-session-root-dedup'
 
 const REAL_HOME_ROLLOUT =
-  '/Users/ada/.codex/sessions/2026/07/01/rollout-2026-07-01T10-00-00-019f0000-1111-7222-8333-444444444444.jsonl'
+  '/userhome/ada/.codex/sessions/2026/07/01/rollout-2026-07-01T10-00-00-019f0000-1111-7222-8333-444444444444.jsonl'
 const MANAGED_HOME_ROLLOUT =
-  '/Users/ada/Library/Application Support/orca/codex-runtime-home/home/sessions/2026/07/01/rollout-2026-07-01T10-00-00-019f0000-1111-7222-8333-444444444444.jsonl'
-const MANAGED_HOME = '/Users/ada/Library/Application Support/orca/codex-runtime-home/home'
+  '/userhome/ada/Library/Application Support/orca/codex-runtime-home/home/sessions/2026/07/01/rollout-2026-07-01T10-00-00-019f0000-1111-7222-8333-444444444444.jsonl'
+const MANAGED_HOME = '/userhome/ada/Library/Application Support/orca/codex-runtime-home/home'
 
 function codexSession(overrides: Partial<AiVaultSession>): AiVaultSession {
   return {
@@ -87,8 +87,8 @@ describe('dedupeCodexRolloutFileAliases', () => {
   it('recognizes the managed runtime home with backslash separators', () => {
     const managed = {
       agent: 'codex',
-      path: 'C:\\Users\\ada\\AppData\\Roaming\\orca\\codex-runtime-home\\home\\sessions\\2026\\07\\01\\rollout-2026-07-01T10-00-00-019f0000-1111-7222-8333-444444444444.jsonl',
-      codexHome: 'C:\\Users\\ada\\AppData\\Roaming\\orca\\codex-runtime-home\\home',
+      path: 'C:\\userhome\\ada\\AppData\\Roaming\\orca\\codex-runtime-home\\home\\sessions\\2026\\07\\01\\rollout-2026-07-01T10-00-00-019f0000-1111-7222-8333-444444444444.jsonl',
+      codexHome: 'C:\\userhome\\ada\\AppData\\Roaming\\orca\\codex-runtime-home\\home',
       hardlinkIdentity: '7:9'
     }
     const custom = {
@@ -104,7 +104,7 @@ describe('dedupeCodexRolloutFileAliases', () => {
     const real = { agent: 'codex', path: REAL_HOME_ROLLOUT, codexHome: null }
     const other = {
       agent: 'codex',
-      path: '/Users/ada/.codex/sessions/2026/07/02/rollout-2026-07-02T09-00-00-029f0000-1111-7222-8333-555555555555.jsonl',
+      path: '/userhome/ada/.codex/sessions/2026/07/02/rollout-2026-07-02T09-00-00-029f0000-1111-7222-8333-555555555555.jsonl',
       codexHome: null
     }
     const oddName = {
@@ -154,7 +154,7 @@ describe('dedupeCodexRolloutFileAliases', () => {
     const rolloutName = REAL_HOME_ROLLOUT.split('/').at(-1)
     const host = {
       agent: 'codex',
-      path: `C:\\Users\\ada\\.codex\\sessions\\${rolloutName}`,
+      path: `C:\\userhome\\ada\\.codex\\sessions\\${rolloutName}`,
       codexHome: null,
       hardlinkIdentity: '1:42'
     }
@@ -171,15 +171,15 @@ describe('dedupeCodexRolloutFileAliases', () => {
   it('prefers a per-account self-contained home over other non-default homes', () => {
     const perAccount = {
       agent: 'codex',
-      path: '/Users/ada/Library/Application Support/orca/codex-accounts/019f0000-aaaa-bbbb/home/sessions/2026/07/01/rollout-2026-07-01T10-00-00-019f0000-1111-7222-8333-444444444444.jsonl',
+      path: '/userhome/ada/Library/Application Support/orca/codex-accounts/019f0000-aaaa-bbbb/home/sessions/2026/07/01/rollout-2026-07-01T10-00-00-019f0000-1111-7222-8333-444444444444.jsonl',
       codexHome:
-        '/Users/ada/Library/Application Support/orca/codex-accounts/019f0000-aaaa-bbbb/home',
+        '/userhome/ada/Library/Application Support/orca/codex-accounts/019f0000-aaaa-bbbb/home',
       hardlinkIdentity: '3:71'
     }
     const custom = {
       agent: 'codex',
-      path: '/Users/ada/custom-codex/sessions/2026/07/01/rollout-2026-07-01T10-00-00-019f0000-1111-7222-8333-444444444444.jsonl',
-      codexHome: '/Users/ada/custom-codex',
+      path: '/userhome/ada/custom-codex/sessions/2026/07/01/rollout-2026-07-01T10-00-00-019f0000-1111-7222-8333-444444444444.jsonl',
+      codexHome: '/userhome/ada/custom-codex',
       hardlinkIdentity: '3:71'
     }
     expect(dedupeCodexRolloutFileAliases([custom, perAccount], accessors)).toEqual([perAccount])
@@ -189,9 +189,9 @@ describe('dedupeCodexRolloutFileAliases', () => {
   it('keeps the real home over a per-account home when they alias', () => {
     const perAccount = {
       agent: 'codex',
-      path: '/Users/ada/Library/Application Support/orca/codex-accounts/019f0000-aaaa-bbbb/home/sessions/2026/07/01/rollout-2026-07-01T10-00-00-019f0000-1111-7222-8333-444444444444.jsonl',
+      path: '/userhome/ada/Library/Application Support/orca/codex-accounts/019f0000-aaaa-bbbb/home/sessions/2026/07/01/rollout-2026-07-01T10-00-00-019f0000-1111-7222-8333-444444444444.jsonl',
       codexHome:
-        '/Users/ada/Library/Application Support/orca/codex-accounts/019f0000-aaaa-bbbb/home',
+        '/userhome/ada/Library/Application Support/orca/codex-accounts/019f0000-aaaa-bbbb/home',
       hardlinkIdentity: '1:42'
     }
     const real = {
@@ -257,14 +257,14 @@ describe('dedupeCodexSessionsBySessionId', () => {
   it('preserves same-host session-id collisions when rollout file names differ', () => {
     const older = codexSession({
       sessionId: 'collision',
-      filePath: '/Users/ada/.codex/sessions/2026/07/01/rollout-old.jsonl',
+      filePath: '/userhome/ada/.codex/sessions/2026/07/01/rollout-old.jsonl',
       codexHome: null,
       updatedAt: '2026-07-01T10:00:00.000Z',
       modifiedAt: '2026-07-01T10:00:00.000Z'
     })
     const newer = codexSession({
       sessionId: 'collision',
-      filePath: '/Users/ada/.codex/sessions/2026/07/02/rollout-new.jsonl',
+      filePath: '/userhome/ada/.codex/sessions/2026/07/02/rollout-new.jsonl',
       codexHome: null,
       updatedAt: '2026-07-02T10:00:00.000Z',
       modifiedAt: '2026-07-02T10:00:00.000Z'
@@ -275,12 +275,12 @@ describe('dedupeCodexSessionsBySessionId', () => {
   it('resolves same-rollout aliases with a stable path tie-break', () => {
     const tieA = codexSession({
       sessionId: 'tie',
-      filePath: '/Users/ada/a/.codex/sessions/2026/07/01/rollout-tie.jsonl',
+      filePath: '/userhome/ada/a/.codex/sessions/2026/07/01/rollout-tie.jsonl',
       codexHome: null
     })
     const tieB = codexSession({
       sessionId: 'tie',
-      filePath: '/Users/ada/b/.codex/sessions/2026/07/01/rollout-tie.jsonl',
+      filePath: '/userhome/ada/b/.codex/sessions/2026/07/01/rollout-tie.jsonl',
       codexHome: null
     })
     expect(dedupeCodexSessionsBySessionId([tieB, tieA])).toEqual([tieA])
@@ -305,7 +305,7 @@ describe('dedupeCodexSessionsBySessionId', () => {
     const rolloutName = REAL_HOME_ROLLOUT.split('/').at(-1)
     const host = codexSession({
       sessionId: 'shared-id',
-      filePath: `C:\\Users\\ada\\.codex\\sessions\\${rolloutName}`,
+      filePath: `C:\\userhome\\ada\\.codex\\sessions\\${rolloutName}`,
       codexHome: null
     })
     const wsl = codexSession({

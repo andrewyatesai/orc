@@ -176,7 +176,7 @@ describe('sparse preset repo IPC handlers', () => {
   })
 
   it.each([
-    '/Users/me/repo/packages/web',
+    '/userhome/me/repo/packages/web',
     'C:\\repo\\packages\\web',
     '\\\\server\\share\\repo',
     '\\repo\\packages\\web'

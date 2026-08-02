@@ -1,4 +1,6 @@
-import type { Plugin } from 'rolldown'
+import type { Plugin } from 'vite'
+
+
 
 // Why: the ~9MB main bundle costs ~80ms of V8 parse+compile before app-ready on
 // every cold launch (measured: vm.Script cold 79ms vs 0.1ms with code cache).

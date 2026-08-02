@@ -33,7 +33,7 @@ describe('repo slice runtime project groups', () => {
     }
     const localOrca: Repo = {
       id: 'local-orca',
-      path: '/Users/alice/stably/orca',
+      path: '/userhome/alice/stably/orca',
       displayName: 'orca',
       badgeColor: '#000',
       addedAt: 1,

@@ -160,16 +160,16 @@ describe('killAllProcessesForWorktree', () => {
     // down to the shared path. An untagged session under that shared path must
     // NOT be swept — it may belong to a sibling workspace or another repo.
     const deletedInstance =
-      'repo-1::/Users/dev/project::workspace:11111111-1111-1111-1111-111111111111'
+      'repo-1::/userhome/dev/project::workspace:11111111-1111-1111-1111-111111111111'
     const siblingInstance =
-      'repo-1::/Users/dev/project::workspace:22222222-2222-2222-2222-222222222222'
+      'repo-1::/userhome/dev/project::workspace:22222222-2222-2222-2222-222222222222'
     const localProvider = createProviderStub(async () => [
       // Untagged session whose cwd is the shared checkout dir (sibling's live agent).
-      { id: 'floating-sibling', cwd: '/Users/dev/project', title: 'shell' },
+      { id: 'floating-sibling', cwd: '/userhome/dev/project', title: 'shell' },
       // Properly tagged session owned by a sibling instance.
       {
         id: `${siblingInstance}@@sib00000`,
-        cwd: '/Users/dev/project',
+        cwd: '/userhome/dev/project',
         title: 'shell',
         worktreeId: siblingInstance
       }
@@ -189,12 +189,12 @@ describe('killAllProcessesForWorktree', () => {
     // The fix disables only the shared-path fallback; exact prefix and
     // authoritative worktreeId matches for THIS instance must still fire.
     const deletedInstance =
-      'repo-1::/Users/dev/project::workspace:11111111-1111-1111-1111-111111111111'
+      'repo-1::/userhome/dev/project::workspace:11111111-1111-1111-1111-111111111111'
     const localProvider = createProviderStub(async () => [
-      { id: `${deletedInstance}@@own00001`, cwd: '/Users/dev/project', title: 'shell' },
+      { id: `${deletedInstance}@@own00001`, cwd: '/userhome/dev/project', title: 'shell' },
       {
         id: 'tagged-own',
-        cwd: '/Users/dev/project',
+        cwd: '/userhome/dev/project',
         title: 'shell',
         worktreeId: deletedInstance
       }
@@ -222,16 +222,21 @@ describe('killAllProcessesForWorktree', () => {
     // prefix + tagged sessions must die; the untagged and tagged sibling sessions
     // on the shared checkout path must survive.
     const deletedInstance =
-      'repo-1::/Users/dev/project::workspace:11111111-1111-1111-1111-111111111111'
+      'repo-1::/userhome/dev/project::workspace:11111111-1111-1111-1111-111111111111'
     const siblingInstance =
-      'repo-1::/Users/dev/project::workspace:22222222-2222-2222-2222-222222222222'
+      'repo-1::/userhome/dev/project::workspace:22222222-2222-2222-2222-222222222222'
     const localProvider = createProviderStub(async () => [
-      { id: `${deletedInstance}@@own00001`, cwd: '/Users/dev/project', title: 'shell' },
-      { id: 'own-tagged', cwd: '/Users/dev/project', title: 'shell', worktreeId: deletedInstance },
-      { id: 'floating-sibling', cwd: '/Users/dev/project', title: 'shell' },
+      { id: `${deletedInstance}@@own00001`, cwd: '/userhome/dev/project', title: 'shell' },
+      {
+        id: 'own-tagged',
+        cwd: '/userhome/dev/project',
+        title: 'shell',
+        worktreeId: deletedInstance
+      },
+      { id: 'floating-sibling', cwd: '/userhome/dev/project', title: 'shell' },
       {
         id: `${siblingInstance}@@sib00000`,
-        cwd: '/Users/dev/project',
+        cwd: '/userhome/dev/project',
         title: 'shell',
         worktreeId: siblingInstance
       }
@@ -503,7 +508,7 @@ describe('killAllProcessesForWorktree', () => {
   })
 
   it('accepts a failed Windows stop when a fresh inventory proves the PTY exited', async () => {
-    const worktreeId = 'repo-1::C:/Users/User/orca/workspaces/repo/feature'
+    const worktreeId = 'repo-1::C:/userhome/User/orca/workspaces/repo/feature'
     const ptyId = `${worktreeId}@@windows-pty`
     const stopTerminalsForWorktree = vi.fn(
       async (
@@ -525,7 +530,7 @@ describe('killAllProcessesForWorktree', () => {
     const localProvider = createProviderStub(async () => {
       inventoryCount += 1
       return inventoryCount === 1
-        ? [{ id: ptyId, cwd: 'C:/Users/User/orca/workspaces/repo/feature', title: 'shell' }]
+        ? [{ id: ptyId, cwd: 'C:/userhome/User/orca/workspaces/repo/feature', title: 'shell' }]
         : []
     })
     ;(localProvider.shutdown as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(

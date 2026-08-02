@@ -153,7 +153,7 @@ describe('useCreateRepo default-checkout handoff', () => {
   })
 
   it('returns the selected parent directory after the local picker applies it', async () => {
-    const pickedDir = '/Users/alice/custom-projects'
+    const pickedDir = '/userhome/alice/custom-projects'
     vi.mocked(window.api.repos.pickDirectory).mockResolvedValue(pickedDir)
     const { useCreateRepo } = await import('./useCreateRepo')
 

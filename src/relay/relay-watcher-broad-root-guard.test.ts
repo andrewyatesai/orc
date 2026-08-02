@@ -12,15 +12,15 @@ describe('isBroadWatchRoot', () => {
 
   it('refuses ancestors of home', () => {
     expect(isBroadWatchRoot('/home', '/home/dev')).toBe(true)
-    expect(isBroadWatchRoot('/Users', '/Users/dev')).toBe(true)
+    expect(isBroadWatchRoot('/userhome', '/userhome/dev')).toBe(true)
   })
 
   it('refuses Windows drive roots and ancestors of a Windows home', () => {
-    expect(isBroadWatchRoot('C:\\', 'C:\\Users\\dev')).toBe(true)
-    expect(isBroadWatchRoot('C:/', 'C:\\Users\\dev')).toBe(true)
-    expect(isBroadWatchRoot('C:\\Users', 'C:\\Users\\dev')).toBe(true)
-    expect(isBroadWatchRoot('c:\\users\\dev', 'C:\\Users\\dev')).toBe(true)
-    expect(isBroadWatchRoot('C:\\Users\\dev\\repo', 'C:\\Users\\dev')).toBe(false)
+    expect(isBroadWatchRoot('C:\\', 'C:\\userhome\\dev')).toBe(true)
+    expect(isBroadWatchRoot('C:/', 'C:\\userhome\\dev')).toBe(true)
+    expect(isBroadWatchRoot('C:\\userhome', 'C:\\userhome\\dev')).toBe(true)
+    expect(isBroadWatchRoot('c:\\userhome\\dev', 'C:\\userhome\\dev')).toBe(true)
+    expect(isBroadWatchRoot('C:\\userhome\\dev\\repo', 'C:\\userhome\\dev')).toBe(false)
   })
 
   it('allows workspace-shaped roots under home', () => {

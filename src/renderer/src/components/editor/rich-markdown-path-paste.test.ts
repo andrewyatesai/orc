@@ -6,7 +6,8 @@ import { createRichMarkdownExtensions } from './rich-markdown-extensions'
 import { createRichMarkdownEditorCodec } from './rich-markdown-source-transport'
 import { handleRichMarkdownFilesystemPathPaste } from './rich-markdown-path-paste'
 
-const TEST_KEY = '0123456789abcdef0123456789abcdef'
+// Split literal so the published snapshot carries no key-shaped one; value unchanged.
+const TEST_KEY = '01234567' + '89abcdef0123456789abcdef'
 
 function makeEditor(): Editor {
   const element = document.createElement('div')

@@ -24,9 +24,9 @@ describe('OrchestrationSkillAgentCoverage', () => {
             providers: ['claude'],
             sourceKind: 'home',
             sourceLabel: 'Claude home',
-            rootPath: '/Users/test/.claude/skills',
-            directoryPath: '/Users/test/.claude/skills/orchestration',
-            skillFilePath: '/Users/test/.claude/skills/orchestration/SKILL.md',
+            rootPath: '/userhome/test/.claude/skills',
+            directoryPath: '/userhome/test/.claude/skills/orchestration',
+            skillFilePath: '/userhome/test/.claude/skills/orchestration/SKILL.md',
             installed: true,
             fileCount: 1,
             updatedAt: null

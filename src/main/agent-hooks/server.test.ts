@@ -5285,7 +5285,7 @@ describe('Droid hook normalization', () => {
         hook_event_name: 'PreToolUse',
         tool_name: 'Edit',
         tool_input: {
-          file_path: '/Users/thebr/.claude/settings.json',
+          file_path: '/userhome/thebr/.claude/settings.json',
           old_str: '"preferredNotifChannel": "terminal_bell"',
           new_str: '"preferredNotifChannel": "none"'
         }
@@ -5302,7 +5302,7 @@ describe('Droid hook normalization', () => {
     expect(result?.payload.state).toBe('waiting')
     expect(result?.payload.prompt).toBe('edit it to none')
     expect(result?.payload.toolName).toBe('Edit')
-    expect(result?.payload.toolInput).toBe('/Users/thebr/.claude/settings.json')
+    expect(result?.payload.toolInput).toBe('/userhome/thebr/.claude/settings.json')
   })
 
   it('SessionStart resets turn caches without marking Droid working', () => {

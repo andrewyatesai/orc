@@ -44,7 +44,7 @@ describe('terminal startup command classifier', () => {
     expect(isKnownTuiAgentTerminalStartupCommand('grok --permission-mode bypassPermissions')).toBe(
       true
     )
-    expect(isKnownTuiAgentTerminalStartupCommand('/Users/me/.grok/bin/grok --resume abc')).toBe(
+    expect(isKnownTuiAgentTerminalStartupCommand('/userhome/me/.grok/bin/grok --resume abc')).toBe(
       true
     )
     expect(isKnownTuiAgentTerminalStartupCommand('/usr/local/bin/not-grok --resume abc')).toBe(

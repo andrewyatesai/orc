@@ -52,14 +52,14 @@ describe('prepareLocalCommitMessageAgentEnv', () => {
 
   it('prefers the original OpenCode config root over inherited PTY overlays', async () => {
     process.env.OPENCODE_CONFIG_DIR = '/tmp/orca-opencode-overlay'
-    process.env.ORCA_OPENCODE_SOURCE_CONFIG_DIR = '/Users/tester/company/opencode'
+    process.env.ORCA_OPENCODE_SOURCE_CONFIG_DIR = '/userhome/tester/company/opencode'
 
     const result = await prepareLocalCommitMessageAgentEnv('opencode', undefined)
 
     expect(result).toEqual({
       ok: true,
       env: expect.objectContaining({
-        OPENCODE_CONFIG_DIR: '/Users/tester/company/opencode'
+        OPENCODE_CONFIG_DIR: '/userhome/tester/company/opencode'
       })
     })
   })
@@ -81,14 +81,14 @@ describe('prepareLocalCommitMessageAgentEnv', () => {
 
   it('prefers the original Pi agent root over inherited PTY overlays', async () => {
     process.env.PI_CODING_AGENT_DIR = '/tmp/orca-pi-overlay'
-    process.env.ORCA_PI_SOURCE_AGENT_DIR = '/Users/tester/.pi/agent'
+    process.env.ORCA_PI_SOURCE_AGENT_DIR = '/userhome/tester/.pi/agent'
 
     const result = await prepareLocalCommitMessageAgentEnv('pi', undefined)
 
     expect(result).toEqual({
       ok: true,
       env: expect.objectContaining({
-        PI_CODING_AGENT_DIR: '/Users/tester/.pi/agent'
+        PI_CODING_AGENT_DIR: '/userhome/tester/.pi/agent'
       })
     })
   })
@@ -113,13 +113,13 @@ describe('prepareLocalCommitMessageAgentEnv', () => {
   it('sets CODEX_HOME for host managed Codex accounts', async () => {
     const result = await prepareLocalCommitMessageAgentEnv('codex', {
       prepareForCodexLaunch: () =>
-        'C:\\Users\\tester\\AppData\\Roaming\\Orca\\codex-accounts\\a\\home'
+        'C:\\userhome\\tester\\AppData\\Roaming\\Orca\\codex-accounts\\a\\home'
     })
 
     expect(result).toEqual({
       ok: true,
       env: expect.objectContaining({
-        CODEX_HOME: 'C:\\Users\\tester\\AppData\\Roaming\\Orca\\codex-accounts\\a\\home'
+        CODEX_HOME: 'C:\\userhome\\tester\\AppData\\Roaming\\Orca\\codex-accounts\\a\\home'
       })
     })
   })
@@ -153,7 +153,7 @@ describe('prepareLocalCommitMessageAgentEnv', () => {
   })
 
   it('does not pass WSL managed Codex homes to host-local commit generation', async () => {
-    process.env.CODEX_HOME = 'C:\\Users\\tester\\.codex'
+    process.env.CODEX_HOME = 'C:\\userhome\\tester\\.codex'
 
     const result = await prepareLocalCommitMessageAgentEnv('codex', {
       prepareForCodexLaunch: () =>
@@ -184,7 +184,7 @@ describe('prepareLocalCommitMessageAgentEnv', () => {
   })
 
   it('does not hydrate host shell config roots for WSL-local commit generation', async () => {
-    process.env.OPENCODE_CONFIG_DIR = 'C:\\Users\\tester\\opencode'
+    process.env.OPENCODE_CONFIG_DIR = 'C:\\userhome\\tester\\opencode'
 
     const result = await prepareLocalCommitMessageAgentEnv('opencode', undefined, {
       runtime: 'wsl',

@@ -546,7 +546,7 @@ pub use zerocopy_derive::KnownLayout;
 //        |               ^^^^^^^^^^ private trait
 //        |
 //   note: the trait `FromZeroes` is defined here
-//       --> /Users/josh/workspace/zerocopy/src/lib.rs:1845:5
+//       --> src/lib.rs:1845:5
 //        |
 //   1845 | use FromZeros as FromZeroes;
 //        |     ^^^^^^^^^^^^^^^^^^^^^^^

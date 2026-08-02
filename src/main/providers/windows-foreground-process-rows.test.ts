@@ -30,7 +30,7 @@ const POWERSHELL_ROWS_JSON = JSON.stringify([
     ProcessId: 200,
     ParentProcessId: 100,
     Name: 'node.exe',
-    CommandLine: 'node C:/Users/dev/AppData/codex/bin/codex.js',
+    CommandLine: 'node C:/userhome/dev/AppData/codex/bin/codex.js',
     ExecutablePath: 'C:/Program Files/nodejs/node.exe'
   }
 ])
@@ -41,7 +41,7 @@ const WMIC_ROWS_VALUE =
   'Name=powershell.exe\n' +
   'ParentProcessId=50\n' +
   'ProcessId=100\n\n' +
-  'CommandLine=node C:/Users/dev/AppData/codex/bin/codex.js\n' +
+  'CommandLine=node C:/userhome/dev/AppData/codex/bin/codex.js\n' +
   'ExecutablePath=C:/Program Files/nodejs/node.exe\n' +
   'Name=node.exe\n' +
   'ParentProcessId=100\n' +

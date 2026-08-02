@@ -859,8 +859,8 @@ describe('LocalPtyProvider', () => {
       Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
       provider.configure({
         buildSpawnEnv: (_id, env) => {
-          env.CODEX_HOME = 'C:\\Users\\jin\\.codex'
-          env.ORCA_CODEX_HOME = 'C:\\Users\\jin\\.codex'
+          env.CODEX_HOME = 'C:\\userhome\\jin\\.codex'
+          env.ORCA_CODEX_HOME = 'C:\\userhome\\jin\\.codex'
           return env
         }
       })
@@ -892,7 +892,7 @@ describe('LocalPtyProvider', () => {
       await provider.spawn({
         cols: 80,
         rows: 24,
-        cwd: 'C:\\Users\\jin\\repo'
+        cwd: 'C:\\userhome\\jin\\repo'
       })
 
       const spawnCall = spawnMock.mock.calls.at(-1)!
@@ -979,8 +979,8 @@ describe('LocalPtyProvider', () => {
       await provider.spawn({
         cols: 80,
         rows: 24,
-        worktreeId: 'repo-1::C:\\Users\\jin\\repo',
-        cwd: 'C:\\Users\\jin\\repo',
+        worktreeId: 'repo-1::C:\\userhome\\jin\\repo',
+        cwd: 'C:\\userhome\\jin\\repo',
         shellOverride: 'wsl.exe',
         terminalWindowsWslDistro: 'Debian'
       })
@@ -993,7 +993,7 @@ describe('LocalPtyProvider', () => {
         '--',
         'sh',
         '-c',
-        expect.stringContaining("cd '/mnt/c/Users/jin/repo'")
+        expect.stringContaining("cd '/mnt/c/userhome/jin/repo'")
       ])
       expect(spawnCall[1][5]).toContain('exec "\\$_orca_wsl_shell" -l')
       expect(spawnCall[2].env.HISTFILE).toContain('terminal-history-wsl/Debian')
@@ -1011,7 +1011,7 @@ describe('LocalPtyProvider', () => {
       await provider.spawn({
         cols: 80,
         rows: 24,
-        cwd: 'C:\\Users\\jin\\repo'
+        cwd: 'C:\\userhome\\jin\\repo'
       })
 
       const spawnCall = spawnMock.mock.calls.at(-1)!
@@ -1032,7 +1032,7 @@ describe('LocalPtyProvider', () => {
       await provider.spawn({
         cols: 80,
         rows: 24,
-        cwd: 'C:\\Users\\jin\\repo'
+        cwd: 'C:\\userhome\\jin\\repo'
       })
 
       const spawnCall = spawnMock.mock.calls.at(-1)!
@@ -1051,7 +1051,7 @@ describe('LocalPtyProvider', () => {
       await provider.spawn({
         cols: 80,
         rows: 24,
-        cwd: 'C:\\Users\\jin\\repo'
+        cwd: 'C:\\userhome\\jin\\repo'
       })
 
       const spawnCall = spawnMock.mock.calls.at(-1)!
@@ -1197,7 +1197,7 @@ describe('LocalPtyProvider', () => {
       Object.defineProperty(process, 'platform', { value: 'win32' })
       delete process.env.USERPROFILE
       process.env.HOMEDRIVE = 'D:'
-      process.env.HOMEPATH = '\\Users\\orca'
+      process.env.HOMEPATH = '\\userhome\\orca'
 
       try {
         await provider.spawn({ cols: 80, rows: 24 })
@@ -1225,7 +1225,7 @@ describe('LocalPtyProvider', () => {
       expect(spawnMock).toHaveBeenCalledWith(
         expect.any(String),
         expect.any(Array),
-        expect.objectContaining({ cwd: 'D:\\Users\\orca' })
+        expect.objectContaining({ cwd: 'D:\\userhome\\orca' })
       )
     })
 
@@ -1265,7 +1265,7 @@ describe('LocalPtyProvider', () => {
         await provider.spawn({
           cols: 80,
           rows: 24,
-          cwd: 'C:\\Users\\jin\\repo'
+          cwd: 'C:\\userhome\\jin\\repo'
         })
       } finally {
         if (platform) {
@@ -1282,7 +1282,7 @@ describe('LocalPtyProvider', () => {
         'C:\\Program Files\\Git\\bin\\bash.exe',
         ['-c', 'chcp.com 65001 >/dev/null 2>&1; exec "$BASH" --login -i'],
         expect.objectContaining({
-          cwd: 'C:\\Users\\jin\\repo',
+          cwd: 'C:\\userhome\\jin\\repo',
           env: expect.objectContaining({
             CHERE_INVOKING: '1',
             PYTHONUTF8: '1'

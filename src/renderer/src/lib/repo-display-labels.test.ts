@@ -47,8 +47,8 @@ describe('getRepoDisplayLabelsByPath', () => {
   it('scopes labels by execution host so same-path repos on different hosts do not collide', () => {
     // Real SSH folder-repo shape: connectionId set, executionHostId unset — so
     // it must fall back to the connection host, not look identical to a local repo.
-    const localRepo = { path: '/Users/alice', displayName: 'alice' }
-    const sshRepo = { path: '/Users/alice', displayName: 'alice-prod', connectionId: 'prod-ssh' }
+    const localRepo = { path: '/userhome/alice', displayName: 'alice' }
+    const sshRepo = { path: '/userhome/alice', displayName: 'alice-prod', connectionId: 'prod-ssh' }
     const labels = getRepoDisplayLabelsByPath([localRepo, sshRepo])
 
     expect(labels.get(getRepoDisplayLabelKey(localRepo))).toBe('alice')
@@ -61,8 +61,8 @@ describe('getRepoDisplayLabelsByPath', () => {
     // and re-sets each entry, so host scoping must survive that pass too — neither
     // host may overwrite the other. Label text can still coincide; that residual is
     // disambiguated by the host section/badge, not this map.
-    const localRepo = { path: '/Users/alice', displayName: 'home' }
-    const sshRepo = { path: '/Users/alice', displayName: 'home', connectionId: 'prod-ssh' }
+    const localRepo = { path: '/userhome/alice', displayName: 'home' }
+    const sshRepo = { path: '/userhome/alice', displayName: 'home', connectionId: 'prod-ssh' }
     const labels = getRepoDisplayLabelsByPath([localRepo, sshRepo])
 
     expect(getRepoDisplayLabelKey(localRepo)).not.toBe(getRepoDisplayLabelKey(sshRepo))

@@ -1,6 +1,8 @@
 import { writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import type { Plugin } from 'rolldown'
+import type { Plugin } from 'vite'
+
+
 
 // Why: when the renderer chunk-budget ratchet fails, the offender is a MODULE,
 // not a chunk — set ORCA_DUMP_CHUNK_MODULES=<dir> to write per-module byte

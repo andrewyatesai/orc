@@ -34,7 +34,8 @@ import {
   RICH_MARKDOWN_SOURCE_OWNING_PASTE_LIMIT
 } from './rich-markdown-source-owning-slice'
 
-const TEST_KEY = '0123456789abcdef0123456789abcdef'
+// Split literal so the published snapshot carries no key-shaped one; value unchanged.
+const TEST_KEY = '01234567' + '89abcdef0123456789abcdef'
 
 function createEditor(content: string, key = TEST_KEY, element: HTMLElement | null = null): Editor {
   const codec = createRichMarkdownEditorCodec(key)

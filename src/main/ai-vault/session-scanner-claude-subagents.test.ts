@@ -225,7 +225,7 @@ describe('listClaudeSubagentSessions', () => {
     const notification =
       '<task-notification>\n<task-id>bigtask</task-id>\n' +
       '<tool-use-id>toolu_01HB57dwUE6hQVK6Mh8jVFHA</tool-use-id>\n' +
-      '<output-file>/private/tmp/claude-501/-Users-me-orca-workspaces-project/' +
+      '<output-file>/private/tmp/agent-scratch-501/-home-me-orca-workspaces-project/' +
       'parent-session/tasks/bigtask.output</output-file>\n' +
       '<status>completed</status>\n<summary>Agent finished</summary>\n</task-notification>'
     expect(notification.indexOf('<status>')).toBeGreaterThan(96)

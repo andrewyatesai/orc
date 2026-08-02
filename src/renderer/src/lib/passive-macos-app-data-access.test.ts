@@ -10,7 +10,7 @@ function pollArgs(
 ): Parameters<typeof shouldPollActiveGitStatus>[0] {
   return {
     activeWorktreeId: 'wt-1',
-    worktreePath: '/Users/me/Library/Containers/com.apple.TextEdit/Data/Documents/repo',
+    worktreePath: '/userhome/me/Library/Containers/com.apple.TextEdit/Data/Documents/repo',
     rightSidebarOpen: false,
     rightSidebarTab: 'explorer' as ActiveRightSidebarTab,
     rightSidebarExplorerView: 'files',
@@ -22,12 +22,12 @@ function pollArgs(
 
 describe('isMacAppDataPath', () => {
   it('detects macOS app container paths on macOS', () => {
-    expect(isMacAppDataPath('/Users/me/Library/Containers/com.app/Data/repo', MAC)).toBe(true)
-    expect(isMacAppDataPath('/Users/me/Library/Group Containers/group.id/repo', MAC)).toBe(true)
+    expect(isMacAppDataPath('/userhome/me/Library/Containers/com.app/Data/repo', MAC)).toBe(true)
+    expect(isMacAppDataPath('/userhome/me/Library/Group Containers/group.id/repo', MAC)).toBe(true)
   })
 
   it('ignores app container-looking paths off macOS', () => {
-    expect(isMacAppDataPath('/Users/me/Library/Containers/com.app/Data/repo', LINUX)).toBe(false)
+    expect(isMacAppDataPath('/userhome/me/Library/Containers/com.app/Data/repo', LINUX)).toBe(false)
   })
 })
 
@@ -60,7 +60,7 @@ describe('shouldPollActiveGitStatus', () => {
     const openFile: OpenFile = {
       id: 'file-1',
       worktreeId: 'wt-1',
-      filePath: '/Users/me/Library/Containers/com.apple.TextEdit/Data/Documents/repo/a.ts',
+      filePath: '/userhome/me/Library/Containers/com.apple.TextEdit/Data/Documents/repo/a.ts',
       relativePath: 'a.ts',
       language: 'typescript',
       isDirty: false,
@@ -78,6 +78,8 @@ describe('shouldPollActiveGitStatus', () => {
   })
 
   it('keeps existing background polling for ordinary paths', () => {
-    expect(shouldPollActiveGitStatus(pollArgs({ worktreePath: '/Users/me/dev/repo' }))).toBe(true)
+    expect(shouldPollActiveGitStatus(pollArgs({ worktreePath: '/userhome/me/dev/repo' }))).toBe(
+      true
+    )
   })
 })

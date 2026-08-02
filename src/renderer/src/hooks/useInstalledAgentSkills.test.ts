@@ -22,9 +22,9 @@ function skill(overrides: Partial<DiscoveredSkill>): DiscoveredSkill {
     providers: ['agent-skills'],
     sourceKind: 'home',
     sourceLabel: 'Agent skills home',
-    rootPath: '/Users/test/.agents/skills',
-    directoryPath: '/Users/test/.agents/skills/example-skill',
-    skillFilePath: '/Users/test/.agents/skills/example-skill/SKILL.md',
+    rootPath: '/userhome/test/.agents/skills',
+    directoryPath: '/userhome/test/.agents/skills/example-skill',
+    skillFilePath: '/userhome/test/.agents/skills/example-skill/SKILL.md',
     installed: true,
     fileCount: 1,
     updatedAt: null,
@@ -65,7 +65,7 @@ describe('hasInstalledAgentSkill', () => {
         [
           skill({
             name: 'Orca CLI',
-            directoryPath: 'C:\\Users\\test\\.agents\\skills\\orca-cli'
+            directoryPath: 'C:\\userhome\\test\\.agents\\skills\\orca-cli'
           })
         ],
         'orca-cli'
@@ -96,9 +96,9 @@ describe('hasInstalledAgentSkill', () => {
             name: 'orca-cli',
             sourceKind: 'plugin',
             sourceLabel: 'Codex plugin cache',
-            rootPath: '/Users/test/.codex/plugins/cache',
-            directoryPath: '/Users/test/.codex/plugins/cache/vendor/orca-cli',
-            skillFilePath: '/Users/test/.codex/plugins/cache/vendor/orca-cli/SKILL.md'
+            rootPath: '/userhome/test/.codex/plugins/cache',
+            directoryPath: '/userhome/test/.codex/plugins/cache/vendor/orca-cli',
+            skillFilePath: '/userhome/test/.codex/plugins/cache/vendor/orca-cli/SKILL.md'
           })
         ],
         'orca-cli',
@@ -130,7 +130,7 @@ describe('hasInstalledAgentSkill', () => {
         [
           skill({
             name: 'Linear Tickets',
-            directoryPath: '/Users/test/.agents/skills/linear-tickets'
+            directoryPath: '/userhome/test/.agents/skills/linear-tickets'
           })
         ],
         ['orca-linear', 'linear-tickets']
@@ -144,7 +144,7 @@ describe('hasInstalledAgentSkill', () => {
         [
           skill({
             name: 'Linear Tickets',
-            directoryPath: 'C:\\Users\\test\\.agents\\skills\\orca-linear'
+            directoryPath: 'C:\\userhome\\test\\.agents\\skills\\orca-linear'
           })
         ],
         ['orca-linear', 'linear-tickets']

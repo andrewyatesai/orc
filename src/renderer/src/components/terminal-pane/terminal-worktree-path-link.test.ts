@@ -81,26 +81,26 @@ describe('resolveKnownWorktreeRootPathLink', () => {
 
   it('matches Windows paths across native and resolved separator styles', () => {
     const state = createState({
-      repo: [{ id: 'wt-1', path: 'C:\\Users\\Alice\\Repo' }]
+      repo: [{ id: 'wt-1', path: 'C:\\userhome\\Alice\\Repo' }]
     })
 
-    expect(resolveKnownWorktreeRootPathLink('C:\\Users\\Alice\\Repo\\', state)?.id).toBe('wt-1')
-    expect(resolveKnownWorktreeRootPathLink('C:/Users/Alice/Repo', state)?.id).toBe('wt-1')
-    expect(resolveKnownWorktreeRootPathLink('C:\\Users\\Alice\\Repo\\src', state)).toBeNull()
-    expect(resolveKnownWorktreeRootPathLink('C:/Users/Alice/Repo/src', state)).toBeNull()
+    expect(resolveKnownWorktreeRootPathLink('C:\\userhome\\Alice\\Repo\\', state)?.id).toBe('wt-1')
+    expect(resolveKnownWorktreeRootPathLink('C:/userhome/Alice/Repo', state)?.id).toBe('wt-1')
+    expect(resolveKnownWorktreeRootPathLink('C:\\userhome\\Alice\\Repo\\src', state)).toBeNull()
+    expect(resolveKnownWorktreeRootPathLink('C:/userhome/Alice/Repo/src', state)).toBeNull()
   })
 
   it('matches Windows and UNC roots case-insensitively without changing POSIX matching', () => {
     const state = createState({
       repo: [
-        { id: 'wt-win', path: 'C:\\Users\\Alice\\Repo' },
+        { id: 'wt-win', path: 'C:\\userhome\\Alice\\Repo' },
         { id: 'wt-unc', path: '\\\\Server\\Share\\Repo' },
-        { id: 'wt-posix', path: '/Users/Alice/Repo' }
+        { id: 'wt-posix', path: '/userhome/Alice/Repo' }
       ]
     })
 
-    expect(resolveKnownWorktreeRootPathLink('c:\\users\\alice\\repo', state)?.id).toBe('wt-win')
+    expect(resolveKnownWorktreeRootPathLink('c:\\userhome\\alice\\repo', state)?.id).toBe('wt-win')
     expect(resolveKnownWorktreeRootPathLink('//server/share/repo', state)?.id).toBe('wt-unc')
-    expect(resolveKnownWorktreeRootPathLink('/users/alice/repo', state)).toBeNull()
+    expect(resolveKnownWorktreeRootPathLink('/userhome/alice/repo', state)).toBeNull()
   })
 })

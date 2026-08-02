@@ -10,7 +10,10 @@ describe('pairing offer', () => {
   const offer: PairingOffer = {
     v: 2,
     endpoint: 'ws://192.168.1.10:6768',
-    deviceToken: 'abcdef1234567890abcdef1234567890abcdef1234567890',
+    // Deliberately deadbeef: the token is echoed inside base64 pairing codes, so a
+    // random-looking one reads as a real credential wherever those codes are stored
+    // (parity goldens included). Keep this and tools/parity/vectors/pairing.json in step.
+    deviceToken: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
     publicKeyB64: 'dGVzdC1wdWJsaWMta2V5LWJhc2U2NC1lbmNvZGVk'
   }
 

@@ -31,7 +31,7 @@ describe('detectInstalledBrowsers — Comet', () => {
     // BEFORE each doMock so the next import() picks up the fresh mock factory.
     vi.resetModules()
     Object.defineProperty(process, 'platform', { value: 'darwin' })
-    process.env.HOME = '/Users/test'
+    process.env.HOME = '/userhome/test'
   })
 
   afterEach(() => {
@@ -182,7 +182,7 @@ describe('detectInstalledBrowsers — Comet', () => {
       {
         family: 'comet',
         label: 'Comet',
-        cookiesPath: '/Users/test/Library/Application Support/Comet/Default/Network/Cookies',
+        cookiesPath: '/userhome/test/Library/Application Support/Comet/Default/Network/Cookies',
         keychainService: 'Comet Safe Storage',
         keychainAccount: 'Comet',
         profiles: [{ name: 'Outside', directory: '../Outside' }],

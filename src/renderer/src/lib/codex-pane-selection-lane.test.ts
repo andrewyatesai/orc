@@ -50,7 +50,7 @@ function laneState(args?: {
         ]
       : [],
     worktreesByRepo: {
-      repo1: [{ id: 'wt1', repoId: 'repo1', path: args?.worktreePath ?? '/Users/dev/code/orca' }]
+      repo1: [{ id: 'wt1', repoId: 'repo1', path: args?.worktreePath ?? '/userhome/dev/code/orca' }]
     }
   } as unknown as LaneState
 }

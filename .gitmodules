@@ -1,7 +1,7 @@
 [submodule "rust/aterm"]
 	path = rust/aterm
 	# Relative on purpose: resolves against this superproject's own remote, so a
-	# dev clone (andrewyatesai) reaches the dev repo where dev pins live
+	# dev clone reaches the dev org's repo where dev pins live
 	# (ef1fba0b02), while a promoted snapshot (alabsystems) resolves to the
 	# public aterm — and no tier's repo slug is hardcoded (d813817920).
 	url = ../aterm.git

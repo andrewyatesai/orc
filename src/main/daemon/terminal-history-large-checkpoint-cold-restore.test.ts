@@ -17,7 +17,7 @@ import { getHistorySessionDirName } from './history-paths'
 // through the real writer, which is what actually decides whether a user sees their scrollback.
 
 const MARKERS = 300
-const SESSION_ID = 'repo-1::/Users/dev/large-scrollback'
+const SESSION_ID = 'repo-1::/userhome/dev/large-scrollback'
 const COLS = 800
 const ROWS = 40
 
@@ -68,7 +68,7 @@ describe('checkpoint-only cold restore of a large checkpoint', () => {
     writeLargeScrollback(emulator, 31_000)
 
     await manager.openSession(SESSION_ID, {
-      cwd: '/Users/dev/large-scrollback',
+      cwd: '/userhome/dev/large-scrollback',
       cols: COLS,
       rows: ROWS
     })
@@ -102,7 +102,7 @@ describe('checkpoint-only cold restore of a large checkpoint', () => {
       const emulator = new HeadlessEmulator({ cols: COLS, rows: ROWS, scrollback: 100_000 })
       writeLargeScrollback(emulator, 50)
       await manager.openSession(SESSION_ID, {
-        cwd: '/Users/dev/large-scrollback',
+        cwd: '/userhome/dev/large-scrollback',
         cols: COLS,
         rows: ROWS
       })

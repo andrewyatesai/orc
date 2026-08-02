@@ -295,7 +295,7 @@ describe('agent_error schema', () => {
     const parsed = eventSchemas.agent_error.safeParse({
       error_class: 'unknown',
       agent_kind: 'claude-code',
-      error_message: 'boom at /Users/alice/secret/path'
+      error_message: 'boom at /userhome/alice/secret/path'
     })
     expect(parsed.success).toBe(false)
   })
@@ -304,7 +304,7 @@ describe('agent_error schema', () => {
     const parsed = eventSchemas.agent_error.safeParse({
       error_class: 'unknown',
       agent_kind: 'claude-code',
-      error_stack: 'Error: boom\n    at /Users/alice/...'
+      error_stack: 'Error: boom\n    at /userhome/alice/...'
     })
     expect(parsed.success).toBe(false)
   })
@@ -367,7 +367,7 @@ describe('daemon_lifecycle schema', () => {
     ]
     for (const base of bases) {
       for (const leak of [
-        { daemon_path: '/Users/alice/Orca.app' },
+        { daemon_path: '/userhome/alice/Orca.app' },
         { daemon_app_version: '1.4.129' },
         { live_session_count: 3 }
       ]) {
@@ -467,7 +467,7 @@ describe('agent_prompt_sent schema', () => {
       agent_kind: 'claude-code',
       launch_source: 'unknown',
       request_kind: 'followup',
-      prompt: 'please inspect /Users/alice/private-repo'
+      prompt: 'please inspect /userhome/alice/private-repo'
     })
     expect(parsed.success).toBe(false)
   })
@@ -530,7 +530,7 @@ describe('add_repo_default_checkout_handoff schema', () => {
       result: 'revealed_project',
       reason: 'no_default_checkout',
       repo_name: 'secret-repo',
-      path: '/Users/alice/secret-repo'
+      path: '/userhome/alice/secret-repo'
     })
     expect(parsed.success).toBe(false)
   })
@@ -560,7 +560,7 @@ describe('workspace_create_failed schema', () => {
     const parsed = eventSchemas.workspace_create_failed.safeParse({
       source: 'sidebar',
       error_class: 'git_failed',
-      error_message: 'fatal: cannot create work tree at /Users/alice/secret'
+      error_message: 'fatal: cannot create work tree at /userhome/alice/secret'
     })
     expect(parsed.success).toBe(false)
   })
@@ -569,7 +569,7 @@ describe('workspace_create_failed schema', () => {
     const parsed = eventSchemas.workspace_create_failed.safeParse({
       source: 'sidebar',
       error_class: 'git_failed',
-      error_stack: 'Error: cannot create work tree\n    at /Users/alice/...'
+      error_stack: 'Error: cannot create work tree\n    at /userhome/alice/...'
     })
     expect(parsed.success).toBe(false)
   })

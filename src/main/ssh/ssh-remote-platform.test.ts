@@ -32,8 +32,13 @@ describe('joinRemotePath', () => {
 
   it('normalizes and joins Windows remote paths with forward slashes for SFTP and Node', () => {
     expect(
-      joinRemotePath(getRemoteHostPlatform('win32-x64'), 'C:\\Users\\me', '.orca-remote', 'relay')
-    ).toBe('C:/Users/me/.orca-remote/relay')
+      joinRemotePath(
+        getRemoteHostPlatform('win32-x64'),
+        'C:\\userhome\\me',
+        '.orca-remote',
+        'relay'
+      )
+    ).toBe('C:/userhome/me/.orca-remote/relay')
   })
 })
 

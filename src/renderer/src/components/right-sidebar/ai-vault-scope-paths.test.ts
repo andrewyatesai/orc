@@ -101,7 +101,7 @@ describe('deriveAiVaultWorkspaceScopePaths', () => {
   it('derives workspace scope paths at scale', () => {
     // Separate from the session-scope guard: a quadratic dedupe reintroduced
     // only in the workspace pass would not surface there.
-    const prefix = '/Users/dev/orca/workspaces/orca-monorepo/feature-'
+    const prefix = '/userhome/dev/orca/workspaces/orca-monorepo/feature-'
     const worktrees = Array.from({ length: 1200 }, (_, i) =>
       makeWorktree({ id: `repo-1::${prefix}${i}`, path: `${prefix}${i}` })
     )
@@ -176,7 +176,7 @@ describe('deriveAiVaultScopeSessionPaths', () => {
     // Path length matters as much as count: normalize() cost scales with it,
     // so short synthetic paths would understate the old shape. ~50 chars
     // matches the real profile this was measured on.
-    const prefix = '/Users/dev/orca/workspaces/orca-monorepo/feature-'
+    const prefix = '/userhome/dev/orca/workspaces/orca-monorepo/feature-'
     const worktrees = Array.from({ length: 1200 }, (_, i) =>
       makeWorktree({ id: `repo-1::${prefix}${i}`, path: `${prefix}${i}` })
     )

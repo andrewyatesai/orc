@@ -29,7 +29,7 @@ describe('detectInstalledBrowsers — Helium', () => {
     // BEFORE each doMock so the next import() picks up the fresh mock factory.
     vi.resetModules()
     Object.defineProperty(process, 'platform', { value: 'darwin' })
-    process.env.HOME = '/Users/test'
+    process.env.HOME = '/userhome/test'
   })
 
   afterEach(() => {
@@ -145,7 +145,7 @@ describe('detectInstalledBrowsers — Helium', () => {
       {
         family: 'helium',
         label: 'Helium',
-        cookiesPath: '/Users/test/Library/Application Support/net.imput.helium/Default/Cookies',
+        cookiesPath: '/userhome/test/Library/Application Support/net.imput.helium/Default/Cookies',
         keychainService: 'Helium Storage Key',
         keychainAccount: 'Helium',
         profiles: [{ name: 'Outside', directory: '../Outside' }],

@@ -7,7 +7,7 @@ describe('classifyCodexTrustGrantError', () => {
   it.each([
     [new CodexAppServerTimeoutError('entry exceeded 20000ms session deadline'), 'timeout'],
     [new Error('spawn codex ENOENT'), 'binary-missing'],
-    [new Error('spawn /Users/ada/.local/bin/codex ENOENT'), 'binary-missing'],
+    [new Error('spawn /userhome/ada/.local/bin/codex ENOENT'), 'binary-missing'],
     [
       new Error(
         `codex app-server exited before completing the session: ${WSL_CODEX_NOT_FOUND_MESSAGE}`

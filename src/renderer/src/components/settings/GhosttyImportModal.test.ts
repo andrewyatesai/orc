@@ -63,7 +63,7 @@ function containsText(node: unknown, search: string): boolean {
 describe('GhosttyImportModal', () => {
   const basePreview: GhosttyImportPreview = {
     found: true,
-    configPath: '/Users/alice/.config/ghostty/config',
+    configPath: '/userhome/alice/.config/ghostty/config',
     diff: { terminalFontSize: 14, terminalFontFamily: 'JetBrains Mono' },
     unsupportedKeys: ['background']
   }
@@ -105,7 +105,7 @@ describe('GhosttyImportModal', () => {
       onOpenChange: () => {},
       preview: {
         found: true,
-        configPath: '/Users/alice/.config/ghostty/config',
+        configPath: '/userhome/alice/.config/ghostty/config',
         diff: { terminalLineHeight: 1.35 },
         unsupportedKeys: []
       },

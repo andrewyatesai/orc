@@ -19,10 +19,10 @@ const baseSession: AiVaultSession = {
   agent: 'claude',
   sessionId: 'session-1',
   title: 'Implement vault filters',
-  cwd: '/Users/ada/repo/app',
+  cwd: '/userhome/ada/repo/app',
   branch: 'feature/vault',
   model: 'claude-sonnet-4-5',
-  filePath: '/Users/ada/.claude/projects/session-1.jsonl',
+  filePath: '/userhome/ada/.claude/projects/session-1.jsonl',
   codexHome: null,
   createdAt: '2026-05-01T10:00:00.000Z',
   updatedAt: '2026-05-01T10:10:00.000Z',
@@ -32,7 +32,7 @@ const baseSession: AiVaultSession = {
   previewMessages: [],
   queuedMessageCount: 0,
   subagentTranscriptCount: 0,
-  resumeCommand: "cd '/Users/ada/repo/app' && claude --resume 'session-1'",
+  resumeCommand: "cd '/userhome/ada/repo/app' && claude --resume 'session-1'",
   subagent: null
 }
 
@@ -46,9 +46,9 @@ describe('filterAiVaultSessions', () => {
         agent: 'codex',
         sessionId: 'session-2',
         title: 'Repair terminal tabs',
-        cwd: '/Users/ada/other/packages/ui',
+        cwd: '/userhome/ada/other/packages/ui',
         branch: 'fix/terminal',
-        filePath: '/Users/ada/.codex/sessions/session-2.jsonl'
+        filePath: '/userhome/ada/.codex/sessions/session-2.jsonl'
       }
     ]
 
@@ -58,7 +58,7 @@ describe('filterAiVaultSessions', () => {
         agents: ['claude'],
         scope: 'workspace',
         sort: 'updated',
-        activeWorktreePaths: ['/Users/ada/repo'],
+        activeWorktreePaths: ['/userhome/ada/repo'],
         hideEmptySessions: true
       }).map((session) => session.id)
     ).toEqual(['claude:1'])
@@ -69,12 +69,12 @@ describe('filterAiVaultSessions', () => {
       {
         ...baseSession,
         id: 'claude:old-path',
-        cwd: '/Users/ada/workspaces/orca/bream/src'
+        cwd: '/userhome/ada/workspaces/orca/bream/src'
       },
       {
         ...baseSession,
         id: 'claude:other-path',
-        cwd: '/Users/ada/workspaces/other/bream'
+        cwd: '/userhome/ada/workspaces/other/bream'
       }
     ]
 
@@ -85,8 +85,8 @@ describe('filterAiVaultSessions', () => {
         scope: 'workspace',
         sort: 'updated',
         activeWorktreePaths: [
-          '/Users/ada/workspaces/orca/fix-agent-history',
-          '/Users/ada/workspaces/orca/bream'
+          '/userhome/ada/workspaces/orca/fix-agent-history',
+          '/userhome/ada/workspaces/orca/bream'
         ],
         hideEmptySessions: true
       }).map((session) => session.id)
@@ -257,7 +257,7 @@ describe('filterAiVaultSessions', () => {
         [
           {
             ...baseSession,
-            cwd: 'C:\\Users\\Ada\\Repo\\App'
+            cwd: 'C:\\userhome\\Ada\\Repo\\App'
           }
         ],
         {
@@ -265,7 +265,7 @@ describe('filterAiVaultSessions', () => {
           agents: ['claude'],
           scope: 'workspace',
           sort: 'updated',
-          activeWorktreePaths: ['c:\\users\\ada\\repo'],
+          activeWorktreePaths: ['c:\\userhome\\ada\\repo'],
           hideEmptySessions: true
         }
       )
@@ -374,73 +374,76 @@ describe('deriveAiVaultWorkspaceScopePaths', () => {
   it('includes current and same-repo prior filesystem paths', () => {
     expect(
       deriveAiVaultWorkspaceScopePaths({
-        id: 'repo1::/Users/ada/workspaces/orca/fix-agent-history',
+        id: 'repo1::/userhome/ada/workspaces/orca/fix-agent-history',
         repoId: 'repo1',
-        path: '/Users/ada/workspaces/orca/fix-agent-history',
-        priorWorktreeIds: ['repo1::/Users/ada/workspaces/orca/bream']
+        path: '/userhome/ada/workspaces/orca/fix-agent-history',
+        priorWorktreeIds: ['repo1::/userhome/ada/workspaces/orca/bream']
       })
-    ).toEqual(['/Users/ada/workspaces/orca/fix-agent-history', '/Users/ada/workspaces/orca/bream'])
+    ).toEqual([
+      '/userhome/ada/workspaces/orca/fix-agent-history',
+      '/userhome/ada/workspaces/orca/bream'
+    ])
   })
 
   it('strips folder-workspace instance suffixes from prior ids', () => {
     expect(
       deriveAiVaultWorkspaceScopePaths({
-        id: 'repo1::/Users/ada/folders/orca',
+        id: 'repo1::/userhome/ada/folders/orca',
         repoId: 'repo1',
-        path: '/Users/ada/folders/orca',
+        path: '/userhome/ada/folders/orca',
         priorWorktreeIds: [
-          'repo1::/Users/ada/folders/old-orca::workspace:123e4567-e89b-12d3-a456-426614174000'
+          'repo1::/userhome/ada/folders/old-orca::workspace:123e4567-e89b-12d3-a456-426614174000'
         ]
       })
-    ).toEqual(['/Users/ada/folders/orca', '/Users/ada/folders/old-orca'])
+    ).toEqual(['/userhome/ada/folders/orca', '/userhome/ada/folders/old-orca'])
   })
 
   it('ignores malformed, different-repo, relative, empty, and duplicate aliases', () => {
     expect(
       deriveAiVaultWorkspaceScopePaths({
-        id: 'repo1::C:\\Users\\Ada\\Repo',
+        id: 'repo1::C:\\userhome\\Ada\\Repo',
         repoId: 'repo1',
-        path: 'C:\\Users\\Ada\\Repo',
+        path: 'C:\\userhome\\Ada\\Repo',
         priorWorktreeIds: [
           'not-a-worktree-id',
-          'repo2::C:\\Users\\Ada\\OldRepo',
+          'repo2::C:\\userhome\\Ada\\OldRepo',
           'repo1::relative/path',
           'repo1::',
-          'repo1::c:\\users\\ada\\repo',
-          'repo1::C:\\Users\\Ada\\OldRepo'
+          'repo1::c:\\userhome\\ada\\repo',
+          'repo1::C:\\userhome\\Ada\\OldRepo'
         ]
       })
-    ).toEqual(['C:\\Users\\Ada\\Repo', 'C:\\Users\\Ada\\OldRepo'])
+    ).toEqual(['C:\\userhome\\Ada\\Repo', 'C:\\userhome\\Ada\\OldRepo'])
   })
 
   it('ignores prior paths claimed by another live worktree in the same repo', () => {
     expect(
       deriveAiVaultWorkspaceScopePaths(
         {
-          id: 'repo1::/Users/ada/workspaces/orca/fix-agent-history',
+          id: 'repo1::/userhome/ada/workspaces/orca/fix-agent-history',
           repoId: 'repo1',
-          path: '/Users/ada/workspaces/orca/fix-agent-history',
+          path: '/userhome/ada/workspaces/orca/fix-agent-history',
           priorWorktreeIds: [
-            'repo1::/Users/ada/workspaces/orca/bream',
-            'repo1::/Users/ada/workspaces/orca/unclaimed-old-path'
+            'repo1::/userhome/ada/workspaces/orca/bream',
+            'repo1::/userhome/ada/workspaces/orca/unclaimed-old-path'
           ]
         },
         [
           {
-            id: 'repo1::/Users/ada/workspaces/orca/fix-agent-history',
+            id: 'repo1::/userhome/ada/workspaces/orca/fix-agent-history',
             repoId: 'repo1',
-            path: '/Users/ada/workspaces/orca/fix-agent-history'
+            path: '/userhome/ada/workspaces/orca/fix-agent-history'
           },
           {
-            id: 'repo1::/Users/ada/workspaces/orca/bream',
+            id: 'repo1::/userhome/ada/workspaces/orca/bream',
             repoId: 'repo1',
-            path: '/Users/ada/workspaces/orca/bream'
+            path: '/userhome/ada/workspaces/orca/bream'
           }
         ]
       )
     ).toEqual([
-      '/Users/ada/workspaces/orca/fix-agent-history',
-      '/Users/ada/workspaces/orca/unclaimed-old-path'
+      '/userhome/ada/workspaces/orca/fix-agent-history',
+      '/userhome/ada/workspaces/orca/unclaimed-old-path'
     ])
   })
 
@@ -448,30 +451,30 @@ describe('deriveAiVaultWorkspaceScopePaths', () => {
     expect(
       deriveAiVaultWorkspaceScopePaths(
         {
-          id: 'repo1::/Users/ada/workspaces/orca/fix-agent-history',
+          id: 'repo1::/userhome/ada/workspaces/orca/fix-agent-history',
           repoId: 'repo1',
-          path: '/Users/ada/workspaces/orca/fix-agent-history',
+          path: '/userhome/ada/workspaces/orca/fix-agent-history',
           priorWorktreeIds: [
-            'repo1::/Users/ada/workspaces/orca/bream',
-            'repo1::/Users/ada/workspaces/orca/unclaimed-old-path'
+            'repo1::/userhome/ada/workspaces/orca/bream',
+            'repo1::/userhome/ada/workspaces/orca/unclaimed-old-path'
           ]
         },
         [
           {
-            id: 'repo1::/Users/ada/workspaces/orca/fix-agent-history',
+            id: 'repo1::/userhome/ada/workspaces/orca/fix-agent-history',
             repoId: 'repo1',
-            path: '/Users/ada/workspaces/orca/fix-agent-history'
+            path: '/userhome/ada/workspaces/orca/fix-agent-history'
           },
           {
-            id: 'repo2::/Users/ada/workspaces/orca/bream',
+            id: 'repo2::/userhome/ada/workspaces/orca/bream',
             repoId: 'repo2',
-            path: '/Users/ada/workspaces/orca/bream'
+            path: '/userhome/ada/workspaces/orca/bream'
           }
         ]
       )
     ).toEqual([
-      '/Users/ada/workspaces/orca/fix-agent-history',
-      '/Users/ada/workspaces/orca/unclaimed-old-path'
+      '/userhome/ada/workspaces/orca/fix-agent-history',
+      '/userhome/ada/workspaces/orca/unclaimed-old-path'
     ])
   })
 })
@@ -481,32 +484,32 @@ describe('deriveAiVaultScopeSessionPaths', () => {
     expect(
       deriveAiVaultScopeSessionPaths(
         {
-          id: 'repo1::/Users/ada/workspaces/orca/fix-agent-history',
+          id: 'repo1::/userhome/ada/workspaces/orca/fix-agent-history',
           repoId: 'repo1',
-          path: '/Users/ada/workspaces/orca/fix-agent-history',
+          path: '/userhome/ada/workspaces/orca/fix-agent-history',
           priorWorktreeIds: []
         },
         [
           {
-            id: 'repo1::/Users/ada/workspaces/orca/fix-agent-history',
+            id: 'repo1::/userhome/ada/workspaces/orca/fix-agent-history',
             repoId: 'repo1',
-            path: '/Users/ada/workspaces/orca/fix-agent-history'
+            path: '/userhome/ada/workspaces/orca/fix-agent-history'
           },
           {
-            id: 'repo1::/Users/ada/workspaces/orca/sibling',
+            id: 'repo1::/userhome/ada/workspaces/orca/sibling',
             repoId: 'repo1',
-            path: '/Users/ada/workspaces/orca/sibling'
+            path: '/userhome/ada/workspaces/orca/sibling'
           },
           {
-            id: 'repo2::/Users/ada/workspaces/other/elsewhere',
+            id: 'repo2::/userhome/ada/workspaces/other/elsewhere',
             repoId: 'repo2',
-            path: '/Users/ada/workspaces/other/elsewhere'
+            path: '/userhome/ada/workspaces/other/elsewhere'
           }
         ]
       )
     ).toEqual([
-      '/Users/ada/workspaces/orca/fix-agent-history',
-      '/Users/ada/workspaces/orca/sibling'
+      '/userhome/ada/workspaces/orca/fix-agent-history',
+      '/userhome/ada/workspaces/orca/sibling'
     ])
   })
 
@@ -518,21 +521,21 @@ describe('deriveAiVaultScopeSessionPaths', () => {
     expect(
       deriveAiVaultScopeSessionPaths(
         {
-          id: 'repo1::/Users/ada/workspaces/orca/app',
+          id: 'repo1::/userhome/ada/workspaces/orca/app',
           repoId: 'repo1',
-          path: '/Users/ada/workspaces/orca/app',
+          path: '/userhome/ada/workspaces/orca/app',
           priorWorktreeIds: []
         },
         [
           {
-            id: 'repo1::/Users/ada/workspaces/orca/app',
+            id: 'repo1::/userhome/ada/workspaces/orca/app',
             repoId: 'repo1',
-            path: '/Users/ada/workspaces/orca/app'
+            path: '/userhome/ada/workspaces/orca/app'
           },
           {
-            id: 'repo2::/Users/ada/workspaces/orca/docs',
+            id: 'repo2::/userhome/ada/workspaces/orca/docs',
             repoId: 'repo2',
-            path: '/Users/ada/workspaces/orca/docs'
+            path: '/userhome/ada/workspaces/orca/docs'
           }
         ],
         {
@@ -555,7 +558,7 @@ describe('deriveAiVaultScopeSessionPaths', () => {
                 hostId: 'local',
                 repoId: 'repo1',
                 displayName: 'App',
-                path: '/Users/ada/workspaces/orca/app',
+                path: '/userhome/ada/workspaces/orca/app',
                 setupState: 'ready',
                 setupMethod: 'imported-existing-folder',
                 createdAt: 1,
@@ -567,7 +570,7 @@ describe('deriveAiVaultScopeSessionPaths', () => {
                 hostId: 'local',
                 repoId: 'repo2',
                 displayName: 'Docs',
-                path: '/Users/ada/workspaces/orca/docs',
+                path: '/userhome/ada/workspaces/orca/docs',
                 setupState: 'ready',
                 setupMethod: 'imported-existing-folder',
                 createdAt: 1,
@@ -577,23 +580,23 @@ describe('deriveAiVaultScopeSessionPaths', () => {
           }
         }
       )
-    ).toEqual(['/Users/ada/workspaces/orca/app', '/Users/ada/workspaces/orca/docs'])
+    ).toEqual(['/userhome/ada/workspaces/orca/app', '/userhome/ada/workspaces/orca/docs'])
   })
 
   it('keeps live worktree paths when another setup shares the repo id', () => {
     expect(
       deriveAiVaultScopeSessionPaths(
         {
-          id: 'repo1::/Users/ada/workspaces/orca/app',
+          id: 'repo1::/userhome/ada/workspaces/orca/app',
           repoId: 'repo1',
-          path: '/Users/ada/workspaces/orca/app',
+          path: '/userhome/ada/workspaces/orca/app',
           priorWorktreeIds: []
         },
         [
           {
-            id: 'repo2::/Users/ada/workspaces/orca/docs-worktree',
+            id: 'repo2::/userhome/ada/workspaces/orca/docs-worktree',
             repoId: 'repo2',
-            path: '/Users/ada/workspaces/orca/docs-worktree'
+            path: '/userhome/ada/workspaces/orca/docs-worktree'
           }
         ],
         {
@@ -616,7 +619,7 @@ describe('deriveAiVaultScopeSessionPaths', () => {
                 hostId: 'local',
                 repoId: 'repo2',
                 displayName: 'Docs',
-                path: '/Users/ada/workspaces/orca/docs',
+                path: '/userhome/ada/workspaces/orca/docs',
                 setupState: 'ready',
                 setupMethod: 'imported-existing-folder',
                 createdAt: 1,
@@ -628,7 +631,7 @@ describe('deriveAiVaultScopeSessionPaths', () => {
                 hostId: 'local',
                 repoId: 'repo2',
                 displayName: 'Other',
-                path: '/Users/ada/workspaces/other',
+                path: '/userhome/ada/workspaces/other',
                 setupState: 'ready',
                 setupMethod: 'imported-existing-folder',
                 createdAt: 1,
@@ -639,9 +642,9 @@ describe('deriveAiVaultScopeSessionPaths', () => {
         }
       )
     ).toEqual([
-      '/Users/ada/workspaces/orca/app',
-      '/Users/ada/workspaces/orca/docs-worktree',
-      '/Users/ada/workspaces/orca/docs'
+      '/userhome/ada/workspaces/orca/app',
+      '/userhome/ada/workspaces/orca/docs-worktree',
+      '/userhome/ada/workspaces/orca/docs'
     ])
   })
 })
@@ -660,11 +663,11 @@ describe('groupAiVaultSessions', () => {
   it('groups by folder or agent without changing session order', () => {
     const sessions: AiVaultSession[] = [
       baseSession,
-      { ...baseSession, id: 'codex:2', agent: 'codex', cwd: '/Users/ada/repo/app' }
+      { ...baseSession, id: 'codex:2', agent: 'codex', cwd: '/userhome/ada/repo/app' }
     ]
 
     expect(groupAiVaultSessions(sessions, 'folder')).toEqual([
-      { key: '/users/ada/repo/app', label: 'repo/app', sessions }
+      { key: '/userhome/ada/repo/app', label: 'repo/app', sessions }
     ])
     expect(groupAiVaultSessions(sessions, 'agent').map((group) => group.label)).toEqual([
       'Claude',
@@ -695,7 +698,7 @@ describe('groupAiVaultSessions', () => {
 
   it('falls back to folder grouping when project metadata is unavailable', () => {
     expect(groupAiVaultSessions([baseSession], 'project')).toEqual([
-      { key: '/users/ada/repo/app', label: 'repo/app', sessions: [baseSession] }
+      { key: '/userhome/ada/repo/app', label: 'repo/app', sessions: [baseSession] }
     ])
   })
 })
@@ -712,6 +715,6 @@ describe('parseVaultQuery', () => {
 
 describe('folderLabel', () => {
   it('uses the last two path segments for compact labels', () => {
-    expect(folderLabel('C:\\Users\\Ada\\repo\\app')).toBe('repo/app')
+    expect(folderLabel('C:\\userhome\\Ada\\repo\\app')).toBe('repo/app')
   })
 })

@@ -60,13 +60,13 @@ describe('quick-open nested worktree excludes', () => {
   })
 
   it('can list files for folder workspaces resolved outside registered repo worktrees', () => {
-    const folderWorkspace = makeWorktree('folder:workspace-1', '/Users/jenkei/test')
+    const folderWorkspace = makeWorktree('folder:workspace-1', '/userhome/jenkei/test')
     const target = getRuntimeFileListTarget(folderWorkspace.id, folderWorkspace.path, [])
 
     expect(target).toEqual({
       canList: true,
       excludeRequest: { paths: [], key: '[]' },
-      worktreePath: '/Users/jenkei/test'
+      worktreePath: '/userhome/jenkei/test'
     })
   })
 })

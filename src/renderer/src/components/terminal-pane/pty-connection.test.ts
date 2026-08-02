@@ -8936,7 +8936,7 @@ describe('connectPanePty', () => {
           providerSession: {
             key: 'session_id',
             id: 'codex-session-1',
-            transcriptPath: '/Users/example/.codex/sessions/2026/07/20/rollout-session.jsonl'
+            transcriptPath: '/userhome/example/.codex/sessions/2026/07/20/rollout-session.jsonl'
           }
         }
       }
@@ -8966,7 +8966,7 @@ describe('connectPanePty', () => {
         resumeProviderSession: {
           key: 'session_id',
           id: 'codex-session-1',
-          transcriptPath: '/Users/example/.codex/sessions/2026/07/20/rollout-session.jsonl'
+          transcriptPath: '/userhome/example/.codex/sessions/2026/07/20/rollout-session.jsonl'
         },
         env: expect.objectContaining({
           ORCA_PANE_KEY: paneKey,
@@ -12004,7 +12004,7 @@ describe('connectPanePty', () => {
       manager as never,
       createDeps({
         isVisibleRef: { current: false },
-        startup: { command: '/Users/me/.grok/bin/grok --permission-mode bypassPermissions' }
+        startup: { command: '/userhome/me/.grok/bin/grok --permission-mode bypassPermissions' }
       }) as never
     )
     await flushAsyncTicks(6)

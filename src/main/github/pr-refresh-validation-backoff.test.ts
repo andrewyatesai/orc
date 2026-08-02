@@ -51,7 +51,7 @@ describe('PR refresh validation backoff', () => {
     notePRRefreshValidationDenial(
       {
         repoId: 'repo-1',
-        repoPath: '/Users/alice/private/project',
+        repoPath: '/userhome/alice/private/project',
         reason: 'repo-path-mismatch'
       },
       0
@@ -68,6 +68,6 @@ describe('PR refresh validation backoff', () => {
       })
     )
     const payload = recordCoalescedCrashBreadcrumbMock.mock.calls[0]?.[0]
-    expect(JSON.stringify(payload)).not.toContain('/Users/alice/private/project')
+    expect(JSON.stringify(payload)).not.toContain('/userhome/alice/private/project')
   })
 })

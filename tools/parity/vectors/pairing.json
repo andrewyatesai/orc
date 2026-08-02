@@ -9,10 +9,10 @@
       "input": {
         "v": 2,
         "endpoint": "ws://192.168.1.10:6768",
-        "deviceToken": "abcdef1234567890abcdef1234567890abcdef1234567890",
+        "deviceToken": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
         "publicKeyB64": "dGVzdC1wdWJsaWMta2V5LWJhc2U2NC1lbmNvZGVk"
       },
-      "expected": "orca://pair?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6ImFiY2RlZjEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkwYWJjZGVmMTIzNDU2Nzg5MCIsInB1YmxpY0tleUI2NCI6ImRHVnpkQzF3ZFdKc2FXTXRhMlY1TFdKaGMyVTJOQzFsYm1OdlpHVmsifQ"
+      "expected": "orca://pair?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6ImRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZiIsInB1YmxpY0tleUI2NCI6ImRHVnpkQzF3ZFdKc2FXTXRhMlY1TFdKaGMyVTJOQzFsYm1OdlpHVmsifQ"
     },
     {
       "function": "encodePairingOffer",
@@ -28,22 +28,22 @@
     {
       "function": "decodePairingOffer",
       "note": "round-trips a full ?code= URL back to the offer",
-      "input": "orca://pair?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6ImFiY2RlZjEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkwYWJjZGVmMTIzNDU2Nzg5MCIsInB1YmxpY0tleUI2NCI6ImRHVnpkQzF3ZFdKc2FXTXRhMlY1TFdKaGMyVTJOQzFsYm1OdlpHVmsifQ",
+      "input": "orca://pair?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6ImRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZiIsInB1YmxpY0tleUI2NCI6ImRHVnpkQzF3ZFdKc2FXTXRhMlY1TFdKaGMyVTJOQzFsYm1OdlpHVmsifQ",
       "expected": {
         "v": 2,
         "endpoint": "ws://192.168.1.10:6768",
-        "deviceToken": "abcdef1234567890abcdef1234567890abcdef1234567890",
+        "deviceToken": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
         "publicKeyB64": "dGVzdC1wdWJsaWMta2V5LWJhc2U2NC1lbmNvZGVk"
       }
     },
     {
       "function": "decodePairingOffer",
       "note": "decodes a legacy #fragment URL",
-      "input": "orca://pair#eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6ImFiY2RlZjEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkwYWJjZGVmMTIzNDU2Nzg5MCIsInB1YmxpY0tleUI2NCI6ImRHVnpkQzF3ZFdKc2FXTXRhMlY1TFdKaGMyVTJOQzFsYm1OdlpHVmsifQ",
+      "input": "orca://pair#eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6ImRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZiIsInB1YmxpY0tleUI2NCI6ImRHVnpkQzF3ZFdKc2FXTXRhMlY1TFdKaGMyVTJOQzFsYm1OdlpHVmsifQ",
       "expected": {
         "v": 2,
         "endpoint": "ws://192.168.1.10:6768",
-        "deviceToken": "abcdef1234567890abcdef1234567890abcdef1234567890",
+        "deviceToken": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
         "publicKeyB64": "dGVzdC1wdWJsaWMta2V5LWJhc2U2NC1lbmNvZGVk"
       }
     },
@@ -62,7 +62,7 @@
     {
       "function": "decodePairingOffer",
       "note": "orca://pairing is outside the exact pair route; throws -> null",
-      "input": "orca://pairing?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6ImFiY2RlZjEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkwYWJjZGVmMTIzNDU2Nzg5MCIsInB1YmxpY0tleUI2NCI6ImRHVnpkQzF3ZFdKc2FXTXRhMlY1TFdKaGMyVTJOQzFsYm1OdlpHVmsifQ",
+      "input": "orca://pairing?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6ImRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZiIsInB1YmxpY0tleUI2NCI6ImRHVnpkQzF3ZFdKc2FXTXRhMlY1TFdKaGMyVTJOQzFsYm1OdlpHVmsifQ",
       "expected": null
     },
     {
@@ -74,7 +74,7 @@
     {
       "function": "decodePairingOffer",
       "note": "payload with wrong version (v=1) fails schema; throws -> null",
-      "input": "orca://pair#eyJ2IjoxLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6ImFiY2RlZjEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkwYWJjZGVmMTIzNDU2Nzg5MCIsInB1YmxpY0tleUI2NCI6ImRHVnpkQzF3ZFdKc2FXTXRhMlY1TFdKaGMyVTJOQzFsYm1OdlpHVmsifQ==",
+      "input": "orca://pair#eyJ2IjoxLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6ImRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZiIsInB1YmxpY0tleUI2NCI6ImRHVnpkQzF3ZFdKc2FXTXRhMlY1TFdKaGMyVTJOQzFsYm1OdlpHVmsifQ==",
       "expected": null
     },
     {
@@ -143,7 +143,7 @@
     {
       "function": "parsePairingCode",
       "note": "orca host with an extra suffix is rejected (returns null)",
-      "input": "orca://pair-extra?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6ImFiY2RlZjEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkwYWJjZGVmMTIzNDU2Nzg5MCIsInB1YmxpY0tleUI2NCI6ImRHVnpkQzF3ZFdKc2FXTXRhMlY1TFdKaGMyVTJOQzFsYm1OdlpHVmsifQ",
+      "input": "orca://pair-extra?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6ImRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZiIsInB1YmxpY0tleUI2NCI6ImRHVnpkQzF3ZFdKc2FXTXRhMlY1TFdKaGMyVTJOQzFsYm1OdlpHVmsifQ",
       "expected": null
     },
     {

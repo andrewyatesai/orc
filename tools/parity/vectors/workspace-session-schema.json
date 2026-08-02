@@ -29,15 +29,15 @@
       "note": "realistic full blob: terminal tabs + split pane layout with buffers, unified tabs/groups/layouts, editor files, browser tabs/pages/history, sleeping agent session",
       "input": {
         "activeRepoId": "repo-orca",
-        "activeWorkspaceKey": "worktree:repo-orca::/Users/dev/orca-wt-main",
-        "activeWorktreeId": "repo-orca::/Users/dev/orca-wt-main",
+        "activeWorkspaceKey": "worktree:repo-orca::/userhome/dev/orca-wt-main",
+        "activeWorktreeId": "repo-orca::/userhome/dev/orca-wt-main",
         "activeTabId": "tab-main",
         "tabsByWorktree": {
-          "repo-orca::/Users/dev/orca-wt-main": [
+          "repo-orca::/userhome/dev/orca-wt-main": [
             {
               "id": "tab-main",
               "ptyId": "pty-11",
-              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
               "title": "zsh",
               "defaultTitle": "Terminal 1",
               "generatedTitle": null,
@@ -48,12 +48,12 @@
               "sortOrder": 0,
               "createdAt": 1751500000000,
               "generation": 2,
-              "startupCwd": "/Users/dev/orca-wt-main"
+              "startupCwd": "/userhome/dev/orca-wt-main"
             },
             {
               "id": "tab-agent",
               "ptyId": null,
-              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
               "title": "claude",
               "generatedTitle": "Fix session schema",
               "customTitle": null,
@@ -117,14 +117,14 @@
           }
         },
         "activeWorktreeIdsOnShutdown": [
-          "repo-orca::/Users/dev/orca-wt-main"
+          "repo-orca::/userhome/dev/orca-wt-main"
         ],
         "openFilesByWorktree": {
-          "repo-orca::/Users/dev/orca-wt-main": [
+          "repo-orca::/userhome/dev/orca-wt-main": [
             {
-              "filePath": "/Users/dev/orca-wt-main/src/shared/types.ts",
+              "filePath": "/userhome/dev/orca-wt-main/src/shared/types.ts",
               "relativePath": "src/shared/types.ts",
-              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
               "language": "typescript",
               "isPreview": false,
               "runtimeEnvironmentId": null,
@@ -133,16 +133,16 @@
           ]
         },
         "activeFileIdByWorktree": {
-          "repo-orca::/Users/dev/orca-wt-main": "/Users/dev/orca-wt-main/src/shared/types.ts"
+          "repo-orca::/userhome/dev/orca-wt-main": "/userhome/dev/orca-wt-main/src/shared/types.ts"
         },
         "markdownFrontmatterVisible": {
-          "/Users/dev/orca-wt-main/README.md": true
+          "/userhome/dev/orca-wt-main/README.md": true
         },
         "browserTabsByWorktree": {
-          "repo-orca::/Users/dev/orca-wt-main": [
+          "repo-orca::/userhome/dev/orca-wt-main": [
             {
               "id": "bw-1",
-              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
               "label": "Preview",
               "sessionProfileId": null,
               "sessionPartition": "persist:orca-profile-default",
@@ -166,7 +166,7 @@
             {
               "id": "pg-1",
               "workspaceId": "bw-1",
-              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
               "url": "http://localhost:5173/",
               "title": "Orca Dev",
               "loading": false,
@@ -185,10 +185,10 @@
           ]
         },
         "activeBrowserTabIdByWorktree": {
-          "repo-orca::/Users/dev/orca-wt-main": "bw-1"
+          "repo-orca::/userhome/dev/orca-wt-main": "bw-1"
         },
         "activeTabTypeByWorktree": {
-          "repo-orca::/Users/dev/orca-wt-main": "terminal"
+          "repo-orca::/userhome/dev/orca-wt-main": "terminal"
         },
         "browserUrlHistory": [
           {
@@ -207,15 +207,15 @@
           }
         ],
         "activeTabIdByWorktree": {
-          "repo-orca::/Users/dev/orca-wt-main": "tab-main"
+          "repo-orca::/userhome/dev/orca-wt-main": "tab-main"
         },
         "unifiedTabs": {
-          "repo-orca::/Users/dev/orca-wt-main": [
+          "repo-orca::/userhome/dev/orca-wt-main": [
             {
               "id": "tab-main",
               "entityId": "term-entity-1",
               "groupId": "group-1",
-              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
               "contentType": "terminal",
               "label": "zsh",
               "generatedLabel": null,
@@ -232,7 +232,7 @@
               "id": "tab-agent",
               "entityId": "term-entity-2",
               "groupId": "group-1",
-              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
               "contentType": "terminal",
               "label": "claude",
               "generatedLabel": "Fix session schema",
@@ -244,9 +244,9 @@
             },
             {
               "id": "tab-editor",
-              "entityId": "/Users/dev/orca-wt-main/src/shared/types.ts",
+              "entityId": "/userhome/dev/orca-wt-main/src/shared/types.ts",
               "groupId": "group-2",
-              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
               "contentType": "editor",
               "label": "types.ts",
               "customLabel": null,
@@ -258,10 +258,10 @@
           ]
         },
         "tabGroups": {
-          "repo-orca::/Users/dev/orca-wt-main": [
+          "repo-orca::/userhome/dev/orca-wt-main": [
             {
               "id": "group-1",
-              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
               "activeTabId": "tab-main",
               "tabOrder": [
                 "tab-main",
@@ -273,7 +273,7 @@
             },
             {
               "id": "group-2",
-              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
               "activeTabId": "tab-editor",
               "tabOrder": [
                 "tab-editor"
@@ -282,7 +282,7 @@
           ]
         },
         "tabGroupLayouts": {
-          "repo-orca::/Users/dev/orca-wt-main": {
+          "repo-orca::/userhome/dev/orca-wt-main": {
             "type": "split",
             "direction": "horizontal",
             "first": {
@@ -297,7 +297,7 @@
           }
         },
         "activeGroupIdByWorktree": {
-          "repo-orca::/Users/dev/orca-wt-main": "group-1"
+          "repo-orca::/userhome/dev/orca-wt-main": "group-1"
         },
         "activeConnectionIdsAtShutdown": [
           "conn-local"
@@ -306,16 +306,16 @@
           "tab-agent": "remote-sess-9"
         },
         "lastVisitedAtByWorktreeId": {
-          "repo-orca::/Users/dev/orca-wt-main": 1751500300000
+          "repo-orca::/userhome/dev/orca-wt-main": 1751500300000
         },
         "defaultTerminalTabsAppliedByWorktreeId": {
-          "repo-orca::/Users/dev/orca-wt-main": true
+          "repo-orca::/userhome/dev/orca-wt-main": true
         },
         "sleepingAgentSessionsByPaneKey": {
           "tab-agent__leaf-d": {
             "paneKey": "tab-agent__leaf-d",
             "tabId": "tab-agent",
-            "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+            "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
             "agent": "codex",
             "providerSession": {
               "key": "session_id",
@@ -344,15 +344,15 @@
         "ok": true,
         "value": {
           "activeRepoId": "repo-orca",
-          "activeWorkspaceKey": "worktree:repo-orca::/Users/dev/orca-wt-main",
-          "activeWorktreeId": "repo-orca::/Users/dev/orca-wt-main",
+          "activeWorkspaceKey": "worktree:repo-orca::/userhome/dev/orca-wt-main",
+          "activeWorktreeId": "repo-orca::/userhome/dev/orca-wt-main",
           "activeTabId": "tab-main",
           "tabsByWorktree": {
-            "repo-orca::/Users/dev/orca-wt-main": [
+            "repo-orca::/userhome/dev/orca-wt-main": [
               {
                 "id": "tab-main",
                 "ptyId": "pty-11",
-                "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+                "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
                 "title": "zsh",
                 "defaultTitle": "Terminal 1",
                 "generatedTitle": null,
@@ -363,12 +363,12 @@
                 "sortOrder": 0,
                 "createdAt": 1751500000000,
                 "generation": 2,
-                "startupCwd": "/Users/dev/orca-wt-main"
+                "startupCwd": "/userhome/dev/orca-wt-main"
               },
               {
                 "id": "tab-agent",
                 "ptyId": null,
-                "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+                "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
                 "title": "claude",
                 "generatedTitle": "Fix session schema",
                 "customTitle": null,
@@ -432,14 +432,14 @@
             }
           },
           "activeWorktreeIdsOnShutdown": [
-            "repo-orca::/Users/dev/orca-wt-main"
+            "repo-orca::/userhome/dev/orca-wt-main"
           ],
           "openFilesByWorktree": {
-            "repo-orca::/Users/dev/orca-wt-main": [
+            "repo-orca::/userhome/dev/orca-wt-main": [
               {
-                "filePath": "/Users/dev/orca-wt-main/src/shared/types.ts",
+                "filePath": "/userhome/dev/orca-wt-main/src/shared/types.ts",
                 "relativePath": "src/shared/types.ts",
-                "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+                "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
                 "language": "typescript",
                 "isPreview": false,
                 "runtimeEnvironmentId": null,
@@ -448,16 +448,16 @@
             ]
           },
           "activeFileIdByWorktree": {
-            "repo-orca::/Users/dev/orca-wt-main": "/Users/dev/orca-wt-main/src/shared/types.ts"
+            "repo-orca::/userhome/dev/orca-wt-main": "/userhome/dev/orca-wt-main/src/shared/types.ts"
           },
           "markdownFrontmatterVisible": {
-            "/Users/dev/orca-wt-main/README.md": true
+            "/userhome/dev/orca-wt-main/README.md": true
           },
           "browserTabsByWorktree": {
-            "repo-orca::/Users/dev/orca-wt-main": [
+            "repo-orca::/userhome/dev/orca-wt-main": [
               {
                 "id": "bw-1",
-                "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+                "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
                 "label": "Preview",
                 "sessionProfileId": null,
                 "sessionPartition": "persist:orca-profile-default",
@@ -481,7 +481,7 @@
               {
                 "id": "pg-1",
                 "workspaceId": "bw-1",
-                "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+                "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
                 "url": "http://localhost:5173/",
                 "title": "Orca Dev",
                 "loading": false,
@@ -500,10 +500,10 @@
             ]
           },
           "activeBrowserTabIdByWorktree": {
-            "repo-orca::/Users/dev/orca-wt-main": "bw-1"
+            "repo-orca::/userhome/dev/orca-wt-main": "bw-1"
           },
           "activeTabTypeByWorktree": {
-            "repo-orca::/Users/dev/orca-wt-main": "terminal"
+            "repo-orca::/userhome/dev/orca-wt-main": "terminal"
           },
           "browserUrlHistory": [
             {
@@ -522,15 +522,15 @@
             }
           ],
           "activeTabIdByWorktree": {
-            "repo-orca::/Users/dev/orca-wt-main": "tab-main"
+            "repo-orca::/userhome/dev/orca-wt-main": "tab-main"
           },
           "unifiedTabs": {
-            "repo-orca::/Users/dev/orca-wt-main": [
+            "repo-orca::/userhome/dev/orca-wt-main": [
               {
                 "id": "tab-main",
                 "entityId": "term-entity-1",
                 "groupId": "group-1",
-                "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+                "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
                 "contentType": "terminal",
                 "label": "zsh",
                 "generatedLabel": null,
@@ -547,7 +547,7 @@
                 "id": "tab-agent",
                 "entityId": "term-entity-2",
                 "groupId": "group-1",
-                "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+                "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
                 "contentType": "terminal",
                 "label": "claude",
                 "generatedLabel": "Fix session schema",
@@ -559,9 +559,9 @@
               },
               {
                 "id": "tab-editor",
-                "entityId": "/Users/dev/orca-wt-main/src/shared/types.ts",
+                "entityId": "/userhome/dev/orca-wt-main/src/shared/types.ts",
                 "groupId": "group-2",
-                "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+                "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
                 "contentType": "editor",
                 "label": "types.ts",
                 "customLabel": null,
@@ -573,10 +573,10 @@
             ]
           },
           "tabGroups": {
-            "repo-orca::/Users/dev/orca-wt-main": [
+            "repo-orca::/userhome/dev/orca-wt-main": [
               {
                 "id": "group-1",
-                "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+                "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
                 "activeTabId": "tab-main",
                 "tabOrder": [
                   "tab-main",
@@ -588,7 +588,7 @@
               },
               {
                 "id": "group-2",
-                "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+                "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
                 "activeTabId": "tab-editor",
                 "tabOrder": [
                   "tab-editor"
@@ -597,7 +597,7 @@
             ]
           },
           "tabGroupLayouts": {
-            "repo-orca::/Users/dev/orca-wt-main": {
+            "repo-orca::/userhome/dev/orca-wt-main": {
               "type": "split",
               "direction": "horizontal",
               "first": {
@@ -612,7 +612,7 @@
             }
           },
           "activeGroupIdByWorktree": {
-            "repo-orca::/Users/dev/orca-wt-main": "group-1"
+            "repo-orca::/userhome/dev/orca-wt-main": "group-1"
           },
           "activeConnectionIdsAtShutdown": [
             "conn-local"
@@ -621,16 +621,16 @@
             "tab-agent": "remote-sess-9"
           },
           "lastVisitedAtByWorktreeId": {
-            "repo-orca::/Users/dev/orca-wt-main": 1751500300000
+            "repo-orca::/userhome/dev/orca-wt-main": 1751500300000
           },
           "defaultTerminalTabsAppliedByWorktreeId": {
-            "repo-orca::/Users/dev/orca-wt-main": true
+            "repo-orca::/userhome/dev/orca-wt-main": true
           },
           "sleepingAgentSessionsByPaneKey": {
             "tab-agent__leaf-d": {
               "paneKey": "tab-agent__leaf-d",
               "tabId": "tab-agent",
-              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "worktreeId": "repo-orca::/userhome/dev/orca-wt-main",
               "agent": "codex",
               "providerSession": {
                 "key": "session_id",
@@ -1626,7 +1626,7 @@
     },
     {
       "function": "parseWorkspaceSession",
-      "note": "browserUrlHistory url normalization: file:///Users/me/notes.md",
+      "note": "browserUrlHistory url normalization: file:///userhome/me/notes.md",
       "input": {
         "activeRepoId": null,
         "activeWorktreeId": null,
@@ -1635,7 +1635,7 @@
         "terminalLayoutsByTabId": {},
         "browserUrlHistory": [
           {
-            "url": "file:///Users/me/notes.md",
+            "url": "file:///userhome/me/notes.md",
             "normalizedUrl": "stale",
             "title": "t13",
             "lastVisitedAt": 1013,
@@ -1653,8 +1653,8 @@
           "terminalLayoutsByTabId": {},
           "browserUrlHistory": [
             {
-              "url": "file:///Users/me/notes.md",
-              "normalizedUrl": "file:///Users/me/notes.md",
+              "url": "file:///userhome/me/notes.md",
+              "normalizedUrl": "file:///userhome/me/notes.md",
               "title": "t13",
               "lastVisitedAt": 1013,
               "visitCount": 1

@@ -28,21 +28,21 @@ describe('resolveTrustedCodexSessionResumeHome', () => {
   it('returns the trusted home containing a persisted rollout', () => {
     expect(
       resolveTrustedCodexSessionResumeHome({
-        transcriptPath: '/Users/example/.codex/sessions/2026/07/20/rollout-session.jsonl',
-        trustedCodexHomes: ['/managed/account/home', '/Users/example/.codex'],
+        transcriptPath: '/userhome/example/.codex/sessions/2026/07/20/rollout-session.jsonl',
+        trustedCodexHomes: ['/managed/account/home', '/userhome/example/.codex'],
         fileIsRegular: () => true
       })
-    ).toBe('/Users/example/.codex')
+    ).toBe('/userhome/example/.codex')
   })
 
   it('accepts Windows paths case-insensitively', () => {
     expect(
       resolveTrustedCodexSessionResumeHome({
-        transcriptPath: 'C:\\Users\\Example\\.codex\\sessions\\2026\\07\\20\\rollout-a.jsonl',
-        trustedCodexHomes: ['c:\\users\\example\\.codex'],
+        transcriptPath: 'C:\\userhome\\Example\\.codex\\sessions\\2026\\07\\20\\rollout-a.jsonl',
+        trustedCodexHomes: ['c:\\userhome\\example\\.codex'],
         fileIsRegular: () => true
       })
-    ).toBe('c:\\users\\example\\.codex')
+    ).toBe('c:\\userhome\\example\\.codex')
   })
 
   it('rejects paths outside trusted homes or outside the rollout layout', () => {
@@ -50,22 +50,22 @@ describe('resolveTrustedCodexSessionResumeHome', () => {
     expect(
       resolveTrustedCodexSessionResumeHome({
         transcriptPath: '/tmp/sessions/2026/07/20/rollout-a.jsonl',
-        trustedCodexHomes: ['/Users/example/.codex'],
+        trustedCodexHomes: ['/userhome/example/.codex'],
         fileIsRegular
       })
     ).toBeNull()
     expect(
       resolveTrustedCodexSessionResumeHome({
-        transcriptPath: '/Users/example/.codex/sessions/index.jsonl',
-        trustedCodexHomes: ['/Users/example/.codex'],
+        transcriptPath: '/userhome/example/.codex/sessions/index.jsonl',
+        trustedCodexHomes: ['/userhome/example/.codex'],
         fileIsRegular
       })
     ).toBeNull()
     expect(
       resolveTrustedCodexSessionResumeHome({
         transcriptPath:
-          '/Users/example/.codex/sessions/2026/07/20/rollout-a/../../../../outside.jsonl',
-        trustedCodexHomes: ['/Users/example/.codex'],
+          '/userhome/example/.codex/sessions/2026/07/20/rollout-a/../../../../outside.jsonl',
+        trustedCodexHomes: ['/userhome/example/.codex'],
         fileIsRegular
       })
     ).toBeNull()
@@ -75,8 +75,8 @@ describe('resolveTrustedCodexSessionResumeHome', () => {
   it('rejects a trusted-looking path when the rollout no longer exists', () => {
     expect(
       resolveTrustedCodexSessionResumeHome({
-        transcriptPath: '/Users/example/.codex/sessions/2026/07/20/rollout-a.jsonl',
-        trustedCodexHomes: ['/Users/example/.codex'],
+        transcriptPath: '/userhome/example/.codex/sessions/2026/07/20/rollout-a.jsonl',
+        trustedCodexHomes: ['/userhome/example/.codex'],
         fileIsRegular: () => false
       })
     ).toBeNull()
@@ -179,7 +179,7 @@ describe('resolveTrustedCodexSessionResumeHome', () => {
       findTrustedCodexSessionResume({
         sessionId,
         transcriptPath: undefined,
-        trustedCodexHomes: ['/Users/example/.codex', '/managed/account/home'],
+        trustedCodexHomes: ['/userhome/example/.codex', '/managed/account/home'],
         ...withoutHomeRanking,
         listSessionFiles
       })
@@ -233,7 +233,7 @@ describe('resolveTrustedCodexSessionResumeHome', () => {
       findTrustedCodexSessionResume({
         sessionId: '../session',
         transcriptPath: undefined,
-        trustedCodexHomes: ['/Users/example/.codex'],
+        trustedCodexHomes: ['/userhome/example/.codex'],
         ...withoutHomeRanking,
         listSessionFiles
       })
@@ -243,7 +243,7 @@ describe('resolveTrustedCodexSessionResumeHome', () => {
 
 describe('findTrustedCodexSessionResume legacy-rescan home ranking', () => {
   const sessionId = '019f81b9-19a9-7651-a8d1-352d9420bd11'
-  const systemHome = join('/Users', 'example', '.codex')
+  const systemHome = join('/userhome', 'example', '.codex')
   const sharedMirror = join('/userData', 'codex-runtime-home', 'home')
   const accountAHome = join('/userData', 'codex-accounts', 'account-a', 'home')
   const accountBHome = join('/userData', 'codex-accounts', 'account-b', 'home')
@@ -299,7 +299,7 @@ describe('findTrustedCodexSessionResume legacy-rescan home ranking', () => {
     ).resolves.toEqual({ homePath: systemHome, transcriptPath: rolloutIn(systemHome) })
   })
 
-  // Why: `/Users/…` already wins the tier-3 byte order, so the case above cannot tell the
+  // Why: `/userhome/…` already wins the tier-3 byte order, so the case above cannot tell the
   // system-home tier apart from the path tie-break. Pin it with a home that sorts last.
   it('ranks the real system home above the others even when its path sorts last', async () => {
     const lateSortingSystemHome = join('/var', 'lib', 'orca', '.codex')
@@ -358,7 +358,7 @@ describe('findTrustedCodexSessionResume legacy-rescan home ranking', () => {
   })
 
   it('ranks Windows homes case-insensitively and keeps the caller path spelling', async () => {
-    const windowsRoot = 'C:\\Users\\Example'
+    const windowsRoot = 'C:\\userhome\\Example'
     const windowsSystemHome = `${windowsRoot}\\.codex`
     const windowsAccountAHome = `${windowsRoot}\\AppData\\Roaming\\Orca\\codex-accounts\\a\\home`
     const windowsAccountBHome = `${windowsRoot}\\AppData\\Roaming\\Orca\\codex-accounts\\b\\home`
@@ -423,19 +423,19 @@ describe('findTrustedCodexSessionResume legacy-rescan home ranking', () => {
 describe('claimsCodexRolloutLayout', () => {
   it('is true for a rollout path even if the file is missing', () => {
     expect(
-      claimsCodexRolloutLayout('/Users/example/.codex/sessions/2026/07/20/rollout-session.jsonl')
+      claimsCodexRolloutLayout('/userhome/example/.codex/sessions/2026/07/20/rollout-session.jsonl')
     ).toBe(true)
   })
 
   it('is true for compressed rollouts and Windows-separated paths', () => {
     expect(
       claimsCodexRolloutLayout(
-        '/Users/example/.codex/sessions/2026/07/20/rollout-session.jsonl.zst'
+        '/userhome/example/.codex/sessions/2026/07/20/rollout-session.jsonl.zst'
       )
     ).toBe(true)
     expect(
       claimsCodexRolloutLayout(
-        'C:\\Users\\example\\.codex\\sessions\\2026\\07\\20\\rollout-session.jsonl'
+        'C:\\userhome\\example\\.codex\\sessions\\2026\\07\\20\\rollout-session.jsonl'
       )
     ).toBe(true)
   })
@@ -449,7 +449,7 @@ describe('claimsCodexRolloutLayout', () => {
   it('is false for Claude (or other non-Codex) transcript paths', () => {
     expect(
       claimsCodexRolloutLayout(
-        '/Users/example/.claude/projects/-Users-example-repo/019f81b9-19a9-7651-a8d1-352d9420bd11.jsonl'
+        '/userhome/example/.claude/projects/-userhome-example-repo/019f81b9-19a9-7651-a8d1-352d9420bd11.jsonl'
       )
     ).toBe(false)
   })
@@ -457,9 +457,13 @@ describe('claimsCodexRolloutLayout', () => {
   it('is false for empty provenance and JSONL misplaced inside a sessions root', () => {
     expect(claimsCodexRolloutLayout(undefined)).toBe(false)
     expect(claimsCodexRolloutLayout('   ')).toBe(false)
-    expect(claimsCodexRolloutLayout('/Users/example/.codex/sessions/rollout-a.jsonl')).toBe(false)
+    expect(claimsCodexRolloutLayout('/userhome/example/.codex/sessions/rollout-a.jsonl')).toBe(
+      false
+    )
     expect(
-      claimsCodexRolloutLayout('/Users/example/.codex/sessions/2026/07/20/nested/rollout-a.jsonl')
+      claimsCodexRolloutLayout(
+        '/userhome/example/.codex/sessions/2026/07/20/nested/rollout-a.jsonl'
+      )
     ).toBe(false)
   })
 })
@@ -521,8 +525,8 @@ describe('resolveCodexSessionResumeProvenance', () => {
     await expect(
       resolveCodexSessionResumeProvenance({
         sessionId: '019f81b9-19a9-7651-a8d1-352d9420bd11',
-        transcriptPath: '/Users/example/.claude/projects/repo/019f81b9.jsonl',
-        trustedCodexHomes: ['/Users/example/.codex'],
+        transcriptPath: '/userhome/example/.claude/projects/repo/019f81b9.jsonl',
+        trustedCodexHomes: ['/userhome/example/.codex'],
         ...withoutHomeRanking
       })
     ).resolves.toEqual({ outcome: 'fresh', claimedCodexProvenance: false })
@@ -532,8 +536,8 @@ describe('resolveCodexSessionResumeProvenance', () => {
     await expect(
       resolveCodexSessionResumeProvenance({
         sessionId: '019f81b9-19a9-7651-a8d1-352d9420bd11',
-        transcriptPath: '/Users/example/.codex/sessions/2026/07/20/rollout-gone.jsonl',
-        trustedCodexHomes: ['/Users/example/.codex'],
+        transcriptPath: '/userhome/example/.codex/sessions/2026/07/20/rollout-gone.jsonl',
+        trustedCodexHomes: ['/userhome/example/.codex'],
         ...withoutHomeRanking,
         fileIsRegular: () => false
       })

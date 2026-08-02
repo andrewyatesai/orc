@@ -4,7 +4,7 @@
 // `[CLAUDE.md](http://CLAUDE.md)` (the directory is lost, the URL is malformed).
 // These detectors let the paste handler keep such content as plain text.
 
-// Windows drive-letter absolute path, e.g. C:\Users\me\CLAUDE.md or C:/Users/me.
+// Windows drive-letter absolute path, e.g. C:\Users\me\CLAUDE.md (either separator).
 const WINDOWS_DRIVE_PATH = /^[a-zA-Z]:[\\/]/
 // UNC path, e.g. \\server\share\file.
 const WINDOWS_UNC_PATH = /^\\\\[^\\/]/

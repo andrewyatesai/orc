@@ -514,7 +514,7 @@ describe('Store', () => {
       repos: [
         makeRepo({
           id: 'local-repo',
-          path: '/Users/alice/orca',
+          path: '/userhome/alice/orca',
           displayName: 'Orca',
           upstream: { owner: 'StablyAI', repo: 'Orca' }
         }),
@@ -541,7 +541,7 @@ describe('Store', () => {
         id: 'local-repo',
         projectId: 'github:stablyai/orca',
         hostId: 'local',
-        path: '/Users/alice/orca'
+        path: '/userhome/alice/orca'
       }),
       expect.objectContaining({
         id: 'remote-repo',
@@ -3467,7 +3467,7 @@ describe('Store', () => {
       worktreeMeta: {},
       settings: {
         notifications: {
-          customSoundPath: '/Users/kaylee/Downloads/Note_block_pling.ogg'
+          customSoundPath: '/userhome/kaylee/Downloads/Note_block_pling.ogg'
         }
       },
       ui: {},
@@ -3481,7 +3481,7 @@ describe('Store', () => {
       agentTaskComplete: true,
       terminalBell: false,
       suppressWhenFocused: true,
-      customSoundPath: '/Users/kaylee/Downloads/Note_block_pling.ogg',
+      customSoundPath: '/userhome/kaylee/Downloads/Note_block_pling.ogg',
       customSoundVolume: 100
     })
   })

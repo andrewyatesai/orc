@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
     activeModal: 'none',
     activeTabType: 'editor',
     rightSidebarTab: 'source-control',
-    activeWorktreeId: 'repo-1::/Users/alice/project'
+    activeWorktreeId: 'repo-1::/userhome/alice/project'
   }
 }))
 
@@ -71,7 +71,7 @@ describe('react error boundary reporting', () => {
     const args = buildReactErrorBoundaryReportArgs({
       boundaryId: 'terminal.workbench',
       surface: 'terminal-workbench',
-      error: new TypeError('Cannot render /Users/alice/project'),
+      error: new TypeError('Cannot render /userhome/alice/project'),
       errorInfo: { componentStack: 'at Terminal\nat App' },
       context: {
         activeView: 'terminal',
@@ -86,7 +86,7 @@ describe('react error boundary reporting', () => {
       boundaryId: 'terminal.workbench',
       surface: 'terminal-workbench',
       errorName: 'TypeError',
-      errorMessage: 'Cannot render /Users/alice/project',
+      errorMessage: 'Cannot render /userhome/alice/project',
       componentStack: 'at Terminal\nat App',
       activeView: 'terminal',
       activeModal: 'none',

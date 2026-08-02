@@ -138,7 +138,7 @@ describe('RepositoryHostSetupsSection add-host setup', () => {
     const localRepo = makeRepo({
       id: 'local-repo',
       displayName: 'Orca',
-      path: '/Users/alice/orca'
+      path: '/userhome/alice/orca'
     })
     useAppStore.setState({
       repos: [localRepo],
@@ -149,7 +149,7 @@ describe('RepositoryHostSetupsSection add-host setup', () => {
           projectId: 'github:stablyai/orca',
           repoId: 'local-repo',
           hostId: 'local',
-          path: '/Users/alice/orca'
+          path: '/userhome/alice/orca'
         })
       ],
       sshTargetLabels: new Map([['openclaw 2', 'openclaw 2']]),
@@ -215,7 +215,7 @@ describe('RepositoryHostSetupsSection add-host setup', () => {
     const localRepo = makeRepo({
       id: 'local-repo',
       displayName: 'Orca',
-      path: '/Users/alice/orca'
+      path: '/userhome/alice/orca'
     })
     useAppStore.setState({
       repos: [localRepo],
@@ -226,7 +226,7 @@ describe('RepositoryHostSetupsSection add-host setup', () => {
           projectId: 'github:stablyai/orca',
           repoId: 'local-repo',
           hostId: 'local',
-          path: '/Users/alice/orca'
+          path: '/userhome/alice/orca'
         })
       ],
       sshTargetLabels: new Map([['openclaw 2', 'openclaw 2']]),
@@ -278,7 +278,7 @@ describe('RepositoryHostSetupsSection add-host setup', () => {
     const localRepo = makeRepo({
       id: 'local-repo',
       displayName: 'Orca',
-      path: '/Users/alice/orca'
+      path: '/userhome/alice/orca'
     })
     useAppStore.setState({
       repos: [localRepo],
@@ -289,7 +289,7 @@ describe('RepositoryHostSetupsSection add-host setup', () => {
           projectId: 'github:stablyai/orca',
           repoId: 'local-repo',
           hostId: 'local',
-          path: '/Users/alice/orca'
+          path: '/userhome/alice/orca'
         })
       ],
       sshTargetLabels: new Map([['openclaw 2', 'openclaw 2']])
@@ -329,7 +329,7 @@ describe('RepositoryHostSetupsSection add-host setup', () => {
     const localRepo = makeRepo({
       id: 'local-repo',
       displayName: 'Orca',
-      path: '/Users/alice/orca'
+      path: '/userhome/alice/orca'
     })
     useAppStore.setState({
       repos: [localRepo],
@@ -340,7 +340,7 @@ describe('RepositoryHostSetupsSection add-host setup', () => {
           projectId: 'github:stablyai/orca',
           repoId: 'local-repo',
           hostId: 'local',
-          path: '/Users/alice/orca'
+          path: '/userhome/alice/orca'
         })
       ],
       settings: { activeRuntimeEnvironmentId: 'gpu' } as never,
@@ -398,7 +398,7 @@ describe('RepositoryHostSetupsSection add-host setup', () => {
     const localRepo = makeRepo({
       id: 'local-repo',
       displayName: 'Orca',
-      path: '/Users/alice/orca'
+      path: '/userhome/alice/orca'
     })
     useAppStore.setState({
       repos: [localRepo],
@@ -409,7 +409,7 @@ describe('RepositoryHostSetupsSection add-host setup', () => {
           projectId: 'github:stablyai/orca',
           repoId: 'local-repo',
           hostId: 'local',
-          path: '/Users/alice/orca'
+          path: '/userhome/alice/orca'
         })
       ],
       settings: { activeRuntimeEnvironmentId: null } as never,
@@ -472,7 +472,7 @@ describe('RepositoryHostSetupsSection add-host setup', () => {
     const localRepo = makeRepo({
       id: 'local-repo',
       displayName: 'Orca',
-      path: '/Users/alice/orca'
+      path: '/userhome/alice/orca'
     })
     useAppStore.setState({
       repos: [localRepo],
@@ -483,7 +483,7 @@ describe('RepositoryHostSetupsSection add-host setup', () => {
           projectId: 'github:stablyai/orca',
           repoId: 'local-repo',
           hostId: 'local',
-          path: '/Users/alice/orca'
+          path: '/userhome/alice/orca'
         })
       ],
       settings: { activeRuntimeEnvironmentId: null } as never,

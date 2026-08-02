@@ -48,7 +48,7 @@ describe('isNativeChatPastedImagePath', () => {
   })
 
   it('leaves picked/dropped files showing their real name', () => {
-    expect(isNativeChatPastedImagePath('/Users/me/Pictures/hero-image-2.png')).toBe(false)
+    expect(isNativeChatPastedImagePath('/userhome/me/Pictures/hero-image-2.png')).toBe(false)
     expect(isNativeChatPastedImagePath('/tmp/screenshot.png')).toBe(false)
   })
 })

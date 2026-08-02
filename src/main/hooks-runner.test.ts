@@ -122,7 +122,7 @@ describe('createSetupRunnerScript', () => {
       const result = createSetupRunnerScript(
         {
           ...makeRepo(),
-          path: 'C:\\Users\\jinwo\\git\\orca'
+          path: 'C:\\userhome\\jinwo\\git\\orca'
         },
         '\\\\wsl.localhost\\Ubuntu\\home\\jin\\feature',
         'pnpm install'
@@ -132,11 +132,11 @@ describe('createSetupRunnerScript', () => {
         runnerScriptPath:
           '\\\\wsl.localhost\\Ubuntu\\home\\jin\\.git\\worktrees\\feature\\orca\\setup-runner.sh',
         envVars: expect.objectContaining({
-          ORCA_ROOT_PATH: '/mnt/c/Users/jinwo/git/orca',
+          ORCA_ROOT_PATH: '/mnt/c/userhome/jinwo/git/orca',
           ORCA_WORKTREE_PATH: '/home/jin/feature',
           ORCA_WORKSPACE_NAME: 'feature',
-          CONDUCTOR_ROOT_PATH: '/mnt/c/Users/jinwo/git/orca',
-          GHOSTX_ROOT_PATH: '/mnt/c/Users/jinwo/git/orca'
+          CONDUCTOR_ROOT_PATH: '/mnt/c/userhome/jinwo/git/orca',
+          GHOSTX_ROOT_PATH: '/mnt/c/userhome/jinwo/git/orca'
         })
       })
       expect(vi.mocked(fs.writeFileSync)).toHaveBeenCalledWith(

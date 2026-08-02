@@ -32,7 +32,7 @@ describe('scanAiVaultSessions — non-ASCII scope paths', () => {
     tempRoots.push(root)
     const roots = isolatedScanRoots(root)
 
-    const workspaceNfc = '/Users/ada/내 드라이브/한국농어촌공사'
+    const workspaceNfc = '/userhome/ada/내 드라이브/한국농어촌공사'
     const workspaceNfd = workspaceNfc.normalize('NFD')
     expect(workspaceNfd).not.toBe(workspaceNfc)
 
@@ -54,15 +54,15 @@ describe('scanAiVaultSessions — non-ASCII scope paths', () => {
 
     // A newer ASCII session plus limit:1 exhausts the recency cap, so the Korean
     // session can only surface through scope discovery — the path under test.
-    await mkdir(join(roots.claudeProjectsDir, '-Users-ada-other'), { recursive: true })
+    await mkdir(join(roots.claudeProjectsDir, '-userhome-ada-other'), { recursive: true })
     await writeFile(
-      join(roots.claudeProjectsDir, '-Users-ada-other', 'recent-session.jsonl'),
+      join(roots.claudeProjectsDir, '-userhome-ada-other', 'recent-session.jsonl'),
       jsonLines([
         {
           type: 'user',
           sessionId: 'recent-session',
           timestamp: '2026-06-01T10:00:00.000Z',
-          cwd: '/Users/ada/other',
+          cwd: '/userhome/ada/other',
           gitBranch: 'main',
           message: { role: 'user', content: 'newer' }
         }
@@ -80,14 +80,14 @@ describe('scanAiVaultSessions — non-ASCII scope paths', () => {
   })
 
   it('lists Claude sessions for a Windows workspace whose path has uppercase segments', async () => {
-    // Claude derives the dir name from the raw cwd, so it keeps 'C--Users-Ada-repo'.
-    // Encoding from the lowercased comparison key produced 'c--users-ada-repo',
+    // Claude derives the dir name from the raw cwd, so it keeps 'C--userhome-Ada-repo'.
+    // Encoding from the lowercased comparison key produced 'c--userhome-ada-repo',
     // which never matched — scoped discovery was dead on Windows entirely.
     const root = await mkdtemp(join(tmpdir(), 'orca-ai-vault-win-scope-'))
     tempRoots.push(root)
     const roots = isolatedScanRoots(root)
 
-    const workspace = 'C:\\Users\\Ada\\repo'
+    const workspace = 'C:\\userhome\\Ada\\repo'
     const projectDir = join(roots.claudeProjectsDir, claudeProjectDirName(workspace))
     await mkdir(projectDir, { recursive: true })
     await writeFile(
@@ -103,15 +103,15 @@ describe('scanAiVaultSessions — non-ASCII scope paths', () => {
         }
       ])
     )
-    await mkdir(join(roots.claudeProjectsDir, '-Users-ada-other'), { recursive: true })
+    await mkdir(join(roots.claudeProjectsDir, '-userhome-ada-other'), { recursive: true })
     await writeFile(
-      join(roots.claudeProjectsDir, '-Users-ada-other', 'recent-session.jsonl'),
+      join(roots.claudeProjectsDir, '-userhome-ada-other', 'recent-session.jsonl'),
       jsonLines([
         {
           type: 'user',
           sessionId: 'recent-session',
           timestamp: '2026-06-01T10:00:00.000Z',
-          cwd: '/Users/ada/other',
+          cwd: '/userhome/ada/other',
           gitBranch: 'main',
           message: { role: 'user', content: 'newer' }
         }

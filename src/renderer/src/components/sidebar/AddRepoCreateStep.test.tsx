@@ -8,7 +8,7 @@ import type { GitAvailability } from './create-project-defaults'
 function renderCreateStep({
   createName = '',
   gitAvailability = 'available',
-  createParent = '/Users/alice/orca/projects',
+  createParent = '/userhome/alice/orca/projects',
   parentDefaultPending = false
 }: {
   createName?: string
@@ -24,7 +24,7 @@ function renderCreateStep({
           createParent={createParent}
           createError={null}
           isCreating={false}
-          defaultParent="/Users/alice/orca/projects"
+          defaultParent="/userhome/alice/orca/projects"
           gitAvailability={gitAvailability}
           runtimeParentStatus="idle"
           parentDefaultPending={parentDefaultPending}

@@ -369,16 +369,19 @@ describe('registerAppHandlers', () => {
     const store = {}
     showOpenDialogMock.mockResolvedValue({
       canceled: false,
-      filePaths: ['/Users/kaylee/notes']
+      filePaths: ['/userhome/kaylee/notes']
     })
     registerAppHandlers(store as never)
 
     await expect(
       handlers.get('app:pickFloatingWorkspaceDirectory')?.({ sender: {} })
-    ).resolves.toBe('/Users/kaylee/notes')
+    ).resolves.toBe('/userhome/kaylee/notes')
     expect(showOpenDialogMock).toHaveBeenCalledWith({
       properties: ['openDirectory']
     })
-    expect(grantFloatingWorkspaceDirectoryMock).toHaveBeenCalledWith(store, '/Users/kaylee/notes')
+    expect(grantFloatingWorkspaceDirectoryMock).toHaveBeenCalledWith(
+      store,
+      '/userhome/kaylee/notes'
+    )
   })
 })

@@ -693,13 +693,13 @@ describe('preflight', () => {
 
       const target = String(args[0])
       if (target === 'claude') {
-        return { stdout: '/Users/test/.local/bin/claude\n' }
+        return { stdout: '/userhome/test/.local/bin/claude\n' }
       }
       if (target === 'continue') {
         return { stdout: 'continue: shell built-in command\n' }
       }
       if (target === 'cursor-agent') {
-        return { stdout: '/Users/test/.local/bin/cursor-agent\n' }
+        return { stdout: '/userhome/test/.local/bin/cursor-agent\n' }
       }
       throw new Error('not found')
     })
@@ -727,7 +727,7 @@ describe('preflight', () => {
         throw new Error(`unexpected command ${String(command)}`)
       }
       if (String(args[0]) === 'claude') {
-        return { stdout: '/Users/test/.local/bin/claude\n' }
+        return { stdout: '/userhome/test/.local/bin/claude\n' }
       }
       if (String(args[0]) === 'orca') {
         return { stdout: '/Applications/Orca.app/Contents/MacOS/orca\n' }
@@ -773,13 +773,13 @@ describe('preflight', () => {
         new Map(
           commands.map((cmd) => {
             if (cmd === 'claude') {
-              return [cmd, '/Users/test/.local/bin/claude']
+              return [cmd, '/userhome/test/.local/bin/claude']
             }
             if (cmd === 'codex') {
-              return [cmd, '/Users/test/.asdf/shims/codex']
+              return [cmd, '/userhome/test/.asdf/shims/codex']
             }
             if (cmd === 'opencode') {
-              return [cmd, '/Users/test/Library/pnpm/opencode']
+              return [cmd, '/userhome/test/Library/pnpm/opencode']
             }
             return [cmd, cmd]
           })
@@ -806,13 +806,13 @@ describe('preflight', () => {
         new Map(
           commands.map((cmd) => {
             if (cmd === 'claude') {
-              return [cmd, 'C:\\Users\\test\\.local\\bin\\claude.exe']
+              return [cmd, 'C:\\userhome\\test\\.local\\bin\\claude.exe']
             }
             if (cmd === 'codex') {
-              return [cmd, 'C:\\Users\\test\\AppData\\Roaming\\npm\\codex.cmd']
+              return [cmd, 'C:\\userhome\\test\\AppData\\Roaming\\npm\\codex.cmd']
             }
             if (cmd === 'opencode') {
-              return [cmd, 'C:\\Users\\test\\AppData\\Roaming\\npm\\opencode.cmd']
+              return [cmd, 'C:\\userhome\\test\\AppData\\Roaming\\npm\\opencode.cmd']
             }
             return [cmd, cmd]
           })
@@ -829,7 +829,7 @@ describe('preflight', () => {
         throw new Error(`unexpected command ${String(command)}`)
       }
       if (String(args[0]) === 'claude') {
-        return { stdout: '/Users/test/.local/bin/claude\n' }
+        return { stdout: '/userhome/test/.local/bin/claude\n' }
       }
       throw new Error('not found')
     })
@@ -863,10 +863,10 @@ describe('preflight', () => {
         throw new Error(`unexpected command ${String(command)}`)
       }
       if (String(args[0]) === 'openclaude') {
-        return { stdout: '/Users/test/.local/bin/openclaude\n' }
+        return { stdout: '/userhome/test/.local/bin/openclaude\n' }
       }
       if (String(args[0]) === 'cursor-agent') {
-        return { stdout: '/Users/test/.local/bin/cursor-agent\n' }
+        return { stdout: '/userhome/test/.local/bin/cursor-agent\n' }
       }
       throw new Error('not found')
     })
@@ -1206,17 +1206,17 @@ describe('preflight', () => {
     // the shell hydrator for a fresh PATH, (2) merge any new segments, then
     // (3) re-run `which` so newly-installed CLIs appear without a restart.
     hydrateShellPathMock.mockResolvedValueOnce({
-      segments: ['/Users/test/.opencode/bin'],
+      segments: ['/userhome/test/.opencode/bin'],
       ok: true,
       failureReason: 'none'
     })
-    mergePathSegmentsMock.mockReturnValueOnce(['/Users/test/.opencode/bin'])
+    mergePathSegmentsMock.mockReturnValueOnce(['/userhome/test/.opencode/bin'])
     execFileAsyncMock.mockImplementation(async (command, args) => {
       if (command !== 'which') {
         throw new Error(`unexpected command ${String(command)}`)
       }
       if (String(args[0]) === 'opencode') {
-        return { stdout: '/Users/test/.opencode/bin/opencode\n' }
+        return { stdout: '/userhome/test/.opencode/bin/opencode\n' }
       }
       throw new Error('not found')
     })
@@ -1233,7 +1233,7 @@ describe('preflight', () => {
 
     expect(result).toEqual({
       agents: ['opencode'],
-      addedPathSegments: ['/Users/test/.opencode/bin'],
+      addedPathSegments: ['/userhome/test/.opencode/bin'],
       shellHydrationOk: true,
       pathSource: 'shell_hydrate',
       pathFailureReason: 'none'
@@ -1252,7 +1252,7 @@ describe('preflight', () => {
         throw new Error(`unexpected command ${String(command)}`)
       }
       if (String(args[0]) === 'claude') {
-        return { stdout: '/Users/test/.local/bin/claude\n' }
+        return { stdout: '/userhome/test/.local/bin/claude\n' }
       }
       throw new Error('not found')
     })

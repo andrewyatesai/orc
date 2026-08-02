@@ -55,7 +55,7 @@ describe('computeTrustedHash', () => {
   it('reproduces the hash that Codex /hooks wrote for a real approval', () => {
     expect(
       computeTrustedHash({
-        sourcePath: '/Users/thebr/.codex/hooks.json',
+        sourcePath: '/userhome/thebr/.codex/hooks.json',
         eventLabel: 'pre_tool_use',
         groupIndex: 0,
         handlerIndex: 0,
@@ -258,13 +258,13 @@ describe('computeTrustKey', () => {
   it('joins source path, event label, group index, handler index with colons', () => {
     expect(
       computeTrustKey({
-        sourcePath: '/Users/thebr/.codex/hooks.json',
+        sourcePath: '/userhome/thebr/.codex/hooks.json',
         eventLabel: 'pre_tool_use',
         groupIndex: 0,
         handlerIndex: 0,
         command: 'irrelevant'
       })
-    ).toBe('/Users/thebr/.codex/hooks.json:pre_tool_use:0:0')
+    ).toBe('/userhome/thebr/.codex/hooks.json:pre_tool_use:0:0')
   })
 
   it('lexically normalizes source paths without resolving default-home aliases', () => {
@@ -317,7 +317,7 @@ describe('computeTrustKey', () => {
 
   it('uses native Windows backslashes in the trust key Codex looks up', () => {
     // Why: Codex 0.140 writes approved Windows hook trust keys as raw native paths under [hooks.state].
-    const winPath = 'C:\\Users\\Rod\\AppData\\Roaming\\orca\\hooks.json'
+    const winPath = 'C:\\userhome\\Rod\\AppData\\Roaming\\orca\\hooks.json'
     const key = computeTrustKey({
       sourcePath: winPath,
       eventLabel: 'session_start',
@@ -326,7 +326,7 @@ describe('computeTrustKey', () => {
       command: 'echo'
     })
     expect(key).toContain('\\')
-    expect(key.startsWith('C:\\Users\\Rod\\AppData\\Roaming\\orca\\hooks.json:')).toBe(true)
+    expect(key.startsWith('C:\\userhome\\Rod\\AppData\\Roaming\\orca\\hooks.json:')).toBe(true)
   })
 
   it('preserves literal backslashes in non-Windows-style fallback paths', () => {
@@ -450,10 +450,11 @@ describe('upsertHookTrustEntries', () => {
   })
 
   it('collapses duplicate blocks for the same hook key while preserving unrelated hook state', () => {
-    const sourcePath = 'C:\\Users\\me\\AppData\\Roaming\\orca\\codex-runtime-home\\home\\hooks.json'
+    const sourcePath =
+      'C:\\userhome\\me\\AppData\\Roaming\\orca\\codex-runtime-home\\home\\hooks.json'
     const key = `${sourcePath}:session_start:0:0`
     const unrelatedSourcePath =
-      'C:\\Users\\me\\AppData\\Roaming\\orca\\codex-runtime-home\\home\\hooks.json'
+      'C:\\userhome\\me\\AppData\\Roaming\\orca\\codex-runtime-home\\home\\hooks.json'
     const unrelatedKey = `${unrelatedSourcePath}:stop:0:0`
     const original = [
       `[hooks.state."${escapeTomlString(key)}"]`,
@@ -495,7 +496,8 @@ describe('upsertHookTrustEntries', () => {
   })
 
   it('collapses a literal-string hook table before writing the canonical Codex literal table', () => {
-    const sourcePath = 'C:\\Users\\me\\AppData\\Roaming\\orca\\codex-runtime-home\\home\\hooks.json'
+    const sourcePath =
+      'C:\\userhome\\me\\AppData\\Roaming\\orca\\codex-runtime-home\\home\\hooks.json'
     const key = `${sourcePath}:session_start:0:0`
     const original = [
       `[hooks.state.'${key}']`,
@@ -944,7 +946,7 @@ describe('upsertHookTrustEntries', () => {
 
   it('finds and replaces a legacy forward-slash block when Orca upserts with native backslash key', () => {
     // Why: Codex 0.140 exposes Windows keys with either separator depending on cwd, so replace both.
-    const backslashPath = 'C:\\Users\\Rod\\AppData\\Roaming\\orca\\hooks.json'
+    const backslashPath = 'C:\\userhome\\Rod\\AppData\\Roaming\\orca\\hooks.json'
     const legacyKey = `${backslashPath.replace(/\\/g, '/')}:session_start:0:0`
     const original = [
       `[hooks.state."${legacyKey}"]`,
@@ -974,7 +976,7 @@ describe('upsertHookTrustEntries', () => {
   it('produces exactly one Windows separator pair after two consecutive upserts', () => {
     // Why: idempotency guard — repeated auto-install must not accumulate duplicate blocks.
     const entry: CodexTrustEntry = {
-      sourcePath: 'C:\\Users\\Rod\\AppData\\Roaming\\orca\\hooks.json',
+      sourcePath: 'C:\\userhome\\Rod\\AppData\\Roaming\\orca\\hooks.json',
       eventLabel: 'session_start',
       groupIndex: 0,
       handlerIndex: 0,
@@ -991,7 +993,7 @@ describe('upsertHookTrustEntries', () => {
   it('falls back to TOML basic-string headers when a Windows path contains an apostrophe', () => {
     // Why: TOML literal-string keys can't hold apostrophes, but Windows profile paths can.
     const entry: CodexTrustEntry = {
-      sourcePath: "C:\\Users\\O'Connor\\AppData\\Roaming\\orca\\hooks.json",
+      sourcePath: "C:\\userhome\\O'Connor\\AppData\\Roaming\\orca\\hooks.json",
       eventLabel: 'session_start',
       groupIndex: 0,
       handlerIndex: 0,
@@ -1002,18 +1004,18 @@ describe('upsertHookTrustEntries', () => {
     const written = readFileSync(configPath, 'utf-8')
     expect((written.match(/\[hooks\.state\."/g) ?? []).length).toBe(2)
     expect(written).toContain(
-      `[hooks.state."C:\\\\Users\\\\O'Connor\\\\AppData\\\\Roaming\\\\orca\\\\hooks.json:session_start:0:0"]`
+      `[hooks.state."C:\\\\userhome\\\\O'Connor\\\\AppData\\\\Roaming\\\\orca\\\\hooks.json:session_start:0:0"]`
     )
     expect(written).toContain(
-      `[hooks.state."C:/Users/O'Connor/AppData/Roaming/orca/hooks.json:session_start:0:0"]`
+      `[hooks.state."C:/userhome/O'Connor/AppData/Roaming/orca/hooks.json:session_start:0:0"]`
     )
-    expect(written).not.toContain(`[hooks.state.'C:\\Users\\O'Connor`)
+    expect(written).not.toContain(`[hooks.state.'C:\\userhome\\O'Connor`)
   })
 
   it('finds a Codex-written block with lowercased username when Orca key has mixed-case username', () => {
     // Why: realpathSync.native casing can differ from what Codex wrote, so case-fold to replace not duplicate.
-    const lowercasePath = 'C:\\Users\\rod\\AppData\\Roaming\\orca\\hooks.json'
-    const mixedCasePath = 'C:\\Users\\Rod\\AppData\\Roaming\\orca\\hooks.json'
+    const lowercasePath = 'C:\\userhome\\rod\\AppData\\Roaming\\orca\\hooks.json'
+    const mixedCasePath = 'C:\\userhome\\Rod\\AppData\\Roaming\\orca\\hooks.json'
     const literalKey = `${lowercasePath}:session_start:0:0`
     const original = [
       `[hooks.state.'${literalKey}']`,
@@ -1104,10 +1106,10 @@ describe('upsertProjectTrustLevel', () => {
     // Why: local trust follows Codex's realpath; remote trust preserves the SSH provider's canonical path.
     const original = ['[profiles.default]', 'model = "gpt-5"', ''].join('\r\n')
 
-    const updated = upsertProjectTrustLevelInContent(original, 'C:\\Users\\nw\\repo', 'trusted')
+    const updated = upsertProjectTrustLevelInContent(original, 'C:\\userhome\\nw\\repo', 'trusted')
 
     expect(updated).toContain(
-      ['[projects."C:\\\\Users\\\\nw\\\\repo"]', 'trust_level = "trusted"', ''].join('\r\n')
+      ['[projects."C:\\\\userhome\\\\nw\\\\repo"]', 'trust_level = "trusted"', ''].join('\r\n')
     )
     expect(updated).toContain('[profiles.default]\r\nmodel = "gpt-5"')
   })
@@ -1115,16 +1117,16 @@ describe('upsertProjectTrustLevel', () => {
   it('updates an existing Windows backslash project block after separator normalization', () => {
     // Why: hook trust writes paired Windows variants, but project trust still repairs a single table in place.
     const original = [
-      '[projects."C:\\\\Users\\\\nw\\\\repo"]',
+      '[projects."C:\\\\userhome\\\\nw\\\\repo"]',
       'notes = "keep"',
       'trust_level = "untrusted"',
       ''
     ].join('\n')
 
-    const updated = upsertProjectTrustLevelInContent(original, 'C:\\Users\\nw\\repo', 'trusted')
+    const updated = upsertProjectTrustLevelInContent(original, 'C:\\userhome\\nw\\repo', 'trusted')
 
     expect(updated.match(/\[projects\./g)).toHaveLength(1)
-    expect(updated).toContain('[projects."C:\\\\Users\\\\nw\\\\repo"]')
+    expect(updated).toContain('[projects."C:\\\\userhome\\\\nw\\\\repo"]')
     expect(updated).toContain('notes = "keep"')
     expect(updated).toContain('trust_level = "trusted"')
     expect(updated).not.toContain('trust_level = "untrusted"')
@@ -1133,16 +1135,16 @@ describe('upsertProjectTrustLevel', () => {
   it('updates an existing legacy Windows forward-slash project block', () => {
     // Why: older Orca builds normalized to forward slashes; backslash fixes must not duplicate them.
     const original = [
-      '[projects."C:/Users/nw/repo"]',
+      '[projects."C:/userhome/nw/repo"]',
       'notes = "keep"',
       'trust_level = "untrusted"',
       ''
     ].join('\n')
 
-    const updated = upsertProjectTrustLevelInContent(original, 'C:\\Users\\nw\\repo', 'trusted')
+    const updated = upsertProjectTrustLevelInContent(original, 'C:\\userhome\\nw\\repo', 'trusted')
 
     expect(updated.match(/\[projects\./g)).toHaveLength(1)
-    expect(updated).toContain('[projects."C:/Users/nw/repo"]')
+    expect(updated).toContain('[projects."C:/userhome/nw/repo"]')
     expect(updated).toContain('notes = "keep"')
     expect(updated).toContain('trust_level = "trusted"')
     expect(updated).not.toContain('trust_level = "untrusted"')
@@ -1243,12 +1245,12 @@ describe('upsertProjectTrustLevel', () => {
 
   it('preserves an already-canonical remote Windows project path', () => {
     // Why: SSH paths resolve on the remote; local realpath would canonicalize the wrong machine.
-    const updated = upsertProjectTrustLevelInContent('', 'C:/Users/nw/repo', 'trusted', {
+    const updated = upsertProjectTrustLevelInContent('', 'C:/userhome/nw/repo', 'trusted', {
       alreadyCanonical: true
     })
 
     expect(updated).toBe(
-      ['[projects."C:/Users/nw/repo"]', 'trust_level = "trusted"', ''].join('\n')
+      ['[projects."C:/userhome/nw/repo"]', 'trust_level = "trusted"', ''].join('\n')
     )
   })
 
@@ -1301,9 +1303,9 @@ describe('normalizeCodexProjectPathForLookup', () => {
 
   it('folds drvfs automount tails case-insensitively like the native drive path', () => {
     // Why: /mnt/<drive> is NTFS through drvfs, case-insensitive like C:\ itself.
-    expect(normalizeCodexProjectPathForLookup('\\\\wsl$\\Ubuntu\\mnt\\c\\Users\\Bob\\Repo')).toBe(
-      normalizeCodexProjectPathForLookup('//wsl.localhost/ubuntu/mnt/c/users/bob/repo')
-    )
+    expect(
+      normalizeCodexProjectPathForLookup('\\\\wsl$\\Ubuntu\\mnt\\c\\userhome\\Bob\\Repo')
+    ).toBe(normalizeCodexProjectPathForLookup('//wsl.localhost/ubuntu/mnt/c/userhome/bob/repo'))
     // /mnt/wsl is tmpfs, not a drvfs drive mount — its tail stays case-sensitive.
     expect(normalizeCodexProjectPathForLookup('\\\\wsl$\\Ubuntu\\mnt\\wsl\\Repo')).not.toBe(
       normalizeCodexProjectPathForLookup('\\\\wsl$\\Ubuntu\\mnt\\wsl\\repo')
@@ -1760,8 +1762,8 @@ describe('readHookTrustEntries', () => {
 
   it('supports case-insensitive lookups for Windows hook trust keys read from config', () => {
     // Why: Codex and realpathSync.native can disagree on path casing, but lookups must still match.
-    const rawKey = 'C:\\Users\\rod\\AppData\\Roaming\\orca\\hooks.json:session_start:0:0'
-    const lookupKey = 'C:/Users/Rod/AppData/Roaming/orca/hooks.json:session_start:0:0'
+    const rawKey = 'C:\\userhome\\rod\\AppData\\Roaming\\orca\\hooks.json:session_start:0:0'
+    const lookupKey = 'C:/userhome/Rod/AppData/Roaming/orca/hooks.json:session_start:0:0'
     const original = [
       `[hooks.state.'${rawKey}']`,
       'enabled = true',
@@ -1914,8 +1916,8 @@ describe('readHookTrustEntries', () => {
 
 describe('parseTrustKey', () => {
   it('parses a typical posix-style key', () => {
-    expect(parseTrustKey('/Users/x/.codex/hooks.json:pre_tool_use:0:0')).toEqual({
-      sourcePath: '/Users/x/.codex/hooks.json',
+    expect(parseTrustKey('/userhome/x/.codex/hooks.json:pre_tool_use:0:0')).toEqual({
+      sourcePath: '/userhome/x/.codex/hooks.json',
       eventLabel: 'pre_tool_use',
       groupIndex: 0,
       handlerIndex: 0
@@ -1924,8 +1926,8 @@ describe('parseTrustKey', () => {
 
   it('parses a Windows-style sourcePath whose drive letter contains a colon', () => {
     // Why: anchor on the LAST three colons so colons inside sourcePath round-trip.
-    expect(parseTrustKey('C:\\Users\\x\\.codex\\hooks.json:session_start:2:3')).toEqual({
-      sourcePath: 'C:\\Users\\x\\.codex\\hooks.json',
+    expect(parseTrustKey('C:\\userhome\\x\\.codex\\hooks.json:session_start:2:3')).toEqual({
+      sourcePath: 'C:\\userhome\\x\\.codex\\hooks.json',
       eventLabel: 'session_start',
       groupIndex: 2,
       handlerIndex: 3
@@ -1955,7 +1957,7 @@ describe('parseTrustKey', () => {
 
   it('round-trips with computeTrustKey', () => {
     const entry: CodexTrustEntry = {
-      sourcePath: '/Users/x/.codex/hooks.json',
+      sourcePath: '/userhome/x/.codex/hooks.json',
       eventLabel: 'post_tool_use',
       groupIndex: 4,
       handlerIndex: 7,

@@ -20,14 +20,14 @@ describe('wsl path helpers', () => {
   })
 
   it('rejects ordinary Windows and POSIX paths', () => {
-    expect(isWslUncPath('C:\\Users\\jin\\repo')).toBe(false)
+    expect(isWslUncPath('C:\\userhome\\jin\\repo')).toBe(false)
     expect(isWslUncPath('/home/jin/repo')).toBe(false)
   })
 
   it.each([
     ['/home/jin/repo', '\\\\wsl.localhost\\Ubuntu\\home\\jin\\repo'],
     ['/', '\\\\wsl.localhost\\Ubuntu\\'],
-    ['/mnt/c/Users/jin', 'C:\\Users\\jin'],
+    ['/mnt/c/userhome/jin', 'C:\\userhome\\jin'],
     ['/MNT/c/Repo', '\\\\wsl.localhost\\Ubuntu\\MNT\\c\\Repo'],
     ['/mnt/C/Repo', '\\\\wsl.localhost\\Ubuntu\\mnt\\C\\Repo']
   ])('converts %s without folding case-sensitive Linux paths', (linuxPath, expected) => {
@@ -46,8 +46,8 @@ describe('foldWslUncPathCaseInsensitiveParts', () => {
   })
 
   it('folds drvfs automount tails but not other /mnt entries', () => {
-    expect(foldWslUncPathCaseInsensitiveParts('\\\\wsl$\\Ubuntu\\mnt\\C\\Users\\Jin')).toBe(
-      '//wsl.localhost/ubuntu/mnt/c/users/jin'
+    expect(foldWslUncPathCaseInsensitiveParts('\\\\wsl$\\Ubuntu\\mnt\\C\\userhome\\Jin')).toBe(
+      '//wsl.localhost/ubuntu/mnt/c/userhome/jin'
     )
     expect(foldWslUncPathCaseInsensitiveParts('\\\\wsl$\\Ubuntu\\mnt\\wsl\\Data')).toBe(
       '//wsl.localhost/ubuntu/mnt/wsl/Data'
@@ -61,7 +61,7 @@ describe('foldWslUncPathCaseInsensitiveParts', () => {
   })
 
   it('returns null for non-WSL paths', () => {
-    expect(foldWslUncPathCaseInsensitiveParts('C:\\Users\\jin')).toBeNull()
+    expect(foldWslUncPathCaseInsensitiveParts('C:\\userhome\\jin')).toBeNull()
     expect(foldWslUncPathCaseInsensitiveParts('//server/share/x')).toBeNull()
     expect(foldWslUncPathCaseInsensitiveParts('/home/jin')).toBeNull()
   })
@@ -91,7 +91,7 @@ describe('mapPosixPathToWslWorktreeUncPath', () => {
 
   it('returns null for non-POSIX paths and non-WSL worktrees', () => {
     const wslWorktree = '\\\\wsl.localhost\\Ubuntu\\repo'
-    expect(mapPosixPathToWslWorktreeUncPath('C:\\Users\\jin\\a.ts', wslWorktree)).toBeNull()
+    expect(mapPosixPathToWslWorktreeUncPath('C:\\userhome\\jin\\a.ts', wslWorktree)).toBeNull()
     expect(mapPosixPathToWslWorktreeUncPath('\\\\wsl$\\Ubuntu\\repo\\a.ts', wslWorktree)).toBeNull()
     expect(mapPosixPathToWslWorktreeUncPath('//server/share/a.ts', wslWorktree)).toBeNull()
     expect(mapPosixPathToWslWorktreeUncPath('/home/jin/a.ts', 'C:\\repo')).toBeNull()

@@ -209,7 +209,7 @@ describe('scanAiVaultSessions', () => {
           type: 'session_meta',
           payload: {
             id: '019e9693-64fc-7370-9c18-7e625c595d0f',
-            cwd: '/Users/nwparker/orca/workspaces/orca/mem4'
+            cwd: '/userhome/nwparker/orca/workspaces/orca/mem4'
           }
         },
         {
@@ -235,9 +235,9 @@ describe('scanAiVaultSessions', () => {
     expect(result.sessions[0]).toMatchObject({
       agent: 'codex',
       sessionId: '019e9693-64fc-7370-9c18-7e625c595d0f',
-      cwd: '/Users/nwparker/orca/workspaces/orca/mem4',
+      cwd: '/userhome/nwparker/orca/workspaces/orca/mem4',
       codexHome: runtimeHome,
-      resumeCommand: `cd '/Users/nwparker/orca/workspaces/orca/mem4' && CODEX_HOME='${runtimeHome}' codex resume '019e9693-64fc-7370-9c18-7e625c595d0f'`
+      resumeCommand: `cd '/userhome/nwparker/orca/workspaces/orca/mem4' && CODEX_HOME='${runtimeHome}' codex resume '019e9693-64fc-7370-9c18-7e625c595d0f'`
     })
   })
 

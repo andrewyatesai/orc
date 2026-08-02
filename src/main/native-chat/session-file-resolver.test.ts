@@ -30,7 +30,7 @@ describe('resolveSessionFilePath', () => {
   it('globs Claude project subdirs for <sessionId>.jsonl', async () => {
     const root = await makeRoot('orca-native-chat-resolve-claude-')
     const claudeProjectsDir = join(root, 'claude-projects')
-    const projectDir = join(claudeProjectsDir, '-Users-ada-repo')
+    const projectDir = join(claudeProjectsDir, '-userhome-ada-repo')
     await mkdir(projectDir, { recursive: true })
     const target = join(projectDir, 'sess-123.jsonl')
     await writeFile(target, '{}\n')
@@ -42,7 +42,7 @@ describe('resolveSessionFilePath', () => {
   it('resolves OpenClaude sessions from the Claude transcript layout', async () => {
     const root = await makeRoot('orca-native-chat-resolve-openclaude-')
     const claudeProjectsDir = join(root, 'claude-projects')
-    const projectDir = join(claudeProjectsDir, '-Users-ada-repo')
+    const projectDir = join(claudeProjectsDir, '-userhome-ada-repo')
     await mkdir(projectDir, { recursive: true })
     const target = join(projectDir, 'sess-openclaude.jsonl')
     await writeFile(target, '{}\n')
@@ -201,7 +201,7 @@ describe('resolveSessionFilePath', () => {
     // session_id, so the id glob would miss it — but transcript_path is exact.
     const root = await makeRoot('orca-native-chat-resolve-path-')
     const claudeProjectsDir = join(root, 'claude-projects')
-    const projectDir = join(claudeProjectsDir, '-Users-ada-repo')
+    const projectDir = join(claudeProjectsDir, '-userhome-ada-repo')
     await mkdir(projectDir, { recursive: true })
     // The real transcript is named by a DIFFERENT id than the hook session id.
     const realFile = join(projectDir, 'real-file-uuid.jsonl')
@@ -217,7 +217,7 @@ describe('resolveSessionFilePath', () => {
   it('falls back to the id glob when the hook transcriptPath does not exist', async () => {
     const root = await makeRoot('orca-native-chat-resolve-path-stale-')
     const claudeProjectsDir = join(root, 'claude-projects')
-    const projectDir = join(claudeProjectsDir, '-Users-ada-repo')
+    const projectDir = join(claudeProjectsDir, '-userhome-ada-repo')
     await mkdir(projectDir, { recursive: true })
     const target = join(projectDir, 'sess-xyz.jsonl')
     await writeFile(target, '{}\n')
@@ -232,7 +232,7 @@ describe('resolveSessionFilePath', () => {
   it('ignores a non-jsonl transcriptPath and falls back to the glob', async () => {
     const root = await makeRoot('orca-native-chat-resolve-path-ext-')
     const claudeProjectsDir = join(root, 'claude-projects')
-    const projectDir = join(claudeProjectsDir, '-Users-ada-repo')
+    const projectDir = join(claudeProjectsDir, '-userhome-ada-repo')
     await mkdir(projectDir, { recursive: true })
     const bogus = join(projectDir, 'not-a-transcript.txt')
     await writeFile(bogus, 'x')

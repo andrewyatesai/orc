@@ -114,7 +114,7 @@ describe('fetchClaudeRateLimits', () => {
     await expect(
       fetchClaudeRateLimits({
         authPreparation: {
-          configDir: '/Users/test/.claude',
+          configDir: '/userhome/test/.claude',
           runtime: 'wsl',
           wslDistro: 'Ubuntu',
           wslLinuxConfigDir: null,
@@ -135,7 +135,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('reads scoped Keychain credentials when the Claude config dir is explicit', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -179,7 +179,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('falls back to the legacy keychain token when the scoped token is rejected as stale', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -220,7 +220,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('prefers a legacy access token over scoped refresh-only credentials', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -249,7 +249,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('does not retry with the legacy keychain for managed account credentials', async () => {
-    const configDir = '/Users/test/managed-account'
+    const configDir = '/userhome/test/managed-account'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -314,7 +314,7 @@ describe('fetchClaudeRateLimits', () => {
   it('skips the legacy retry when the legacy item mirrors the failed scoped token', async () => {
     // Why: Claude's usage endpoint has a tight request budget; retrying the
     // identical token would double the request for a guaranteed second 401.
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -342,7 +342,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('accepts Claude Code statusline-style rate limit window fields', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -378,7 +378,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('maps active Fable usage from the scoped OAuth limits array without a PTY read', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -424,7 +424,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('surfaces inactive scoped Fable usage over the legacy OAuth fallback', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -459,7 +459,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('surfaces an inactive scoped Fable entry when no legacy Fable field exists (#8979)', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -499,7 +499,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('supplements managed-account OAuth usage with Fable from the CLI usage panel', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -553,7 +553,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('supplements system OAuth usage when the service explicitly allows usage-panel reads', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -604,7 +604,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('ignores bare Fable OAuth usage because the window length is ambiguous', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -640,7 +640,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('falls back to legacy Keychain credentials for host system default without an explicit config dir', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       runtime: 'host',
@@ -680,7 +680,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('reads scoped Keychain credentials for host system default without an explicit config dir', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       runtime: 'host',
@@ -720,7 +720,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('falls back to the credentials file when Keychain access fails', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -745,7 +745,7 @@ describe('fetchClaudeRateLimits', () => {
     })
 
     expect(readFileMock).toHaveBeenCalledWith(
-      join('/Users/test/.claude', '.credentials.json'),
+      join('/userhome/test/.claude', '.credentials.json'),
       'utf-8'
     )
     expect(netFetchMock).toHaveBeenCalledWith(
@@ -759,7 +759,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('falls back to legacy Keychain when scoped credentials are unusable', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -795,7 +795,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('tries OAuth usage even when local credential metadata is expired', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -832,7 +832,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('does not mask OAuth usage rate limits with the PTY fallback', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -883,7 +883,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('omits retryAtMs when a 429 has no Retry-After header', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -918,7 +918,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('uses CLI fallback for OAuth auth failures when automatic repair is safe', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -960,7 +960,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('re-reads credentials and retries OAuth once after CLI repair', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -1036,7 +1036,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('reconciles a terminal-rotated token and retries OAuth without spawning the CLI', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -1111,7 +1111,7 @@ describe('fetchClaudeRateLimits', () => {
     // Why: Windows managed accounts disable PTY/CLI fallback, but reconcile
     // needs no `claude` spawn — it must still recover a terminal-rotated token.
     // This guards against reconcile being coupled to the allowCliFallback gate.
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -1179,7 +1179,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('falls through to CLI repair when reconcile yields no fresher token', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -1214,7 +1214,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('falls through to CLI repair when reconcile throws', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -1248,7 +1248,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('explains auth failures when a live Claude terminal owns managed refresh', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -1290,7 +1290,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('does not start CLI fallback when live Claude owns managed refresh and no token is readable', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -1315,7 +1315,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('does not start the PTY fallback when disabled for background fetches', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -1345,7 +1345,7 @@ describe('fetchClaudeRateLimits', () => {
   })
 
   it('does not start the PTY fallback for refresh-only credentials when disabled', async () => {
-    const configDir = '/Users/test/.claude'
+    const configDir = '/userhome/test/.claude'
     const authPreparation: ClaudeRuntimeAuthPreparation = {
       configDir,
       envPatch: { CLAUDE_CONFIG_DIR: configDir },
@@ -1374,7 +1374,7 @@ describe('fetchClaudeRateLimits', () => {
 
   it('falls back to CLI when OAuth credentials are missing in automatic mode', async () => {
     const authPreparation: ClaudeRuntimeAuthPreparation = {
-      configDir: '/Users/test/.claude',
+      configDir: '/userhome/test/.claude',
       envPatch: {},
       stripAuthEnv: false,
       provenance: 'system'
@@ -1396,7 +1396,7 @@ describe('fetchClaudeRateLimits', () => {
 
   it('marks CLI plan usage shell results as usage unavailable', async () => {
     const authPreparation: ClaudeRuntimeAuthPreparation = {
-      configDir: '/Users/test/.claude',
+      configDir: '/userhome/test/.claude',
       envPatch: {},
       stripAuthEnv: false,
       provenance: 'system'
@@ -1443,7 +1443,7 @@ describe('fetchClaudeRateLimits', () => {
 
   it('uses CLI fallback when Keychain is unavailable in automatic mode', async () => {
     const authPreparation: ClaudeRuntimeAuthPreparation = {
-      configDir: '/Users/test/.claude',
+      configDir: '/userhome/test/.claude',
       envPatch: {},
       stripAuthEnv: false,
       provenance: 'system'

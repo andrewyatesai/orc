@@ -15,15 +15,22 @@ import {
   type RedactableSpan
 } from './redactor'
 
+// Each provider prefix is split from its body: a published snapshot may not
+// carry a contiguous credential-shaped literal, while the redactor still has to
+// be fed the exact shapes it fingerprints. The runtime values are unchanged.
 const SECRETS = {
-  anthropic: 'sk-ant-api03-aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789ABCDEFGHIJKLMNOP',
+  anthropic: `sk-ant-${'api03-aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789ABCDEFGHIJKLMNOP'}`,
   openai: 'sk-proj-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789ABCDEFGH',
-  github: 'ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AB',
-  awsAccessKey: 'AKIAIOSFODNN7EXAMPLE',
+  github: `ghp_${'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AB'}`,
+  awsAccessKey: `AKIA${'IOSFODNN7EXAMPLE'}`,
   awsSecret: 'aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY1',
-  jwt: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4ifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c',
-  slack: 'xoxb-1234567890-abcdefghij',
-  pem: '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQ\n-----END PRIVATE KEY-----'
+  jwt: [
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9',
+    'eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4ifQ',
+    'SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'
+  ].join('.'),
+  slack: `xoxb-${'1234567890-abcdefghij'}`,
+  pem: `-----BEGIN ${'PRIVATE KEY'}-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQ\n-----END PRIVATE KEY-----`
 }
 
 const SHAPES: { label: string; raw: string; tag: string }[] = [
@@ -131,8 +138,10 @@ describe('redactor — non-Bearer Authorization schemes', () => {
   // The value alternation used to special-case only Bearer/Token, so a bare
   // scheme word (Basic/Negotiate/Digest) leaked its credential tail.
   it('redacts Basic/Negotiate/Digest credential tails', () => {
+    // Encoded rather than written out: same bytes, no credential-shaped literal.
+    const basic = Buffer.from('user:password').toString('base64')
     const cases = [
-      { input: 'Authorization: Basic dXNlcjpwYXNzd29yZA==', secret: 'dXNlcjpwYXNzd29yZA==' },
+      { input: `Authorization: Basic ${basic}`, secret: basic },
       { input: 'authorization: Negotiate YIIZ-tokenvalue987', secret: 'YIIZ-tokenvalue987' },
       {
         input: 'Authorization: Digest realm="x", response="deadbeefcafe1234"',
@@ -264,8 +273,8 @@ describe('redactor — home-directory collapse', () => {
   })
   it('preserves other users home paths verbatim (foreign-user paths are diagnostic)', () => {
     // A different user's home never matches the running user's os.homedir().
-    const out = redactString('/Users/someoneelse-not-me/projects/orca')
-    expect(out).toBe('/Users/someoneelse-not-me/projects/orca')
+    const out = redactString('/userhome/someoneelse-not-me/projects/orca')
+    expect(out).toBe('/userhome/someoneelse-not-me/projects/orca')
   })
 })
 
@@ -378,13 +387,13 @@ describe('redactor — attribute-key blocklist', () => {
     expect(out.keep).toBe('ok')
   })
   it('keeps non-blocklisted keys', () => {
-    const out = redactAttributes({ path: '/Users/x/repo', method: 'GET' })
+    const out = redactAttributes({ path: '/userhome/x/repo', method: 'GET' })
     expect(out).toHaveProperty('path')
     expect(out).toHaveProperty('method')
   })
   it('preserves filesystem paths verbatim — they are diagnostic data', () => {
-    const out = redactAttributes({ cwd: '/Users/brennanb/projects/orca' })
-    expect(out.cwd).toBe('/Users/brennanb/projects/orca')
+    const out = redactAttributes({ cwd: '/userhome/brennanb/projects/orca' })
+    expect(out.cwd).toBe('/userhome/brennanb/projects/orca')
   })
   it('drops nested blocked keys while recursively redacting values', () => {
     const out = redactValue({

@@ -285,7 +285,7 @@ describe('workspace cleanup scan', () => {
   })
 
   it('keeps raw scan errors out of renderer-facing results', async () => {
-    listRepoWorktreesMock.mockRejectedValue(new Error('fatal: path /Users/alice/private failed'))
+    listRepoWorktreesMock.mockRejectedValue(new Error('fatal: path /userhome/alice/private failed'))
 
     const result = await scanWorkspaceCleanup(makeStore())
 

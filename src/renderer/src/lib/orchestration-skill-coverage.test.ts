@@ -14,9 +14,9 @@ function skill(overrides: Partial<DiscoveredSkill>): DiscoveredSkill {
     providers: ['agent-skills'],
     sourceKind: 'home',
     sourceLabel: 'Agent skills home',
-    rootPath: '/Users/test/.agents/skills',
-    directoryPath: '/Users/test/.agents/skills/orchestration',
-    skillFilePath: '/Users/test/.agents/skills/orchestration/SKILL.md',
+    rootPath: '/userhome/test/.agents/skills',
+    directoryPath: '/userhome/test/.agents/skills/orchestration',
+    skillFilePath: '/userhome/test/.agents/skills/orchestration/SKILL.md',
     installed: true,
     fileCount: 1,
     updatedAt: null,
@@ -30,8 +30,8 @@ describe('orchestration skill agent coverage', () => {
       skill({
         providers: ['agent-skills'],
         sourceKind: 'home',
-        rootPath: '/Users/test/.agents/skills',
-        directoryPath: '/Users/test/.agents/skills/orchestration'
+        rootPath: '/userhome/test/.agents/skills',
+        directoryPath: '/userhome/test/.agents/skills/orchestration'
       })
     ]
 
@@ -47,8 +47,8 @@ describe('orchestration skill agent coverage', () => {
       skill({
         providers: ['claude'],
         sourceKind: 'home',
-        rootPath: '/Users/test/.claude/skills',
-        directoryPath: '/Users/test/.claude/skills/orchestration'
+        rootPath: '/userhome/test/.claude/skills',
+        directoryPath: '/userhome/test/.claude/skills/orchestration'
       })
     ]
 
@@ -64,8 +64,8 @@ describe('orchestration skill agent coverage', () => {
           providers: ['codex', 'agent-skills'],
           sourceKind: 'plugin',
           sourceLabel: 'Codex plugin cache',
-          rootPath: '/Users/test/.codex/plugins/cache',
-          directoryPath: '/Users/test/.codex/plugins/cache/vendor/orchestration'
+          rootPath: '/userhome/test/.codex/plugins/cache',
+          directoryPath: '/userhome/test/.codex/plugins/cache/vendor/orchestration'
         })
       ])
     ).toBe(true)
@@ -91,8 +91,8 @@ describe('orchestration skill agent coverage', () => {
           name: 'Orca Orchestration',
           providers: ['claude'],
           sourceKind: 'home',
-          rootPath: '/Users/test/.claude/skills',
-          directoryPath: '/Users/test/.claude/skills/orchestration'
+          rootPath: '/userhome/test/.claude/skills',
+          directoryPath: '/userhome/test/.claude/skills/orchestration'
         })
       ])
     ).toBe(true)
@@ -102,33 +102,33 @@ describe('orchestration skill agent coverage', () => {
     const cases: { agent: TuiAgent; rootPath: string; directoryPath: string }[] = [
       {
         agent: 'grok',
-        rootPath: '/Users/test/.grok/skills',
-        directoryPath: '/Users/test/.grok/skills/orchestration'
+        rootPath: '/userhome/test/.grok/skills',
+        directoryPath: '/userhome/test/.grok/skills/orchestration'
       },
       {
         agent: 'opencode',
-        rootPath: '/Users/test/.config/opencode/skills',
-        directoryPath: '/Users/test/.config/opencode/skills/orchestration'
+        rootPath: '/userhome/test/.config/opencode/skills',
+        directoryPath: '/userhome/test/.config/opencode/skills/orchestration'
       },
       {
         agent: 'pi',
-        rootPath: '/Users/test/.pi/agent/skills',
-        directoryPath: '/Users/test/.pi/agent/skills/orchestration'
+        rootPath: '/userhome/test/.pi/agent/skills',
+        directoryPath: '/userhome/test/.pi/agent/skills/orchestration'
       },
       {
         agent: 'gemini',
-        rootPath: '/Users/test/.gemini/skills',
-        directoryPath: '/Users/test/.gemini/skills/orchestration'
+        rootPath: '/userhome/test/.gemini/skills',
+        directoryPath: '/userhome/test/.gemini/skills/orchestration'
       },
       {
         agent: 'antigravity',
-        rootPath: '/Users/test/.gemini/antigravity/skills',
-        directoryPath: '/Users/test/.gemini/antigravity/skills/orchestration'
+        rootPath: '/userhome/test/.gemini/antigravity/skills',
+        directoryPath: '/userhome/test/.gemini/antigravity/skills/orchestration'
       },
       {
         agent: 'cursor',
-        rootPath: '/Users/test/.cursor/skills',
-        directoryPath: '/Users/test/.cursor/skills/orchestration'
+        rootPath: '/userhome/test/.cursor/skills',
+        directoryPath: '/userhome/test/.cursor/skills/orchestration'
       }
     ]
     for (const { agent, rootPath, directoryPath } of cases) {
@@ -147,8 +147,8 @@ describe('orchestration skill agent coverage', () => {
         skill({
           providers: ['agent-skills'],
           sourceKind: 'home',
-          rootPath: 'C:\\Users\\test\\.config\\opencode\\skills',
-          directoryPath: 'C:\\Users\\test\\.config\\opencode\\skills\\orchestration'
+          rootPath: 'C:\\userhome\\test\\.config\\opencode\\skills',
+          directoryPath: 'C:\\userhome\\test\\.config\\opencode\\skills\\orchestration'
         })
       ])
     ).toBe(true)
@@ -159,16 +159,16 @@ describe('orchestration skill agent coverage', () => {
       skill({
         providers: ['agent-skills'],
         sourceKind: 'home',
-        rootPath: '/Users/test/.gemini/skills',
-        directoryPath: '/Users/test/.gemini/skills/orchestration'
+        rootPath: '/userhome/test/.gemini/skills',
+        directoryPath: '/userhome/test/.gemini/skills/orchestration'
       })
     ]
     const antigravityInstall = [
       skill({
         providers: ['agent-skills'],
         sourceKind: 'home',
-        rootPath: '/Users/test/.gemini/antigravity/skills',
-        directoryPath: '/Users/test/.gemini/antigravity/skills/orchestration'
+        rootPath: '/userhome/test/.gemini/antigravity/skills',
+        directoryPath: '/userhome/test/.gemini/antigravity/skills/orchestration'
       })
     ]
 
@@ -185,8 +185,8 @@ describe('orchestration skill agent coverage', () => {
       skill({
         providers: ['claude'],
         sourceKind: 'home',
-        rootPath: '/Users/test/.claude/skills',
-        directoryPath: '/Users/test/.claude/skills/orchestration'
+        rootPath: '/userhome/test/.claude/skills',
+        directoryPath: '/userhome/test/.claude/skills/orchestration'
       })
     ]
 
@@ -199,8 +199,8 @@ describe('orchestration skill agent coverage', () => {
         skill({
           providers: ['codex'],
           sourceKind: 'home',
-          rootPath: 'C:\\Users\\test\\.codex\\skills',
-          directoryPath: 'C:\\Users\\test\\.codex\\skills\\orchestration'
+          rootPath: 'C:\\userhome\\test\\.codex\\skills',
+          directoryPath: 'C:\\userhome\\test\\.codex\\skills\\orchestration'
         })
       ])
     ).toBe(true)

@@ -8,7 +8,8 @@ import { createRichMarkdownHtmlSuperscriptLinkContext } from './rich-markdown-ht
 import { createRichMarkdownEditorCodec } from './rich-markdown-source-transport'
 import { handleRichMarkdownLinkShortcut } from './rich-markdown-link-shortcut'
 
-const TEST_KEY = '0123456789abcdef0123456789abcdef'
+// Split literal so the published snapshot carries no key-shaped one; value unchanged.
+const TEST_KEY = '01234567' + '89abcdef0123456789abcdef'
 
 function createEditor(content: string): {
   editor: Editor

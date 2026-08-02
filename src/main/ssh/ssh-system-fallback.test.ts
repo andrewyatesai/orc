@@ -352,7 +352,7 @@ describe('spawnSystemSsh', () => {
     const args = buildSshArgs(createTarget({ configHost: 'workbox', source: 'ssh-config' }), {
       resolvedConfig: createResolvedConfig({
         controlMaster: 'auto',
-        controlPath: '/Users/me/.ssh/cm/%r@%h:%p',
+        controlPath: '/userhome/me/.ssh/cm/%r@%h:%p',
         controlPersist: '10m'
       })
     })
@@ -378,7 +378,7 @@ describe('spawnSystemSsh', () => {
     const args = buildSshArgs(createTarget({ configHost: 'workbox', source: 'ssh-config' }), {
       resolvedConfig: createResolvedConfig({
         controlMaster: 'no',
-        controlPath: '/Users/me/.ssh/cm/%r@%h:%p'
+        controlPath: '/userhome/me/.ssh/cm/%r@%h:%p'
       })
     })
 
@@ -670,7 +670,7 @@ describe('spawnSystemSsh', () => {
 
     const promise = writeFileViaSystemSsh(
       createTarget(),
-      'C:/Users/me/.orca-remote/relay/.version',
+      'C:/userhome/me/.orca-remote/relay/.version',
       '0.1.0',
       { hostPlatform }
     )
@@ -691,7 +691,7 @@ describe('spawnSystemSsh', () => {
 
     const promise = writeBufferViaSystemSsh(
       createTarget(),
-      'C:/Users/me/logo.png',
+      'C:/userhome/me/logo.png',
       Buffer.from('png'),
       { hostPlatform, exclusive: true }
     )
@@ -714,7 +714,7 @@ describe('spawnSystemSsh', () => {
     const dest = join(dir, 'payload.bin')
 
     try {
-      const promise = downloadFileViaSystemSsh(createTarget(), 'C:/Users/me/payload.bin', dest, {
+      const promise = downloadFileViaSystemSsh(createTarget(), 'C:/userhome/me/payload.bin', dest, {
         hostPlatform
       })
       proc.stdout.emit('data', Buffer.from('payload'))
@@ -741,7 +741,7 @@ describe('spawnSystemSsh', () => {
 
     const promise = writeFileViaSystemSsh(
       createTarget(),
-      'C:/Users/me/.orca-remote/relay/.version',
+      'C:/userhome/me/.orca-remote/relay/.version',
       '0.1.0',
       { hostPlatform, disableControlMaster: true }
     )
@@ -769,7 +769,7 @@ describe('spawnSystemSsh', () => {
       await uploadDirectoryViaSystemSsh(
         createTarget(),
         localDir,
-        'C:/Users/me/.orca-remote/relay',
+        'C:/userhome/me/.orca-remote/relay',
         { hostPlatform: getRemoteHostPlatform('win32-x64') }
       )
     } finally {
@@ -788,10 +788,10 @@ describe('spawnSystemSsh', () => {
     }[]
     expect(payload).toEqual(
       expect.arrayContaining([
-        { kind: 'directory', path: 'C:/Users/me/.orca-remote/relay' },
+        { kind: 'directory', path: 'C:/userhome/me/.orca-remote/relay' },
         {
           kind: 'file',
-          path: 'C:/Users/me/.orca-remote/relay/relay.js',
+          path: 'C:/userhome/me/.orca-remote/relay/relay.js',
           contentsBase64: Buffer.from('console.log("relay")').toString('base64')
         }
       ])
@@ -811,7 +811,7 @@ describe('spawnSystemSsh', () => {
       await uploadDirectoryViaSystemSsh(
         createTarget(),
         localDir,
-        'C:/Users/me/.orca-remote/relay',
+        'C:/userhome/me/.orca-remote/relay',
         { hostPlatform: getRemoteHostPlatform('win32-x64'), disableControlMaster: true }
       )
     } finally {

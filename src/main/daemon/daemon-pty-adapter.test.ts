@@ -1886,7 +1886,7 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
     })
 
     it('correctly parses hyphenated worktreeIds', async () => {
-      const complexId = 'repo-abc::/Users/dev/my-feature-branch'
+      const complexId = 'repo-abc::/userhome/dev/my-feature-branch'
       await adapter.spawn({ cols: 80, rows: 24, worktreeId: complexId })
 
       const { alive, killed } = await adapter.reconcileOnStartup(new Set([complexId]))

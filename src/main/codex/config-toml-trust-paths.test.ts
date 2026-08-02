@@ -20,13 +20,13 @@ function entry(sourcePath: string): CodexTrustEntry {
 
 describe('Codex hook trust source path normalization', () => {
   it.each([
-    ['C:/Users/Rod/.codex/./hooks.json', 'C:\\Users\\Rod\\.codex\\hooks.json'],
-    ['C:\\Users\\Rod\\tmp\\..\\.codex\\hooks.json', 'C:\\Users\\Rod\\.codex\\hooks.json'],
-    ['C:\\Users\\Rod\\.codex\\hooks.json\\', 'C:\\Users\\Rod\\.codex\\hooks.json'],
+    ['C:/userhome/Rod/.codex/./hooks.json', 'C:\\userhome\\Rod\\.codex\\hooks.json'],
+    ['C:\\userhome\\Rod\\tmp\\..\\.codex\\hooks.json', 'C:\\userhome\\Rod\\.codex\\hooks.json'],
+    ['C:\\userhome\\Rod\\.codex\\hooks.json\\', 'C:\\userhome\\Rod\\.codex\\hooks.json'],
     ['\\\\server\\share\\dir\\.\\hooks.json', '\\\\server\\share\\dir\\hooks.json'],
-    ['\\\\?\\C:\\Users\\Rod\\.codex\\hooks.json', 'C:\\Users\\Rod\\.codex\\hooks.json'],
+    ['\\\\?\\C:\\userhome\\Rod\\.codex\\hooks.json', 'C:\\userhome\\Rod\\.codex\\hooks.json'],
     ['\\\\?\\UNC\\server\\share\\dir\\hooks.json', '\\\\server\\share\\dir\\hooks.json'],
-    ['\\\\.\\C:\\Users\\Rod\\.codex\\hooks.json', 'C:\\Users\\Rod\\.codex\\hooks.json'],
+    ['\\\\.\\C:\\userhome\\Rod\\.codex\\hooks.json', 'C:\\userhome\\Rod\\.codex\\hooks.json'],
     ['\\\\.\\UNC\\server\\share\\dir\\hooks.json', '\\\\server\\share\\dir\\hooks.json']
   ])('matches Windows PathBuf display semantics for %s', (sourcePath, expected) => {
     expect(normalizeCodexHookSourcePath(sourcePath)).toBe(expected)
@@ -63,8 +63,8 @@ describe('Codex hook trust source path normalization', () => {
   })
 
   it('builds the key byte-for-byte from the normalized source and positional suffix', () => {
-    expect(computeTrustKey(entry('C:/Users/Rod/.codex/../.codex/hooks.json'))).toBe(
-      'C:\\Users\\Rod\\.codex\\hooks.json:stop:2:3'
+    expect(computeTrustKey(entry('C:/userhome/Rod/.codex/../.codex/hooks.json'))).toBe(
+      'C:\\userhome\\Rod\\.codex\\hooks.json:stop:2:3'
     )
   })
 })
@@ -73,8 +73,8 @@ describe('Codex hook trust key lookup normalization', () => {
   it('compares mixed-case Windows hook sources by lookup identity', () => {
     expect(
       codexHookSourcePathsEqual(
-        'C:\\Users\\Rod\\AppData\\Roaming\\orca\\hooks.json',
-        'c:/users/rod/appdata/roaming/orca/hooks.json'
+        'C:\\userhome\\Rod\\AppData\\Roaming\\orca\\hooks.json',
+        'c:/userhome/rod/appdata/roaming/orca/hooks.json'
       )
     ).toBe(true)
     expect(codexHookSourcePathsEqual('/home/User/hooks.json', '/home/user/hooks.json')).toBe(false)
@@ -93,8 +93,8 @@ describe('Codex hook trust key lookup normalization', () => {
   })
 
   it('folds Windows separator and case variants without changing the persisted key', () => {
-    const native = 'C:\\Users\\Rod\\.codex\\hooks.json:stop:2:3'
-    const slash = 'c:/users/rod/.codex/hooks.json:stop:2:3'
+    const native = 'C:\\userhome\\Rod\\.codex\\hooks.json:stop:2:3'
+    const slash = 'c:/userhome/rod/.codex/hooks.json:stop:2:3'
     expect(normalizeHookTrustKeyForLookup(native)).toBe(normalizeHookTrustKeyForLookup(slash))
   })
 

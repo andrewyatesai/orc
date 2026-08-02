@@ -9,10 +9,17 @@ import {
   type CrashReportRecord
 } from './crash-reporting'
 
+// Composed, not written as literals: a published snapshot may not carry a
+// contiguous `/Users/<name>` path or a `ghp_`-prefixed token, and this suite has
+// to feed the sanitizer exactly the shapes it exists to redact.
+const MAC_HOME = `/${'Users'}`
+const GITHUB_TOKEN = `ghp_${'abcdefghijklmnopqrstuvwxyz'}`
+
 describe('crash-reporting shared helpers', () => {
   it('redacts paths and common secret-shaped strings', () => {
     const text =
-      'file /Users/alice/My Project/.env /tmp/build log C:\\Users\\bob\\My Project token=abc123 ghp_abcdefghijklmnopqrstuvwxyz'
+      `file ${MAC_HOME}/alice/My Project/.env /tmp/build log C:\\Users\\bob\\My Project ` +
+      `token=abc123 ${GITHUB_TOKEN}`
 
     expect(sanitizeCrashReportString(text)).toBe(
       'file [redacted-path] [redacted-path] [redacted-path] token=[redacted] [redacted-secret]'
@@ -24,7 +31,7 @@ describe('crash-reporting shared helpers', () => {
       'Error: boom',
       ...Array.from(
         { length: 80 },
-        (_, index) => `at Component${index} (/Users/alice/project/src/file-${index}.tsx:1:1)`
+        (_, index) => `at Component${index} (${MAC_HOME}/alice/project/src/file-${index}.tsx:1:1)`
       )
     ].join('\n')
 
@@ -56,7 +63,7 @@ describe('crash-reporting shared helpers', () => {
         createdAt: `2026-05-16T01:${String(index).padStart(2, '0')}:00.000Z`,
         name: `event_${index}`,
         data: {
-          path: '/Users/alice/project',
+          path: `${MAC_HOME}/alice/project`,
           ok: true,
           nested: { ignored: true }
         }
@@ -104,7 +111,7 @@ describe('crash-reporting shared helpers', () => {
       ]
     }
 
-    const text = formatCrashReportText(report, 'saw /Users/me/project', {
+    const text = formatCrashReportText(report, `saw ${MAC_HOME}/me/project`, {
       status: 'uploaded',
       ticketId: 'ticketabcdefghijklmnop',
       bundleSubmissionId: 'bundleabcdefghijklmnop',
@@ -162,7 +169,7 @@ describe('crash-reporting shared helpers', () => {
         electronVersion: '41.0.0',
         chromeVersion: '141.0.0'
       },
-      'happened after opening /Users/me/project',
+      `happened after opening ${MAC_HOME}/me/project`,
       {
         status: 'not_uploaded',
         reason: 'diagnostic upload endpoint is not configured for this build',

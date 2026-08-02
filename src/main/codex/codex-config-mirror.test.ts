@@ -234,7 +234,7 @@ describe('syncSystemConfigIntoManagedCodexHome', () => {
       'model_catalog_json = "$CODEX_ASSETS/models.json"',
       'experimental_instructions_file = "%USERPROFILE%\\\\instructions.md"',
       'log_dir = "/var/log/codex"',
-      "sqlite_home = 'C:\\Users\\example\\state'",
+      "sqlite_home = 'C:\\userhome\\example\\state'",
       'experimental_compact_prompt_file = "file://server/prompts/compact.md"'
     ]
     writeFileSync(getSystemConfigPath(), `${passthroughLines.join('\n')}\n`, 'utf-8')
@@ -379,7 +379,7 @@ describe('syncSystemConfigIntoManagedCodexHome', () => {
 
   it('deduplicates a CRLF system project header against an LF runtime header', () => {
     mkdirSync(join(userDataDir, 'codex-runtime-home', 'home'), { recursive: true })
-    const projectHeader = '[projects."C:/Users/jinwo/orca/workspaces/orca/repo"]'
+    const projectHeader = '[projects."C:/userhome/jinwo/orca/workspaces/orca/repo"]'
     writeFileSync(
       getRuntimeConfigPath(),
       [projectHeader, 'trust_level = "trusted"', ''].join('\n'),
@@ -400,7 +400,7 @@ describe('syncSystemConfigIntoManagedCodexHome', () => {
 
   it('self-heals duplicate project tables in a CRLF runtime config', () => {
     mkdirSync(join(userDataDir, 'codex-runtime-home', 'home'), { recursive: true })
-    const projectHeader = '[projects."C:/Users/jinwo/orca/workspaces/orca/repo"]'
+    const projectHeader = '[projects."C:/userhome/jinwo/orca/workspaces/orca/repo"]'
     writeFileSync(
       getRuntimeConfigPath(),
       [

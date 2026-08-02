@@ -19,10 +19,10 @@ function session(overrides: Partial<AiVaultSession> = {}): AiVaultSession {
     agent: 'claude',
     sessionId: 'session 1',
     title: 'Resume me',
-    cwd: '/Users/ada/repo',
+    cwd: '/userhome/ada/repo',
     branch: 'main',
     model: null,
-    filePath: '/Users/ada/.claude/session.jsonl',
+    filePath: '/userhome/ada/.claude/session.jsonl',
     codexHome: null,
     createdAt: null,
     updatedAt: null,
@@ -41,7 +41,7 @@ function session(overrides: Partial<AiVaultSession> = {}): AiVaultSession {
 describe('buildMobileAiVaultResumeCommand', () => {
   it('delegates POSIX command construction to the shared AI Vault builder', () => {
     expect(buildMobileAiVaultResumeCommand({ session: session(), hostPlatform: 'darwin' })).toBe(
-      "cd '/Users/ada/repo' && claude --resume 'session 1'"
+      "cd '/userhome/ada/repo' && claude --resume 'session 1'"
     )
   })
 
@@ -52,12 +52,12 @@ describe('buildMobileAiVaultResumeCommand', () => {
           agent: 'codex',
           sessionId: 'codex-1',
           cwd: 'C:\\repo app',
-          codexHome: 'C:\\Users\\Ada\\.codex'
+          codexHome: 'C:\\userhome\\Ada\\.codex'
         }),
         hostPlatform: 'win32'
       })
     ).toBe(
-      "Set-Location -LiteralPath 'C:\\repo app'; $env:CODEX_HOME='C:\\Users\\Ada\\.codex'; codex resume 'codex-1'"
+      "Set-Location -LiteralPath 'C:\\repo app'; $env:CODEX_HOME='C:\\userhome\\Ada\\.codex'; codex resume 'codex-1'"
     )
   })
 
@@ -69,12 +69,14 @@ describe('buildMobileAiVaultResumeCommand', () => {
         session: session({
           agent: 'omp',
           sessionId: '019f27cd-4268-7000-96e7-62f42a55c144',
-          filePath: '/Users/ada/.omp/agent/sessions/repo/sess.jsonl',
-          cwd: '/Users/ada/repo'
+          filePath: '/userhome/ada/.omp/agent/sessions/repo/sess.jsonl',
+          cwd: '/userhome/ada/repo'
         }),
         hostPlatform: 'darwin'
       })
-    ).toBe("cd '/Users/ada/repo' && omp --resume '/Users/ada/.omp/agent/sessions/repo/sess.jsonl'")
+    ).toBe(
+      "cd '/userhome/ada/repo' && omp --resume '/userhome/ada/.omp/agent/sessions/repo/sess.jsonl'"
+    )
   })
 
   it('resumes pi sessions by transcript path, never by bare session id', () => {
@@ -84,13 +86,13 @@ describe('buildMobileAiVaultResumeCommand', () => {
       session: session({
         agent: 'pi',
         sessionId: 'pi-session-1',
-        filePath: '/Users/ada/.pi/agent/sessions/repo/sess.jsonl',
-        cwd: '/Users/ada/repo'
+        filePath: '/userhome/ada/.pi/agent/sessions/repo/sess.jsonl',
+        cwd: '/userhome/ada/repo'
       }),
       hostPlatform: 'darwin'
     })
     expect(command).toBe(
-      "cd '/Users/ada/repo' && pi --session '/Users/ada/.pi/agent/sessions/repo/sess.jsonl'"
+      "cd '/userhome/ada/repo' && pi --session '/userhome/ada/.pi/agent/sessions/repo/sess.jsonl'"
     )
     expect(command).not.toContain('pi-session-1')
   })
@@ -102,7 +104,7 @@ describe('buildMobileAiVaultResumeCommand', () => {
       session: session({ agent: 'pi', sessionId: 'pi-session-1', filePath: '' }),
       hostPlatform: 'darwin'
     })
-    expect(command).toBe("cd '/Users/ada/repo' && pi")
+    expect(command).toBe("cd '/userhome/ada/repo' && pi")
     expect(command).not.toContain('pi-session-1')
   })
 
@@ -114,13 +116,13 @@ describe('buildMobileAiVaultResumeCommand', () => {
         agent: 'codex',
         sessionId: 'codex-1',
         cwd: 'C:\\repo app',
-        codexHome: 'C:\\Users\\Ada\\.codex'
+        codexHome: 'C:\\userhome\\Ada\\.codex'
       }),
       hostPlatform: 'win32',
       hostTerminalWindowsShell: 'cmd.exe'
     })
     expect(command).toBe(
-      'cd /d "C:\\repo app" && set "CODEX_HOME=C:\\Users\\Ada\\.codex" && codex resume "codex-1"'
+      'cd /d "C:\\repo app" && set "CODEX_HOME=C:\\userhome\\Ada\\.codex" && codex resume "codex-1"'
     )
   })
 
@@ -145,7 +147,7 @@ describe('buildMobileAiVaultResumeCommand', () => {
         hostPlatform: 'linux',
         commandOverride: 'claude-dev'
       })
-    ).toBe("cd '/Users/ada/repo' && claude-dev --resume 'abc'")
+    ).toBe("cd '/userhome/ada/repo' && claude-dev --resume 'abc'")
   })
 })
 
@@ -166,7 +168,7 @@ describe('buildMobileAiVaultResumeLaunch', () => {
 
     expect(launch).toMatchObject({
       command:
-        "cd '/Users/ada/repo' && omp '--model' 'custom' --resume '/custom/omp-sessions/project/session.jsonl'",
+        "cd '/userhome/ada/repo' && omp '--model' 'custom' --resume '/custom/omp-sessions/project/session.jsonl'",
       env: { OMP_PROFILE: 'custom' },
       launchConfig: {
         agentCommand: "omp '--model' 'custom'",
@@ -199,7 +201,7 @@ describe('buildMobileAiVaultResumeLaunch', () => {
       session: session({
         agent: 'claude',
         sessionId: 'abc 123',
-        cwd: '/Users/ada/repo'
+        cwd: '/userhome/ada/repo'
       }),
       hostPlatform: 'darwin',
       settings: {
@@ -209,7 +211,7 @@ describe('buildMobileAiVaultResumeLaunch', () => {
       }
     })
     expect(launch.command).toBe(
-      "cd '/Users/ada/repo' && claude-dev '--model' 'opus' '--resume' 'abc 123'"
+      "cd '/userhome/ada/repo' && claude-dev '--model' 'opus' '--resume' 'abc 123'"
     )
     expect(launch.env).toEqual({ ANTHROPIC_BASE_URL: 'http://localhost:3000' })
     expect(launch.launchAgent).toBe('claude')
@@ -230,7 +232,7 @@ describe('buildMobileAiVaultResumeLaunch', () => {
       session: session({ agent: 'codex', sessionId: 'codex-1', codexHome: null }),
       hostPlatform: 'darwin',
       settings: {
-        agentDefaultEnv: { codex: { CODEX_HOME: '/Users/ada/.codex-pinned' } }
+        agentDefaultEnv: { codex: { CODEX_HOME: '/userhome/ada/.codex-pinned' } }
       }
     })
     expect(launch.command).not.toContain('CODEX_HOME=')
@@ -242,11 +244,11 @@ describe('buildMobileAiVaultResumeLaunch', () => {
       session: session({
         agent: 'codex',
         sessionId: 'codex-1',
-        codexHome: '/Users/ada/.orca/codex-runtime-home/home'
+        codexHome: '/userhome/ada/.orca/codex-runtime-home/home'
       }),
       hostPlatform: 'darwin'
     })
-    expect(launch.command).toContain("CODEX_HOME='/Users/ada/.orca/codex-runtime-home/home'")
+    expect(launch.command).toContain("CODEX_HOME='/userhome/ada/.orca/codex-runtime-home/home'")
     expect(launch.envToDelete).toBeUndefined()
   })
 
@@ -257,13 +259,13 @@ describe('buildMobileAiVaultResumeLaunch', () => {
       session: session({
         agent: 'pi',
         sessionId: 'pi-session-1',
-        filePath: '/Users/ada/.pi/agent/sessions/repo/sess.jsonl',
-        cwd: '/Users/ada/repo'
+        filePath: '/userhome/ada/.pi/agent/sessions/repo/sess.jsonl',
+        cwd: '/userhome/ada/repo'
       }),
       hostPlatform: 'darwin'
     })
     expect(launch.command).toBe(
-      "cd '/Users/ada/repo' && pi '--session' '/Users/ada/.pi/agent/sessions/repo/sess.jsonl'"
+      "cd '/userhome/ada/repo' && pi '--session' '/userhome/ada/.pi/agent/sessions/repo/sess.jsonl'"
     )
     expect(launch.launchAgent).toBe('pi')
   })
@@ -273,7 +275,7 @@ describe('buildMobileAiVaultResumeLaunch', () => {
       session: session({ agent: 'pi', sessionId: 'pi-session-1', filePath: '' }),
       hostPlatform: 'darwin'
     })
-    expect(launch.command).toBe("cd '/Users/ada/repo' && pi")
+    expect(launch.command).toBe("cd '/userhome/ada/repo' && pi")
     expect(launch.command).not.toContain('pi-session-1')
   })
 })

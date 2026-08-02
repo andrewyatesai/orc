@@ -45,7 +45,7 @@ function createResolved(overrides?: Partial<SystemSshResolvedConfig>): SystemSsh
     hostname: '10.0.0.5',
     port: 22,
     user: 'deploy',
-    identityFile: ['/Users/me/.ssh/id_ed25519'],
+    identityFile: ['/userhome/me/.ssh/id_ed25519'],
     forwardAgent: false,
     identitiesOnly: true,
     proxyUseFdpass: true,

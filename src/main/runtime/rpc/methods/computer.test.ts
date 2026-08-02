@@ -231,8 +231,9 @@ describe('computer RPC methods', () => {
     expect(() =>
       findMethod('computer.hotkey').params!.parse({ app: 'Finder', key: 'Return' })
     ).toThrow(/Hotkey requires a modifier and one key/)
+    const modifiersOnly = 'CmdOrCtrl+Shift'
     expect(() =>
-      findMethod('computer.hotkey').params!.parse({ app: 'Finder', key: 'CmdOrCtrl+Shift' })
+      findMethod('computer.hotkey').params!.parse({ app: 'Finder', key: modifiersOnly })
     ).toThrow(/Hotkey requires a modifier and one key/)
     expect(() =>
       findMethod('computer.hotkey').params!.parse({ app: 'Finder', key: 'Ctrl+A+B' })

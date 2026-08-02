@@ -75,15 +75,15 @@ describe('deliverPatchedNodePtyFiles', () => {
       const writes: string[] = []
       await deliverPatchedNodePtyFiles({
         localRelayDir: relayDir,
-        remoteDir: 'C:/Users/dev/.orca-remote/relay-0.1.0+abc',
+        remoteDir: 'C:/userhome/dev/.orca-remote/relay-0.1.0+abc',
         hostPlatform: getRemoteHostPlatform('win32-x64'),
         writeRemoteFile: async (remotePath) => {
           writes.push(remotePath)
         }
       })
       expect(writes.sort()).toEqual([
-        'C:/Users/dev/.orca-remote/relay-0.1.0+abc/node_modules/node-pty/lib/conpty_console_list_agent.js',
-        'C:/Users/dev/.orca-remote/relay-0.1.0+abc/node_modules/node-pty/lib/unixTerminal.js'
+        'C:/userhome/dev/.orca-remote/relay-0.1.0+abc/node_modules/node-pty/lib/conpty_console_list_agent.js',
+        'C:/userhome/dev/.orca-remote/relay-0.1.0+abc/node_modules/node-pty/lib/unixTerminal.js'
       ])
     } finally {
       rmSync(relayDir, { recursive: true, force: true })
@@ -135,7 +135,7 @@ describe('local node-pty patch payload source', () => {
       const writes = new Map<string, string>()
       await deliverPatchedNodePtyFiles({
         localRelayDir: relayDir,
-        remoteDir: 'C:/Users/dev/.orca-remote/relay-0.1.0+abc',
+        remoteDir: 'C:/userhome/dev/.orca-remote/relay-0.1.0+abc',
         hostPlatform: getRemoteHostPlatform('win32-x64'),
         writeRemoteFile: async (remotePath, contents) => {
           writes.set(remotePath, contents)
@@ -143,7 +143,7 @@ describe('local node-pty patch payload source', () => {
       })
 
       const delivered = writes.get(
-        'C:/Users/dev/.orca-remote/relay-0.1.0+abc/node_modules/node-pty/lib/conpty_console_list_agent.js'
+        'C:/userhome/dev/.orca-remote/relay-0.1.0+abc/node_modules/node-pty/lib/conpty_console_list_agent.js'
       )
       expect(delivered).toContain('consoleProcessList = [shellPid]')
     } finally {

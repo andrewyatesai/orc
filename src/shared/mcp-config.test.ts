@@ -267,7 +267,7 @@ describe('mcp-config', () => {
       false
     )
     expect(canInspectLocalMcpConfigRoot('//wsl.localhost/Ubuntu/home/me/repo', false)).toBe(false)
-    expect(canInspectLocalMcpConfigRoot('/Users/me/repo', false)).toBe(true)
+    expect(canInspectLocalMcpConfigRoot('/userhome/me/repo', false)).toBe(true)
     expect(canInspectLocalMcpConfigRoot('\\\\wsl.localhost\\Ubuntu\\home\\me\\repo', true)).toBe(
       true
     )

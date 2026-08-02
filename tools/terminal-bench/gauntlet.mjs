@@ -9,7 +9,7 @@
 //                   xterm per the VT/ECMA-48 spec" is a WIN to be triaged, not a bug.
 //   • perf        — MB/s throughput vs xterm, best-of-N medians in one thermal state.
 //   • safety      — Trust-proved obligations (skipped, not failed, when the toolchain is absent).
-//   • autoformalize — Goal A: reuse the Trust ts2rust two-witness gate (~/trust/tools/ts2rust)
+//   • autoformalize — Goal A: reuse the Trust ts2rust two-witness gate ($TRUST_REPO/tools/ts2rust)
 //                   to prove the orc corpus's Rust ports refine their TS (skipped if trustc absent).
 //   • census      — generated inventory ratchet (tools/repo-census.mjs): the delivery-shim
 //                   and god-object regret class may only shrink; growth is REVIEW to triage
@@ -259,6 +259,11 @@ function perf(trials = 5) {
 }
 
 // --- safety: Trust-proved obligations; runnable only where the toolchain exists --
+// The Trust checkout lives outside this repo and its location is per-machine, so
+// it is resolved from $TRUST_REPO (default: `trust` under $HOME) and never hard-coded.
+const TRUST_ROOT = process.env.TRUST_REPO || join(process.env.HOME || '', 'trust')
+const TRUST_ROOT_LABEL = '$TRUST_REPO'
+
 // Same ladder as proofs/ay/resolve-solver.sh: $AY → PATH → the canonical cargo
 // symlink → in-tree trust bootstrap outputs.
 function locateAy() {
@@ -276,10 +281,9 @@ function locateAy() {
   }
   const candidates = [
     join(home, '.cargo', 'bin', 'ay'),
-    join(home, 'trust', 'build', 'host', 'stage2', 'bin', 'ay'),
+    join(TRUST_ROOT, 'build', 'host', 'stage2', 'bin', 'ay'),
     join(
-      home,
-      'trust',
+      TRUST_ROOT,
       'build',
       'aarch64-apple-darwin',
       'stage3-tools-bin',
@@ -287,8 +291,7 @@ function locateAy() {
       'ay'
     ),
     join(
-      home,
-      'trust',
+      TRUST_ROOT,
       'build',
       'aarch64-apple-darwin',
       'stage2-tools-bin',
@@ -316,7 +319,7 @@ function safety() {
     return {
       status: clean ? 'PASS' : 'REVIEW',
       metrics: { obligations_discharged: discharged },
-      detail: 'orca-git SMT obligations (tcargo panic/UB proofs need the full ~/trust toolchain)'
+      detail: 'orca-git SMT obligations (tcargo panic/UB proofs need the full Trust toolchain)'
     }
   } catch (e) {
     return { status: 'FAIL', detail: String(e.message).split('\n')[0] }
@@ -324,18 +327,18 @@ function safety() {
 }
 
 // --- autoformalize: the Trust ts2rust two-witness gate over the orc corpus -------
-// Goal A. Reuses the EXISTING autoformalizer in the Trust repo (~/trust/tools/ts2rust):
+// Goal A. Reuses the EXISTING autoformalizer in the Trust repo ($TRUST_REPO/tools/ts2rust):
 // it discovers the already-ported .ts/.rs pairs, derives each fn + argspec straight
 // from the candidate's signature, and runs W1 (trustc ∀-safety) + W2 (Node-TS diff).
 // SKIPs (never fakes) when the Trust harness or the trustc toolchain isn't present.
-const TS2RUST = join(process.env.HOME || '', 'trust', 'tools', 'ts2rust')
+const TS2RUST = join(TRUST_ROOT, 'tools', 'ts2rust')
 // u16/i16 are real orc arg types (terminal cols/rows, UTF-16 code units, viewport
 // coords) and the Trust fuzzer already models them — including them here recovers
 // decision cores whose ONLY blocker was the arg type, not the ported logic.
 function locateTrustc() {
   const candidates = [
     process.env.TRUSTC,
-    join(process.env.HOME || '', 'trust', 'build', 'host', 'stage2', 'bin', 'trustc')
+    join(TRUST_ROOT, 'build', 'host', 'stage2', 'bin', 'trustc')
   ]
   for (const c of candidates) {
     if (c && existsSync(c)) {
@@ -411,20 +414,22 @@ function autoformalize() {
   const driver = join(TS2RUST, 'autoformalize.mjs')
   if (!existsSync(driver)) {
     return skip(
-      'Trust ts2rust harness not found (~/trust/tools/ts2rust) — Goal A engine lives in the Trust repo'
+      `Trust ts2rust harness not found (${TRUST_ROOT_LABEL}/tools/ts2rust) — Goal A engine lives in the Trust repo`
     )
   }
   const corpus = discoverCorpus(join(TS2RUST, 'orca'))
   const runnable = corpus.filter((c) => !c.declined)
   if (!runnable.length) {
-    return skip('no autoformalizable .ts/.rs pairs discovered under ~/trust/tools/ts2rust/orca')
+    return skip(
+      `no autoformalizable .ts/.rs pairs discovered under ${TRUST_ROOT_LABEL}/tools/ts2rust/orca`
+    )
   }
   const trustc = locateTrustc()
   if (!trustc) {
     return {
       status: 'SKIP',
       metrics: { corpus: runnable.length, declined: corpus.length - runnable.length },
-      detail: `trustc not built — ${runnable.length} orc functions ready to autoformalize; build ~/trust (stage2) or set TRUSTC=<path>, then re-run`
+      detail: `trustc not built — ${runnable.length} orc functions ready to autoformalize; build the Trust stage2 toolchain or set TRUSTC=<path>, then re-run`
     }
   }
   const rows = []

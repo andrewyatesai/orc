@@ -436,7 +436,7 @@ describe('markLiveCodexSessionsForRestart lane scoping', () => {
       settings: { activeRuntimeEnvironmentId: null } as never,
       worktreesByRepo: {
         repo1: [
-          { id: 'wt1', path: worktreePaths.wt1 ?? '/Users/dev/code/orca' },
+          { id: 'wt1', path: worktreePaths.wt1 ?? '/userhome/dev/code/orca' },
           ...(worktreePaths.wt2 ? [{ id: 'wt2', path: worktreePaths.wt2 }] : [])
         ]
       } as never,

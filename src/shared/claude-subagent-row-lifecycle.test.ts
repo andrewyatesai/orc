@@ -2,7 +2,7 @@
  * Regression spec for the three reported sidebar symptoms (each
  * live-reproduced before its fix):
  *
- *  1. "Really long idle list" under ultracode/orchestration: finished
+ *  1. "Really long idle list" under orchestration: finished
  *     subagents left permanent `Idle - <type>` child rows for the rest of the
  *     session — including named/workflow agents, whose background_tasks
  *     entries report `type: "teammate"` and never stop reading "running"
@@ -51,7 +51,7 @@ describe('claude subagent sidebar row lifecycle', () => {
   it('drops each finished workflow subagent instead of accumulating idle rows', () => {
     claudeEvent({
       hook_event_name: 'UserPromptSubmit',
-      prompt: 'Help me research Vercel sandbox usage (ultracode)'
+      prompt: 'Help me research Vercel sandbox usage (orchestration run)'
     })
 
     // A Workflow run spawns 21 one-shot agents over a long turn; each stops
@@ -126,7 +126,7 @@ describe('claude subagent sidebar row lifecycle', () => {
     // permanent idle rows (the 11-row gar "Orchestration Messages" pile).
     claudeEvent({
       hook_event_name: 'UserPromptSubmit',
-      prompt: '--- Orchestration Messages (1) --- (ultracode)'
+      prompt: '--- Orchestration Messages (1) --- (orchestration run)'
     })
     claudeEvent({
       hook_event_name: 'SubagentStart',
@@ -177,7 +177,7 @@ describe('claude subagent sidebar row lifecycle', () => {
   })
 
   it('parks a TeammateIdle-confirmed teammate as a persistent idle row without gating done', () => {
-    claudeEvent({ hook_event_name: 'UserPromptSubmit', prompt: 'orchestration (ultracode)' })
+    claudeEvent({ hook_event_name: 'UserPromptSubmit', prompt: 'orchestration lead turn' })
     claudeEvent({
       hook_event_name: 'SubagentStart',
       agent_id: 'areview-standards-2750dacd',
@@ -261,7 +261,7 @@ describe('claude subagent sidebar row lifecycle', () => {
     // A named agent dies with neither SubagentStop nor TeammateIdle. Its
     // teammate-shaped id never appears as a task id, so it can only be reaped
     // when a complete inventory shows no teammate-typed task at all.
-    claudeEvent({ hook_event_name: 'UserPromptSubmit', prompt: 'orchestration (ultracode)' })
+    claudeEvent({ hook_event_name: 'UserPromptSubmit', prompt: 'orchestration lead turn' })
     claudeEvent({
       hook_event_name: 'SubagentStart',
       agent_id: 'acr-triage-1-c5a0588e7a2e4151',

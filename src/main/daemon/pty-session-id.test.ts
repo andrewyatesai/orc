@@ -23,8 +23,8 @@ describe('mintPtySessionId', () => {
     // Why: real worktreeIds are `${repo.id}::${absolutePath}` and contain
     // slashes. The mint must not rewrite or sanitize them — reconcileOnStartup
     // splits on `@@` to recover the worktreeId.
-    const id = mintPtySessionId('repo-123::/Users/me/work/wt-1')
-    expect(id).toMatch(/^repo-123::\/Users\/me\/work\/wt-1@@[0-9a-f]{8}$/)
+    const id = mintPtySessionId('repo-123::/userhome/me/work/wt-1')
+    expect(id).toMatch(/^repo-123::\/userhome\/me\/work\/wt-1@@[0-9a-f]{8}$/)
   })
 })
 
@@ -39,10 +39,10 @@ describe('ptySessionIdForAgentCreateOperation', () => {
   })
 
   it('produces a safe session id for a path-shaped worktree', () => {
-    const id = ptySessionIdForAgentCreateOperation('repo::/Users/dev/worktree', 'b'.repeat(43))
+    const id = ptySessionIdForAgentCreateOperation('repo::/userhome/dev/worktree', 'b'.repeat(43))
 
     expect(isSafePtySessionId(id, USER_DATA)).toBe(true)
-    expect(parsePtySessionId(id)).toEqual({ worktreeId: 'repo::/Users/dev/worktree' })
+    expect(parsePtySessionId(id)).toEqual({ worktreeId: 'repo::/userhome/dev/worktree' })
   })
 
   it('preserves the legacy worktree length boundary', () => {
@@ -67,12 +67,12 @@ describe('isSafePtySessionId', () => {
     // Why: real worktreeIds are `${repo.id}::${absolutePath}`, so the minted
     // sessionId contains `/` in its prefix. A char-denylist validator that
     // rejected `/` would break every real daemon spawn.
-    const id = mintPtySessionId('repo-abc123::/Users/thebr/work/wt-1')
+    const id = mintPtySessionId('repo-abc123::/userhome/thebr/work/wt-1')
     expect(isSafePtySessionId(id, USER_DATA)).toBe(true)
   })
 
   it('accepts caller-supplied path-shaped ids that stay inside userData', () => {
-    expect(isSafePtySessionId('some-repo::/Users/me/wt/abc@@deadbeef', USER_DATA)).toBe(true)
+    expect(isSafePtySessionId('some-repo::/userhome/me/wt/abc@@deadbeef', USER_DATA)).toBe(true)
   })
 
   it('rejects empty string', () => {
@@ -114,7 +114,7 @@ describe('isSafePtySessionId', () => {
 
 describe('parsePtySessionId', () => {
   it('round-trips a minted id back to its worktreeId', () => {
-    const wt = 'repo-abc::/Users/me/wt/feature'
+    const wt = 'repo-abc::/userhome/me/wt/feature'
     expect(parsePtySessionId(mintPtySessionId(wt))).toEqual({ worktreeId: wt })
   })
 
@@ -136,7 +136,7 @@ describe('parsePtySessionId', () => {
   it('handles worktreeIds whose path contains @ characters', () => {
     // Why: the parser uses lastIndexOf('@@') so `@`-containing paths still
     // round-trip cleanly as long as `@@` only appears as the separator.
-    const wt = 'repo::/Users/me/email@host/wt'
+    const wt = 'repo::/userhome/me/email@host/wt'
     expect(parsePtySessionId(`${wt}@@deadbeef`)).toEqual({ worktreeId: wt })
   })
 

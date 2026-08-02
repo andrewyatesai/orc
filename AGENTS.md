@@ -1,6 +1,8 @@
+*`docs/` holds internal design notes and is not part of the public source snapshot, so paths under it appear below as plain paths, never as links; each rule states its constraint inline.*
+
 # Design System
 
-All UI work — layout, color, typography, spacing, component selection, UX behavior — must follow [`docs/STYLEGUIDE.md`](./docs/STYLEGUIDE.md). Use the tokens defined in `src/renderer/src/assets/main.css` (the canonical source) and the shadcn primitives in `src/renderer/src/components/ui/`. Don't invent new color values, font sizes, or shadow tiers when a documented one already covers the role. When STYLEGUIDE.md is silent, follow the resolution order in its final section.
+All UI work — layout, color, typography, spacing, component selection, UX behavior — must follow the design system recorded in `docs/STYLEGUIDE.md`. Use the tokens defined in `src/renderer/src/assets/main.css` (the canonical source, and the one that ships) and the shadcn primitives in `src/renderer/src/components/ui/`. Don't invent new color values, font sizes, or shadow tiers when a documented one already covers the role. When STYLEGUIDE.md is silent, follow the resolution order in its final section.
 
 # Style
 ## Concise/Brief Non-obviosu comments ONLY
@@ -29,7 +31,7 @@ Orca targets macOS, Linux, and Windows. Keep all platform-dependent behavior beh
 - **Keyboard shortcuts**: Never hardcode `e.metaKey`. Use a platform check (`navigator.userAgent.includes('Mac')`) to pick `metaKey` on Mac and `ctrlKey` on Linux/Windows. Electron menu accelerators should use `CmdOrCtrl`.
 - **Shortcut labels in UI**: Display `⌘` / `⇧` on Mac and `Ctrl+` / `Shift+` on other platforms.
 - **File paths**: Use `path.join` or Electron/Node path utilities — never assume `/` or `\`.
-- **Linux native modules**: keep the glibc floor at Ubuntu 20.04 / glibc 2.31. A module compiled from source on a newer runner can reference symbol versions absent on the floor and crash the app on startup. See [`docs/reference/linux-glibc-compatibility.md`](./docs/reference/linux-glibc-compatibility.md); packaging fails if a bundled native binary needs newer glibc.
+- **Linux native modules**: keep the glibc floor at Ubuntu 20.04 / glibc 2.31 (libstdc++ `GLIBCXX_3.4.28`). A module compiled from source on a newer runner can reference symbol versions absent on the floor — glibc's 2.32–2.34 libpthread/libutil merge relocated `pthread_sigmask`, `openpty`, and `forkpty` — and the app then crashes at startup before a window appears. node-pty is pinned back to the pre-merge symbol versions by [`config/patches/node-pty@1.1.0.patch`](./config/patches/node-pty@1.1.0.patch), and [`config/scripts/verify-linux-glibc-floor.cjs`](./config/scripts/verify-linux-glibc-floor.cjs) runs in electron-builder's `afterPack` hook and fails packaging if any bundled native binary needs newer glibc. Full background: `docs/reference/linux-glibc-compatibility.md`.
 
 ## SSH Use Case
 
@@ -41,7 +43,7 @@ All changes must consider folder workspaces as well as git worktrees. Don't assu
 
 ## Git Binary Compatibility
 
-Orca runs the user's Git binary on native, WSL, and SSH hosts, which may all have different versions. Treat Git 2.25 as the core-workflow baseline and follow [`docs/reference/git-compatibility.md`](./docs/reference/git-compatibility.md).
+Orca runs the user's Git binary on native, WSL, and SSH hosts, which may all have different versions. Treat Git 2.25 as the core-workflow baseline — the oldest line that covers porcelain v2, `branch --show-current`, `restore`, and sparse checkout. The rules below are the contract; the per-command version boundaries are recorded in `docs/reference/git-compatibility.md`.
 
 When adding or changing a Git command:
 

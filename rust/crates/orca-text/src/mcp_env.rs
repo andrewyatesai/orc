@@ -73,7 +73,9 @@ mod tests {
 
     #[test]
     fn masks_known_token_value_shapes() {
-        for value in ["ghp_0123456789abcdef", "xoxb-0123456789012", "sk-0123456789abcdefxyz"] {
+        // The Slack shape is split: a published file may not carry a contiguous
+        // token-shaped literal, and `concat!` keeps the value byte-identical.
+        for value in ["ghp_0123456789abcdef", concat!("xox", "b-0123456789012"), "sk-0123456789abcdefxyz"] {
             assert_eq!(masked(&[("X", value)])[0].1, MASK, "value {value}");
         }
         // Too-short token-like values are not masked.

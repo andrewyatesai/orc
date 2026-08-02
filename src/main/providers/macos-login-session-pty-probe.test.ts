@@ -30,7 +30,7 @@ describe('runMacosLoginSessionPtyProbe', () => {
     )
 
     await expect(
-      runMacosLoginSessionPtyProbe('ada', '/Users/ada', 4_000, 1_024, abortController.signal)
+      runMacosLoginSessionPtyProbe('ada', '/userhome/ada', 4_000, 1_024, abortController.signal)
     ).resolves.toEqual({ ok: true, conclusive: true, reason: 'accepted' })
     expect(execFileMock).toHaveBeenCalledWith(
       '/usr/bin/expect',
@@ -41,7 +41,7 @@ describe('runMacosLoginSessionPtyProbe', () => {
         )
       ],
       expect.objectContaining({
-        cwd: '/Users/ada',
+        cwd: '/userhome/ada',
         env: expect.objectContaining({ ORCA_LOGIN_PROBE_USERNAME: 'ada' }),
         killSignal: 'SIGKILL',
         maxBuffer: 1_024,
@@ -62,7 +62,9 @@ describe('runMacosLoginSessionPtyProbe', () => {
       }
     )
 
-    await expect(runMacosLoginSessionPtyProbe('ada', '/Users/ada', 4_000, 1_024)).resolves.toEqual({
+    await expect(
+      runMacosLoginSessionPtyProbe('ada', '/userhome/ada', 4_000, 1_024)
+    ).resolves.toEqual({
       ok: false,
       conclusive: true,
       reason: 'rejected'
@@ -76,7 +78,9 @@ describe('runMacosLoginSessionPtyProbe', () => {
         return { stdin: { end: stdinEndMock } }
       }
     )
-    await expect(runMacosLoginSessionPtyProbe('ada', '/Users/ada', 4_000, 1_024)).resolves.toEqual({
+    await expect(
+      runMacosLoginSessionPtyProbe('ada', '/userhome/ada', 4_000, 1_024)
+    ).resolves.toEqual({
       ok: false,
       conclusive: false,
       reason: 'timeout'
@@ -94,7 +98,9 @@ describe('runMacosLoginSessionPtyProbe', () => {
         return { stdin: { end: stdinEndMock } }
       }
     )
-    await expect(runMacosLoginSessionPtyProbe('ada', '/Users/ada', 4_000, 1_024)).resolves.toEqual({
+    await expect(
+      runMacosLoginSessionPtyProbe('ada', '/userhome/ada', 4_000, 1_024)
+    ).resolves.toEqual({
       ok: false,
       conclusive: false,
       reason: 'error'
@@ -109,7 +115,9 @@ describe('runMacosLoginSessionPtyProbe', () => {
       }
     )
 
-    await expect(runMacosLoginSessionPtyProbe('ada', '/Users/ada', 4_000, 1_024)).resolves.toEqual({
+    await expect(
+      runMacosLoginSessionPtyProbe('ada', '/userhome/ada', 4_000, 1_024)
+    ).resolves.toEqual({
       ok: false,
       conclusive: false,
       reason: 'error'
@@ -119,7 +127,9 @@ describe('runMacosLoginSessionPtyProbe', () => {
   it('fails safe without spawning when expect is unavailable', async () => {
     existsSyncMock.mockReturnValue(false)
 
-    await expect(runMacosLoginSessionPtyProbe('ada', '/Users/ada', 4_000, 1_024)).resolves.toEqual({
+    await expect(
+      runMacosLoginSessionPtyProbe('ada', '/userhome/ada', 4_000, 1_024)
+    ).resolves.toEqual({
       ok: false,
       conclusive: false,
       reason: 'error'

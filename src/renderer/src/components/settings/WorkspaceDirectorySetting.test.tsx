@@ -176,14 +176,14 @@ describe('WorkspaceDirectorySetting', () => {
 
   it('does not save a dirty partial path before Browse resolves', async () => {
     const updateSettings = vi.fn()
-    pickFolderMock.mockResolvedValue('/Users/alice/workspaces')
+    pickFolderMock.mockResolvedValue('/userhome/alice/workspaces')
     renderWorkspaceDirectorySetting({ updateSettings })
 
     typePath('orca-w')
     await clickBrowseAfterInputBlur()
 
     expect(updateSettings).toHaveBeenCalledTimes(1)
-    expect(updateSettings).toHaveBeenCalledWith({ workspaceDir: '/Users/alice/workspaces' })
+    expect(updateSettings).toHaveBeenCalledWith({ workspaceDir: '/userhome/alice/workspaces' })
   })
 
   it('resets an unsaved dirty draft when Browse is canceled', async () => {

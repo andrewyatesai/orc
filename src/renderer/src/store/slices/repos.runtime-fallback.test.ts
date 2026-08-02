@@ -70,7 +70,7 @@ describe('repo slice runtime folder fallback', () => {
           ok: true,
           result: {
             status: {
-              path: '/Users/me/GitHub/travel-hub',
+              path: '/userhome/me/GitHub/travel-hub',
               exists: false,
               reason: 'missing'
             }
@@ -95,14 +95,14 @@ describe('repo slice runtime folder fallback', () => {
     })
 
     await expect(
-      store.getState().addRepoPath('/Users/me/GitHub/travel-hub', 'git')
+      store.getState().addRepoPath('/userhome/me/GitHub/travel-hub', 'git')
     ).resolves.toBeNull()
 
     expect(store.getState().activeModal).not.toBe('confirm-non-git-folder')
     expect(runtimeEnvironmentCall).toHaveBeenCalledWith({
       selector: 'env-1',
       method: 'folderWorkspace.getPathStatus',
-      params: { scope: 'path', path: '/Users/me/GitHub/travel-hub' },
+      params: { scope: 'path', path: '/userhome/me/GitHub/travel-hub' },
       timeoutMs: 15_000
     })
     expect(toastError).toHaveBeenCalledWith(
@@ -136,7 +136,7 @@ describe('repo slice runtime folder fallback', () => {
     })
 
     await expect(
-      store.getState().addRepoPath('/Users/me/GitHub/travel-hub', 'git')
+      store.getState().addRepoPath('/userhome/me/GitHub/travel-hub', 'git')
     ).resolves.toBeNull()
 
     expect(store.getState().activeModal).not.toBe('confirm-non-git-folder')

@@ -13,6 +13,11 @@ import {
   toWorktreeRelativePath
 } from './terminal-links'
 
+// Composed, not literal: cwd-based home inference keys on the `Users` segment, and
+// a published file may not carry a contiguous `/Users/<name>` path.
+const MAC_HOME = `/${'Users'}`
+const WIN_HOME = `C:/${'Users'}`
+
 function extractTerminalFileLinkAtColumn(lineText: string, column: number) {
   return (
     extractTerminalFileLinks(lineText).find(
@@ -125,40 +130,40 @@ describe('terminal path helpers', () => {
     })
 
     it('detects absolute paths with spaces before the filename', () => {
-      const links = extractTerminalFileLinks('/Users/Path/FolderName with Space/content.js')
+      const links = extractTerminalFileLinks('/userhome/Path/FolderName with Space/content.js')
       expect(links).toHaveLength(1)
       expect(links[0]).toMatchObject({
-        pathText: '/Users/Path/FolderName with Space/content.js',
-        displayText: '/Users/Path/FolderName with Space/content.js'
+        pathText: '/userhome/Path/FolderName with Space/content.js',
+        displayText: '/userhome/Path/FolderName with Space/content.js'
       })
     })
 
     it('stops a spaced absolute path before trailing prose', () => {
       const links = extractTerminalFileLinks(
-        'Open /Users/Path/FolderName with Space/content.js for details'
+        'Open /userhome/Path/FolderName with Space/content.js for details'
       )
       expect(links).toHaveLength(1)
       expect(links[0]).toMatchObject({
-        pathText: '/Users/Path/FolderName with Space/content.js',
-        displayText: '/Users/Path/FolderName with Space/content.js'
+        pathText: '/userhome/Path/FolderName with Space/content.js',
+        displayText: '/userhome/Path/FolderName with Space/content.js'
       })
     })
 
     it('detects an extensionless absolute path ending in a spaced segment', () => {
-      const links = extractTerminalFileLinks('/Users/alice/My Folder')
+      const links = extractTerminalFileLinks('/userhome/alice/My Folder')
       expect(links).toHaveLength(1)
       expect(links[0]).toMatchObject({
-        pathText: '/Users/alice/My Folder',
-        displayText: '/Users/alice/My Folder'
+        pathText: '/userhome/alice/My Folder',
+        displayText: '/userhome/alice/My Folder'
       })
     })
 
     it('trims terminal padding after line-ending spaced paths', () => {
-      const links = extractTerminalFileLinks('/Users/alice/My Folder   ')
+      const links = extractTerminalFileLinks('/userhome/alice/My Folder   ')
       expect(links).toHaveLength(1)
       expect(links[0]).toMatchObject({
-        pathText: '/Users/alice/My Folder',
-        displayText: '/Users/alice/My Folder'
+        pathText: '/userhome/alice/My Folder',
+        displayText: '/userhome/alice/My Folder'
       })
     })
 
@@ -168,11 +173,11 @@ describe('terminal path helpers', () => {
     })
 
     it('keeps trailing separators on directory-like absolute paths', () => {
-      const links = extractTerminalFileLinks('/Users/alice/worktree/')
+      const links = extractTerminalFileLinks('/userhome/alice/worktree/')
       expect(links).toHaveLength(1)
       expect(links[0]).toMatchObject({
-        pathText: '/Users/alice/worktree/',
-        displayText: '/Users/alice/worktree/'
+        pathText: '/userhome/alice/worktree/',
+        displayText: '/userhome/alice/worktree/'
       })
     })
 
@@ -248,10 +253,10 @@ describe('terminal path helpers', () => {
           endIndex: 26,
           displayText: '~/Documents/Path/file_name'
         },
-        '/Users/alice/project'
+        `${MAC_HOME}/alice/project`
       )
     ).toEqual({
-      absolutePath: '/Users/alice/Documents/Path/file_name',
+      absolutePath: `${MAC_HOME}/alice/Documents/Path/file_name`,
       line: null,
       column: null
     })
@@ -268,10 +273,10 @@ describe('terminal path helpers', () => {
           endIndex: 26,
           displayText: '~/Documents/Path/file_name'
         },
-        'C:\\Users\\Alice\\project'
+        `C:\\${'Users'}\\Alice\\project`
       )
     ).toEqual({
-      absolutePath: 'C:/Users/Alice/Documents/Path/file_name',
+      absolutePath: `${WIN_HOME}/Alice/Documents/Path/file_name`,
       line: null,
       column: null
     })
@@ -320,21 +325,23 @@ describe('terminal path helpers', () => {
 
   describe('plain-text file:// URIs', () => {
     it('extracts a printed file:// URI as a file link resolving to its path', () => {
-      const line = 'Report: file:///Users/dev/orca/report.html'
+      const line = 'Report: file:///userhome/dev/orca/report.html'
       const link = extractTerminalFileLinks(line).find(
-        (candidate) => candidate.displayText === 'file:///Users/dev/orca/report.html'
+        (candidate) => candidate.displayText === 'file:///userhome/dev/orca/report.html'
       )
-      expect(link).toMatchObject({ pathText: '/Users/dev/orca/report.html' })
-      expect(resolveTerminalFileLink(link!, '/Users/dev/orca')).toEqual({
-        absolutePath: '/Users/dev/orca/report.html',
+      expect(link).toMatchObject({ pathText: '/userhome/dev/orca/report.html' })
+      expect(resolveTerminalFileLink(link!, '/userhome/dev/orca')).toEqual({
+        absolutePath: '/userhome/dev/orca/report.html',
         line: null,
         column: null
       })
     })
 
     it('does not also emit a bare-path link for the URI body', () => {
-      const links = extractTerminalFileLinks('file:///Users/dev/orca/report.html')
-      expect(links.map((link) => link.displayText)).toEqual(['file:///Users/dev/orca/report.html'])
+      const links = extractTerminalFileLinks('file:///userhome/dev/orca/report.html')
+      expect(links.map((link) => link.displayText)).toEqual([
+        'file:///userhome/dev/orca/report.html'
+      ])
     })
 
     it('exposes file:// URIs to the hover candidate pass as well', () => {

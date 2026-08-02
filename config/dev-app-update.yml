@@ -1,6 +1,8 @@
 # Development-only electron-updater fallback. Orca returns before updater
 # initialization in dev mode, so packaged ALab builds never read this feed.
+# Owner is the public release repo — the only feed a build could legitimately
+# poll, and the dev owner has no business being written into a shipped file.
 provider: github
-owner: andrewyatesai
+owner: alabsystems
 repo: orca-alab
 updaterCacheDirName: orca-updater

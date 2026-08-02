@@ -56,7 +56,7 @@ describe('onboarding feature setup telemetry validation', () => {
       validate('onboarding_feature_setup_toggled', {
         feature: 'browser_use',
         selected: false,
-        path: '/Users/alice/project'
+        path: '/userhome/alice/project'
       } as never).ok
     ).toBe(false)
   })

@@ -160,16 +160,13 @@ describe('createAtermWorkerPrewarm', () => {
     expect(h.acquire).toHaveBeenCalledTimes(1)
   })
 
-  it('still warms the worker when the main-thread engine assets fail — the lanes are independent', async () => {
+  it('swallows an engine-asset failure without ever reaching acquire', async () => {
     const h = makeHarness()
     h.failEngineAssets(new Error('wasm compile failed'))
     h.prewarm.warmNow()
     await h.flush()
-    // The worker compiles its OWN module; a main-thread compile failure is not a
-    // reason to skip the warm. Neither lane's rejection escapes.
-    expect(h.acquire).toHaveBeenCalledTimes(1)
-    expect(h.phases()).not.toContain('wasm-ready')
-    expect(h.phases()).toContain('warm-start')
+    expect(h.acquire).not.toHaveBeenCalled()
+    expect(h.phases()).toEqual(['warm-start'])
   })
 })
 

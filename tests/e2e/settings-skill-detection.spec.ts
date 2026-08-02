@@ -98,7 +98,7 @@ test.describe('Settings skill detection', () => {
       electronApp,
       discoveryResult([
         makeSkill('repo', '/workspace/.agents/skills/orchestration'),
-        makeSkill('plugin', '/Users/test/.codex/plugins/cache/vendor/orchestration')
+        makeSkill('plugin', '/userhome/test/.codex/plugins/cache/vendor/orchestration')
       ])
     )
 
@@ -113,7 +113,7 @@ test.describe('Settings skill detection', () => {
 
     await setMockSkillDiscovery(
       electronApp,
-      discoveryResult([makeSkill('home', '/Users/test/.agents/skills/orchestration')])
+      discoveryResult([makeSkill('home', '/userhome/test/.agents/skills/orchestration')])
     )
     await section.getByRole('button', { name: 'Re-check' }).click()
 

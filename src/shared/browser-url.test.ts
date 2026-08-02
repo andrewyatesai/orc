@@ -133,17 +133,17 @@ describe('browser-url helpers', () => {
   // createMainWindow.ts will-attach-webview), so rendering local HTML cannot
   // escalate privileges beyond what the editor already grants.
   it('allows file:// URLs so local HTML can be previewed', () => {
-    expect(normalizeBrowserNavigationUrl('file:///Users/me/site/index.html')).toBe(
-      'file:///Users/me/site/index.html'
+    expect(normalizeBrowserNavigationUrl('file:///userhome/me/site/index.html')).toBe(
+      'file:///userhome/me/site/index.html'
     )
   })
 
   it('normalizes pasted absolute local paths to file URLs', () => {
-    expect(normalizeBrowserNavigationUrl('/Users/me/Downloads/Example.ipynb')).toBe(
-      'file:///Users/me/Downloads/Example.ipynb'
+    expect(normalizeBrowserNavigationUrl('/userhome/me/Downloads/Example.ipynb')).toBe(
+      'file:///userhome/me/Downloads/Example.ipynb'
     )
-    expect(normalizeBrowserNavigationUrl('C:\\Users\\me\\Downloads\\Example.ipynb')).toBe(
-      'file:///C:/Users/me/Downloads/Example.ipynb'
+    expect(normalizeBrowserNavigationUrl('C:\\userhome\\me\\Downloads\\Example.ipynb')).toBe(
+      'file:///C:/userhome/me/Downloads/Example.ipynb'
     )
     expect(normalizeBrowserNavigationUrl('\\\\server\\share\\Example.ipynb')).toBe(
       'file://server/share/Example.ipynb'
@@ -154,11 +154,11 @@ describe('browser-url helpers', () => {
   })
 
   it('normalizes absolute local paths with spaces and reserved URL characters', () => {
-    expect(normalizeBrowserNavigationUrl('/Users/me/My Site/index #1.html')).toBe(
-      'file:///Users/me/My%20Site/index%20%231.html'
+    expect(normalizeBrowserNavigationUrl('/userhome/me/My Site/index #1.html')).toBe(
+      'file:///userhome/me/My%20Site/index%20%231.html'
     )
-    expect(normalizeBrowserNavigationUrl('C:\\Users\\me\\My Site\\index #1.html')).toBe(
-      'file:///C:/Users/me/My%20Site/index%20%231.html'
+    expect(normalizeBrowserNavigationUrl('C:\\userhome\\me\\My Site\\index #1.html')).toBe(
+      'file:///C:/userhome/me/My%20Site/index%20%231.html'
     )
     expect(normalizeBrowserNavigationUrl('C:\\tmp\\orca & 100% ! ^\\index.html')).toBe(
       'file:///C:/tmp/orca%20%26%20100%25%20!%20%5E/index.html'

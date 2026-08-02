@@ -7,9 +7,9 @@ import {
 
 describe('resolveSidebarProjectDropPath', () => {
   it('accepts exactly one dropped path', () => {
-    expect(resolveSidebarProjectDropPath(['/Users/alice/repo'])).toEqual({
+    expect(resolveSidebarProjectDropPath(['/userhome/alice/repo'])).toEqual({
       status: 'ready',
-      path: '/Users/alice/repo'
+      path: '/userhome/alice/repo'
     })
   })
 

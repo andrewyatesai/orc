@@ -11,7 +11,7 @@ describe('prepareAiVaultSessionForResume', () => {
     const prepareSessionResume = vi.fn().mockResolvedValue({ useRealCodexHome: true })
     stubPreparation(prepareSessionResume)
     const legacy = session({
-      codexHome: '/Users/ada/Library/Application Support/orca/codex-runtime-home/home'
+      codexHome: '/userhome/ada/Library/Application Support/orca/codex-runtime-home/home'
     })
 
     const prepared = await prepareAiVaultSessionForResume(legacy)

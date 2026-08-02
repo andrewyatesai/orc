@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { CodexManagedAccount, GlobalSettings } from '../../shared/types'
 import { resolveCodexPaneLaunchAccount } from './codex-pane-launch-account'
 
-const SYSTEM_HOME = '/Users/example/.codex'
+const SYSTEM_HOME = '/userhome/example/.codex'
 
 function managedAccount(overrides: Partial<CodexManagedAccount>): CodexManagedAccount {
   return {

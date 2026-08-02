@@ -207,11 +207,15 @@ describe('buildProjectHostSetupOptions', () => {
       eligibleRepos: [repo('main-checkout'), repo('worktree-a'), repo('worktree-b')],
       hosts: [host('local')],
       projectHostSetups: [
-        setup('main', 'project-1', 'local', 'main-checkout', { path: '/Users/dev/projects/orca' }),
-        setup('dup-a', 'project-1', 'local', 'worktree-a', {
-          path: '/Users/dev/worktrees/pr-1908'
+        setup('main', 'project-1', 'local', 'main-checkout', {
+          path: '/userhome/dev/projects/orca'
         }),
-        setup('dup-b', 'project-1', 'local', 'worktree-b', { path: '/Users/dev/worktrees/pr-3235' })
+        setup('dup-a', 'project-1', 'local', 'worktree-a', {
+          path: '/userhome/dev/worktrees/pr-1908'
+        }),
+        setup('dup-b', 'project-1', 'local', 'worktree-b', {
+          path: '/userhome/dev/worktrees/pr-3235'
+        })
       ]
     })
 

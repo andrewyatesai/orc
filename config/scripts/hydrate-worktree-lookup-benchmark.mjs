@@ -64,7 +64,7 @@ function makeStore(repoCount, worktreesPerRepo) {
     worktreesByRepo[repoId] = Array.from({ length: worktreesPerRepo }, (_value, index) => ({
       id: `${repoId}/wt-${index}`,
       repoId,
-      path: `/Users/dev/worktrees/${repoId}/wt-${index}`,
+      path: `/userhome/dev/worktrees/${repoId}/wt-${index}`,
       branch: `feature/branch-${index}`
     }))
   }

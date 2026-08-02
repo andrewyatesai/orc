@@ -34,7 +34,7 @@ const PS_OUTPUT = Array.from({ length: PANE_COUNT }, (_, pane) => {
   const shell = shellPid(pane)
   return [
     `${shell} 99 Ss   bash -i`,
-    `${shell + 1} ${shell} S+   node /Users/dev/.nvm/versions/node/bin/codex`
+    `${shell + 1} ${shell} S+   node /userhome/dev/.nvm/versions/node/bin/codex`
   ].join('\n')
 }).join('\n')
 

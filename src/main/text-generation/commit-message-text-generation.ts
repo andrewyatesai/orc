@@ -204,7 +204,7 @@ function sanitizeAgentFailureDetail(detail: string | null): string | null {
       '[path]'
     )
     // Why: require ≥2 segments (one internal `/`) so provider remedy tokens like
-    // `/login` survive while multi-segment paths (`/Users/name/repo`) still redact.
+    // `/login` survive while multi-segment paths (`/home/name/repo`) still redact.
     // `=:,` prefixes catch key=/path value:/path list,/path shapes in provider bodies.
     .replace(
       /(^|[\s"'`(=:,])\/(?:[^\s"'`<>/]+(?:\s+[^\s"'`<>/]+)*(?=\/)\/)+[^\s"'`<>/]+/g,

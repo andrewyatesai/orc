@@ -3,20 +3,20 @@ import { detectTerminalFileUriLinks } from './terminal-file-uri-link'
 
 describe('detectTerminalFileUriLinks', () => {
   it('decodes a localhost-less file URI to an absolute path', () => {
-    const line = 'Report: file:///Users/dev/orca/report.html'
+    const line = 'Report: file:///userhome/dev/orca/report.html'
     const [link] = detectTerminalFileUriLinks(line)
     expect(link).toMatchObject({
-      pathText: '/Users/dev/orca/report.html',
+      pathText: '/userhome/dev/orca/report.html',
       line: null,
       column: null
     })
-    expect(line.slice(link.startIndex, link.endIndex)).toBe('file:///Users/dev/orca/report.html')
-    expect(link.displayText).toBe('file:///Users/dev/orca/report.html')
+    expect(line.slice(link.startIndex, link.endIndex)).toBe('file:///userhome/dev/orca/report.html')
+    expect(link.displayText).toBe('file:///userhome/dev/orca/report.html')
   })
 
   it('percent-decodes spaces in the path', () => {
-    const [link] = detectTerminalFileUriLinks('open file:///Users/dev/My%20Reports/out.html now')
-    expect(link.pathText).toBe('/Users/dev/My Reports/out.html')
+    const [link] = detectTerminalFileUriLinks('open file:///userhome/dev/My%20Reports/out.html now')
+    expect(link.pathText).toBe('/userhome/dev/My Reports/out.html')
   })
 
   it('keeps standard unescaped parentheses and apostrophes inside the path', () => {
@@ -27,18 +27,18 @@ describe('detectTerminalFileUriLinks', () => {
   })
 
   it('carries a :line:col suffix', () => {
-    const [link] = detectTerminalFileUriLinks('file:///Users/dev/app.ts:12:3')
-    expect(link).toMatchObject({ pathText: '/Users/dev/app.ts', line: 12, column: 3 })
+    const [link] = detectTerminalFileUriLinks('file:///userhome/dev/app.ts:12:3')
+    expect(link).toMatchObject({ pathText: '/userhome/dev/app.ts', line: 12, column: 3 })
   })
 
   it('carries an #Lline anchor', () => {
-    const [link] = detectTerminalFileUriLinks('file:///Users/dev/app.ts#L42')
-    expect(link).toMatchObject({ pathText: '/Users/dev/app.ts', line: 42, column: null })
+    const [link] = detectTerminalFileUriLinks('file:///userhome/dev/app.ts#L42')
+    expect(link).toMatchObject({ pathText: '/userhome/dev/app.ts', line: 42, column: null })
   })
 
   it('strips the WHATWG leading slash before a Windows drive path', () => {
-    const [link] = detectTerminalFileUriLinks('file:///C:/Users/dev/report.html')
-    expect(link.pathText).toBe('C:/Users/dev/report.html')
+    const [link] = detectTerminalFileUriLinks('file:///C:/userhome/dev/report.html')
+    expect(link.pathText).toBe('C:/userhome/dev/report.html')
   })
 
   it('trims trailing sentence punctuation but keeps the extension', () => {

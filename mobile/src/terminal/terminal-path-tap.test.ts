@@ -68,9 +68,9 @@ describe('matchFilePathAtColumn', () => {
   })
 
   it('matches a path whose directory name contains a space', () => {
-    const line = '/Users/me/My Project/readme.md done'
+    const line = '/userhome/me/My Project/readme.md done'
     const result = matchFilePathAtColumn(line, colOf(line, 'readme'))
-    expect(result?.pathText).toBe('/Users/me/My Project/readme.md')
+    expect(result?.pathText).toBe('/userhome/me/My Project/readme.md')
   })
 
   it('matches a spaced path with line and column suffixes', () => {

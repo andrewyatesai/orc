@@ -1,8 +1,9 @@
 # Orca native Rust workspace
 
-The cross-platform Rust core of the native Orca rewrite. See
-[`docs/rust-migration/`](../docs/rust-migration/) for the architecture,
-functional map, dependency map, migration plan, and the ported-modules ledger.
+The cross-platform Rust core of the native Orca rewrite. The layout, build/test
+commands, and the porting invariant are below; the architecture, functional and
+dependency maps, migration plan, and ported-modules ledger live in the internal
+`docs/rust-migration/` notes, which are not part of the public source snapshot.
 
 ## Layout
 

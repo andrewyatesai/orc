@@ -51,7 +51,7 @@ describe('getAgentRowConversationName', () => {
       getAgentRowConversationName(makeTab({ title: '⠋ ~/orca/workspaces' }), 'codex', false)
     ).toBeNull()
     expect(
-      getAgentRowConversationName(makeTab({ title: '/Users/dev/repo' }), 'codex', false)
+      getAgentRowConversationName(makeTab({ title: '/userhome/dev/repo' }), 'codex', false)
     ).toBeNull()
     expect(
       getAgentRowConversationName(makeTab({ title: 'C:\\repos\\orca' }), 'codex', false)

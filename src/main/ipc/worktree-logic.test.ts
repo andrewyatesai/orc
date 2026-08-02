@@ -544,9 +544,9 @@ describe('parseWorktreeId', () => {
   })
 
   it('handles paths containing colons', () => {
-    expect(parseWorktreeId('repo1::C:/Users/test')).toEqual({
+    expect(parseWorktreeId('repo1::C:/userhome/test')).toEqual({
       repoId: 'repo1',
-      worktreePath: 'C:/Users/test'
+      worktreePath: 'C:/userhome/test'
     })
   })
 

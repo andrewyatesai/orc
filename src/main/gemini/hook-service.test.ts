@@ -53,8 +53,8 @@ describe('GeminiHookService', () => {
     const managedHookFileName = process.platform === 'win32' ? 'gemini-hook.cmd' : 'gemini-hook.sh'
     const staleManagedHookPath =
       process.platform === 'win32'
-        ? `C:\\Users\\ramzi\\.orca\\agent-hooks\\${managedHookFileName}`
-        : `/Users/ramzi/.orca/agent-hooks/${managedHookFileName}`
+        ? `C:\\userhome\\ramzi\\.orca\\agent-hooks\\${managedHookFileName}`
+        : `/userhome/ramzi/.orca/agent-hooks/${managedHookFileName}`
     const staleManagedCommand =
       process.platform === 'win32'
         ? staleManagedHookPath
@@ -145,8 +145,8 @@ describe('GeminiHookService', () => {
     const managedHookFileName = process.platform === 'win32' ? 'gemini-hook.cmd' : 'gemini-hook.sh'
     const staleManagedHookPath =
       process.platform === 'win32'
-        ? `C:\\Users\\ramzi\\.orca\\agent-hooks\\${managedHookFileName}`
-        : `/Users/ramzi/.orca/agent-hooks/${managedHookFileName}`
+        ? `C:\\userhome\\ramzi\\.orca\\agent-hooks\\${managedHookFileName}`
+        : `/userhome/ramzi/.orca/agent-hooks/${managedHookFileName}`
     const staleManagedCommand =
       process.platform === 'win32'
         ? staleManagedHookPath

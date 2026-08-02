@@ -5,26 +5,26 @@ import { deriveMobileAiVaultScopePaths } from './agent-history-scope-paths'
 function worktree(overrides: Partial<Worktree>): Pick<Worktree, 'worktreeId' | 'path' | 'repoId'> {
   return {
     worktreeId: overrides.worktreeId ?? 'w1',
-    path: overrides.path ?? '/Users/ada/repo/app',
+    path: overrides.path ?? '/userhome/ada/repo/app',
     repoId: overrides.repoId ?? 'repo-1'
   }
 }
 
-const active = worktree({ worktreeId: 'w1', path: '/Users/ada/repo/app', repoId: 'repo-1' })
-const sibling = worktree({ worktreeId: 'w2', path: '/Users/ada/repo/app-2', repoId: 'repo-1' })
-const otherRepo = worktree({ worktreeId: 'w3', path: '/Users/ada/other/ui', repoId: 'repo-2' })
+const active = worktree({ worktreeId: 'w1', path: '/userhome/ada/repo/app', repoId: 'repo-1' })
+const sibling = worktree({ worktreeId: 'w2', path: '/userhome/ada/repo/app-2', repoId: 'repo-1' })
+const otherRepo = worktree({ worktreeId: 'w3', path: '/userhome/ada/other/ui', repoId: 'repo-2' })
 
 describe('deriveMobileAiVaultScopePaths', () => {
   it('workspace scope returns only the active worktree path', () => {
     expect(
       deriveMobileAiVaultScopePaths('workspace', active, [active, sibling, otherRepo])
-    ).toEqual(['/Users/ada/repo/app'])
+    ).toEqual(['/userhome/ada/repo/app'])
   })
 
   it('project scope adds same-repo siblings but not other-repo worktrees', () => {
     expect(deriveMobileAiVaultScopePaths('project', active, [active, sibling, otherRepo])).toEqual([
-      '/Users/ada/repo/app',
-      '/Users/ada/repo/app-2'
+      '/userhome/ada/repo/app',
+      '/userhome/ada/repo/app-2'
     ])
   })
 
@@ -40,21 +40,21 @@ describe('deriveMobileAiVaultScopePaths', () => {
     const siblings = Array.from({ length: 200 }, (_, index) =>
       worktree({
         worktreeId: `w-sib-${index}`,
-        path: `/Users/ada/repo/app-${index}`,
+        path: `/userhome/ada/repo/app-${index}`,
         repoId: 'repo-1'
       })
     )
     const result = deriveMobileAiVaultScopePaths('project', active, [active, ...siblings])
     expect(result.length).toBe(64)
     // Active worktree is seeded first, so it survives truncation.
-    expect(result[0]).toBe('/Users/ada/repo/app')
+    expect(result[0]).toBe('/userhome/ada/repo/app')
   })
 
   it('dedupes and skips non-absolute paths', () => {
-    const dupe = worktree({ worktreeId: 'w4', path: '/Users/ada/repo/app', repoId: 'repo-1' })
+    const dupe = worktree({ worktreeId: 'w4', path: '/userhome/ada/repo/app', repoId: 'repo-1' })
     const relative = worktree({ worktreeId: 'w5', path: 'relative/path', repoId: 'repo-1' })
     expect(deriveMobileAiVaultScopePaths('project', active, [active, dupe, relative])).toEqual([
-      '/Users/ada/repo/app'
+      '/userhome/ada/repo/app'
     ])
   })
 })

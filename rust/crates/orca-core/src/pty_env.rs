@@ -93,8 +93,8 @@ mod tests {
 
     #[test]
     fn host_codex_home_for_wsl_matches_windows_paths() {
-        assert!(is_host_codex_home_for_wsl(Some("C:\\Users\\jin\\.codex")));
-        assert!(is_host_codex_home_for_wsl(Some("C:/Users/jin/.codex")));
+        assert!(is_host_codex_home_for_wsl(Some("C:\\userhome\\jin\\.codex")));
+        assert!(is_host_codex_home_for_wsl(Some("C:/userhome/jin/.codex")));
         assert!(is_host_codex_home_for_wsl(Some("C:")));
         assert!(is_host_codex_home_for_wsl(Some("\\\\server\\share\\.codex")));
         assert!(!is_host_codex_home_for_wsl(Some("/home/jin/.codex")));
@@ -107,7 +107,7 @@ mod tests {
         assert!(is_wsl_codex_home_for_host(Some(
             "/home/jin/.local/share/orca/codex-accounts/a/home"
         )));
-        assert!(!is_wsl_codex_home_for_host(Some("C:\\Users\\jin\\.codex")));
+        assert!(!is_wsl_codex_home_for_host(Some("C:\\userhome\\jin\\.codex")));
         assert!(!is_wsl_codex_home_for_host(None));
     }
 }

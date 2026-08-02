@@ -76,7 +76,7 @@ describe('hydrateShellPath', () => {
       spawner: async (shell) => {
         capturedShell = shell
         return {
-          segments: ['/Users/tester/.opencode/bin', '/Users/tester/.cargo/bin'],
+          segments: ['/userhome/tester/.opencode/bin', '/userhome/tester/.cargo/bin'],
           ok: true,
           failureReason: 'none'
         }
@@ -85,7 +85,10 @@ describe('hydrateShellPath', () => {
 
     expect(capturedShell).toBe('/bin/zsh')
     expect(result.ok).toBe(true)
-    expect(result.segments).toEqual(['/Users/tester/.opencode/bin', '/Users/tester/.cargo/bin'])
+    expect(result.segments).toEqual([
+      '/userhome/tester/.opencode/bin',
+      '/userhome/tester/.cargo/bin'
+    ])
     expect(result.failureReason).toBe('none')
   })
 
@@ -172,9 +175,9 @@ describe('hydrateShellPath', () => {
 
     // The parser still accepts manager dirs when login files provide them.
     const path = [
-      '/Users/tester/.cargo/bin',
-      '/Users/tester/.pyenv/shims',
-      '/Users/tester/.volta/bin',
+      '/userhome/tester/.cargo/bin',
+      '/userhome/tester/.pyenv/shims',
+      '/userhome/tester/.volta/bin',
       '/opt/homebrew/bin'
     ].join(delimiter)
     proc.stdout.emit('data', Buffer.from(`__ORCA_SHELL_PATH__${path}__ORCA_SHELL_PATH__`))
@@ -183,9 +186,9 @@ describe('hydrateShellPath', () => {
     const result = await resultPromise
     expect(result).toEqual({
       segments: [
-        '/Users/tester/.cargo/bin',
-        '/Users/tester/.pyenv/shims',
-        '/Users/tester/.volta/bin',
+        '/userhome/tester/.cargo/bin',
+        '/userhome/tester/.pyenv/shims',
+        '/userhome/tester/.volta/bin',
         '/opt/homebrew/bin'
       ],
       ok: true,
@@ -318,33 +321,44 @@ describe('mergePathSegments', () => {
   it('prepends new segments ahead of existing PATH entries', () => {
     process.env.PATH = joinPath('/usr/bin', '/bin')
 
-    const added = mergePathSegments(['/Users/tester/.opencode/bin', '/Users/tester/.cargo/bin'])
+    const added = mergePathSegments([
+      '/userhome/tester/.opencode/bin',
+      '/userhome/tester/.cargo/bin'
+    ])
 
-    expect(added).toEqual(['/Users/tester/.opencode/bin', '/Users/tester/.cargo/bin'])
+    expect(added).toEqual(['/userhome/tester/.opencode/bin', '/userhome/tester/.cargo/bin'])
     expect(process.env.PATH).toBe(
-      joinPath('/Users/tester/.opencode/bin', '/Users/tester/.cargo/bin', '/usr/bin', '/bin')
+      joinPath('/userhome/tester/.opencode/bin', '/userhome/tester/.cargo/bin', '/usr/bin', '/bin')
     )
   })
 
   it('promotes shell segments already on PATH so shell ordering wins', () => {
-    process.env.PATH = joinPath('/Users/tester/.cargo/bin', '/usr/bin')
+    process.env.PATH = joinPath('/userhome/tester/.cargo/bin', '/usr/bin')
 
-    const added = mergePathSegments(['/Users/tester/.cargo/bin', '/Users/tester/.opencode/bin'])
+    const added = mergePathSegments([
+      '/userhome/tester/.cargo/bin',
+      '/userhome/tester/.opencode/bin'
+    ])
 
-    expect(added).toEqual(['/Users/tester/.opencode/bin'])
+    expect(added).toEqual(['/userhome/tester/.opencode/bin'])
     expect(process.env.PATH).toBe(
-      joinPath('/Users/tester/.cargo/bin', '/Users/tester/.opencode/bin', '/usr/bin')
+      joinPath('/userhome/tester/.cargo/bin', '/userhome/tester/.opencode/bin', '/usr/bin')
     )
   })
 
   it('moves user-local shell paths ahead of packaged Homebrew fallbacks', () => {
-    process.env.PATH = joinPath('/opt/homebrew/bin', '/Users/tester/.local/bin', '/usr/bin', '/bin')
+    process.env.PATH = joinPath(
+      '/opt/homebrew/bin',
+      '/userhome/tester/.local/bin',
+      '/usr/bin',
+      '/bin'
+    )
 
-    const added = mergePathSegments(['/Users/tester/.local/bin', '/opt/homebrew/bin'])
+    const added = mergePathSegments(['/userhome/tester/.local/bin', '/opt/homebrew/bin'])
 
     expect(added).toEqual([])
     expect(process.env.PATH).toBe(
-      joinPath('/Users/tester/.local/bin', '/opt/homebrew/bin', '/usr/bin', '/bin')
+      joinPath('/userhome/tester/.local/bin', '/opt/homebrew/bin', '/usr/bin', '/bin')
     )
   })
 

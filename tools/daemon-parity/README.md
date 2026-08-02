@@ -1,6 +1,8 @@
 # Daemon parity gate — Rust `orca-daemon` vs. the Node daemon, over the real wire
 
-Move 1 of the native migration ([`docs/rust-migration/move-1-orca-daemon-extraction.md`](../../docs/rust-migration/move-1-orca-daemon-extraction.md))
+Move 1 of the native migration (design notes: the internal
+`docs/rust-migration/move-1-orca-daemon-extraction.md`, not part of the public
+source snapshot)
 replaces the Node terminal daemon (`src/main/daemon/`) with a pure-Rust one
 (`rust/crates/orca-daemon`). The contract is the **Unix-socket NDJSON protocol**
 (`src/main/daemon/types.ts`, `PROTOCOL_VERSION = 18`) — the Electron client must

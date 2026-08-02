@@ -62,19 +62,19 @@ describe('patchPackagedProcessPath', () => {
 
     setPlatform('darwin')
     Object.defineProperty(app, 'isPackaged', { configurable: true, value: true })
-    process.env.HOME = '/Users/tester'
+    process.env.HOME = '/userhome/tester'
     process.env.PATH = '/usr/bin:/bin'
 
     patchPackagedProcessPath()
 
     const segments = (process.env.PATH ?? '').split(':')
     // Why: issue #829/#5657 need useful GUI PATH coverage without interactive rc init.
-    expect(segments).toContain(join('/Users/tester', '.opencode/bin'))
-    expect(segments).toContain(join('/Users/tester', '.vite-plus/bin'))
-    expect(segments).toContain(join('/Users/tester', '.pyenv', 'shims'))
-    expect(segments).toContain(join('/Users/tester', '.cargo', 'bin'))
-    expect(segments).toContain(join('/Users/tester', 'go', 'bin'))
-    expect(segments).toContain(join('/Users/tester', 'bin'))
+    expect(segments).toContain(join('/userhome/tester', '.opencode/bin'))
+    expect(segments).toContain(join('/userhome/tester', '.vite-plus/bin'))
+    expect(segments).toContain(join('/userhome/tester', '.pyenv', 'shims'))
+    expect(segments).toContain(join('/userhome/tester', '.cargo', 'bin'))
+    expect(segments).toContain(join('/userhome/tester', 'go', 'bin'))
+    expect(segments).toContain(join('/userhome/tester', 'bin'))
   })
 
   it('leaves PATH untouched when the app is not packaged', async () => {
@@ -83,7 +83,7 @@ describe('patchPackagedProcessPath', () => {
 
     setPlatform('darwin')
     Object.defineProperty(app, 'isPackaged', { configurable: true, value: false })
-    process.env.HOME = '/Users/tester'
+    process.env.HOME = '/userhome/tester'
     process.env.PATH = '/usr/bin:/bin'
 
     patchPackagedProcessPath()

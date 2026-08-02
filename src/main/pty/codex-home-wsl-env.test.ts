@@ -3,8 +3,8 @@ import { isHostCodexHomeForWsl, isWslCodexHomeForHost } from './codex-home-wsl-e
 
 describe('isHostCodexHomeForWsl', () => {
   it('matches Windows paths that WSL Codex cannot use as CODEX_HOME', () => {
-    expect(isHostCodexHomeForWsl('C:\\Users\\jin\\.codex')).toBe(true)
-    expect(isHostCodexHomeForWsl('C:/Users/jin/.codex')).toBe(true)
+    expect(isHostCodexHomeForWsl('C:\\userhome\\jin\\.codex')).toBe(true)
+    expect(isHostCodexHomeForWsl('C:/userhome/jin/.codex')).toBe(true)
     expect(isHostCodexHomeForWsl('C:')).toBe(true)
     expect(isHostCodexHomeForWsl('\\\\server\\share\\.codex')).toBe(true)
   })
@@ -17,7 +17,7 @@ describe('isHostCodexHomeForWsl', () => {
 
   it('matches Linux paths that host Codex cannot use on Windows', () => {
     expect(isWslCodexHomeForHost('/home/jin/.local/share/orca/codex-accounts/a/home')).toBe(true)
-    expect(isWslCodexHomeForHost('C:\\Users\\jin\\.codex')).toBe(false)
+    expect(isWslCodexHomeForHost('C:\\userhome\\jin\\.codex')).toBe(false)
     expect(isWslCodexHomeForHost(undefined)).toBe(false)
   })
 })

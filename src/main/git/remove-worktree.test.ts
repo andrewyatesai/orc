@@ -1010,41 +1010,43 @@ describe('listWorktrees', () => {
   it('passes the selected WSL distro when translating Windows-path worktree output', async () => {
     gitExecFileAsyncMock.mockResolvedValueOnce({
       stdout:
-        'worktree /mnt/c/Users/me/repo\nHEAD abc123\nbranch refs/heads/main\nsparse\n\n' +
-        'worktree /mnt/c/Users/me/repo-feature\nHEAD def456\nbranch refs/heads/feature/test\nsparse\n\n'
+        'worktree /mnt/c/userhome/me/repo\nHEAD abc123\nbranch refs/heads/main\nsparse\n\n' +
+        'worktree /mnt/c/userhome/me/repo-feature\nHEAD def456\nbranch refs/heads/feature/test\nsparse\n\n'
     })
     translateWslOutputPathsMock.mockImplementation((output: string) =>
       output
-        .replace('/mnt/c/Users/me/repo-feature', 'C:\\Users\\me\\repo-feature')
-        .replace('/mnt/c/Users/me/repo', 'C:\\Users\\me\\repo')
+        .replace('/mnt/c/userhome/me/repo-feature', 'C:\\userhome\\me\\repo-feature')
+        .replace('/mnt/c/userhome/me/repo', 'C:\\userhome\\me\\repo')
     )
 
-    await expect(listWorktrees('C:\\Users\\me\\repo', { wslDistro: 'Ubuntu' })).resolves.toEqual([
-      {
-        path: 'C:\\Users\\me\\repo',
-        head: 'abc123',
-        branch: 'refs/heads/main',
-        isBare: false,
-        isSparse: true,
-        isMainWorktree: true
-      },
-      {
-        path: 'C:\\Users\\me\\repo-feature',
-        head: 'def456',
-        branch: 'refs/heads/feature/test',
-        isBare: false,
-        isSparse: true,
-        isMainWorktree: false
-      }
-    ])
+    await expect(listWorktrees('C:\\userhome\\me\\repo', { wslDistro: 'Ubuntu' })).resolves.toEqual(
+      [
+        {
+          path: 'C:\\userhome\\me\\repo',
+          head: 'abc123',
+          branch: 'refs/heads/main',
+          isBare: false,
+          isSparse: true,
+          isMainWorktree: true
+        },
+        {
+          path: 'C:\\userhome\\me\\repo-feature',
+          head: 'def456',
+          branch: 'refs/heads/feature/test',
+          isBare: false,
+          isSparse: true,
+          isMainWorktree: false
+        }
+      ]
+    )
     expect(gitExecFileAsyncMock).toHaveBeenCalledWith(['worktree', 'list', '--porcelain', '-z'], {
-      cwd: 'C:\\Users\\me\\repo',
+      cwd: 'C:\\userhome\\me\\repo',
       wslDistro: 'Ubuntu',
       timeout: WORKTREE_LIST_TIMEOUT_MS
     })
     expect(translateWslOutputPathsMock).toHaveBeenCalledWith(
       expect.any(String),
-      'C:\\Users\\me\\repo',
+      'C:\\userhome\\me\\repo',
       { wslDistro: 'Ubuntu' }
     )
   })

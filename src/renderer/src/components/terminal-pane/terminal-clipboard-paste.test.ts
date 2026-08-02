@@ -424,13 +424,13 @@ describe('terminal clipboard paste', () => {
       readClipboardText,
       readClipboardFilePaths: vi
         .fn()
-        .mockResolvedValue(['/Users/me/a file.txt', '/Users/me/second.txt']),
+        .mockResolvedValue(['/userhome/me/a file.txt', '/userhome/me/second.txt']),
       saveClipboardImageAsTempFile,
       pasteText,
       targetShell: posix
     })
 
-    expect(pasteText).toHaveBeenCalledWith("'/Users/me/a file.txt' /Users/me/second.txt ")
+    expect(pasteText).toHaveBeenCalledWith("'/userhome/me/a file.txt' /userhome/me/second.txt ")
     expect(readClipboardText).not.toHaveBeenCalled()
     expect(saveClipboardImageAsTempFile).not.toHaveBeenCalled()
     expect(result).toEqual({ status: 'pasted', kind: 'file-path' })
@@ -441,13 +441,13 @@ describe('terminal clipboard paste', () => {
 
     await pasteTerminalClipboard({
       readClipboardText: vi.fn().mockResolvedValue(''),
-      readClipboardFilePaths: vi.fn().mockResolvedValue(['C:\\Users\\me\\a file.txt']),
+      readClipboardFilePaths: vi.fn().mockResolvedValue(['C:\\userhome\\me\\a file.txt']),
       saveClipboardImageAsTempFile: vi.fn(),
       pasteText,
       targetShell: 'windows'
     })
 
-    expect(pasteText).toHaveBeenCalledWith('"C:\\Users\\me\\a file.txt" ')
+    expect(pasteText).toHaveBeenCalledWith('"C:\\userhome\\me\\a file.txt" ')
   })
 
   it('falls back to text/image paste when no OS file is on the clipboard', async () => {

@@ -73,7 +73,7 @@ describe('useGhosttyImport', () => {
   it('flows through click -> preview -> apply -> success -> close/reset', async () => {
     const previewResponse: GhosttyImportPreview = {
       found: true,
-      configPath: '/Users/alice/.config/ghostty/config',
+      configPath: '/userhome/alice/.config/ghostty/config',
       diff: { terminalFontSize: 14, terminalFontFamily: 'JetBrains Mono' },
       unsupportedKeys: ['background']
     }

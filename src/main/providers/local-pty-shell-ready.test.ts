@@ -381,12 +381,12 @@ describePosix('local PTY shell-ready launch config', () => {
     const previousZdotdir = process.env.ZDOTDIR
     const previousHome = process.env.HOME
     process.env.ZDOTDIR = '/some/other/orca/shell-ready/zsh'
-    process.env.HOME = '/Users/alice'
+    process.env.HOME = '/userhome/alice'
     try {
       const { getShellReadyLaunchConfig } = await importFreshLocalPtyShellReady()
       const config = getShellReadyLaunchConfig('/bin/zsh')
-      expect(config.env.ORCA_ORIG_ZDOTDIR).toBe('/Users/alice')
-      expect(config.env.ORCA_ZSHENV_SOURCE_DIR).toBe('/Users/alice')
+      expect(config.env.ORCA_ORIG_ZDOTDIR).toBe('/userhome/alice')
+      expect(config.env.ORCA_ZSHENV_SOURCE_DIR).toBe('/userhome/alice')
     } finally {
       if (previousZdotdir === undefined) {
         delete process.env.ZDOTDIR
@@ -406,13 +406,13 @@ describePosix('local PTY shell-ready launch config', () => {
     const previousOrigZdotdir = process.env.ORCA_ORIG_ZDOTDIR
     const previousHome = process.env.HOME
     process.env.ZDOTDIR = '/some/other/orca/shell-ready/zsh'
-    process.env.ORCA_ORIG_ZDOTDIR = '/Users/alice/.config/zsh'
-    process.env.HOME = '/Users/alice'
+    process.env.ORCA_ORIG_ZDOTDIR = '/userhome/alice/.config/zsh'
+    process.env.HOME = '/userhome/alice'
     try {
       const { getShellReadyLaunchConfig } = await importFreshLocalPtyShellReady()
       const config = getShellReadyLaunchConfig('/bin/zsh')
-      expect(config.env.ORCA_ORIG_ZDOTDIR).toBe('/Users/alice/.config/zsh')
-      expect(config.env.ORCA_ZSHENV_SOURCE_DIR).toBe('/Users/alice')
+      expect(config.env.ORCA_ORIG_ZDOTDIR).toBe('/userhome/alice/.config/zsh')
+      expect(config.env.ORCA_ZSHENV_SOURCE_DIR).toBe('/userhome/alice')
     } finally {
       if (previousZdotdir === undefined) {
         delete process.env.ZDOTDIR
@@ -438,12 +438,12 @@ describePosix('local PTY shell-ready launch config', () => {
     const previousHome = process.env.HOME
     delete process.env.ZDOTDIR
     process.env.ORCA_ORIG_ZDOTDIR = '/some/other/orca/shell-ready/zsh'
-    process.env.HOME = '/Users/alice'
+    process.env.HOME = '/userhome/alice'
     try {
       const { getShellReadyLaunchConfig } = await importFreshLocalPtyShellReady()
       const config = getShellReadyLaunchConfig('/bin/zsh')
-      expect(config.env.ORCA_ORIG_ZDOTDIR).toBe('/Users/alice')
-      expect(config.env.ORCA_ZSHENV_SOURCE_DIR).toBe('/Users/alice')
+      expect(config.env.ORCA_ORIG_ZDOTDIR).toBe('/userhome/alice')
+      expect(config.env.ORCA_ZSHENV_SOURCE_DIR).toBe('/userhome/alice')
     } finally {
       if (previousZdotdir === undefined) {
         delete process.env.ZDOTDIR
@@ -643,12 +643,12 @@ describePosix('local PTY shell-ready launch config', () => {
 
   it('preserves a real inherited ZDOTDIR as ORCA_ORIG_ZDOTDIR', async () => {
     const previousZdotdir = process.env.ZDOTDIR
-    process.env.ZDOTDIR = '/Users/alice/.config/zsh'
+    process.env.ZDOTDIR = '/userhome/alice/.config/zsh'
     try {
       const { getShellReadyLaunchConfig } = await importFreshLocalPtyShellReady()
       const config = getShellReadyLaunchConfig('/bin/zsh')
-      expect(config.env.ORCA_ORIG_ZDOTDIR).toBe('/Users/alice/.config/zsh')
-      expect(config.env.ORCA_ZSHENV_SOURCE_DIR).toBe('/Users/alice/.config/zsh')
+      expect(config.env.ORCA_ORIG_ZDOTDIR).toBe('/userhome/alice/.config/zsh')
+      expect(config.env.ORCA_ZSHENV_SOURCE_DIR).toBe('/userhome/alice/.config/zsh')
     } finally {
       if (previousZdotdir === undefined) {
         delete process.env.ZDOTDIR
@@ -662,11 +662,11 @@ describePosix('local PTY shell-ready launch config', () => {
     const previousZdotdir = process.env.ZDOTDIR
     const previousHome = process.env.HOME
     process.env.ZDOTDIR = '/some/other/orca/shell-ready/zsh/'
-    process.env.HOME = '/Users/alice'
+    process.env.HOME = '/userhome/alice'
     try {
       const { getShellReadyLaunchConfig } = await importFreshLocalPtyShellReady()
       const config = getShellReadyLaunchConfig('/bin/zsh')
-      expect(config.env.ORCA_ORIG_ZDOTDIR).toBe('/Users/alice')
+      expect(config.env.ORCA_ORIG_ZDOTDIR).toBe('/userhome/alice')
     } finally {
       if (previousZdotdir === undefined) {
         delete process.env.ZDOTDIR
@@ -685,11 +685,11 @@ describePosix('local PTY shell-ready launch config', () => {
     const previousZdotdir = process.env.ZDOTDIR
     const previousHome = process.env.HOME
     process.env.ZDOTDIR = '/'
-    process.env.HOME = '/Users/alice'
+    process.env.HOME = '/userhome/alice'
     try {
       const { getShellReadyLaunchConfig } = await importFreshLocalPtyShellReady()
       const config = getShellReadyLaunchConfig('/bin/zsh')
-      expect(config.env.ORCA_ORIG_ZDOTDIR).toBe('/Users/alice')
+      expect(config.env.ORCA_ORIG_ZDOTDIR).toBe('/userhome/alice')
     } finally {
       if (previousZdotdir === undefined) {
         delete process.env.ZDOTDIR
@@ -706,11 +706,11 @@ describePosix('local PTY shell-ready launch config', () => {
 
   it('preserves ZDOTDIR that contains /shell-ready/zsh as a substring but does not end with it', async () => {
     const previousZdotdir = process.env.ZDOTDIR
-    process.env.ZDOTDIR = '/Users/alice/shell-ready/zsh-custom'
+    process.env.ZDOTDIR = '/userhome/alice/shell-ready/zsh-custom'
     try {
       const { getShellReadyLaunchConfig } = await importFreshLocalPtyShellReady()
       const config = getShellReadyLaunchConfig('/bin/zsh')
-      expect(config.env.ORCA_ORIG_ZDOTDIR).toBe('/Users/alice/shell-ready/zsh-custom')
+      expect(config.env.ORCA_ORIG_ZDOTDIR).toBe('/userhome/alice/shell-ready/zsh-custom')
     } finally {
       if (previousZdotdir === undefined) {
         delete process.env.ZDOTDIR

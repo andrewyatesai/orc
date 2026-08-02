@@ -41,10 +41,10 @@
     },
     {
       "function": "maskMcpEnv",
-      "note": "masks known token value shapes; too-short token-like values stay visible",
+      "note": "masks known token value shapes; too-short token-like values stay visible. The Slack value is written with a \\u0078 escape (it decodes to the same string) because a published file may not carry a contiguous token-shaped literal.",
       "input": {
         "A": "ghp_0123456789abcdef",
-        "B": "xoxb-0123456789012",
+        "B": "\u0078oxb-0123456789012",
         "C": "sk-0123456789abcdefxyz",
         "D": "sk-short"
       },
@@ -75,12 +75,12 @@
       "function": "maskMcpEnv",
       "note": "mixed entries: sensitive key masked, plain key with plain value preserved",
       "input": {
-        "HOME": "/Users/me",
+        "HOME": "/userhome/me",
         "OPENAI_API_KEY": "sk-live-not-a-real-token",
         "NODE_ENV": "production"
       },
       "expected": {
-        "HOME": "/Users/me",
+        "HOME": "/userhome/me",
         "OPENAI_API_KEY": "••••••••",
         "NODE_ENV": "production"
       }

@@ -292,13 +292,13 @@ describe('runtime file client', () => {
     await expect(
       readRuntimeFileContent({
         settings: { activeRuntimeEnvironmentId: 'env-1' },
-        filePath: '/Users/me/scratch.md',
-        relativePath: '/Users/me/scratch.md'
+        filePath: '/userhome/me/scratch.md',
+        relativePath: '/userhome/me/scratch.md'
       })
     ).resolves.toBe(localResult)
 
     expect(fsReadFile).toHaveBeenCalledWith({
-      filePath: '/Users/me/scratch.md',
+      filePath: '/userhome/me/scratch.md',
       connectionId: undefined
     })
     expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
@@ -1391,7 +1391,7 @@ describe('runtime file client', () => {
     fsStageExternalPathsForRuntimeUpload.mockResolvedValue({
       sources: [
         {
-          sourcePath: '/Users/me/assets',
+          sourcePath: '/userhome/me/assets',
           status: 'staged',
           name: 'assets',
           kind: 'directory',
@@ -1453,13 +1453,13 @@ describe('runtime file client', () => {
           worktreeId: 'wt-1',
           worktreePath: '/remote/repo'
         },
-        ['/Users/me/assets'],
+        ['/userhome/me/assets'],
         '/remote/repo/uploads'
       )
     ).resolves.toEqual({
       results: [
         {
-          sourcePath: '/Users/me/assets',
+          sourcePath: '/userhome/me/assets',
           status: 'imported',
           destPath: '/remote/repo/uploads/assets',
           kind: 'directory',
@@ -1469,7 +1469,7 @@ describe('runtime file client', () => {
     })
 
     expect(fsStageExternalPathsForRuntimeUpload).toHaveBeenCalledWith({
-      sourcePaths: ['/Users/me/assets']
+      sourcePaths: ['/userhome/me/assets']
     })
     expect(runtimeEnvironmentCall).toHaveBeenNthCalledWith(1, {
       selector: 'env-1',
@@ -1563,7 +1563,7 @@ describe('runtime file client', () => {
     fsStageExternalPathsForRuntimeUpload.mockResolvedValue({
       sources: [
         {
-          sourcePath: '/Users/me/large.bin',
+          sourcePath: '/userhome/me/large.bin',
           status: 'staged',
           name: 'large.bin',
           kind: 'file',
@@ -1624,13 +1624,13 @@ describe('runtime file client', () => {
           worktreeId: 'wt-1',
           worktreePath: '/remote/repo'
         },
-        ['/Users/me/large.bin'],
+        ['/userhome/me/large.bin'],
         '/remote/repo/uploads'
       )
     ).resolves.toEqual({
       results: [
         {
-          sourcePath: '/Users/me/large.bin',
+          sourcePath: '/userhome/me/large.bin',
           status: 'imported',
           destPath: '/remote/repo/uploads/large.bin',
           kind: 'file',
@@ -1708,7 +1708,7 @@ describe('runtime file client', () => {
     fsStageExternalPathsForRuntimeUpload.mockResolvedValue({
       sources: [
         {
-          sourcePath: '/Users/me/large.bin',
+          sourcePath: '/userhome/me/large.bin',
           status: 'staged',
           name: 'large.bin',
           kind: 'file',
@@ -1752,7 +1752,7 @@ describe('runtime file client', () => {
           worktreeId: 'wt-1',
           worktreePath: '/remote/repo'
         },
-        ['/Users/me/large.bin'],
+        ['/userhome/me/large.bin'],
         '/remote/repo/uploads',
         { assertCurrent }
       )
@@ -1779,7 +1779,7 @@ describe('runtime file client', () => {
     fsStageExternalPathsForRuntimeUpload.mockResolvedValue({
       sources: [
         {
-          sourcePath: '/Users/me/large.bin',
+          sourcePath: '/userhome/me/large.bin',
           status: 'staged',
           name: 'large.bin',
           kind: 'file',
@@ -1834,7 +1834,7 @@ describe('runtime file client', () => {
           worktreeId: 'wt-1',
           worktreePath: '/remote/repo'
         },
-        ['/Users/me/large.bin'],
+        ['/userhome/me/large.bin'],
         '/remote/repo/uploads'
       )
     ).resolves.toMatchObject({
@@ -1870,7 +1870,7 @@ describe('runtime file client', () => {
     fsStageExternalPathsForRuntimeUpload.mockResolvedValue({
       sources: [
         {
-          sourcePath: '/Users/me/assets',
+          sourcePath: '/userhome/me/assets',
           status: 'staged',
           name: 'assets',
           kind: 'directory',
@@ -1926,7 +1926,7 @@ describe('runtime file client', () => {
           worktreeId: 'wt-1',
           worktreePath: '/remote/repo'
         },
-        ['/Users/me/assets'],
+        ['/userhome/me/assets'],
         '/remote/repo/uploads'
       )
     ).resolves.toMatchObject({
@@ -1957,7 +1957,7 @@ describe('runtime file client', () => {
     fsImportExternalPaths.mockResolvedValue({
       results: [
         {
-          sourcePath: '/Users/me/readme.md',
+          sourcePath: '/userhome/me/readme.md',
           status: 'imported',
           destPath: '/repo/readme.md',
           kind: 'file',
@@ -1975,13 +1975,13 @@ describe('runtime file client', () => {
         expectedSshTargetId: 'ssh-1',
         expectedSshConnectionGeneration: 5
       },
-      ['/Users/me/readme.md'],
+      ['/userhome/me/readme.md'],
       '/repo',
       { ensureDestinationDir: true }
     )
 
     expect(fsImportExternalPaths).toHaveBeenCalledWith({
-      sourcePaths: ['/Users/me/readme.md'],
+      sourcePaths: ['/userhome/me/readme.md'],
       destDir: '/repo',
       connectionId: 'ssh-1',
       expectedExecutionHostId: 'ssh:ssh-1',

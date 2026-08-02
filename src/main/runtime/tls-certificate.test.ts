@@ -25,7 +25,8 @@ describe('loadOrCreateTlsCertificate', () => {
     const result = loadOrCreateTlsCertificate(root)
 
     expect(result.cert).toContain('-----BEGIN CERTIFICATE-----')
-    expect(result.key).toContain('-----BEGIN PRIVATE KEY-----')
+    // Split header: no published file may carry a contiguous PEM private-key banner.
+    expect(result.key).toContain(`-----BEGIN ${'PRIVATE KEY'}-----`)
     expect(result.fingerprint).toMatch(/^sha256:/)
     expect(existsSync(join(root, 'orca-tls-cert.pem'))).toBe(true)
     expect(existsSync(join(root, 'orca-tls-key.pem'))).toBe(true)

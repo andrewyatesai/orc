@@ -116,7 +116,7 @@ describe('OpenCode id safety guard', () => {
   it('accepts the daemon-path sessionId shape (worktreeId@@uuid with ::/...)', () => {
     // Why: after #1148 pty.ts mints sessionIds like <worktreeId>@@<uuid> with "::" and a path; the old strict regex rejected every real id.
     const daemonSessionId =
-      '50c010a2-bc8e-4eb1-8847-5812133ad6df::/Users/thebr/ghostx/workspaces/noqa/autoheal@@a1b2c3d4'
+      '50c010a2-bc8e-4eb1-8847-5812133ad6df::/userhome/thebr/ghostx/workspaces/noqa/autoheal@@a1b2c3d4'
     expect(isUsableId(daemonSessionId)).toBe(true)
   })
 
@@ -137,7 +137,7 @@ describe('OpenCode id safety guard', () => {
   })
 
   it('derives a filesystem-safe directory name independent of the raw id', () => {
-    const name = toSafeDirName('50c010::/Users/thebr/x/y@@uuid')
+    const name = toSafeDirName('50c010::/userhome/thebr/x/y@@uuid')
     // Pure hex, bounded length — no slashes, colons, or caller content.
     expect(name).toMatch(/^[0-9a-f]{32}$/)
   })
@@ -155,7 +155,7 @@ describe('OpenCode id safety guard', () => {
 describe('OpenCodeHookService buildPtyEnv / clearPty round-trip', () => {
   // Why: exercise the public surface against a real filesystem so regressions fail loudly (before #1148 daemon-shaped ids silently returned {}).
   const daemonSessionId =
-    '50c010a2-bc8e-4eb1-8847-5812133ad6df::/Users/thebr/ghostx/workspaces/noqa/autoheal@@a1b2c3d4'
+    '50c010a2-bc8e-4eb1-8847-5812133ad6df::/userhome/thebr/ghostx/workspaces/noqa/autoheal@@a1b2c3d4'
   const plainUuidId = 'c0ffee00-0000-4000-8000-000000000000'
   let userDataDir: string
 

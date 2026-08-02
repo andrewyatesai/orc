@@ -45,9 +45,9 @@ function discoveredSkill(overrides: Partial<DiscoveredSkill>): DiscoveredSkill {
     providers: ['agent-skills'],
     sourceKind: 'home',
     sourceLabel: 'Agent skills home',
-    rootPath: '/Users/test/.agents/skills',
-    directoryPath: '/Users/test/.agents/skills/orca-linear',
-    skillFilePath: '/Users/test/.agents/skills/orca-linear/SKILL.md',
+    rootPath: '/userhome/test/.agents/skills',
+    directoryPath: '/userhome/test/.agents/skills/orca-linear',
+    skillFilePath: '/userhome/test/.agents/skills/orca-linear/SKILL.md',
     installed: true,
     fileCount: 1,
     updatedAt: null,
@@ -151,8 +151,8 @@ describe('LinearAgentSkillInstallCta', () => {
     mocks.skillState.skills = [
       discoveredSkill({
         name: 'linear-tickets',
-        directoryPath: '/Users/test/.agents/skills/linear-tickets',
-        skillFilePath: '/Users/test/.agents/skills/linear-tickets/SKILL.md'
+        directoryPath: '/userhome/test/.agents/skills/linear-tickets',
+        skillFilePath: '/userhome/test/.agents/skills/linear-tickets/SKILL.md'
       })
     ]
 

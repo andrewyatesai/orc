@@ -89,7 +89,7 @@ describe('assembleNativeChatSession', () => {
       id: 'u-image-source',
       role: 'user',
       timestamp: 100,
-      blocks: [{ type: 'text', text: '[Image: source: /Users/me/Downloads/3d.png]' }]
+      blocks: [{ type: 'text', text: '[Image: source: /userhome/me/Downloads/3d.png]' }]
     })
     const prompt = msg({
       id: 'u-prompt',
@@ -107,7 +107,7 @@ describe('assembleNativeChatSession', () => {
     expect(session.messages).toHaveLength(1)
     expect(session.messages[0]).toMatchObject({ id: 'u-prompt', role: 'user' })
     expect(session.messages[0].blocks).toEqual([
-      { type: 'image-ref', path: '/Users/me/Downloads/3d.png' },
+      { type: 'image-ref', path: '/userhome/me/Downloads/3d.png' },
       { type: 'text', text: 'what do you see' }
     ])
   })

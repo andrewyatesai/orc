@@ -19,10 +19,12 @@ describe('buildAiVaultResumeCommand', () => {
       buildAiVaultResumeCommand({
         agent: 'codex',
         sessionId: 'session-1',
-        cwd: 'C:\\Users\\Ada Lovelace\\repo',
+        cwd: 'C:\\userhome\\Ada Lovelace\\repo',
         platform: 'win32'
       })
-    ).toBe('cmd /d /s /c "cd /d ""C:\\Users\\Ada Lovelace\\repo"" && codex resume ""session-1"""')
+    ).toBe(
+      'cmd /d /s /c "cd /d ""C:\\userhome\\Ada Lovelace\\repo"" && codex resume ""session-1"""'
+    )
   })
 
   it('builds a direct queued command for a live cmd shell', () => {
@@ -30,13 +32,13 @@ describe('buildAiVaultResumeCommand', () => {
       buildAiVaultResumeCommand({
         agent: 'omp',
         sessionId: 'session-one',
-        resumeFilePath: 'C:\\Users\\Ada Lovelace\\.omp\\sessions\\A&B session one.jsonl',
-        cwd: 'C:\\Users\\Ada Lovelace\\A&B repo',
+        resumeFilePath: 'C:\\userhome\\Ada Lovelace\\.omp\\sessions\\A&B session one.jsonl',
+        cwd: 'C:\\userhome\\Ada Lovelace\\A&B repo',
         platform: 'win32',
         shell: 'cmd'
       })
     ).toBe(
-      'cd /d "C:\\Users\\Ada Lovelace\\A&B repo" && omp --resume "C:\\Users\\Ada Lovelace\\.omp\\sessions\\A&B session one.jsonl"'
+      'cd /d "C:\\userhome\\Ada Lovelace\\A&B repo" && omp --resume "C:\\userhome\\Ada Lovelace\\.omp\\sessions\\A&B session one.jsonl"'
     )
   })
 
@@ -62,22 +64,22 @@ describe('buildAiVaultResumeCommand', () => {
         sessionId: 'session-1',
         cwd: '/repo/app',
         platform: 'darwin',
-        codexHome: '/Users/ada/Library/Application Support/Orca/codex-runtime-home/home'
+        codexHome: '/userhome/ada/Library/Application Support/Orca/codex-runtime-home/home'
       })
     ).toBe(
-      "cd '/repo/app' && CODEX_HOME='/Users/ada/Library/Application Support/Orca/codex-runtime-home/home' codex resume 'session-1'"
+      "cd '/repo/app' && CODEX_HOME='/userhome/ada/Library/Application Support/Orca/codex-runtime-home/home' codex resume 'session-1'"
     )
 
     expect(
       buildAiVaultResumeCommand({
         agent: 'codex',
         sessionId: 'session-1',
-        cwd: 'C:\\Users\\Ada Lovelace\\repo',
+        cwd: 'C:\\userhome\\Ada Lovelace\\repo',
         platform: 'win32',
-        codexHome: 'C:\\Users\\Ada\\AppData\\Roaming\\Orca\\codex-runtime-home\\home'
+        codexHome: 'C:\\userhome\\Ada\\AppData\\Roaming\\Orca\\codex-runtime-home\\home'
       })
     ).toBe(
-      'cmd /d /s /c "cd /d ""C:\\Users\\Ada Lovelace\\repo"" && set ""CODEX_HOME=C:\\Users\\Ada\\AppData\\Roaming\\Orca\\codex-runtime-home\\home"" && codex resume ""session-1"""'
+      'cmd /d /s /c "cd /d ""C:\\userhome\\Ada Lovelace\\repo"" && set ""CODEX_HOME=C:\\userhome\\Ada\\AppData\\Roaming\\Orca\\codex-runtime-home\\home"" && codex resume ""session-1"""'
     )
   })
 
@@ -87,12 +89,12 @@ describe('buildAiVaultResumeCommand', () => {
         agent: 'omp',
         sessionId: '019f27cd-4268-7000-96e7-62f42a55c144',
         resumeFilePath:
-          '/Users/ada/.omp/agent/sessions/repo/2026-07-03T11-30-29-357Z_019f27be/OmpScannerTests.jsonl',
-        cwd: '/Users/ada/repo',
+          '/userhome/ada/.omp/agent/sessions/repo/2026-07-03T11-30-29-357Z_019f27be/OmpScannerTests.jsonl',
+        cwd: '/userhome/ada/repo',
         platform: 'darwin'
       })
     ).toBe(
-      "cd '/Users/ada/repo' && omp --resume '/Users/ada/.omp/agent/sessions/repo/2026-07-03T11-30-29-357Z_019f27be/OmpScannerTests.jsonl'"
+      "cd '/userhome/ada/repo' && omp --resume '/userhome/ada/.omp/agent/sessions/repo/2026-07-03T11-30-29-357Z_019f27be/OmpScannerTests.jsonl'"
     )
   })
 
@@ -101,13 +103,13 @@ describe('buildAiVaultResumeCommand', () => {
       buildAiVaultResumeCommand({
         agent: 'omp',
         sessionId: '019f27cd-4268-7000-96e7-62f42a55c144',
-        resumeFilePath: 'C:\\Users\\Ada Lovelace\\.omp\\agent\\sessions\\repo\\sess.jsonl',
-        cwd: 'C:\\Users\\Ada Lovelace\\repo',
+        resumeFilePath: 'C:\\userhome\\Ada Lovelace\\.omp\\agent\\sessions\\repo\\sess.jsonl',
+        cwd: 'C:\\userhome\\Ada Lovelace\\repo',
         platform: 'win32',
         shell: 'powershell'
       })
     ).toBe(
-      "Set-Location -LiteralPath 'C:\\Users\\Ada Lovelace\\repo'; omp --resume 'C:\\Users\\Ada Lovelace\\.omp\\agent\\sessions\\repo\\sess.jsonl'"
+      "Set-Location -LiteralPath 'C:\\userhome\\Ada Lovelace\\repo'; omp --resume 'C:\\userhome\\Ada Lovelace\\.omp\\agent\\sessions\\repo\\sess.jsonl'"
     )
   })
 
@@ -117,13 +119,13 @@ describe('buildAiVaultResumeCommand', () => {
       buildAiVaultResumeCommand({
         agent: 'codex',
         sessionId: 'session-1',
-        cwd: 'C:\\Users\\Ada Lovelace\\repo',
+        cwd: 'C:\\userhome\\Ada Lovelace\\repo',
         platform: 'win32',
-        codexHome: 'C:\\Users\\Ada Lovelace\\codex-home',
+        codexHome: 'C:\\userhome\\Ada Lovelace\\codex-home',
         shell: 'nushell'
       })
     ).toBe(
-      'cd "C:\\\\Users\\\\Ada Lovelace\\\\repo"; $env.CODEX_HOME = "C:\\\\Users\\\\Ada Lovelace\\\\codex-home"; codex resume "session-1"'
+      'cd "C:\\\\userhome\\\\Ada Lovelace\\\\repo"; $env.CODEX_HOME = "C:\\\\userhome\\\\Ada Lovelace\\\\codex-home"; codex resume "session-1"'
     )
     // POSIX nu takes the same nu dialect — the `cd '…' && …` fallback does not parse in nu.
     expect(
@@ -143,10 +145,10 @@ describe('buildAiVaultResumeCommand', () => {
         agent: 'omp',
         sessionId: '019f27cd-4268-7000-96e7-62f42a55c144',
         resumeFilePath: null,
-        cwd: '/Users/ada/repo',
+        cwd: '/userhome/ada/repo',
         platform: 'darwin'
       })
-    ).toBe("cd '/Users/ada/repo' && omp --resume '019f27cd-4268-7000-96e7-62f42a55c144'")
+    ).toBe("cd '/userhome/ada/repo' && omp --resume '019f27cd-4268-7000-96e7-62f42a55c144'")
   })
 
   it('resumes pi by absolute transcript path since bare session ids are not resumable', () => {
@@ -154,12 +156,12 @@ describe('buildAiVaultResumeCommand', () => {
       buildAiVaultResumeCommand({
         agent: 'pi',
         sessionId: '019f27cd-4268-7000-96e7-62f42a55c144',
-        resumeFilePath: '/Users/ada/.pi/agent/sessions/repo/2026-07-03T11-30-29-357Z.jsonl',
-        cwd: '/Users/ada/repo',
+        resumeFilePath: '/userhome/ada/.pi/agent/sessions/repo/2026-07-03T11-30-29-357Z.jsonl',
+        cwd: '/userhome/ada/repo',
         platform: 'darwin'
       })
     ).toBe(
-      "cd '/Users/ada/repo' && pi --session '/Users/ada/.pi/agent/sessions/repo/2026-07-03T11-30-29-357Z.jsonl'"
+      "cd '/userhome/ada/repo' && pi --session '/userhome/ada/.pi/agent/sessions/repo/2026-07-03T11-30-29-357Z.jsonl'"
     )
   })
 
@@ -169,9 +171,9 @@ describe('buildAiVaultResumeCommand', () => {
         agent: 'pi',
         sessionId: '019f27cd-4268-7000-96e7-62f42a55c144',
         resumeFilePath: null,
-        cwd: '/Users/ada/repo',
+        cwd: '/userhome/ada/repo',
         platform: 'darwin'
       })
-    ).toBe("cd '/Users/ada/repo' && pi --session '019f27cd-4268-7000-96e7-62f42a55c144'")
+    ).toBe("cd '/userhome/ada/repo' && pi --session '019f27cd-4268-7000-96e7-62f42a55c144'")
   })
 })

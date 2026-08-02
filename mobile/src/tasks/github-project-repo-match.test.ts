@@ -6,8 +6,8 @@ import {
 } from './github-project-repo-match'
 
 const repos = [
-  { id: 'repo-1', path: '/Users/me/orca', displayName: 'orca' },
-  { id: 'repo-2', path: '/Users/me/other', displayName: 'other' }
+  { id: 'repo-1', path: '/userhome/me/orca', displayName: 'orca' },
+  { id: 'repo-2', path: '/userhome/me/other', displayName: 'other' }
 ]
 
 describe('GitHub project repo matching', () => {
@@ -21,7 +21,7 @@ describe('GitHub project repo matching', () => {
     expect(
       findRepoForGitHubProjectRepository('stablyai/orca', repos, {
         'repo-1': {
-          path: '/Users/me/orca',
+          path: '/userhome/me/orca',
           repository: { owner: 'stablyai', repo: 'orca' }
         }
       })
@@ -32,11 +32,11 @@ describe('GitHub project repo matching', () => {
     expect(
       findRepoForGitHubProjectRepository('stablyai/orca', repos, {
         'repo-1': {
-          path: '/Users/me/orca',
+          path: '/userhome/me/orca',
           repository: { owner: 'stablyai', repo: 'orca' }
         },
         'repo-2': {
-          path: '/Users/me/other',
+          path: '/userhome/me/other',
           repository: { owner: 'stablyai', repo: 'orca' }
         }
       })
@@ -46,27 +46,27 @@ describe('GitHub project repo matching', () => {
   it('falls back to exact display/path slug matching when slug resolution is unavailable', () => {
     expect(
       findRepoForGitHubProjectRepository('stablyai/orca', [
-        { id: 'repo-1', path: '/Users/me/stablyai/orca', displayName: 'orca' }
+        { id: 'repo-1', path: '/userhome/me/stablyai/orca', displayName: 'orca' }
       ])
-    ).toEqual({ id: 'repo-1', path: '/Users/me/stablyai/orca', displayName: 'orca' })
+    ).toEqual({ id: 'repo-1', path: '/userhome/me/stablyai/orca', displayName: 'orca' })
   })
 
   it('normalizes Windows paths before path slug fallback matching', () => {
     expect(
       findRepoForGitHubProjectRepository('stablyai/orca', [
-        { id: 'repo-1', path: 'C:\\Users\\me\\stablyai\\orca', displayName: 'orca' }
+        { id: 'repo-1', path: 'C:\\userhome\\me\\stablyai\\orca', displayName: 'orca' }
       ])
-    ).toEqual({ id: 'repo-1', path: 'C:\\Users\\me\\stablyai\\orca', displayName: 'orca' })
+    ).toEqual({ id: 'repo-1', path: 'C:\\userhome\\me\\stablyai\\orca', displayName: 'orca' })
   })
 
   it('does not path-match a repo whose resolved slug points somewhere else', () => {
     expect(
       findRepoForGitHubProjectRepository(
         'stablyai/orca',
-        [{ id: 'repo-1', path: '/Users/me/stablyai/orca', displayName: 'orca' }],
+        [{ id: 'repo-1', path: '/userhome/me/stablyai/orca', displayName: 'orca' }],
         {
           'repo-1': {
-            path: '/Users/me/stablyai/orca',
+            path: '/userhome/me/stablyai/orca',
             repository: { owner: 'fork', repo: 'orca' }
           }
         }
@@ -84,7 +84,7 @@ describe('GitHub project repo matching', () => {
     expect(
       filterGitHubProjectRowsForRepos(rows, repos, {
         'repo-1': {
-          path: '/Users/me/orca',
+          path: '/userhome/me/orca',
           repository: { owner: 'stablyai', repo: 'orca' }
         }
       }).map((row) => row.id)
@@ -98,11 +98,11 @@ describe('GitHub project repo matching', () => {
         repos,
         {
           'repo-1': {
-            path: '/Users/me/orca',
+            path: '/userhome/me/orca',
             repository: { owner: 'stablyai', repo: 'orca', host: 'github.com' }
           },
           'repo-2': {
-            path: '/Users/me/other',
+            path: '/userhome/me/other',
             repository: {
               owner: 'stablyai',
               repo: 'orca',
@@ -119,7 +119,7 @@ describe('GitHub project repo matching', () => {
     expect(
       findRepoForGitHubProjectRepository(
         'stablyai/orca',
-        [{ id: 'repo-1', path: '/Users/me/stablyai/orca', displayName: 'orca' }],
+        [{ id: 'repo-1', path: '/userhome/me/stablyai/orca', displayName: 'orca' }],
         {},
         'github.acme-corp.com'
       )

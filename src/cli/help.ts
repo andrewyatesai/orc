@@ -321,7 +321,7 @@ Examples:
   $ orca file open-changed --mode diff
   $ orca file open src/App.tsx
   $ orca terminal create --worktree active --command "codex"
-  $ orca terminal list --worktree path:/Users/me/orca/workspaces/orca/cli-test-1 --json
+  $ orca terminal list --worktree path:~/orca/workspaces/orca/cli-test-1 --json
   $ orca terminal send --terminal term_123 --text "hi" --enter
   $ orca terminal wait --terminal term_123 --for exit --timeout-ms 60000 --json
   $ orca tab current --json

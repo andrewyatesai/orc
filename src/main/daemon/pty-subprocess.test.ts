@@ -2336,7 +2336,7 @@ describe('createPtySubprocess', () => {
     Object.defineProperty(process, 'platform', { value: 'win32' })
     delete process.env.USERPROFILE
     process.env.HOMEDRIVE = 'D:'
-    process.env.HOMEPATH = '\\Users\\orca'
+    process.env.HOMEPATH = '\\userhome\\orca'
 
     try {
       createPtySubprocess({ sessionId: 'test', cols: 80, rows: 24 })
@@ -2364,7 +2364,7 @@ describe('createPtySubprocess', () => {
     expect(spawnMock).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(Array),
-      expect.objectContaining({ cwd: 'D:\\Users\\orca' })
+      expect.objectContaining({ cwd: 'D:\\userhome\\orca' })
     )
   })
 
@@ -2588,7 +2588,7 @@ describe('createPtySubprocess', () => {
         sessionId: 'test',
         cols: 80,
         rows: 24,
-        cwd: 'C:\\Users\\jin\\repo',
+        cwd: 'C:\\userhome\\jin\\repo',
         shellOverride: 'C:\\PortableGit\\bin\\bash.exe'
       })
     } finally {
@@ -2601,7 +2601,7 @@ describe('createPtySubprocess', () => {
       'C:\\PortableGit\\bin\\bash.exe',
       ['-c', 'chcp.com 65001 >/dev/null 2>&1; exec "$BASH" --login -i'],
       expect.objectContaining({
-        cwd: 'C:\\Users\\jin\\repo',
+        cwd: 'C:\\userhome\\jin\\repo',
         env: expect.objectContaining({ CHERE_INVOKING: '1' })
       })
     )
@@ -2635,7 +2635,7 @@ describe('createPtySubprocess', () => {
     const platform = Object.getOwnPropertyDescriptor(process, 'platform')
     Object.defineProperty(process, 'platform', { value: 'win32' })
     spawnMock.mockImplementation((_shell, _args, options) => {
-      if (options.cwd === '/c/Users/alice/project') {
+      if (options.cwd === '/c/userhome/alice/project') {
         throw new Error('Cannot create process, error code: 267')
       }
       return proc
@@ -2646,7 +2646,7 @@ describe('createPtySubprocess', () => {
         sessionId: 'test',
         cols: 80,
         rows: 24,
-        cwd: '/c/Users/alice/project',
+        cwd: '/c/userhome/alice/project',
         shellOverride: 'powershell.exe'
       })
     } finally {
@@ -2658,7 +2658,7 @@ describe('createPtySubprocess', () => {
     expect(spawnMock).toHaveBeenCalledWith(
       WINDOWS_POWERSHELL_ABS,
       POWERSHELL_OSC133_COMMAND_ARGS,
-      expect.objectContaining({ cwd: 'C:\\Users\\alice\\project' })
+      expect.objectContaining({ cwd: 'C:\\userhome\\alice\\project' })
     )
   })
 
@@ -2818,7 +2818,10 @@ describe('createPtySubprocess', () => {
         cols: 80,
         rows: 24,
         cwd: '\\\\wsl.localhost\\Ubuntu\\home\\jin\\repo',
-        env: { CODEX_HOME: 'C:\\Users\\jin\\.codex', ORCA_CODEX_HOME: 'C:\\Users\\jin\\.codex' }
+        env: {
+          CODEX_HOME: 'C:\\userhome\\jin\\.codex',
+          ORCA_CODEX_HOME: 'C:\\userhome\\jin\\.codex'
+        }
       })
     } finally {
       if (platform) {
@@ -2850,7 +2853,7 @@ describe('createPtySubprocess', () => {
         sessionId: 'test',
         cols: 80,
         rows: 24,
-        cwd: 'C:\\Users\\jin\\repo',
+        cwd: 'C:\\userhome\\jin\\repo',
         env: {
           CODEX_HOME:
             '\\\\wsl.localhost\\Ubuntu\\home\\jin\\.local\\share\\orca\\codex-accounts\\a\\home',

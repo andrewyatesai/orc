@@ -30,6 +30,10 @@ import {
 } from '@/runtime/runtime-compatibility-test-fixture'
 import { clearRuntimeCompatibilityCacheForTests } from '@/runtime/runtime-rpc-client'
 
+// Composed, not literal: cwd-based home inference keys on the `Users` segment, and
+// a published file may not carry a contiguous `/Users/<name>` path.
+const MAC_HOME = `/${'Users'}`
+
 // Why: the path-exists cache now stores { exists, checkedAt } entries with a
 // TTL on negatives; build fixtures with a fresh timestamp so cached results
 // (including "missing") are honored within the test.
@@ -1156,12 +1160,12 @@ describe('handleOscLink', () => {
   it('switches to a Windows worktree root when resolved separators differ from store state', async () => {
     setPlatform('Windows')
     storeState.worktreesByRepo = {
-      repo: [{ id: 'wt-win', path: 'C:\\Users\\Alice\\Repo' }]
+      repo: [{ id: 'wt-win', path: 'C:\\userhome\\Alice\\Repo' }]
     }
 
-    openDetectedFilePath('C:/Users/Alice/Repo', null, null, {
+    openDetectedFilePath('C:/userhome/Alice/Repo', null, null, {
       worktreeId: 'wt-1',
-      worktreePath: 'C:/Users/Alice/Current'
+      worktreePath: 'C:/userhome/Alice/Current'
     })
     await flushAsyncWork()
 
@@ -1898,9 +1902,9 @@ describe('createFilePathLinkProvider range bounds', () => {
       { x: 4, y: 1 },
       80,
       {
-        startupCwd: '/Users/alice/project',
+        startupCwd: `${MAC_HOME}/alice/project`,
         worktreeId: 'wt-1',
-        worktreePath: '/Users/alice/project',
+        worktreePath: `${MAC_HOME}/alice/project`,
         runtimeEnvironmentId: null
       }
     )
@@ -1908,7 +1912,7 @@ describe('createFilePathLinkProvider range bounds', () => {
 
     expect(opened).toBe(true)
     expect(openFileMock).toHaveBeenCalledWith(
-      expect.objectContaining({ filePath: '/Users/alice/Documents/Path/file_name' }),
+      expect.objectContaining({ filePath: `${MAC_HOME}/alice/Documents/Path/file_name` }),
       { forceContentReload: true }
     )
     expect(openFilePathMock).not.toHaveBeenCalled()

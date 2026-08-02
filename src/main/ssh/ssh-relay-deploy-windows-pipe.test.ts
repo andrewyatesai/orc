@@ -139,7 +139,7 @@ describe('deployAndLaunchRelay (Windows named pipes)', () => {
     mockExecCommand
       .mockRejectedValueOnce(new Error('uname not found')) // tagged POSIX platform probe
       .mockResolvedValueOnce('__ORCA_REMOTE_PLATFORM__ Windows X64') // tagged PowerShell platform probe
-      .mockResolvedValueOnce('C:\\Users\\me user') // remote home
+      .mockResolvedValueOnce('C:\\userhome\\me user') // remote home
       .mockResolvedValueOnce('ORCA-NATIVE-DEPS-OK') // native deps probe
       .mockResolvedValueOnce('') // no persisted active pipe
       .mockResolvedValueOnce('WAITING') // named pipe probe
@@ -150,7 +150,7 @@ describe('deployAndLaunchRelay (Windows named pipes)', () => {
     const result = await deployAndLaunchRelay(conn, undefined, 300, 'target-a')
 
     expect(result.platform).toBe('win32-x64')
-    expect(result.remoteHome).toBe('C:/Users/me user')
+    expect(result.remoteHome).toBe('C:/userhome/me user')
     expect(result.sockPath).toMatch(/^\\\\\.\\pipe\\orca-relay-[0-9a-f]{20}$/)
     const execCommands = vi.mocked(conn.exec).mock.calls.map(([cmd]) => cmd as string)
     expect(execCommands).toHaveLength(1)
@@ -160,10 +160,10 @@ describe('deployAndLaunchRelay (Windows named pipes)', () => {
       .filter((script): script is string => script !== null)
     const launchScript = decodedScripts.find((script) => script.includes('Invoke-CimMethod')) ?? ''
     expect(launchScript).toContain(
-      '"C:/Users/me user/.orca-remote/relay-0.1.0+abcdef012345/relay.js"'
+      '"C:/userhome/me user/.orca-remote/relay-0.1.0+abcdef012345/relay.js"'
     )
     expect(launchScript).toContain(
-      '"C:/Users/me user/.orca-remote/relay-0.1.0+abcdef012345/agent-hooks/orca-relay-'
+      '"C:/userhome/me user/.orca-remote/relay-0.1.0+abcdef012345/agent-hooks/orca-relay-'
     )
     expect(launchScript).toContain('--endpoint-dir')
     expect(launchScript).not.toContain('\\\\.\\pipe\\agent-hooks')
@@ -199,7 +199,7 @@ describe('deployAndLaunchRelay (Windows named pipes)', () => {
     mockExecCommand
       .mockRejectedValueOnce(new Error('uname not found')) // tagged POSIX platform probe
       .mockResolvedValueOnce('__ORCA_REMOTE_PLATFORM__ Windows X64') // tagged PowerShell platform probe
-      .mockResolvedValueOnce('C:\\Users\\me user') // remote home
+      .mockResolvedValueOnce('C:\\userhome\\me user') // remote home
       .mockResolvedValueOnce('ORCA-NATIVE-DEPS-OK') // native deps probe
       .mockResolvedValueOnce('') // no persisted active pipe yet
       .mockResolvedValueOnce('READY') // existing named pipe probe
@@ -246,7 +246,7 @@ describe('deployAndLaunchRelay (Windows named pipes)', () => {
     mockExecCommand
       .mockRejectedValueOnce(new Error('uname not found')) // tagged POSIX platform probe
       .mockResolvedValueOnce('__ORCA_REMOTE_PLATFORM__ Windows X64') // tagged PowerShell platform probe
-      .mockResolvedValueOnce('C:\\Users\\me user') // remote home
+      .mockResolvedValueOnce('C:\\userhome\\me user') // remote home
       .mockResolvedValueOnce('ORCA-NATIVE-DEPS-OK') // native deps probe
       .mockResolvedValueOnce(`${persistedPipe}\n`) // persisted active pipe marker
       .mockResolvedValueOnce('READY') // persisted named pipe probe
@@ -274,7 +274,7 @@ describe('deployAndLaunchRelay (Windows named pipes)', () => {
     mockExecCommand
       .mockRejectedValueOnce(new Error('uname not found')) // tagged POSIX platform probe A
       .mockResolvedValueOnce('__ORCA_REMOTE_PLATFORM__ Windows X64')
-      .mockResolvedValueOnce('C:\\Users\\me user')
+      .mockResolvedValueOnce('C:\\userhome\\me user')
       .mockResolvedValueOnce('ORCA-NATIVE-DEPS-OK')
       .mockResolvedValueOnce('') // no persisted active pipe A
       .mockResolvedValueOnce('WAITING')
@@ -283,7 +283,7 @@ describe('deployAndLaunchRelay (Windows named pipes)', () => {
       .mockResolvedValueOnce('') // persist active pipe A
       .mockRejectedValueOnce(new Error('uname not found')) // tagged POSIX platform probe B
       .mockResolvedValueOnce('__ORCA_REMOTE_PLATFORM__ Windows X64')
-      .mockResolvedValueOnce('C:\\Users\\me user')
+      .mockResolvedValueOnce('C:\\userhome\\me user')
       .mockResolvedValueOnce('ORCA-NATIVE-DEPS-OK')
       .mockResolvedValueOnce('') // no persisted active pipe B
       .mockResolvedValueOnce('WAITING')

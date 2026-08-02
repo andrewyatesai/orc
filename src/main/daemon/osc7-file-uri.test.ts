@@ -37,14 +37,16 @@ describe('parseFileUriPath', () => {
     const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')
     Object.defineProperty(process, 'platform', { configurable: true, value: 'darwin' })
     try {
-      expect(parseFileUriPathParts('file:///C:/Users/me/repo', { pathFlavor: 'win32' })).toEqual({
-        path: 'C:/Users/me/repo',
-        hostname: ''
-      })
+      expect(parseFileUriPathParts('file:///C:/userhome/me/repo', { pathFlavor: 'win32' })).toEqual(
+        {
+          path: 'C:/userhome/me/repo',
+          hostname: ''
+        }
+      )
       expect(
-        parseFileUriPathParts('file://remote-host/C:/Users/me/repo', { pathFlavor: 'win32' })
+        parseFileUriPathParts('file://remote-host/C:/userhome/me/repo', { pathFlavor: 'win32' })
       ).toEqual({
-        path: 'C:/Users/me/repo',
+        path: 'C:/userhome/me/repo',
         hostname: 'remote-host'
       })
     } finally {

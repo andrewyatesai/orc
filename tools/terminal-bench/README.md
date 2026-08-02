@@ -84,10 +84,11 @@ pnpm gauntlet:perf            # MB/s medians + grid-parity
   toolchain is absent. `verify.sh --solver z3` re-checks the same bundles with
   stock z3 as an independent portability check — ay remains the toolchain of
   record, so the gauntlet itself never substitutes z3.
-- **autoformalize** (Goal A) — reuses the Trust repo's `~/trust/tools/ts2rust`
+- **autoformalize** (Goal A) — reuses the Trust repo's `$TRUST_REPO/tools/ts2rust`
   two-witness gate (W1 `trustc -Z trust-verify-full` ∀-safety + W2 Node-TS
   differential). It auto-discovers the already-ported `.ts`/`.rs` pairs under
-  `~/trust/tools/ts2rust/orca`, derives each `fn`+`argspec` from the candidate
+  `$TRUST_REPO/tools/ts2rust/orca` (`$TRUST_REPO` defaults to `trust` under `$HOME`),
+  derives each `fn`+`argspec` from the candidate
   signature, and reports `TRUSTED / NOT-TRUSTED / declined` per function. A
   known-bug port (`*_bug`/`*_naive`) coming back TRUSTED is a soundness `FAIL`; a
   faithful port coming back NOT-TRUSTED is `REVIEW` (port bug vs. a Trust verifier

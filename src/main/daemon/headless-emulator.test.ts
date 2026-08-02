@@ -174,9 +174,9 @@ describe('HeadlessEmulator', () => {
   describe('OSC-7 CWD tracking', () => {
     it('parses OSC-7 file URI to extract CWD', async () => {
       emulator = new HeadlessEmulator({ cols: 80, rows: 24 })
-      await emulator.write('\x1b]7;file://localhost/Users/test/project\x07')
+      await emulator.write('\x1b]7;file://localhost/userhome/test/project\x07')
 
-      expect(emulator.getSnapshot().cwd).toBe(expectedNativePath('/Users/test/project'))
+      expect(emulator.getSnapshot().cwd).toBe(expectedNativePath('/userhome/test/project'))
     })
 
     it('handles OSC-7 with empty host', async () => {
@@ -205,9 +205,9 @@ describe('HeadlessEmulator', () => {
 
     it('decodes percent-encoded paths', async () => {
       emulator = new HeadlessEmulator({ cols: 80, rows: 24 })
-      await emulator.write('\x1b]7;file:///Users/test/my%20project\x07')
+      await emulator.write('\x1b]7;file:///userhome/test/my%20project\x07')
 
-      expect(emulator.getSnapshot().cwd).toBe(expectedNativePath('/Users/test/my project'))
+      expect(emulator.getSnapshot().cwd).toBe(expectedNativePath('/userhome/test/my project'))
     })
 
     it('normalizes Windows drive-letter OSC-7 paths', async () => {
@@ -216,14 +216,14 @@ describe('HeadlessEmulator', () => {
       Object.defineProperty(process, 'platform', { value: 'win32' })
 
       try {
-        await emulator.write('\x1b]7;file:///C:/Users/test/project\x07')
+        await emulator.write('\x1b]7;file:///C:/userhome/test/project\x07')
       } finally {
         if (platform) {
           Object.defineProperty(process, 'platform', platform)
         }
       }
 
-      expect(emulator.getSnapshot().cwd).toBe('C:/Users/test/project')
+      expect(emulator.getSnapshot().cwd).toBe('C:/userhome/test/project')
     })
 
     it('preserves Windows UNC OSC-7 paths', async () => {

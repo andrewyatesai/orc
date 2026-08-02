@@ -10009,22 +10009,22 @@ describe('OrcaRuntimeService', () => {
   it('keeps Windows SSH OSC7 cwd as a drive path when the desktop runtime is POSIX', () => {
     setPlatform('darwin')
     const runtime = new OrcaRuntimeService(store)
-    runtime.registerPty('pty-ssh-win', `${TEST_REPO_ID}::C:/Users/me/repo`, 'ssh-conn-1')
+    runtime.registerPty('pty-ssh-win', `${TEST_REPO_ID}::C:/userhome/me/repo`, 'ssh-conn-1')
 
-    runtime.onPtyData('pty-ssh-win', '\x1b]7;file:///C:/Users/me/repo/src\x07', 123)
+    runtime.onPtyData('pty-ssh-win', '\x1b]7;file:///C:/userhome/me/repo/src\x07', 123)
 
     const internals = runtime as unknown as {
       terminalCwdByPtyId: Map<string, string>
     }
-    expect(internals.terminalCwdByPtyId.get('pty-ssh-win')).toBe('C:/Users/me/repo/src')
+    expect(internals.terminalCwdByPtyId.get('pty-ssh-win')).toBe('C:/userhome/me/repo/src')
   })
 
   it('serializes Windows SSH headless OSC7 cwd as a drive path on POSIX desktops', async () => {
     setPlatform('darwin')
     const runtime = new OrcaRuntimeService(store)
-    runtime.registerPty('pty-ssh-win', `${TEST_REPO_ID}::C:/Users/me/repo`, 'ssh-conn-1')
+    runtime.registerPty('pty-ssh-win', `${TEST_REPO_ID}::C:/userhome/me/repo`, 'ssh-conn-1')
 
-    runtime.onPtyData('pty-ssh-win', '\x1b]7;file:///C:/Users/me/repo/src\x07hello', 123)
+    runtime.onPtyData('pty-ssh-win', '\x1b]7;file:///C:/userhome/me/repo/src\x07hello', 123)
 
     const snapshot = await (
       runtime as unknown as {
@@ -10035,7 +10035,7 @@ describe('OrcaRuntimeService', () => {
       }
     ).serializeHeadlessTerminalBuffer('pty-ssh-win', { includeEmpty: true })
 
-    expect(snapshot?.cwd).toBe('C:/Users/me/repo/src')
+    expect(snapshot?.cwd).toBe('C:/userhome/me/repo/src')
   })
 
   it('infers restored SSH connection identity from app-scoped PTY ids', () => {
@@ -15344,11 +15344,11 @@ describe('OrcaRuntimeService', () => {
   })
 
   it('keeps Windows file URI drive paths in bounded PTY path candidates', () => {
-    const artifactPath = 'C:/Users/me/AppData/Local/Temp/result.json'
+    const artifactPath = 'C:/userhome/me/AppData/Local/Temp/result.json'
     const prefix = 'x'.repeat(8 * 1024)
     const candidates = appendRecentPtyPathCandidates(
       undefined,
-      `file:///C:/Users/me/AppData/Local/Temp/result.json\n${prefix}`
+      `file:///C:/userhome/me/AppData/Local/Temp/result.json\n${prefix}`
     )
 
     expect(recentTerminalPathCandidatesIncludePath(candidates, artifactPath, artifactPath)).toBe(
@@ -15421,16 +15421,16 @@ describe('OrcaRuntimeService', () => {
     ).toBe(true)
     expect(
       recentTerminalOutputIncludesPath(
-        'wrote file:///C:/Users/me/AppData/Local/Temp/result.json',
-        'C:/Users/me/AppData/Local/Temp/result.json',
-        'C:/Users/me/AppData/Local/Temp/result.json'
+        'wrote file:///C:/userhome/me/AppData/Local/Temp/result.json',
+        'C:/userhome/me/AppData/Local/Temp/result.json',
+        'C:/userhome/me/AppData/Local/Temp/result.json'
       )
     ).toBe(true)
     expect(
       recentTerminalOutputIncludesPath(
-        'wrote file://localhost/C:/Users/me/AppData/Local/Temp/result.json',
-        'C:/Users/me/AppData/Local/Temp/result.json',
-        'C:/Users/me/AppData/Local/Temp/result.json'
+        'wrote file://localhost/C:/userhome/me/AppData/Local/Temp/result.json',
+        'C:/userhome/me/AppData/Local/Temp/result.json',
+        'C:/userhome/me/AppData/Local/Temp/result.json'
       )
     ).toBe(true)
   })
@@ -39616,20 +39616,20 @@ describe('resolveWorktreeScanCacheTtlMs', () => {
 
   it('keeps the base TTL for ordinary local repos', () => {
     expect(
-      resolveWorktreeScanCacheTtlMs({ path: '/Users/dev/projects/app', connectionId: '' })
+      resolveWorktreeScanCacheTtlMs({ path: '/userhome/dev/projects/app', connectionId: '' })
     ).toBe(BASE_TTL_MS)
   })
 
   it('extends the TTL for agent-scratch repo roots', () => {
     expect(
       resolveWorktreeScanCacheTtlMs({
-        path: '/Users/dev/.codex-tmp/foragent-capsule-b1-repo-zP9Az6',
+        path: '/userhome/dev/.codex-tmp/foragent-capsule-b1-repo-zP9Az6',
         connectionId: ''
       })
     ).toBe(SCRATCH_TTL_MS)
     expect(
       resolveWorktreeScanCacheTtlMs({
-        path: '/Users/dev/.claude/skills/obsidian-second-brain',
+        path: '/userhome/dev/.claude/skills/obsidian-second-brain',
         connectionId: ''
       })
     ).toBe(SCRATCH_TTL_MS)

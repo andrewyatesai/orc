@@ -64,7 +64,7 @@ describe('prepareCodexSessionResume', () => {
   it('marks cross-agent metadata as never having claimed Codex provenance', async () => {
     await expect(
       prepare({
-        transcriptPath: '/Users/example/.claude/projects/repo/x.jsonl',
+        transcriptPath: '/userhome/example/.claude/projects/repo/x.jsonl',
         trustedCodexHomes: [ORIGIN_HOME]
       })
     ).resolves.toEqual({ outcome: 'fresh', claimedCodexProvenance: false })
@@ -83,7 +83,7 @@ describe('prepareCodexSessionResume', () => {
 // forwarding is unguarded, and losing it silently restores #10801's bug: a resume landing
 // under an arbitrary account and staying pinned there.
 describe('prepareCodexSessionResume legacy-rescan ranking forwarding', () => {
-  const systemHome = '/Users/example/.codex'
+  const systemHome = '/userhome/example/.codex'
   const sharedMirror = '/userData/codex-runtime-home/home'
   const accountAHome = '/userData/codex-accounts/account-a/home'
   const accountBHome = '/userData/codex-accounts/account-b/home'

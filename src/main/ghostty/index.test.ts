@@ -14,7 +14,7 @@ vi.mock('fs/promises', () => ({
 
 vi.mock('os', () => ({
   platform: vi.fn(() => 'darwin'),
-  homedir: vi.fn(() => '/Users/alice')
+  homedir: vi.fn(() => '/userhome/alice')
 }))
 
 import { previewGhosttyImport } from './index'
@@ -47,7 +47,7 @@ describe('previewGhosttyImport', () => {
 
   it('returns diff and unsupported keys when config exists', async () => {
     statMock.mockImplementation(async (p: string) => {
-      if (p === '/Users/alice/Library/Application Support/com.mitchellh.ghostty/config') {
+      if (p === '/userhome/alice/Library/Application Support/com.mitchellh.ghostty/config') {
         return { isFile: () => true }
       }
       throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
@@ -67,7 +67,7 @@ background = #1a1a1a
 
     expect(result.found).toBe(true)
     expect(result.configPath).toBe(
-      '/Users/alice/Library/Application Support/com.mitchellh.ghostty/config'
+      '/userhome/alice/Library/Application Support/com.mitchellh.ghostty/config'
     )
     expect(result.diff).toEqual({
       terminalFontFamily: 'JetBrains Mono',
@@ -81,18 +81,18 @@ background = #1a1a1a
     delete process.env.XDG_CONFIG_HOME
     statMock.mockImplementation(async (p: string) => {
       if (
-        p === '/Users/alice/.config/ghostty/config.ghostty' ||
-        p === '/Users/alice/.config/ghostty/config'
+        p === '/userhome/alice/.config/ghostty/config.ghostty' ||
+        p === '/userhome/alice/.config/ghostty/config'
       ) {
         return { isFile: () => true }
       }
       throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
     })
     readFileMock.mockImplementation(async (p: string) => {
-      if (p === '/Users/alice/.config/ghostty/config.ghostty') {
+      if (p === '/userhome/alice/.config/ghostty/config.ghostty') {
         return 'font-size = 22\nbackground = #1a1a1a\n'
       }
-      if (p === '/Users/alice/.config/ghostty/config') {
+      if (p === '/userhome/alice/.config/ghostty/config') {
         return 'font-family = JetBrains Mono\nfont-size = 18\n'
       }
       throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
@@ -101,10 +101,10 @@ background = #1a1a1a
     const result = await previewGhosttyImport(createStore())
 
     expect(result.found).toBe(true)
-    expect(result.configPath).toBe('/Users/alice/.config/ghostty/config.ghostty')
+    expect(result.configPath).toBe('/userhome/alice/.config/ghostty/config.ghostty')
     expect(result.configPaths).toEqual([
-      '/Users/alice/.config/ghostty/config.ghostty',
-      '/Users/alice/.config/ghostty/config'
+      '/userhome/alice/.config/ghostty/config.ghostty',
+      '/userhome/alice/.config/ghostty/config'
     ])
     expect(result.diff).toEqual({
       terminalFontFamily: 'JetBrains Mono',
@@ -116,7 +116,7 @@ background = #1a1a1a
 
   it('omits values that match current settings', async () => {
     statMock.mockImplementation(async (p: string) => {
-      if (p === '/Users/alice/Library/Application Support/com.mitchellh.ghostty/config') {
+      if (p === '/userhome/alice/Library/Application Support/com.mitchellh.ghostty/config') {
         return { isFile: () => true }
       }
       throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
@@ -137,7 +137,7 @@ background = #1a1a1a
 
   it('omits object values that are deeply equal to current settings', async () => {
     statMock.mockImplementation(async (p: string) => {
-      if (p === '/Users/alice/Library/Application Support/com.mitchellh.ghostty/config') {
+      if (p === '/userhome/alice/Library/Application Support/com.mitchellh.ghostty/config') {
         return { isFile: () => true }
       }
       throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
@@ -157,7 +157,7 @@ background = #1a1a1a
 
   it('omits object values that are equal regardless of key order', async () => {
     statMock.mockImplementation(async (p: string) => {
-      if (p === '/Users/alice/Library/Application Support/com.mitchellh.ghostty/config') {
+      if (p === '/userhome/alice/Library/Application Support/com.mitchellh.ghostty/config') {
         return { isFile: () => true }
       }
       throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
@@ -187,7 +187,7 @@ background = #1a1a1a
     }))
 
     statMock.mockImplementation(async (p: string) => {
-      if (p === '/Users/alice/Library/Application Support/com.mitchellh.ghostty/config') {
+      if (p === '/userhome/alice/Library/Application Support/com.mitchellh.ghostty/config') {
         return { isFile: () => true }
       }
       throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })

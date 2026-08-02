@@ -13,10 +13,10 @@ function session(agent: AiVaultSession['agent'] = 'claude'): AiVaultSession {
     agent,
     sessionId: `${agent}-session-1`,
     title: 'Finish the editor refactor',
-    cwd: '/Users/ada/Desktop/Client App',
+    cwd: '/userhome/ada/Desktop/Client App',
     branch: 'main',
     model: null,
-    filePath: `/Users/ada/.${agent}/projects/client/session.jsonl`,
+    filePath: `/userhome/ada/.${agent}/projects/client/session.jsonl`,
     codexHome: null,
     createdAt: null,
     updatedAt: null,
@@ -47,13 +47,13 @@ describe('AI Vault session continuation', () => {
     const request = prepareAiVaultSessionContinuation({
       session: session(),
       targetWorktreeId: 'worktree-1',
-      targetWorkspacePath: '/Users/ada/Desktop/current-worktree'
+      targetWorkspacePath: '/userhome/ada/Desktop/current-worktree'
     })
 
     expect(request).toMatchObject({
       worktreeId: 'worktree-1',
-      workspacePath: '/Users/ada/Desktop/current-worktree',
-      initialCwd: '/Users/ada/Desktop/Client App',
+      workspacePath: '/userhome/ada/Desktop/current-worktree',
+      initialCwd: '/userhome/ada/Desktop/Client App',
       launchSource: 'sidebar',
       source: {
         sourceAgent: 'claude',
@@ -72,7 +72,7 @@ describe('AI Vault session continuation', () => {
     const request = prepareAiVaultSessionContinuation({
       session: sourceSession,
       targetWorktreeId: 'worktree-1',
-      targetWorkspacePath: '/Users/ada/Desktop/current-worktree'
+      targetWorkspacePath: '/userhome/ada/Desktop/current-worktree'
     })
 
     expect(request.source.lastPrompt).toBeNull()

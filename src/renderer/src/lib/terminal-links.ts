@@ -37,8 +37,8 @@ const LOCAL_PATH_REGEX =
   /(?:~[\\/]|[\\/]|\.{1,2}[\\/]|[A-Za-z]:[\\/]|[A-Za-z0-9._-]+[\\/])[A-Za-z0-9._~\-/%+@\\()[\]]*(?::\d+)?(?::\d+)?/g
 
 // Matches separator paths whose file or folder names include spaces. This runs
-// before LOCAL_PATH_REGEX so `/Users/A/Foo Bar/file.ts` is claimed as one link
-// instead of split into `/Users/A/Foo` and `Bar/file.ts`.
+// before LOCAL_PATH_REGEX so `/home/a/Foo Bar/file.ts` is claimed as one link
+// instead of split into `/home/a/Foo` and `Bar/file.ts`.
 // Why this is intentionally broad: validating "space followed by a later
 // separator" inside the regex creates overlapping whitespace backtracking on
 // large ConPTY TUI lines. Keep the scan linear and filter candidates in code.

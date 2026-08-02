@@ -9,7 +9,7 @@ import { initGitWasmForTestFromBytes } from './git-line-stats'
 // observed here — the parity vectors pin the ready-state goldens.
 
 const preInit = buildAgentNotificationId({
-  worktreeId: 'repo::/Users/me/orca/workspaces/feature',
+  worktreeId: 'repo::/userhome/me/orca/workspaces/feature',
   paneKey: 'tab-1:11111111-1111-4111-8111-111111111111',
   stateStartedAt: 1780000000123
 })
@@ -27,7 +27,7 @@ describe('buildAgentNotificationId wasm wrapper — before ready', () => {
 describe('buildAgentNotificationId (orca-core wasm)', () => {
   it('builds a stable id for the same agent event metadata', () => {
     const args = {
-      worktreeId: 'repo::/Users/me/orca/workspaces/feature',
+      worktreeId: 'repo::/userhome/me/orca/workspaces/feature',
       paneKey: 'tab-1:11111111-1111-4111-8111-111111111111',
       stateStartedAt: 1780000000123
     }
@@ -41,18 +41,18 @@ describe('buildAgentNotificationId (orca-core wasm)', () => {
     ).toBe('agent:wt%2Fa%20b%26c%3F:pane%231:0')
     expect(
       buildAgentNotificationId({
-        worktreeId: 'repo::/Users/me/orca/workspaces/feature',
+        worktreeId: 'repo::/userhome/me/orca/workspaces/feature',
         paneKey: 'tab-1:11111111-1111-4111-8111-111111111111',
         stateStartedAt: 1780000000456.5
       })
     ).toBe(
-      'agent:repo%3A%3A%2FUsers%2Fme%2Forca%2Fworkspaces%2Ffeature:tab-1%3A11111111-1111-4111-8111-111111111111:1780000000456'
+      'agent:repo%3A%3A%2Fuserhome%2Fme%2Forca%2Fworkspaces%2Ffeature:tab-1%3A11111111-1111-4111-8111-111111111111:1780000000456'
     )
   })
 
   it('changes when the agent state start time changes', () => {
     const base = {
-      worktreeId: 'repo::/Users/me/orca/workspaces/feature',
+      worktreeId: 'repo::/userhome/me/orca/workspaces/feature',
       paneKey: 'tab-1:11111111-1111-4111-8111-111111111111'
     }
 
@@ -70,13 +70,13 @@ describe('buildAgentNotificationId (orca-core wasm)', () => {
     ).toBeNull()
     expect(
       buildAgentNotificationId({
-        worktreeId: 'repo::/Users/me/orca/workspaces/feature',
+        worktreeId: 'repo::/userhome/me/orca/workspaces/feature',
         stateStartedAt: 1780000000123
       })
     ).toBeNull()
     expect(
       buildAgentNotificationId({
-        worktreeId: 'repo::/Users/me/orca/workspaces/feature',
+        worktreeId: 'repo::/userhome/me/orca/workspaces/feature',
         paneKey: 'tab-1:11111111-1111-4111-8111-111111111111'
       })
     ).toBeNull()

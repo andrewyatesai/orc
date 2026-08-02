@@ -141,7 +141,7 @@ describe('registerSshBrowseHandler', () => {
     })
     registerSshBrowseHandler(getConnectionManager as never)
 
-    const resultPromise = handler(null, { targetId: 'ssh-1', dirPath: 'C:/Users/alice' })
+    const resultPromise = handler(null, { targetId: 'ssh-1', dirPath: 'C:/userhome/alice' })
     await Promise.resolve()
     posixChannel.stderr.emit(
       'data',
@@ -156,19 +156,19 @@ describe('registerSshBrowseHandler', () => {
     // aren't misclassified as files with a stray carriage return in the name.
     // The script emits a forward-slash resolvedPath (the -replace '\\','/' line)
     // so the renderer's parentPath/joinPath, which only split on `/`, still work.
-    windowsChannel.emit('data', Buffer.from('C:/Users/alice\r\nDesktop/\r\nnotes.txt\r\n'))
+    windowsChannel.emit('data', Buffer.from('C:/userhome/alice\r\nDesktop/\r\nnotes.txt\r\n'))
     windowsChannel.emit('exit', 0)
     windowsChannel.emit('close')
 
     await expect(resultPromise).resolves.toEqual({
-      resolvedPath: 'C:/Users/alice',
+      resolvedPath: 'C:/userhome/alice',
       entries: [
         { name: 'Desktop', isDirectory: true },
         { name: 'notes.txt', isDirectory: false }
       ]
     })
     expect(exec).toHaveBeenCalledTimes(2)
-    expect(exec).toHaveBeenNthCalledWith(1, posixBrowseCommand("'C:/Users/alice'"))
+    expect(exec).toHaveBeenNthCalledWith(1, posixBrowseCommand("'C:/userhome/alice'"))
     expect(exec.mock.calls[1]?.[0]).toMatch(/^powershell\.exe /)
     expect(exec.mock.calls[1]?.[1]).toEqual({ wrapCommand: false })
 
@@ -177,7 +177,7 @@ describe('registerSshBrowseHandler', () => {
     // regression) is caught, and to lock in the UTF-8 output pin.
     const script = decodeEncodedCommand(exec.mock.calls[1]?.[0] ?? '')
     expect(script).toContain('[Console]::OutputEncoding = [System.Text.Encoding]::UTF8')
-    expect(script).toContain("$dir = 'C:/Users/alice'")
+    expect(script).toContain("$dir = 'C:/userhome/alice'")
     expect(script).toContain('Get-ChildItem -LiteralPath $resolved -Force')
     // resolvedPath must be emitted with forward slashes so the renderer's
     // parentPath/joinPath (which only split on `/`) keep working on Windows.
@@ -197,7 +197,7 @@ describe('registerSshBrowseHandler', () => {
     })
     registerSshBrowseHandler(getConnectionManager as never)
 
-    const resultPromise = handler(null, { targetId: 'ssh-1', dirPath: 'C:/Users' })
+    const resultPromise = handler(null, { targetId: 'ssh-1', dirPath: 'C:/userhome' })
     await Promise.resolve()
     // Japanese cmd.exe "not recognized" text — matches none of the removed English
     // /Spanish substrings, and exit 1 is not the removed 9009 sentinel.
@@ -210,12 +210,12 @@ describe('registerSshBrowseHandler', () => {
     await vi.waitFor(() => {
       expect(windowsChannel.listenerCount('close')).toBe(1)
     })
-    windowsChannel.emit('data', Buffer.from('C:/Users\r\nAdmin/\r\n'))
+    windowsChannel.emit('data', Buffer.from('C:/userhome\r\nAdmin/\r\n'))
     windowsChannel.emit('exit', 0)
     windowsChannel.emit('close')
 
     await expect(resultPromise).resolves.toEqual({
-      resolvedPath: 'C:/Users',
+      resolvedPath: 'C:/userhome',
       entries: [{ name: 'Admin', isDirectory: true }]
     })
     expect(exec).toHaveBeenCalledTimes(2)
@@ -271,11 +271,11 @@ describe('registerSshBrowseHandler', () => {
     await vi.waitFor(() => {
       expect(windowsChannel.listenerCount('close')).toBe(1)
     })
-    windowsChannel.emit('data', Buffer.from('C:/Users/alice\r\n'))
+    windowsChannel.emit('data', Buffer.from('C:/userhome/alice\r\n'))
     windowsChannel.emit('exit', 0)
     windowsChannel.emit('close')
 
-    await expect(resultPromise).resolves.toEqual({ resolvedPath: 'C:/Users/alice', entries: [] })
+    await expect(resultPromise).resolves.toEqual({ resolvedPath: 'C:/userhome/alice', entries: [] })
     const script = decodeEncodedCommand(exec.mock.calls[1]?.[0] ?? '')
     // ~ must expand to $HOME, not be passed literally to Set-Location.
     expect(script).toContain('$dir = $HOME')
@@ -286,7 +286,7 @@ describe('registerSshBrowseHandler', () => {
   // first-level dir yields a bare drive letter. Both must be rooted for
   // Set-Location, or navigation lands in the drive-relative cwd / errors.
   it.each([
-    { dirPath: '/C:/Users', expected: "$dir = 'C:/Users'" },
+    { dirPath: '/C:/userhome', expected: "$dir = 'C:/userhome'" },
     { dirPath: 'C:', expected: "$dir = 'C:/'" },
     // Combined strip + root, so a future refactor can't break the ordering.
     { dirPath: '/C:', expected: "$dir = 'C:/'" }
@@ -309,11 +309,11 @@ describe('registerSshBrowseHandler', () => {
       await vi.waitFor(() => {
         expect(windowsChannel.listenerCount('close')).toBe(1)
       })
-      windowsChannel.emit('data', Buffer.from('C:/Users\r\n'))
+      windowsChannel.emit('data', Buffer.from('C:/userhome\r\n'))
       windowsChannel.emit('exit', 0)
       windowsChannel.emit('close')
 
-      await expect(resultPromise).resolves.toEqual({ resolvedPath: 'C:/Users', entries: [] })
+      await expect(resultPromise).resolves.toEqual({ resolvedPath: 'C:/userhome', entries: [] })
       const script = decodeEncodedCommand(exec.mock.calls[1]?.[0] ?? '')
       expect(script).toContain(expected)
     }

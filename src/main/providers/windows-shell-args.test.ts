@@ -49,18 +49,22 @@ describe('resolveWindowsShellLaunchArgs', () => {
   })
 
   it('returns cmd.exe args with chcp 65001 for UTF-8 output', () => {
-    const result = resolveWindowsShellLaunchArgs('cmd.exe', 'C:\\Users\\alice', 'C:\\Users\\alice')
+    const result = resolveWindowsShellLaunchArgs(
+      'cmd.exe',
+      'C:\\userhome\\alice',
+      'C:\\userhome\\alice'
+    )
     expect(result.shellArgs).toEqual(['/K', 'chcp 65001 > nul'])
     expect(result.startupCommandDeliveredInShellArgs).toBeUndefined()
-    expect(result.effectiveCwd).toBe('C:\\Users\\alice')
-    expect(result.validationCwd).toBe('C:\\Users\\alice')
+    expect(result.effectiveCwd).toBe('C:\\userhome\\alice')
+    expect(result.validationCwd).toBe('C:\\userhome\\alice')
   })
 
   it('embeds short cmd.exe startup commands in shell args', () => {
     const result = resolveWindowsShellLaunchArgs(
       'cmd.exe',
-      'C:\\Users\\alice',
-      'C:\\Users\\alice',
+      'C:\\userhome\\alice',
+      'C:\\userhome\\alice',
       undefined,
       'codex --no-alt-screen'
     )
@@ -73,10 +77,10 @@ describe('resolveWindowsShellLaunchArgs', () => {
     // C-runtime argv escaping corrupts when delivered through `/K`.
     const result = resolveWindowsShellLaunchArgs(
       'cmd.exe',
-      'C:\\Users\\alice\\repo',
-      'C:\\Users\\alice',
+      'C:\\userhome\\alice\\repo',
+      'C:\\userhome\\alice',
       undefined,
-      'cd /d "C:\\Users\\alice\\repo" && claude "--resume" "session one"'
+      'cd /d "C:\\userhome\\alice\\repo" && claude "--resume" "session one"'
     )
     expect(result.shellArgs).toEqual(['/K', 'chcp 65001 > nul'])
     expect(result.startupCommandDeliveredInShellArgs).toBeUndefined()
@@ -85,8 +89,8 @@ describe('resolveWindowsShellLaunchArgs', () => {
   it('keeps large cmd.exe startup commands on stdin delivery', () => {
     const result = resolveWindowsShellLaunchArgs(
       'cmd.exe',
-      'C:\\Users\\alice',
-      'C:\\Users\\alice',
+      'C:\\userhome\\alice',
+      'C:\\userhome\\alice',
       undefined,
       `codex ${'x'.repeat(7000)}`
     )
@@ -97,8 +101,8 @@ describe('resolveWindowsShellLaunchArgs', () => {
   it('returns PowerShell args that install OSC 133 bootstrap after normal profile loading', () => {
     const result = resolveWindowsShellLaunchArgs(
       'powershell.exe',
-      'C:\\Users\\alice',
-      'C:\\Users\\alice'
+      'C:\\userhome\\alice',
+      'C:\\userhome\\alice'
     )
     expect(result.shellArgs).toEqual(['-NoLogo', '-NoExit', '-EncodedCommand', expect.any(String)])
 
@@ -112,7 +116,7 @@ describe('resolveWindowsShellLaunchArgs', () => {
     const codexRestoreIndex = command.indexOf('$env:CODEX_HOME = $env:ORCA_CODEX_HOME')
     const promptIndex = command.indexOf('function Global:prompt')
     const cwdRestoreIndex = command.indexOf(
-      expectedPowerShellRestoreCwdCommand("'C:\\Users\\alice'")
+      expectedPowerShellRestoreCwdCommand("'C:\\userhome\\alice'")
     )
 
     expect(command).not.toContain('$PROFILE')
@@ -137,34 +141,34 @@ describe('resolveWindowsShellLaunchArgs', () => {
   it('normalizes MSYS drive cwd before spawning native PowerShell', () => {
     const result = resolveWindowsShellLaunchArgs(
       'powershell.exe',
-      '/c/Users/alice/project',
-      'C:\\Users\\alice'
+      '/c/userhome/alice/project',
+      'C:\\userhome\\alice'
     )
 
-    expect(result.effectiveCwd).toBe('C:\\Users\\alice\\project')
-    expect(result.validationCwd).toBe('C:\\Users\\alice\\project')
+    expect(result.effectiveCwd).toBe('C:\\userhome\\alice\\project')
+    expect(result.validationCwd).toBe('C:\\userhome\\alice\\project')
     expect(decodePowerShellCommand(result)).toContain(
-      expectedPowerShellRestoreCwdCommand("'C:\\Users\\alice\\project'")
+      expectedPowerShellRestoreCwdCommand("'C:\\userhome\\alice\\project'")
     )
   })
 
   it('quotes the PowerShell cwd restore command literally', () => {
     const result = resolveWindowsShellLaunchArgs(
       'powershell.exe',
-      "C:\\Users\\alice\\client's app",
-      'C:\\Users\\alice'
+      "C:\\userhome\\alice\\client's app",
+      'C:\\userhome\\alice'
     )
 
     expect(decodePowerShellCommand(result)).toContain(
-      expectedPowerShellRestoreCwdCommand("'C:\\Users\\alice\\client''s app'")
+      expectedPowerShellRestoreCwdCommand("'C:\\userhome\\alice\\client''s app'")
     )
   })
 
   it('embeds short PowerShell startup commands after the OSC 133 bootstrap', () => {
     const result = resolveWindowsShellLaunchArgs(
       'powershell.exe',
-      'C:\\Users\\alice',
-      'C:\\Users\\alice',
+      'C:\\userhome\\alice',
+      'C:\\userhome\\alice',
       undefined,
       "& 'codex' '--no-alt-screen'"
     )
@@ -172,7 +176,7 @@ describe('resolveWindowsShellLaunchArgs', () => {
 
     const command = decodePowerShellCommand(result)
     expect(command).toContain('function Global:prompt')
-    expect(command).toContain(expectedPowerShellRestoreCwdCommand("'C:\\Users\\alice'"))
+    expect(command).toContain(expectedPowerShellRestoreCwdCommand("'C:\\userhome\\alice'"))
     expect(command.trimEnd().endsWith("& 'codex' '--no-alt-screen'")).toBe(true)
   })
 
@@ -181,8 +185,8 @@ describe('resolveWindowsShellLaunchArgs', () => {
       '& "C:\\Program Files\\Orca CLI\\orca.exe" "--label" "quoted value"; $env:ORCA_VALUE = "nested"'
     const result = resolveWindowsShellLaunchArgs(
       'powershell.exe',
-      'C:\\Users\\alice',
-      'C:\\Users\\alice',
+      'C:\\userhome\\alice',
+      'C:\\userhome\\alice',
       undefined,
       startupCommand
     )
@@ -196,8 +200,8 @@ describe('resolveWindowsShellLaunchArgs', () => {
   it('keeps large PowerShell startup commands on stdin delivery', () => {
     const result = resolveWindowsShellLaunchArgs(
       'powershell.exe',
-      'C:\\Users\\alice',
-      'C:\\Users\\alice',
+      'C:\\userhome\\alice',
+      'C:\\userhome\\alice',
       undefined,
       `orca ${'x'.repeat(7000)}`
     )
@@ -205,12 +209,12 @@ describe('resolveWindowsShellLaunchArgs', () => {
     expect(result.startupCommandDeliveredInShellArgs).toBeUndefined()
     expect(result.shellArgs).toEqual(['-NoLogo', '-NoExit', '-EncodedCommand', expect.any(String)])
     expect(decodePowerShellCommand(result)).toContain(
-      expectedPowerShellRestoreCwdCommand("'C:\\Users\\alice'")
+      expectedPowerShellRestoreCwdCommand("'C:\\userhome\\alice'")
     )
   })
 
   it('handles pwsh.exe (PowerShell Core) the same as Windows PowerShell', () => {
-    const result = resolveWindowsShellLaunchArgs('pwsh.exe', 'C:\\', 'C:\\Users\\alice')
+    const result = resolveWindowsShellLaunchArgs('pwsh.exe', 'C:\\', 'C:\\userhome\\alice')
     expect(result.shellArgs).toEqual(['-NoLogo', '-NoExit', '-EncodedCommand', expect.any(String)])
     expect(decodePowerShellCommand(result)).toContain(expectedPowerShellRestoreCwdCommand("'C:\\'"))
   })
@@ -218,8 +222,8 @@ describe('resolveWindowsShellLaunchArgs', () => {
   it('starts Git Bash as an interactive login shell with UTF-8 console setup', () => {
     const result = resolveWindowsShellLaunchArgs(
       'C:\\Program Files\\Git\\bin\\bash.exe',
-      'C:\\Users\\alice\\code',
-      'C:\\Users\\alice'
+      'C:\\userhome\\alice\\code',
+      'C:\\userhome\\alice'
     )
 
     // Why: Git Bash inherits the ConPTY OEM code page (CP437), so a byte-writing
@@ -236,46 +240,46 @@ describe('resolveWindowsShellLaunchArgs', () => {
     // Must stay fail-open: `;` (not `&&`) so a missing chcp.com can't abort the
     // exec and kill the terminal on startup.
     expect(bashCommand).not.toContain('&&')
-    expect(result.effectiveCwd).toBe('C:\\Users\\alice\\code')
-    expect(result.validationCwd).toBe('C:\\Users\\alice\\code')
+    expect(result.effectiveCwd).toBe('C:\\userhome\\alice\\code')
+    expect(result.validationCwd).toBe('C:\\userhome\\alice\\code')
   })
 
   it('does not apply Git Bash launch args to unrelated bash.exe paths', () => {
     const result = resolveWindowsShellLaunchArgs(
       'C:\\msys64\\usr\\bin\\bash.exe',
-      'C:\\Users\\alice\\code',
-      'C:\\Users\\alice'
+      'C:\\userhome\\alice\\code',
+      'C:\\userhome\\alice'
     )
 
     expect(result.shellArgs).toEqual([])
-    expect(result.effectiveCwd).toBe('C:\\Users\\alice\\code')
-    expect(result.validationCwd).toBe('C:\\Users\\alice\\code')
+    expect(result.effectiveCwd).toBe('C:\\userhome\\alice\\code')
+    expect(result.validationCwd).toBe('C:\\userhome\\alice\\code')
   })
 
   it('translates Windows cwd to /mnt/<drive>/... for wsl.exe', () => {
     const result = resolveWindowsShellLaunchArgs(
       'wsl.exe',
-      'C:\\Users\\alice\\code',
-      'C:\\Users\\alice',
+      'C:\\userhome\\alice\\code',
+      'C:\\userhome\\alice',
       undefined,
       'codex'
     )
-    expect(result.shellArgs).toEqual(expectedWslArgs('/mnt/c/Users/alice/code'))
+    expect(result.shellArgs).toEqual(expectedWslArgs('/mnt/c/userhome/alice/code'))
     expect(result.startupCommandDeliveredInShellArgs).toBeUndefined()
     // Why: WSL cannot cd into a Windows path, so node-pty must start from the
     // user's Windows home and we inject the Linux cd into the shellArgs above.
-    expect(result.effectiveCwd).toBe('C:\\Users\\alice')
-    expect(result.validationCwd).toBe('C:\\Users\\alice\\code')
+    expect(result.effectiveCwd).toBe('C:\\userhome\\alice')
+    expect(result.validationCwd).toBe('C:\\userhome\\alice\\code')
   })
 
   it('materializes shell-ready wrappers before building WSL shell args', () => {
     const result = resolveWindowsShellLaunchArgs(
       'wsl.exe',
-      'C:\\Users\\alice\\code',
-      'C:\\Users\\alice'
+      'C:\\userhome\\alice\\code',
+      'C:\\userhome\\alice'
     )
 
-    expect(result.shellArgs).toEqual(expectedWslArgs('/mnt/c/Users/alice/code'))
+    expect(result.shellArgs).toEqual(expectedWslArgs('/mnt/c/userhome/alice/code'))
     expect(existsSync(join(userDataPath, 'shell-ready', 'bash', 'rcfile'))).toBe(true)
     expect(existsSync(join(userDataPath, 'shell-ready', 'zsh', '.zshenv'))).toBe(true)
 
@@ -292,32 +296,32 @@ describe('resolveWindowsShellLaunchArgs', () => {
   it('translates MSYS drive cwd to /mnt/<drive>/... for wsl.exe', () => {
     const result = resolveWindowsShellLaunchArgs(
       'wsl.exe',
-      '/c/Users/alice/project',
-      'C:\\Users\\alice',
+      '/c/userhome/alice/project',
+      'C:\\userhome\\alice',
       undefined,
       'codex'
     )
 
-    expect(result.shellArgs).toEqual(expectedWslArgs('/mnt/c/Users/alice/project'))
-    expect(result.effectiveCwd).toBe('C:\\Users\\alice')
-    expect(result.validationCwd).toBe('C:\\Users\\alice\\project')
+    expect(result.shellArgs).toEqual(expectedWslArgs('/mnt/c/userhome/alice/project'))
+    expect(result.effectiveCwd).toBe('C:\\userhome\\alice')
+    expect(result.validationCwd).toBe('C:\\userhome\\alice\\project')
   })
 
   it('does not treat MSYS drive cwd as a WSL POSIX cwd', () => {
     const result = resolveWindowsShellLaunchArgs(
       'wsl.exe',
-      '/c/Users/alice/project',
-      'C:\\Users\\alice',
+      '/c/userhome/alice/project',
+      'C:\\userhome\\alice',
       { distro: 'Ubuntu', treatPosixCwdAsWsl: true }
     )
 
-    expect(result.shellArgs).toEqual(expectedWslArgs('/mnt/c/Users/alice/project', 'Ubuntu'))
-    expect(result.effectiveCwd).toBe('C:\\Users\\alice')
-    expect(result.validationCwd).toBe('C:\\Users\\alice\\project')
+    expect(result.shellArgs).toEqual(expectedWslArgs('/mnt/c/userhome/alice/project', 'Ubuntu'))
+    expect(result.effectiveCwd).toBe('C:\\userhome\\alice')
+    expect(result.validationCwd).toBe('C:\\userhome\\alice\\project')
   })
 
   it('escapes single quotes when translating a WSL cwd', () => {
-    const result = resolveWindowsShellLaunchArgs('wsl.exe', "C:\\weird'path", 'C:\\Users\\alice')
+    const result = resolveWindowsShellLaunchArgs('wsl.exe', "C:\\weird'path", 'C:\\userhome\\alice')
     // The injected sh cmd must not break out of the surrounding single quotes
     // when the path contains a ' character.
     expect(result.shellArgs[3]).toContain("cd '/mnt/c/weird'\\''path'")
@@ -325,7 +329,11 @@ describe('resolveWindowsShellLaunchArgs', () => {
   })
 
   it('falls back to /mnt/c when cwd is not a drive-letter path', () => {
-    const result = resolveWindowsShellLaunchArgs('wsl.exe', '\\\\server\\share', 'C:\\Users\\alice')
+    const result = resolveWindowsShellLaunchArgs(
+      'wsl.exe',
+      '\\\\server\\share',
+      'C:\\userhome\\alice'
+    )
     expect(result.shellArgs[3]).toContain(
       'cd \'/mnt/c\' && export PATH="\\$HOME/.local/bin:\\$PATH"'
     )
@@ -342,10 +350,10 @@ describe('resolveWindowsShellLaunchArgs', () => {
       const result = resolveWindowsShellLaunchArgs(
         'wsl.exe',
         '\\\\wsl.localhost\\Ubuntu\\home\\alice\\repo',
-        'C:\\Users\\alice'
+        'C:\\userhome\\alice'
       )
       expect(result.shellArgs).toEqual(expectedWslArgs('/home/alice/repo', 'Ubuntu'))
-      expect(result.effectiveCwd).toBe('C:\\Users\\alice')
+      expect(result.effectiveCwd).toBe('C:\\userhome\\alice')
       expect(result.validationCwd).toBe('\\\\wsl.localhost\\Ubuntu\\home\\alice\\repo')
     } finally {
       Object.defineProperty(process, 'platform', {
@@ -359,24 +367,24 @@ describe('resolveWindowsShellLaunchArgs', () => {
     const result = resolveWindowsShellLaunchArgs(
       'wsl.exe',
       '/home/alice/repo/subdir',
-      'C:\\Users\\alice',
+      'C:\\userhome\\alice',
       { distro: 'Ubuntu', treatPosixCwdAsWsl: true }
     )
 
     expect(result.shellArgs).toEqual(expectedWslArgs('/home/alice/repo/subdir', 'Ubuntu'))
-    expect(result.effectiveCwd).toBe('C:\\Users\\alice')
+    expect(result.effectiveCwd).toBe('C:\\userhome\\alice')
     expect(result.validationCwd).toBe('\\\\wsl.localhost\\Ubuntu\\home\\alice\\repo\\subdir')
   })
 
   it('falls back to empty args + same cwd for unknown shells', () => {
     const result = resolveWindowsShellLaunchArgs(
       'C:\\tools\\fish.exe',
-      'C:\\Users\\alice',
-      'C:\\Users\\alice'
+      'C:\\userhome\\alice',
+      'C:\\userhome\\alice'
     )
     expect(result.shellArgs).toEqual([])
-    expect(result.effectiveCwd).toBe('C:\\Users\\alice')
-    expect(result.validationCwd).toBe('C:\\Users\\alice')
+    expect(result.effectiveCwd).toBe('C:\\userhome\\alice')
+    expect(result.validationCwd).toBe('C:\\userhome\\alice')
   })
 
   it('is case-insensitive on the shell basename', () => {
@@ -385,7 +393,7 @@ describe('resolveWindowsShellLaunchArgs', () => {
   })
 
   describe('nushell (#8928 §3.3)', () => {
-    const nuPath = 'C:\\Users\\alice\\.cargo\\bin\\nu.exe'
+    const nuPath = 'C:\\userhome\\alice\\.cargo\\bin\\nu.exe'
 
     afterEach(() => {
       __resetNushellCapabilityProbeCache()
@@ -395,8 +403,8 @@ describe('resolveWindowsShellLaunchArgs', () => {
       __seedNushellIntegrationSupport(nuPath, true)
       const result = resolveWindowsShellLaunchArgs(
         nuPath,
-        'C:\\Users\\alice\\repo',
-        'C:\\Users\\alice',
+        'C:\\userhome\\alice\\repo',
+        'C:\\userhome\\alice',
         undefined,
         'claude "-p" "hi"'
       )
@@ -409,13 +417,17 @@ describe('resolveWindowsShellLaunchArgs', () => {
       expect(existsSync(join(userDataPath, 'shell-ready', 'nu', 'integration.nu'))).toBe(true)
       // Startup commands stay on stdin delivery — never embedded in -e (§5).
       expect(result.startupCommandDeliveredInShellArgs).toBeUndefined()
-      expect(result.effectiveCwd).toBe('C:\\Users\\alice\\repo')
-      expect(result.validationCwd).toBe('C:\\Users\\alice\\repo')
+      expect(result.effectiveCwd).toBe('C:\\userhome\\alice\\repo')
+      expect(result.validationCwd).toBe('C:\\userhome\\alice\\repo')
     })
 
     it('spawns plain -l when the integration floor is not met', () => {
       __seedNushellIntegrationSupport(nuPath, false)
-      const result = resolveWindowsShellLaunchArgs(nuPath, 'C:\\Users\\alice', 'C:\\Users\\alice')
+      const result = resolveWindowsShellLaunchArgs(
+        nuPath,
+        'C:\\userhome\\alice',
+        'C:\\userhome\\alice'
+      )
       expect(result.shellArgs).toEqual(['-l'])
       expect(result.startupCommandDeliveredInShellArgs).toBeUndefined()
     })
@@ -423,8 +435,8 @@ describe('resolveWindowsShellLaunchArgs', () => {
     it('spawns plain -l on a cold capability cache (conservative-first)', () => {
       const result = resolveWindowsShellLaunchArgs(
         'C:\\missing\\nu.exe',
-        'C:\\Users\\alice',
-        'C:\\Users\\alice'
+        'C:\\userhome\\alice',
+        'C:\\userhome\\alice'
       )
       expect(result.shellArgs).toEqual(['-l'])
     })
@@ -439,7 +451,7 @@ describe('resolveWindowsShellLaunchArgs', () => {
 // never be re-parsed as an open string.
 describe('issue #7236: PowerShell setup-runner command delivery', () => {
   // git rev-parse hands back a forward-slash Windows-absolute path for the runner.
-  const runnerPath = 'C:/Users/alice/repo/.git/orca/setup-runner.cmd'
+  const runnerPath = 'C:/userhome/alice/repo/.git/orca/setup-runner.cmd'
 
   it('wraps the setup runner in balanced double quotes', () => {
     const { command } = resolveSetupRunnerCommand(runnerPath, 'windows')
@@ -451,8 +463,8 @@ describe('issue #7236: PowerShell setup-runner command delivery', () => {
     const { command } = resolveSetupRunnerCommand(runnerPath, 'windows')
     const result = resolveWindowsShellLaunchArgs(
       'powershell.exe',
-      'C:\\Users\\alice\\repo',
-      'C:\\Users\\alice',
+      'C:\\userhome\\alice\\repo',
+      'C:\\userhome\\alice',
       undefined,
       command
     )

@@ -32,7 +32,7 @@ mod tests {
     #[test]
     fn builds_a_stable_id_for_the_same_agent_event_metadata() {
         let args = BuildAgentNotificationIdArgs {
-            worktree_id: Some("repo::/Users/me/orca/workspaces/feature"),
+            worktree_id: Some("repo::/userhome/me/orca/workspaces/feature"),
             pane_key: Some("tab-1:11111111-1111-4111-8111-111111111111"),
             state_started_at: Some(1_780_000_000_123.0),
         };
@@ -42,7 +42,7 @@ mod tests {
     #[test]
     fn changes_when_the_agent_state_start_time_changes() {
         let base = BuildAgentNotificationIdArgs {
-            worktree_id: Some("repo::/Users/me/orca/workspaces/feature"),
+            worktree_id: Some("repo::/userhome/me/orca/workspaces/feature"),
             pane_key: Some("tab-1:11111111-1111-4111-8111-111111111111"),
             state_started_at: None,
         };
@@ -63,7 +63,7 @@ mod tests {
         );
         assert_eq!(
             build_agent_notification_id(&BuildAgentNotificationIdArgs {
-                worktree_id: Some("repo::/Users/me/orca/workspaces/feature"),
+                worktree_id: Some("repo::/userhome/me/orca/workspaces/feature"),
                 state_started_at: Some(1_780_000_000_123.0),
                 ..Default::default()
             }),
@@ -71,7 +71,7 @@ mod tests {
         );
         assert_eq!(
             build_agent_notification_id(&BuildAgentNotificationIdArgs {
-                worktree_id: Some("repo::/Users/me/orca/workspaces/feature"),
+                worktree_id: Some("repo::/userhome/me/orca/workspaces/feature"),
                 pane_key: Some("tab-1:11111111-1111-4111-8111-111111111111"),
                 ..Default::default()
             }),

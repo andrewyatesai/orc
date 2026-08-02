@@ -6,7 +6,7 @@ describe('getFloatingWorkspaceDirectoryInputValue', () => {
     expect(
       getFloatingWorkspaceDirectoryInputValue({
         configuredFloatingWorkspacePath: '~',
-        resolvedFloatingWorkspacePath: '/Users/example'
+        resolvedFloatingWorkspacePath: '/userhome/example'
       })
     ).toBe('~')
   })
@@ -15,7 +15,7 @@ describe('getFloatingWorkspaceDirectoryInputValue', () => {
     expect(
       getFloatingWorkspaceDirectoryInputValue({
         configuredFloatingWorkspacePath: '',
-        resolvedFloatingWorkspacePath: '/Users/example'
+        resolvedFloatingWorkspacePath: '/userhome/example'
       })
     ).toBe('~')
   })
@@ -23,9 +23,9 @@ describe('getFloatingWorkspaceDirectoryInputValue', () => {
   it('shows the main-resolved trusted custom directory', () => {
     expect(
       getFloatingWorkspaceDirectoryInputValue({
-        configuredFloatingWorkspacePath: '/Users/example/notes',
-        resolvedFloatingWorkspacePath: '/Users/example/notes'
+        configuredFloatingWorkspacePath: '/userhome/example/notes',
+        resolvedFloatingWorkspacePath: '/userhome/example/notes'
       })
-    ).toBe('/Users/example/notes')
+    ).toBe('/userhome/example/notes')
   })
 })

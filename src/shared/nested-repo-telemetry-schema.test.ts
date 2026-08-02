@@ -67,7 +67,7 @@ describe('nested repo import telemetry schemas', () => {
         found_count_bucket: '1',
         truncated: false,
         timed_out: false,
-        selected_path: '/Users/alice/work/platform'
+        selected_path: '/userhome/alice/work/platform'
       }).success
     ).toBe(false)
 
@@ -104,7 +104,7 @@ describe('nested repo import telemetry schemas', () => {
         failed_count: 1,
         failed_count_bucket: '1',
         all_selected: true,
-        error_message: 'failed at /Users/alice/work/platform'
+        error_message: 'failed at /userhome/alice/work/platform'
       }).success
     ).toBe(false)
   })

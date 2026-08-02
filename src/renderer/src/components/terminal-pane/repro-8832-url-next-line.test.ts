@@ -137,7 +137,7 @@ describe('#8832 hard-wrapped path candidates glue next-line text into URLs', () 
 
   it.each([
     ['Chinese label', '说明: 中文路径/文件.ts'],
-    ['Windows path', 'C:\\Users\\demo\\project\\README.md'],
+    ['Windows path', 'C:\\userhome\\demo\\project\\README.md'],
     ['POSIX path', '/usr/local/bin/orca'],
     ['relative path', './src/main/index.ts'],
     ['UNC-ish path', '\\\\server\\share\\file.txt']
@@ -184,7 +184,7 @@ describe('#8832 hard-wrapped path candidates glue next-line text into URLs', () 
   })
 
   it('does not treat file:// as an HTTP link (file routing stays separate)', () => {
-    const row0 = 'open file:///Users/demo/project/README.md'
+    const row0 = 'open file:///userhome/demo/project/README.md'
     const buffer = twoRowBuffer(row0, 'next: line', { cols: 100 })
     const { opened, url } = openUrlAt(buffer, row0.indexOf('file://') + 4, 1)
 
@@ -193,7 +193,7 @@ describe('#8832 hard-wrapped path candidates glue next-line text into URLs', () 
   })
 
   it('opens only the HTTP URL when a Windows path shares the same row', () => {
-    const row0 = 'https://example.com/a C:\\Users\\demo\\file.txt'
+    const row0 = 'https://example.com/a C:\\userhome\\demo\\file.txt'
     const buffer = twoRowBuffer(row0, 'Description: more', { cols: 100 })
     const { opened, url } = openUrlAt(buffer, 8, 1)
 

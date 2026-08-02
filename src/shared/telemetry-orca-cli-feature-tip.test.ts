@@ -29,7 +29,7 @@ describe('orca cli feature tip schemas', () => {
       eventSchemas.orca_cli_feature_tip_setup_result.safeParse({
         source: 'app_open',
         result: 'installed',
-        command_path: '/Users/alice/bin/orca'
+        command_path: '/userhome/alice/bin/orca'
       }).success
     ).toBe(false)
     expect(

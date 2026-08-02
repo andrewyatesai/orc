@@ -1,7 +1,7 @@
 # orca-flow-control — ay proof certificate (P3 stage 3)
 
 Machine-checked safety certificates for the two flow-control decision cores in
-this crate, discharged by [`ay`](../../../../../..) (SAT/SMT/CHC solver) on
+this crate, discharged by [`ay`](https://github.com/alabsystems/ay) (SAT/SMT/CHC solver) on
 hand-encoded SMT-LIB2. This is the "machine-checked safety certificates on the
 emitted code" half of the moonshot **E1** claim; the differential parity corpora
 ([`../../parity-corpus.txt`](../../parity-corpus.txt) and

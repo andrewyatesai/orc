@@ -70,19 +70,12 @@ export function createAtermWorkerPrewarm(deps: AtermWorkerPrewarmDeps): AtermWor
     }
     warmStarted = true
     markAtermWarmPhase('warm-start')
-    // Why two lanes, not a chain: acquire() only needs the FONT bytes
-    // (loadSharedWorkerFonts -> loadAtermFontBytes, its own cached fetch), never
-    // the compiled main-thread module. Chaining parked the worker spawn + font
-    // handoff behind the whole CPU compile; the old comment admitted the chain
-    // existed so each half got its own milestone, which is not a reason.
-    // loadEngineAssets still RUNS (it registers the main-thread CPU glue every
-    // keystroke needs) — it is simply no longer a barrier.
-    void deps
-      .loadEngineAssets()
-      .then(() => markAtermWarmPhase('wasm-ready'))
-      .catch(() => undefined)
     deps
-      .acquire()
+      .loadEngineAssets()
+      .then(() => {
+        markAtermWarmPhase('wasm-ready')
+        return deps.acquire()
+      })
       .then((pane) => {
         // Stamped before the race check: the worker IS warm either way, and the
         // real-pane branch below is exactly the case worth timing.

@@ -18,10 +18,10 @@ function session(overrides: Partial<AiVaultSession> = {}): AiVaultSession {
     agent: 'claude',
     sessionId: 'session-1',
     title: 'Implement vault filters',
-    cwd: '/Users/ada/repo/app',
+    cwd: '/userhome/ada/repo/app',
     branch: 'feature/vault',
     model: 'claude-sonnet-4-5',
-    filePath: '/Users/ada/.claude/projects/session-1.jsonl',
+    filePath: '/userhome/ada/.claude/projects/session-1.jsonl',
     codexHome: null,
     createdAt: '2026-06-28T23:00:00.000Z',
     updatedAt: '2026-06-28T23:55:00.000Z',
@@ -42,7 +42,7 @@ function session(overrides: Partial<AiVaultSession> = {}): AiVaultSession {
 
 describe('buildMobileAgentHistoryCard', () => {
   it('maps the card view-model with time-ago, label, and last message', () => {
-    const card = buildMobileAgentHistoryCard(session(), '/Users/ada/repo/app', NOW)
+    const card = buildMobileAgentHistoryCard(session(), '/userhome/ada/repo/app', NOW)
     expect(card.agentLabel).toBe('Claude')
     expect(card.timeAgo).toBe('5m')
     expect(card.lastMessage).toBe('done — tabs added')
@@ -51,7 +51,7 @@ describe('buildMobileAgentHistoryCard', () => {
   })
 
   it('omits the current-worktree badge when cwd is outside the active worktree', () => {
-    const card = buildMobileAgentHistoryCard(session(), '/Users/ada/other', NOW)
+    const card = buildMobileAgentHistoryCard(session(), '/userhome/ada/other', NOW)
     expect(card.isCurrentWorktree).toBe(false)
   })
 
@@ -81,13 +81,13 @@ describe('buildMobileAgentHistoryResumeActionState', () => {
 describe('isSessionInActiveWorktree', () => {
   it('matches a nested cwd inside the worktree path', () => {
     expect(
-      isSessionInActiveWorktree({ cwd: '/Users/ada/repo/app/src' }, '/Users/ada/repo/app')
+      isSessionInActiveWorktree({ cwd: '/userhome/ada/repo/app/src' }, '/userhome/ada/repo/app')
     ).toBe(true)
   })
 
   it('is false without a cwd or active path', () => {
-    expect(isSessionInActiveWorktree({ cwd: null }, '/Users/ada/repo/app')).toBe(false)
-    expect(isSessionInActiveWorktree({ cwd: '/Users/ada/repo/app' }, null)).toBe(false)
+    expect(isSessionInActiveWorktree({ cwd: null }, '/userhome/ada/repo/app')).toBe(false)
+    expect(isSessionInActiveWorktree({ cwd: '/userhome/ada/repo/app' }, null)).toBe(false)
   })
 })
 
@@ -104,7 +104,7 @@ describe('buildMobileAgentHistorySections', () => {
         query: '',
         scope: 'all',
         scopeFilterPaths: [],
-        activeWorktreePath: '/Users/ada/repo/app',
+        activeWorktreePath: '/userhome/ada/repo/app',
         now: NOW
       }
     )
@@ -124,14 +124,14 @@ describe('buildMobileAgentHistorySections', () => {
   // path-prefix on the client — otherwise Workspace/Project show the same set as All.
   it('narrows Workspace scope to sessions whose cwd is inside the active worktree path', () => {
     const sessions = [
-      session({ id: 'claude:in', cwd: '/Users/ada/repo/app/src' }),
-      session({ id: 'claude:out', cwd: '/Users/ada/other-repo' })
+      session({ id: 'claude:in', cwd: '/userhome/ada/repo/app/src' }),
+      session({ id: 'claude:out', cwd: '/userhome/ada/other-repo' })
     ]
     const sections = buildMobileAgentHistorySections(sessions, {
       query: '',
       scope: 'workspace',
-      scopeFilterPaths: ['/Users/ada/repo/app'],
-      activeWorktreePath: '/Users/ada/repo/app',
+      scopeFilterPaths: ['/userhome/ada/repo/app'],
+      activeWorktreePath: '/userhome/ada/repo/app',
       now: NOW
     })
     expect(sections.flatMap((s) => s.data).map((card) => card.id)).toEqual(['claude:in'])
@@ -139,15 +139,15 @@ describe('buildMobileAgentHistorySections', () => {
 
   it('narrows Project scope to the active worktree plus same-repo sibling paths', () => {
     const sessions = [
-      session({ id: 'claude:active', cwd: '/Users/ada/repo/app' }),
-      session({ id: 'claude:sibling', cwd: '/Users/ada/repo/app-feature/lib' }),
-      session({ id: 'claude:foreign', cwd: '/Users/ada/unrelated' })
+      session({ id: 'claude:active', cwd: '/userhome/ada/repo/app' }),
+      session({ id: 'claude:sibling', cwd: '/userhome/ada/repo/app-feature/lib' }),
+      session({ id: 'claude:foreign', cwd: '/userhome/ada/unrelated' })
     ]
     const sections = buildMobileAgentHistorySections(sessions, {
       query: '',
       scope: 'project',
-      scopeFilterPaths: ['/Users/ada/repo/app', '/Users/ada/repo/app-feature'],
-      activeWorktreePath: '/Users/ada/repo/app',
+      scopeFilterPaths: ['/userhome/ada/repo/app', '/userhome/ada/repo/app-feature'],
+      activeWorktreePath: '/userhome/ada/repo/app',
       now: NOW
     })
     expect(
@@ -162,8 +162,8 @@ describe('buildMobileAgentHistorySections', () => {
   // the builder must fall back to unnarrowed rather than filter to an empty list.
   it('falls back to unnarrowed when a scoped tab has no scopeFilterPaths yet', () => {
     const sessions = [
-      session({ id: 'claude:a', cwd: '/Users/ada/repo/app' }),
-      session({ id: 'claude:b', cwd: '/Users/ada/elsewhere' })
+      session({ id: 'claude:a', cwd: '/userhome/ada/repo/app' }),
+      session({ id: 'claude:b', cwd: '/userhome/ada/elsewhere' })
     ]
     const sections = buildMobileAgentHistorySections(sessions, {
       query: '',
@@ -182,14 +182,14 @@ describe('buildMobileAgentHistorySections', () => {
 
   it('shows all sessions under All scope regardless of path', () => {
     const sessions = [
-      session({ id: 'claude:a', cwd: '/Users/ada/repo/app' }),
-      session({ id: 'claude:b', cwd: '/Users/ada/elsewhere' })
+      session({ id: 'claude:a', cwd: '/userhome/ada/repo/app' }),
+      session({ id: 'claude:b', cwd: '/userhome/ada/elsewhere' })
     ]
     const sections = buildMobileAgentHistorySections(sessions, {
       query: '',
       scope: 'all',
       scopeFilterPaths: [],
-      activeWorktreePath: '/Users/ada/repo/app',
+      activeWorktreePath: '/userhome/ada/repo/app',
       now: NOW
     })
     expect(

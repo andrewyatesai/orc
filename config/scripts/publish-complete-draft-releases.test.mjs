@@ -118,9 +118,9 @@ describe('isReleaseCutDraft', () => {
     ).toBe(true)
     expect(
       resolveReleaseDraftAuthors({
-        ORCA_RELEASE_DRAFT_AUTHORS: 'release-service, andrewyatesai'
+        ORCA_RELEASE_DRAFT_AUTHORS: 'release-service, release-owner'
       })
-    ).toEqual(['release-service', 'andrewyatesai'])
+    ).toEqual(['release-service', 'release-owner'])
   })
 })
 

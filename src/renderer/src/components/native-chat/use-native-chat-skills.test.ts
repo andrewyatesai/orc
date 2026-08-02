@@ -13,9 +13,9 @@ function skill(overrides: Partial<DiscoveredSkill>): DiscoveredSkill {
     providers: ['agent-skills'],
     sourceKind: 'home',
     sourceLabel: 'Agent skills home',
-    rootPath: '/Users/test/.agents/skills',
-    directoryPath: '/Users/test/.agents/skills/agent-browser',
-    skillFilePath: '/Users/test/.agents/skills/agent-browser/SKILL.md',
+    rootPath: '/userhome/test/.agents/skills',
+    directoryPath: '/userhome/test/.agents/skills/agent-browser',
+    skillFilePath: '/userhome/test/.agents/skills/agent-browser/SKILL.md',
     installed: true,
     fileCount: 1,
     updatedAt: null,
@@ -23,7 +23,7 @@ function skill(overrides: Partial<DiscoveredSkill>): DiscoveredSkill {
   }
 }
 
-function discovery(owner: string | null, rootPath = '/Users/test/.agents/skills') {
+function discovery(owner: string | null, rootPath = '/userhome/test/.agents/skills') {
   return {
     sources: [
       {
@@ -74,7 +74,7 @@ describe('isNativeChatSkillForAgent', () => {
         {
           id: 'codex-home',
           label: 'Codex home',
-          path: '/Users/test/.codex/skills',
+          path: '/userhome/test/.codex/skills',
           sourceKind: 'home' as const,
           providers: ['codex' as const],
           owner: 'codex',
@@ -83,7 +83,7 @@ describe('isNativeChatSkillForAgent', () => {
         {
           id: 'shared-home',
           label: 'Agent skills home',
-          path: '/Users/test/.agents/skills',
+          path: '/userhome/test/.agents/skills',
           sourceKind: 'home' as const,
           providers: ['agent-skills' as const],
           owner: null,
@@ -94,14 +94,14 @@ describe('isNativeChatSkillForAgent', () => {
     // A symlinked skill deduped under the Codex root but also reachable
     // through the shared root stays visible to every agent.
     const merged = skill({
-      rootPath: '/Users/test/.codex/skills',
-      rootPaths: ['/Users/test/.codex/skills', '/Users/test/.agents/skills']
+      rootPath: '/userhome/test/.codex/skills',
+      rootPaths: ['/userhome/test/.codex/skills', '/userhome/test/.agents/skills']
     })
     expect(isNativeChatSkillForAgent('claude', merged, result)).toBe(true)
     expect(isNativeChatSkillForAgent('codex', merged, result)).toBe(true)
     const codexOnly = skill({
-      rootPath: '/Users/test/.codex/skills',
-      rootPaths: ['/Users/test/.codex/skills']
+      rootPath: '/userhome/test/.codex/skills',
+      rootPaths: ['/userhome/test/.codex/skills']
     })
     expect(isNativeChatSkillForAgent('claude', codexOnly, result)).toBe(false)
   })

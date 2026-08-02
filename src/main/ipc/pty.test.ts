@@ -281,14 +281,14 @@ const RESOLVED_PWSH7 = 'C:\\Program Files\\PowerShell\\7\\pwsh.exe'
 // Why: default spawn cwd in the Windows UTF-8 suite is USERPROFILE; derive shell
 // args from the production resolver so expectations stay in lockstep when the
 // PowerShell bootstrap grows (e.g. cwd restore after profiles load).
-const DEFAULT_WINDOWS_PTY_CWD = 'C:\\Users\\test'
+const DEFAULT_WINDOWS_PTY_CWD = 'C:\\userhome\\test'
 function powerShellOsc133ArgsForCwd(cwd: string = DEFAULT_WINDOWS_PTY_CWD): string[] {
   return resolveWindowsShellLaunchArgs(RESOLVED_WINDOWS_POWERSHELL, cwd, cwd).shellArgs
 }
 const POWERSHELL_OSC133_ARGS = powerShellOsc133ArgsForCwd()
 const TEST_CODEX_HOME =
   process.platform === 'win32'
-    ? 'C:\\Users\\test\\AppData\\Roaming\\orca\\codex-runtime-home\\home'
+    ? 'C:\\userhome\\test\\AppData\\Roaming\\orca\\codex-runtime-home\\home'
     : '/tmp/orca-codex-home'
 
 function makeDisposable() {
@@ -1839,7 +1839,7 @@ describe('registerPtyHandlers', () => {
 
     it('overrides an unmarked custom home when the resumed session originated in real home', async () => {
       const selectedHome = vi.fn(() => '/managed/current/home')
-      const systemHome = '/Users/example/.codex'
+      const systemHome = '/userhome/example/.codex'
       registerPtyHandlers(
         mainWindow as never,
         undefined,
@@ -1865,7 +1865,7 @@ describe('registerPtyHandlers', () => {
         resumeProviderSession: {
           key: 'session_id',
           id: 'session-a',
-          transcriptPath: '/Users/example/.codex/sessions/2026/07/20/rollout-a.jsonl'
+          transcriptPath: '/userhome/example/.codex/sessions/2026/07/20/rollout-a.jsonl'
         }
       })
 
@@ -2043,7 +2043,7 @@ describe('registerPtyHandlers', () => {
         registerWithTrustedHomes([OTHER_HOME], OTHER_HOME)
 
         const spawned = await spawnCodexResume(
-          '/Users/example/.claude/projects/repo/019f81b9.jsonl'
+          '/userhome/example/.claude/projects/repo/019f81b9.jsonl'
         )
 
         expect(spawned.agentResumeUnavailable).toBeUndefined()
@@ -2121,9 +2121,12 @@ describe('registerPtyHandlers', () => {
           try {
             registerWithTrustedHomes([OTHER_HOME], OTHER_HOME)
             const command = `cd '/tmp/${RESUME_SESSION_ID}' && codex 'resume' '${RESUME_SESSION_ID}'`
-            const spawned = await spawnCodexResume('/Users/example/.claude/projects/repo/x.jsonl', {
-              command
-            })
+            const spawned = await spawnCodexResume(
+              '/userhome/example/.claude/projects/repo/x.jsonl',
+              {
+                command
+              }
+            )
 
             await Promise.resolve()
             vi.runAllTimers()
@@ -3088,7 +3091,7 @@ describe('registerPtyHandlers', () => {
       it('overrides an unmarked custom home for an authoritative daemon resume', async () => {
         const daemonSpawn = setupDaemonAdapter()
         const selectedHome = vi.fn(() => '/managed/current/home')
-        const systemHome = '/Users/example/.codex'
+        const systemHome = '/userhome/example/.codex'
         handlers.clear()
         registerPtyHandlers(
           mainWindow as never,
@@ -3151,7 +3154,7 @@ describe('registerPtyHandlers', () => {
           onPtyExit: vi.fn(),
           onPtyData: vi.fn()
         }
-        const systemHome = '/Users/example/.codex'
+        const systemHome = '/userhome/example/.codex'
         handlers.clear()
         registerPtyHandlers(
           mainWindow as never,
@@ -3233,11 +3236,12 @@ describe('registerPtyHandlers', () => {
         try {
           const spawnOptions = await daemonSpawnAndGetOptions(
             {},
-            () => 'C:\\Users\\test\\AppData\\Roaming\\Orca\\codex-runtime-home\\home',
+            () => 'C:\\userhome\\test\\AppData\\Roaming\\Orca\\codex-runtime-home\\home',
             undefined,
             {
-              CODEX_HOME: 'C:\\Users\\test\\AppData\\Roaming\\Orca\\codex-runtime-home\\home',
-              ORCA_CODEX_HOME: 'C:\\Users\\test\\AppData\\Roaming\\Orca\\codex-runtime-home\\home'
+              CODEX_HOME: 'C:\\userhome\\test\\AppData\\Roaming\\Orca\\codex-runtime-home\\home',
+              ORCA_CODEX_HOME:
+                'C:\\userhome\\test\\AppData\\Roaming\\Orca\\codex-runtime-home\\home'
             },
             {
               cwd: '\\\\wsl.localhost\\Ubuntu\\home\\test\\repo',
@@ -3267,11 +3271,12 @@ describe('registerPtyHandlers', () => {
         try {
           const spawnOptions = await daemonSpawnAndGetOptions(
             {},
-            () => 'C:\\Users\\test\\AppData\\Roaming\\Orca\\codex-runtime-home\\home',
+            () => 'C:\\userhome\\test\\AppData\\Roaming\\Orca\\codex-runtime-home\\home',
             undefined,
             {
-              CODEX_HOME: 'C:\\Users\\test\\.codex',
-              ORCA_CODEX_HOME: 'C:\\Users\\test\\AppData\\Roaming\\Orca\\codex-runtime-home\\home'
+              CODEX_HOME: 'C:\\userhome\\test\\.codex',
+              ORCA_CODEX_HOME:
+                'C:\\userhome\\test\\AppData\\Roaming\\Orca\\codex-runtime-home\\home'
             },
             { shellOverride: 'wsl.exe' }
           )
@@ -8963,7 +8968,7 @@ describe('registerPtyHandlers', () => {
         configurable: true,
         value: 'win32'
       })
-      process.env.USERPROFILE = 'C:\\Users\\test'
+      process.env.USERPROFILE = 'C:\\userhome\\test'
       // Why: the spawn path resolves a bare PowerShell name to an absolute exe (PR #6537 / issue #5161); pin the probed install roots for deterministic resolution across host OS.
       for (const key of ['SystemRoot', 'ProgramW6432', 'ProgramFiles', 'ProgramFiles(x86)']) {
         savedWindowsResolutionEnv[key] = process.env[key]
@@ -9155,7 +9160,7 @@ describe('registerPtyHandlers', () => {
       await handlers.get('pty:spawn')!(null, {
         cols: 80,
         rows: 24,
-        cwd: 'C:\\Users\\test\\repo',
+        cwd: 'C:\\userhome\\test\\repo',
         projectRuntime: {
           status: 'resolved',
           runtime: {
@@ -9329,7 +9334,7 @@ describe('registerPtyHandlers', () => {
       registerPtyHandlers(
         mainWindow as never,
         undefined,
-        () => 'C:\\Users\\test\\AppData\\Roaming\\Orca\\codex-runtime-home\\home',
+        () => 'C:\\userhome\\test\\AppData\\Roaming\\Orca\\codex-runtime-home\\home',
         () =>
           ({
             terminalWindowsShell: 'wsl.exe',
@@ -9351,7 +9356,7 @@ describe('registerPtyHandlers', () => {
       registerPtyHandlers(
         mainWindow as never,
         undefined,
-        () => 'C:\\Users\\test\\AppData\\Roaming\\Orca\\codex-runtime-home\\home',
+        () => 'C:\\userhome\\test\\AppData\\Roaming\\Orca\\codex-runtime-home\\home',
         () =>
           ({
             terminalWindowsShell: 'powershell.exe',
@@ -9468,7 +9473,7 @@ describe('registerPtyHandlers', () => {
   it('falls back to the worktree root when a saved local cwd no longer exists', async () => {
     registerPtyHandlers(mainWindow as never)
     // Why: issue #7239 reproduced in a Japanese-named worktree; the fallback must return the selected worktree path verbatim.
-    const worktreePath = '/Users/motoki/orca/workspaces/nakamuramotoki/Fableと議論'
+    const worktreePath = '/userhome/motoki/orca/workspaces/nakamuramotoki/Fableと議論'
     const missingCwd = `${worktreePath}/deleted-folder`
     statSyncMock.mockImplementation((target: string) => {
       if (target === missingCwd) {
@@ -9562,7 +9567,7 @@ describe('registerPtyHandlers', () => {
       configurable: true,
       value: 'win32'
     })
-    process.env.USERPROFILE = 'C:\\Users\\jinwo'
+    process.env.USERPROFILE = 'C:\\userhome\\jinwo'
 
     // Why: the startup-cwd guard normalizes separators, so the provider sees the forward-slash UNC form.
     existsSyncMock.mockImplementation((targetPath: string) => {
@@ -9611,7 +9616,7 @@ describe('registerPtyHandlers', () => {
       value: 'darwin'
     })
     // Why: this test simulates macOS even when Vitest runs on a Windows host.
-    process.env.HOME = '/Users/test'
+    process.env.HOME = '/userhome/test'
     delete process.env.ORCA_ORIG_ZDOTDIR
     process.env.SHELL = '/bin/zsh'
     delete process.env.ZDOTDIR

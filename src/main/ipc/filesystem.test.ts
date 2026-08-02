@@ -2298,7 +2298,7 @@ describe('registerFilesystemHandlers', () => {
 
     registerFilesystemHandlers(store as never, {
       prepareForCodexLaunch: () => {
-        throw new Error('failed to read /Users/alice/.codex/auth.json')
+        throw new Error('failed to read /userhome/alice/.codex/auth.json')
       }
     })
 

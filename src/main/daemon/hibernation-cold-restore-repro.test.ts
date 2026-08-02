@@ -17,7 +17,7 @@ const ALT_SCREEN_ON = '\x1b[?1049h'
 
 describe('agent hibernation cold-restore (alt-screen TUI)', () => {
   let dir: string
-  const sessionId = 'repo-1::/Users/dev/pr-review-6321'
+  const sessionId = 'repo-1::/userhome/dev/pr-review-6321'
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'hibernation-repro-'))

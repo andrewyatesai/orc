@@ -44978,8 +44978,8 @@ static int unixGetLastError(sqlite3_vfs *NotUsed, int NotUsed2, char *NotUsed3){
 ** actual proxy file name is generated from the name and path of the
 ** database file.  For example:
 **
-**       For database path "/Users/me/foo.db"
-**       The lock path will be "<tmpdir>/sqliteplocks/_Users_me_foo.db:auto:")
+**       For database path "/home/me/foo.db"
+**       The lock path will be "<tmpdir>/sqliteplocks/_home_me_foo.db:auto:")
 **
 ** Once a lock proxy is configured for a database connection, it can not
 ** be removed, however it may be switched to a different proxy path via

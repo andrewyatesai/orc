@@ -153,11 +153,11 @@ describe('registerShellHandlers', () => {
   it('picks audio files with a constrained native dialog filter', async () => {
     showOpenDialogMock.mockResolvedValue({
       canceled: false,
-      filePaths: ['/Users/kaylee/Downloads/Note_block_pling.ogg']
+      filePaths: ['/userhome/kaylee/Downloads/Note_block_pling.ogg']
     })
 
     const handler = getHandler('shell:pickAudio')
-    await expect(handler({})).resolves.toBe('/Users/kaylee/Downloads/Note_block_pling.ogg')
+    await expect(handler({})).resolves.toBe('/userhome/kaylee/Downloads/Note_block_pling.ogg')
     expect(showOpenDialogMock).toHaveBeenCalledWith({
       properties: ['openFile'],
       filters: [{ name: 'Audio', extensions: ['ogg', 'mp3', 'wav', 'm4a', 'aac', 'flac'] }]
@@ -177,15 +177,15 @@ describe('registerShellHandlers', () => {
   it('picks an existing directory without enabling native directory creation', async () => {
     showOpenDialogMock.mockResolvedValue({
       canceled: false,
-      filePaths: ['/Users/kaylee/projects']
+      filePaths: ['/userhome/kaylee/projects']
     })
 
     const handler = getHandler('shell:pickDirectory')
-    await expect(handler({}, { defaultPath: '/Users/kaylee' })).resolves.toBe(
-      '/Users/kaylee/projects'
+    await expect(handler({}, { defaultPath: '/userhome/kaylee' })).resolves.toBe(
+      '/userhome/kaylee/projects'
     )
     expect(showOpenDialogMock).toHaveBeenCalledWith({
-      defaultPath: '/Users/kaylee',
+      defaultPath: '/userhome/kaylee',
       properties: ['openDirectory']
     })
   })
@@ -589,7 +589,7 @@ describe('registerShellHandlers', () => {
       )
       resolveCliCommandMock.mockReturnValueOnce('C:\\Tools\\code.cmd')
       const handler = getHandler('shell:openInExternalEditor')
-      const remotePath = 'C:\\Users\\Ada Lovelace\\project'
+      const remotePath = 'C:\\userhome\\Ada Lovelace\\project'
 
       await expect(
         handler({}, { path: remotePath, command: 'code', connectionId: 'ssh-1' })

@@ -38,7 +38,7 @@ function createProvider(uploadSession: FileUploadSession): IFilesystemProvider {
 
 describe('SSH import remote path safety', () => {
   const connectionId = 'ssh-windows'
-  const destDir = 'C:/Users/me/project/.orca/drops'
+  const destDir = 'C:/userhome/me/project/.orca/drops'
   let provider: IFilesystemProvider
   let uploadSession: FileUploadSession
 

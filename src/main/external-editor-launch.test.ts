@@ -46,7 +46,7 @@ describe('resolveExternalEditorLaunchSpec', () => {
   })
 
   it('treats an existing POSIX executable path with spaces as an executable launcher', () => {
-    const ideaPath = '/Users/me/Library/Application Support/JetBrains/Toolbox/scripts/idea'
+    const ideaPath = '/userhome/me/Library/Application Support/JetBrains/Toolbox/scripts/idea'
     expect(
       resolveExternalEditorLaunchSpec(ideaPath, '/tmp/workspace', {
         platform: 'darwin',
@@ -285,10 +285,10 @@ describe('resolveVsCodeRemoteSshLaunchSpec', () => {
     'C:\\Tools\\code-insiders.bat'
   ])('supports the direct Windows launcher %s', (command) => {
     expect(
-      resolveVsCodeRemoteSshLaunchSpec(command, 'C:\\Users\\Ada Lovelace\\project', 'builder', {
+      resolveVsCodeRemoteSshLaunchSpec(command, 'C:\\userhome\\Ada Lovelace\\project', 'builder', {
         platform: 'win32'
       })?.spawnArgs
-    ).toEqual(['--remote', 'ssh-remote+builder', 'C:\\Users\\Ada Lovelace\\project'])
+    ).toEqual(['--remote', 'ssh-remote+builder', 'C:\\userhome\\Ada Lovelace\\project'])
   })
 
   it('supports an existing direct POSIX launcher path containing spaces', () => {

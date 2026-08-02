@@ -9,8 +9,8 @@ import {
   RESUME_RPC_TIMEOUT_MS
 } from './ai-vault-resume-preparation'
 
-const LEGACY_CODEX_HOME = '/Users/ada/Library/Application Support/orca/codex-runtime-home/home'
-const PER_ACCOUNT_HOME = '/Users/ada/Library/Application Support/orca/codex-accounts/a/home'
+const LEGACY_CODEX_HOME = '/userhome/ada/Library/Application Support/orca/codex-runtime-home/home'
+const PER_ACCOUNT_HOME = '/userhome/ada/Library/Application Support/orca/codex-accounts/a/home'
 
 function legacySession(overrides: Partial<AiVaultSession> = {}): AiVaultSession {
   return {
@@ -19,7 +19,7 @@ function legacySession(overrides: Partial<AiVaultSession> = {}): AiVaultSession 
     agent: 'codex',
     sessionId: 'legacy-1',
     title: 'Resume me',
-    cwd: '/Users/ada/repo',
+    cwd: '/userhome/ada/repo',
     branch: 'main',
     model: null,
     filePath: `${LEGACY_CODEX_HOME}/sessions/2026/07/20/rollout-a.jsonl`,
@@ -70,7 +70,7 @@ describe('prepareMobileAiVaultSessionResume', () => {
       'terminal.send',
       {
         terminal: 'pty-1',
-        text: `cd '/Users/ada/repo' && CODEX_HOME='${LEGACY_CODEX_HOME}' codex '--dangerously-bypass-approvals-and-sandbox' 'resume' 'legacy-1'`,
+        text: `cd '/userhome/ada/repo' && CODEX_HOME='${LEGACY_CODEX_HOME}' codex '--dangerously-bypass-approvals-and-sandbox' 'resume' 'legacy-1'`,
         enter: true
       },
       { timeoutMs: RESUME_RPC_TIMEOUT_MS }
@@ -99,7 +99,7 @@ describe('prepareMobileAiVaultSessionResume', () => {
     )
     expect(prepared).toEqual({ ...legacy, codexHome: null })
     expect(launch.command).toBe(
-      "cd '/Users/ada/repo' && codex '--dangerously-bypass-approvals-and-sandbox' 'resume' 'legacy-1'"
+      "cd '/userhome/ada/repo' && codex '--dangerously-bypass-approvals-and-sandbox' 'resume' 'legacy-1'"
     )
     expect(launch.envToDelete).toEqual(['CODEX_HOME', 'ORCA_CODEX_HOME'])
   })
@@ -121,7 +121,7 @@ describe('prepareMobileAiVaultSessionResume', () => {
 
   it.each([
     { agent: 'claude' as const, codexHome: null },
-    { agent: 'codex' as const, codexHome: '/Users/ada/.config/codex' },
+    { agent: 'codex' as const, codexHome: '/userhome/ada/.config/codex' },
     {
       agent: 'codex' as const,
       codexHome: PER_ACCOUNT_HOME,
@@ -137,7 +137,7 @@ describe('prepareMobileAiVaultSessionResume', () => {
   })
 
   it('repins a per-account session to the home the host substitutes', async () => {
-    const substituteHome = '/Users/ada/Library/Application Support/orca/codex-accounts/b/home'
+    const substituteHome = '/userhome/ada/Library/Application Support/orca/codex-accounts/b/home'
     const current = legacySession({ codexHome: PER_ACCOUNT_HOME })
     const sendRequest = vi.fn().mockResolvedValue({
       ok: true,

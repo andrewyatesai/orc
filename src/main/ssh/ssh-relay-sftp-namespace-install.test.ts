@@ -424,7 +424,7 @@ describe('relay install writes on a split SFTP namespace', () => {
     const conn = makeConnection(capture)
     feed([
       '__ORCA_REMOTE_PLATFORM__ Windows AMD64',
-      'C:\\Users\\u',
+      'C:\\userhome\\u',
       '' // mkdir remoteDir
     ])
     // Fail the install right after the package.json write; the launch path is not what this asserts.
@@ -435,8 +435,8 @@ describe('relay install writes on a split SFTP namespace', () => {
     expect(execCommands().some((command) => MARKER_PATTERN.test(command))).toBe(false)
     expect(capture.realpathCalls).toEqual([])
     expect(capture.writePaths).toEqual([
-      'C:/Users/u/.orca-remote/relay-0.1.0+testhash/.version',
-      'C:/Users/u/.orca-remote/relay-0.1.0+testhash/package.json'
+      'C:/userhome/u/.orca-remote/relay-0.1.0+testhash/.version',
+      'C:/userhome/u/.orca-remote/relay-0.1.0+testhash/package.json'
     ])
   })
 

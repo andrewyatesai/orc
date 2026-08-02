@@ -557,7 +557,7 @@ describe('HistoryReader', () => {
     })
 
     it('returns decoded session ids for encoded on-disk directories', () => {
-      const sessionId = 'repo-1::C:/Users/dev/feature'
+      const sessionId = 'repo-1::C:/userhome/dev/feature'
       writeSessionWithScrollback(dir, sessionId, makeMeta(), 'data')
 
       expect(reader.listRestorable()).toEqual([sessionId])

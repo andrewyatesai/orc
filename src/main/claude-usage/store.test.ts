@@ -180,11 +180,12 @@ describe('ClaudeUsageStore', () => {
   })
 
   it('prices Claude Opus 4.7 with current Anthropic rates', async () => {
+    const opus47 = 'claude-opus-4-7-20260416'
     const store = createStoreWithState({
       dailyAggregates: [
         {
           day: '2026-04-09',
-          model: 'claude-opus-4-7-20260416',
+          model: opus47,
           projectKey: 'worktree:repo-1::/workspace/repo-a',
           projectLabel: 'Repo A',
           repoId: 'repo-1',
@@ -203,12 +204,11 @@ describe('ClaudeUsageStore', () => {
     const breakdown = await store.getBreakdown('orca', '30d', 'model')
 
     expect(summary.estimatedCostUsd).toBeCloseTo(36.75)
-    expect(
-      breakdown.find((row) => row.key === 'claude-opus-4-7-20260416')?.estimatedCostUsd
-    ).toBeCloseTo(36.75)
+    expect(breakdown.find((row) => row.key === opus47)?.estimatedCostUsd).toBeCloseTo(36.75)
   })
 
   it('prices Claude Opus 4.8 with current Anthropic rates', async () => {
+    const opus48Dotted = 'claude-opus-4.8-20260528'
     const store = createStoreWithState({
       dailyAggregates: [
         {
@@ -227,7 +227,7 @@ describe('ClaudeUsageStore', () => {
         },
         {
           day: '2026-04-09',
-          model: 'claude-opus-4.8-20260528',
+          model: opus48Dotted,
           projectKey: 'worktree:repo-1::/workspace/repo-a',
           projectLabel: 'Repo A',
           repoId: 'repo-1',
@@ -249,9 +249,7 @@ describe('ClaudeUsageStore', () => {
     expect(
       breakdown.find((row) => row.key === 'anthropic/claude-opus-4-8-20260528')?.estimatedCostUsd
     ).toBeCloseTo(36.75)
-    expect(
-      breakdown.find((row) => row.key === 'claude-opus-4.8-20260528')?.estimatedCostUsd
-    ).toBeCloseTo(36.75)
+    expect(breakdown.find((row) => row.key === opus48Dotted)?.estimatedCostUsd).toBeCloseTo(36.75)
   })
 
   it('prices Claude 5 family models with current Anthropic rates', async () => {
@@ -342,8 +340,9 @@ describe('ClaudeUsageStore', () => {
   })
 
   it('does not collapse Opus 4.5 or Sonnet 4.5 usage into Claude 5 pricing', async () => {
+    const opus45 = 'claude-opus-4-5-20251101'
     const store = createStoreWithState({
-      dailyAggregates: ['claude-sonnet-4-5-20250929', 'claude-opus-4-5-20251101'].map((model) => ({
+      dailyAggregates: ['claude-sonnet-4-5-20250929', opus45].map((model) => ({
         day: '2026-04-09',
         model,
         projectKey: 'worktree:repo-1::/workspace/repo-a',
@@ -368,9 +367,7 @@ describe('ClaudeUsageStore', () => {
     ).toBeCloseTo(8.07)
     // Why: Opus 4.5 and Opus 5 share rates today, so this pins the rate rather
     // than the routing — it fails only if the two ever diverge.
-    expect(
-      breakdown.find((row) => row.key === 'claude-opus-4-5-20251101')?.estimatedCostUsd
-    ).toBeCloseTo(11.025)
+    expect(breakdown.find((row) => row.key === opus45)?.estimatedCostUsd).toBeCloseTo(11.025)
   })
 
   it('prices unknown newer Opus 4 point releases with current Opus rates', async () => {

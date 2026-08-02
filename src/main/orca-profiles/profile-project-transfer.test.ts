@@ -88,7 +88,7 @@ function makeWorktreeMeta(overrides: Partial<WorktreeMeta> = {}): WorktreeMeta {
 }
 
 function makeState(overrides: Partial<PersistedState> = {}): PersistedState {
-  const defaults = getDefaultPersistedState('/Users/tester')
+  const defaults = getDefaultPersistedState('/userhome/tester')
   return {
     ...defaults,
     ...overrides,
@@ -130,7 +130,7 @@ describe('profile project transfer', () => {
           [sourceWorktreeId]: makeWorktreeMeta({ projectHostSetupId: 'repo-1' })
         },
         workspaceSession: {
-          ...getDefaultPersistedState('/Users/tester').workspaceSession,
+          ...getDefaultPersistedState('/userhome/tester').workspaceSession,
           tabsByWorktree: {
             [sourceWorktreeId]: [
               {
@@ -206,7 +206,7 @@ describe('profile project transfer', () => {
           [sourceWorktreeId]: makeWorktreeMeta({ projectHostSetupId: 'repo-ssh' })
         },
         workspaceSession: {
-          ...getDefaultPersistedState('/Users/tester').workspaceSession,
+          ...getDefaultPersistedState('/userhome/tester').workspaceSession,
           browserTabsByWorktree: {
             [sourceWorktreeId]: [
               {

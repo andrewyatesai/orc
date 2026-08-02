@@ -39,8 +39,8 @@ fn parity_backspace_moves_cursor_back() {
 
 #[test]
 fn parity_osc7_cwd_percent_decoded() {
-    let term = drive("\x1b]7;file:///Users/me/my%20repo\x07");
-    assert_eq!(term.cwd(), Some("/Users/me/my repo"));
+    let term = drive("\x1b]7;file:///userhome/me/my%20repo\x07");
+    assert_eq!(term.cwd(), Some("/userhome/me/my repo"));
 }
 
 #[test]

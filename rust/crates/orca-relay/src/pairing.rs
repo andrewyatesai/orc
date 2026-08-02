@@ -173,7 +173,9 @@ mod tests {
         PairingOffer {
             v: 2,
             endpoint: "ws://192.168.1.10:6768".to_string(),
-            device_token: "abcdef1234567890abcdef1234567890abcdef1234567890".to_string(),
+            // Matches src/shared/pairing.test.ts and the parity vectors; deadbeef so the
+            // base64 pairing codes it appears in do not read as real credentials.
+            device_token: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef".to_string(),
             public_key_b64: "dGVzdC1wdWJsaWMta2V5LWJhc2U2NC1lbmNvZGVk".to_string(),
             scope: None,
         }

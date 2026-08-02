@@ -49,7 +49,7 @@ describe('getConnectionId', () => {
       worktreesByRepo: {}
     })
 
-    expect(getConnectionId('repo-local::/Users/me/repo-feature')).toBeNull()
+    expect(getConnectionId('repo-local::/userhome/me/repo-feature')).toBeNull()
   })
 
   it('returns undefined when neither the worktree nor repo is known', () => {

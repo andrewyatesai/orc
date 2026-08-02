@@ -106,7 +106,7 @@ describe('repos:create', () => {
     webContents: { send: vi.fn() }
   }
   const tmpPath = (...segments: string[]): string => join('/tmp', ...segments)
-  const defaultProjectParent = join('/Users/alice', 'orca', 'projects')
+  const defaultProjectParent = join('/userhome/alice', 'orca', 'projects')
 
   const callCreate = (args: CreateArgs): Promise<CreateResult> => {
     const handler = handlers.get('repos:create')
@@ -142,7 +142,7 @@ describe('repos:create', () => {
     mkdirMock.mockReset().mockResolvedValue(undefined)
     rmMock.mockReset().mockResolvedValue(undefined)
     gitExecFileAsyncMock.mockReset().mockResolvedValue({ stdout: '', stderr: '' })
-    homedirMock.mockReset().mockReturnValue('/Users/alice')
+    homedirMock.mockReset().mockReturnValue('/userhome/alice')
 
     registerRepoHandlers(mockWindow as never, mockStore as never)
   })

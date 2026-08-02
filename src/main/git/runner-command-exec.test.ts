@@ -421,7 +421,7 @@ describe('runner execFile timeout handling', () => {
     let capturedEnv: NodeJS.ProcessEnv | undefined
     execFileMock.mockImplementation((_cmd, args, opts, cb) => {
       if (args[0] === 'config') {
-        cb(null, `${String.raw`C:\Git\usr\bin\ssh.exe -i C:\Users\me\.ssh\work_key`}\n`, '')
+        cb(null, `${String.raw`C:\Git\usr\bin\ssh.exe -i C:\userhome\me\.ssh\work_key`}\n`, '')
       } else {
         capturedEnv = opts.env
         cb(null, '', '')
@@ -436,7 +436,7 @@ describe('runner execFile timeout handling', () => {
     })
 
     expect(capturedEnv?.GIT_SSH_COMMAND).toBe(
-      String.raw`'C:\Git\usr\bin\ssh.exe' -i 'C:\Users\me\.ssh\work_key' -o BatchMode=yes`
+      String.raw`'C:\Git\usr\bin\ssh.exe' -i 'C:\userhome\me\.ssh\work_key' -o BatchMode=yes`
     )
   })
 
@@ -815,9 +815,13 @@ describe('gitStreamStdout', () => {
 describe('translateWslOutputPaths', () => {
   it('translates WSL output paths with an explicit distro for Windows cwd routing', () => {
     expect(
-      translateWslOutputPaths('worktree /mnt/c/Users/me/repo-feature\n', 'C:\\Users\\me\\repo', {
-        wslDistro: 'Ubuntu'
-      })
-    ).toBe('worktree C:\\Users\\me\\repo-feature\n')
+      translateWslOutputPaths(
+        'worktree /mnt/c/userhome/me/repo-feature\n',
+        'C:\\userhome\\me\\repo',
+        {
+          wslDistro: 'Ubuntu'
+        }
+      )
+    ).toBe('worktree C:\\userhome\\me\\repo-feature\n')
   })
 })

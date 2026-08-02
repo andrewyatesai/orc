@@ -232,7 +232,7 @@ describe('hydrateWorkspaceSession', () => {
       repos: [
         {
           id: 'same-repo',
-          path: '/Users/me/same-repo',
+          path: '/userhome/me/same-repo',
           displayName: 'Same repo',
           badgeColor: '#000',
           addedAt: 1,

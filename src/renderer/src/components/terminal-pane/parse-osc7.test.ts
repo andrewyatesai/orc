@@ -16,7 +16,7 @@ describe('parseOsc7', () => {
   })
 
   it('strips the leading slash before a Windows drive letter', () => {
-    expect(parseOsc7('file:///C:/Users/jin/repo')).toBe('C:/Users/jin/repo')
+    expect(parseOsc7('file:///C:/userhome/jin/repo')).toBe('C:/userhome/jin/repo')
   })
 
   it('preserves Windows UNC cwd paths', () => {
@@ -81,7 +81,7 @@ describe('parseOsc7 through the aterm facade re-encode', () => {
   })
 
   it('keeps a Windows drive-letter cwd working end to end', () => {
-    const wire = reencodeOsc7('/C:/Users/jin/repo')
-    expect(parseOsc7(wire)).toBe('C:/Users/jin/repo')
+    const wire = reencodeOsc7('/C:/userhome/jin/repo')
+    expect(parseOsc7(wire)).toBe('C:/userhome/jin/repo')
   })
 })

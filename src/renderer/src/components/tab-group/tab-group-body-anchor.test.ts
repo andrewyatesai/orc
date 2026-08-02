@@ -10,7 +10,7 @@ describe('tabGroupBodyAnchorName', () => {
 
   it('encodes remote runtime group ids that include path separators', () => {
     const anchorName = tabGroupBodyAnchorName(
-      'headless-terminals:repo::/Users/jinwoohong/orca/workspaces/orca/branch'
+      'headless-terminals:repo::/userhome/jinwoohong/orca/workspaces/orca/branch'
     )
 
     expect(anchorName).not.toContain(':')

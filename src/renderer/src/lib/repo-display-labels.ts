@@ -8,7 +8,7 @@ type RepoDisplayLabelItem = {
 }
 
 // Why: two repos can share the same absolute path across hosts (e.g. a local
-// /Users/alice and an SSH host's /Users/alice). Keying labels by raw path alone
+// /home/alice and an SSH host's /home/alice). Keying labels by raw path alone
 // lets one repo's label overwrite the other's, so scope the key by execution
 // host. getRepoExecutionHostId returns 'local' for local repos and falls back to
 // the connectionId (ssh:<id>) for SSH folder-repos that leave executionHostId unset.

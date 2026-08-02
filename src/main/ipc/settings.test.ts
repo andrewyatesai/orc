@@ -446,7 +446,7 @@ describe('registerSettingsHandlers', () => {
             black: '123',
             red: 'nope'
           },
-          sourcePath: '/Users/alice/.warp/themes/test.yaml'
+          sourcePath: '/userhome/alice/.warp/themes/test.yaml'
         }
       ]
     })

@@ -10,7 +10,7 @@ import { createTestStore } from './store-test-helpers'
 
 const localRepo: Repo = {
   id: 'same-repo',
-  path: '/Users/alice/orca',
+  path: '/userhome/alice/orca',
   displayName: 'local orca',
   badgeColor: '#000000',
   addedAt: 1
@@ -28,7 +28,7 @@ const PROJECT_ID = 'github:stablyai/orca'
 
 const localProjectRepo: Repo = {
   id: 'local-repo',
-  path: '/Users/alice/shared-orca',
+  path: '/userhome/alice/shared-orca',
   displayName: 'local shared orca',
   badgeColor: '#000000',
   addedAt: 1,

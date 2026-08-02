@@ -550,7 +550,7 @@ describe('browserManager', () => {
     }) => { action: 'allow' | 'deny' }
     expect(handler({ url: 'javascript:alert(1)' })).toEqual({ action: 'deny' })
     expect(handler({ url: 'file:///etc/passwd' })).toEqual({ action: 'deny' })
-    expect(handler({ url: 'file:///C:/Users/example/.ssh/id_rsa' })).toEqual({ action: 'deny' })
+    expect(handler({ url: 'file:///C:/userhome/example/.ssh/id_rsa' })).toEqual({ action: 'deny' })
     expect(handler({ url: 'file://server/share/private.txt' })).toEqual({ action: 'deny' })
 
     expect(shellOpenExternalMock).not.toHaveBeenCalled()

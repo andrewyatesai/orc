@@ -1548,13 +1548,13 @@ describe('repos:addRemote', () => {
   it('derives default remote display names from Windows path separators', async () => {
     const result = await handlers.get('repos:addRemote')!(null, {
       connectionId: 'conn-1',
-      remotePath: 'C:\\Users\\alice\\project',
+      remotePath: 'C:\\userhome\\alice\\project',
       kind: 'folder'
     })
 
     expect(mockStore.addRepo).toHaveBeenCalledWith(
       expect.objectContaining({
-        path: 'C:\\Users\\alice\\project',
+        path: 'C:\\userhome\\alice\\project',
         displayName: 'project'
       })
     )
@@ -1991,7 +1991,7 @@ describe('repos:add + repos:clone', () => {
   it('dedupes repos:add by normalized local path on Windows', async () => {
     const existing = {
       id: 'repo-add-windows-existing',
-      path: 'C:\\Users\\Ava\\Repo',
+      path: 'C:\\userhome\\Ava\\Repo',
       displayName: 'Repo',
       kind: 'folder',
       badgeColor: '#22c55e'
@@ -1999,7 +1999,7 @@ describe('repos:add + repos:clone', () => {
     mockStore.getRepos.mockReturnValue([existing])
 
     const result = await handlers.get('repos:add')!(null, {
-      path: 'c:/Users/Ava/Repo',
+      path: 'c:/userhome/Ava/Repo',
       kind: 'folder'
     })
 

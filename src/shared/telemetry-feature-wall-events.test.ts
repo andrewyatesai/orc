@@ -42,7 +42,7 @@ describe('feature wall schemas', () => {
     expect(
       eventSchemas.feature_wall_closed.safeParse({
         dwell_ms: 1200,
-        repo_path: '/Users/alice/project'
+        repo_path: '/userhome/alice/project'
       }).success
     ).toBe(false)
   })

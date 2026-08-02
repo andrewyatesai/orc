@@ -91,7 +91,7 @@ describe('renderer crash diagnostics', () => {
 
     listeners.get('error')?.[0]?.({
       message: 'boom',
-      filename: '/Users/test/project/src/main.tsx',
+      filename: '/userhome/test/project/src/main.tsx',
       lineno: 42,
       colno: 7,
       error: new TypeError('bad renderer state')
@@ -100,7 +100,7 @@ describe('renderer crash diagnostics', () => {
       name: 'renderer_error',
       data: expect.objectContaining({
         message: 'boom',
-        filename: '/Users/test/project/src/main.tsx',
+        filename: '/userhome/test/project/src/main.tsx',
         lineno: 42,
         colno: 7,
         errorType: 'TypeError',

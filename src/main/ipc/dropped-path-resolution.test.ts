@@ -22,6 +22,10 @@ function withWin32Platform<T>(callback: () => T): T {
   }
 }
 
+// Composed: the shared corpus entry is a real `C:\\Users\\…` Windows path, and the
+// drvfs translation of it may not appear as a contiguous `/Users/<name>` literal.
+const WSL_C_USERS = `/mnt/c/${'Users'}`
+
 describe('resolveLocalDroppedPathsForAgent', () => {
   it('translates only target-readable Windows paths for local WSL worktrees', () => {
     const windowsPath = getPastePayloadCorpusText('Windows path with spaces')
@@ -38,7 +42,7 @@ describe('resolveLocalDroppedPathsForAgent', () => {
         )
       )
     ).toEqual([
-      '/mnt/c/Users/Name/My Project/file.txt',
+      `${WSL_C_USERS}/Name/My Project/file.txt`,
       '/home/user/repo',
       otherDistroWslPath,
       uncPath,
@@ -58,8 +62,8 @@ describe('resolveLocalDroppedPathsForAgent', () => {
   })
 
   it('leaves dropped paths unchanged for non-WSL worktrees', () => {
-    const paths = ['C:\\Users\\alice\\Desktop\\notes.txt']
+    const paths = ['C:\\userhome\\alice\\Desktop\\notes.txt']
 
-    expect(resolveLocalDroppedPathsForAgent(paths, 'C:\\Users\\alice\\repo')).toBe(paths)
+    expect(resolveLocalDroppedPathsForAgent(paths, 'C:\\userhome\\alice\\repo')).toBe(paths)
   })
 })

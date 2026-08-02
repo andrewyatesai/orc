@@ -31,7 +31,7 @@ function normalizeWin(value: string): string {
 }
 
 function platformSshHome(): string {
-  return process.platform === 'win32' ? 'C:\\Users\\testuser' : '/home/testuser'
+  return process.platform === 'win32' ? 'C:\\userhome\\testuser' : '/home/testuser'
 }
 
 function platformSshPath(home: string, relativePath: string): string {
@@ -67,38 +67,38 @@ describe('loadUserSshConfig regressions', () => {
   it('supports Windows-style home paths and include separators', async () => {
     const files = new Map<string, string>([
       [
-        normalizeWin('C:/Users/Test User/.ssh/config'),
-        'Include .\\conf.d\\*.conf "C:\\Users\\Test User\\quoted configs\\team.conf" forward/slash.conf'
+        normalizeWin('C:/userhome/Test User/.ssh/config'),
+        'Include .\\conf.d\\*.conf "C:\\userhome\\Test User\\quoted configs\\team.conf" forward/slash.conf'
       ],
       [
-        normalizeWin('C:/Users/Test User/.ssh/conf.d/zeta.conf'),
+        normalizeWin('C:/userhome/Test User/.ssh/conf.d/zeta.conf'),
         'Host zeta\n  HostName zeta.example.com\n'
       ],
       [
-        normalizeWin('C:/Users/Test User/.ssh/conf.d/alpha.conf'),
+        normalizeWin('C:/userhome/Test User/.ssh/conf.d/alpha.conf'),
         'Host alpha\n  HostName alpha.example.com\n'
       ],
       [
-        normalizeWin('C:/Users/Test User/quoted configs/team.conf'),
+        normalizeWin('C:/userhome/Test User/quoted configs/team.conf'),
         'Host team\n  HostName team.example.com\n'
       ],
       [
-        normalizeWin('C:/Users/Test User/.ssh/forward/slash.conf'),
+        normalizeWin('C:/userhome/Test User/.ssh/forward/slash.conf'),
         'Host forward\n  HostName forward.example.com\n'
       ]
     ])
 
-    await mockOs('C:\\Users\\Test User', 'TestUser', -1, 'winbox.example.com')
+    await mockOs('C:\\userhome\\Test User', 'TestUser', -1, 'winbox.example.com')
     vi.doMock('fs', async () => {
       const actual = await vi.importActual<typeof FsModule>('fs')
       return {
         ...actual,
         existsSync: (filePath: string) => files.has(normalizeWin(filePath)),
         globSync: (pattern: string) =>
-          normalizeWin(pattern) === normalizeWin('C:/Users/Test User/.ssh/conf.d/*.conf')
+          normalizeWin(pattern) === normalizeWin('C:/userhome/Test User/.ssh/conf.d/*.conf')
             ? [
-                normalizeWin('C:/Users/Test User/.ssh/conf.d/alpha.conf'),
-                normalizeWin('C:/Users/Test User/.ssh/conf.d/zeta.conf')
+                normalizeWin('C:/userhome/Test User/.ssh/conf.d/alpha.conf'),
+                normalizeWin('C:/userhome/Test User/.ssh/conf.d/zeta.conf')
               ]
             : [],
         readFileSync: (filePath: string) => {
@@ -128,16 +128,16 @@ describe('loadUserSshConfig regressions', () => {
   it('preserves quoted Windows include paths with native backslashes and spaces', async () => {
     const files = new Map<string, string>([
       [
-        normalizeWin('C:/Users/Test User/.ssh/config'),
-        'Include "C:\\Users\\Test User\\quoted configs\\team.conf"'
+        normalizeWin('C:/userhome/Test User/.ssh/config'),
+        'Include "C:\\userhome\\Test User\\quoted configs\\team.conf"'
       ],
       [
-        normalizeWin('C:/Users/Test User/quoted configs/team.conf'),
+        normalizeWin('C:/userhome/Test User/quoted configs/team.conf'),
         'Host team\n  HostName team.example.com\n'
       ]
     ])
 
-    await mockOs('C:\\Users\\Test User', 'TestUser', -1, 'winbox.example.com')
+    await mockOs('C:\\userhome\\Test User', 'TestUser', -1, 'winbox.example.com')
     vi.doMock('fs', async () => {
       const actual = await vi.importActual<typeof FsModule>('fs')
       return {

@@ -8,18 +8,18 @@ import {
 
 describe('isFilesystemPath', () => {
   it('recognizes Windows drive, UNC, and POSIX absolute paths', () => {
-    expect(isFilesystemPath('C:\\Users\\me\\repo\\CLAUDE.md')).toBe(true)
-    expect(isFilesystemPath('c:/Users/me/repo/CLAUDE.md')).toBe(true)
+    expect(isFilesystemPath('C:\\userhome\\me\\repo\\CLAUDE.md')).toBe(true)
+    expect(isFilesystemPath('c:/userhome/me/repo/CLAUDE.md')).toBe(true)
     expect(isFilesystemPath('\\\\server\\share\\CLAUDE.md')).toBe(true)
     expect(isFilesystemPath('/home/me/repo/CLAUDE.md')).toBe(true)
-    expect(isFilesystemPath('  C:\\Users\\me\\CLAUDE.md  ')).toBe(true)
+    expect(isFilesystemPath('  C:\\userhome\\me\\CLAUDE.md  ')).toBe(true)
   })
 
   it('rejects URLs, prose, and ambiguous fragments', () => {
     expect(isFilesystemPath('https://example.com/docs')).toBe(false)
     expect(isFilesystemPath('http://CLAUDE.md')).toBe(false)
     expect(isFilesystemPath('mailto:me@example.com')).toBe(false)
-    expect(isFilesystemPath('see C:\\Users\\me when ready')).toBe(false)
+    expect(isFilesystemPath('see C:\\userhome\\me when ready')).toBe(false)
     expect(isFilesystemPath('CLAUDE.md')).toBe(false)
     expect(isFilesystemPath('/')).toBe(false)
     expect(isFilesystemPath('/foo')).toBe(false)
@@ -30,7 +30,7 @@ describe('isFilesystemPath', () => {
 
 describe('extractTerminalLinkFilesystemPath', () => {
   it('extracts a path from a single terminal-style anchor with a fabricated href', () => {
-    const path = 'C:\\Users\\me\\repo\\CLAUDE.md'
+    const path = 'C:\\userhome\\me\\repo\\CLAUDE.md'
     expect(
       extractTerminalLinkFilesystemPath(`<a href="http://CLAUDE.md">${path}</a>`)
     ).toBe(path)

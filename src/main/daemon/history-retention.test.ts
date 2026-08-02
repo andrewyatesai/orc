@@ -12,8 +12,8 @@ import {
 import { DAEMON_SESSIONS_DIR_NAME, getDaemonSessionStoreRoot } from './history-store-layout'
 import { getHistorySessionDirName } from './history-paths'
 
-const WT_A = 'repo-1::/Users/dev/feature-a'
-const WT_B = 'repo-1::/Users/dev/feature-b'
+const WT_A = 'repo-1::/userhome/dev/feature-a'
+const WT_B = 'repo-1::/userhome/dev/feature-b'
 
 describe('history retention', () => {
   let terminalHistoryRoot: string

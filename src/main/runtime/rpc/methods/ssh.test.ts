@@ -73,7 +73,7 @@ describe('ssh RPC methods', () => {
   })
 
   it('redacts HUB-private diagnostics from state and connect failures', async () => {
-    const privateMessage = 'identity /Users/hub/.ssh/private via bastion.internal failed'
+    const privateMessage = 'identity /userhome/hub/.ssh/private via bastion.internal failed'
     getRegisteredSshStateMock.mockReturnValue({
       targetId: 'ssh-1',
       status: 'auth-failed',

@@ -15,10 +15,10 @@ const baseSession: AiVaultSession = {
   agent: 'claude',
   sessionId: 'session-1',
   title: 'Implement vault filters',
-  cwd: '/Users/ada/repo/app',
+  cwd: '/userhome/ada/repo/app',
   branch: 'feature/vault',
   model: 'claude-sonnet-4-5',
-  filePath: '/Users/ada/.claude/projects/session-1.jsonl',
+  filePath: '/userhome/ada/.claude/projects/session-1.jsonl',
   codexHome: null,
   createdAt: '2026-05-01T10:00:00.000Z',
   updatedAt: '2026-05-01T10:10:00.000Z',
@@ -31,7 +31,7 @@ const baseSession: AiVaultSession = {
   ],
   queuedMessageCount: 0,
   subagentTranscriptCount: 0,
-  resumeCommand: "cd '/Users/ada/repo/app' && claude --resume 'session-1'",
+  resumeCommand: "cd '/userhome/ada/repo/app' && claude --resume 'session-1'",
   subagent: null
 }
 
@@ -41,9 +41,9 @@ const otherSession: AiVaultSession = {
   agent: 'codex',
   sessionId: 'session-2',
   title: 'Repair terminal tabs',
-  cwd: '/Users/ada/other/packages/ui',
+  cwd: '/userhome/ada/other/packages/ui',
   branch: 'fix/terminal',
-  filePath: '/Users/ada/.codex/sessions/session-2.jsonl',
+  filePath: '/userhome/ada/.codex/sessions/session-2.jsonl',
   previewMessages: []
 }
 
@@ -55,7 +55,7 @@ describe('/shared ai-vault-session-filters (lifted core)', () => {
         agents: ['claude'],
         scope: 'workspace',
         sort: 'updated',
-        activeWorktreePaths: ['/Users/ada/repo'],
+        activeWorktreePaths: ['/userhome/ada/repo'],
         hideEmptySessions: true
       }).map((session) => session.id)
     ).toEqual(['claude:1'])
@@ -98,16 +98,16 @@ describe('/shared ai-vault-session-filters (lifted core)', () => {
   })
 
   it('parses quoted repo:/path: operator values containing spaces', () => {
-    expect(parseVaultQuery('repo:"my repo" path:"/Users/ada/My Project"')).toEqual({
+    expect(parseVaultQuery('repo:"my repo" path:"/userhome/ada/My Project"')).toEqual({
       terms: [],
       repoTerms: ['my repo'],
-      pathTerms: ['/users/ada/my project']
+      pathTerms: ['/userhome/ada/my project']
     })
   })
 
   it('exposes a stable agent label and folder label', () => {
     expect(agentLabel('claude')).toBe('Claude')
-    expect(folderLabel('/Users/ada/repo/app')).toBe('repo/app')
+    expect(folderLabel('/userhome/ada/repo/app')).toBe('repo/app')
   })
 
   it('builds preview search text from conversation turns', () => {

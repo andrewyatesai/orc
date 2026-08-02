@@ -66,7 +66,7 @@ describe('landing preflight issues', () => {
       hasGitHubBackedProject([
         repo({
           id: 'gitlab-repo',
-          path: '/Users/alice/gitlab',
+          path: '/userhome/alice/gitlab',
           displayName: 'gitlab'
         })
       ])
@@ -78,7 +78,7 @@ describe('landing preflight issues', () => {
       hasGitHubBackedProject([
         repo({
           id: 'github-repo',
-          path: '/Users/alice/orca',
+          path: '/userhome/alice/orca',
           displayName: 'orca',
           repoIcon: {
             type: 'image',
@@ -96,7 +96,7 @@ describe('landing preflight issues', () => {
       hasGitHubBackedProject([
         repo({
           id: 'github-repo',
-          path: '/Users/alice/orca',
+          path: '/userhome/alice/orca',
           displayName: 'orca',
           upstream: { owner: 'stablyai', repo: 'orca' }
         })

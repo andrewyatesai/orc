@@ -14,10 +14,10 @@ const baseSession: AiVaultSession = {
   agent: 'claude',
   sessionId: 'session-1',
   title: 'Implement project history',
-  cwd: '/Users/ada/orca',
+  cwd: '/userhome/ada/orca',
   branch: 'feature/history',
   model: 'claude-sonnet-4-5',
-  filePath: '/Users/ada/.claude/projects/session-1.jsonl',
+  filePath: '/userhome/ada/.claude/projects/session-1.jsonl',
   codexHome: null,
   createdAt: '2026-05-01T10:00:00.000Z',
   updatedAt: '2026-05-01T10:10:00.000Z',
@@ -27,7 +27,7 @@ const baseSession: AiVaultSession = {
   previewMessages: [],
   queuedMessageCount: 0,
   subagentTranscriptCount: 0,
-  resumeCommand: "cd '/Users/ada/orca' && claude --resume 'session-1'",
+  resumeCommand: "cd '/userhome/ada/orca' && claude --resume 'session-1'",
   subagent: null
 }
 
@@ -41,13 +41,13 @@ describe('toAiVaultProjectKey', () => {
 
 describe('buildAiVaultProjectContext', () => {
   it('uses durable worktree project ids before repo fallback', () => {
-    const repo = makeRepo({ id: 'repo-1', displayName: 'Legacy Repo', path: '/Users/ada/orca' })
+    const repo = makeRepo({ id: 'repo-1', displayName: 'Legacy Repo', path: '/userhome/ada/orca' })
     const project = makeProject({ id: 'project-1', displayName: 'Canonical Orca' })
     const worktree = makeWorktree({
       id: 'wt-1',
       repoId: repo.id,
       projectId: project.id,
-      path: '/Users/ada/orca'
+      path: '/userhome/ada/orca'
     })
 
     const context = buildAiVaultProjectContext({
@@ -71,12 +71,12 @@ describe('buildAiVaultProjectContext', () => {
   })
 
   it('normalizes compatibility project ids to repo keys', () => {
-    const repo = makeRepo({ id: 'repo-1', displayName: 'Orca', path: '/Users/ada/orca' })
+    const repo = makeRepo({ id: 'repo-1', displayName: 'Orca', path: '/userhome/ada/orca' })
     const worktree = makeWorktree({
       id: 'wt-1',
       repoId: repo.id,
       projectId: 'repo:repo-1',
-      path: '/Users/ada/orca'
+      path: '/userhome/ada/orca'
     })
 
     const context = buildAiVaultProjectContext({
@@ -285,9 +285,9 @@ describe('buildAiVaultProjectContext', () => {
     const repo = makeRepo({
       id: 'repo-win',
       displayName: 'Windows Repo',
-      path: 'C:\\Users\\Ada\\Repo'
+      path: 'C:\\userhome\\Ada\\Repo'
     })
-    const session = makeSession({ id: 'claude:win', cwd: 'c:/users/ada/repo/src' })
+    const session = makeSession({ id: 'claude:win', cwd: 'c:/userhome/ada/repo/src' })
 
     const context = buildAiVaultProjectContext({
       repos: [repo],
@@ -452,18 +452,18 @@ describe('buildAiVaultProjectContext', () => {
 
 describe('buildAiVaultSessionProjectById', () => {
   it('produces the exact context map without reading the active repo/worktree', () => {
-    const repoA = makeRepo({ id: 'repo-a', displayName: 'Alpha', path: '/Users/ada/alpha' })
-    const repoB = makeRepo({ id: 'repo-b', displayName: 'Beta', path: '/Users/ada/beta' })
-    const worktreeA = makeWorktree({ id: 'wt-a', repoId: repoA.id, path: '/Users/ada/alpha' })
-    const worktreeB = makeWorktree({ id: 'wt-b', repoId: repoB.id, path: '/Users/ada/beta' })
+    const repoA = makeRepo({ id: 'repo-a', displayName: 'Alpha', path: '/userhome/ada/alpha' })
+    const repoB = makeRepo({ id: 'repo-b', displayName: 'Beta', path: '/userhome/ada/beta' })
+    const worktreeA = makeWorktree({ id: 'wt-a', repoId: repoA.id, path: '/userhome/ada/alpha' })
+    const worktreeB = makeWorktree({ id: 'wt-b', repoId: repoB.id, path: '/userhome/ada/beta' })
     const shared = {
       repos: [repoA, repoB],
       worktrees: [worktreeA, worktreeB],
       projectHostSetupProjection: makeProjection({}),
       sessions: [
-        makeSession({ id: 'claude:a', cwd: '/Users/ada/alpha/src' }),
-        makeSession({ id: 'claude:b', cwd: '/Users/ada/beta' }),
-        makeSession({ id: 'claude:none', cwd: '/Users/ada/elsewhere' })
+        makeSession({ id: 'claude:a', cwd: '/userhome/ada/alpha/src' }),
+        makeSession({ id: 'claude:b', cwd: '/userhome/ada/beta' }),
+        makeSession({ id: 'claude:none', cwd: '/userhome/ada/elsewhere' })
       ]
     }
 
@@ -482,15 +482,15 @@ describe('buildAiVaultSessionProjectById', () => {
   })
 
   it('attributes non-ASCII cwds across unicode normalization forms', () => {
-    // NFC worktree path vs NFD session cwd — both spell /Users/ada/café.
-    const repo = makeRepo({ id: 'repo-1', displayName: 'Café', path: '/Users/ada/caf\u00e9' })
-    const worktree = makeWorktree({ id: 'wt-1', repoId: repo.id, path: '/Users/ada/caf\u00e9' })
+    // NFC worktree path vs NFD session cwd — both spell /userhome/ada/café.
+    const repo = makeRepo({ id: 'repo-1', displayName: 'Café', path: '/userhome/ada/caf\u00e9' })
+    const worktree = makeWorktree({ id: 'wt-1', repoId: repo.id, path: '/userhome/ada/caf\u00e9' })
 
     const map = buildAiVaultSessionProjectById({
       repos: [repo],
       worktrees: [worktree],
       projectHostSetupProjection: makeProjection({}),
-      sessions: [makeSession({ id: 'claude:nfd', cwd: '/Users/ada/cafe\u0301/src' })]
+      sessions: [makeSession({ id: 'claude:nfd', cwd: '/userhome/ada/cafe\u0301/src' })]
     })
 
     expect(map.get('claude:nfd')).toMatchObject({ kind: 'repo', key: 'repo:repo-1' })
@@ -504,7 +504,7 @@ function makeSession(overrides: Partial<AiVaultSession>): AiVaultSession {
 function makeRepo(overrides: Partial<Repo>): Repo {
   return {
     id: 'repo-1',
-    path: '/Users/ada/orca',
+    path: '/userhome/ada/orca',
     displayName: 'Orca',
     badgeColor: '#737373',
     addedAt: 1,
@@ -530,7 +530,7 @@ function makeSetup(overrides: Partial<ProjectHostSetup>): ProjectHostSetup {
     projectId: 'project-1',
     hostId: 'local',
     repoId: 'repo-1',
-    path: '/Users/ada/orca',
+    path: '/userhome/ada/orca',
     displayName: 'Orca',
     setupState: 'ready',
     setupMethod: 'legacy-repo',
@@ -554,7 +554,7 @@ function makeWorktree(overrides: Partial<Worktree>): Worktree {
     isPinned: false,
     sortOrder: 0,
     lastActivityAt: 1,
-    path: '/Users/ada/orca',
+    path: '/userhome/ada/orca',
     head: 'abc123',
     branch: 'main',
     isBare: false,

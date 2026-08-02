@@ -122,12 +122,12 @@ describe('wsl path helpers', () => {
   })
 
   it('converts Windows drive paths to /mnt paths for WSL commands', () => {
-    expect(toLinuxPath('C:\\Users\\jinwo\\git\\orca')).toBe('/mnt/c/Users/jinwo/git/orca')
+    expect(toLinuxPath('C:\\userhome\\jinwo\\git\\orca')).toBe('/mnt/c/userhome/jinwo/git/orca')
   })
 
   it('converts /mnt drive paths back to native Windows form', () => {
-    expect(toWindowsWslPath('/mnt/c/Users/jinwo/git/orca', 'Ubuntu')).toBe(
-      'C:\\Users\\jinwo\\git\\orca'
+    expect(toWindowsWslPath('/mnt/c/userhome/jinwo/git/orca', 'Ubuntu')).toBe(
+      'C:\\userhome\\jinwo\\git\\orca'
     )
   })
 })
@@ -177,7 +177,7 @@ describe('wslUncDirectoryExists', () => {
   })
 
   it('returns null for non-WSL paths and off Windows', () => {
-    expect(withPlatform('win32', () => wslUncDirectoryExists('C:\\Users\\jin\\repo'))).toBeNull()
+    expect(withPlatform('win32', () => wslUncDirectoryExists('C:\\userhome\\jin\\repo'))).toBeNull()
     expect(
       withPlatform('linux', () => wslUncDirectoryExists('\\\\wsl.localhost\\Ubuntu\\home\\jin'))
     ).toBeNull()

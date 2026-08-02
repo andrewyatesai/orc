@@ -66,7 +66,7 @@ describe('pty delivery breadcrumb ring', () => {
 
 describe('redactPtyIdForDiagnostics', () => {
   it('keeps the @@ suffix and drops the path-bearing worktree prefix', () => {
-    expect(redactPtyIdForDiagnostics('/Users/someone/repo@@ab12cd34')).toBe('…@@ab12cd34')
+    expect(redactPtyIdForDiagnostics('/userhome/someone/repo@@ab12cd34')).toBe('…@@ab12cd34')
   })
 
   it('truncates long ids without a separator and passes short ids through', () => {

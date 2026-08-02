@@ -265,7 +265,7 @@ describe('useEditorPanelContentState', () => {
   })
 
   it('keeps a client-local live-tail log tab on the client inside an SSH workspace', async () => {
-    const logPath = '/Users/me/.codex/sessions/session.jsonl'
+    const logPath = '/userhome/me/.codex/sessions/session.jsonl'
     const worktreeId = 'repo-ssh::/work/demo-project'
     const externalTab = { id: logPath, filePath: logPath, relativePath: logPath, worktreeId }
     const activeFile = createOpenFile({ ...externalTab, readOnly: true, liveTail: true })
@@ -290,10 +290,10 @@ describe('useEditorPanelContentState', () => {
 
   it('re-authorizes a client-local external tab before reading it', async () => {
     const activeFile = createOpenFile({
-      id: '/Users/me/notes/audit.md',
-      filePath: '/Users/me/notes/audit.md',
-      relativePath: '/Users/me/notes/audit.md',
-      worktreeId: 'repo-local::/Users/me/project'
+      id: '/userhome/me/notes/audit.md',
+      filePath: '/userhome/me/notes/audit.md',
+      relativePath: '/userhome/me/notes/audit.md',
+      worktreeId: 'repo-local::/userhome/me/project'
     })
     mocks.getConnectionIdForFile.mockReturnValue(undefined)
     mocks.readRuntimeFileContent.mockResolvedValue({ content: '# local', isBinary: false })
@@ -307,7 +307,9 @@ describe('useEditorPanelContentState', () => {
     })
 
     await vi.waitFor(() => expect(latestFileContents[activeFile.id]?.content).toBe('# local'))
-    expect(authorizeExternalPath).toHaveBeenCalledWith({ targetPath: '/Users/me/notes/audit.md' })
+    expect(authorizeExternalPath).toHaveBeenCalledWith({
+      targetPath: '/userhome/me/notes/audit.md'
+    })
   })
 
   it('rejects an unstamped external tab in a remote runtime workspace', async () => {

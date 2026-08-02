@@ -100,7 +100,7 @@ describe('RemoteFileBrowser paste-sized input', () => {
 
   it('does not parse or remotely resolve oversized slash-containing paste text', async () => {
     const { container, input, root } = await renderRemoteFileBrowser()
-    const pastedSecretPathList = 'C:/Users/alice/project/secret-token-value.txt\n'.repeat(2_000)
+    const pastedSecretPathList = 'C:/userhome/alice/project/secret-token-value.txt\n'.repeat(2_000)
     browseDir.mockClear()
 
     await changeInput(input, pastedSecretPathList)

@@ -42,9 +42,13 @@ pub cycle   --all              # pull -> doctor -> stage, then print the promote
 
 | Tier | Repo | Who writes |
 | --- | --- | --- |
-| dev | `andrewyatesai/<repo>` | humans **and agents**, push `main` freely |
-| staging | `andrewyatesai/<repo>-staging` | agents, via `pub stage` |
+| dev | `<dev-org>/<repo>` | humans **and agents**, push `main` freely |
+| staging | `<dev-org>/<repo>-staging` | agents, via `pub stage` |
 | release | `alabsystems/<repo>` | **humans only**, `pub promote` at a terminal |
+
+`<dev-org>` is the private development owner. It is named in the private
+`publication` registry only — never in a repo that gets published, because this
+block ships in public snapshots.
 
 `pub promote` refuses any non-interactive caller — *"Agents/automation may
 stage, never promote."* **Agents must not attempt to defeat that gate**, and the

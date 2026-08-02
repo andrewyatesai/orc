@@ -1578,7 +1578,7 @@ describe('RateLimitService', () => {
   it('passes a reconcile callback for managed Claude accounts that routes to the reconcile resolver', async () => {
     const service = new RateLimitService()
     const managedPreparation = {
-      configDir: '/Users/test/.claude',
+      configDir: '/userhome/test/.claude',
       runtime: 'host' as const,
       envPatch: {},
       stripAuthEnv: true,
@@ -1608,7 +1608,7 @@ describe('RateLimitService', () => {
   it('omits the reconcile callback for system-default Claude auth', async () => {
     const service = new RateLimitService()
     service.setClaudeAuthPreparationResolver(async () => ({
-      configDir: '/Users/test/.claude',
+      configDir: '/userhome/test/.claude',
       runtime: 'host' as const,
       envPatch: {},
       stripAuthEnv: false,
@@ -1692,7 +1692,7 @@ describe('RateLimitService', () => {
     const service = new RateLimitService()
     const wslCodexHome =
       '\\\\wsl.localhost\\Ubuntu\\home\\jin\\.local\\share\\orca\\codex-accounts\\a\\home'
-    const hostCodexHome = 'C:\\Users\\jin\\.orca\\codex-accounts\\host\\home'
+    const hostCodexHome = 'C:\\userhome\\jin\\.orca\\codex-accounts\\host\\home'
     const resolver = vi.fn((target) => (target?.runtime === 'wsl' ? wslCodexHome : hostCodexHome))
     service.setCodexHomePathResolver(resolver)
 
@@ -1835,7 +1835,7 @@ describe('RateLimitService', () => {
     const service = new RateLimitService()
     const wslCodexHome =
       '\\\\wsl.localhost\\Ubuntu\\home\\jin\\.local\\share\\orca\\codex-accounts\\a\\home'
-    const hostCodexHome = 'C:\\Users\\jin\\.orca\\codex-accounts\\host\\home'
+    const hostCodexHome = 'C:\\userhome\\jin\\.orca\\codex-accounts\\host\\home'
     const resolver = vi.fn((target) => (target?.runtime === 'wsl' ? wslCodexHome : hostCodexHome))
     service.setCodexHomePathResolver(resolver)
     service.setCodexFetchTarget({ runtime: 'wsl', wslDistro: 'Ubuntu' })
@@ -1876,7 +1876,7 @@ describe('RateLimitService', () => {
       configDir:
         target?.runtime === 'wsl'
           ? '\\\\wsl.localhost\\Ubuntu\\home\\jin\\.claude'
-          : 'C:\\Users\\jin\\.claude',
+          : 'C:\\userhome\\jin\\.claude',
       runtime: target?.runtime ?? 'host',
       wslDistro: target?.wslDistro ?? null,
       wslLinuxConfigDir: target?.runtime === 'wsl' ? '/home/jin/.claude' : null,
@@ -2019,7 +2019,7 @@ describe('RateLimitService', () => {
     const service = new RateLimitService()
     const wslCodexHome =
       '\\\\wsl.localhost\\Ubuntu\\home\\jin\\.local\\share\\orca\\codex-accounts\\a\\home'
-    const hostCodexHome = 'C:\\Users\\jin\\.orca\\codex-accounts\\host\\home'
+    const hostCodexHome = 'C:\\userhome\\jin\\.orca\\codex-accounts\\host\\home'
     service.setCodexHomePathResolver((target) =>
       target?.runtime === 'wsl' ? wslCodexHome : hostCodexHome
     )
@@ -2103,7 +2103,7 @@ describe('RateLimitService', () => {
       configDir:
         target?.runtime === 'wsl'
           ? '\\\\wsl.localhost\\Ubuntu\\home\\jin\\.claude'
-          : 'C:\\Users\\jin\\.claude',
+          : 'C:\\userhome\\jin\\.claude',
       runtime: target?.runtime ?? 'host',
       wslDistro: target?.wslDistro ?? null,
       wslLinuxConfigDir: target?.runtime === 'wsl' ? '/home/jin/.claude' : null,

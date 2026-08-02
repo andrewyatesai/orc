@@ -984,10 +984,10 @@ describe('runHook', () => {
       expect(options).toEqual(
         expect.objectContaining({
           env: expect.objectContaining({
-            ORCA_ROOT_PATH: '/mnt/c/Users/jinwo/git/orca',
+            ORCA_ROOT_PATH: '/mnt/c/userhome/jinwo/git/orca',
             ORCA_WORKTREE_PATH: '/home/jin/feature',
-            CONDUCTOR_ROOT_PATH: '/mnt/c/Users/jinwo/git/orca',
-            GHOSTX_ROOT_PATH: '/mnt/c/Users/jinwo/git/orca'
+            CONDUCTOR_ROOT_PATH: '/mnt/c/userhome/jinwo/git/orca',
+            GHOSTX_ROOT_PATH: '/mnt/c/userhome/jinwo/git/orca'
           })
         })
       )
@@ -1008,7 +1008,7 @@ describe('runHook', () => {
       const { runHook } = await import('./hooks')
       const result = await runHook('setup', '\\\\wsl.localhost\\Ubuntu\\home\\jin\\feature', {
         ...makeRepo(),
-        path: 'C:\\Users\\jinwo\\git\\orca'
+        path: 'C:\\userhome\\jinwo\\git\\orca'
       })
 
       expect(result).toEqual({ success: true, output: '' })
@@ -1064,10 +1064,10 @@ describe('runHook', () => {
       const { runHook } = await import('./hooks')
       const result = await runHook(
         'setup',
-        'C:\\Users\\jinwo\\git\\orca-feature',
+        'C:\\userhome\\jinwo\\git\\orca-feature',
         {
           ...makeRepo(),
-          path: 'C:\\Users\\jinwo\\git\\orca'
+          path: 'C:\\userhome\\jinwo\\git\\orca'
         },
         undefined,
         { wslDistro: 'Ubuntu' }
@@ -1082,7 +1082,7 @@ describe('runHook', () => {
           '--',
           'bash',
           '-c',
-          "cd '/mnt/c/Users/jinwo/git/orca-feature' && echo hello"
+          "cd '/mnt/c/userhome/jinwo/git/orca-feature' && echo hello"
         ],
         expect.any(Object),
         expect.any(Function)
@@ -1090,10 +1090,10 @@ describe('runHook', () => {
       expect(capturedOptions).toEqual(
         expect.objectContaining({
           env: expect.objectContaining({
-            ORCA_ROOT_PATH: '/mnt/c/Users/jinwo/git/orca',
-            ORCA_WORKTREE_PATH: '/mnt/c/Users/jinwo/git/orca-feature',
-            CONDUCTOR_ROOT_PATH: '/mnt/c/Users/jinwo/git/orca',
-            GHOSTX_ROOT_PATH: '/mnt/c/Users/jinwo/git/orca',
+            ORCA_ROOT_PATH: '/mnt/c/userhome/jinwo/git/orca',
+            ORCA_WORKTREE_PATH: '/mnt/c/userhome/jinwo/git/orca-feature',
+            CONDUCTOR_ROOT_PATH: '/mnt/c/userhome/jinwo/git/orca',
+            GHOSTX_ROOT_PATH: '/mnt/c/userhome/jinwo/git/orca',
             // Why: wsl.exe only imports Windows env vars named in WSLENV, so
             // setting the vars on the execFile env alone is not enough (#9206).
             // /u because runHook pre-translated the values to Linux paths.
@@ -1122,7 +1122,7 @@ describe('runHook', () => {
 
   it('writes Windows-path setup runners through WSL git when the project runtime targets WSL', async () => {
     gitExecFileSyncMock.mockReset()
-    gitExecFileSyncMock.mockReturnValue('/mnt/c/Users/jinwo/git/orca/.git/orca/setup-runner.sh\n')
+    gitExecFileSyncMock.mockReturnValue('/mnt/c/userhome/jinwo/git/orca/.git/orca/setup-runner.sh\n')
 
     const fs = await import('node:fs')
     const mkdirSyncMock = vi.mocked(fs.mkdirSync)
@@ -1140,9 +1140,9 @@ describe('runHook', () => {
       const result = createSetupRunnerScript(
         {
           ...makeRepo(),
-          path: 'C:\\Users\\jinwo\\git\\orca'
+          path: 'C:\\userhome\\jinwo\\git\\orca'
         },
-        'C:\\Users\\jinwo\\git\\orca-feature',
+        'C:\\userhome\\jinwo\\git\\orca-feature',
         'echo hello',
         { wslDistro: 'Ubuntu' }
       )
@@ -1150,7 +1150,7 @@ describe('runHook', () => {
       expect(gitExecFileSyncMock).toHaveBeenCalledWith(
         ['rev-parse', '--git-path', 'orca/setup-runner.sh'],
         {
-          cwd: 'C:\\Users\\jinwo\\git\\orca-feature',
+          cwd: 'C:\\userhome\\jinwo\\git\\orca-feature',
           wslDistro: 'Ubuntu'
         }
       )
@@ -1191,7 +1191,7 @@ describe('runHook', () => {
       const { runHook } = await import('./hooks')
       const promise = runHook('setup', '\\\\wsl.localhost\\Ubuntu\\home\\jin\\feature', {
         ...makeRepo(),
-        path: 'C:\\Users\\jinwo\\git\\orca'
+        path: 'C:\\userhome\\jinwo\\git\\orca'
       })
       let settled = false
       void promise.finally(() => {

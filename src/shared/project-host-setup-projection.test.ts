@@ -21,7 +21,7 @@ function repo(overrides: Partial<Repo> & Pick<Repo, 'id' | 'path' | 'displayName
 describe('project host setup projection', () => {
   it('projects a legacy local repo into one project and one ready local setup', () => {
     const projection = projectHostSetupProjectionFromRepos(
-      [repo({ id: 'repo-1', path: '/Users/alice/orca', displayName: 'orca' })],
+      [repo({ id: 'repo-1', path: '/userhome/alice/orca', displayName: 'orca' })],
       500
     )
 
@@ -42,7 +42,7 @@ describe('project host setup projection', () => {
         projectId: 'repo:repo-1',
         hostId: 'local',
         repoId: 'repo-1',
-        path: '/Users/alice/orca',
+        path: '/userhome/alice/orca',
         displayName: 'orca',
         kind: 'git',
         setupState: 'ready',
@@ -78,7 +78,7 @@ describe('project host setup projection', () => {
     const projection = projectHostSetupProjectionFromRepos([
       repo({
         id: 'repo-1',
-        path: '/Users/alice/orca',
+        path: '/userhome/alice/orca',
         displayName: 'orca',
         projectHostSetupMethod: 'cloned'
       })
@@ -91,7 +91,7 @@ describe('project host setup projection', () => {
     const projection = projectHostSetupProjectionFromRepos([
       repo({
         id: 'local-repo',
-        path: '/Users/alice/orca',
+        path: '/userhome/alice/orca',
         displayName: 'Orca',
         upstream: { owner: 'StablyAI', repo: 'Orca' }
       }),
@@ -185,7 +185,7 @@ describe('project host setup projection', () => {
     const projection = projectHostSetupProjectionFromRepos([
       repo({
         id: 'local-repo',
-        path: '/Users/alice/orca',
+        path: '/userhome/alice/orca',
         displayName: 'Orca',
         repoIcon: {
           type: 'image',
@@ -223,7 +223,7 @@ describe('project host setup projection', () => {
     const projection = projectHostSetupProjectionFromRepos([
       repo({
         id: 'canonical-local-repo',
-        path: '/Users/alice/stably/orca',
+        path: '/userhome/alice/stably/orca',
         displayName: 'orca',
         gitRemoteIdentity: {
           canonicalKey: 'github.com/stablyai/orca',
@@ -233,7 +233,7 @@ describe('project host setup projection', () => {
       }),
       repo({
         id: 'old-branch-checkout',
-        path: '/Users/alice/orca/workspaces/orca/re-enable-webgl-for-remote-runtime-terminals',
+        path: '/userhome/alice/orca/workspaces/orca/re-enable-webgl-for-remote-runtime-terminals',
         displayName: 're-enable-webgl-for-remote-runtime-terminals',
         repoIcon: {
           type: 'image',
@@ -310,7 +310,7 @@ describe('project host setup projection', () => {
 
   it('does not guess that same-named folders are the same project without identity', () => {
     const projection = projectHostSetupProjectionFromRepos([
-      repo({ id: 'local-repo', path: '/Users/alice/app', displayName: 'app' }),
+      repo({ id: 'local-repo', path: '/userhome/alice/app', displayName: 'app' }),
       repo({
         id: 'remote-repo',
         path: '/srv/app',
@@ -329,7 +329,7 @@ describe('project host setup projection', () => {
     const projection = projectHostSetupProjectionFromRepos([
       repo({
         id: 'local-sample-app',
-        path: '/Users/alice/work/sample-app',
+        path: '/userhome/alice/work/sample-app',
         displayName: 'sample-app',
         gitRemoteIdentity: {
           canonicalKey: 'git.company.test/team/sample-app',
@@ -385,7 +385,7 @@ describe('project host setup projection', () => {
     const projection = projectHostSetupProjectionFromRepos([
       repo({
         id: 'local-sample-app',
-        path: '/Users/alice/work/sample-app',
+        path: '/userhome/alice/work/sample-app',
         displayName: 'sample-app'
       }),
       repo({
@@ -411,7 +411,7 @@ describe('project host setup projection', () => {
     const projection = projectHostSetupProjectionFromRepos([
       repo({
         id: 'uppercase-repo',
-        path: '/Users/alice/work/sample-app',
+        path: '/userhome/alice/work/sample-app',
         displayName: 'sample-app',
         gitRemoteIdentity: {
           canonicalKey: 'git.company.test/Team/Sample-App',
@@ -442,7 +442,7 @@ describe('project host setup projection', () => {
     const projection = projectHostSetupProjectionFromRepos([
       repo({
         id: 'repo-1',
-        path: '/Users/alice/orca',
+        path: '/userhome/alice/orca',
         displayName: 'orca',
         upstream: { owner: 'stablyai', repo: 42 } as never
       })

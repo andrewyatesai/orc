@@ -92,7 +92,7 @@ describe('RepositoryHostSetupsSection', () => {
     const localRepo = makeRepo({
       id: 'local-repo',
       displayName: 'Orca',
-      path: '/Users/alice/orca'
+      path: '/userhome/alice/orca'
     })
     const remoteRepo = makeRepo({
       id: 'remote-repo',
@@ -109,7 +109,7 @@ describe('RepositoryHostSetupsSection', () => {
           projectId: 'github:stablyai/orca',
           repoId: 'local-repo',
           hostId: 'local',
-          path: '/Users/alice/orca'
+          path: '/userhome/alice/orca'
         }),
         makeSetup({
           id: 'remote-repo',
@@ -135,7 +135,7 @@ describe('RepositoryHostSetupsSection', () => {
     const localRepo = makeRepo({
       id: 'local-repo',
       displayName: 'Orca',
-      path: '/Users/alice/orca'
+      path: '/userhome/alice/orca'
     })
     const remoteRepo = makeRepo({
       id: 'remote-repo',
@@ -152,7 +152,7 @@ describe('RepositoryHostSetupsSection', () => {
           projectId: 'github:stablyai/orca',
           repoId: 'local-repo',
           hostId: 'local',
-          path: '/Users/alice/orca'
+          path: '/userhome/alice/orca'
         }),
         makeSetup({
           id: 'remote-repo',
@@ -334,7 +334,7 @@ describe('RepositoryHostSetupsSection', () => {
     const localRepo = makeRepo({
       id: 'local-repo',
       displayName: 'Orca',
-      path: '/Users/alice/orca'
+      path: '/userhome/alice/orca'
     })
     useAppStore.setState({
       repos: [localRepo],
@@ -345,7 +345,7 @@ describe('RepositoryHostSetupsSection', () => {
           projectId: 'github:stablyai/orca',
           repoId: 'local-repo',
           hostId: 'local',
-          path: '/Users/alice/orca'
+          path: '/userhome/alice/orca'
         }),
         makeSetup({
           id: 'gpu-setup',
@@ -396,7 +396,7 @@ describe('RepositoryHostSetupsSection', () => {
     const localRepo = makeRepo({
       id: 'local-repo',
       displayName: 'Orca',
-      path: '/Users/alice/orca'
+      path: '/userhome/alice/orca'
     })
     useAppStore.setState({
       repos: [localRepo],
@@ -407,7 +407,7 @@ describe('RepositoryHostSetupsSection', () => {
           projectId: 'github:stablyai/orca',
           repoId: 'local-repo',
           hostId: 'local',
-          path: '/Users/alice/orca'
+          path: '/userhome/alice/orca'
         }),
         makeSetup({
           id: 'shared-setup',

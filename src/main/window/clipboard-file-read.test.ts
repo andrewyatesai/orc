@@ -23,12 +23,12 @@ describe('readClipboardFilePaths', () => {
   it('reads real POSIX paths from the macOS NSFilenamesPboardType plist', async () => {
     const readFormat = vi.fn((format: string) =>
       format === 'NSFilenamesPboardType'
-        ? filenamesPlist(['/Users/me/a.png', '/Users/me/b.pdf'])
+        ? filenamesPlist(['/userhome/me/a.png', '/userhome/me/b.pdf'])
         : ''
     )
     expect(await readClipboardFilePaths(makeDeps({ platform: 'darwin', readFormat }))).toEqual([
-      '/Users/me/a.png',
-      '/Users/me/b.pdf'
+      '/userhome/me/a.png',
+      '/userhome/me/b.pdf'
     ])
     // Prefer the plist over public.file-url, which can be an opaque reference.
     expect(readFormat).toHaveBeenCalledWith('NSFilenamesPboardType')
@@ -36,19 +36,19 @@ describe('readClipboardFilePaths', () => {
 
   it('XML-unescapes filenames from the plist', async () => {
     const readFormat = vi.fn((format: string) =>
-      format === 'NSFilenamesPboardType' ? filenamesPlist(['/Users/me/a &amp; b.png']) : ''
+      format === 'NSFilenamesPboardType' ? filenamesPlist(['/userhome/me/a &amp; b.png']) : ''
     )
     expect(await readClipboardFilePaths(makeDeps({ platform: 'darwin', readFormat }))).toEqual([
-      '/Users/me/a & b.png'
+      '/userhome/me/a & b.png'
     ])
   })
 
   it('falls back to a macOS public.file-url path URL when the plist is absent', async () => {
     const readFormat = vi.fn((format: string) =>
-      format === 'public.file-url' ? 'file:///Users/me/a%20b.png' : ''
+      format === 'public.file-url' ? 'file:///userhome/me/a%20b.png' : ''
     )
     expect(await readClipboardFilePaths(makeDeps({ platform: 'darwin', readFormat }))).toEqual([
-      '/Users/me/a b.png'
+      '/userhome/me/a b.png'
     ])
   })
 
@@ -84,10 +84,10 @@ describe('readClipboardFilePaths', () => {
   it('reads newline-separated FileDropList paths via PowerShell on Windows', async () => {
     const runCommand = vi.fn(
       async (_command: string, _args: string[]) =>
-        'C:\\Users\\me\\a.txt\r\nC:\\Users\\me\\b.txt\r\n'
+        'C:\\userhome\\me\\a.txt\r\nC:\\userhome\\me\\b.txt\r\n'
     )
     const result = await readClipboardFilePaths(makeDeps({ platform: 'win32', runCommand }))
-    expect(result).toEqual(['C:\\Users\\me\\a.txt', 'C:\\Users\\me\\b.txt'])
+    expect(result).toEqual(['C:\\userhome\\me\\a.txt', 'C:\\userhome\\me\\b.txt'])
     const [command, args] = runCommand.mock.calls[0]
     expect(command).toBe('powershell.exe')
     expect(args.join(' ')).toContain('Get-Clipboard -Format FileDropList')

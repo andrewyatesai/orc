@@ -681,7 +681,7 @@ describe('WorktreeCard compact hover details', () => {
         worktree={makeWorktree({
           displayName: 'Docs folder',
           branch: '',
-          path: ' /Users/x/projects/my-app '
+          path: ' /userhome/x/projects/my-app '
         })}
         repo={{ ...makeRepo(), kind: 'folder' }}
         isActive={false}
@@ -691,7 +691,7 @@ describe('WorktreeCard compact hover details', () => {
 
     expect(markup).not.toContain('data-worktree-card-meta-row=""')
     expect(markup).toContain('Docs folder')
-    expect(markup).not.toContain('/Users/x/projects/my-app')
+    expect(markup).not.toContain('/userhome/x/projects/my-app')
   })
 
   it('shows a folder path row in new-card mode through the branch setting when project groups exist', async () => {
@@ -705,7 +705,7 @@ describe('WorktreeCard compact hover details', () => {
         worktree={makeWorktree({
           displayName: 'Docs folder',
           branch: '',
-          path: ' /Users/x/projects/my-app '
+          path: ' /userhome/x/projects/my-app '
         })}
         repo={{ ...makeRepo(), kind: 'folder' }}
         isActive={false}
@@ -714,7 +714,7 @@ describe('WorktreeCard compact hover details', () => {
     )
 
     expect(markup).toContain('data-worktree-card-meta-row=""')
-    expect(markup).toContain(' /Users/x/projects/my-app ')
+    expect(markup).toContain(' /userhome/x/projects/my-app ')
     expect(markup).not.toContain('>Folder</span>')
   })
 
@@ -729,7 +729,7 @@ describe('WorktreeCard compact hover details', () => {
         worktree={makeWorktree({
           displayName: 'Docs folder',
           branch: '',
-          path: '/Users/x/projects/my-app'
+          path: '/userhome/x/projects/my-app'
         })}
         repo={{ ...makeRepo(), kind: 'folder' }}
         isActive={false}
@@ -739,7 +739,7 @@ describe('WorktreeCard compact hover details', () => {
 
     expect(markup).not.toContain('data-worktree-card-meta-row=""')
     expect(markup).toContain('data-hover-open-delay="100"')
-    expect(markup).toContain('/Users/x/projects/my-app')
+    expect(markup).toContain('/userhome/x/projects/my-app')
     expect(markup).toContain('Docs folder')
   })
 

@@ -28,12 +28,12 @@ function makeWorktree(overrides: Partial<Worktree> & { id: string; repoId: strin
 describe('applyWorktreeUpdates', () => {
   it('only updates the repo bucket encoded in the worktree id', () => {
     const target = makeWorktree({
-      id: 'repo-a::/Users/alice/project',
+      id: 'repo-a::/userhome/alice/project',
       repoId: 'repo-a',
       displayName: 'Project A'
     })
     const samePathDifferentProject = makeWorktree({
-      id: 'repo-a::/Users/alice/project',
+      id: 'repo-a::/userhome/alice/project',
       repoId: 'repo-b',
       displayName: 'Project B'
     })

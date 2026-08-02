@@ -1,50 +1,141 @@
-// Static test-only identity with SANs for localhost and 127.0.0.1. Keeping the
-// fixture in-repo avoids an OpenSSL dependency on Windows E2E runners.
-export const LOCAL_HTTPS_TEST_PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
-MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCjkYboq/BDMxGh
-0jYeeAEnhH466vJO2NTIsDAaqhVDxXSWqgcqPHhAXS3I4CCzBuTBKMCfZnFLjOf6
-/+8mGhMsWUmgkchZ23fo5kszbgslx+bu0NAT14OAuD0E5rNEJwGA2W7i3a3k1ULX
-TSUpE9W1dxQLQzLSmXIKYST1Sadi3/qtuikcQW1E9Lyb1guf3gvm+jHSzUiM33ge
-JX6zNkd3fX+uc2oNkm+tFo7Ol52A++cSIqxB8MCqrfUNhISyzu4Ozne9bsCoWdoW
-4aLX+XVVRw9Y8nU9cIvt88H1a9oChrG+5oXU166pAdKZvAUV65fi/y3w3ldgKu5I
-Xk+RJ+1xAgMBAAECggEAExg15DNPOd8MNcR7FCE8/EKhtEnRZd427+MuiGxWzWmv
-d7erXLVAsf3WrpKoipG5UmnKG8mbG/9b5O+r+LoWRyj4uQWPupqt47q/qGY2J6/P
-kA1BHzHbXINVfz0ZzBDUInkvkk0f49z3/7eWKRaTTgrzxHFQrWhjmV3YEUjrARYW
-DtlAJiCuBW2Mrnl866kLwzH3KHGFs4bPYIyMr3LYDYVDlHEdGuseI1OclGXbDcyF
-z0Es9Z1u+W6ttnamvanhS7MskWCMOddtXKpaiuDQqo1r3xbhSHCA+7cs7J0cQ1FX
-cq5VZ2/EMyI++U0/0sW0aWnUNKmZcGNwaDschejI6QKBgQDPfsyZ4o8urLEwPciB
-PnfHxWtB/9IhqKwUHoUg5rPtYsyQBoWqAFBfS68FP91yv5KH0Y1sQ3SbN11+1d2U
-uk0gQaV9TqLa51/8Za6C8Sig7UdwArEmuEmIJhj0Jux6QxF6th9Dpnrd4Bxtm42T
-lnEMSvSB3vbyDk1Q+WJKblpJWQKBgQDJzgBJDGuj7LJrMaGqLjRshOoCyYbBjVsO
-3GX24Vm1eO9SSOEpucoqf7hswnKx+/h1GPCxTife9/qobgGV64L7CMSrQviIC39l
-GlUGyh1onGEZB/0xLjswuocRBU9qX88zRwpanqctxMtxD/36k2IP6ru4acvrryKD
-lWla01Sp2QKBgGkuKH7VFqmdRpBisTG6vbMZgt5I1HbVbq0gL3HXIFv0Gifj9nuP
-fy5fShAKKLITJC8O7XZ01zYbIZy6woCy04fHXyEe7HS0lrZ1wLmFj4fL38uKwcwT
-3MpULZAN7w+m0cR3b2+2g0/XW/G/yUuIFjQaBsmSgXGACHdEgyuhtsi5AoGASLKu
-RaJ00Gu/ZoBNpdnZRtKm3nQs2GMMz5C0JrjNsWMsi673dimY27CBBqUR3m5P9hcS
-9jyafmdE5BIk/hYGbFqfRrbsg03pCcnvoW+EIqBbFkJbgrEN36MCby5DiqWTJfzM
-jRKkVQeU5lkFfJRFekhscaWjMXc47sAPYQnKcRkCgYEAsHhU/aUtLUnSDgqrmRoC
-VBxeCBa3/pMlBuiiRRMKvjMp+h0eGmgP0sP549d+PGBjkAu7Bp1szWUuB19OcULy
-c33XAFdeZScLL1E3eMRVX4LwfJ5ZlUBrd3fv5R2X9D0TrAcHaGEVVHhkwRlhi69W
-AcJ+zYua3ZDxmpZtCgGomOA=
------END PRIVATE KEY-----`
+// Test-only HTTPS identity for the local-certificate-trust E2E, minted in-process
+// on every run. Why not a committed PEM: a published private key — even a
+// throwaway one — is a published secret, and secret scanning rightly refuses it.
+// Why not OpenSSL: Windows E2E runners have none, so the DER is assembled here
+// (same approach as src/main/runtime/tls-certificate.ts), keeping the SANs for
+// localhost and 127.0.0.1 that the committed fixture carried.
+import { generateKeyPairSync, randomBytes, sign } from 'node:crypto'
 
-export const LOCAL_HTTPS_TEST_CERTIFICATE = `-----BEGIN CERTIFICATE-----
-MIIDJTCCAg2gAwIBAgIUIw41Eu7j9W1oTBKtoStG2UbRdUIwDQYJKoZIhvcNAQEL
-BQAwFDESMBAGA1UEAwwJbG9jYWxob3N0MB4XDTI2MDcxMzA2MzAxN1oXDTM2MDcx
-MDA2MzAxN1owFDESMBAGA1UEAwwJbG9jYWxob3N0MIIBIjANBgkqhkiG9w0BAQEF
-AAOCAQ8AMIIBCgKCAQEAo5GG6KvwQzMRodI2HngBJ4R+OuryTtjUyLAwGqoVQ8V0
-lqoHKjx4QF0tyOAgswbkwSjAn2ZxS4zn+v/vJhoTLFlJoJHIWdt36OZLM24LJcfm
-7tDQE9eDgLg9BOazRCcBgNlu4t2t5NVC100lKRPVtXcUC0My0plyCmEk9UmnYt/6
-rbopHEFtRPS8m9YLn94L5vox0s1IjN94HiV+szZHd31/rnNqDZJvrRaOzpedgPvn
-EiKsQfDAqq31DYSEss7uDs53vW7AqFnaFuGi1/l1VUcPWPJ1PXCL7fPB9WvaAoax
-vuaF1NeuqQHSmbwFFeuX4v8t8N5XYCruSF5PkSftcQIDAQABo28wbTAdBgNVHQ4E
-FgQUCmY8mF92kNqEbWlJ15z7Y1qq8wcwHwYDVR0jBBgwFoAUCmY8mF92kNqEbWlJ
-15z7Y1qq8wcwDwYDVR0TAQH/BAUwAwEB/zAaBgNVHREEEzARgglsb2NhbGhvc3SH
-BH8AAAEwDQYJKoZIhvcNAQELBQADggEBACidMu/gBoJozW/HwWzU924fHndhnZRV
-nhzR1JWB1/7DaeC1ePJYs6eRKe+A7mV1qxPXDMpMqzv3KAo4WirDW8y4rsM/sp5w
-C2qTGbo+nF6u4tX6p9RQnN4HPeJfGXOtOfkyXK7M7C7O+Rzo3RdJmZZk8GBWe0+q
-vYIIvbLmC4zRFLL2Mp8fPlW7VeQWl8u+2nXQrC/0oOGN7cXjtsj8Dcu6939srMW/
-6KiypTji5Idkn7HK2qq4Obbzbet8euWabhMZ3N5+tAcWHvJoNy6wGQlBZmZaPbQD
-6LnMrP0J7dmEcShy5MXhNp6BFQ9jkhGVkIxk3fRtHFO9vDPYbdo0Pho=
------END CERTIFICATE-----`
+function lengthBytes(length: number): Buffer {
+  if (length < 0x80) {
+    return Buffer.from([length])
+  }
+  const bytes: number[] = []
+  let remaining = length
+  while (remaining > 0) {
+    bytes.unshift(remaining & 0xff)
+    remaining >>= 8
+  }
+  return Buffer.from([0x80 | bytes.length, ...bytes])
+}
+
+function tagged(tag: number, content: Buffer): Buffer {
+  return Buffer.concat([Buffer.from([tag]), lengthBytes(content.length), content])
+}
+
+function sequence(...items: Buffer[]): Buffer {
+  return tagged(0x30, Buffer.concat(items))
+}
+
+function set(...items: Buffer[]): Buffer {
+  return tagged(0x31, Buffer.concat(items))
+}
+
+function integer(value: Buffer): Buffer {
+  const firstNonZero = value.findIndex((byte) => byte !== 0)
+  const trimmed = firstNonZero === -1 ? Buffer.from([0]) : value.subarray(firstNonZero)
+  return tagged(0x02, trimmed[0]! & 0x80 ? Buffer.concat([Buffer.from([0]), trimmed]) : trimmed)
+}
+
+function bitString(value: Buffer): Buffer {
+  return tagged(0x03, Buffer.concat([Buffer.from([0]), value]))
+}
+
+function objectIdentifier(value: string): Buffer {
+  const parts = value.split('.').map((part) => Number(part))
+  const bytes = [parts[0]! * 40 + parts[1]!]
+  for (const part of parts.slice(2)) {
+    const encoded = [part & 0x7f]
+    let remaining = part >> 7
+    while (remaining > 0) {
+      encoded.unshift((remaining & 0x7f) | 0x80)
+      remaining >>= 7
+    }
+    bytes.push(...encoded)
+  }
+  return tagged(0x06, Buffer.from(bytes))
+}
+
+// RFC 5280 requires UTCTime for validity dates before 2050.
+function utcTime(date: Date): Buffer {
+  const value = [
+    `${date.getUTCFullYear()}`.slice(-2),
+    `${date.getUTCMonth() + 1}`.padStart(2, '0'),
+    `${date.getUTCDate()}`.padStart(2, '0'),
+    `${date.getUTCHours()}`.padStart(2, '0'),
+    `${date.getUTCMinutes()}`.padStart(2, '0'),
+    `${date.getUTCSeconds()}`.padStart(2, '0'),
+    'Z'
+  ].join('')
+  return tagged(0x17, Buffer.from(value, 'ascii'))
+}
+
+function commonName(name: string): Buffer {
+  return sequence(
+    set(sequence(objectIdentifier('2.5.4.3'), tagged(0x0c, Buffer.from(name, 'utf8'))))
+  )
+}
+
+// GeneralNames: dNSName [2] localhost, iPAddress [7] 127.0.0.1 — Chromium rejects
+// a certificate with no SAN before it ever reaches the trust decision under test.
+function subjectAltNameExtension(): Buffer {
+  const generalNames = sequence(
+    tagged(0x82, Buffer.from('localhost', 'ascii')),
+    tagged(0x87, Buffer.from([127, 0, 0, 1]))
+  )
+  return sequence(objectIdentifier('2.5.29.17'), tagged(0x04, generalNames))
+}
+
+// CA:TRUE, matching the fixture this replaced: the certificate is its own root.
+function basicConstraintsExtension(): Buffer {
+  return sequence(
+    objectIdentifier('2.5.29.19'),
+    tagged(0x01, Buffer.from([0xff])),
+    tagged(0x04, sequence(tagged(0x01, Buffer.from([0xff]))))
+  )
+}
+
+function toPem(label: string, der: Buffer): string {
+  const body =
+    der
+      .toString('base64')
+      .match(/.{1,64}/g)
+      ?.join('\n') ?? ''
+  return `-----BEGIN ${label}-----\n${body}\n-----END ${label}-----\n`
+}
+
+export type LocalHttpsTestIdentity = { key: string; cert: string }
+
+export function createLocalHttpsTestIdentity(): LocalHttpsTestIdentity {
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
+  const key = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
+  const publicKeyInfo = publicKey.export({ type: 'spki', format: 'der' }) as Buffer
+  // sha256WithRSAEncryption, NULL parameters.
+  const algorithm = sequence(
+    objectIdentifier('1.2.840.113549.1.1.11'),
+    tagged(0x05, Buffer.alloc(0))
+  )
+  const subject = commonName('localhost')
+  const validity = sequence(
+    utcTime(new Date(Date.now() - 60_000)),
+    utcTime(new Date(Date.now() + 3650 * 24 * 60 * 60 * 1000))
+  )
+  const tbsCertificate = sequence(
+    tagged(0xa0, integer(Buffer.from([2]))),
+    integer(randomBytes(16)),
+    algorithm,
+    subject,
+    validity,
+    subject,
+    publicKeyInfo,
+    tagged(0xa3, sequence(basicConstraintsExtension(), subjectAltNameExtension()))
+  )
+  const signature = sign('sha256', tbsCertificate, privateKey)
+  const cert = toPem('CERTIFICATE', sequence(tbsCertificate, algorithm, bitString(signature)))
+  return { key, cert }
+}
+
+const identity = createLocalHttpsTestIdentity()
+
+export const LOCAL_HTTPS_TEST_PRIVATE_KEY = identity.key
+export const LOCAL_HTTPS_TEST_CERTIFICATE = identity.cert

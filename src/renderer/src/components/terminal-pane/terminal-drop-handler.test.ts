@@ -116,7 +116,7 @@ describe('handleTerminalFileDrop', () => {
     mocks.importExternalPathsToRuntime.mockResolvedValue({
       results: [
         {
-          sourcePath: '/Users/me/logo.png',
+          sourcePath: '/userhome/me/logo.png',
           status: 'imported',
           destPath: '/remote/repo/.orca/drops/logo.png',
           kind: 'file',
@@ -139,7 +139,7 @@ describe('handleTerminalFileDrop', () => {
       worktreeId: 'wt-1',
       tabId: 'tab-1',
       cwd: undefined,
-      data: { paths: ['/Users/me/logo.png'], target: 'terminal' }
+      data: { paths: ['/userhome/me/logo.png'], target: 'terminal' }
     })
 
     expect(mocks.importExternalPathsToRuntime).toHaveBeenCalledWith(
@@ -151,7 +151,7 @@ describe('handleTerminalFileDrop', () => {
         expectedSshTargetId: undefined,
         expectedSshConnectionGeneration: undefined
       },
-      ['/Users/me/logo.png'],
+      ['/userhome/me/logo.png'],
       '/remote/repo/.orca/drops',
       { assertCurrent: expect.any(Function) }
     )
@@ -171,7 +171,7 @@ describe('handleTerminalFileDrop', () => {
       return {
         results: [
           {
-            sourcePath: '/Users/me/logo.png',
+            sourcePath: '/userhome/me/logo.png',
             status: 'imported',
             destPath: '/remote/repo/.orca/drops/logo.png',
             kind: 'file',
@@ -196,7 +196,7 @@ describe('handleTerminalFileDrop', () => {
       worktreeId: 'wt-1',
       tabId: 'tab-1',
       cwd: undefined,
-      data: { paths: ['/Users/me/logo.png'], target: 'terminal' }
+      data: { paths: ['/userhome/me/logo.png'], target: 'terminal' }
     })
 
     expect(sendInput).not.toHaveBeenCalled()
@@ -212,7 +212,7 @@ describe('handleTerminalFileDrop', () => {
     mocks.importExternalPathsToRuntime.mockResolvedValue({
       results: [
         {
-          sourcePath: '/Users/me/logo.png',
+          sourcePath: '/userhome/me/logo.png',
           status: 'imported',
           destPath: '//server/share/repo\\.orca\\drops\\logo.png',
           kind: 'file',
@@ -235,7 +235,7 @@ describe('handleTerminalFileDrop', () => {
       worktreeId: 'wt-1',
       tabId: 'tab-1',
       cwd: undefined,
-      data: { paths: ['/Users/me/logo.png'], target: 'terminal' }
+      data: { paths: ['/userhome/me/logo.png'], target: 'terminal' }
     })
 
     expect(mocks.importExternalPathsToRuntime).toHaveBeenCalledWith(
@@ -247,7 +247,7 @@ describe('handleTerminalFileDrop', () => {
         expectedSshTargetId: undefined,
         expectedSshConnectionGeneration: undefined
       },
-      ['/Users/me/logo.png'],
+      ['/userhome/me/logo.png'],
       '\\\\server\\share\\repo\\.orca\\drops',
       { assertCurrent: expect.any(Function) }
     )
@@ -269,7 +269,7 @@ describe('handleTerminalFileDrop', () => {
     mocks.importExternalPathsToRuntime.mockResolvedValue({
       results: [
         {
-          sourcePath: '/Users/me/spec.pdf',
+          sourcePath: '/userhome/me/spec.pdf',
           status: 'imported',
           destPath: '/remote/repo/.orca/drops/spec.pdf',
           kind: 'file',
@@ -292,7 +292,7 @@ describe('handleTerminalFileDrop', () => {
       worktreeId: 'wt-1',
       tabId: 'tab-1',
       cwd: undefined,
-      data: { paths: ['/Users/me/spec.pdf'], target: 'terminal' }
+      data: { paths: ['/userhome/me/spec.pdf'], target: 'terminal' }
     })
 
     expect(mocks.importExternalPathsToRuntime).toHaveBeenCalledWith(
@@ -304,7 +304,7 @@ describe('handleTerminalFileDrop', () => {
         expectedSshTargetId: undefined,
         expectedSshConnectionGeneration: undefined
       },
-      ['/Users/me/spec.pdf'],
+      ['/userhome/me/spec.pdf'],
       '/remote/repo/.orca/drops',
       { assertCurrent: expect.any(Function) }
     )
@@ -331,11 +331,11 @@ describe('handleTerminalFileDrop', () => {
       worktreeId: 'wt-1',
       tabId: 'tab-1',
       cwd: undefined,
-      data: { paths: ['/Users/me/spec.pdf'], target: 'terminal' }
+      data: { paths: ['/userhome/me/spec.pdf'], target: 'terminal' }
     })
 
     expect(mocks.importExternalPathsToRuntime).not.toHaveBeenCalled()
-    expect(sendInput).toHaveBeenCalledWith('/Users/me/spec.pdf ')
+    expect(sendInput).toHaveBeenCalledWith('/userhome/me/spec.pdf ')
     expect(focus).toHaveBeenCalled()
   })
 
@@ -351,12 +351,12 @@ describe('handleTerminalFileDrop', () => {
       {
         id: 'repo1',
         connectionId: null,
-        path: 'C:\\Users\\alice\\repo',
+        path: 'C:\\userhome\\alice\\repo',
         executionHostId: 'local'
       }
     ]
     mocks.storeState.worktreesByRepo = {
-      repo1: [{ id: 'wt-1', repoId: 'repo1', path: 'C:\\Users\\alice\\repo\\feature' }]
+      repo1: [{ id: 'wt-1', repoId: 'repo1', path: 'C:\\userhome\\alice\\repo\\feature' }]
     }
     const sendInput = vi.fn(() => true)
     const focus = vi.fn()
@@ -374,7 +374,7 @@ describe('handleTerminalFileDrop', () => {
       cwd: undefined,
       data: {
         paths: [
-          'C:\\Users\\alice\\Desktop\\notes one.txt',
+          'C:\\userhome\\alice\\Desktop\\notes one.txt',
           '\\\\wsl.localhost\\Ubuntu\\home\\alice\\repo\\README.md'
         ],
         target: 'terminal'
@@ -382,7 +382,7 @@ describe('handleTerminalFileDrop', () => {
     })
 
     expect(mocks.importExternalPathsToRuntime).not.toHaveBeenCalled()
-    expect(sendInput).toHaveBeenNthCalledWith(1, "'/mnt/c/Users/alice/Desktop/notes one.txt' ")
+    expect(sendInput).toHaveBeenNthCalledWith(1, "'/mnt/c/userhome/alice/Desktop/notes one.txt' ")
     expect(sendInput).toHaveBeenNthCalledWith(2, '/home/alice/repo/README.md ')
     expect(mocks.recordTerminalUserInputForLeaf).toHaveBeenCalledWith('tab-1', 'leaf-1')
   })
@@ -410,10 +410,10 @@ describe('handleTerminalFileDrop', () => {
       worktreeId: 'wt-1',
       tabId: 'tab-1',
       cwd: undefined,
-      data: { paths: ['/Users/me/spec.pdf'], target: 'terminal' }
+      data: { paths: ['/userhome/me/spec.pdf'], target: 'terminal' }
     })
 
-    expect(sendInputAccepted).toHaveBeenCalledWith('/Users/me/spec.pdf ')
+    expect(sendInputAccepted).toHaveBeenCalledWith('/userhome/me/spec.pdf ')
     expect(sendInput).not.toHaveBeenCalled()
     expect(focus).toHaveBeenCalled()
     expect(mocks.recordTerminalUserInputForLeaf).toHaveBeenCalledWith('tab-1', 'leaf-1')
@@ -447,12 +447,12 @@ describe('handleTerminalFileDrop', () => {
       worktreeId: 'wt-1',
       tabId: 'tab-1',
       cwd: undefined,
-      data: { paths: ['/Users/me/spec.pdf'], target: 'terminal', paneLeafId: 'leaf-target' }
+      data: { paths: ['/userhome/me/spec.pdf'], target: 'terminal', paneLeafId: 'leaf-target' }
     })
 
     expect(activeSendInput).not.toHaveBeenCalled()
     expect(activeFocus).not.toHaveBeenCalled()
-    expect(targetSendInput).toHaveBeenCalledWith('/Users/me/spec.pdf ')
+    expect(targetSendInput).toHaveBeenCalledWith('/userhome/me/spec.pdf ')
     expect(targetFocus).toHaveBeenCalled()
     expect(mocks.recordTerminalUserInputForLeaf).toHaveBeenCalledWith('tab-1', 'leaf-target')
   })
@@ -473,7 +473,7 @@ describe('handleTerminalFileDrop', () => {
     }
     mocks.resolveDroppedPathsForAgent.mockResolvedValue({
       failed: [],
-      resolvedPaths: ['/mnt/c/Users/Name/My Project/file.txt', '/home/user/repo/README.md'],
+      resolvedPaths: ['/mnt/c/userhome/Name/My Project/file.txt', '/home/user/repo/README.md'],
       skipped: []
     })
     const sendInput = vi.fn(() => true)
@@ -493,7 +493,7 @@ describe('handleTerminalFileDrop', () => {
       cwd: undefined,
       data: {
         paths: [
-          'C:\\Users\\Name\\My Project\\file.txt',
+          'C:\\userhome\\Name\\My Project\\file.txt',
           '\\\\wsl.localhost\\Ubuntu-24.04\\home\\user\\repo\\README.md'
         ],
         target: 'terminal'
@@ -502,13 +502,13 @@ describe('handleTerminalFileDrop', () => {
 
     expect(mocks.resolveDroppedPathsForAgent).toHaveBeenCalledWith({
       paths: [
-        'C:\\Users\\Name\\My Project\\file.txt',
+        'C:\\userhome\\Name\\My Project\\file.txt',
         '\\\\wsl.localhost\\Ubuntu-24.04\\home\\user\\repo\\README.md'
       ],
       worktreePath: '\\\\wsl.localhost\\Ubuntu-24.04\\home\\user\\repo'
     })
     expect(sendInput.mock.calls).toEqual([
-      ["'/mnt/c/Users/Name/My Project/file.txt' "],
+      ["'/mnt/c/userhome/Name/My Project/file.txt' "],
       ['/home/user/repo/README.md ']
     ])
     expect(focus).toHaveBeenCalled()
@@ -534,7 +534,7 @@ describe('handleTerminalFileDrop', () => {
       ptyId = 'pty-2'
       return {
         failed: [],
-        resolvedPaths: ['/mnt/c/Users/Name/My Project/file.txt'],
+        resolvedPaths: ['/mnt/c/userhome/Name/My Project/file.txt'],
         skipped: []
       }
     })
@@ -554,7 +554,7 @@ describe('handleTerminalFileDrop', () => {
       worktreeId: 'wt-1',
       tabId: 'tab-1',
       cwd: undefined,
-      data: { paths: ['C:\\Users\\Name\\My Project\\file.txt'], target: 'terminal' }
+      data: { paths: ['C:\\userhome\\Name\\My Project\\file.txt'], target: 'terminal' }
     })
 
     expect(sendInput).not.toHaveBeenCalled()
@@ -597,11 +597,11 @@ describe('handleTerminalFileDrop', () => {
       worktreeId: 'wt-1',
       tabId: 'tab-1',
       cwd: undefined,
-      data: { paths: ['C:\\Users\\Name\\A&B.txt'], target: 'terminal' }
+      data: { paths: ['C:\\userhome\\Name\\A&B.txt'], target: 'terminal' }
     })
 
     expect(mocks.resolveDroppedPathsForAgent).toHaveBeenCalledWith({
-      paths: ['C:\\Users\\Name\\A&B.txt'],
+      paths: ['C:\\userhome\\Name\\A&B.txt'],
       worktreePath: 'C:\\Remote Repo',
       connectionId: 'ssh-win',
       expectedExecutionHostId: 'ssh:ssh-win',
@@ -681,7 +681,7 @@ describe('handleTerminalFileDrop', () => {
       worktreeId: 'wt-1',
       tabId: 'tab-1',
       cwd: undefined,
-      data: { paths: ["/Users/me/it's here.txt"], target: 'terminal' }
+      data: { paths: ["/userhome/me/it's here.txt"], target: 'terminal' }
     })
 
     expect(sendInput).toHaveBeenCalledWith("'/remote/repo/it'\\''s here.txt' ")

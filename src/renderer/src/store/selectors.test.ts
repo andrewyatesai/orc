@@ -243,7 +243,7 @@ describe('store selectors', () => {
     const repos = [
       makeRepo({
         id: 'repo-1',
-        path: '/Users/alice/orca',
+        path: '/userhome/alice/orca',
         displayName: 'orca'
       })
     ]
@@ -265,7 +265,7 @@ describe('store selectors', () => {
     const repos = [
       makeRepo({
         id: 'repo-1',
-        path: '/Users/alice/orca',
+        path: '/userhome/alice/orca',
         displayName: 'orca'
       })
     ]
@@ -285,7 +285,7 @@ describe('store selectors', () => {
         projectId: 'project-1',
         hostId: 'local' as const,
         repoId: 'repo-1',
-        path: '/Users/alice/orca',
+        path: '/userhome/alice/orca',
         displayName: 'orca',
         setupState: 'ready' as const,
         setupMethod: 'legacy-repo' as const,
@@ -304,7 +304,7 @@ describe('store selectors', () => {
     const repos = [
       makeRepo({
         id: 'local-orca',
-        path: '/Users/alice/stably/orca',
+        path: '/userhome/alice/stably/orca',
         displayName: 'orca',
         upstream: { owner: 'stablyai', repo: 'orca' }
       }),
@@ -340,7 +340,7 @@ describe('store selectors', () => {
         projectId: 'github:stablyai/orca',
         hostId: 'local' as const,
         repoId: 'local-orca',
-        path: '/Users/alice/stably/orca',
+        path: '/userhome/alice/stably/orca',
         displayName: 'orca',
         setupState: 'ready' as const,
         setupMethod: 'legacy-repo' as const,
@@ -380,7 +380,7 @@ describe('store selectors', () => {
     const repos = [
       makeRepo({
         id: 'repo-1',
-        path: '/Users/alice/orca',
+        path: '/userhome/alice/orca',
         displayName: 'orca',
         upstream: { owner: 'stablyai', repo: 'orca' }
       })
@@ -404,7 +404,7 @@ describe('store selectors', () => {
         projectId: 'github:stablyai/orca',
         repoId: 'repo-1',
         hostId: 'local',
-        path: '/Users/alice/orca'
+        path: '/userhome/alice/orca'
       })
     ])
   })
@@ -413,7 +413,7 @@ describe('store selectors', () => {
     const repos = [
       makeRepo({
         id: 'repo-1',
-        path: '/Users/alice/orca',
+        path: '/userhome/alice/orca',
         displayName: 'orca'
       })
     ]

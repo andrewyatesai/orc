@@ -155,7 +155,7 @@ describe('local worktree filesystem runtime access', () => {
       )
 
       completeExecFile()
-      await removeLocalWorktreePath('C:\\Users\\me\\repo feature', { wslDistro: 'Ubuntu' })
+      await removeLocalWorktreePath('C:\\userhome\\me\\repo feature', { wslDistro: 'Ubuntu' })
 
       expect(execFileMock).toHaveBeenCalledTimes(3)
       expect(execFileMock).toHaveBeenNthCalledWith(
@@ -168,7 +168,7 @@ describe('local worktree filesystem runtime access', () => {
       const removeArgs = execFileMock.mock.calls[2]?.[1] as string[]
       expect(removeArgs.at(-1)).toContain('rm -rf --')
       expect(removeArgs.at(-1)).toContain(
-        String.raw`rm -rf -- '\''/mnt/c/Users/me/repo feature'\''`
+        String.raw`rm -rf -- '\''/mnt/c/userhome/me/repo feature'\''`
       )
       expect(rmMock).not.toHaveBeenCalled()
     })

@@ -71,7 +71,7 @@ describe('mergeSnapshotAndSessions', () => {
 
   it('includes browser-only workspaces in their repo', () => {
     const worktree = {
-      id: 'orca::/Users/me/browser-only',
+      id: 'orca::/userhome/me/browser-only',
       repoId: 'orca',
       displayName: 'browser-only'
     } as Worktree
@@ -113,7 +113,7 @@ describe('mergeSnapshotAndSessions', () => {
 
   it('passes through snapshot worktrees with numeric metrics and hasLocalSamples', () => {
     const wt: WorktreeMemory = {
-      worktreeId: 'orca::/Users/me/Triton',
+      worktreeId: 'orca::/userhome/me/Triton',
       worktreeName: 'Triton',
       repoId: 'orca',
       repoName: 'ORCA',
@@ -147,7 +147,7 @@ describe('mergeSnapshotAndSessions', () => {
 
   it('dedups: a session present in both snapshot and daemon list renders once with numeric metrics', () => {
     const wt: WorktreeMemory = {
-      worktreeId: 'orca::/Users/me/Triton',
+      worktreeId: 'orca::/userhome/me/Triton',
       worktreeName: 'Triton',
       repoId: 'orca',
       repoName: 'ORCA',
@@ -157,7 +157,7 @@ describe('mergeSnapshotAndSessions', () => {
       sessions: [{ sessionId: 'pty-1', paneKey: null, pid: 999, cpu: 0.1, memory: 50_000_000 }]
     }
     const ds: DaemonSession[] = [
-      { id: 'pty-1', cwd: '/Users/me/Triton', title: 'shell', agentOwnership: 'absent' as const }
+      { id: 'pty-1', cwd: '/userhome/me/Triton', title: 'shell', agentOwnership: 'absent' as const }
     ]
     const out = mergeSnapshotAndSessions(makeSnapshot([wt]), ds, baseCtx())
     expect(out[0].worktrees[0].sessions).toHaveLength(1)
@@ -173,7 +173,7 @@ describe('mergeSnapshotAndSessions', () => {
     // Why: only the daemon list reports ownership. A snapshot row describing the same session must
     // not report `false` — that row is the one whose kill skips confirmation (#8459).
     const wt: WorktreeMemory = {
-      worktreeId: 'orca::/Users/me/Triton',
+      worktreeId: 'orca::/userhome/me/Triton',
       worktreeName: 'Triton',
       repoId: 'orca',
       repoName: 'ORCA',
@@ -185,7 +185,7 @@ describe('mergeSnapshotAndSessions', () => {
     const ds: DaemonSession[] = [
       {
         id: 'pty-agent',
-        cwd: '/Users/me/Triton',
+        cwd: '/userhome/me/Triton',
         title: 'codex',
         agentOwnership: 'present' as const
       }
@@ -220,7 +220,7 @@ describe('mergeSnapshotAndSessions', () => {
 
   it('treats a snapshot row the daemon never listed as unknown ownership, not absent', () => {
     const wt: WorktreeMemory = {
-      worktreeId: 'orca::/Users/me/Triton',
+      worktreeId: 'orca::/userhome/me/Triton',
       worktreeName: 'Triton',
       repoId: 'orca',
       repoName: 'ORCA',
@@ -324,11 +324,11 @@ describe('mergeSnapshotAndSessions', () => {
 
   it('treats startup deferred reattach tab ptyId wake hints as bound sessions', () => {
     const tabId = 'tab-restored'
-    const sessionId = 'orca::/Users/me/Triton@@deferred'
+    const sessionId = 'orca::/userhome/me/Triton@@deferred'
     const ds: DaemonSession[] = [
       {
         id: sessionId,
-        cwd: '/Users/me/Triton',
+        cwd: '/userhome/me/Triton',
         title: 'orca/Triton',
         agentOwnership: 'absent' as const
       }
@@ -336,7 +336,7 @@ describe('mergeSnapshotAndSessions', () => {
     const restoredTab = { ...makeTab(tabId, 'Restored'), ptyId: sessionId }
     const ctx = baseCtx({
       tabsByWorktree: {
-        'orca::/Users/me/Triton': [restoredTab]
+        'orca::/userhome/me/Triton': [restoredTab]
       },
       ptyIdsByTabId: { [tabId]: [] }
     })
@@ -484,7 +484,7 @@ describe('mergeSnapshotAndSessions', () => {
   it('local-bound interaction state: numeric metrics + bound=true + tabId set', () => {
     const tabId = 'tab-1'
     const wt: WorktreeMemory = {
-      worktreeId: 'orca::/Users/me/Triton',
+      worktreeId: 'orca::/userhome/me/Triton',
       worktreeName: 'Triton',
       repoId: 'orca',
       repoName: 'ORCA',
@@ -494,7 +494,7 @@ describe('mergeSnapshotAndSessions', () => {
       sessions: [{ sessionId: 'pty-bound', paneKey: null, pid: 1, cpu: 0.1, memory: 1_000 }]
     }
     const ctx = baseCtx({
-      tabsByWorktree: { 'orca::/Users/me/Triton': [makeTab(tabId)] },
+      tabsByWorktree: { 'orca::/userhome/me/Triton': [makeTab(tabId)] },
       ptyIdsByTabId: { [tabId]: ['pty-bound'] }
     })
     const out = mergeSnapshotAndSessions(makeSnapshot([wt]), [], ctx)
@@ -508,7 +508,7 @@ describe('mergeSnapshotAndSessions', () => {
 
   it('local-orphan interaction state: numeric metrics + bound=false + tabId null', () => {
     const wt: WorktreeMemory = {
-      worktreeId: 'orca::/Users/me/Triton',
+      worktreeId: 'orca::/userhome/me/Triton',
       worktreeName: 'Triton',
       repoId: 'orca',
       repoName: 'ORCA',
@@ -558,7 +558,7 @@ describe('mergeSnapshotAndSessions', () => {
   it('workspaceSessionReady=false suppresses bound flags so nothing looks bound prematurely', () => {
     const tabId = 'tab-1'
     const wt: WorktreeMemory = {
-      worktreeId: 'orca::/Users/me/Triton',
+      worktreeId: 'orca::/userhome/me/Triton',
       worktreeName: 'Triton',
       repoId: 'orca',
       repoName: 'ORCA',
@@ -569,7 +569,7 @@ describe('mergeSnapshotAndSessions', () => {
     }
     const ctx = baseCtx({
       workspaceSessionReady: false,
-      tabsByWorktree: { 'orca::/Users/me/Triton': [makeTab(tabId)] },
+      tabsByWorktree: { 'orca::/userhome/me/Triton': [makeTab(tabId)] },
       ptyIdsByTabId: { [tabId]: ['pty-1'] }
     })
     const out = mergeSnapshotAndSessions(makeSnapshot([wt]), [], ctx)

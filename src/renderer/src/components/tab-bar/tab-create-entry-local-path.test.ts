@@ -9,11 +9,11 @@ import {
 } from './tab-create-entry-local-path'
 
 const initialState = useAppStore.getInitialState()
-const localWorktreeId = 'repo-local::/Users/me/repo'
+const localWorktreeId = 'repo-local::/userhome/me/repo'
 
 function makeRepo(overrides: Partial<Repo> & { id: string }): Repo {
   return {
-    path: '/Users/me/repo',
+    path: '/userhome/me/repo',
     displayName: 'repo',
     badgeColor: '#000',
     addedAt: 0,
@@ -26,7 +26,7 @@ function makeFolderWorkspace(overrides: Partial<FolderWorkspace> = {}): FolderWo
     id: 'folder-local',
     projectGroupId: 'group-local',
     name: 'Local folder',
-    folderPath: '/Users/me/folder',
+    folderPath: '/userhome/me/folder',
     linkedTask: null,
     comment: '',
     isArchived: false,
@@ -69,7 +69,7 @@ describe('getTabEntryAllowAbsolutePaths', () => {
           {
             id: localWorktreeId,
             repoId: 'repo-local',
-            path: '/Users/me/repo',
+            path: '/userhome/me/repo',
             hostId: 'local'
           } as never
         ]
@@ -111,7 +111,7 @@ describe('getTabEntryAllowAbsolutePaths', () => {
           {
             id: localWorktreeId,
             repoId: 'repo-local',
-            path: '/Users/me/repo',
+            path: '/userhome/me/repo',
             hostId: 'runtime:hub-a',
             runtimeOwnerEnvironmentId: 'hub-a'
           } as never
@@ -148,7 +148,7 @@ describe('getTabEntryAllowAbsolutePaths', () => {
     })
 
     expect(
-      getTabEntryAllowAbsolutePaths(useAppStore.getState(), 'repo-local::/Users/me/repo-missing')
+      getTabEntryAllowAbsolutePaths(useAppStore.getState(), 'repo-local::/userhome/me/repo-missing')
     ).toBe(false)
   })
 
@@ -160,7 +160,7 @@ describe('getTabEntryAllowAbsolutePaths', () => {
           {
             id: localWorktreeId,
             repoId: 'repo-local',
-            path: '/Users/me/repo',
+            path: '/userhome/me/repo',
             hostId: 'local'
           } as never
         ],
@@ -168,7 +168,7 @@ describe('getTabEntryAllowAbsolutePaths', () => {
           {
             id: localWorktreeId,
             repoId: 'repo-runtime',
-            path: '/Users/me/repo',
+            path: '/userhome/me/repo',
             hostId: 'runtime:hub-a',
             runtimeOwnerEnvironmentId: 'hub-a'
           } as never
@@ -274,7 +274,7 @@ describe('getTabEntryAllowAbsolutePaths', () => {
       repos: [
         makeRepo({
           id: 'repo-ssh',
-          path: '/Users/me/folder/repo',
+          path: '/userhome/me/folder/repo',
           projectGroupId: 'group-local',
           connectionId: 'ssh-1'
         })
@@ -294,12 +294,12 @@ describe('getTabEntryAllowAbsolutePaths', () => {
       repos: [
         makeRepo({
           id: 'repo-local-child',
-          path: '/Users/me/folder/local',
+          path: '/userhome/me/folder/local',
           projectGroupId: 'group-local'
         }),
         makeRepo({
           id: 'repo-ssh-child',
-          path: '/Users/me/folder/remote',
+          path: '/userhome/me/folder/remote',
           projectGroupId: 'group-local',
           connectionId: 'ssh-1'
         })
@@ -319,7 +319,7 @@ describe('getTabEntryAllowAbsolutePaths', () => {
           {
             id: localWorktreeId,
             repoId: 'repo-local',
-            path: '/Users/me/repo',
+            path: '/userhome/me/repo',
             hostId: 'local'
           } as never
         ]
@@ -350,7 +350,7 @@ describe('getTabEntryAllowAbsolutePaths', () => {
           {
             id: localWorktreeId,
             repoId: 'repo-local',
-            path: '/Users/me/repo',
+            path: '/userhome/me/repo',
             hostId: 'local'
           } as never
         ]
@@ -372,7 +372,7 @@ describe('getTabEntryAllowAbsolutePaths', () => {
             {
               id: localWorktreeId,
               repoId: 'repo-local',
-              path: '/Users/me/repo',
+              path: '/userhome/me/repo',
               hostId: 'runtime:hub-a',
               runtimeOwnerEnvironmentId: 'hub-a'
             } as never

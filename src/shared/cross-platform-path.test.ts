@@ -74,7 +74,7 @@ describe('cross-platform path containment', () => {
     // Regression for #10832: macOS file pickers hand Orca decomposed (NFD) paths
     // while Claude Code records cwd and names its project dirs in NFC, so a
     // non-ASCII workspace never matched its own sessions.
-    const nfc = '/Users/ada/내 드라이브/프로젝트'
+    const nfc = '/userhome/ada/내 드라이브/프로젝트'
     const nfd = nfc.normalize('NFD')
     expect(nfd).not.toBe(nfc)
 
@@ -94,7 +94,7 @@ describe('cross-platform path containment', () => {
     // Comparison folding (NFC, case) is not length-preserving, so slicing the raw
     // candidate by the folded root's length would cut mid-character and fabricate
     // a path — callers rejoin this suffix and hit the filesystem with it.
-    const nfc = '/Users/ada/프로젝트'
+    const nfc = '/userhome/ada/프로젝트'
     const nfd = nfc.normalize('NFD')
     for (const root of [nfc, nfd]) {
       for (const candidate of [nfc, nfd]) {

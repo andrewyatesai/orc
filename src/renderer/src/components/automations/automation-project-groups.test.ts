@@ -28,7 +28,7 @@ describe('getAutomationProjectGroups', () => {
         repo({
           id: 'local',
           displayName: 'claude-swap',
-          path: '/Users/me/claude-swap',
+          path: '/userhome/me/claude-swap',
           repoIcon: { type: 'image', source: 'github', label: 'realiti4/claude-swap', src: '' }
         }),
         repo({
