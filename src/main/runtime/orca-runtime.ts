@@ -301,7 +301,10 @@ import {
   markCursorWorkspaceTrusted
 } from '../agent-trust-presets'
 import { markRemoteAgentWorkspaceTrusted } from '../remote-agent-trust-presets'
-import { applyAgentStatusHooksEnabled } from '../agent-hooks/managed-agent-hook-controls'
+import {
+  applyAgentStatusHooksEnabled,
+  isAgentStatusHooksEnabled
+} from '../agent-hooks/managed-agent-hook-controls'
 import {
   isWindowsAbsolutePathLike,
   isPathInsideOrEqual,
@@ -886,6 +889,27 @@ import {
   type TerminalAwaitResult
 } from './terminal-multi-pane-await'
 import { TERMINAL_AWAIT_CONSUMER_GATED_FACT_KINDS } from './terminal-await-fact-kinds'
+import {
+  createTerminalInputCoordinator,
+  type TerminalInputCoordinator
+} from './terminal-input-coordinator'
+import {
+  isTerminalInputPreemption,
+  type ConnectionPin,
+  type HumanInputSource,
+  type LeaseRevokedReport
+} from './terminal-input-lease-preemption'
+import {
+  submitAgentPrompt,
+  type AgentPromptSubmissionPorts,
+  type AgentPromptSubmissionTarget
+} from './agent-prompt-submission'
+import type { AgentPromptSubmissionResult } from './agent-prompt-submission-result'
+import type { AgentStateTransitionWatch } from './agent-prompt-submit-verification'
+import {
+  AgentSubmitHookObserver,
+  type AgentHookEvidenceSource
+} from '../agent-hooks/agent-submit-hook-observer'
 // Why: the query-reply election derives "visible host" from the same hidden-mark state the delivery gate reads, so election and delivery cannot diverge (#9156).
 import { isHiddenRendererPty } from '../ipc/pty-hidden-delivery-gate'
 import {
@@ -2816,6 +2840,16 @@ export class OrcaRuntimeService {
   // including on a pane that has not published yet, where the journal has no
   // record to compare against. Fed by every publish; reset by rotation.
   private readonly ptyJournalHeadSeqById = new Map<string, number>()
+  // Why: §5.1's one-automated-writer-per-PTY serializer. It is also what makes
+  // §5.2a's submit attribution sound — "the first certified hook while this
+  // writer exclusively held the pane" — so it is owned here, beside the pin the
+  // journal already tracks, and never re-derived per operation.
+  private readonly terminalInputCoordinator: TerminalInputCoordinator =
+    createTerminalInputCoordinator()
+  // Why nullable: hook evidence is a desktop/serve wiring concern (the hook
+  // server lives outside the runtime), and a runtime without it must degrade to
+  // `submitted:'unknown'` rather than pretend a missing hook means "not sent".
+  private agentSubmitHookObserver: AgentSubmitHookObserver | null = null
   // Why: the Command Code output detector arms early from the launch command
   // when known (banner detection covers user-typed launches), mirroring the
   // renderer detector's startupCommand seed.
@@ -8383,10 +8417,54 @@ export class OrcaRuntimeService {
       ptyId,
       this.terminalEventJournal.beginIncarnation(this.ptyEventSourceFor(ptyId))
     )
+    this.noteTerminalInputPin(ptyId)
   }
 
   private notePtyJournalHead(ptyId: string, head: EventCursor): void {
     this.ptyJournalHeadSeqById.set(ptyId, head.eventSeq)
+  }
+
+  /** What an automated write is pinned to. Same identity the journal cursor uses,
+   *  so §5.1's lease and §5.3's cursor cannot disagree about which process a
+   *  submission was aimed at. */
+  private terminalInputPin(ptyId: string): ConnectionPin {
+    return {
+      ptyIncarnationId: this.ptyEventSourceFor(ptyId).ptyIncarnationId,
+      connectionGeneration: this.getPtyLifecycleGeneration(ptyId)
+    }
+  }
+
+  /** The coordinator grants no lease for a ptyId it has not been told about, and
+   *  this runtime is the only authority on which incarnation is live. */
+  private noteTerminalInputPin(ptyId: string): LeaseRevokedReport | null {
+    return this.terminalInputCoordinator.notePtyPin(ptyId, this.terminalInputPin(ptyId))
+  }
+
+  /**
+   * §5.4: a human keystroke reaching a pane preempts the automated writer holding
+   * it, and the phase at that instant decides the operation's outcome. The desktop
+   * `pty:write` and mobile input-floor paths call in here; nothing else may.
+   */
+  claimTerminalHumanInput(ptyId: string, source: HumanInputSource): LeaseRevokedReport | null {
+    return this.terminalInputCoordinator.claimHumanInput(ptyId, source)
+  }
+
+  /** The mobile floor's two-phase form: reserves ownership, then commit() or
+   *  rollback() decides what the displaced writer actually lost. */
+  beginTerminalHumanInputFloor(
+    ptyId: string,
+    source: HumanInputSource
+  ): ReturnType<TerminalInputCoordinator['beginHumanInputFloor']> {
+    return this.terminalInputCoordinator.beginHumanInputFloor(ptyId, source)
+  }
+
+  /** Hook evidence for §5.2's verifier. Wired from the process that owns the hook
+   *  server; without it a certified agent's submit can only ever report
+   *  `'unknown'`, never a false `'no'`. */
+  setAgentSubmitHookEvidence(source: AgentHookEvidenceSource | null): void {
+    this.agentSubmitHookObserver?.stop()
+    this.agentSubmitHookObserver = source ? new AgentSubmitHookObserver(source) : null
+    this.agentSubmitHookObserver?.start()
   }
 
   /** Journal cursor for a reader that has none: the newest retained position,
@@ -9077,6 +9155,11 @@ export class OrcaRuntimeService {
     return generation
   }
 
+  /** §5.1 obligation for every caller: the input pin derives from this counter, so
+   *  advancing it is a generation change and the coordinator has to hear about it —
+   *  either `noteTerminalInputPin` (the pane lives on under a new generation) or
+   *  `disposePty` (it does not). A lease that outlives an unannounced advance keeps
+   *  writing into a different process behind the same ptyId. */
   private advancePtyLifecycleGeneration(ptyId: string): void {
     this.ptyLifecycleGenerationById.set(ptyId, this.nextPtyLifecycleGeneration++)
     // Why: a provider response belongs to the process generation that issued
@@ -9113,6 +9196,11 @@ export class OrcaRuntimeService {
 
     if (providerSequence.generation === 'reset') {
       this.advancePtyLifecycleGeneration(ptyId)
+      // The pane survives this reset under a new generation, and the journal is
+      // only rotated below when the runtime saw no post-spawn output — so a
+      // mid-submit reset would otherwise leave a held lease pinned to the dead
+      // provider generation, still believing it owns the keyboard.
+      this.noteTerminalInputPin(ptyId)
       // Why: daemon respawn/cold restore starts a new absolute domain. Old
       // emulator state cannot remain authoritative over the replacement.
       if (replacesExistingRuntimeGeneration) {
@@ -11764,18 +11852,25 @@ export class OrcaRuntimeService {
       if (pty) {
         this.touchMobileSessionSnapshotsForPty(ptyId, { immediate: true })
       }
-    } else if (exit.preservesHandlelessSurface || preservesAbnormalSshSurface) {
-      // Why: relay loss is recoverable; keep the HUB-owned pane addressable through the bounded reconnect grace.
-      this.touchMobileSessionSnapshotsForPty(ptyId, { immediate: true })
     } else {
-      // Why: permanent process exit is absence, not a starting/sleeping tab.
-      // Retire before publishing so paired clients never persist a ghost.
-      this.retireMobileSessionSurfacesForPty(ptyId, exit.incarnationId, exit.exactSurfaces)
-      // Why here and not on every exit path: a pane that can still come back
-      // (relay loss, preserved handleless surface) must keep its retention and
-      // its parked readers. A pane that cannot settles them now with an
-      // explicit pty-dropped gap instead of waiting out a liveness poll.
-      this.terminalEventJournal.dropPty(ptyId)
+      // §5.1's obligation, owed on BOTH dispositions: onPtyExit already advanced the
+      // lifecycle generation, so the pin a held lease was validated against is dead.
+      // A preserved surface changes nothing for the writer — relay loss (§5.5) means
+      // the pane may come back, never that this write reached the process that left.
+      this.terminalInputCoordinator.disposePty(ptyId)
+      if (exit.preservesHandlelessSurface || preservesAbnormalSshSurface) {
+        // Why: relay loss is recoverable; keep the HUB-owned pane addressable through the bounded reconnect grace.
+        this.touchMobileSessionSnapshotsForPty(ptyId, { immediate: true })
+      } else {
+        // Why: permanent process exit is absence, not a starting/sleeping tab.
+        // Retire before publishing so paired clients never persist a ghost.
+        this.retireMobileSessionSurfacesForPty(ptyId, exit.incarnationId, exit.exactSurfaces)
+        // Why here and not on every exit path: a pane that can still come back
+        // (relay loss, preserved handleless surface) must keep its retention and
+        // its parked readers. A pane that cannot settles them now with an
+        // explicit pty-dropped gap instead of waiting out a liveness poll.
+        this.terminalEventJournal.dropPty(ptyId)
+      }
     }
 
     for (const leaf of this.getLeavesForPty(ptyId)) {
@@ -12172,6 +12267,11 @@ export class OrcaRuntimeService {
     const generation = ++state.generation
     state.pending.set(token, { clientId, generation })
     this.setDriver(ptyId, { kind: 'mobile', clientId })
+    // §5.4: the phone's reservation suspends any automated writer holding the pane
+    // *before* its bytes are attempted, and only the outcome below decides whether
+    // that writer actually lost it. Without this the exclusive hold §5.2a attributes
+    // submit evidence by is a claim nobody enforces.
+    const humanFloor = this.beginTerminalHumanInputFloor(ptyId, 'mobile')
     let settled = false
     return {
       commit: async () => {
@@ -12179,6 +12279,10 @@ export class OrcaRuntimeService {
           return
         }
         settled = true
+        humanFloor.commit()
+        // Released straight away: a phone write is one burst, and §5.4 hands the
+        // pane back through the post-human quiet window, not by holding it open.
+        humanFloor.release()
         state.pending.delete(token)
         // Why: a newer accepted write owns the floor; an older claim that was
         // delayed before commit must not replace its rollback baseline or driver.
@@ -12210,6 +12314,8 @@ export class OrcaRuntimeService {
           return
         }
         settled = true
+        // A phone write that never landed must hand the pane back intact.
+        humanFloor.rollback()
         state.pending.delete(token)
         if (this.mobileInputFloorClaims.get(ptyId) !== state) {
           return
@@ -14613,6 +14719,126 @@ export class OrcaRuntimeService {
     return { handle, accepted: true, bytesWritten }
   }
 
+  private resolveWritableTerminalPtyId(handle: string): string {
+    const pty = this.getLivePtyForHandle(handle)
+    if (pty) {
+      if (!pty.pty.connected) {
+        throw new Error('terminal_not_writable')
+      }
+      return pty.pty.ptyId
+    }
+    const { leaf } = this.getLiveLeafForHandle(handle)
+    if (!leaf.writable || !leaf.ptyId) {
+      throw new Error('terminal_not_writable')
+    }
+    return leaf.ptyId
+  }
+
+  /** Journal-backed tier 2: `agent-working` facts published since the arm. Idempotent
+   *  and cumulative, so the verify loop can poll it; a gap sets `lost`, because
+   *  silence over a hole in the journal is not the same as nothing happening. */
+  private armAgentStateTransitionWatch(ptyId: string): AgentStateTransitionWatch {
+    let cursor = this.terminalEventStartCursor(ptyId)
+    const at: number[] = []
+    let lost = false
+    return {
+      transitionsSinceArm: () => {
+        const read = this.terminalEventJournal.read(ptyId, cursor)
+        cursor = read.nextCursor
+        if (read.kind === 'gap') {
+          lost = true
+          return { at, lost }
+        }
+        for (const event of read.events) {
+          if (event.payload.kind === 'agent-working') {
+            at.push(event.at)
+          }
+        }
+        return { at, lost }
+      }
+    }
+  }
+
+  /**
+   * §5.2's `terminal.submitAgentPrompt`: lease, paste, echo-settle, anchor, arm,
+   * one Enter, verify. Unlike `sendTerminalAgentPrompt` it never reports success
+   * for bytes merely accepted — local `write()` acceptance is not delivery proof
+   * over SSH (§5.5), so the answer comes from evidence or comes back `'unknown'`.
+   */
+  async submitAgentPrompt(
+    handle: string,
+    prompt: string,
+    options: { settleBudgetMs?: number; signal?: AbortSignal } = {}
+  ): Promise<AgentPromptSubmissionResult> {
+    const ptyId = this.resolveWritableTerminalPtyId(handle)
+    await this.assertTerminalLivenessWritable(ptyId)
+    await assertTerminalInputWithinLimitWithYield(buildAgentPromptPasteBytes(prompt))
+    const profile = this.getTerminalAgentLaunchProfile(handle)
+    const launchToken = this.ptysById.get(ptyId)?.launchToken ?? null
+    // Announced now because this runtime is the coordinator's only authority on
+    // which incarnation is live, and a pane spawned before the coordinator existed
+    // would otherwise be unleasable.
+    this.noteTerminalInputPin(ptyId)
+    const target: AgentPromptSubmissionTarget = {
+      handle,
+      ptyId,
+      paneKey: this.getPaneKeyForTerminalHandle(handle),
+      pin: this.terminalInputPin(ptyId),
+      agent: profile?.agent ?? null,
+      agentArgs: profile?.agentArgs ?? null,
+      agentEnv: profile?.agentEnv ?? null,
+      ...(launchToken ? { launchToken } : {})
+    }
+    return submitAgentPrompt(
+      {
+        target,
+        prompt,
+        // R0 has no grant issuer (§6.6), so every RPC caller is the manager slot
+        // until one exists; the unattended-dispatch gate is the live authority check.
+        writer: 'manager',
+        permissionPreset: this.getAgentPermissionPreset(),
+        ...(options.settleBudgetMs !== undefined ? { settleBudgetMs: options.settleBudgetMs } : {}),
+        ...(options.signal ? { signal: options.signal } : {})
+      },
+      this.agentPromptSubmissionPorts()
+    )
+  }
+
+  private agentPromptSubmissionPorts(): AgentPromptSubmissionPorts {
+    return {
+      acquireLease: (request) => this.terminalInputCoordinator.acquire(request),
+      // Server-side, and not inherited from `terminal.send`'s per-client rule: this
+      // verb is automation whoever called it, so a pane a phone is driving is not
+      // available to it (§5.4).
+      humanDriverHoldsPane: (ptyId) => this.getDriver(ptyId).kind === 'mobile',
+      pastePrompt: (ptyId, prompt, beforeChunk) =>
+        this.writeTerminalAgentPromptPaste(ptyId, buildAgentPromptPasteBytes(prompt), beforeChunk),
+      pressSubmitKey: (ptyId) => this.ptyController?.write(ptyId, AGENT_PROMPT_SUBMIT) ?? false,
+      sampleOutputBytes: (ptyId) => this.getPtyOutputSequence(ptyId),
+      armAgentStateWatch: (ptyId) => this.armAgentStateTransitionWatch(ptyId),
+      armHookWindow: (paneKey, launchToken) => {
+        const observer = this.agentSubmitHookObserver
+        // §5.3: tier-1 evidence is gated on the agent-status-hooks setting — with
+        // hooks off it does not exist at all. The observer stays subscribed to a tap
+        // nothing posts to, so its window would read as *empty* rather than absent,
+        // and an empty window is what lets a hook-certified agent answer `'no'` and
+        // license a resend. No channel is `null`, never silence.
+        if (!observer || !isAgentStatusHooksEnabled(this.store?.getSettings?.())) {
+          return null
+        }
+        const cursor = {
+          ...observer.mark(paneKey),
+          ...(launchToken ? { launchToken } : {})
+        }
+        return { read: () => observer.since(cursor) }
+      },
+      clock: {
+        now: () => Date.now(),
+        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+      }
+    }
+  }
+
   async getTerminalAgentStatus(handle: string): Promise<RuntimeTerminalAgentStatus> {
     const ptyId = this.getTerminalAgentStatusPtyId(handle)
     const terminal = this.getTerminalAgentStatusSnapshot(handle, ptyId)
@@ -15028,13 +15254,13 @@ export class OrcaRuntimeService {
     }
   }
 
-  private async writeTerminalAgentPrompt(
+  /** The bracketed-paste half on its own: §5.2's submit primitive interleaves an
+   *  echo-settle and a watcher arm between the paste and Enter, so it cannot use
+   *  the bundled form below. Unterminated pastes are always closed out. */
+  private async writeTerminalAgentPromptPaste(
     ptyId: string,
     pastePayload: string,
-    options: {
-      beforeWrite?: (ptyId: string) => void | Promise<void>
-      suffixFailureError?: string
-    } = {}
+    beforeWrite?: (ptyId: string) => void | Promise<void>
   ): Promise<void> {
     let wrotePasteBytes = false
     let completedPaste = false
@@ -15042,7 +15268,7 @@ export class OrcaRuntimeService {
       const chunks = iterateTerminalInputChunks(pastePayload)
       let chunk = chunks.next()
       while (!chunk.done) {
-        await options.beforeWrite?.(ptyId)
+        await beforeWrite?.(ptyId)
         const wrote = this.ptyController?.write(ptyId, chunk.value) ?? false
         if (!wrote) {
           throw new Error('terminal_not_writable')
@@ -15055,11 +15281,25 @@ export class OrcaRuntimeService {
       }
       completedPaste = true
     } catch (error) {
-      if (wrotePasteBytes && !completedPaste) {
+      // Closing an unterminated paste is for a terminal that refused a byte. When
+      // the cause is preemption the human already owns the keyboard (§5.4), and
+      // this terminator would land inside what they are typing.
+      if (wrotePasteBytes && !completedPaste && !isTerminalInputPreemption(error)) {
         this.ptyController?.write(ptyId, AGENT_PROMPT_BRACKETED_PASTE_END)
       }
       throw error
     }
+  }
+
+  private async writeTerminalAgentPrompt(
+    ptyId: string,
+    pastePayload: string,
+    options: {
+      beforeWrite?: (ptyId: string) => void | Promise<void>
+      suffixFailureError?: string
+    } = {}
+  ): Promise<void> {
+    await this.writeTerminalAgentPromptPaste(ptyId, pastePayload, options.beforeWrite)
 
     await new Promise((resolve) => setTimeout(resolve, AGENT_PROMPT_SUBMIT_DELAY_MS))
     try {
@@ -26615,6 +26855,7 @@ export class OrcaRuntimeService {
     // Why: the pane is no longer addressable, so parked journal readers must be
     // settled with a pty-dropped gap instead of waiting out their timeout.
     this.terminalEventJournal.dropPty(ptyId)
+    this.terminalInputCoordinator.disposePty(ptyId)
     this.ptyJournalIncarnationById.delete(ptyId)
     this.ptyJournalHeadSeqById.delete(ptyId)
     this.ptysById.delete(ptyId)

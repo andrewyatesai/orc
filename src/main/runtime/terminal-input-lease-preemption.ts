@@ -109,6 +109,16 @@ export class TerminalInputLeaseSuspendedError extends Error {
   }
 }
 
+/** Did this write path stop because a human took the pane, rather than because the
+ *  terminal refused a byte? The two demand opposite close-out behavior: a refused
+ *  write still owns the keyboard, a preempted one does not. */
+export function isTerminalInputPreemption(error: unknown): boolean {
+  return (
+    error instanceof TerminalInputLeaseRevokedError ||
+    error instanceof TerminalInputLeaseSuspendedError
+  )
+}
+
 export function connectionPinsEqual(a: ConnectionPin, b: ConnectionPin): boolean {
   return (
     a.ptyIncarnationId === b.ptyIncarnationId && a.connectionGeneration === b.connectionGeneration

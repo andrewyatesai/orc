@@ -5464,6 +5464,17 @@ export function registerPtyHandlers(
     !mainWindow.isDestroyed() &&
     !(typeof mainWebContents.isDestroyed === 'function' && mainWebContents.isDestroyed())
 
+  /** §5.4's preemption notice for a desktop keystroke, deliberately outside the write's
+   *  own swallow-everything try/catch: a coordinator fault must cost the automated
+   *  writer its pane, never cost the human their byte. */
+  const claimHumanInputBeforeWrite = (ptyId: string): void => {
+    try {
+      runtime?.claimTerminalHumanInput(ptyId, 'desktop')
+    } catch (error) {
+      console.error('[pty] human input claim threw; the keystroke still goes out', error)
+    }
+  }
+
   const writePtyInput = (args: PtyWritePayload): boolean | Promise<boolean> => {
     // Why: mobile-presence-lock defense-in-depth — the renderer's onData guard can let one keystroke slip during the state-flip lag, so catch it server-side. See docs/mobile-presence-lock.md.
     if (runtime?.getDriver(args.id).kind === 'mobile') {
@@ -5473,6 +5484,11 @@ export function registerPtyHandlers(
     if (!provider) {
       return false
     }
+    // Why: §5.4 — the desktop human always wins the keyboard, so the last thing
+    // before their bytes go out is preempting whatever automation holds the pane.
+    // Without it §5.2a attributes the human's own agent hook to the automated
+    // submit that was in flight.
+    claimHumanInputBeforeWrite(args.id)
     try {
       const now = performance.now()
       lastInputAtByPty.set(args.id, now)
@@ -5498,6 +5514,9 @@ export function registerPtyHandlers(
     if (!provider?.hasPty?.(args.id)) {
       return false
     }
+    // Same §5.4 preemption: Ctrl+C and Escape are the human taking the pane back,
+    // and the interrupt is aimed at what automation is doing on it.
+    claimHumanInputBeforeWrite(args.id)
     try {
       const now = performance.now()
       lastInputAtByPty.set(args.id, now)

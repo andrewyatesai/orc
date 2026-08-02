@@ -22,8 +22,11 @@ import {
   formatTerminalSend,
   formatTerminalShow,
   formatTerminalSplit,
+  formatTerminalSubmit,
   formatTerminalWait,
-  printResult
+  printResult,
+  terminalSubmitExitCode,
+  type CliTerminalSubmitVerdict
 } from '../format'
 import {
   getOptionalPositiveIntegerFlag,
@@ -43,6 +46,10 @@ import {
 // timeout. Even without an explicit server timeout, the client must allow
 // long waits instead of failing at the generic 15s transport cap.
 const DEFAULT_TERMINAL_WAIT_RPC_TIMEOUT_MS = 5 * 60 * 1000
+
+// Why: paste + echo-settle + the evidence window all happen server-side inside
+// one call, so the floor sits well above the 15s transport cap.
+const DEFAULT_TERMINAL_SUBMIT_RPC_TIMEOUT_MS = 60 * 1000
 
 const terminalFocusHandler: CommandHandler = async ({ flags, client, cwd, json }) => {
   const result = await client.call<{ focus: RuntimeTerminalFocus }>('terminal.focus', {
@@ -111,6 +118,24 @@ export const TERMINAL_HANDLERS: Record<string, CommandHandler> = {
       // structured blocked result is still an unsatisfied wait condition.
       process.exitCode = 1
     }
+  },
+  'terminal submit': async ({ flags, client, cwd, json }) => {
+    const settleBudgetMs = getOptionalPositiveIntegerFlag(flags, 'settle-budget-ms')
+    const result = await client.call<{ submit: CliTerminalSubmitVerdict }>(
+      'terminal.submitAgentPrompt',
+      {
+        terminal: await getTerminalHandle(flags, cwd, client),
+        prompt: getRequiredStringFlag(flags, 'prompt'),
+        settleBudgetMs
+      },
+      // Why: the verb pastes, waits out the echo, then watches for evidence, so
+      // it legitimately outlives the generic transport cap.
+      { timeoutMs: (settleBudgetMs ?? 0) + DEFAULT_TERMINAL_SUBMIT_RPC_TIMEOUT_MS }
+    )
+    printResult(result, json, formatTerminalSubmit)
+    // Why not `!== 'yes'`: 'unknown' is not failure, it is "we could not tell",
+    // and a caller that retries it duplicates a live turn (§5.2).
+    process.exitCode = terminalSubmitExitCode(result.result.submit)
   },
   'terminal stop': async ({ flags, client, cwd, json }) => {
     const stopAll = flags.get('all') === true

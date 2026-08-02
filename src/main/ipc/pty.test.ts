@@ -6917,6 +6917,70 @@ describe('registerPtyHandlers', () => {
       expect(write).not.toHaveBeenCalled()
     })
 
+    // Why: §5.4 — the human always wins the keyboard, and the automated writer holding
+    // the pane has to learn that before the keystroke lands, not after. Without this
+    // the exclusive hold §5.2a attributes agent submit hooks by is not enforced at all.
+    it('preempts the automated input lease before a desktop keystroke reaches the pane', async () => {
+      const write = setupProviderWithAppliedSize({ applied: { cols: 80, rows: 24 } })
+      const claimTerminalHumanInput = vi.fn(() => null)
+      const runtime = {
+        setPtyController: vi.fn(),
+        createPreAllocatedTerminalHandle: vi.fn(() => null),
+        registerPty: vi.fn(),
+        getDriver: vi.fn(() => ({ kind: 'idle' })),
+        claimTerminalHumanInput,
+        onPtySpawned: vi.fn(),
+        onPtyExit: vi.fn(),
+        onPtyData: vi.fn()
+      }
+      handlers.clear()
+      registerPtyHandlers(mainWindow as never, runtime as never)
+      const spawn = await handlers.get('pty:spawn')!(null, { cols: 80, rows: 24, env: {} })
+      const id = (spawn as { id: string }).id
+      const writeEvent = onMock.mock.calls.find((entry: unknown[]) => entry[0] === 'pty:write')
+
+      writeEvent?.[1](mainWindowIpcEvent, { id, data: 'x' })
+      await Promise.resolve()
+
+      expect(claimTerminalHumanInput).toHaveBeenCalledWith(id, 'desktop')
+      expect(write).toHaveBeenCalled()
+      expect(claimTerminalHumanInput.mock.invocationCallOrder[0]).toBeLessThan(
+        write.mock.invocationCallOrder[0]
+      )
+    })
+
+    // Why: §5.4 puts the human above every automated writer, so the coordinator is
+    // not allowed to cost them a keystroke. Inside the write's swallow-everything
+    // try/catch a throw here silently returns false and the byte is simply gone.
+    it('still delivers the keystroke when the input claim throws', async () => {
+      const write = setupProviderWithAppliedSize({ applied: { cols: 80, rows: 24 } })
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const runtime = {
+        setPtyController: vi.fn(),
+        createPreAllocatedTerminalHandle: vi.fn(() => null),
+        registerPty: vi.fn(),
+        getDriver: vi.fn(() => ({ kind: 'idle' })),
+        claimTerminalHumanInput: vi.fn(() => {
+          throw new Error('coordinator_unavailable')
+        }),
+        onPtySpawned: vi.fn(),
+        onPtyExit: vi.fn(),
+        onPtyData: vi.fn()
+      }
+      handlers.clear()
+      registerPtyHandlers(mainWindow as never, runtime as never)
+      const spawn = await handlers.get('pty:spawn')!(null, { cols: 80, rows: 24, env: {} })
+      const id = (spawn as { id: string }).id
+      const writeEvent = onMock.mock.calls.find((entry: unknown[]) => entry[0] === 'pty:write')
+
+      writeEvent?.[1](mainWindowIpcEvent, { id, data: 'x' })
+      await Promise.resolve()
+
+      expect(runtime.claimTerminalHumanInput).toHaveBeenCalledWith(id, 'desktop')
+      expect(write).toHaveBeenCalledWith(id, 'x')
+      consoleError.mockRestore()
+    })
+
     it('does not populate the remote reclaim cache when only a phone drives', async () => {
       const resizeSpy = vi.fn()
       setupProviderWithAppliedSize({ applied: { cols: 80, rows: 24 }, resize: resizeSpy })
@@ -7017,6 +7081,7 @@ describe('registerPtyHandlers', () => {
       registerPreAllocatedHandleForPty: vi.fn(),
       registerPty: vi.fn(),
       getDriver: vi.fn(() => ({ kind: 'host' })),
+      claimTerminalHumanInput: vi.fn(() => null),
       onPtySpawned: vi.fn(),
       onPtyExit: vi.fn(),
       onPtyData: vi.fn()
@@ -7096,6 +7161,7 @@ describe('registerPtyHandlers', () => {
       registerPreAllocatedHandleForPty: vi.fn(),
       registerPty: vi.fn(),
       getDriver: vi.fn(() => ({ kind: 'host' })),
+      claimTerminalHumanInput: vi.fn(() => null),
       onPtySpawned: vi.fn(),
       onPtyExit: vi.fn(),
       onPtyData: vi.fn()
@@ -7129,6 +7195,7 @@ describe('registerPtyHandlers', () => {
       registerPreAllocatedHandleForPty: vi.fn(),
       registerPty: vi.fn(),
       getDriver: vi.fn(() => ({ kind: 'host' })),
+      claimTerminalHumanInput: vi.fn(() => null),
       onPtySpawned: vi.fn(),
       onPtyExit: vi.fn(),
       onPtyData: vi.fn()
@@ -7170,6 +7237,7 @@ describe('registerPtyHandlers', () => {
       registerPreAllocatedHandleForPty: vi.fn(),
       registerPty: vi.fn(),
       getDriver: vi.fn(() => ({ kind: 'host' })),
+      claimTerminalHumanInput: vi.fn(() => null),
       onPtySpawned: vi.fn(),
       onPtyExit: vi.fn(),
       onPtyData: vi.fn()
@@ -7267,6 +7335,7 @@ describe('registerPtyHandlers', () => {
       registerPty: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),
       getDriver: vi.fn(() => ({ kind: 'host' })),
+      claimTerminalHumanInput: vi.fn(() => null),
       onPtySpawned: vi.fn(),
       onPtyExit: vi.fn(),
       onPtyData: vi.fn()
@@ -7322,6 +7391,7 @@ describe('registerPtyHandlers', () => {
       registerPty: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),
       getDriver: vi.fn(() => ({ kind: 'host' })),
+      claimTerminalHumanInput: vi.fn(() => null),
       onPtySpawned: vi.fn(),
       onPtyExit: vi.fn(),
       onPtyData: vi.fn()
@@ -7964,6 +8034,7 @@ describe('registerPtyHandlers', () => {
       registerPty: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),
       getDriver: vi.fn(() => ({ kind: 'host' })),
+      claimTerminalHumanInput: vi.fn(() => null),
       onPtySpawned: vi.fn(),
       onPtyExit: vi.fn(),
       onPtyData: vi.fn()
@@ -8229,6 +8300,7 @@ describe('registerPtyHandlers', () => {
       registerPty: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),
       getDriver: vi.fn(() => ({ kind: 'host' })),
+      claimTerminalHumanInput: vi.fn(() => null),
       onPtySpawned: vi.fn(),
       onPtyExit: vi.fn(),
       onPtyData: vi.fn()
@@ -8344,6 +8416,7 @@ describe('registerPtyHandlers', () => {
       registerPty: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),
       getDriver: vi.fn(() => ({ kind: 'host' })),
+      claimTerminalHumanInput: vi.fn(() => null),
       onPtySpawned: vi.fn(),
       onPtyExit: vi.fn(),
       onPtyData: vi.fn()
@@ -8438,6 +8511,7 @@ describe('registerPtyHandlers', () => {
       registerPty: vi.fn(),
       noteTerminalSpawnCommand: vi.fn(),
       getDriver: vi.fn(() => ({ kind: 'host' })),
+      claimTerminalHumanInput: vi.fn(() => null),
       onPtySpawned: vi.fn(),
       onPtyExit: vi.fn(),
       onPtyData: vi.fn()
@@ -8542,6 +8616,7 @@ describe('registerPtyHandlers', () => {
       registerPreAllocatedHandleForPty: vi.fn(),
       registerPty: vi.fn(),
       getDriver: vi.fn(() => ({ kind: 'host' })),
+      claimTerminalHumanInput: vi.fn(() => null),
       onPtySpawned: vi.fn(),
       onPtyExit: vi.fn(),
       onPtyData: vi.fn()

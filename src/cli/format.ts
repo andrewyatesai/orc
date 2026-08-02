@@ -43,6 +43,12 @@ export {
   formatTerminalWait
 } from './terminal-format'
 export {
+  formatTerminalSubmit,
+  terminalSubmitExitCode,
+  TERMINAL_SUBMIT_EXIT_CODES
+} from './terminal-submit-format'
+export type { CliTerminalSubmitVerdict } from './terminal-submit-format'
+export {
   formatAutomationList,
   formatAutomationRemoved,
   formatAutomationRun,

@@ -72,7 +72,9 @@ const LOCAL_MANAGED_HOOK_STATUS_READERS: readonly ManagedHookStatusReader[] = [
 ]
 
 export function isAgentStatusHooksEnabled(
-  settings: Pick<GlobalSettings, 'agentStatusHooksEnabled'> | null | undefined
+  // Partial because the runtime's own store type leaves the flag optional; the rule
+  // is "off only when explicitly off" either way, and it should have one home.
+  settings: Partial<Pick<GlobalSettings, 'agentStatusHooksEnabled'>> | null | undefined
 ): boolean {
   return settings?.agentStatusHooksEnabled !== false
 }

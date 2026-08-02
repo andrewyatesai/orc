@@ -2311,6 +2311,10 @@ app.whenReady().then(async () => {
       isAgentStatusHooksEnabled(store?.getSettings()) ? agentHookServer.buildPtyEnv() : {}
   })
   runtime = runtimeService
+  // Why: §5.2's submit verifier certifies on the agent's own submit hook, and this
+  // is the only place the hook server and the runtime meet. Unwired, tier-1 evidence
+  // never exists and every certified agent can only ever report 'unknown'.
+  runtimeService.setAgentSubmitHookEvidence(agentHookServer)
   publishProviderSessionChanges(agentHookServer.getProviderSessionIdentities())
   browserManager.setBrowserGuestStateChangedListener((worktreeId) => {
     runtimeService.notifyMobileSessionTabsChanged(worktreeId)
