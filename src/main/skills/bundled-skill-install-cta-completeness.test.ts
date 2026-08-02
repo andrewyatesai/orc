@@ -150,55 +150,59 @@ function referencedNames(node: ts.Node): Set<string> {
   return names
 }
 
-/** Top-level statements that run on import, so their calls are live without a caller. */
-function moduleLoadRoots(sourceFile: ts.SourceFile): ts.Node[] {
-  return sourceFile.statements.flatMap((statement): ts.Node[] => {
-    if (ts.isImportDeclaration(statement) || ts.isFunctionDeclaration(statement)) {
-      return []
-    }
-    if (!ts.isVariableStatement(statement)) {
-      return [statement]
-    }
-    return statement.declarationList.declarations.flatMap((declaration): ts.Node[] =>
-      declaration.initializer &&
-      !ts.isArrowFunction(declaration.initializer) &&
-      !ts.isFunctionExpression(declaration.initializer)
-        ? [declaration.initializer]
-        : []
-    )
+/** Whether this subtree puts anything on screen — what makes a declaration the rendered one. */
+function rendersJsx(node: ts.Node): boolean {
+  let renders = false
+  walk(node, (current) => {
+    renders ||=
+      ts.isJsxElement(current) || ts.isJsxSelfClosingElement(current) || ts.isJsxFragment(current)
   })
+  return renders
 }
 
-/** Declarations an importer can reach: the exports, plus whatever they call. */
-function reachableDeclarations(sourceFile: ts.SourceFile): Map<string, TopLevelDeclaration> {
-  const declarations = topLevelDeclarations(sourceFile)
-  const reachable = new Set<string>()
-  const queue: string[] = []
-  const enqueue = (name: string): void => {
-    if (declarations.has(name) && !reachable.has(name)) {
-      reachable.add(name)
-      queue.push(name)
-    }
-  }
-  for (const [name, declaration] of declarations) {
-    if (declaration.exported) {
-      enqueue(name)
-    }
-  }
-  for (const root of moduleLoadRoots(sourceFile)) {
-    for (const name of referencedNames(root)) {
-      enqueue(name)
-    }
-  }
+type Reached = { declarations: Map<string, TopLevelDeclaration>; names: Set<string> }
+
+/** Everything the seeds reach through this file's own top-level declarations. */
+function reachFrom(declarations: Map<string, TopLevelDeclaration>, seeds: string[]): Reached {
+  const reached = new Map<string, TopLevelDeclaration>()
+  const names = new Set<string>()
+  const queue = [...seeds]
   while (queue.length > 0) {
     const name = queue.pop() as string
-    for (const referenced of referencedNames(
-      (declarations.get(name) as TopLevelDeclaration).node
-    )) {
-      enqueue(referenced)
+    const declaration = declarations.get(name)
+    if (!declaration || reached.has(name)) {
+      continue
+    }
+    reached.set(name, declaration)
+    for (const referenced of referencedNames(declaration.node)) {
+      names.add(referenced)
+      queue.push(referenced)
     }
   }
-  return new Map([...declarations].filter(([name]) => reachable.has(name)))
+  return { declarations: reached, names }
+}
+
+/**
+ * The components that render this surface's CTA — where a user's click starts.
+ *
+ * Reachability rooted at "is exported" credits an exported helper nothing renders,
+ * and exported-but-unused is exactly what the residue of deleted wiring looks like.
+ * A surface can export more than one thing, so the root is not any export: it is the
+ * component whose own code reaches the install command this surface offers.
+ */
+function ctaComponents(
+  declarations: Map<string, TopLevelDeclaration>,
+  commands: readonly string[]
+): string[] {
+  return [...declarations]
+    .filter(([name, declaration]) => {
+      if (!declaration.exported || !rendersJsx(declaration.node)) {
+        return false
+      }
+      const { names } = reachFrom(declarations, [name])
+      return commands.some((command) => names.has(command))
+    })
+    .map(([name]) => name)
 }
 
 /** Exports of the offline module that reach the installer, directly or through a sibling. */
@@ -247,27 +251,40 @@ function offlineImports(sourceFile: ts.SourceFile): OfflineImports {
   return { named, namespaces }
 }
 
+type SurfaceWiring = {
+  /** Empty means the CTA could not be resolved, not that the surface has none. */
+  components: string[]
+  offlineCalls: string[]
+}
+
 /**
- * Offline entry points this file actually calls from code an importer can reach.
+ * Offline entry points this surface calls from the component that renders its CTA.
  *
  * The point of parsing: a mention in a comment, a string, an import nobody calls, or
- * a helper nothing references is exactly the textual residue a deleted call leaves.
+ * a helper the rendered component never reaches is exactly the textual residue a
+ * deleted call leaves.
  *
  * What makes "calls an entry point" mean "installs offline" is the click test in
  * `bundled-skill-offline-install-panel-click.test.ts`. Rendering all fourteen CTAs
  * instead is not open to us: each needs its own stores, runtimes and contexts, and a
  * surface added tomorrow could not be rendered by a test that finds it on disk.
  */
-function offlineEntryPointCalls(file: string, entryPoints: readonly string[]): string[] {
+function surfaceWiring(
+  file: string,
+  entryPoints: readonly string[],
+  commands: readonly string[]
+): SurfaceWiring {
   const sourceFile = parse(file, read(file))
+  const declarations = topLevelDeclarations(sourceFile)
+  const components = ctaComponents(declarations, commands)
   const { named, namespaces } = offlineImports(sourceFile)
   if (named.size === 0 && namespaces.size === 0) {
-    return []
+    return { components, offlineCalls: [] }
   }
   const entries = new Set(entryPoints)
   const called = new Set<string>()
-  const collect = (node: ts.Node): void => {
-    for (const target of callTargets(node)) {
+  for (const declaration of reachFrom(declarations, components).declarations.values()) {
+    for (const target of callTargets(declaration.node)) {
       const imported = named.get(target)
       if (imported && entries.has(imported)) {
         called.add(imported)
@@ -279,13 +296,7 @@ function offlineEntryPointCalls(file: string, entryPoints: readonly string[]): s
       }
     }
   }
-  for (const declaration of reachableDeclarations(sourceFile).values()) {
-    collect(declaration.node)
-  }
-  for (const root of moduleLoadRoots(sourceFile)) {
-    collect(root)
-  }
-  return [...called]
+  return { components, offlineCalls: [...called] }
 }
 
 function sourceFiles(root: string): string[] {
@@ -333,9 +344,10 @@ describe('every bundled-skill CTA can install from the app bundle', () => {
     .map(([command]) => command)
   const surfaces = bundledSkillInstallSurfaces(bundledCommands)
   const entryPoints = offlineInstallEntryPoints()
-  const wiring = new Map(
-    [...surfaces].map(([name, file]) => [name, offlineEntryPointCalls(file, entryPoints)])
+  const analysis = new Map(
+    [...surfaces].map(([name, file]) => [name, surfaceWiring(file, entryPoints, bundledCommands)])
   )
+  const wiring = new Map([...analysis].map(([name, surface]) => [name, surface.offlineCalls]))
 
   it('derives skills, commands, surfaces and wiring from data rather than a hand list', () => {
     expect(bundled.length).toBeGreaterThan(0)
@@ -344,6 +356,11 @@ describe('every bundled-skill CTA can install from the app bundle', () => {
     expect(entryPoints.length).toBeGreaterThan(0)
     // An empty surface set would make the wiring check below pass by enumerating nothing.
     expect(surfaces.size).toBeGreaterThan(0)
+    // No resolved CTA component means the roots are gone, so every call below reads as
+    // dead code — including on the debt rows, where that would pass silently.
+    expect(
+      [...analysis].filter(([, surface]) => surface.components.length === 0).map(([file]) => file)
+    ).toEqual([])
     // Zero calls anywhere means the parse stopped resolving them, not that CTAs are wired.
     expect([...wiring.values()].flat().length).toBeGreaterThan(0)
     // Every command names skills that exist; a renamed skill must not silently drop out.

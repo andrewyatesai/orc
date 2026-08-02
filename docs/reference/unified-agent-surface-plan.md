@@ -153,12 +153,34 @@ path; Orca's app connection is the owner connection, so owner-only verbs (`ls`,
 *mint-time policy* — which edges a pane receives — not a second mechanism, so broadening
 it later (cross-worktree driving) needs no protocol change.
 
-**Pre-bind design gate** — the socket must not be reachable until the above is written
-and reviewed: principals, sid lifetime, stale-target behavior, token recipients, edge
-minting and revocation, reattach rules, nonce rotation. Record explicitly that federating
-makes Orca panes reachable by any same-uid process that can read the socket directory.
-That is already aterm's stated trust boundary, but it is a change for Orca, where a pane
-is reachable only through Orca's authenticated socket today.
+**Pre-bind design gate — WRITTEN, REVIEWED TWICE, AND IT SAYS DO NOT BIND.**
+See [`orca-daemon-authority-model.md`](./orca-daemon-authority-model.md). Two independent
+hostile reviews both returned *not safe to implement*; the second also corrected the
+first's exit condition. The blocking facts are structural and live outside that document:
+
+- **An in-pane agent can read the daemon token and become Owner**, and nothing shipped
+  prevents it. The containment profile is applied only by aterm's own spawn seam
+  (`aterm-pty/src/unix.rs:52-55`); `orca-pty` uses a bare `CommandBuilder`
+  (`orca-pty/src/session.rs:10`), so no profile reaches an Orca pane at all.
+- **No shipped client can present an edge token.** `aterm ctl` sends `AUTH <hex>` from the
+  owner token file (`aterm-ctl/src/lib.rs:786-802`); the `TOKEN <hex> <verb>` path exists
+  only in the aterm GUI. So the edge tier has no client and an in-pane agent authenticates
+  as Owner today.
+- **Same-uid separation is not achievable** by any mechanism reviewed — 0600 files, env,
+  tokens over the authenticated socket (itself gated by a 0600 file the same adversary
+  reads), and peer credentials all fail it. Edges are therefore **scoping and attribution,
+  not enforcement**: they bind a cooperative, confused, or sandboxed agent, and nothing
+  else.
+
+Federating would make Orca panes reachable by any same-uid process that can read the socket
+directory. That is already aterm's stated boundary, but it is a change for Orca, where a
+pane is reachable only through Orca's authenticated socket today — and the mitigation that
+would justify it does not exist yet.
+
+**What is still worth building now:** the daemon hardening items the model lists are
+valuable either way, and the edge model is worth implementing as scoping even before it can
+enforce. What must wait is the *binding* — shared-directory registration and `graph/<sid>`
+publication.
 
 **Exit.** The full verb matrix — not just `text` — passes against a live Orca pane, both
 locally and *via relay from a separate aterm instance*; an in-pane agent's `aterm ctl ls`

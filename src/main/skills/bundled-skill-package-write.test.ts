@@ -9,6 +9,7 @@ import {
   rm,
   stat,
   symlink,
+  utimes,
   writeFile
 } from 'node:fs/promises'
 import { hostname } from 'node:os'
@@ -69,6 +70,7 @@ import { observeSkillPackage } from './skill-package-identity'
 const temporaryDirectories: string[] = []
 
 const NEW_SKILL = [{ path: 'SKILL.md', bytes: Buffer.from('# New\n'), executable: false }]
+const STAMP = new Date('2024-01-01T00:00:00.000Z')
 
 async function skillsRoot(): Promise<string> {
   const root = await makeTemporaryDirectory('orca-skill-write-')
@@ -325,6 +327,44 @@ describe('refusing a destination that changed after it was classified', () => {
     expect(await readdir(root)).toEqual(['demo'])
   })
 
+  it('refuses a byte-identical directory that is no longer the one that was classified', async () => {
+    const root = await skillsRoot()
+    const packagePath = join(root, 'demo')
+    await mkdir(packagePath, { recursive: true })
+    await writeFile(join(packagePath, 'SKILL.md'), '# ours v1\n')
+    // A whole-millisecond stamp both directories can carry exactly, so the swap below
+    // leaves the content hash and the timestamp matching and moves only the inode.
+    await utimes(packagePath, STAMP, STAMP)
+    const classified = await lstat(packagePath)
+    const reclassify = await classifierFor(packagePath)
+    const guard = bundledSkillSwapGuard({
+      name: 'demo',
+      expected: await reclassify(),
+      reclassify,
+      relock: noNpxLock
+    })
+
+    await expect(
+      writeSkillPackageAtomically(packagePath, NEW_SKILL, {
+        revalidate: async () => {
+          const replacement = join(root, 'replacement')
+          await mkdir(replacement, { recursive: true })
+          await writeFile(join(replacement, 'SKILL.md'), '# ours v1\n')
+          await utimes(replacement, STAMP, STAMP)
+          await rm(packagePath, { recursive: true, force: true })
+          await rename(replacement, packagePath)
+          const swapped = await lstat(packagePath)
+          expect(swapped.ino).not.toBe(classified.ino)
+          expect(swapped.mtimeMs).toBe(classified.mtimeMs)
+          return guard()
+        }
+      })
+    ).rejects.toThrow('destination-identity-changed')
+
+    expect(await readFile(join(packagePath, 'SKILL.md'), 'utf8')).toBe('# ours v1\n')
+    expect(await readdir(root)).toEqual(['demo'])
+  })
+
   it('refuses when the destination directory is replaced outright, with no caller guard', async () => {
     const root = await skillsRoot()
     const packagePath = join(root, 'demo')
@@ -352,13 +392,19 @@ describe('a first install, whose own mkdir creates the skills root', () => {
   const SKILL_NAME = 'demo'
   const OURS = [{ path: 'SKILL.md', content: '# New\n' }]
 
+  type FirstInstall = {
+    classifyArgs: Parameters<typeof classifyBundledSkillTarget>[0]
+    base: string
+    /** The link the destination is resolved through, and that a takeover can repoint. */
+    linkPath: string
+  }
+
   /** A `/var -> /private/var` shaped link above a home whose skills root is absent. */
-  async function firstInstallClassifyArgs(): Promise<
-    Parameters<typeof classifyBundledSkillTarget>[0]
-  > {
+  async function firstInstall(): Promise<FirstInstall> {
     const base = await skillsRoot()
     await mkdir(join(base, 'physical', 'home', '.claude'), { recursive: true })
-    await symlink(join(base, 'physical'), join(base, 'linked'))
+    const linkPath = join(base, 'linked')
+    await symlink(join(base, 'physical'), linkPath)
     const homeDir = join(base, 'linked', 'home')
     const [root] = await detectBundledSkillInstallRoots({ homeDir })
     const snapshot = skillSnapshotFixture(OURS, 1)
@@ -370,7 +416,16 @@ describe('a first install, whose own mkdir creates the skills root', () => {
       knownSnapshots: { [SKILL_NAME]: [snapshot] },
       releasedAppVersions: {}
     }
-    return { root, entry, artifacts, canonicalRootPath: canonicalAgentSkillsRootPath(homeDir) }
+    return {
+      classifyArgs: {
+        root,
+        entry,
+        artifacts,
+        canonicalRootPath: canonicalAgentSkillsRootPath(homeDir)
+      },
+      base,
+      linkPath
+    }
   }
 
   async function guardedWrite(
@@ -398,7 +453,7 @@ describe('a first install, whose own mkdir creates the skills root', () => {
   it.skipIf(process.platform === 'win32')(
     'writes rather than reading the root it just created as someone else claiming it',
     async () => {
-      const packagePath = await guardedWrite(await firstInstallClassifyArgs())
+      const packagePath = await guardedWrite((await firstInstall()).classifyArgs)
 
       expect(await readFile(join(packagePath, 'SKILL.md'), 'utf8')).toBe('# New\n')
     }
@@ -407,7 +462,7 @@ describe('a first install, whose own mkdir creates the skills root', () => {
   it.skipIf(process.platform === 'win32')(
     'still refuses when someone else fills the destination while ours is staged',
     async () => {
-      const classifyArgs = await firstInstallClassifyArgs()
+      const { classifyArgs } = await firstInstall()
 
       await expect(
         guardedWrite(classifyArgs, (packagePath) =>
@@ -417,6 +472,62 @@ describe('a first install, whose own mkdir creates the skills root', () => {
 
       const packagePath = join(classifyArgs.root.path, SKILL_NAME)
       expect(await readFile(join(packagePath, 'SKILL.md'), 'utf8')).toBe('# someone else\n')
+    }
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'refuses when a link takes the destination while ours is staged',
+    async () => {
+      const { classifyArgs } = await firstInstall()
+      const theirs = await skillsRoot()
+      await writeSkillPackageFiles(theirs, [{ path: 'SKILL.md', content: '# someone else\n' }])
+
+      await expect(
+        guardedWrite(classifyArgs, (packagePath) => symlink(theirs, packagePath))
+      ).rejects.toThrow('destination-changed: unsafe-topology')
+
+      // The swap deletes what it displaces, and following a link would delete a
+      // directory the user placed somewhere else entirely.
+      const packagePath = join(classifyArgs.root.path, SKILL_NAME)
+      expect((await lstat(packagePath)).isSymbolicLink()).toBe(true)
+      expect(await readFile(join(theirs, 'SKILL.md'), 'utf8')).toBe('# someone else\n')
+    }
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'refuses when a file takes the name the package directory was to have',
+    async () => {
+      const { classifyArgs } = await firstInstall()
+
+      await expect(
+        guardedWrite(classifyArgs, (packagePath) => writeFile(packagePath, '# someone else\n'))
+      ).rejects.toThrow('destination-changed: unsafe-topology')
+
+      const packagePath = join(classifyArgs.root.path, SKILL_NAME)
+      expect(await readFile(packagePath, 'utf8')).toBe('# someone else\n')
+    }
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'refuses when the link the destination resolves through is repointed',
+    async () => {
+      const { classifyArgs, base, linkPath } = await firstInstall()
+      const elsewhere = join(base, 'physical-2')
+      await mkdir(join(elsewhere, 'home', '.claude', 'skills'), { recursive: true })
+
+      await expect(
+        // Nothing appears at the destination, so the path it now resolves to is the
+        // only evidence the write would land in a home nothing classified.
+        guardedWrite(classifyArgs, async () => {
+          await rm(linkPath, { force: true })
+          await symlink(elsewhere, linkPath)
+        })
+      ).rejects.toThrow('destination-changed: absent')
+
+      expect(await exists(join(elsewhere, 'home', '.claude', 'skills', SKILL_NAME))).toBe(false)
+      expect(await exists(join(base, 'physical', 'home', '.claude', 'skills', SKILL_NAME))).toBe(
+        false
+      )
     }
   )
 })
