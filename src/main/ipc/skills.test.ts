@@ -153,6 +153,36 @@ describe('registerSkillsHandlers', () => {
     })
   })
 
+  it('installs a padded name under its trimmed form', async () => {
+    const results = [{ name: 'orchestration', outcome: 'installed', reason: null, placements: [] }]
+    installBundledSkillsMock.mockResolvedValue(results)
+    const handler = getInstallBundledHandler()
+
+    await expect(handler(null, [' orchestration '])).resolves.toEqual(results)
+    // Why: the manifest lookup is exact, so passing the padded name through would install nothing.
+    expect(installBundledSkillsMock).toHaveBeenCalledWith({ names: ['orchestration'] })
+  })
+
+  it('drops blank and non-string entries while keeping the trimmed real ones', async () => {
+    const handler = getInstallBundledHandler()
+
+    await handler(null, ['  ', 7, ' orca-cli', null, undefined, 'orchestration '])
+
+    expect(installBundledSkillsMock).toHaveBeenCalledWith({
+      names: ['orca-cli', 'orchestration']
+    })
+  })
+
+  it('asks the installer for nothing when the request carries no usable names', async () => {
+    const handler = getInstallBundledHandler()
+
+    await expect(handler(null, [])).resolves.toEqual([])
+    await expect(handler(null, 'orchestration')).resolves.toEqual([])
+
+    expect(installBundledSkillsMock).toHaveBeenNthCalledWith(1, { names: [] })
+    expect(installBundledSkillsMock).toHaveBeenNthCalledWith(2, { names: [] })
+  })
+
   it('never writes local skill homes while a remote runtime owns discovery', async () => {
     store.getSettings.mockReturnValue({ activeRuntimeEnvironmentId: 'env-1' })
     const handler = getInstallBundledHandler()

@@ -684,7 +684,11 @@
               "deferredToNpx": "The skills CLI manages {{value0}}.",
               "refusedUserOwned": "Orca kept your own copy of {{value0}}.",
               "refusedUserOwnedDescription": "Nothing was overwritten. Opening a terminal so you can decide.",
-              "failed": "Could not install {{value0}} from this app build."
+              "failed": "Could not install {{value0}} from this app build.",
+              "cliStillNeeded": "The skill installs from this app build — no network. Registering the Orca CLI on PATH still needs the setup terminal.",
+              "refusedUserOwnedKeptAt": "Nothing was overwritten. Your copy at {{value0}} stays in charge until you move it aside.",
+              "refusedUserOwnedKept": "Nothing was overwritten. Your copy stays in charge until you move it aside.",
+              "showMyCopy": "Show my copy"
             }
           }
         }
@@ -3936,6 +3940,7 @@
           "updatedMany": "Updated {{value0}} skills",
           "updatedPartial": "Updated {{value0}} of {{value1}} skills",
           "errorTitle": "The update didn't finish",
+          "offlineFailed": "Orca could not update {{value0}} from this app build.",
           "retry": "Retry",
           "copyCommand": "Copy command",
           "copied": "Copied",
@@ -4977,7 +4982,9 @@
           "toastInstallCliDescription": "Install the Orca CLI to enable your agents to read and edit Linear tasks.",
           "toastInstallSkillDescription": "Install the Linear skill to enable your agents to read and edit Linear tasks through the Orca CLI.",
           "toastRemoteDescription": "{{value0}} Remote agent environments may need their own setup.",
-          "toastWslDescription": "{{value0}} This setup runs in the selected WSL agent runtime."
+          "toastWslDescription": "{{value0}} This setup runs in the selected WSL agent runtime.",
+          "installSkillOnly": "Install skill",
+          "offlineSkillLabel": "the Linear skill"
         },
         "FolderWorkspaceComposerDialog": {
           "connectFailed": "Failed to connect to project.",
@@ -5605,7 +5612,8 @@
           "0289434ed6": "Enabled",
           "8b3054dac7": "Registering...",
           "8f2675c2f3": "Imported {{value0}} cookies from file.",
-          "5301857d88": "From {{value0}}"
+          "5301857d88": "From {{value0}}",
+          "offlineSkillLabel": "the Browser Use skill"
         },
         "BrowserUseSkillStep": {
           "0871b6998d": "Enables agents to navigate and verify pages in Orca's browser.",
@@ -5645,7 +5653,8 @@
           "8a9b784c60": "stale",
           "d363e5929b": "Checking CLI registration…",
           "cliSkillTerminalTitle": "CLI skill setup",
-          "cliSkillTerminalAria": "CLI skill install terminal"
+          "cliSkillTerminalAria": "CLI skill install terminal",
+          "offlineSkillLabel": "the Orca CLI skill"
         },
         "CliSkillRuntimeSetup": {
           "04325573f8": "WSL",
@@ -5722,7 +5731,8 @@
           "6b5a2cd3a5": "Accessibility",
           "6b17602073": "Reset access",
           "506f2acf7a": "Resetting access...",
-          "4b65070096": "darwin"
+          "4b65070096": "darwin",
+          "offlineSkillLabel": "the Computer Use skill"
         },
         "DeveloperPermissionsPane": {
           "4c17304beb": "Refresh",
@@ -6226,7 +6236,8 @@
           "cdeaed9e37": "Registered the Orca CLI in PATH.",
           "3d34423e88": "Registering the Orca CLI",
           "3be27641c9": "so emulator commands can run from agent shells.",
-          "3941719a56": "Checking Orca CLI before opening skill setup."
+          "3941719a56": "Checking Orca CLI before opening skill setup.",
+          "offlineSkillLabel": "the Orca CLI skill"
         },
         "MobileEmulatorExamples": {
           "edf13dd03b": "Copy",
@@ -6394,11 +6405,13 @@
           "9bedd2a6e5": "Enables agents to hand off context and coordinate work through Orca.",
           "07641b9768": "Orchestration skill",
           "2aacdb0517": "Coordinate coding agents across handoffs, worktree handovers, and child-agent work.",
-          "191ac34567": "Agent Orchestration"
+          "191ac34567": "Agent Orchestration",
+          "offlineSkillLabel": "the orchestration skill"
         },
         "OrchestrationSetupCard": {
           "e7d2a5146c": "Enables agents to hand off context and coordinate work through Orca.",
-          "2777ff0fdc": "Orchestration skill"
+          "2777ff0fdc": "Orchestration skill",
+          "offlineSkillLabel": "the orchestration skill"
         },
         "OrchestrationSkillAgentCoverage": {
           "6dec5ce2d2": "Agent coverage",
@@ -9544,7 +9557,8 @@
           "recipesHelp": "Recipes your agent adds to orca.yaml show up here, ready to launch a workspace on.",
           "refresh": "Refresh ephemeral VM recipes",
           "checking": "Checking recipes...",
-          "none": "No recipes found yet."
+          "none": "No recipes found yet.",
+          "offlineSkillLabel": "the Per-Workspace Environments skill"
         },
         "ephemeralVmsExperimentalSetting": {
           "description": "Shows setup controls and workspace run targets for repo-owned, on-demand environments.",
@@ -9823,7 +9837,8 @@
           "terminalTitle": "Linear skill setup",
           "terminalAriaLabel": "Linear skill install terminal",
           "manageConnectionHint": "Review connected Linear workspaces and API keys in",
-          "manageConnectionLink": "Integrations settings"
+          "manageConnectionLink": "Integrations settings",
+          "offlineSkillLabel": "the Linear skill"
         },
         "MobileRelayBetaNotice": {
           "notice": "Orca Relay is in beta."
@@ -11954,7 +11969,8 @@
           },
           "BrowserUseSkillSetupCard": {
             "cbc45022d4": "Enables agents to navigate and verify pages in Orca's browser.",
-            "d5bb1cd4ba": "Browser Use skill"
+            "d5bb1cd4ba": "Browser Use skill",
+            "offlineSkillLabel": "the Browser Use skill"
           },
           "ComputerUseAnimatedVisual": {
             "d8401975b1": "approved",
@@ -13016,7 +13032,8 @@
             "bff5341ac3": "Mobile emulator Orca CLI skill install terminal",
             "3d34423e88": "Registering the Orca CLI",
             "3be27641c9": "so emulator commands can run from agent shells.",
-            "3941719a56": "Checking Orca CLI before opening skill setup."
+            "3941719a56": "Checking Orca CLI before opening skill setup.",
+            "offlineSkillLabel": "the Orca CLI skill"
           },
           "MobileEmulatorTabIntroCallout": {
             "1924982130": "Dismiss",

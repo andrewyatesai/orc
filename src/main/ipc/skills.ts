@@ -96,9 +96,11 @@ export function registerSkillsHandlers(store: Store): void {
   ipcMain.handle(
     'skills:installBundled',
     async (_event, names: string[]): Promise<BundledSkillInstallResult[]> => {
-      const requested = (Array.isArray(names) ? names : []).filter(
-        (name): name is string => typeof name === 'string' && name.trim().length > 0
-      )
+      // Why: the manifest lookup matches names exactly, so the trimmed name the
+      // filter accepted has to be the one that travels on.
+      const requested = (Array.isArray(names) ? names : [])
+        .map((name) => (typeof name === 'string' ? name.trim() : ''))
+        .filter((name) => name.length > 0)
       // Why: the bundled payload can only be written to this machine's skill homes.
       // While a remote runtime owns discovery, a local write would report success for
       // a host that never sees it — hand the caller back to its terminal rail.

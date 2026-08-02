@@ -338,10 +338,57 @@ describe('skill discovery', () => {
     expect(skill?.directoryPath).toBe(bundledSkill)
   })
 
-  it('enforces depth limits for valid child directories whose names start with dot-dot', async () => {
+  it('does not discover skills stranded in an interrupted install’s scratch directory', async () => {
     const root = await mkdtemp(join(tmpdir(), 'orca-skills-'))
     const home = join(root, 'home')
-    const deepSkill = join(home, '.agents', 'skills', '..deep', 'a', 'b', 'c', 'd', 'too-deep')
+    const skillsRoot = join(home, '.agents', 'skills')
+    const staged = join(skillsRoot, '.orchestration.orca-staging-0123456789ab', 'orchestration')
+    const replaced = join(skillsRoot, '.orchestration.orca-replaced-0123456789ab', 'orchestration')
+    const installed = join(skillsRoot, 'orchestration')
+    await mkdir(staged, { recursive: true })
+    await mkdir(replaced, { recursive: true })
+    await mkdir(installed, { recursive: true })
+    await writeFile(join(staged, 'SKILL.md'), '# staged-ghost\n')
+    await writeFile(join(replaced, 'SKILL.md'), '# replaced-ghost\n')
+    await writeFile(join(installed, 'SKILL.md'), '# orchestration\n')
+
+    const result = await discoverSkills({
+      homeDir: home,
+      cwd: join(root, 'missing-cwd'),
+      repos: []
+    })
+
+    expect(result.skills.map((skill) => skill.name)).toEqual(['orchestration'])
+  })
+
+  it('still discovers `.system` bundled skills, the one hidden entry agents ship', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'orca-skills-'))
+    const home = join(root, 'home')
+    const bundledSkill = join(home, '.agents', 'skills', '.system', 'orca-cli')
+    await mkdir(bundledSkill, { recursive: true })
+    await writeFile(join(bundledSkill, 'SKILL.md'), '# orca-cli\n\nUse the Orca CLI.')
+
+    const result = await discoverSkills({
+      homeDir: home,
+      cwd: join(root, 'missing-cwd'),
+      repos: []
+    })
+
+    expect(result.skills).toMatchObject([
+      {
+        name: 'orca-cli',
+        sourceKind: 'bundled',
+        sourceLabel: 'Agent skills home bundled',
+        directoryPath: bundledSkill
+      }
+    ])
+  })
+
+  it('enforces depth limits for valid child directories', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'orca-skills-'))
+    const home = join(root, 'home')
+    // Why: a non-hidden first segment — a hidden one is pruned, so depth would go untested.
+    const deepSkill = join(home, '.agents', 'skills', 'deep', 'a', 'b', 'c', 'd', 'too-deep')
     await mkdir(deepSkill, { recursive: true })
     await writeFile(join(deepSkill, 'SKILL.md'), '# Too Deep\n\nShould not be discovered.')
 

@@ -174,9 +174,11 @@ describe('read-only skill freshness inventory', () => {
     expect(inventory.installations.map((entry) => entry.status)).toEqual(['outdated'])
     expect(inventory.installations[0]?.installedAppVersion).toBe('1.0.0')
     expect(inventory.eligibleUpdateNames).toEqual(['orca-cli'])
+    // A lock entry means the npx updater owns the name; the offline installer defers.
+    expect(inventory.offlineUpdateNames).toEqual([])
   })
 
-  it('does not offer an older copied bundle the external updater has never registered (#10791)', async () => {
+  it('offers an older copied bundle the external updater never registered on the offline rail (#10791)', async () => {
     const test = await fixture()
     await test.writeSkill(join(test.homeDir, '.agents', 'skills'), test.oldMarkdown)
     await rm(join(test.homeDir, '.agents', '.skill-lock.json'))
@@ -193,7 +195,10 @@ describe('read-only skill freshness inventory', () => {
       topology: 'canonical-copy',
       status: 'outdated'
     })
-    expect(inventory.eligibleUpdateNames).toEqual([])
+    // `skills update` cannot identify a source it never recorded, but this build ships
+    // the bytes — so the update is real and routes to the bundled installer instead.
+    expect(inventory.eligibleUpdateNames).toEqual(['orca-cli'])
+    expect(inventory.offlineUpdateNames).toEqual(['orca-cli'])
   })
 
   it('labels newer known and unrecognized bytes honestly without calling them modified', async () => {

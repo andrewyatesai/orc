@@ -46,6 +46,18 @@ function isWithinDepth(rootPath: string, childPath: string, maxDepth: number): b
   return rel.split(sep).length <= maxDepth
 }
 
+// Why: a hidden directory under a skills root is never a package — it is tooling
+// state, or scratch an interrupted install stranded there, and discovering it would
+// list a phantom skill. `.system` is the exception agents themselves ship into, and
+// `sourceKindForSkill` classifies it as `bundled`: pruning it would erase real skills.
+// The WSL scanner derives its `find` prune from these same two constants.
+export const HIDDEN_SKILL_ENTRY_PREFIX = '.'
+export const HIDDEN_SKILL_ENTRY_EXCEPTIONS: readonly string[] = ['.system']
+
+export function isHiddenNonSkillEntry(name: string): boolean {
+  return name.startsWith(HIDDEN_SKILL_ENTRY_PREFIX) && !HIDDEN_SKILL_ENTRY_EXCEPTIONS.includes(name)
+}
+
 async function findSkillFiles(rootPath: string, maxDepth: number): Promise<string[]> {
   const out: string[] = []
   const visitedDirectoryPaths = new Set<string>()
@@ -86,6 +98,9 @@ async function findSkillFiles(rootPath: string, maxDepth: number): Promise<strin
             // Broken links are not valid skill files.
           }
         }
+        continue
+      }
+      if (isHiddenNonSkillEntry(entry.name)) {
         continue
       }
       if (entry.isDirectory()) {

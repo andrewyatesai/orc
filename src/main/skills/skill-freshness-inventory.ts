@@ -8,7 +8,7 @@ import {
 } from '../../shared/skill-freshness'
 import { buildSkillDiscoverySources, type SkillScanRoot } from './skill-discovery-sources'
 import { loadSkillBundleArtifacts } from './skill-bundle-artifacts'
-import { eligibleSkillUpdateNames } from './skill-freshness-eligibility'
+import { eligibleSkillUpdates } from './skill-freshness-eligibility'
 import { runSkillCandidateTasks } from './skill-candidate-concurrency'
 import {
   classifyHomeSkillCandidate,
@@ -187,13 +187,22 @@ export async function inventorySkillFreshness(args: {
         left.unresolvedPath.localeCompare(right.unresolvedPath, 'en')
     )
 
+  // Why: a locked name is the npx updater's, and the offline installer defers to it —
+  // so offering it here would advertise a write that never happens.
+  const offlineConvergableNames = new Set(
+    [...currentByName.keys()].filter((name) => !globalSkillLocks.has(name))
+  )
+  const eligibility = eligibleSkillUpdates(
+    installations,
+    convergableSkillNames(installations, globalSkillLocks, artifacts.knownSnapshots),
+    offlineConvergableNames
+  )
+
   return {
     schemaVersion: 1,
     installations,
-    eligibleUpdateNames: eligibleSkillUpdateNames(
-      installations,
-      convergableSkillNames(installations, globalSkillLocks, artifacts.knownSnapshots)
-    ),
+    eligibleUpdateNames: eligibility.names,
+    offlineUpdateNames: eligibility.offlineNames,
     scanIssues,
     scannedAt: Date.now()
   }

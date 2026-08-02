@@ -684,7 +684,11 @@
               "deferredToNpx": "The skills CLI manages {{value0}}.",
               "refusedUserOwned": "Orca kept your own copy of {{value0}}.",
               "refusedUserOwnedDescription": "Nothing was overwritten. Opening a terminal so you can decide.",
-              "failed": "Could not install {{value0}} from this app build."
+              "failed": "Could not install {{value0}} from this app build.",
+              "cliStillNeeded": "The skill installs from this app build — no network. Registering the Orca CLI on PATH still needs the setup terminal.",
+              "refusedUserOwnedKeptAt": "Nothing was overwritten. Your copy at {{value0}} stays in charge until you move it aside.",
+              "refusedUserOwnedKept": "Nothing was overwritten. Your copy stays in charge until you move it aside.",
+              "showMyCopy": "Show my copy"
             }
           }
         }
@@ -3938,6 +3942,7 @@
           "updatedMany": "Updated {{value0}} skills",
           "updatedPartial": "Updated {{value0}} of {{value1}} skills",
           "errorTitle": "The update didn't finish",
+          "offlineFailed": "Orca could not update {{value0}} from this app build.",
           "retry": "Retry",
           "copyCommand": "Copy command",
           "copied": "Copied",
@@ -4912,7 +4917,9 @@
           "toastInstallCliDescription": "Orca CLI をインストールして、agents が Linear タスクを読み書きできるようにします。",
           "toastInstallSkillDescription": "Linear スキルをインストールして、agents が Orca CLI を通じて Linear タスクを読み書きできるようにします。",
           "toastRemoteDescription": "{{value0}} リモート agent 環境では独自の設定が必要な場合があります。",
-          "toastWslDescription": "{{value0}} この設定は選択した WSL agent ランタイムで実行されます。"
+          "toastWslDescription": "{{value0}} この設定は選択した WSL agent ランタイムで実行されます。",
+          "installSkillOnly": "Install skill",
+          "offlineSkillLabel": "the Linear skill"
         },
         "FolderWorkspaceComposerDialog": {
           "connectFailed": "プロジェクトに接続できませんでした。",
@@ -5590,7 +5597,8 @@
           "0289434ed6": "有効",
           "8b3054dac7": "登録中...",
           "8f2675c2f3": "ファイルから {{value0}} 個の Cookie をインポートしました。",
-          "5301857d88": "{{value0}} から"
+          "5301857d88": "{{value0}} から",
+          "offlineSkillLabel": "the Browser Use skill"
         },
         "BrowserUseSkillStep": {
           "0871b6998d": "agents が Orca のブラウザでページに移動して確認できるようにします。",
@@ -5630,7 +5638,8 @@
           "14444243ba": "PATH から {{value0}} を削除しますか?",
           "5d432fe44d": "インストールされています",
           "8a9b784c60": "古い",
-          "d363e5929b": "CLI の登録を確認しています…"
+          "d363e5929b": "CLI の登録を確認しています…",
+          "offlineSkillLabel": "the Orca CLI skill"
         },
         "CliSkillRuntimeSetup": {
           "04325573f8": "WSL",
@@ -5707,7 +5716,8 @@
           "6b5a2cd3a5": "アクセシビリティ",
           "6b17602073": "アクセスをリセットする",
           "506f2acf7a": "アクセスをリセットしています...",
-          "4b65070096": "darwin"
+          "4b65070096": "darwin",
+          "offlineSkillLabel": "the Computer Use skill"
         },
         "DeveloperPermissionsPane": {
           "4c17304beb": "更新",
@@ -6211,7 +6221,8 @@
           "cdeaed9e37": "Orca CLIをPATHに登録しました。",
           "3d34423e88": "Orca CLI を登録しています",
           "3be27641c9": "agent のシェルからエミュレーターコマンドを実行できるようにします。",
-          "3941719a56": "スキル設定を開く前に Orca CLI を確認しています。"
+          "3941719a56": "スキル設定を開く前に Orca CLI を確認しています。",
+          "offlineSkillLabel": "the Orca CLI skill"
         },
         "MobileEmulatorExamples": {
           "edf13dd03b": "コピー",
@@ -6379,11 +6390,13 @@
           "9bedd2a6e5": "agents がコンテキストを引き継ぎ、Orca を通じて作業を調整できるようにします。",
           "07641b9768": "オーケストレーションスキル",
           "2aacdb0517": "ハンドオフ、ワークツリーのハンドオーバー、および子 agents の作業全体にわたってコーディング agents を調整します。",
-          "191ac34567": "Agent オーケストレーション"
+          "191ac34567": "Agent オーケストレーション",
+          "offlineSkillLabel": "the orchestration skill"
         },
         "OrchestrationSetupCard": {
           "e7d2a5146c": "agents がコンテキストを引き継ぎ、Orca を通じて作業を調整できるようにします。",
-          "2777ff0fdc": "オーケストレーションスキル"
+          "2777ff0fdc": "オーケストレーションスキル",
+          "offlineSkillLabel": "the orchestration skill"
         },
         "OrchestrationSkillAgentCoverage": {
           "6dec5ce2d2": "Agent の範囲",
@@ -9544,7 +9557,8 @@
           "recipesHelp": "agent が orca.yaml に追加したレシピがここに表示され、ワー​​クスペースを起動できるようになります。",
           "refresh": "一時的な VM レシピを更新する",
           "checking": "レシピを確認中...",
-          "none": "レシピはまだ見つかりません。"
+          "none": "レシピはまだ見つかりません。",
+          "offlineSkillLabel": "the Per-Workspace Environments skill"
         },
         "ephemeralVmsExperimentalSetting": {
           "description": "repo が所有するオンデマンド環境のセットアップ コントロールとワークスペース実行ターゲットを示します。",
@@ -9823,7 +9837,8 @@
           "terminalTitle": "Linear skill setup",
           "terminalAriaLabel": "Linear skill install terminal",
           "manageConnectionHint": "Review connected Linear workspaces and API keys in",
-          "manageConnectionLink": "Integrations settings"
+          "manageConnectionLink": "Integrations settings",
+          "offlineSkillLabel": "the Linear skill"
         },
         "MobileRelayBetaNotice": {
           "notice": "Orca Relay is in beta."
@@ -11954,7 +11969,8 @@
           },
           "BrowserUseSkillSetupCard": {
             "cbc45022d4": "agents が Orca のブラウザでページに移動して確認できるようにします。",
-            "d5bb1cd4ba": "ブラウザ使用スキル"
+            "d5bb1cd4ba": "ブラウザ使用スキル",
+            "offlineSkillLabel": "the Browser Use skill"
           },
           "ComputerUseAnimatedVisual": {
             "d8401975b1": "承認された",
@@ -13016,7 +13032,8 @@
             "bff5341ac3": "Mobile emulator Orca CLI skill install terminal",
             "3d34423e88": "Orca CLI を登録しています",
             "3be27641c9": "agent のシェルからエミュレーターコマンドを実行できるようにします。",
-            "3941719a56": "スキル設定を開く前に Orca CLI を確認しています。"
+            "3941719a56": "スキル設定を開く前に Orca CLI を確認しています。",
+            "offlineSkillLabel": "the Orca CLI skill"
           },
           "MobileEmulatorTabIntroCallout": {
             "1924982130": "閉じる",

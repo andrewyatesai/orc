@@ -83,6 +83,25 @@ describe('offline bundled skill install', () => {
     expect(await readdir(homeDir)).toEqual(['.claude', '.codex'])
   })
 
+  it.skipIf(process.platform === 'win32')(
+    'installs on a first run into a home reached through a symlinked ancestor',
+    async () => {
+      const { resourceRoot } = await fixture({ agentHomes: [] })
+      const base = await makeTemporaryDirectory('orca-skill-install-linked-')
+      temporaryDirectories.push(base)
+      await mkdir(join(base, 'physical', 'home', '.claude'), { recursive: true })
+      // What /var -> /private/var does on macOS: the skills root this run creates
+      // realpaths to a different string than the one classification projected.
+      await symlink(join(base, 'physical'), join(base, 'linked'))
+      const homeDir = join(base, 'linked', 'home')
+
+      const [result] = await installBundledSkills({ names: [NAME], homeDir, resourceRoot })
+
+      expect(result).toMatchObject({ name: NAME, outcome: 'installed', reason: null })
+      expect(await skillText(homeDir, '.claude')).toBe('# offline demo v2\n')
+    }
+  )
+
   it('leaves a copy that already matches this build untouched', async () => {
     const { homeDir, resourceRoot } = await fixture({ agentHomes: ['.claude'] })
     await installBundledSkills({ names: [NAME], homeDir, resourceRoot })
@@ -201,6 +220,69 @@ describe('offline bundled skill install', () => {
     ])
     // Writing under a live lock entry is what makes `skills update` a permanent no-op.
     expect(await readdir(join(homeDir, '.claude', 'skills'))).toEqual([other.name])
+  })
+
+  it('defers every name when the npx lock exists but cannot be read', async () => {
+    const other: BundledSkillFixtureSkill = {
+      name: 'offline-other',
+      revisions: [{ releaseRevision: 1, files: [{ path: 'SKILL.md', content: '# other v1\n' }] }]
+    }
+    const { homeDir, resourceRoot } = await fixture({
+      agentHomes: ['.claude'],
+      skills: [SKILL, other]
+    })
+    await mkdir(join(homeDir, '.agents'), { recursive: true })
+    // A lock truncated mid-write still names skills; reading none of them is not
+    // evidence that none are locked.
+    await writeFile(
+      join(homeDir, '.agents', '.skill-lock.json'),
+      '{"version":3,"skills":{"offline-demo":'
+    )
+
+    const results = await installBundledSkills({
+      names: [NAME, other.name],
+      homeDir,
+      resourceRoot
+    })
+
+    expect(results.map((result) => [result.name, result.outcome])).toEqual([
+      [NAME, 'deferred-to-npx'],
+      [other.name, 'deferred-to-npx']
+    ])
+    expect(results[0].reason).toContain('unreadable-skill-lock')
+    expect(await readdir(join(homeDir, '.claude'))).toEqual([])
+    expect(await readdir(join(homeDir, '.agents'))).toEqual(['.skill-lock.json'])
+  })
+
+  it('installs nothing from a batch when a later name fails verification', async () => {
+    const other: BundledSkillFixtureSkill = {
+      name: 'offline-other',
+      revisions: [{ releaseRevision: 1, files: [{ path: 'SKILL.md', content: '# other v1\n' }] }]
+    }
+    const { homeDir, resourceRoot } = await fixture({
+      agentHomes: ['.claude'],
+      skills: [SKILL, other]
+    })
+    // Only the second requested name is damaged: the first is what a mid-batch
+    // rejection would already have written and could never take back.
+    await writeFile(
+      join(resourceRoot, 'skills', 'packages', other.name, 'SKILL.md'),
+      '# other v2\n'
+    )
+
+    const results = await installBundledSkills({
+      names: [NAME, other.name],
+      homeDir,
+      resourceRoot
+    })
+
+    expect(results.map((result) => [result.name, result.outcome])).toEqual([
+      [NAME, 'bundle-corrupt'],
+      [other.name, 'bundle-corrupt']
+    ])
+    expect(results[0].reason).toContain(other.name)
+    expect(results[1].reason).toContain('digest-mismatch')
+    expect(await readdir(join(homeDir, '.claude'))).toEqual([])
   })
 
   it('installs nothing when the shipped bytes do not match the manifest', async () => {

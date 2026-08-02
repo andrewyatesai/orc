@@ -1,5 +1,5 @@
 import { lstat, realpath } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import type {
   SkillCurrentBundleEntry,
   SkillInstallationTopology,
@@ -51,8 +51,28 @@ function describe(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback
 }
 
+/**
+ * Where the package will live, canonical even before anything on the way there exists.
+ *
+ * A first install creates the skills root itself, so resolving only what is already
+ * there would hand back an unresolved path that realpath answers differently the
+ * moment our own mkdir runs — and the swap guard reads that change as a takeover.
+ */
 async function projectedPackagePath(rootPath: string, name: string): Promise<string> {
-  return join(await realpath(rootPath).catch(() => resolve(rootPath)), name)
+  const missing: string[] = [name]
+  let current = resolve(rootPath)
+  for (;;) {
+    const resolved = await realpath(current).catch(() => null)
+    if (resolved) {
+      return join(resolved, ...missing)
+    }
+    const parent = dirname(current)
+    if (parent === current) {
+      return join(resolve(rootPath), name)
+    }
+    missing.unshift(basename(current))
+    current = parent
+  }
 }
 
 /**

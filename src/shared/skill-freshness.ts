@@ -63,6 +63,17 @@ export const SUPPORTED_GLOBAL_SKILL_TOPOLOGIES: ReadonlySet<SkillInstallationTop
   'provider-alias'
 ])
 
+// Why: the npx set above is narrow because `skills update` writes only the canonical
+// copy and its aliases. The bundled installer writes each detected provider home
+// DIRECTLY, and only `~/.agents` classifies canonical — so on a machine that never ran
+// npx (no `~/.agents`), every offline placement is `independent-copy`. Reusing the npx
+// set there made each install permanently unupdateable: eligible to write once, never
+// again.
+export const SUPPORTED_BUNDLED_SKILL_TOPOLOGIES: ReadonlySet<SkillInstallationTopology> = new Set([
+  ...SUPPORTED_GLOBAL_SKILL_TOPOLOGIES,
+  'independent-copy'
+])
+
 export type SkillFreshnessInstallation = {
   id: string
   name: string
@@ -166,6 +177,13 @@ export type SkillFreshnessInventory = {
   schemaVersion: 1
   installations: SkillFreshnessInstallation[]
   eligibleUpdateNames: string[]
+  /**
+   * The subset of `eligibleUpdateNames` this build converges from its own payload.
+   *
+   * Optional because absence is the honest default — a snapshot that predates the
+   * offline rail, or a runtime that has none, offers every name to the npx runner.
+   */
+  offlineUpdateNames?: string[]
   scanIssues: SkillFreshnessScanIssue[]
   scannedAt: number
 }

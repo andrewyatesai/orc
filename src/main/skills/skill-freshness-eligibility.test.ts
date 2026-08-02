@@ -3,12 +3,12 @@ import {
   buildTargetedSkillUpdateCommand,
   type SkillFreshnessInstallation
 } from '../../shared/skill-freshness'
-import { eligibleSkillUpdateNames } from './skill-freshness-eligibility'
+import { eligibleSkillUpdates } from './skill-freshness-eligibility'
 
 const globallyUpdatableNames = new Set(['computer-use', 'orca-cli', 'orchestration'])
 
 function eligible(installations: SkillFreshnessInstallation[]): string[] {
-  return eligibleSkillUpdateNames(installations, globallyUpdatableNames)
+  return eligibleSkillUpdates(installations, globallyUpdatableNames).names
 }
 
 function placement(
@@ -165,8 +165,11 @@ describe('skill freshness name-scoped update eligibility', () => {
     ).toEqual(['orchestration'])
   })
 
-  it('does not offer an official canonical copy missing from the updater lock (#10791)', () => {
-    expect(eligibleSkillUpdateNames([placement('orca-cli')], new Set())).toEqual([])
+  it('does not offer an official canonical copy neither rail can converge (#10791)', () => {
+    expect(eligibleSkillUpdates([placement('orca-cli')], new Set())).toEqual({
+      names: [],
+      offlineNames: []
+    })
   })
 
   it('builds only an explicit, deterministic global command', () => {
@@ -175,5 +178,100 @@ describe('skill freshness name-scoped update eligibility', () => {
     )
     expect(buildTargetedSkillUpdateCommand([])).toBeNull()
     expect(buildTargetedSkillUpdateCommand(['orca-cli;echo unsafe'])).toBeNull()
+  })
+})
+
+describe('skill freshness update rails', () => {
+  it('offers a lock-less bundled copy on the offline rail (#10791 dead end)', () => {
+    // Without this the offline installer's own copy could never be updated: no lock
+    // entry meant no eligibility, so newer shipped bytes just turned the pill amber.
+    expect(eligibleSkillUpdates([placement('orca-cli')], new Set(), new Set(['orca-cli']))).toEqual(
+      { names: ['orca-cli'], offlineNames: ['orca-cli'] }
+    )
+  })
+
+  it('keeps a locked name on the npx rail even when this build ships its bytes', () => {
+    // Why: the bundled installer defers to that lock, so routing it offline would
+    // advertise an update that writes nothing.
+    expect(
+      eligibleSkillUpdates([placement('orca-cli')], new Set(['orca-cli']), new Set(['orca-cli']))
+    ).toEqual({ names: ['orca-cli'], offlineNames: [] })
+  })
+
+  it('splits a mixed batch so each name reaches the updater that owns it', () => {
+    expect(
+      eligibleSkillUpdates(
+        [placement('orca-cli'), placement('computer-use'), placement('orchestration')],
+        new Set(['orca-cli']),
+        new Set(['computer-use', 'orchestration'])
+      )
+    ).toEqual({
+      names: ['computer-use', 'orca-cli', 'orchestration'],
+      offlineNames: ['computer-use', 'orchestration']
+    })
+  })
+
+  it('applies the same placement safety to the offline rail', () => {
+    // The bundled installer refuses a copy it cannot recognize, so offering one
+    // would promise a write it will decline.
+    expect(
+      eligibleSkillUpdates(
+        [placement('orca-cli', { status: 'unrecognized' })],
+        new Set(),
+        new Set(['orca-cli'])
+      )
+    ).toEqual({ names: [], offlineNames: [] })
+  })
+
+  // Why: only `~/.agents` classifies canonical, so on a machine that never ran npx
+  // EVERY offline placement is `independent-copy` — the shape the bundled installer
+  // writes on the common path. Holding it to the npx rail's set made each install a
+  // one-shot: written once, then permanently ineligible for the update that would
+  // refresh it.
+  it('converges the independent copies the bundled installer actually writes', () => {
+    expect(
+      eligibleSkillUpdates(
+        [
+          placement('orca-cli', {
+            rootId: 'home-gemini',
+            unresolvedPath: '/home/.gemini/skills/orca-cli',
+            resolvedPath: '/home/.gemini/skills/orca-cli',
+            topology: 'independent-copy'
+          })
+        ],
+        new Set(),
+        new Set(['orca-cli'])
+      )
+    ).toEqual({ names: ['orca-cli'], offlineNames: ['orca-cli'] })
+  })
+
+  // Why: the same placement stays a dead end for npx — `skills update` writes the
+  // canonical copy and its aliases only, so offering it would promise a write the
+  // command cannot perform.
+  it('still withholds an independent copy from the npx rail', () => {
+    expect(
+      eligibleSkillUpdates(
+        [
+          placement('orca-cli', {
+            rootId: 'home-gemini',
+            unresolvedPath: '/home/.gemini/skills/orca-cli',
+            resolvedPath: '/home/.gemini/skills/orca-cli',
+            topology: 'independent-copy'
+          })
+        ],
+        new Set(['orca-cli']),
+        new Set()
+      )
+    ).toEqual({ names: [], offlineNames: [] })
+  })
+
+  it('leaves an already-current bundled copy alone', () => {
+    expect(
+      eligibleSkillUpdates(
+        [placement('orca-cli', { status: 'current' })],
+        new Set(),
+        new Set(['orca-cli'])
+      )
+    ).toEqual({ names: [], offlineNames: [] })
   })
 })

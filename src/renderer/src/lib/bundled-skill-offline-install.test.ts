@@ -102,16 +102,33 @@ describe('bundled skill offline install', () => {
     )
   })
 
-  it('keeps the terminal reachable when the offline path refuses a user-owned copy', async () => {
+  // Why: the terminal rail runs `npx skills add --global` — the one command that would
+  // overwrite the copy we just declined to touch. Offering it here made the clobber the
+  // obvious next click, directly under a toast promising nothing was overwritten.
+  it('points at the user’s own copy instead of offering the command that would clobber it', async () => {
     mocks.installBundled.mockResolvedValue([
-      result({ outcome: 'refused-user-owned', reason: 'refused-unrecognized: edited' })
+      result({
+        outcome: 'refused-user-owned',
+        reason: 'refused-unrecognized: edited',
+        placements: [
+          {
+            rootId: 'home-claude',
+            sourceLabel: 'Claude home',
+            packagePath: '/home/.claude/skills/orchestration',
+            state: 'refused-unrecognized',
+            detail: null
+          }
+        ]
+      })
     ])
 
     await expect(install()).resolves.toBe(false)
     expect(mocks.toastWarning).toHaveBeenCalledWith(
       'Orca kept your own copy of the orchestration skill.',
       expect.objectContaining({
-        description: 'Nothing was overwritten. Opening a terminal so you can decide.'
+        description:
+          'Nothing was overwritten. Your copy at /home/.claude/skills/orchestration stays in charge until you move it aside.',
+        action: expect.objectContaining({ label: 'Show my copy' })
       })
     )
   })

@@ -8,6 +8,7 @@ import type {
   SkillDiscoverySource
 } from '../../shared/skills'
 import { buildEncodedWslBashCommand, quoteBashString } from '../wsl-bash-command'
+import { HIDDEN_SKILL_ENTRY_EXCEPTIONS, HIDDEN_SKILL_ENTRY_PREFIX } from './discovery'
 import {
   buildSkillDiscoverySources,
   compareSkills,
@@ -22,6 +23,17 @@ const MAX_MARKDOWN_BYTES = 256 * 1024
 const MAX_PACKAGE_FILES = 200
 const WSL_SCAN_TIMEOUT_MS = 10_000
 const WSL_SCAN_MAX_BUFFER_BYTES = 128 * 1024 * 1024
+
+// Why: derived from the native walker's rule so the two rails cannot drift over what
+// counts as a skill. `-mindepth 1` keeps the prune off the root itself, whose own path
+// is routinely hidden (`~/.codex/skills`).
+function hiddenEntryPruneExpression(): string {
+  const tests = [
+    `-name ${quoteBashString(`${HIDDEN_SKILL_ENTRY_PREFIX}*`)}`,
+    ...HIDDEN_SKILL_ENTRY_EXCEPTIONS.map((name) => `! -name ${quoteBashString(name)}`)
+  ]
+  return `\\( ${tests.join(' ')} \\) -prune`
+}
 
 export function buildWslSkillDiscoveryCommand(roots: readonly SkillScanRoot[]): string {
   const lines = [
@@ -49,7 +61,7 @@ export function buildWslSkillDiscoveryCommand(roots: readonly SkillScanRoot[]): 
     `    printf '%s\\0%s\\0%s\\0%s\\0%s\\0%s\\0' S "$root_index" "$skill_file" "$canonical_path" "$updated_at" "$file_count"`,
     `    printf '%s' "$encoded_markdown"`,
     `    printf '\\0'`,
-    `  done < <(find -L "$root_path" -mindepth 1 -maxdepth "$max_depth" -type f -name 'SKILL.md' -print0 2>/dev/null)`,
+    `  done < <(find -L "$root_path" -mindepth 1 -maxdepth "$max_depth" ${hiddenEntryPruneExpression()} -o -type f -name 'SKILL.md' -print0 2>/dev/null)`,
     '}'
   ]
   roots.forEach((root, index) => {

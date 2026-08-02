@@ -14,13 +14,19 @@ import {
   requestSkillFreshnessUpdateDialog
 } from './skill-freshness-update-dialog'
 import { _resetSkillUpdateRunStore, SKILL_UPDATE_SUCCESS_LINGER_MS } from './skill-update-run-store'
+import { _resetOfflineSkillUpdateRun } from './skill-offline-update-run'
 
 const mocks = vi.hoisted(() => ({
   inventory: null as SkillFreshnessInventory | null,
   loading: false,
   error: null as string | null,
   refresh: vi.fn(),
-  notifyChanged: vi.fn()
+  notifyChanged: vi.fn(),
+  installOffline: vi.fn(async (_args: { names: readonly string[]; skillLabel: string }) => true)
+}))
+
+vi.mock('@/lib/bundled-skill-offline-install', () => ({
+  installBundledSkillsOffline: mocks.installOffline
 }))
 
 vi.mock('@/hooks/useSkillFreshness', () => ({
@@ -113,6 +119,18 @@ function placement(
   }
 }
 
+/** One name per rail: `orca-cli` goes to npx, `orchestration` to the bundled installer. */
+function mixedInventory(): SkillFreshnessInventory {
+  return {
+    schemaVersion: 1,
+    installations: [placement('orca-cli'), placement('orchestration')],
+    eligibleUpdateNames: ['orca-cli', 'orchestration'],
+    offlineUpdateNames: ['orchestration'],
+    scanIssues: [],
+    scannedAt: 1
+  }
+}
+
 function eligibleInventory(): SkillFreshnessInventory {
   return {
     schemaVersion: 1,
@@ -167,10 +185,25 @@ async function emitRun(run: SkillUpdateRun): Promise<void> {
   })
 }
 
+// One press of Update across both rails: the bundled write settles inside the click,
+// the npx run only reports once main pushes its own result.
+async function startMixedUpdate(): Promise<void> {
+  mocks.inventory = mixedInventory()
+  await renderDialog()
+  await openViaRequest()
+  await clickButton('Update 2 skills')
+  await emitRun({ state: 'running', names: ['orca-cli'], startedAt: 1, output: '' })
+  mocks.installOffline.mockClear()
+  skillsApi.startUpdateRun.mockClear()
+}
+
 describe('SkillFreshnessUpdateDialog', () => {
   beforeEach(() => {
     consumeSkillFreshnessUpdateDialogRequest()
     _resetSkillUpdateRunStore()
+    _resetOfflineSkillUpdateRun()
+    mocks.installOffline.mockReset()
+    mocks.installOffline.mockResolvedValue(true)
     pushRun = null
     mocks.inventory = eligibleInventory()
     mocks.loading = false
@@ -257,6 +290,172 @@ describe('SkillFreshnessUpdateDialog', () => {
     expect(findButton('Done')).toBeDefined()
     // The re-scan is what makes the result trustworthy, so it must be requested.
     expect(mocks.notifyChanged).toHaveBeenCalled()
+  })
+
+  it('routes each eligible name to the rail that owns it', async () => {
+    // Why: `skills update` only knows names its lock records, and the bundled
+    // installer defers to that lock — so a mixed batch must split, never fan out.
+    mocks.inventory = {
+      schemaVersion: 1,
+      installations: [placement('orca-cli'), placement('orchestration')],
+      eligibleUpdateNames: ['orca-cli', 'orchestration'],
+      offlineUpdateNames: ['orchestration'],
+      scanIssues: [],
+      scannedAt: 1
+    }
+    await renderDialog()
+    await openViaRequest()
+    await clickButton('Update 2 skills')
+
+    expect(skillsApi.startUpdateRun).toHaveBeenCalledWith(['orca-cli'])
+    expect(mocks.installOffline).toHaveBeenCalledWith({
+      names: ['orchestration'],
+      skillLabel: 'orchestration'
+    })
+  })
+
+  it('converges a bundled-only name without ever reaching the npx runner', async () => {
+    mocks.inventory = {
+      schemaVersion: 1,
+      installations: [placement('orchestration')],
+      eligibleUpdateNames: ['orchestration'],
+      offlineUpdateNames: ['orchestration'],
+      scanIssues: [],
+      scannedAt: 1
+    }
+    await renderDialog()
+    await openViaRequest()
+    await clickButton('Update 1 skill')
+
+    expect(skillsApi.startUpdateRun).not.toHaveBeenCalled()
+    expect(
+      container?.querySelector('[data-skill-row="orchestration"]')?.getAttribute('data-state-label')
+    ).toBe('done')
+  })
+
+  it('marks a refused bundled copy failed rather than reporting a write that did not happen', async () => {
+    mocks.installOffline.mockResolvedValue(false)
+    mocks.inventory = {
+      schemaVersion: 1,
+      installations: [placement('orchestration')],
+      eligibleUpdateNames: ['orchestration'],
+      offlineUpdateNames: ['orchestration'],
+      scanIssues: [],
+      scannedAt: 1
+    }
+    await renderDialog()
+    await openViaRequest()
+    await clickButton('Update 1 skill')
+
+    expect(
+      container?.querySelector('[data-skill-row="orchestration"]')?.getAttribute('data-state-label')
+    ).toBe('failed')
+  })
+
+  // Why: the rails settle independently, so reading either alone reports half the
+  // truth — an npx success over a refused bundled write is the one nobody looks past.
+  // Why: an npx rail that was dispatched but has not reported yet looks exactly like
+  // one never asked — both read 'idle'. Reading the rails alone therefore lets the
+  // faster bundled write settle the dialog and announce a batch still in progress.
+  it('waits for a dispatched npx rail that has not reported yet', async () => {
+    mocks.inventory = mixedInventory()
+    await renderDialog()
+    await openViaRequest()
+    await clickButton('Update 2 skills')
+
+    // The bundled half has resolved; npx was dispatched but has emitted nothing.
+    expect(skillsApi.startUpdateRun).toHaveBeenCalledWith(['orca-cli'])
+    expect(container?.textContent).not.toContain('Updated 1 of 2 skills')
+    expect(container?.textContent).not.toContain('Updated 2 skills')
+    expect(findButton('Done')).toBeUndefined()
+
+    // Once it does report, the batch settles and counts both rails.
+    await emitRun({ state: 'success', names: ['orca-cli'], finishedAt: 2, output: 'done' })
+    expect(container?.textContent).toContain('Updated 2 skills')
+  })
+
+  it('does not headline success when the bundled half of the batch failed', async () => {
+    mocks.installOffline.mockResolvedValue(false)
+    await startMixedUpdate()
+    await emitRun({ state: 'success', names: ['orca-cli'], finishedAt: 2, output: 'done' })
+
+    expect(container?.textContent).toContain('Updated 1 of 2 skills')
+    expect(container?.textContent).toContain("The update didn't finish")
+    expect(container?.textContent).toContain(
+      'Orca could not update orchestration from this app build.'
+    )
+    // Nothing here is finished, so nothing may offer the button that says so.
+    expect(findButton('Done')).toBeUndefined()
+    expect(findButton('Close')).toBeDefined()
+    // `skills update` has never heard of this name — copying that command would
+    // hand over something that changes nothing.
+    expect(findButton('Copy command')).toBeUndefined()
+
+    // The settling re-scan has nulled the inventory by the time Retry is on screen,
+    // so the rail each name belongs to has to come from the run, not from eligibility.
+    mocks.inventory = null
+    mocks.loading = true
+    await rerender()
+    await clickButton('Retry')
+    expect(mocks.installOffline).toHaveBeenCalledWith({
+      names: ['orchestration'],
+      skillLabel: 'orchestration'
+    })
+    expect(skillsApi.startUpdateRun).not.toHaveBeenCalled()
+  })
+
+  it('keeps the bundled half in the count when the npx half failed', async () => {
+    await startMixedUpdate()
+    await emitRun({
+      state: 'error',
+      names: ['orca-cli'],
+      failedNames: ['orca-cli'],
+      finishedAt: 3,
+      output: '',
+      message: 'skills update exited with code 1'
+    })
+
+    expect(container?.textContent).toContain('Updated 1 of 2 skills')
+    expect(container?.textContent).toContain('skills update exited with code 1')
+    expect(findButton('Done')).toBeUndefined()
+
+    await clickButton('Retry')
+    expect(skillsApi.startUpdateRun).toHaveBeenCalledWith(['orca-cli'])
+    // The bundled name landed; retrying it would rewrite bytes that are current.
+    expect(mocks.installOffline).not.toHaveBeenCalled()
+  })
+
+  it('retries both rails when both halves failed', async () => {
+    mocks.installOffline.mockResolvedValue(false)
+    await startMixedUpdate()
+    await emitRun({
+      state: 'error',
+      names: ['orca-cli'],
+      failedNames: ['orca-cli'],
+      finishedAt: 3,
+      output: '',
+      message: 'skills update exited with code 1'
+    })
+
+    expect(container?.textContent).toContain('Updated 0 of 2 skills')
+    expect(findButton('Done')).toBeUndefined()
+
+    await clickButton('Retry')
+    expect(skillsApi.startUpdateRun).toHaveBeenCalledWith(['orca-cli'])
+    expect(mocks.installOffline).toHaveBeenCalledWith({
+      names: ['orchestration'],
+      skillLabel: 'orchestration'
+    })
+  })
+
+  it('reports one success for a batch both rails converged', async () => {
+    await startMixedUpdate()
+    await emitRun({ state: 'success', names: ['orca-cli'], finishedAt: 2, output: 'done' })
+
+    expect(container?.textContent).toContain('Updated 2 skills')
+    expect(container?.textContent).not.toContain("The update didn't finish")
+    expect(findButton('Done')).toBeDefined()
+    expect(findButton('Retry')).toBeUndefined()
   })
 
   it('attributes failures to the names the re-scan says are still outdated', async () => {

@@ -9,6 +9,20 @@ type SkillUpdateRegistrationArgs = {
   stateHome?: string | null
 }
 
+/**
+ * What the npx updater's lock records, or why it could not be read.
+ *
+ * Only `absent` means nothing is locked. `unreadable` is a lock that exists but
+ * cannot be trusted — corrupt, truncated mid-write, an older schema, or denied —
+ * and a caller about to write under a lock entry has to treat it as fully locked,
+ * because the entries it would have to respect are exactly the ones it cannot see.
+ */
+export type GloballyUpdatableSkillLockState = {
+  status: 'absent' | 'readable' | 'unreadable'
+  locks: ReadonlyMap<string, string>
+  detail: string | null
+}
+
 function globalSkillLockPath(args: SkillUpdateRegistrationArgs): string {
   const stateHome =
     args.stateHome === undefined
@@ -19,6 +33,49 @@ function globalSkillLockPath(args: SkillUpdateRegistrationArgs): string {
   return stateHome
     ? join(stateHome, 'skills', '.skill-lock.json')
     : join(args.homeDir ?? homedir(), '.agents', '.skill-lock.json')
+}
+
+/** Null for content this build cannot interpret; throws only when the JSON itself is broken. */
+function parseGlobalSkillLock(raw: string): ReadonlyMap<string, string> | null {
+  const parsed: unknown = JSON.parse(raw)
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return null
+  }
+  const { version, skills } = parsed as { version?: unknown; skills?: unknown }
+  if (
+    typeof version !== 'number' ||
+    version < GLOBAL_SKILL_LOCK_SCHEMA_VERSION ||
+    !skills ||
+    typeof skills !== 'object' ||
+    Array.isArray(skills)
+  ) {
+    return null
+  }
+
+  return new Map(
+    Object.entries(skills)
+      .filter(([, value]) => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+          return false
+        }
+        const entry = value as {
+          skillFolderHash?: unknown
+          skillPath?: unknown
+          source?: unknown
+        }
+        return (
+          typeof entry.skillFolderHash === 'string' &&
+          entry.skillFolderHash.length > 0 &&
+          typeof entry.skillPath === 'string' &&
+          entry.skillPath.length > 0 &&
+          typeof entry.source === 'string' &&
+          entry.source.length > 0
+        )
+      })
+      .map(
+        ([name, value]) => [name, (value as { skillFolderHash: string }).skillFolderHash] as const
+      )
+  )
 }
 
 export async function readGloballyUpdatableSkillNames(
@@ -34,50 +91,36 @@ export async function readGloballyUpdatableSkillNames(
  * exposed alongside the names because `skills update` decides what to do by
  * comparing this against the source and never reads disk — so when it disagrees
  * with the bytes actually on disk, the command can only no-op.
+ *
+ * An unreadable lock reads as empty here. Callers that must not write under a
+ * lock entry want `readGloballyUpdatableSkillLockState` instead, which keeps the
+ * two apart.
  */
 export async function readGloballyUpdatableSkillLocks(
   args: SkillUpdateRegistrationArgs = {}
 ): Promise<ReadonlyMap<string, string>> {
-  try {
-    const parsed = JSON.parse(await readFile(globalSkillLockPath(args), 'utf8')) as {
-      version?: unknown
-      skills?: unknown
-    }
-    if (
-      typeof parsed.version !== 'number' ||
-      parsed.version < GLOBAL_SKILL_LOCK_SCHEMA_VERSION ||
-      !parsed.skills ||
-      typeof parsed.skills !== 'object' ||
-      Array.isArray(parsed.skills)
-    ) {
-      return new Map()
-    }
+  return (await readGloballyUpdatableSkillLockState(args)).locks
+}
 
-    return new Map(
-      Object.entries(parsed.skills)
-        .filter(([, value]) => {
-          if (!value || typeof value !== 'object' || Array.isArray(value)) {
-            return false
-          }
-          const entry = value as {
-            skillFolderHash?: unknown
-            skillPath?: unknown
-            source?: unknown
-          }
-          return (
-            typeof entry.skillFolderHash === 'string' &&
-            entry.skillFolderHash.length > 0 &&
-            typeof entry.skillPath === 'string' &&
-            entry.skillPath.length > 0 &&
-            typeof entry.source === 'string' &&
-            entry.source.length > 0
-          )
-        })
-        .map(
-          ([name, value]) => [name, (value as { skillFolderHash: string }).skillFolderHash] as const
-        )
-    )
+export async function readGloballyUpdatableSkillLockState(
+  args: SkillUpdateRegistrationArgs = {}
+): Promise<GloballyUpdatableSkillLockState> {
+  let raw: string
+  try {
+    raw = await readFile(globalSkillLockPath(args), 'utf8')
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    // ENOTDIR: a component of the path is a file, so no lock can exist beneath it.
+    return code === 'ENOENT' || code === 'ENOTDIR'
+      ? { status: 'absent', locks: new Map(), detail: null }
+      : { status: 'unreadable', locks: new Map(), detail: code ?? 'skill-lock-read-failed' }
+  }
+  try {
+    const locks = parseGlobalSkillLock(raw)
+    return locks
+      ? { status: 'readable', locks, detail: null }
+      : { status: 'unreadable', locks: new Map(), detail: 'skill-lock-unrecognized' }
   } catch {
-    return new Map()
+    return { status: 'unreadable', locks: new Map(), detail: 'skill-lock-unparsable' }
   }
 }
