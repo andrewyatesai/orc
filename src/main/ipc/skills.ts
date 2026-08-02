@@ -10,6 +10,8 @@ import type {
   SkillUpdateRun,
   SkillUpdateStartResult
 } from '../../shared/skill-freshness'
+import type { BundledSkillInstallResult } from '../../shared/bundled-skill-install'
+import { installBundledSkills } from '../skills/bundled-skill-install'
 import { inventorySkillFreshness } from '../skills/skill-freshness-inventory'
 import { SkillUpdateRunner } from '../skills/skill-update-run'
 import { skillUpdateFailedNames } from '../skills/skill-update-outcome'
@@ -88,6 +90,27 @@ export function registerSkillsHandlers(store: Store): void {
     'skills:startUpdateRun',
     async (_event, names: string[]): Promise<SkillUpdateStartResult> => {
       return runner.start(Array.isArray(names) ? names : [])
+    }
+  )
+
+  ipcMain.handle(
+    'skills:installBundled',
+    async (_event, names: string[]): Promise<BundledSkillInstallResult[]> => {
+      const requested = (Array.isArray(names) ? names : []).filter(
+        (name): name is string => typeof name === 'string' && name.trim().length > 0
+      )
+      // Why: the bundled payload can only be written to this machine's skill homes.
+      // While a remote runtime owns discovery, a local write would report success for
+      // a host that never sees it — hand the caller back to its terminal rail.
+      if (store.getSettings().activeRuntimeEnvironmentId?.trim()) {
+        return requested.map((name) => ({
+          name,
+          outcome: 'failed',
+          reason: 'remote-runtime-active',
+          placements: []
+        }))
+      }
+      return installBundledSkills({ names: requested })
     }
   )
 

@@ -12,7 +12,7 @@ import { dirname } from 'node:path'
  * directory for fsync, and some filesystems reject it. The file fsync above it is the load-bearing
  * part; this closes the "rename recorded but not persisted" window where the platform allows it.
  */
-async function syncDirectory(directory: string): Promise<void> {
+export async function syncDirectory(directory: string): Promise<void> {
   let handle: Awaited<ReturnType<typeof open>> | null = null
   try {
     handle = await open(directory, 'r')

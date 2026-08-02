@@ -95,6 +95,7 @@ import type {
   SkillUpdateRun,
   SkillUpdateStartResult
 } from '../shared/skill-freshness'
+import type { BundledSkillInstallResult } from '../shared/bundled-skill-install'
 import type {
   RuntimeBrowserDriverState,
   RuntimeMobileSessionTabMove,
@@ -2358,6 +2359,8 @@ const api = {
       ipcRenderer.invoke('skills:discover', target),
     freshnessInventory: (): Promise<SkillFreshnessInventory> =>
       ipcRenderer.invoke('skills:freshnessInventory'),
+    installBundled: (names: string[]): Promise<BundledSkillInstallResult[]> =>
+      ipcRenderer.invoke('skills:installBundled', names),
     startUpdateRun: (names: string[]): Promise<SkillUpdateStartResult> =>
       ipcRenderer.invoke('skills:startUpdateRun', names),
     cancelUpdateRun: (): Promise<void> => ipcRenderer.invoke('skills:cancelUpdateRun'),

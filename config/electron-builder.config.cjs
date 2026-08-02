@@ -54,8 +54,9 @@ const featureWallResources = {
   from: 'resources/onboarding/feature-wall',
   to: 'onboarding/feature-wall'
 }
-// Why: freshness detection needs immutable identity metadata from this exact
-// app build, but never needs the skill package bytes or a runtime network read.
+// Why: freshness detection needs immutable identity metadata from this exact app
+// build, and the offline installer writes the package bytes shipped alongside it
+// (skills/packages/<name>) — both ship here so neither needs a network read.
 const skillFreshnessResources = {
   from: 'resources/skills',
   to: 'skills'

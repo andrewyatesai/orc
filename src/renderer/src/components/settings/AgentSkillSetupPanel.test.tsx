@@ -292,6 +292,54 @@ describe('AgentSkillSetupPanel', () => {
     expect(mocks.terminalProps.at(-1)).toMatchObject({ command: INSTALL_COMMAND })
   })
 
+  it('installs offline without opening a terminal or running the CLI preflight', async () => {
+    const offlineInstall = vi.fn(async () => true)
+    const onBeforeOpenTerminal = vi.fn()
+    await renderInteractivePanel({ offlineInstall, onBeforeOpenTerminal })
+
+    await clickButton('Install')
+
+    expect(offlineInstall).toHaveBeenCalledTimes(1)
+    expect(onBeforeOpenTerminal).not.toHaveBeenCalled()
+    expect(mocks.terminalProps).toHaveLength(0)
+    expect(container?.textContent).not.toContain(INSTALL_COMMAND)
+  })
+
+  it('shows the offline install is running instead of a terminal preflight', async () => {
+    let finishInstall: ((handled: boolean) => void) | null = null
+    const offlineInstall = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finishInstall = resolve
+        })
+    )
+    await renderInteractivePanel({ offlineInstall })
+
+    await clickButton('Install')
+
+    expect(findButton('Installing...').disabled).toBe(true)
+    expect(container?.textContent).toContain('Installing from this app build.')
+
+    await act(async () => {
+      finishInstall?.(true)
+    })
+    await act(async () => {})
+
+    expect(findButton('Install').disabled).toBe(false)
+    expect(container?.textContent).not.toContain('Installing from this app build.')
+  })
+
+  it('opens the terminal when the offline install defers to the command rail', async () => {
+    const offlineInstall = vi.fn(async () => false)
+    const onBeforeOpenTerminal = vi.fn()
+    await renderInteractivePanel({ offlineInstall, onBeforeOpenTerminal })
+
+    await clickButton('Install')
+
+    expect(onBeforeOpenTerminal).toHaveBeenCalledTimes(1)
+    expect(mocks.terminalProps.at(-1)).toMatchObject({ command: INSTALL_COMMAND })
+  })
+
   it('falls back to the install command for installed callers without installedCommand', async () => {
     await renderInteractivePanel({ installed: true })
 

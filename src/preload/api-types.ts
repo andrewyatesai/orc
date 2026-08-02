@@ -359,6 +359,7 @@ import type {
   SkillUpdateRun,
   SkillUpdateStartResult
 } from '../shared/skill-freshness'
+import type { BundledSkillInstallResult } from '../shared/bundled-skill-install'
 import type {
   CrashReportBreadcrumbData,
   CrashReportCopyDiagnosticsArgs,
@@ -2426,6 +2427,8 @@ export type PreloadApi = {
   skills: {
     discover: (target?: SkillDiscoveryTarget) => Promise<SkillDiscoveryResult>
     freshnessInventory: () => Promise<SkillFreshnessInventory>
+    // Installs the packages shipped in this app build — no network, no npx.
+    installBundled: (names: string[]) => Promise<BundledSkillInstallResult[]>
     startUpdateRun: (names: string[]) => Promise<SkillUpdateStartResult>
     cancelUpdateRun: () => Promise<void>
     acknowledgeUpdateRun: () => Promise<void>

@@ -83,10 +83,15 @@ function parseArtifact<T>(schema: ZodType<T>, value: unknown, label: string): T 
 
 const artifactsByResourceRoot = new Map<string, Promise<SkillBundleArtifacts>>()
 
+/** Where the shipped skill artifacts and package payload live, packaged or in dev. */
+export function skillBundleResourceRoot(): string {
+  return app.isPackaged ? process.resourcesPath : resolve(process.cwd(), 'resources')
+}
+
 // Why: the artifacts ship with the binary and never change within a run, while
 // focus-triggered rescans would otherwise re-read and re-parse them every time.
 export function loadSkillBundleArtifacts(
-  resourceRoot = app.isPackaged ? process.resourcesPath : resolve(process.cwd(), 'resources')
+  resourceRoot = skillBundleResourceRoot()
 ): Promise<SkillBundleArtifacts> {
   const cached = artifactsByResourceRoot.get(resourceRoot)
   if (cached) {

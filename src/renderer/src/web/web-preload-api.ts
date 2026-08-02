@@ -2867,6 +2867,18 @@ function createSkillsApi(): NonNullable<Partial<PreloadApi>['skills']> {
         scanIssues: [],
         scannedAt: Date.now()
       }),
+    // Why: the bundled payload writes to local agent skill homes a browser client
+    // does not have; reporting the same outcome as an undetected home keeps callers
+    // on their terminal fallback.
+    installBundled: (names) =>
+      Promise.resolve(
+        names.map((name) => ({
+          name,
+          outcome: 'failed' as const,
+          reason: 'no-detected-agent-home',
+          placements: []
+        }))
+      ),
     // Why: with no local skill homes there is nothing to update, so the run rail
     // reports a permanently idle state rather than spawning anything.
     startUpdateRun: () => Promise.resolve({ started: false as const, reason: 'invalid-names' }),

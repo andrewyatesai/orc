@@ -70,33 +70,47 @@ dispatcher unchanged.
 **Exit.** aterm ships on the extracted crate with no behavior change, and the conformance
 suite passes against the GUI host.
 
-**Status (2026-08-01): started, not done.** The crate exists with `SessionHost` at
-`aterm-control/src/host.rs:43`, depending only on `aterm-core` — no winit, direct or
-transitive. `control_selection` moved out (it was clipboard/selection work, renamed
-`clipboard.rs` on the way through), and the aterm workspace passes `cargo check
---workspace --all-targets`: 6 crate tests plus 147 `aterm-gui` control tests green. Four
-things stand between this and the exit criterion:
+**Status (2026-08-01): substantially done, one gap.** Landed on aterm main as `f2284d67`
+(extraction) and `3b32e5e6` (completion). The crate depends only on `aterm-core` — no
+winit, direct or transitive, proven from the dependency tree. `SessionHost` now carries
+all four facilities: terminal accessors, subscribe/capabilities, the input sink
+(`write_input`), and roster + resolution (`sessions`, `resolve`), with
+`SessionEntry`/`SessionState`/`Selector` owned by the crate that owns the wire so two
+hosts cannot disagree about what `@12` addresses. The conformance matrix is
+non-destructive — a Drop guard restores prior selection on every path including the early
+`return Outcome::fail` branches and a panic — and it **runs against a real `GuiHost`**
+over a real `Terminal`, proven non-vacuous by forcing `with_terminal_mut` to refuse and
+confirming the matrix rather than the setup reports the failure. Gates: workspace check
+clean, 12/12 `aterm-control`, 2728 `aterm-gui`, `grep_guard.sh` PASS.
 
-- **The conformance suite passes against `MemoryHost` only**, not the GUI host. The exit
-  criterion is unmet; do not mark the phase done.
-- **The suite is destructive as written** — `check_select`, `check_selection`, and
-  `check_copy` each issue `select clear` on the target sid, so pointing `run_all` at a
-  live `GuiHost` wipes the user's selection, and on a clipboard-bearing host `check_copy`
-  is one edit from clobbering the system clipboard. Save/restore, or a read-only subset,
-  is a prerequisite for the criterion above rather than a follow-up.
-- **`SessionHost` covers about 2.5 of the four things.** Present: terminal accessors,
-  subscribe, capabilities, clipboard. Absent: the input sink, session enumeration, and sid
-  resolution — so `orca-daemon` cannot yet serve `send`, `feed`, `sessions`, or `ls`
-  through it. It is also deliberately non-object-safe (`impl FnOnce` plus a generic `R`,
-  so no `Box<dyn SessionHost>`); confirm that suits `orca-daemon`'s dispatch before
-  Phase 1b builds on it.
-- **The L0 grep guard is now blind to the new crate.** `tools/grep_guard.sh:338` scopes
-  `GUISRC` to `crates/aterm-gui/src` and matches only when `term_lock(` and a blocklisted
-  method share a line. Verb bodies now live in `aterm-control` inside closures, so that
-  anchor can never fire for them. No regression today — the crate has zero blocklisted
-  tokens — but the standing guard against the whole-machine-freeze class no longer covers
-  code running under the GUI's held term guard. Add `crates/aterm-control/src` to
-  `GUISRC`.
+The L0 guard needed more than the scope widening this plan originally called for: verb
+bodies borrow through `with_terminal` closures, so `term_lock(` never appears in the new
+crate and the same-line anchor could not fire — widening `GUISRC` alone was *inert*. It is
+re-anchored on the closure seam with a region walk over the unbalanced-paren span, proven
+to fire on a violation planted inside a real multi-line closure.
+
+**The remaining gap, and it is narrow.** The GUI host test builds `proxy: None`, so
+nothing proves a `select` actually repaints a window. `winit::EventLoop` panics off the
+main thread on every target and libtest runs bodies on spawned threads, so closing this
+needs a harness binary owning `fn main`. Everything else in the exit criterion is met.
+
+**Two hazards for Phase 1b, documented in the trait:**
+
+- **The sid contract is SPLIT.** `sessions`/`resolve` answer fleet-wide; the per-session
+  methods may serve one bound session *whatever sid you pass* — `aterm-gui`'s host is
+  exactly that shape, ignoring `sid` in `with_terminal`, `with_terminal_mut`, and
+  `write_input`. So `let sid = host.resolve(sel)?; host.write_input(sid, …)` can land on
+  the wrong session. A fleet-scoped `orca-daemon` host must honor sid on every method, and
+  `HostCapabilities` does not yet distinguish the two shapes.
+- **No check exercises `sessions`, `resolve`, or `write_input`** on any host — the matrix
+  is still the 7 selection/block checks. Those three are unproven by conformance; Phase 1b
+  must add checks before relying on them.
+
+Also open: `tools/grep_guard.sh`'s paren walk strips string literals but not trailing `//`
+comments or char literals, so an unbalanced `)` in either closes a region early and can
+hide a violation. And a guard bound to a variable (`let mut t = term_lock(term);`) held
+across later statements stays invisible — pre-existing, 5 occurrences in real code,
+needing binding-scope tracking with real false-positive risk.
 
 ## Phase 1b — `orca-daemon` as a second host
 

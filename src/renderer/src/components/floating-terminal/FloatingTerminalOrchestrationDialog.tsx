@@ -14,6 +14,7 @@ import {
   AGENT_SKILL_CLI_PREREQUISITE_NOTICE,
   ensureOrcaCliAvailableForAgentSkillTerminal
 } from '@/lib/agent-skill-cli-prerequisite'
+import { installBundledSkillsOffline } from '@/lib/bundled-skill-offline-install'
 import {
   ORCHESTRATION_SKILL_INSTALL_COMMAND,
   ORCHESTRATION_SKILL_UPDATE_COMMAND
@@ -55,6 +56,10 @@ export function FloatingTerminalOrchestrationDialog({
         activeSkillRuntime.agentRuntime
       )
     : ORCHESTRATION_SKILL_UPDATE_COMMAND
+  // Why: the bundled payload can only be written into this machine's skill homes,
+  // so a WSL-scoped project keeps the terminal rail that reaches the distro.
+  const offlineInstallSupported =
+    !activeSkillRuntime.installDisabledReason && activeSkillRuntime.agentRuntime?.runtime !== 'wsl'
   const {
     installed: orchestrationSkillDetected,
     loading: orchestrationSkillLoading,
@@ -146,8 +151,15 @@ export function FloatingTerminalOrchestrationDialog({
           installDisabled={Boolean(activeSkillRuntime.installDisabledReason)}
           variant="inline"
           hideHeader
-          installLabel="Install CLI & skill"
-          preInstallNotice={AGENT_SKILL_CLI_PREREQUISITE_NOTICE}
+          installLabel={offlineInstallSupported ? 'Install skill' : 'Install CLI & skill'}
+          preInstallNotice={
+            offlineInstallSupported
+              ? translate(
+                  'auto.components.floating.terminal.FloatingTerminalOrchestrationDialog.offlineCliNotice',
+                  'The skill installs from this app build — no network. Registering the Orca CLI on PATH still needs the setup terminal.'
+                )
+              : AGENT_SKILL_CLI_PREREQUISITE_NOTICE
+          }
           getPrerequisiteStatus={() =>
             activeSkillRuntime.agentRuntime?.runtime === 'wsl'
               ? window.api.cli.getWslInstallStatus(
@@ -161,6 +173,24 @@ export function FloatingTerminalOrchestrationDialog({
               ? ensureWslCliAvailableForAgentSkillTerminal(activeSkillRuntime.agentRuntime)
               : ensureOrcaCliAvailableForAgentSkillTerminal())
           }}
+          offlineInstall={
+            offlineInstallSupported
+              ? async () => {
+                  useAppStore.getState().recordFeatureInteraction('agent-orchestration-setup')
+                  const complete = await installBundledSkillsOffline({
+                    names: [ORCHESTRATION_SKILL_NAME],
+                    skillLabel: translate(
+                      'auto.components.floating.terminal.FloatingTerminalOrchestrationDialog.offlineSkillLabel',
+                      'the orchestration skill'
+                    )
+                  })
+                  if (complete) {
+                    await refreshOrchestrationSkill()
+                  }
+                  return complete
+                }
+              : undefined
+          }
           onRecheck={refreshOrchestrationSkill}
         />
       </DialogContent>

@@ -8,7 +8,8 @@ const {
   getDefaultWslDistroMock,
   getWslHomeMock,
   parseWslPathMock,
-  callRuntimeEnvironmentMock
+  callRuntimeEnvironmentMock,
+  installBundledSkillsMock
 } = vi.hoisted(() => ({
   handleMock: vi.fn(),
   discoverSkillsMock: vi.fn(),
@@ -17,7 +18,8 @@ const {
   getDefaultWslDistroMock: vi.fn(),
   getWslHomeMock: vi.fn(),
   parseWslPathMock: vi.fn(),
-  callRuntimeEnvironmentMock: vi.fn()
+  callRuntimeEnvironmentMock: vi.fn(),
+  installBundledSkillsMock: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -61,6 +63,10 @@ vi.mock('./runtime-environment-transport-routing', () => ({
   callRuntimeEnvironment: callRuntimeEnvironmentMock
 }))
 
+vi.mock('../skills/bundled-skill-install', () => ({
+  installBundledSkills: installBundledSkillsMock
+}))
+
 import { registerSkillsHandlers } from './skills'
 
 describe('registerSkillsHandlers', () => {
@@ -80,6 +86,8 @@ describe('registerSkillsHandlers', () => {
     parseWslPathMock.mockReset()
     parseWslPathMock.mockReturnValue(null)
     callRuntimeEnvironmentMock.mockReset()
+    installBundledSkillsMock.mockReset()
+    installBundledSkillsMock.mockResolvedValue([])
     store.getSettings.mockReturnValue({ activeRuntimeEnvironmentId: null })
     discoverSkillsMock.mockResolvedValue({ skills: [], sources: [], scannedAt: 1 })
     discoverSkillsInWslMock.mockResolvedValue({ skills: [], sources: [], scannedAt: 1 })
@@ -122,6 +130,43 @@ describe('registerSkillsHandlers', () => {
     }
     return call[1] as (_event: unknown) => Promise<unknown>
   }
+
+  function getInstallBundledHandler() {
+    registerSkillsHandlers(store as never)
+    const call = handleMock.mock.calls.find(
+      (entry: unknown[]) => entry[0] === 'skills:installBundled'
+    )
+    if (!call) {
+      throw new Error('skills:installBundled handler was not registered')
+    }
+    return call[1] as (_event: unknown, names?: unknown) => Promise<unknown>
+  }
+
+  it('installs bundled skills offline for the requested names', async () => {
+    const results = [{ name: 'orchestration', outcome: 'installed', reason: null, placements: [] }]
+    installBundledSkillsMock.mockResolvedValue(results)
+    const handler = getInstallBundledHandler()
+
+    await expect(handler(null, ['orchestration', '  ', 7, 'orca-cli'])).resolves.toEqual(results)
+    expect(installBundledSkillsMock).toHaveBeenCalledWith({
+      names: ['orchestration', 'orca-cli']
+    })
+  })
+
+  it('never writes local skill homes while a remote runtime owns discovery', async () => {
+    store.getSettings.mockReturnValue({ activeRuntimeEnvironmentId: 'env-1' })
+    const handler = getInstallBundledHandler()
+
+    await expect(handler(null, ['orchestration'])).resolves.toEqual([
+      {
+        name: 'orchestration',
+        outcome: 'failed',
+        reason: 'remote-runtime-active',
+        placements: []
+      }
+    ])
+    expect(installBundledSkillsMock).not.toHaveBeenCalled()
+  })
 
   it('uses host skill discovery when resolved project runtime overrides stale WSL target state', async () => {
     const handler = getDiscoverHandler()

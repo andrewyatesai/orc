@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ComponentProps, type ReactNode } from 'react'
-import { Copy, Loader2, RefreshCw, Terminal } from 'lucide-react'
+import { Copy, Download, Loader2, RefreshCw, Terminal } from 'lucide-react'
 import { toast } from 'sonner'
 import { IntegrationStatusPill } from '../integration-status-pill'
 import { SkillFreshnessStatusPill } from '../skills/SkillFreshnessStatusPill'
@@ -40,6 +40,10 @@ type AgentSkillSetupPanelProps = {
   getPrerequisiteStatus?: () => Promise<SkillPrerequisiteStatus>
   isPrerequisiteAvailable?: (status: SkillPrerequisiteStatus) => boolean
   onBeforeOpenTerminal?: () => void | Promise<void>
+  // Why: when set, the install action first tries the offline bundled install and
+  // only falls through to the terminal (and its CLI preflight) when that returns
+  // false — so the happy path never opens a shell or raises a system prompt.
+  offlineInstall?: () => Promise<boolean>
   showInstallWhenInstalled?: boolean
   showRecheckWhenInstalled?: boolean
   installLabel?: string
@@ -80,6 +84,7 @@ export function AgentSkillSetupPanel({
   getPrerequisiteStatus,
   isPrerequisiteAvailable = isOrcaCliAvailableOnPath,
   onBeforeOpenTerminal,
+  offlineInstall,
   showInstallWhenInstalled = true,
   showRecheckWhenInstalled = true,
   installLabel = 'Install',
@@ -94,6 +99,7 @@ export function AgentSkillSetupPanel({
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [terminalCommand, setTerminalCommand] = useState<string | null>(null)
   const [terminalOpening, setTerminalOpening] = useState(false)
+  const [offlineInstalling, setOfflineInstalling] = useState(false)
   const [preInstallNoticeVisible, setPreInstallNoticeVisible] = useState(
     Boolean(preInstallNotice && !installed)
   )
@@ -103,6 +109,7 @@ export function AgentSkillSetupPanel({
     [getPrerequisiteStatus]
   )
   const activeCommand = installed ? (installedCommand ?? command) : command
+  const installBusy = terminalOpening || offlineInstalling
   // Why: the inline terminal auto-inserts when its command changes, so keep an
   // already-open terminal pinned to the command selected by the user's click.
   const openTerminalCommand = terminalCommand ?? activeCommand
@@ -177,14 +184,26 @@ export function AgentSkillSetupPanel({
           variant={installVariant}
           size="sm"
           onClick={() => {
-            if (terminalOpening) {
+            if (installBusy) {
               return
             }
             const nextCommand = activeCommand
-            setTerminalOpening(true)
+            if (offlineInstall) {
+              setOfflineInstalling(true)
+            } else {
+              setTerminalOpening(true)
+            }
             void (async () => {
               let shouldOpenTerminal = false
               try {
+                if (offlineInstall && (await offlineInstall())) {
+                  await refreshPreInstallNotice()
+                  return
+                }
+                if (mountedRef.current) {
+                  setOfflineInstalling(false)
+                  setTerminalOpening(true)
+                }
                 await onBeforeOpenTerminal?.()
                 await refreshPreInstallNotice()
                 shouldOpenTerminal = true
@@ -192,6 +211,7 @@ export function AgentSkillSetupPanel({
                 shouldOpenTerminal = false
               } finally {
                 if (mountedRef.current) {
+                  setOfflineInstalling(false)
                   setTerminalOpening(false)
                   if (shouldOpenTerminal) {
                     setTerminalCommand(nextCommand)
@@ -201,18 +221,30 @@ export function AgentSkillSetupPanel({
               }
             })()
           }}
-          disabled={terminalOpen || installDisabled || terminalOpening}
+          disabled={terminalOpen || installDisabled || installBusy}
         >
-          {terminalOpening ? (
+          {installBusy ? (
             <Loader2 className="size-3.5 animate-spin" />
+          ) : offlineInstall ? (
+            // Why: the offline path opens no terminal, so a terminal glyph would
+            // promise the wrong thing.
+            <Download className="size-3.5" />
           ) : (
             <Terminal className="size-3.5" />
           )}
-          {terminalOpening
-            ? translate('auto.components.settings.AgentSkillSetupPanel.5f818f12ab', 'Preparing...')
-            : installed
-              ? installedInstallLabel
-              : installLabel}
+          {offlineInstalling
+            ? translate(
+                'auto.components.settings.AgentSkillSetupPanel.installingFromBuild',
+                'Installing...'
+              )
+            : terminalOpening
+              ? translate(
+                  'auto.components.settings.AgentSkillSetupPanel.5f818f12ab',
+                  'Preparing...'
+                )
+              : installed
+                ? installedInstallLabel
+                : installLabel}
         </Button>
       ) : null}
       {!installed || showRecheckWhenInstalled ? (
@@ -233,13 +265,18 @@ export function AgentSkillSetupPanel({
           {translate('auto.components.settings.AgentSkillSetupPanel.c689392435', 'Re-check')}
         </Button>
       ) : null}
-      {terminalOpening ? (
+      {installBusy ? (
         <p className="basis-full text-[12px] leading-snug text-muted-foreground">
-          {openingHint ??
-            translate(
-              'auto.components.settings.AgentSkillSetupPanel.4c05b9d7cb',
-              'Preparing setup terminal.'
-            )}
+          {offlineInstalling
+            ? translate(
+                'auto.components.settings.AgentSkillSetupPanel.installingHint',
+                'Installing from this app build. No network needed.'
+              )
+            : (openingHint ??
+              translate(
+                'auto.components.settings.AgentSkillSetupPanel.4c05b9d7cb',
+                'Preparing setup terminal.'
+              ))}
         </p>
       ) : null}
     </div>

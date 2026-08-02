@@ -672,6 +672,22 @@
       "federatedSearch": {
         "missingMatch": "The restored scrollback no longer contains this match.",
         "paneUnavailable": "Pane no longer available."
+      },
+      "bundled": {
+        "skill": {
+          "offline": {
+            "install": {
+              "installed": "Installed {{value0}} from this app build.",
+              "updated": "Updated {{value0}} from this app build.",
+              "alreadyCurrent": "No update needed for {{value0}}.",
+              "openingTerminal": "Opening a terminal to finish the install.",
+              "deferredToNpx": "The skills CLI manages {{value0}}.",
+              "refusedUserOwned": "Orca kept your own copy of {{value0}}.",
+              "refusedUserOwnedDescription": "Nothing was overwritten. Opening a terminal so you can decide.",
+              "failed": "Could not install {{value0}} from this app build."
+            }
+          }
+        }
       }
     },
     "hooks": {
@@ -5301,7 +5317,9 @@
           "copyCommandAria": "コマンドをコピー",
           "runCommandDescription": "Enter を押してコマンドを実行します。",
           "5f818f12ab": "準備中...",
-          "4c05b9d7cb": "セットアップ用ターミナルを準備しています。"
+          "4c05b9d7cb": "セットアップ用ターミナルを準備しています。",
+          "installingFromBuild": "Installing...",
+          "installingHint": "Installing from this app build. No network needed."
         },
         "AgentsPane": {
           "d83834f5e6": "インストールされている agents を検出しています…",
@@ -11841,7 +11859,9 @@
             "05d7aabc20": "未インストール",
             "630c0ac8c8": "インストール済み",
             "dfd021ce46": "確認中...",
-            "543f325a14": "オーケストレーションを有効にする"
+            "543f325a14": "オーケストレーションを有効にする",
+            "offlineCliNotice": "The skill installs from this app build — no network. Registering the Orca CLI on PATH still needs the setup terminal.",
+            "offlineSkillLabel": "the orchestration skill"
           },
           "FloatingTerminalPanel": {
             "fc1042e92b": "最小化",
