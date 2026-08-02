@@ -2,28 +2,49 @@
 
 Initial classification: 2026-07-21.
 
-## Scope of the initial snapshot
+## Scope of the snapshot
 
-The public candidate is a project landing snapshot: `README.md`, `LICENSE`,
+**Superseded 2026-07-22** (registry commit `8ee1f93`, "orca-alab back to
+mirror-head full-source public snapshot"): the public repo is a full-source
+snapshot of dev HEAD, not the landing page described below. The original
+classification is kept for provenance; where the two disagree, the registry
+mode wins.
+
+What ships today, and what makes it publishable — each of these was a real
+guard failure fixed on 2026-08-01, not a hypothetical:
+
+- **Everything except the constellation's denied prefixes.** `docs/`, `publish/`
+  and `.github/` are removed by `baseline/path-deny.txt`, which no repo may
+  opt out of. Documents that referenced `docs/` were reworded to state their
+  constraint inline, because a link into an unexported directory is a dead link
+  for every public reader.
+- **The dev org is rewritten, not shipped.** `mirror_org_rewrite` applies the
+  same `org_rewrite` the guarded export path uses. Prose and config that named
+  the org outside a rewritable slug were fixed at the source instead.
+- **The `rust/aterm` gitlink is remapped to its public release.** A dev sha can
+  never exist in a rewritten-history snapshot repo, so `mirror_public_gitlinks`
+  rewrites the pin through `mappings.json` and refuses to publish when the
+  dependency has not been promoted. This is why aterm promotes first.
+- **Credential-shaped fixtures are assembled at runtime.** The redaction tests
+  and the local HTTPS test certificate — the ones this document predicted would
+  flag — no longer contain literal keys, so gitleaks sees no secret while the
+  tests still exercise one.
+- **Cargo checksum entropy is adjudicated, not allowlisted.** The engine clears
+  `generic-api-key` hits only inside verified vendored crates and Cargo.lock
+  dependency regions; every other finding still fails the publish.
+
+`FEATURE_WALKTHROUGH.md` now ships with the source it cites.
+
+## Original classification (2026-07-21, superseded)
+
+The public candidate was a project landing snapshot: `README.md`, `LICENSE`,
 `NOTICE`, `THIRD-PARTY-NOTICES.md`, the mandatory Gitleaks configuration, and
-the app icon and hero image the README embeds. It intentionally does not publish
+the app icon and hero image the README embeds. It intentionally did not publish
 the application source tree, walkthrough, build system, internal documentation,
-release machinery, or development-agent instructions.
-
-`FEATURE_WALKTHROUGH.md` stays in the development repository because its
-provenance commands and file citations require the full source tree.
-
-## Why app source is excluded for now
-
-The dev repository `andrewyatesai/orca-alab` is itself public, so the source is
-already visible under the development identity. Publishing it under the public
-org is still a separate decision: the tree carries a matched submodule gitlink
-(`rust/aterm`, which the exporter rejects by design), internal working notes,
-platform fixtures, and a committed test-only RSA private key
-(`tests/e2e/helpers/local-https-test-certificate.ts`) that public-repo secret
-scanning (including this engine's mandatory gitleaks pass) will flag. A source
-snapshot needs its own manifest closure, transform set, and public-clone build
-strategy before it can stage.
+release machinery, or development-agent instructions. The concerns it raised
+about app source — the submodule gitlink, the committed test-only RSA key, and
+the need for a transform set and public-clone strategy — were all real; they are
+resolved above rather than avoided.
 
 ## Versioning
 

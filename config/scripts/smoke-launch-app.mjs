@@ -21,6 +21,7 @@
 // Usage: node config/scripts/smoke-launch-app.mjs [--timeout-ms 45000]
 // Requires `out/main/index.js` (pnpm run build:electron-vite).
 
+import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { _electron as electron } from 'playwright'
@@ -68,6 +69,34 @@ if (!packagedBinary && !existsSync(mainPath)) {
   console.error(
     `[smoke-launch] ${path.relative(repoRoot, mainPath)} is missing — run \`pnpm run build:electron-vite\` first.`
   )
+  process.exit(1)
+}
+
+// Why check first: Electron's single-instance lock is keyed on userData, so a
+// second instance quits instead of opening a window — and this smoke then fails
+// with a bare launch timeout that reads exactly like the app being broken. That
+// misdiagnosis cost real time; name the cause instead.
+function runningOrcaInstances() {
+  try {
+    const out = execFileSync('pgrep', ['-fl', 'Orca ALab Edition.app/Contents/MacOS'], {
+      encoding: 'utf8'
+    })
+    return out.split('\n').filter(Boolean)
+  } catch {
+    return [] // pgrep exits 1 when nothing matches
+  }
+}
+
+const alreadyRunning = runningOrcaInstances()
+if (alreadyRunning.length > 0) {
+  console.error(
+    '[smoke-launch] refusing to run: another Orca instance already holds the ' +
+      'single-instance lock, so the instance this launches would exit without a window.'
+  )
+  for (const line of alreadyRunning.slice(0, 3)) {
+    console.error(`  - ${line.slice(0, 120)}`)
+  }
+  console.error('  Quit it first (the smoke measures a cold launch, not a second instance).')
   process.exit(1)
 }
 
