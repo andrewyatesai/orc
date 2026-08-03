@@ -229,11 +229,22 @@ export const electronViteConfig: UserConfig = {
           'codex/codex-app-server-grant-entry': resolve(
             'src/main/codex/codex-app-server-grant-entry.ts'
           ),
-          // Why: electron-vite cleans out/main in dev. The dev CLI imports
-          // this path for `orca agent hooks ...`, so it must survive rebuilds.
+          // Why these three are entries at all: electron-vite CLEANS out/main,
+          // and `build:cli`'s tsc emits into the same tree. Whichever runs last
+          // wins, so a plain `pnpm dev` after `pnpm build:cli` used to delete
+          // the modules the CLI requires and every `orca` command died with
+          // "Cannot find module '../../main/daemon/client'". Listing them here
+          // makes electron-vite re-emit them on every rebuild, so the two
+          // builds coexist instead of racing.
+          //
+          // The set is not arbitrary: it is exactly the `src/main/**` paths the
+          // built CLI requires at RUNTIME. `config/scripts/check-cli-main-entry-coverage.mjs`
+          // recomputes that set from source and fails if this list drifts.
           'agent-hooks/managed-agent-hook-controls': resolve(
             'src/main/agent-hooks/managed-agent-hook-controls.ts'
-          )
+          ),
+          'daemon/client': resolve('src/main/daemon/client.ts'),
+          'daemon/daemon-spawner': resolve('src/main/daemon/daemon-spawner.ts')
         },
         // Why: Rolldown's SSR default is ESM, but Electron and sidecar launchers
         // consume these stable CommonJS paths.

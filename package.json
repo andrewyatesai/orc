@@ -134,6 +134,7 @@
     "parity": "node config/scripts/run-parity.mjs",
     "parity:daemon": "node tools/daemon-parity/run.mjs",
     "check:aterm-pin": "node config/scripts/check-aterm-artifact-pin.mjs",
+    "check:cli-main-entries": "node config/scripts/check-cli-main-entry-coverage.mjs",
     "check:native-provenance": "node config/scripts/check-native-artifact-provenance.mjs",
     "smoke:launch": "node config/scripts/smoke-launch-app.mjs",
     "check:build-output": "node config/scripts/check-build-output-consistency.mjs",

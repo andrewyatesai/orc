@@ -20,7 +20,61 @@ const rawForwardedArgs = process.argv.slice(2)
 // The flag is runner-only and must not leak into Chromium/electron-vite.
 const useStableElectronName =
   process.env.ORCA_DEV_STABLE_NAME === '1' || rawForwardedArgs.includes(STABLE_NAME_FLAG)
-const forwardedRaw = rawForwardedArgs.filter((arg) => arg !== STABLE_NAME_FLAG)
+const runnerArgs = rawForwardedArgs.filter((arg) => arg !== STABLE_NAME_FLAG)
+// Why: electron-vite's CLI rejects any option it does not own, so app flags like
+// `--serve` cannot ride along with it — they have to reach Electron through
+// ELECTRON_CLI_ARGS, which electron-vite forwards verbatim. Two ways in:
+//
+//   pnpm dev --serve --serve-no-pairing      // `--serve*` routes automatically
+//   pnpm dev -- -- --anything-else           // everything after `--` is app args
+//
+// The auto-route exists because npm eats the first `--`, so the separator form
+// needs two of them — which nobody remembers. Serve flags are unambiguous
+// (electron-vite owns none of them), so they need no ceremony.
+const SERVE_FLAGS_TAKING_A_VALUE = new Set([
+  '--serve-port',
+  '--serve-pairing-address',
+  '--serve-project-root'
+])
+const forwardedRaw = []
+const electronAppArgs = []
+for (let index = 0; index < runnerArgs.length; index += 1) {
+  const arg = runnerArgs[index]
+  if (arg === '--') {
+    electronAppArgs.push(...runnerArgs.slice(index + 1))
+    break
+  }
+  if (!arg.startsWith('--serve')) {
+    forwardedRaw.push(arg)
+    continue
+  }
+  electronAppArgs.push(arg)
+  // `--serve-port 6769` splits across two argv entries; `--serve-port=6769` does not.
+  if (SERVE_FLAGS_TAKING_A_VALUE.has(arg) && index + 1 < runnerArgs.length) {
+    electronAppArgs.push(runnerArgs[index + 1])
+    index += 1
+  }
+}
+// Why these ride on electron-vite's own `--` list rather than ELECTRON_CLI_ARGS:
+// electron-vite's CLI *assigns* `ELECTRON_CLI_ARGS = JSON.stringify(options['--'])`
+// before it spawns Electron, so anything this script exported is overwritten a
+// moment later. Its `--` list is the only input that survives, and an
+// externally-set ELECTRON_CLI_ARGS has to be folded into it for the same reason.
+let inheritedAppArgs = []
+if (process.env.ELECTRON_CLI_ARGS) {
+  try {
+    const parsed = JSON.parse(process.env.ELECTRON_CLI_ARGS)
+    inheritedAppArgs = Array.isArray(parsed) ? parsed : []
+  } catch {
+    console.error(
+      `[orca-dev] Ignoring unparseable ELECTRON_CLI_ARGS=${process.env.ELECTRON_CLI_ARGS}`
+    )
+  }
+}
+const allAppArgs = [...inheritedAppArgs, ...electronAppArgs]
+if (allAppArgs.length > 0) {
+  console.error(`[orca-dev] Electron app args: ${allAppArgs.join(' ')}`)
+}
 if (useStableElectronName) {
   process.env.ORCA_DEV_STABLE_NAME = '1'
 }
@@ -267,7 +321,12 @@ if (!userPassedPort && !isHelpOrVersion) {
   }
 }
 prepareDevWebClient()
-const forwardedArgs = ['dev', ...forwardedRaw, ...forwardedExtras]
+const forwardedArgs = [
+  'dev',
+  ...forwardedRaw,
+  ...forwardedExtras,
+  ...(allAppArgs.length > 0 ? ['--', ...allAppArgs] : [])
+]
 const child = spawn(process.execPath, [electronViteCli, ...forwardedArgs], {
   stdio: 'inherit',
   env: process.env,

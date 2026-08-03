@@ -42,7 +42,10 @@ function modesLine(result: TerminalKeyResult): string {
     return 'Encoded against: modes unknown — the key never reached the encoder.'
   }
   const flags = modes.flags.length > 0 ? modes.flags.join(', ') : 'none (plain cooked keys)'
-  return `Encoded against: ${flags} (KeyboardMode 0x${modes.modeBits.toString(16)})`
+  // The provenance belongs on the same line as the flags: these bits come from
+  // Orca's replay of the pane, and the bytes above were encoded from them, so a
+  // reader weighing a surprising keystroke needs both facts together.
+  return `Encoded against: ${flags} (KeyboardMode 0x${modes.modeBits.toString(16)}, from Orca's replay of this pane — not read from the program's own emulator)`
 }
 
 export function formatTerminalKey(result: TerminalKeyResult): string {
