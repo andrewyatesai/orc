@@ -231,6 +231,38 @@ fn p_enum(value: Option<&Value>, path: &[String], allowed: &[&str]) -> PResult {
     }
 }
 
+/// `z.string().min(1).max(128)` — `.length` counts UTF-16 code units.
+fn p_incarnation_id(value: Option<&Value>, path: &[String]) -> PResult {
+    let parsed = p_string_min1(value, path)?;
+    let units: usize = parsed.as_str().unwrap_or_default().chars().map(char::len_utf16).sum();
+    if units > 128 {
+        return Err(at(path, "Too big: expected string to have <=128 characters"));
+    }
+    Ok(parsed)
+}
+
+/// `z.number().int().nonnegative()` — int fires before the sign check.
+fn p_int_nonnegative(value: Option<&Value>, path: &[String]) -> PResult {
+    let parsed = p_number(value, path)?;
+    let number = parsed.as_f64().unwrap_or_default();
+    if number.fract() != 0.0 {
+        return Err(at(path, "Invalid input: expected int, received number"));
+    }
+    if number < 0.0 {
+        return Err(at(path, "Too small: expected number to be >=0"));
+    }
+    Ok(parsed)
+}
+
+/// `z.number().finite().nonnegative()` — parsed JSON numbers are already finite.
+fn p_number_nonnegative(value: Option<&Value>, path: &[String]) -> PResult {
+    let parsed = p_number(value, path)?;
+    if parsed.as_f64().unwrap_or_default() < 0.0 {
+        return Err(at(path, "Too small: expected number to be >=0"));
+    }
+    Ok(parsed)
+}
+
 /// `z.string().min(1).refine(isValidTerminalTabId, …)` — min fires before refine.
 fn p_terminal_tab_id(value: Option<&Value>, path: &[String]) -> PResult {
     let parsed = p_string_min1(value, path)?;
@@ -929,6 +961,28 @@ fn p_session(value: Option<&Value>, path: &[String]) -> PResult {
     if let Some(cleaned) = parse_sleeping_sessions(obj.get("sleepingAgentSessionsByPaneKey")) {
         out.insert("sleepingAgentSessionsByPaneKey".to_string(), cleaned);
     }
+    set_opt(&mut out, obj, "terminalPtyIncarnationsByPaneKey", path, |v, p| {
+        p_record(v, p, None, p_incarnation_id)
+    })?;
+    set_opt(&mut out, obj, "terminalTopologyRevisionByRepoId", path, |v, p| {
+        p_record(v, p, None, p_int_nonnegative)
+    })?;
+    set_opt(&mut out, obj, "terminalSurfaceTombstonesByPaneKey", path, |v, p| {
+        p_record(v, p, None, p_terminal_surface_tombstone)
+    })?;
+    Ok(Value::Object(out))
+}
+
+/// Legacy per-surface fence, migrated into `terminalTopologyRevisionByRepoId` on load.
+fn p_terminal_surface_tombstone(value: Option<&Value>, path: &[String]) -> PResult {
+    let obj = require_object(value, path)?;
+    let mut out = Map::new();
+    set_req(&mut out, obj, "worktreeId", path, p_string)?;
+    set_req(&mut out, obj, "parentTabId", path, p_terminal_tab_id)?;
+    set_req(&mut out, obj, "leafId", path, p_string)?;
+    set_req(&mut out, obj, "ptyId", path, p_string)?;
+    set_req(&mut out, obj, "incarnationId", path, p_incarnation_id)?;
+    set_req(&mut out, obj, "retiredAt", path, p_number_nonnegative)?;
     Ok(Value::Object(out))
 }
 
@@ -1620,6 +1674,80 @@ mod tests {
             result.value().unwrap()["defaultTerminalTabsAppliedByWorktreeId"],
             json!({ "repo1::/path/wt1": true })
         );
+    }
+
+    #[test]
+    fn round_trips_terminal_pty_incarnations() {
+        let session =
+            minimal_with(&[("terminalPtyIncarnationsByPaneKey", json!({ "pane-a": "inc-1" }))]);
+        assert_eq!(
+            parse(session).value().unwrap()["terminalPtyIncarnationsByPaneKey"],
+            json!({ "pane-a": "inc-1" })
+        );
+    }
+
+    #[test]
+    fn rejects_a_blank_or_oversized_pty_incarnation_id() {
+        let blank = minimal_with(&[("terminalPtyIncarnationsByPaneKey", json!({ "pane-a": "" }))]);
+        assert!(parse(blank).value().is_none());
+        let oversized = minimal_with(&[(
+            "terminalPtyIncarnationsByPaneKey",
+            json!({ "pane-a": "x".repeat(129) }),
+        )]);
+        assert!(parse(oversized).value().is_none());
+    }
+
+    #[test]
+    fn round_trips_terminal_topology_revisions() {
+        let session = minimal_with(&[("terminalTopologyRevisionByRepoId", json!({ "repo1": 7 }))]);
+        assert_eq!(
+            parse(session).value().unwrap()["terminalTopologyRevisionByRepoId"],
+            json!({ "repo1": 7 })
+        );
+    }
+
+    #[test]
+    fn rejects_a_negative_or_fractional_topology_revision() {
+        let negative = minimal_with(&[("terminalTopologyRevisionByRepoId", json!({ "repo1": -1 }))]);
+        assert!(parse(negative).value().is_none());
+        let fractional =
+            minimal_with(&[("terminalTopologyRevisionByRepoId", json!({ "repo1": 1.5 }))]);
+        assert!(parse(fractional).value().is_none());
+    }
+
+    #[test]
+    fn round_trips_terminal_surface_tombstones() {
+        let session = minimal_with(&[(
+            "terminalSurfaceTombstonesByPaneKey",
+            json!({ "pane-a": {
+                "worktreeId": "wt-1",
+                "parentTabId": "terminal-1",
+                "leafId": "pane:1",
+                "ptyId": "pty-1",
+                "incarnationId": "inc-1",
+                "retiredAt": 1_700_000_000.0
+            } }),
+        )]);
+        assert_eq!(
+            parse(session).value().unwrap()["terminalSurfaceTombstonesByPaneKey"]["pane-a"]
+                ["incarnationId"],
+            json!("inc-1")
+        );
+    }
+
+    #[test]
+    fn rejects_a_tombstone_missing_its_incarnation() {
+        let session = minimal_with(&[(
+            "terminalSurfaceTombstonesByPaneKey",
+            json!({ "pane-a": {
+                "worktreeId": "wt-1",
+                "parentTabId": "terminal-1",
+                "leafId": "pane:1",
+                "ptyId": "pty-1",
+                "retiredAt": 1.0
+            } }),
+        )]);
+        assert!(parse(session).value().is_none());
     }
 
     // ─── Parity vector replay (same check the harness performs) ─────
