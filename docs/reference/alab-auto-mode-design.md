@@ -75,9 +75,13 @@ Review killed several v1 shortcuts; the corrected claims are inline below, marke
 - **Deterministic services own state transitions; the manager AI proposes.** Gate
   resolution, rotation, dispatch, and process lifecycle are executed by deterministic
   code that authorizes proposals against policy. The AI is judgment, never authority.
-- **Gates: deterministic code never resolves them.** LLM resolution exists only under
-  an explicit, per-run, human-pre-authorized standing order with a positive category
-  allowlist (§6.3). Default is human-only, everywhere.
+- **Gates split by what they transfer, not by trust settings.** A worker asking for
+  *feedback* ("which approach?", "is this diff right?") is answered by the manager —
+  that is the product, and routing it to a human is what makes a run non-autonomous.
+  A worker asking for *authority* (credentials, spend, destructive or irreversible
+  actions, security-boundary changes, and anything uncategorized) is fail-closed to a
+  human, with no run-level flag that unlocks it. Deterministic code never resolves a
+  gate on its own judgment either way (§6).
 - **Honest records.** A durable, redacted audit ledger — not the in-memory run log —
   records manager actions and rotations (§7).
 - House rules: no max-lines suppressions, concrete names, STYLEGUIDE tokens, SSH + WSL
@@ -411,15 +415,33 @@ land with the same contract or report `unsupported`, never a silent downgrade.
 
 ## 6. Gates and the manager (R2)
 
-### 6.1 The invariant, restated
+### 6.1 Two things are wearing one name
 
 `coordinator.ts:342` says the coordinator never auto-resolves gates because that would
-defeat them as approval checkpoints. That invariant survives, sharpened:
-**deterministic code never resolves a gate on its own judgment.** What changes: a
-human may *pre-authorize*, per run, either a declared default (timeout fallthrough) or
-delegation to the manager for a positive allowlist of categories. The comment is
-reworded in the same commit that lands the policy — the code and the prose must not
-disagree.
+defeat them as approval checkpoints. That comment is right about one kind of gate and
+wrong about the kind this system produces most.
+
+A worker that stops to ask *"which of these two approaches do you want?"* or *"the
+test is failing for reason X, should I fix it this way?"* has not reached an approval
+checkpoint. It has asked for **feedback**, and answering it is the entire product: the
+manager reads the pane, forms a judgment, and replies exactly as the human would. If
+those questions queue for a human, the run is not autonomous — it is a human answering
+questions with extra steps, which is the failure mode this design exists to remove.
+
+A worker that stops to ask *"may I force-push?"* or *"may I spend this budget?"* has
+reached a real checkpoint, and no amount of manager confidence substitutes for the
+authority a human holds and the manager does not.
+
+So the invariant is not "gates wait for humans." It is:
+
+> **Deterministic code never resolves a gate on its own judgment**, and **no agent
+> ever resolves a gate that transfers authority it does not hold.**
+
+The manager is not deterministic code — it is a judgment engine reading the same
+screen a human would. It answers feedback gates by default. Authority gates are
+fail-closed to a human no matter who is asking or how confident they are. The
+`coordinator.ts:342` comment is reworded in the same commit that lands the policy;
+the code and the prose must not disagree.
 
 ### 6.2 Transactional gate mechanics (prerequisite, R0/R1)
 
@@ -438,22 +460,38 @@ so resolution can *redispatch* the task while the original worker also resumes. 
 - ▸ `timeout_gate` today only stamps `status='timeout'` and leaves the task blocked;
   the fallthrough behavior below is new code, not a wrapper.
 
-### 6.3 `gateResolutionPolicy` (per run, persisted on the run row)
+### 6.3 Gate classes, and the policy that follows from them
 
-- **`human-only`** — the default, including inside ALab missions. (v1 recommended
-  `human-first` by default; both reviews called that unsafe, and app-modes §13 Q5's
-  standing-order recommendation agrees. Overridden.)
+Every gate carries a `category`. The category, not a per-run toggle, decides who may
+answer — because the question "does this transfer authority?" is a property of what is
+being asked, not of how much the operator trusts this particular run.
+
+**Feedback gates — the manager answers, by default.** Which approach, is this diff
+right, the build broke here, should I keep going, I need a decision to proceed. These
+are the common case in an autonomous run. The manager resolves them with
+`resolved_by:'manager:<handle>'` plus its reason, and the exchange is auditable after
+the fact rather than blocking before it.
+
+**Authority gates — fail-closed to a human, always.** Credentials and secrets, spend,
+destructive or irreversible actions (force-push, history rewrite, data deletion,
+production writes), permission and security-boundary changes, and **any gate with no
+category** — an unclassified gate is treated as an authority gate, because the failure
+of guessing wrong is asymmetric. No run-level setting unlocks these; there is no
+delegation flag to set, which is the point. A human answers, or the task waits.
+
+Two per-run knobs remain, and both only ever apply to feedback gates:
+
+- **`manager_deadline_at`** — how long the manager has to answer before the gate
+  escalates. A manager that cannot decide must escalate rather than stall, and a
+  manager that has crashed must not hold the run hostage.
 - **`standing-order`** — on `hard_deadline_at`, the GatePolicyService applies the
-  gate's *declared* `default_option`. Deterministic, pre-authorized, category-scoped.
-- **`manager-delegated`** — the manager may resolve gates whose `category` is in the
-  run's allowlist, before `manager_deadline_at`. **Fail-closed categories that are
-  always human-only:** credentials, spend, destructive/irreversible actions, permission
-  or security-boundary changes, and any gate with no category (legacy). Manager
-  resolutions carry `resolved_by:'manager:<handle>'` + reason.
+  gate's *declared* `default_option`. This is a human pre-authorizing a specific
+  answer to a specific declared question, not deterministic code exercising judgment;
+  that distinction is what keeps it inside the invariant.
 
-Precedence is explicit: manager window first (if delegated), then standing-order
-fallthrough, then the gate waits for a human. One decider per phase; no race between
-supervisor and manager by construction.
+Precedence is explicit: manager window first, then standing-order fallthrough, then
+the gate waits for a human. One decider per phase; no race between supervisor and
+manager by construction. Authority gates skip the first two phases entirely.
 
 ### 6.4 The deterministic services
 
