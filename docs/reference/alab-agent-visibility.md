@@ -18,20 +18,21 @@ serve with work, and what genuinely needs `aterm-gui`.*
 | Capability | Today, no work | Achievable in Orca | Needs `aterm-gui` |
 | --- | --- | --- | --- |
 | Plain text transcript | ✅ `terminal.read` | — | — |
-| Visible grid as text | ⚠️ only via the alt-screen/blank fallback | ✅ direct verb, trivial | — |
-| **Lossless styled grid** (per-cell fg/bg/attrs/glyph/wide/link) | ❌ | ✅ **engine already computes it** (`Terminal::render_row_at_screen`, `cell_frame_into`) | ❌ not needed |
-| Cursor + modes | ⚠️ engine has them, no verb carries them | ✅ trivial | — |
+| Visible grid as text | ✅ `terminal.agentView`, or `terminal.screen` | — | — |
+| **Lossless styled grid** (per-cell fg/bg/attrs/glyph/wide/link) | ✅ **`terminal.screen` (built, §2.5)** | — | ❌ not needed |
+| Cursor + modes | ✅ **`terminal.screen` (built, §2.5)** | — | — |
 | Backward paging through transcript | ✅ `terminal.read --cursor` (bounded 2000 lines / 256 KiB) | ✅ deeper via engine scrollback | — |
 | Backward paging through **engine scrollback** | ❌ | ✅ `scrollbackRowText` exists in Rust, unexposed at napi | — |
 | Search over history + grid | ✅ RPC only (no CLI verb) | ✅ add CLI verb | — |
 | Search over cold/parked panes | ❌ **daemon handlers not implemented** | ✅ kernel + client wrappers already written | — |
 | OSC-133 block expand/collapse | ❌ | ✅ engine API complete (`toggle_block_collapsed`, …) | ❌ not needed |
-| Expanding an **agent TUI's** own `… +N lines` | ❌ **bytes do not exist in the stream** | ⚠️ only by driving the keystroke, or reading the agent's transcript file | ❌ can't help either |
+| Expanding an **agent TUI's** own `… +N lines` | ✅ **`terminal.key` (built, §5.4)** — drives the agent's own binding; the bytes still do not exist in the stream, so this presses the key rather than reading it back | ✅ also readable untruncated via `terminal.agentTranscript` | ❌ can't help either |
 | Inline images (sixel / OSC 1337 / Kitty) — parsed & retained | ✅ **in the grid, feature already on** | ✅ expose payload via napi | — |
 | Inline images — payload reachable from an agent | ✅ **`terminal.images` (built, §6.5)** | — | — |
 | Pane pixels (a rendered PNG) | ❌ | ✅ **Orca has its own RGBA framebuffer + canvas** | ❌ not needed |
 | Pane pixels for a *parked/headless* pane | ❌ | ⚠️ needs an offscreen render path | — |
-| Video (temporal frame sequence) | ❌ | ⚠️ big; recommendation in §6 | ⚠️ or link it |
+| Timed replay of what a pane printed | ✅ **`terminal.record` (built, §7.3)** — asciicast v2, converts to GIF/mp4 | — | ❌ not needed |
+| Video (true present-destination frames) | ❌ | ⚠️ big; §7.4 | ⚠️ or link it |
 
 **The single most important finding:** the "parity gap" is narrower than it reads.
 `aterm-gui` owns the *control socket and the artifact plumbing*, but almost all of
@@ -39,8 +40,10 @@ the **semantics** — the lossless styled frame, the block model, the inline-ima
 payloads — live in `aterm-core`, which Orca already links. `aterm-gui`'s own
 `screen` verb is a thin JSON wrapper over engine reads
 (`rust/aterm/crates/aterm-gui/src/control_query.rs:1917-1957`, all `&Terminal`
-calls). Only `video` genuinely requires a GPU present path Orca does not have in
-that form.
+calls). Only *pixel* `video` genuinely requires a GPU present path Orca does not
+have in that form — and even that turned out to be the wrong target: a timed
+replay of the pane's own byte stream (`terminal.record`, §7.3) is what a driving
+AI and a human reviewer actually want, and it needs no present path at all.
 
 ---
 
@@ -128,20 +131,22 @@ fallback exists (`readRendererVisibleSnapshotLines`, `orca-runtime.ts:10435-1046
 but it re-parses the serialized snapshot through a throwaway emulator and returns
 plain lines too (`parseVisibleSnapshotLines`, `:10416-10434`).
 
-Net: **there is no path today by which a driving AI receives a styled grid,
-a cursor position, or terminal modes.**
+Net: **`terminal.read` alone gives a driving AI no styled grid, no cursor
+position and no terminal modes.** `terminal.screen` (§2.5) is the verb that
+does; this section is why it had to exist.
 
-### 2.3 What the engine already has (and nobody exposes)
+### 2.3 What the engine already had (and, before §2.5, nobody exposed)
 
-The headless engine holds all of it:
+The headless engine holds all of it. The last column is what `terminal.screen`
+changed:
 
 | Thing | Rust API | At napi? | On the wire? |
 | --- | --- | --- | --- |
-| Styled cell (char + bold/dim/italic/underline/blink/inverse/conceal/strike/overline + fg/bg as default/indexed/rgb) | `headless.rs:236` `cell()`, `headless.rs:59-84` `CellAttrs`/`Cell` | ❌ | ❌ |
-| Cursor `(row, col)` | `headless.rs:309` | ✅ `cursor()` | ❌ |
-| Alt screen | `headless.rs:373` | ✅ | ⚠️ internal only |
-| Bracketed paste / DECCKM / Kitty keyboard flags | `headless.rs:385`, `:390`, `:380` | ✅ | ❌ |
-| Mouse mode + SGR/SGR-pixel encoding | `headless.rs:283`, `:295`, `:299` | ✅ | ❌ |
+| Styled cell (char + bold/dim/italic/underline/blink/inverse/conceal/strike/overline + fg/bg) | `headless.rs:236` `cell()`, `headless.rs:59-84` `CellAttrs`/`Cell` | ✅ via `styledFrame` | ✅ `terminal.screen` |
+| Cursor `(row, col)` + visibility + DECSCUSR shape | `headless.rs:309`, engine `cursor_visible`/`cursor_style` | ✅ `cursor()`, `styledFrame` | ✅ `terminal.screen` |
+| Alt screen | `headless.rs:373` | ✅ | ✅ `terminal.screen` |
+| Bracketed paste / DECCKM / Kitty keyboard flags | `headless.rs:385`, `:390`, `:380` | ✅ | ✅ `terminal.screen` |
+| Mouse mode + SGR/SGR-pixel encoding | `headless.rs:283`, `:295`, `:299` | ✅ | ✅ `terminal.screen` |
 | Title (OSC 0/2) | `headless.rs:544` | ✅ | ⚠️ via agent-status only |
 | OSC-8 link ranges | `headless.rs:489` | ✅ | ⚠️ snapshot only |
 | **SGR-styled ANSI of the visible grid** | `headless.rs:405` `serialize_ansi` | ✅ `serializeAnsi` | ⚠️ `terminal.subscribe` only |
@@ -173,9 +178,69 @@ it is an engine read: `render_row_at_screen`, `cell_grapheme`, `cell_attrs`,
 
 ### 2.4 Verdict — §1
 
-* **Today:** plain transcript + a conditional plain-text visible grid. Renderer-blind, style-blind, cursor-blind.
-* **With work in Orca:** full parity with aterm's `screen` verb. Add `styled_frame()` to `orca-terminal` over `render_row_at_screen`, a napi method, and a `terminal.screen` RPC + CLI verb. The engine work is zero; this is adapter + binding + wire.
-* **Needs aterm-gui:** nothing.
+* **Today:** `terminal.screen` is **built** (§2.5) — the styled grid, the cursor and the input-affecting modes. `terminal.read` remains the plain-transcript verb it always was, and `terminal.agentView` remains the plain-text orientation call.
+* **Needs aterm-gui:** nothing. The engine work was zero, exactly as predicted: adapter + binding + wire.
+
+### 2.5 What shipped — `terminal.screen`
+
+RPC `terminal.screen` / CLI `orca terminal screen`. The visible grid with
+per-cell colour and SGR, the cursor, the terminal modes, and the dimensions —
+from one settled read.
+
+* Rust: `HeadlessTerminal::styled_frame` (`rust/crates/orca-terminal/src/styled_frame.rs`)
+  over `Terminal::render_row_at_screen` (`render_cells.rs:191`), `cell_grapheme`,
+  `hyperlink_at`, `cursor_visible`, `cursor_style` — the same calls
+  `gather_styled_frame` makes, plus this crate's own `cell()` for the raw bits
+  the render pass folds away.
+* napi: `styledFrame(detail, fromRow, rowCount, maxRuns)`; shape marshalling in
+  `native/orca-node/src/styled_screen.rs`.
+* Wire: `src/shared/terminal-screen-protocol.ts`; assembly, budgets and honesty
+  branches in `src/main/runtime/terminal-screen.ts`.
+
+**Colours come back RESOLVED** (`#rrggbb`), not as raw SGR: the engine's own
+colour resolution — palette, RGB overflow, bold-to-bright, dim, inverse, hidden
+and screen-wide DECSCNM — is already applied, so a run's `fg`/`bg` is the pixel
+a human sees. The raw bits ride alongside in `attrs`, so a driver can ask either
+question: *"which row looks highlighted"* or *"which row is inverse"*. That
+pairing is the point — a TUI's selection bar is answerable both ways, and only
+one of them survives a palette the caller does not own.
+
+**Cells are coalesced into style runs.** A per-cell record for an 80x24 pane is
+~2000 objects for content that is a handful of style transitions per row. A run
+carries `col`, `cols` and `text`; `cols` exceeds the grapheme count wherever a
+wide CJK/emoji glyph sits, because its continuation column has no text of its
+own. `fg`/`bg` are omitted when they equal the frame default, which is stated
+once.
+
+**Modes, because they change what input MEANS.** `applicationCursor` (DECCKM)
+decides whether an arrow key is `ESC [ A` or `ESC O A`; `bracketedPaste` decides
+whether pasted text needs its markers; `kittyKeyboardFlags` re-encodes every
+key; `mouseTracking` + `sgrMouse`/`sgrPixels` decide the click encoding;
+`alternateScreen` says the pane is a full-screen TUI. This is the prerequisite
+§5.3(b1) named for `terminal.key`.
+
+Bounds: `--detail compact` (default) trims each row's trailing default blanks
+and does not probe hyperlinks; `--detail full` pads every row to the grid width
+and attaches OSC-8 targets — the lossless `rows x cols` contract. `--from-row` /
+`--rows` window the grid and `--max-runs` (4000 default, 20000 ceiling) bounds
+the payload. **Both cut WHOLE rows** and set `rowsTruncated`: a half-served row
+would misreport its own content. The first requested row is always served, so a
+pathologically styled screen yields a truncated answer, never an empty one.
+
+The answers a driver must be able to tell apart:
+
+| Situation | Response |
+| --- | --- |
+| The screen really is blank | `available: true`, `rows: []`, `rowsTruncated: false` |
+| Only part of the screen came back | `available: true`, `rowsTruncated: true`, with `firstRow` and each row's own index |
+| This build cannot read screens | `available: false`, `unavailable: 'addon-too-old'` |
+
+plus `no-headless-engine` (parked/cold pane) and `engine-unavailable` (disposed
+or poisoned engine — the addon returns null rather than a zeroed 0x0 frame, so a
+blank screen can never be fabricated). Two blind spots ride on every response,
+including a complete one: **history has no styles** (scrolled-off rows keep text
+and lose colour) and **an inline image is not in these cells** (a covered cell
+still reports its own text — `terminal.images` is the verb for the payload).
 
 ---
 
@@ -371,10 +436,10 @@ in the agent's own TUI. Mechanically this already works: `terminal.send`
 `sanitizeUntrustedTerminalText` in `src/cli/terminal-safe-text.ts` guards CLI
 *output* formatting, not input.) What is missing is everything around it:
 
-* No screen oracle to *find* the `+N lines` marker and know it expanded (§1).
-* No verb for "key" as distinct from "text" — a driver must hand-encode bytes, and the encoding is mode-dependent. The engine can do this correctly: `AtermTerminal::encode_key` (`rust/aterm/crates/aterm-wasm/src/lib.rs:1365`) and `encode_key_with_mode` (`:2203`) exist, honour DECCKM and the Kitty protocol, and are **not bound at napi at all**.
-* It is per-agent and version-fragile. Claude Code's expansion key is not Codex's.
-* It **mutates the driven agent's UI state**, which the goal accepts (the driver *is* the human) but which must be leased — the input-coordinator work in `alab-auto-mode-design.md:194-211` is the prerequisite.
+* ~~No screen oracle to *find* the `+N lines` marker and know it expanded.~~ `terminal.screen` (§2.5) closes this: it locates the marker and, on the next read, shows whether the expansion happened.
+* ~~No verb for "key" as distinct from "text".~~ `terminal.key` (§5.4) closes this: the engine encodes against the pane's live modes via `aterm_types::keyboard`, so DECCKM and the Kitty protocol are exact instead of hand-rolled.
+* It is per-agent and version-fragile, and this is the part no verb can close. Claude Code's expansion key is not Codex's — and it is **ctrl+o** in 2.1.220, not the ctrl+r a reader might assume. A driver must confirm the binding for the agent in front of it.
+* ~~It **mutates the driven agent's UI state**, which must be leased.~~ It does, and it is: `terminal.key` writes under §5.1's input lease with §5.4's human preemption, the same path the submit primitive uses.
 
 **(b2) Skip the terminal: read the agent's own transcript.** Claude Code writes
 every message and full tool result to `~/.claude/projects/<slug>/<session>.jsonl`
@@ -395,9 +460,45 @@ already models (`src/main/ai-vault/remote-session-scanner-sources.ts:44`).
 
 * **What the goal needs:** (b).
 * **Recommended:** build **(b2) first** — a `terminal.agentTranscript` reader keyed off the pane's detected agent kind, reusing the existing vault scanner paths. It gives untruncated tool output today with no TUI driving at all.
-* **Then (b1)** as the *interaction* answer, once §1's screen oracle exists: bind `encode_key` at napi, add `terminal.key`, and let the driver press what a human presses. Do not attempt (b1) before the screen oracle — without it the driver is pressing keys blind.
+* ~~**Then (b1)** as the *interaction* answer.~~ Built — see §5.4.
 * **(a)** is a nice shell-pane feature and a cheap win; it is not on the critical path.
 * **Needs aterm-gui:** nothing, for any of the three.
+
+### 5.4 `terminal.key` — BUILT (the (b1) answer)
+
+A driver presses what a human presses. `HeadlessTerminal::encode_key`
+(`rust/crates/orca-terminal/src/key_encoding.rs`) calls the engine's own
+`aterm_types::keyboard` encoder against `Terminal::keyboard_mode()`, so the bytes
+come from the terminal that will interpret them — napi `encodeKey`
+(`native/orca-node/src/lib.rs`) → `HeadlessEmulator.encodeKey` →
+`OrcaRuntime.pressTerminalKey` → RPC `terminal.key` → `orca terminal key --key <chord>`.
+
+**Why engine-encoded and not raw bytes.** DECCKM turns Up from `ESC [ A` into
+`ESC O A`; a negotiated Kitty flag turns Ctrl+R from `0x12` into `ESC [ 114;5u`
+*and* adds a key-up report; xterm modifyOtherKeys re-encodes the modified keys;
+DECBKM swaps Backspace between DEL and BS. A TS table would be a second, drifting
+opinion about a terminal that can answer.
+
+**It is not a second write path.** The keystroke goes through §5.1's input lease
+and §5.4-of-the-auto-mode-design's human preemption, exactly as
+`terminal.submitAgentPrompt` does. Press and (under Kitty `REPORT_EVENT_TYPES`)
+release are ONE write, so a refusal cannot leave half a chord in the pane.
+
+**Refusals are by name, never approximations.** `unknown-key` (no such key in the
+engine's table) is separate from `not-encodable` (a real key these modes give no
+bytes), and both are separate from `no-headless-engine` / `addon-too-old` /
+`engine-unavailable`. A wrong escape sequence in a TUI is worse than no keystroke.
+
+**What it does NOT claim.** `sent: true` is bytes accepted, not effect: nothing
+here watches the screen, and on a relayed pane acceptance is local. Both ride on
+every response as blind spots, and `terminal.screen` is the oracle a driver reads
+before and after.
+
+**Proven live** against `claude` 2.1.220: a tool block collapsed to
+`Read 1 file, ran 1 shell command`, `orca terminal key --key ctrl+o` (Claude
+Code's expand binding is **ctrl+o**, not ctrl+r) expanded it to the untruncated
+`⏺ Bash(wc -l …)` / `⎿ 63 …` lines, and a second ctrl+o collapsed it again —
+each transition confirmed by `terminal.screen`'s `contentSeq` (82 → 97 → 104).
 
 ---
 
@@ -563,9 +664,69 @@ would additionally require driving `cell_frame_into` on the headless engine into
 offscreen software rasterizer at a fixed cadence — which is a second, unproven
 render path and a real project.
 
-### 7.3 Recommendation
+### 7.3 What shipped — `terminal.record` (asciicast v2)
 
-**Do not build video now.** It is the highest cost and the lowest visibility gain
+**Option 4, which §7.2 missed: aterm's own `cast`.** INTROSPECTION.md is explicit
+that cast/temporal *"faithfully reproduce the terminal CONTENT (text, styling,
+cursor)"* and miss only host-rendered overlays — and it is equally explicit that
+even headless `image` is a semantic-renderer artifact rather than a present
+capture. For a coding agent's TUI, the byte stream **is** the recording, and Orca
+already parses every byte of every local, daemon and SSH pane at `onPtyData`.
+No Rust, no second render path, no sidecar.
+
+RPC `terminal.recordStart` / `recordStop` / `recordList`; CLI `orca terminal
+record-start | record-stop | record-list`.
+
+* Capture: `src/main/runtime/terminal-cast-recorder.ts`, tapped from
+  `OrcaRuntimeService.onPtyData` exactly as the OSC-133 block ledger is.
+* Format: `src/main/runtime/asciicast-v2.ts` — encoder **and** a strict parser,
+  so "we wrote a file" can never stand in for "we wrote a cast `agg` can play".
+* Files: `src/main/runtime/terminal-recording-store.ts` —
+  `$TMPDIR/orca-terminal-recordings` (override `ORCA_TERMINAL_RECORDING_DIR`),
+  0700, retention 24 h **and** 32 files.
+* Wire + refusals: `src/shared/terminal-recording-protocol.ts`,
+  `src/main/runtime/terminal-recording-report.ts`.
+
+Bounds, because a recording is unbounded output by nature: 5 min / 8 MiB /
+20 000 events by default (1 h / 64 MiB / 200 000 ceilings). Whichever cap fires
+closes the capture, **writes the cast immediately** — so a cap-ended recording is
+on disk with nobody waiting on it — and is reported as `stopReason`. Bytes that
+arrive after the cap keep accruing into `bytesDroppedAfterCap`, because a capped
+cast that reported nothing would read exactly like a complete one.
+
+Getting an actual video: every stop result carries the commands.
+
+```sh
+agg    <rec>.cast <rec>.gif
+ffmpeg -y -i <rec>.gif -movflags faststart -pix_fmt yuv420p \
+       -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" <rec>.mp4
+```
+
+**What a cast does NOT capture, declared on every result:**
+
+| Blind spot | Why |
+| --- | --- |
+| `cast-is-content-not-pixels` | Host-rendered overlays — selection, find highlight, tab chrome, IME candidates — and any true present-destination effect are drawn downstream of the PTY. This is not a screen capture. |
+| `inline-image-sequences-not-replayed` | Sixel/OSC-1337/Kitty sequences **are** in the file verbatim; `asciinema` and `agg` do not draw them, so they vanish in a rendered GIF/mp4. Use `terminal.images` for the payloads. |
+| `resize-observed-only-with-output` | There is no resize hook in the runtime, so `r` events are inferred from the engine's applied size at the next captured chunk. |
+
+And the refusals, which are the point:
+
+| Situation | Response |
+| --- | --- |
+| Handle is not this runtime's (a remote-runtime pane) | `pane-not-hosted-here` — named, because that pane's bytes are recorded by *its* runtime |
+| Pane exists, no PTY yet | `no-pty` |
+| Pane exists, this runtime holds no ingest state for it | `bytes-not-local` |
+| Already recording | `already-recording`, with the active recording's id |
+| Captured but not written | `stopped: true` **and** `write-failed` / `store-unavailable` |
+
+Geometry is `engine` when a live emulator can be asked, `requested` when the
+caller declared it, `assumed` (80x24) otherwise — never presented as observed.
+Paths are on the **runtime host**, which `pathsAreOnRuntimeHost` states.
+
+### 7.4 What is still not built — true pixel video
+
+**Do not build pixel video now.** It is the highest cost and the lowest visibility gain
 per unit of work of everything in this document: for an agent-driving-agent loop,
 a styled grid every settle beats a 30 fps movie, and the temporal information a
 driver actually needs is already available and cheaper — the event journal
@@ -594,14 +755,14 @@ implemented and correct but have no `orca terminal` subcommand
 AI must hand-speak the runtime socket. Pure surface work, zero risk, immediately
 triples what a driver can do.
 
-**2. `terminal.screen` — the styled-grid oracle.** Days. `orca-terminal` gains
-`styled_frame()` over `Terminal::render_row_at_screen`
+**2. `terminal.screen` — the styled-grid oracle. ✅ BUILT (§2.5).**
+`HeadlessTerminal::styled_frame` over `Terminal::render_row_at_screen`
 (`render_cells.rs:191`) — modelled directly on `gather_styled_frame`
-(`control_query.rs:1917-1957`) — plus cursor, alt-screen, and mode bits, all of
-which the engine already answers (`headless.rs:309, 373, 380, 385, 390`). Bind at
-napi, add the RPC + CLI verb. **This is the keystone.** Every interaction item
-below is blind without it, and it is the single largest jump from "reads a
-transcript" to "sees the screen".
+(`control_query.rs:1917-1957`) — plus cursor, alt-screen, and the mode bits the
+engine already answers (`headless.rs:309, 373, 380, 385, 390`), through napi to
+the RPC + CLI verb. **This was the keystone.** Every interaction item below was
+blind without it, and it is the single largest jump from "reads a transcript" to
+"sees the screen". The engine work was zero, as predicted.
 
 **3. Agent transcript reader (`§4 b2`).** Days. Untruncated tool output with no
 TUI driving, reusing the vault scanner's existing path discovery
@@ -614,13 +775,12 @@ Days. The Rust side is done (`headless.rs:214`, `:208`); this is a binding plus 
 verb. Lifts the driver from a 2000-line transcript window to the engine's full
 retention, with eviction-stable coordinates.
 
-**5. `terminal.key` — encoded keystrokes.** Days, **after (2)**. Bind
-`encode_key` / `encode_key_with_mode`
-(`rust/aterm/crates/aterm-wasm/src/lib.rs:1365`, `:2203`) so a driver presses
-Ctrl+O / Escape / arrows correctly under DECCKM and the Kitty protocol instead of
-hand-rolling bytes. This is the (b1) half of §4, and it is what makes the driver
-genuinely *interactive* rather than a prompt-poster. Requires the input-lease work
-from `alab-auto-mode-design.md:194-211`.
+**5. `terminal.key` — encoded keystrokes. ✅ BUILT (§5.4).**
+`HeadlessTerminal::encode_key` over `aterm_types::keyboard::encode_dom_key` — the
+same shared table the wasm bindings' `encode_key` uses
+(`rust/aterm/crates/aterm-wasm/src/lib.rs:1365`) — through napi to the RPC + CLI
+verb, writing through §5.1's input lease. This is the (b1) half of §4, and it is
+what makes the driver genuinely *interactive* rather than a prompt-poster.
 
 **6. `terminal.images` — structured inline images. ✅ BUILT (§6.5).**
 `HeadlessTerminal::inline_images` over `Terminal::images_row` → napi → RPC + CLI.
@@ -637,12 +797,18 @@ has, not just live panes.
 **8. Pane PNG capture (mounted panes).** ~1–2 weeks. Canvas readback on either
 rasterizer (§5.3(B)). Honest label required: *mounted panes only*.
 
-**9. Video.** Multi-week, Option 3, mounted panes only, or defer indefinitely (§6.3).
+**9. Timed recording — `terminal.record` (asciicast v2). ✅ BUILT (§7.3).**
+Days, not weeks, because it is the byte tap Orca already has plus a well-specified
+file format — no Rust, no second render path. Content-faithful, explicitly not
+pixel-faithful.
+
+**10. True pixel video.** Multi-week, Option 3, mounted panes only, or defer
+indefinitely (§7.4).
 
 **Not on the list, deliberately:** linking `aterm-gui`, and running an `aterm-gui`
 sidecar. Both are product-shape decisions rather than features, and — with the sole
-exception of `video` — everything the goal asks for is reachable through
-`aterm-core`, which Orca already links.
+exception of true present-destination `video` — everything the goal asks for is
+reachable through `aterm-core`, which Orca already links.
 
 ---
 
@@ -656,6 +822,8 @@ Stated plainly, because the owner would rather know:
 * **Colour of scrolled-off history is gone** in the headless seam, by a deliberate
   performance decision (`headless.rs:122-127`, `scroll_convert.rs:834-842`).
   Recoverable only by disabling `scrollback_text_only` and paying the flood cost.
+  `terminal.screen` therefore serves the LIVE grid only, and says so on every
+  response: there is no styled view of history to page into, at any depth.
 * **Inline images vanish on scroll-off** for the same reason. `terminal.images`
   reads the visible grid and reports how many history rows it could not scan;
   there is no way to learn retroactively that an image was once there.
@@ -667,4 +835,10 @@ Stated plainly, because the owner would rather know:
   seam with the fewest bindings.
 * **True present-destination `video` is aterm-gui's alone.** Orca can produce a
   frame sequence from its own rasterizers, and should describe it as exactly that
-  — not as a swapchain tap.
+  — not as a swapchain tap. What `terminal.record` ships is the *byte stream*
+  replayed with its timing: content-faithful, and it says so on every result.
+  Host-drawn overlays are not in it, and neither `asciinema` nor `agg` will draw
+  the inline-image sequences it faithfully captured.
+* **A recording of a pane this runtime does not ingest is impossible, not empty.**
+  `terminal.record` refuses `pane-not-hosted-here` / `bytes-not-local` by name,
+  because a remote-runtime pane's bytes never transit this process.

@@ -10,8 +10,10 @@ import type {
   RuntimeTerminalSplit,
   RuntimeTerminalWait
 } from '../../shared/runtime-types'
+import type { TerminalKeyResult } from '../../shared/terminal-key-protocol'
 import type { CommandHandler } from '../dispatch'
 import { shouldUseRendererBackedInteractiveTerminal } from '../codex-command-classification'
+import { formatTerminalKey } from '../terminal-key-format'
 import {
   formatTerminalClose,
   formatTerminalCreate,
@@ -116,6 +118,20 @@ export const TERMINAL_HANDLERS: Record<string, CommandHandler> = {
     if (result.result.wait.satisfied === false) {
       // Why: callers commonly chain `terminal wait && terminal send`; a
       // structured blocked result is still an unsatisfied wait condition.
+      process.exitCode = 1
+    }
+  },
+  'terminal key': async ({ flags, client, cwd, json }) => {
+    const result = await client.call<{ key: TerminalKeyResult }>('terminal.key', {
+      terminal: await getTerminalHandle(flags, cwd, client),
+      // Sent whole: the chord is parsed server-side by the same module the RPC
+      // uses, so `--key ctrl+r` and a structured `modifiers` object cannot drift.
+      key: getRequiredStringFlag(flags, 'key')
+    })
+    printResult(result, json, (value) => formatTerminalKey(value.key))
+    // Why not just refusals: a keystroke that was never written is a failed
+    // command, and a chained `key && screen` must not read the old screen.
+    if (result.result.key.sent === false) {
       process.exitCode = 1
     }
   },

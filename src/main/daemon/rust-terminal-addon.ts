@@ -74,6 +74,88 @@ export type RustHeadlessTerminalHandle = {
     maxBytesPerImage?: number,
     maxTotalBytes?: number
   ): RustInlineImage[]
+  /** The styled VISIBLE grid plus cursor and input-affecting modes
+   *  (`terminal.screen`). Colours are engine-resolved (`#rrggbb`), cells are
+   *  coalesced into style runs, and the raw SGR bits ride along as `attrs`
+   *  codes. `detail: 'full'` pads rows to the grid width and attaches OSC-8
+   *  targets. Null means the engine is disposed — never a zeroed frame, which
+   *  would describe a blank screen. Absent on addons built before
+   *  `terminal.screen`; callers must feature-detect, because a missing binding
+   *  is "cannot see", not "the screen is blank". */
+  styledFrame?(
+    detail?: string,
+    fromRow?: number,
+    rowCount?: number,
+    maxRuns?: number
+  ): RustStyledFrame | null
+  /** One keystroke encoded against this pane's LIVE keyboard modes
+   *  (`terminal.key`). `key` is a DOM `KeyboardEvent.key` value; `mods` is the
+   *  engine `Modifiers` bitfield (SHIFT=1, ALT=2, CTRL=4, SUPER=8). The engine
+   *  decides the bytes, because DECCKM, the negotiated Kitty flags, xterm
+   *  modifyOtherKeys and DECBKM all change them for the same key. Null means
+   *  the engine is disposed — never a zeroed encoding, which would read as "this
+   *  key means nothing here". Absent on addons built before `terminal.key`;
+   *  callers must feature-detect, because a missing binding is "cannot encode",
+   *  not "no such key". */
+  encodeKey?(key: string, mods: number): RustKeyEncoding | null
+}
+
+/** One keystroke as the addon marshals it. `recognized` is separate from the
+ *  byte count on purpose: an unknown name and a key these modes leave unencodable
+ *  are different facts, and only one of them is the caller's mistake. */
+export type RustKeyEncoding = {
+  recognized: boolean
+  /** Key-down bytes. Empty on a recognized key = no encoding in these modes. */
+  press: Buffer
+  /** Key-up bytes; empty unless the pane negotiated Kitty `REPORT_EVENT_TYPES`. */
+  release: Buffer
+  /** Raw `KeyboardMode` bits the encoding was made against. */
+  modeBits: number
+}
+
+/** One run of cells sharing a resolved style, as the addon marshals it. */
+export type RustStyleRun = {
+  col: number
+  /** Columns spanned; exceeds the grapheme count of `text` across wide glyphs. */
+  cols: number
+  text: string
+  /** Resolved, as rendered — `#rrggbb`. */
+  fg: string
+  bg: string
+  /** Raw SGR bits as code letters (orca_terminal's `SCREEN_ATTR_CODES`). */
+  attrs: string
+  hyperlink?: string | null
+}
+
+export type RustStyledRow = {
+  row: number
+  runs: RustStyleRun[]
+}
+
+export type RustStyledFrame = {
+  rows: number
+  cols: number
+  firstRow: number
+  rowsTruncated: boolean
+  runsTotal: number
+  trailingBlanksTrimmed: boolean
+  defaultFg: string
+  defaultBg: string
+  cursor: { row: number; col: number; visible: boolean; style: string }
+  modes: {
+    alternateScreen: boolean
+    applicationCursor: boolean
+    bracketedPaste: boolean
+    mouseTracking: string
+    sgrMouse: boolean
+    sgrPixels: boolean
+    /** Coordinate encoding by name: x10 | utf8 | sgr | urxvt | sgr-pixel | unknown. */
+    mouseEncoding: string
+    kittyKeyboardFlags: number
+    reverseVideo: boolean
+  }
+  contentSeq: number
+  grid: RustStyledRow[]
 }
 
 /** One inline-image placement as the addon marshals it. */

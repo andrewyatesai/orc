@@ -878,6 +878,23 @@ import {
 } from './terminal-model-query-authority'
 import { terminalHostRowAnchorLedger } from './terminal-host-row-anchor'
 import { terminalCommandBlockLedger } from './terminal-command-blocks'
+import { terminalCastRecorder, type TerminalCastSize } from './terminal-cast-recorder'
+import { TerminalRecordingStore } from './terminal-recording-store'
+import {
+  buildRecordingList,
+  refuseRecordingStart,
+  refuseRecordingStop,
+  resolveRecordingTap,
+  type TerminalRecordingPaneFacts,
+  startedRecording,
+  stoppedRecording,
+  toRecordingSummary
+} from './terminal-recording-report'
+import type {
+  TerminalRecordingListResult,
+  TerminalRecordingStartResult,
+  TerminalRecordingStopResult
+} from '../../shared/terminal-recording-protocol'
 import {
   buildTerminalCommandBlockText,
   buildTerminalCommandBlocksResult,
@@ -892,6 +909,10 @@ import {
   buildTerminalInlineImagesResult,
   type TerminalInlineImagesOptions
 } from './terminal-inline-images'
+import { buildTerminalScreenResult, type TerminalScreenOptions } from './terminal-screen'
+import type { TerminalScreenResult } from '../../shared/terminal-screen-protocol'
+import { pressTerminalKey, type TerminalKeyPressPorts } from './terminal-key-press'
+import type { TerminalKeyModifierName, TerminalKeyResult } from '../../shared/terminal-key-protocol'
 import type {
   TerminalAgentView,
   TerminalCommandBlockText,
@@ -2804,6 +2825,9 @@ export class OrcaRuntimeService {
   // iterates them all. Listeners are cleaned up via subscriptionCleanups.
   private notificationListeners = new Set<(event: MobileNotificationEvent) => void>()
   private ptysById = new Map<string, RuntimePtyWorktreeRecord>()
+  // Why lazy: opening it creates a directory on disk, which a runtime that
+  // never records should not do. See terminalRecordings().
+  private terminalRecordingStore: TerminalRecordingStore | null = null
   private wslDistroByPtyId = new Map<string, string>()
   private titleObservationSequence = 0
   private headlessTerminals = new Map<string, RuntimeHeadlessTerminal>()
@@ -7948,6 +7972,10 @@ export class OrcaRuntimeService {
     // extractLastOscTitleForPty block (#7880/#7852 title/status semantics are
     // preserved via the tracker + detectAgentStatusFromTitle path).
     this.trackHeadlessTerminalData(ptyId, data, outputSequence, forwardQueryReplies)
+    // Why raw and here: a cast must replay the bytes the program wrote, not the
+    // normalized tail below it. Gated on an active recording so a non-recording
+    // pane pays one Map lookup and never queries the engine for its size.
+    this.ingestTerminalRecording(ptyId, data, at)
 
     const pty = this.getOrCreatePtyWorktreeRecord(ptyId)
     const ptyTailBefore = pty
@@ -9768,6 +9796,163 @@ export class OrcaRuntimeService {
       },
       opts
     )
+  }
+
+  /** `terminal.screen`: the STYLED visible grid — per-cell colour and SGR, the
+   *  cursor, and the modes that change what input means. The one read that is
+   *  not text, and the prerequisite for driving a pane by keystroke. Assembly
+   *  and budgets live in terminal-screen.ts. */
+  async readTerminalScreen(
+    handle: string,
+    opts: TerminalScreenOptions & { signal?: AbortSignal } = {}
+  ): Promise<TerminalScreenResult> {
+    const ptyId = this.resolveLeafForHandle(handle)?.ptyId
+    if (!ptyId) {
+      throw new Error('terminal_not_found')
+    }
+    const state = this.headlessTerminals.get(ptyId)
+    if (!state) {
+      return buildTerminalScreenResult(null, opts)
+    }
+    // Same settle contract as history/images: a frame drawn by a chunk already
+    // accepted must be on the grid this read observes, or the driver acts on a
+    // screen one repaint stale.
+    await state.writeChain
+    if (opts.signal?.aborted) {
+      throw new Error('terminal_screen_aborted')
+    }
+    return buildTerminalScreenResult(
+      { read: (request) => state.emulator.styledFrame(request) },
+      opts
+    )
+  }
+
+  /** Lazily opened so a runtime that never records never touches the disk, and
+   *  so the sink is installed exactly once with it. */
+  private terminalRecordings(): TerminalRecordingStore {
+    if (!this.terminalRecordingStore) {
+      const store = new TerminalRecordingStore()
+      // A cap can end a recording with nobody waiting on it, so the cast is
+      // written when it closes rather than when someone asks for it.
+      terminalCastRecorder().setSink(({ capture, cast }) => store.write(capture, cast))
+      this.terminalRecordingStore = store
+    }
+    return this.terminalRecordingStore
+  }
+
+  /** The pane's live engine size, which is the only resize signal this runtime
+   *  has — there is no resize hook to subscribe to. */
+  private terminalRecordingSize(ptyId: string): TerminalCastSize | null {
+    const emulator = this.headlessTerminals.get(ptyId)?.emulator
+    return emulator ? emulator.getAppliedSize() : null
+  }
+
+  private ingestTerminalRecording(ptyId: string, data: string, at: number): void {
+    const recorder = terminalCastRecorder()
+    if (!recorder.isRecording(ptyId)) {
+      // Still offered: a recording a cap already closed counts what it missed.
+      recorder.ingest(ptyId, data, at)
+      return
+    }
+    recorder.ingest(ptyId, data, at, this.terminalRecordingSize(ptyId))
+  }
+
+  /** Facts `resolveRecordingTap` decides on. The two are deliberately distinct:
+   *  an output sequence or a live headless engine PROVES bytes reach this
+   *  process, while a bare `ptysById` record does not — restore and controller
+   *  discovery mint those for panes this runtime never attached to. */
+  private terminalRecordingPaneFacts(handle: string): TerminalRecordingPaneFacts {
+    const leaf = this.resolveLeafForHandle(handle)
+    const ptyId = leaf?.ptyId ?? null
+    return {
+      paneExists: leaf !== null,
+      ptyId,
+      bytesObservedHere:
+        ptyId !== null &&
+        (this.ptyOutputSequenceById.has(ptyId) || this.headlessTerminals.has(ptyId)),
+      paneRecordIsLocal: ptyId !== null && this.ptysById.has(ptyId)
+    }
+  }
+
+  /** `terminal.record start`: begin an asciicast v2 capture of this pane. */
+  startTerminalRecording(
+    handle: string,
+    opts: {
+      cols?: number
+      rows?: number
+      title?: string
+      maxDurationMs?: number
+      maxBytes?: number
+      maxEvents?: number
+    } = {}
+  ): TerminalRecordingStartResult {
+    const tap = resolveRecordingTap(this.terminalRecordingPaneFacts(handle))
+    if (!tap.ok) {
+      return refuseRecordingStart(tap.reason, tap.detail)
+    }
+    this.terminalRecordings()
+    const recorder = terminalCastRecorder()
+    const requestedSize =
+      opts.cols !== undefined && opts.rows !== undefined
+        ? { cols: opts.cols, rows: opts.rows }
+        : null
+    const capture = recorder.start(tap.ptyId, Date.now(), {
+      handle,
+      engineSize: this.terminalRecordingSize(tap.ptyId),
+      requestedSize,
+      title: opts.title ?? null,
+      maxDurationMs: opts.maxDurationMs,
+      maxBytes: opts.maxBytes,
+      maxEvents: opts.maxEvents
+    })
+    if (!capture) {
+      const active = recorder.captureFor(tap.ptyId)
+      return refuseRecordingStart(
+        'already-recording',
+        `This pane is already being recorded${active ? ` as ${active.id}` : ''}. Stop that recording before starting another; one capture per pane keeps the cast a single continuous stream.`,
+        active ? toRecordingSummary(active, null) : null
+      )
+    }
+    return startedRecording(toRecordingSummary(capture, null), tap.tapProven)
+  }
+
+  /** `terminal.record stop`: close the capture and write the cast. A recording
+   *  a cap already ended comes back here too, with the cap named. */
+  async stopTerminalRecording(handle: string): Promise<TerminalRecordingStopResult> {
+    const tap = resolveRecordingTap(this.terminalRecordingPaneFacts(handle))
+    if (!tap.ok) {
+      return refuseRecordingStop(tap.reason, tap.detail)
+    }
+    const store = this.terminalRecordings()
+    const recorder = terminalCastRecorder()
+    // A capture whose duration cap expired while the pane was quiet must be
+    // closed by the cap, not relabelled 'requested' by whoever asked next.
+    recorder.sweep(Date.now())
+    const capture = recorder.stop(tap.ptyId, Date.now(), 'requested')
+    if (!capture) {
+      return refuseRecordingStop(
+        'not-recording',
+        'No recording is open on this pane and this runtime holds no finished one for it. Start a recording before stopping it.'
+      )
+    }
+    return stoppedRecording(toRecordingSummary(capture, await store.fileFor(capture.id)))
+  }
+
+  /** `terminal.record list`: every recording this runtime knows about, plus
+   *  where they live and how long they survive. */
+  async listTerminalRecordings(): Promise<TerminalRecordingListResult> {
+    const store = this.terminalRecordings()
+    terminalCastRecorder().sweep(Date.now())
+    const files = await store.settleAll()
+    const directory = store.directory()
+    return buildRecordingList({
+      recordings: terminalCastRecorder()
+        .captures()
+        .map((capture) => toRecordingSummary(capture, files.get(capture.id) ?? null)),
+      directory,
+      directoryError: store.lastDirectoryError,
+      filesFromOtherRuns: directory ? await store.foreignFileCount(directory) : 0
+    })
   }
 
   /** The retained transcript `terminal.read` pages, in the cursor space block
@@ -11965,6 +12150,9 @@ export class OrcaRuntimeService {
       pty?.incarnationId ??
       `runtime:${this.runtimeId}:${this.getPtyLifecycleGeneration(ptyId)}`
     this.advancePtyLifecycleGeneration(ptyId)
+    // The process is gone, so the byte stream is: close the cast here and name
+    // the exit, rather than leaving a recording that can never receive a byte.
+    terminalCastRecorder().dropPty(ptyId, Date.now(), 'pty-exit')
     const exactSurfaceByKey = new Map<
       string,
       Pick<RetiredTerminalSurface, 'worktreeId' | 'parentTabId' | 'leafId'>
@@ -15064,6 +15252,59 @@ export class OrcaRuntimeService {
       },
       this.agentPromptSubmissionPorts()
     )
+  }
+
+  /** `terminal.key`: press ONE key on a pane, encoded by the engine that will
+   *  interpret it. The write goes through §5.1's lease exactly as the submit
+   *  primitive's does — a keystroke is automated input like any other, and there
+   *  is no second path around the coordinator. State machine: terminal-key-press.ts. */
+  async pressTerminalKey(
+    handle: string,
+    key: string,
+    options: {
+      modifiers?: TerminalKeyModifierName[]
+      modifierBits?: number
+      signal?: AbortSignal
+    } = {}
+  ): Promise<TerminalKeyResult> {
+    const ptyId = this.resolveWritableTerminalPtyId(handle)
+    await this.assertTerminalLivenessWritable(ptyId)
+    // Same settle contract as terminal.screen: the modes the encoding reads must
+    // account for every chunk already accepted, or a pane that just entered the
+    // alternate screen gets its arrows encoded against the mode it left.
+    await this.headlessTerminals.get(ptyId)?.writeChain
+    // Announced now for the same reason submit does: this runtime is the
+    // coordinator's only authority on which incarnation is live.
+    this.noteTerminalInputPin(ptyId)
+    return pressTerminalKey(
+      {
+        target: { handle, ptyId, pin: this.terminalInputPin(ptyId) },
+        key,
+        modifiers: options.modifiers ?? [],
+        modifierBits: options.modifierBits ?? 0,
+        // R0 has no grant issuer (§6.6), so every RPC caller is the manager slot.
+        writer: 'manager',
+        ...(options.signal ? { signal: options.signal } : {})
+      },
+      this.terminalKeyPressPorts()
+    )
+  }
+
+  private terminalKeyPressPorts(): TerminalKeyPressPorts {
+    return {
+      acquireLease: (request) => this.terminalInputCoordinator.acquire(request),
+      // Same §5.4 rule as submit: this verb is automation whoever called it.
+      humanDriverHoldsPane: (ptyId) => this.getDriver(ptyId).kind === 'mobile',
+      // Null, not a fabricated encoding: a pane with no live engine has unknown
+      // modes, and the whole point of the verb is not guessing them.
+      encodeKey: (ptyId, request) =>
+        this.headlessTerminals.get(ptyId)?.emulator.encodeKey(request) ?? null,
+      write: (ptyId, data) => this.ptyController?.write(ptyId, data) ?? false,
+      clock: {
+        now: () => Date.now(),
+        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+      }
+    }
   }
 
   private agentPromptSubmissionPorts(): AgentPromptSubmissionPorts {
@@ -27121,6 +27362,9 @@ export class OrcaRuntimeService {
     // Why: block cursors name positions in a transcript that dies with this
     // record; a respawn reusing the id must not inherit stale boundaries.
     terminalCommandBlockLedger().dropPty(ptyId)
+    // Why write rather than discard: a pane torn down mid-recording produced a
+    // recording, and losing it silently is the failure this verb exists to avoid.
+    terminalCastRecorder().dropPty(ptyId, Date.now())
     this.ptyJournalIncarnationById.delete(ptyId)
     this.ptyJournalHeadSeqById.delete(ptyId)
     this.ptysById.delete(ptyId)

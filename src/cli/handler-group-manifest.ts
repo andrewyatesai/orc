@@ -74,6 +74,7 @@ export const HANDLER_GROUPS: readonly HandlerGroup[] = [
       'terminal read',
       'terminal send',
       'terminal wait',
+      'terminal key',
       'terminal submit',
       'terminal stop',
       'terminal rename',
@@ -92,10 +93,16 @@ export const HANDLER_GROUPS: readonly HandlerGroup[] = [
       'terminal blocks',
       'terminal block-text',
       'terminal images',
+      'terminal screen',
       'terminal agent-view',
       'terminal agent-transcript'
     ],
     load: async () => (await import('./handlers/terminal-context.js')).TERMINAL_CONTEXT_HANDLERS
+  },
+  {
+    name: 'terminal-recording',
+    keys: ['terminal record-start', 'terminal record-stop', 'terminal record-list'],
+    load: async () => (await import('./handlers/terminal-recording.js')).TERMINAL_RECORDING_HANDLERS
   },
   ...BROWSER_HANDLER_GROUPS,
   {

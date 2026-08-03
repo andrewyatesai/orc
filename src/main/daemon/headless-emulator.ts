@@ -23,6 +23,7 @@ import {
   isEngineCursorOnEmptyPromptLine
 } from './headless-emulator-cursor-line'
 import { buildEmulatorSnapshotReport } from './headless-emulator-snapshot-report'
+import { HeadlessEngineGuard } from './headless-emulator-engine-guard'
 import {
   UNREADABLE_CONTEXT_EXTENTS,
   readEmulatorContextExtents,
@@ -34,6 +35,18 @@ import {
   type EmulatorInlineImageRead,
   type EmulatorInlineImageRequest
 } from './emulator-inline-images'
+import {
+  UNREADABLE_STYLED_FRAME,
+  readEmulatorStyledFrame,
+  type EmulatorStyledFrameRead,
+  type EmulatorStyledFrameRequest
+} from './emulator-styled-frame'
+import {
+  UNREADABLE_KEY_ENCODING,
+  readEmulatorKeyEncoding,
+  type EmulatorKeyEncodingRead,
+  type EmulatorKeyEncodingRequest
+} from './emulator-key-encoding'
 import type { TerminalSnapshot } from './types'
 import type { TerminalViewAttributes } from '../../shared/terminal-view-attributes'
 import type { TerminalOscLinkRange } from '../../shared/terminal-osc-link-ranges'
@@ -106,11 +119,7 @@ export class HeadlessEmulator {
   private partialEscapeTail = ''
   private restoredOscLinks: TerminalOscLinkRange[] = []
   private disposed = false
-  // Set when a native engine call threw (a Rust panic surfaced as a JS exception
-  // via catch_unwind). The engine state is untrustworthy after a panic, so every
-  // later engine call is skipped — this session degrades to scan-only state and
-  // empty snapshots instead of the panic killing the whole daemon.
-  private failed = false
+  private readonly guard = new HeadlessEngineGuard()
   // Query-authority (terminal-query-authority.md). onQueryReply is read at
   // reply time so disableQueryReplyForwarding can mute a respawn-reused id.
   private onQueryReply: ((reply: string) => void) | null
@@ -171,25 +180,9 @@ export class HeadlessEmulator {
     )
   }
 
-  /** Run one native engine call with panic containment: catch_unwind surfaces a
-   *  Rust panic as a JS exception, so catch it here, poison this emulator (one
-   *  loud log), and return the degraded fallback. The daemon and its other
-   *  sessions keep running; the respawn/snapshot machinery recovers this one. */
+  /** One native engine call under the poison guard (headless-emulator-engine-guard.ts). */
   private engineCall<T>(op: string, call: () => T, fallback: () => T): T {
-    if (this.failed) {
-      return fallback()
-    }
-    try {
-      return call()
-    } catch (error) {
-      this.failed = true
-      console.error(
-        `[orca] aterm terminal engine ${op} failed — poisoning this session's emulator ` +
-          '(scan-only state from here; other sessions unaffected):',
-        error
-      )
-      return fallback()
-    }
+    return this.guard.run(op, call, fallback)
   }
 
   write(data: string, opts: HeadlessEmulatorWriteOptions = {}): Promise<void> {
@@ -208,7 +201,7 @@ export class HeadlessEmulator {
       return false
     }
     this.writeBytes(data, false)
-    return !this.failed
+    return this.guard.healthy
   }
 
   private writeBytes(data: string, forwardQueryReplies: boolean): void {
@@ -365,12 +358,10 @@ export class HeadlessEmulator {
     )
   }
 
-  /** An engine read the context verbs make, guarded by BOTH gates: a disposed
-   *  emulator and a poisoned one must answer the same explicit `degraded` value,
-   *  because every one of these reads feeds a caller that has to distinguish
-   *  "nothing there" from "could not look". */
+  /** An engine read the context verbs make, guarded by BOTH gates — contract in
+   *  headless-emulator-engine-guard.ts. */
   private guardedRead<T>(op: string, read: () => T, degraded: T): T {
-    return this.disposed ? degraded : this.engineCall(op, read, () => degraded)
+    return this.guard.guarded(this.disposed, op, read, degraded)
   }
 
   /** Fed §2.4 host-side search, stable rows — contract documented in
@@ -406,6 +397,22 @@ export class HeadlessEmulator {
   inlineImages(request: EmulatorInlineImageRequest): EmulatorInlineImageRead {
     const read = (): EmulatorInlineImageRead => readEmulatorInlineImages(this.term, request)
     return this.guardedRead('inlineImages', read, UNREADABLE_INLINE_IMAGES)
+  }
+
+  /** The styled visible grid + cursor + input-affecting modes. The outcome
+   *  separates "blank screen" from "this build cannot read screens" from "this
+   *  engine cannot answer" — see emulator-styled-frame.ts. */
+  styledFrame(request: EmulatorStyledFrameRequest): EmulatorStyledFrameRead {
+    const read = (): EmulatorStyledFrameRead => readEmulatorStyledFrame(this.term, request)
+    return this.guardedRead('styledFrame', read, UNREADABLE_STYLED_FRAME)
+  }
+
+  /** One keystroke encoded against this pane's live keyboard modes — the input
+   *  mirror of styledFrame, and the reason `terminal.key` never hand-rolls
+   *  escape bytes. Outcomes: emulator-key-encoding.ts. */
+  encodeKey(request: EmulatorKeyEncodingRequest): EmulatorKeyEncodingRead {
+    const read = (): EmulatorKeyEncodingRead => readEmulatorKeyEncoding(this.term, request)
+    return this.guardedRead('encodeKey', read, UNREADABLE_KEY_ENCODING)
   }
 
   /** Stable origin row; null when the addon predates it or the engine is poisoned. */

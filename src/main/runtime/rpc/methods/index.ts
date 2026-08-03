@@ -7,7 +7,9 @@ import { WORKTREE_METHODS } from './worktree'
 import { TERMINAL_METHODS } from './terminal'
 import { TERMINAL_AWAIT_METHODS } from './terminal-await'
 import { TERMINAL_CONTEXT_METHODS } from './terminal-context'
+import { TERMINAL_RECORDING_METHODS } from './terminal-recording'
 import { TERMINAL_SUBMIT_METHODS } from './terminal-submit'
+import { TERMINAL_KEY_METHODS } from './terminal-key'
 import { TERMINAL_ORPHAN_METHODS } from './terminal-orphan'
 import { BROWSER_CORE_METHODS } from './browser-core'
 import { BROWSER_EXTRA_METHODS } from './browser-extras'
@@ -55,7 +57,9 @@ export const ALL_RPC_METHODS: readonly RpcAnyMethod[] = [
   ...TERMINAL_METHODS,
   ...TERMINAL_AWAIT_METHODS,
   ...TERMINAL_CONTEXT_METHODS,
+  ...TERMINAL_RECORDING_METHODS,
   ...TERMINAL_SUBMIT_METHODS,
+  ...TERMINAL_KEY_METHODS,
   ...TERMINAL_ORPHAN_METHODS,
   ...BROWSER_CORE_METHODS,
   ...BROWSER_SCREENCAST_METHODS,

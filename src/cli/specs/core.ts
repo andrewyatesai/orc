@@ -3,6 +3,8 @@ import { GLOBAL_FLAGS } from '../args'
 import { ORCA_ALAB_DEVELOPMENT_REPOSITORY_SLUG } from '../../shared/repository-endpoints'
 import { SERVE_COMMAND_SPECS } from './serve'
 import { TERMINAL_COMMAND_SPECS } from './terminal'
+import { TERMINAL_CONTEXT_COMMAND_SPECS } from './terminal-context'
+import { TERMINAL_RECORDING_COMMAND_SPECS } from './terminal-recording'
 
 export const CORE_COMMAND_SPECS: CommandSpec[] = [
   {
@@ -179,5 +181,7 @@ export const CORE_COMMAND_SPECS: CommandSpec[] = [
     usage: 'orca worktree ps [--limit <n>] [--json]',
     allowedFlags: [...GLOBAL_FLAGS, 'limit']
   },
-  ...TERMINAL_COMMAND_SPECS
+  ...TERMINAL_COMMAND_SPECS,
+  ...TERMINAL_CONTEXT_COMMAND_SPECS,
+  ...TERMINAL_RECORDING_COMMAND_SPECS
 ]

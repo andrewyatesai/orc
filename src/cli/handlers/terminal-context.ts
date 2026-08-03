@@ -1,5 +1,5 @@
 /**
- * `orca terminal history | blocks | block-text | images | agent-view |
+ * `orca terminal history | blocks | block-text | images | screen | agent-view |
  * agent-transcript | search` — the context-management face a driving AI uses to
  * orient in a pane it is not looking at. Split from handlers/terminal.ts so the
  * lifecycle verbs (create, send, wait, close) stay one readable group.
@@ -18,8 +18,10 @@ import type {
 } from '../../shared/terminal-context-protocol'
 import type { TerminalAgentTranscript } from '../../shared/agent-transcript-protocol'
 import type { TerminalInlineImagesResult } from '../../shared/terminal-inline-images-protocol'
+import type { TerminalScreenResult } from '../../shared/terminal-screen-protocol'
 import type { RemoteTerminalSearchResult } from '../../shared/terminal-remote-search-protocol'
 import { formatTerminalImages } from '../terminal-images-format'
+import { formatTerminalScreen } from '../terminal-screen-format'
 import {
   formatTerminalAgentTranscript,
   formatTerminalAgentView,
@@ -32,8 +34,10 @@ import { printResult } from '../format'
 import {
   getOptionalNonNegativeIntegerFlag,
   getOptionalPositiveIntegerFlag,
+  getOptionalStringFlag,
   getRequiredStringFlag
 } from '../flags'
+import { RuntimeClientError } from '../runtime-client'
 import { getTerminalHandle } from '../selectors'
 
 export const TERMINAL_CONTEXT_HANDLERS: Record<string, CommandHandler> = {
@@ -73,6 +77,21 @@ export const TERMINAL_CONTEXT_HANDLERS: Record<string, CommandHandler> = {
       maxTotalBytes: getOptionalPositiveIntegerFlag(flags, 'max-total-bytes')
     })
     printResult(result, json, (value) => formatTerminalImages(value.images))
+  },
+  'terminal screen': async ({ flags, client, cwd, json }) => {
+    const detail = getOptionalStringFlag(flags, 'detail')
+    if (detail !== undefined && detail !== 'compact' && detail !== 'full') {
+      throw new RuntimeClientError('invalid_argument', '--detail must be compact or full')
+    }
+    const fromRow = getOptionalNonNegativeIntegerFlag(flags, 'from-row')
+    const result = await client.call<{ screen: TerminalScreenResult }>('terminal.screen', {
+      terminal: await getTerminalHandle(flags, cwd, client),
+      ...(detail !== undefined ? { detail } : {}),
+      ...(fromRow !== undefined ? { fromRow } : {}),
+      rowCount: getOptionalPositiveIntegerFlag(flags, 'rows'),
+      maxRuns: getOptionalPositiveIntegerFlag(flags, 'max-runs')
+    })
+    printResult(result, json, (value) => formatTerminalScreen(value.screen))
   },
   'terminal agent-view': async ({ flags, client, cwd, json }) => {
     const result = await client.call<{ agentView: TerminalAgentView }>('terminal.agentView', {

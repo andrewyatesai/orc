@@ -10,6 +10,9 @@ use napi_derive::napi;
 // git executor (Rust drives, JS executes — SSH-safe).
 mod git_executor_bridge;
 
+// `terminal.screen`'s nested frame shape (rows -> runs, cursor, modes).
+mod styled_screen;
+
 const DEFAULT_SCROLLBACK: u32 = 5000;
 
 /// One OSC-8 hyperlink run in a snapshot. Field names marshal to camelCase
@@ -52,6 +55,25 @@ pub struct JsSearchContextWindow {
     pub lines: Vec<String>,
     pub first_abs_row: u32,
     pub origin_row: f64,
+}
+
+/// One keystroke encoded against a pane's LIVE keyboard modes (`terminal.key`).
+///
+/// `recognized` and the byte count answer two different questions, and the
+/// caller has to be able to tell them apart: an unknown key name is the caller's
+/// mistake, while a known key that encodes to nothing is the pane's modes
+/// speaking. Collapsing them would leave a driver retrying a typo forever.
+#[napi(object)]
+pub struct JsKeyEncoding {
+    /// The engine's key table knows this name.
+    pub recognized: bool,
+    /// Key-down bytes. Empty on a recognized key = no encoding in these modes.
+    pub press: Buffer,
+    /// Key-up bytes; empty unless the pane negotiated Kitty `REPORT_EVENT_TYPES`.
+    pub release: Buffer,
+    /// `KeyboardMode` bits the encoding was made against — the audit trail for
+    /// why these bytes and not the other ones.
+    pub mode_bits: u32,
 }
 
 /// One inline image on the visible grid (`terminal.images`). One entry per
@@ -369,6 +391,73 @@ impl JsHeadlessTerminal {
                 }
             })
             .collect()
+    }
+
+    /// The styled VISIBLE grid plus the cursor and the input-affecting modes
+    /// (`terminal.screen`) — the one read that is not text.
+    ///
+    /// Colours are fully resolved by the engine (palette, bold-to-bright, dim,
+    /// inverse, DECSCNM), so a run's `fg`/`bg` is what a viewer sees; the raw
+    /// SGR bits ride alongside in `attrs`. Cells are coalesced into runs because
+    /// a per-cell grid is far larger than the text it carries.
+    ///
+    /// `detail`: `full` pads every row to the grid width and attaches OSC-8
+    /// targets; anything else is the compact read (trailing default blanks
+    /// dropped, hyperlinks not probed). `fromRow`/`rowCount` window the rows
+    /// (`rowCount` 0 = to the bottom) and `maxRuns` bounds the payload; both
+    /// cut WHOLE rows and set `rowsTruncated`.
+    ///
+    /// Scope is the live screen only. Scrolled-off rows are retained as text
+    /// with their colour discarded, so styled history does not exist to return.
+    ///
+    /// Null when the engine has been disposed — a zeroed frame would describe a
+    /// blank 0x0 screen, which is a fact, and "I could not look" is not.
+    #[napi(catch_unwind)]
+    pub fn styled_frame(
+        &self,
+        detail: Option<String>,
+        from_row: Option<u32>,
+        row_count: Option<u32>,
+        max_runs: Option<u32>,
+    ) -> Option<styled_screen::JsStyledFrame> {
+        let inner = self.inner.as_ref()?;
+        Some(styled_screen::to_js_frame(inner.styled_frame(
+            orca_terminal::StyledFrameOptions {
+                detail: match detail.as_deref() {
+                    Some("full") => orca_terminal::ScreenDetail::Full,
+                    _ => orca_terminal::ScreenDetail::Compact,
+                },
+                from_row: from_row.unwrap_or(0) as usize,
+                row_count: row_count.unwrap_or(0) as usize,
+                max_runs: max_runs.unwrap_or(0) as usize,
+            },
+        )))
+    }
+
+    /// Encode ONE keystroke against this pane's current keyboard modes
+    /// (`terminal.key`) — the input counterpart of `styled_frame`.
+    ///
+    /// `key` is a DOM `KeyboardEvent.key` value; `mods` is the engine
+    /// `Modifiers` bitfield (SHIFT=1, ALT=2, CTRL=4, SUPER=8). The engine, not
+    /// the caller, decides what the bytes are: DECCKM, the negotiated Kitty
+    /// flags, xterm modifyOtherKeys, DECBKM and the 1035/1036/1039 family all
+    /// change the answer for the same key, which is exactly why encoding this
+    /// in TypeScript would drift from the engine that interprets it.
+    ///
+    /// Null when the engine has been disposed — never a zeroed encoding, which
+    /// would read as "this key means nothing here".
+    #[napi(catch_unwind)]
+    pub fn encode_key(&self, key: String, mods: u32) -> Option<JsKeyEncoding> {
+        let inner = self.inner.as_ref()?;
+        // Truncating past 8 bits is safe: every bit above them is a lock or a
+        // platform modifier the engine masks off anyway.
+        let encoded = inner.encode_key(&key, mods as u8);
+        Some(JsKeyEncoding {
+            recognized: encoded.recognized,
+            press: encoded.press.into(),
+            release: encoded.release.into(),
+            mode_bits: u32::from(encoded.mode_bits),
+        })
     }
 
     /// Stable absolute row of retained history index 0 (fed §2.4): monotonic

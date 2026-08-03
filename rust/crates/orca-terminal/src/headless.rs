@@ -299,6 +299,23 @@ impl HeadlessTerminal {
             _ => MouseTracking::None,
         }
     }
+    /// The pane's mouse coordinate encoding, by name. Why not booleans: X10, UTF-8
+    /// (1005) and URXVT (1015) all report false for every SGR flag, so a boolean pair
+    /// makes three distinct wire formats indistinguishable — and a driver encoding a
+    /// click against the wrong one sends bytes the TUI misreads as a different cell.
+    pub fn mouse_encoding_name(&self) -> &'static str {
+        match self.inner.mouse_encoding() {
+            MouseEncoding::X10 => "x10",
+            MouseEncoding::Utf8 => "utf8",
+            MouseEncoding::Sgr => "sgr",
+            MouseEncoding::Urxvt => "urxvt",
+            MouseEncoding::SgrPixel => "sgr-pixel",
+            // `MouseEncoding` is #[non_exhaustive]: an encoding this build does not know
+            // is named as unknown, never silently reported as the X10 default.
+            _ => "unknown",
+        }
+    }
+
     /// Whether SGR mouse encoding (DECSET 1006) is on.
     pub fn sgr_mouse(&self) -> bool {
         matches!(self.inner.mouse_encoding(), MouseEncoding::Sgr)

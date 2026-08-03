@@ -1,7 +1,7 @@
 /**
  * Context-management verbs for a driving AI — `terminal.history`,
  * `terminal.blocks`, `terminal.blockText`, `terminal.images`,
- * `terminal.agentView`, `terminal.agentTranscript`.
+ * `terminal.screen`, `terminal.agentView`, `terminal.agentTranscript`.
  *
  * Why a sibling module and not more entries in terminal.ts: these are one
  * capability (orient in a pane you are not looking at) and share one honesty
@@ -43,6 +43,17 @@ const TerminalImagesParams = TerminalHandle.extend({
   includeBytes: z.boolean().optional(),
   maxBytesPerImage: OptionalFiniteNumber,
   maxTotalBytes: OptionalFiniteNumber
+})
+
+const TerminalScreenParams = TerminalHandle.extend({
+  // Default compact: a lossless rows x cols frame repeats the trailing blanks
+  // of every short row, which is most of a shell pane.
+  detail: z.enum(['compact', 'full']).optional(),
+  // A row window, in visible-grid coordinates — for a pane far taller than the
+  // region a caller cares about (a status bar, the prompt area).
+  fromRow: z.number().int().nonnegative().optional(),
+  rowCount: OptionalFiniteNumber,
+  maxRuns: OptionalFiniteNumber
 })
 
 const TerminalAgentTranscriptParams = TerminalHandle.extend({
@@ -96,6 +107,19 @@ export const TERMINAL_CONTEXT_METHODS: RpcAnyMethod[] = [
           ? { maxBytesPerImage: params.maxBytesPerImage }
           : {}),
         ...(params.maxTotalBytes !== undefined ? { maxTotalBytes: params.maxTotalBytes } : {}),
+        signal
+      })
+    })
+  }),
+  defineMethod({
+    name: 'terminal.screen',
+    params: TerminalScreenParams,
+    handler: async (params, { runtime, signal }) => ({
+      screen: await runtime.readTerminalScreen(params.terminal, {
+        ...(params.detail !== undefined ? { detail: params.detail } : {}),
+        ...(params.fromRow !== undefined ? { fromRow: params.fromRow } : {}),
+        ...(params.rowCount !== undefined ? { rowCount: params.rowCount } : {}),
+        ...(params.maxRuns !== undefined ? { maxRuns: params.maxRuns } : {}),
         signal
       })
     })

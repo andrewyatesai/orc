@@ -66,7 +66,7 @@ export const TERMINAL_VIDEO_BLIND_SPOT: TerminalContextBlindSpot = {
   capability: 'video',
   reason: 'requires-present-path',
   detail:
-    'Frame-sequence capture taps a GPU present path that only aterm-gui owns; Orca serves ordered transitions through terminal.await and the event journal instead.'
+    'This is a single snapshot, not a recording. Pixel capture taps a GPU present path only aterm-gui owns; for a timed replay of what the pane printed use terminal.record (asciicast, content-faithful not pixel-faithful), and for ordered transitions use terminal.await and the event journal.'
 }
 
 export const TERMINAL_AGENT_COLLAPSED_OUTPUT_BLIND_SPOT: TerminalContextBlindSpot = {

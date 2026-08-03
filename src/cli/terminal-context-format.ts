@@ -144,7 +144,7 @@ function formatTranscriptTurn(turn: AgentTranscriptTurn): string {
 }
 
 export function formatTerminalAgentTranscript(result: TerminalAgentTranscript): string {
-  const identity = `agent: ${result.agent ?? 'unknown'}  session: ${result.sessionId ?? 'unknown'}  host: ${formatTranscriptHost(result.host)}`
+  const identity = `agent: ${result.agent ?? 'unknown'}  session: ${result.sessionId ?? 'unknown'}  host: ${result.host ? formatTranscriptHost(result.host) : 'unknown'}`
   if (!result.available) {
     // Why this shape: the reason token, the sentence, and the identity Orca DID
     // resolve — so "I could not look" never reads as "the agent said nothing".
