@@ -135,8 +135,15 @@ object with `available:false`, a stable `reason`, and operator `guidance`; it is
 never silently omitted. `--recipe-json` is stricter and exits with that reason
 because its contract requires a pairing URL. Stop a foreground server with
 `Ctrl+C`. Stable reasons are `disabled_by_operator`, `websocket_unavailable`,
-`device_registry_unavailable`, `e2ee_key_unavailable`, and
-`invalid_advertised_endpoint`.
+`device_registry_unavailable`, `e2ee_key_unavailable`,
+`e2ee_key_unsealable`, and `invalid_advertised_endpoint`.
+
+`e2ee_key_unavailable` and `e2ee_key_unsealable` are deliberately distinct:
+the first means no pairing identity exists and none could be created, the
+second means one exists but the OS keychain would not open it (the unseal runs
+in a child process with a hard timeout, so a keychain that never answers costs
+a named refusal instead of a hung server). Paired devices stay valid across
+`e2ee_key_unsealable` — do not delete the identity to "fix" it.
 
 ## Systemd Service
 

@@ -47,8 +47,8 @@ function createControlledSubprocess(): ControlledSubprocess {
   }
 }
 
-function requirePairing(server: OrcaRuntimeRpcServer, name: string) {
-  const offer = server.createPairingOffer({ name, scope: 'runtime' })
+async function requirePairing(server: OrcaRuntimeRpcServer, name: string) {
+  const offer = await server.createPairingOffer({ name, scope: 'runtime' })
   if (!offer.available) {
     throw new Error('pairing unavailable')
   }
@@ -145,9 +145,15 @@ describe('remote agent-session host authority integration', () => {
       await server.start()
       cleanups.push(() => server.stop())
 
-      const firstClient = new RemoteRuntimeRequestConnection(requirePairing(server, 'client-one'))
-      const secondClient = new RemoteRuntimeRequestConnection(requirePairing(server, 'client-two'))
-      const retryClient = new RemoteRuntimeRequestConnection(requirePairing(server, 'retry-client'))
+      const firstClient = new RemoteRuntimeRequestConnection(
+        await requirePairing(server, 'client-one')
+      )
+      const secondClient = new RemoteRuntimeRequestConnection(
+        await requirePairing(server, 'client-two')
+      )
+      const retryClient = new RemoteRuntimeRequestConnection(
+        await requirePairing(server, 'retry-client')
+      )
       cleanups.push(() => firstClient.close())
       cleanups.push(() => secondClient.close())
       cleanups.push(() => retryClient.close())

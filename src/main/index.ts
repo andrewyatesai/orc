@@ -1742,7 +1742,7 @@ async function printServeReady(options: ServeOptions): Promise<void> {
         reason: 'disabled_by_operator',
         guidance: 'Restart without --no-pairing to create a client pairing offer.'
       } as const)
-    : runtimeRpc.createPairingOffer({
+    : await runtimeRpc.createPairingOffer({
         address: options.pairingAddress,
         name: `${options.mobilePairing ? 'Mobile' : 'CLI'} ${new Date().toLocaleDateString()}`,
         scope: options.mobilePairing ? 'mobile' : 'runtime'
@@ -2606,7 +2606,10 @@ app.whenReady().then(async () => {
           preferPinnedWsPort: true
         }
       : {}),
-    webClientRoot: getBundledWebClientRoot()
+    webClientRoot: getBundledWebClientRoot(),
+    // Why: headless serve has no window to answer a macOS Keychain prompt, and a synchronous
+    // safeStorage call that prompts blocks the main thread before "Orca server ready" ever prints.
+    ...(serveOptions ? { keychainContext: 'headless' as const } : {})
   })
   registerMobileHandlers(runtimeRpc, {
     getRelayStatus: () => desktopRelayStatus,

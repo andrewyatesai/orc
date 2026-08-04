@@ -66,12 +66,12 @@ describe('mobile pairing userData path stability', () => {
     appState.userData = lateDir // app.setName('Orca') has run by the time the runtime starts
 
     const { DeviceRegistry } = await import('./device-registry')
-    const { loadOrCreateE2EEKeypair } = await import('./e2ee-keypair')
+    const { resolveE2EEIdentity } = await import('./e2ee-keypair')
 
     // Mirrors OrcaRuntimeRpcServer.start(): both read from the same userDataPath.
     const registry = new DeviceRegistry(getCanonicalUserDataPath())
     registry.addDevice('iPhone')
-    loadOrCreateE2EEKeypair(getCanonicalUserDataPath())
+    await resolveE2EEIdentity(getCanonicalUserDataPath())
 
     // Pairing credentials land beside orca-data.json so they survive restarts/updates.
     expect(existsSync(join(canonicalDir, DEVICE_REGISTRY_FILENAME))).toBe(true)

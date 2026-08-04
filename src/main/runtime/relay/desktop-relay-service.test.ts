@@ -1,5 +1,11 @@
-import { describe, expect, it } from 'vitest'
-import type { MobilePairingConnectionContext } from '../runtime-rpc'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { OrcaCloudAuthConfig } from '../../orca-profiles/profile-cloud-auth-config'
+import { DeviceRegistry } from '../device-registry'
+import { RelayRevokeOutbox } from './relay-revoke-outbox'
+import type { MobilePairingConnectionContext, OrcaRuntimeRpcServer } from '../runtime-rpc'
 import { DesktopRelayService, pairingAuthorizationForContext } from './desktop-relay-service'
 
 const relayHostId = 'AbCdEf0123_-xyZ9'
@@ -58,6 +64,102 @@ describe('pairingAuthorizationForContext', () => {
         relayHostId
       )
     ).toThrow('stale_relay_connection')
+  })
+})
+
+describe('DesktopRelayService construction', () => {
+  const dirs: string[] = []
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('does not resolve the E2EE keypair, so GUI startup never blocks on the OS keychain', () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-relay-service-'))
+    dirs.push(userDataPath)
+    const getE2EEKeypair = vi.fn(() => null)
+    const runtimeRpc = {
+      getE2EEKeypair,
+      getMobileSocketWiring: () => ({}),
+      getDeviceRegistry: () => new DeviceRegistry(userDataPath),
+      getRelayRevokeOutbox: () => new RelayRevokeOutbox(userDataPath)
+    } as unknown as OrcaRuntimeRpcServer
+
+    const service = new DesktopRelayService({
+      authConfig: {} as OrcaCloudAuthConfig,
+      userDataPath,
+      appVersion: '0.0.0',
+      runtimeRpc,
+      onStatus: () => {}
+    })
+
+    // Revert guard: this runs inline with app startup, and getE2EEKeypair() can sit on a
+    // synchronous macOS Keychain prompt that nothing on the main thread can time out.
+    expect(service).toBeInstanceOf(DesktopRelayService)
+    expect(getE2EEKeypair).not.toHaveBeenCalled()
+  })
+
+  it('defers demand refresh until the E2EE identity is warm', async () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-relay-service-'))
+    dirs.push(userDataPath)
+    let warm = false
+    const runtimeRpc = {
+      // Demand derives the relay host id from the keypair, so it throws until the identity lands.
+      getE2EEKeypair: () =>
+        warm
+          ? { publicKey: new Uint8Array(32), secretKey: new Uint8Array(32), publicKeyB64: '' }
+          : null,
+      resolveE2EEIdentity: async () => {
+        warm = true
+        return {
+          ok: true as const,
+          keypair: {
+            publicKey: new Uint8Array(32),
+            secretKey: new Uint8Array(32),
+            publicKeyB64: ''
+          }
+        }
+      },
+      getMobileSocketWiring: () => ({}),
+      getDeviceRegistry: () => new DeviceRegistry(userDataPath),
+      getRelayRevokeOutbox: () => new RelayRevokeOutbox(userDataPath)
+    } as unknown as OrcaRuntimeRpcServer
+
+    const service = new DesktopRelayService({
+      authConfig: {} as OrcaCloudAuthConfig,
+      userDataPath,
+      appVersion: '0.0.0',
+      runtimeRpc,
+      onStatus: () => {}
+    })
+
+    // Revert guard: a synchronous refresh would throw mobile_runtime_not_ready, and index.ts
+    // catches that once — leaving Relay off for the entire session.
+    expect(() => service.start()).not.toThrow()
+    await vi.waitFor(() => expect(warm).toBe(true))
+  })
+
+  it('still refuses to construct while the mobile runtime is not wired up', () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-relay-service-'))
+    dirs.push(userDataPath)
+    const runtimeRpc = {
+      getE2EEKeypair: () => null,
+      getMobileSocketWiring: () => null,
+      getDeviceRegistry: () => new DeviceRegistry(userDataPath),
+      getRelayRevokeOutbox: () => new RelayRevokeOutbox(userDataPath)
+    } as unknown as OrcaRuntimeRpcServer
+
+    expect(
+      () =>
+        new DesktopRelayService({
+          authConfig: {} as OrcaCloudAuthConfig,
+          userDataPath,
+          appVersion: '0.0.0',
+          runtimeRpc,
+          onStatus: () => {}
+        })
+    ).toThrow('mobile_runtime_not_ready')
   })
 })
 

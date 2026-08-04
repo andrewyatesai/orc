@@ -229,6 +229,10 @@ export const electronViteConfig: UserConfig = {
           'codex/codex-app-server-grant-entry': resolve(
             'src/main/codex/codex-app-server-grant-entry.ts'
           ),
+          // Why: real Electron (NOT run-as-node — safeStorage does not exist there), spawned as a
+          // disposable child so a keychain call that never returns is killed instead of wedging the
+          // runtime's main thread. bootstrap.js dispatches here on ORCA_E2EE_SECRET_HELPER.
+          'e2ee-secret-unseal-entry': resolve('src/main/runtime/e2ee-secret-unseal-entry.ts'),
           // Why these three are entries at all: electron-vite CLEANS out/main,
           // and `build:cli`'s tsc emits into the same tree. Whichever runs last
           // wins, so a plain `pnpm dev` after `pnpm build:cli` used to delete

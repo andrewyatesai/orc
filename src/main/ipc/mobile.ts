@@ -122,7 +122,7 @@ export function registerMobileHandlers(
 
       // Why: web/desktop runtime clients need full runtime access, not the
       // mobile allowlist used by phone QR pairing.
-      const offer = rpcServer.createPairingOffer({
+      const offer = await rpcServer.createPairingOffer({
         address: ip,
         rotate: args?.rotate,
         name: `Runtime ${new Date().toLocaleDateString()}`,

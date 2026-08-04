@@ -1,12 +1,16 @@
 import { randomBytes } from 'node:crypto'
 import type { WebSocket } from 'ws'
 import type { DeviceEntry, DeviceRegistry } from '../device-registry'
-import type { E2EEKeypair } from '../e2ee-keypair'
 import { E2EEChannel, type E2EEAuthenticatedDevice } from './e2ee-channel'
+import {
+  MobileSocketIdentityWarmGate,
+  type MobileSocketIdentityWarmOptions,
+  type MobileSocketPayload
+} from './mobile-socket-identity-warm-gate'
 import { createMobileE2EEOutboundMemoryBudget } from './mobile-e2ee-outbound-memory-budget'
 import type { RuntimeCapability } from '../../../shared/protocol-version'
 
-type MobileSocketPayload = string | Uint8Array<ArrayBufferLike>
+export type { MobileSocketIdentityWarmResult } from './mobile-socket-identity-warm-gate'
 
 export type MobileSocketTransportMetadata =
   | { transport: 'direct' }
@@ -41,9 +45,8 @@ export type AuthenticatedMobileSocket = {
   transport: MobileSocketTransportMetadata
 }
 
-type MobileSocketWiringOptions = {
+type MobileSocketWiringOptions = MobileSocketIdentityWarmOptions & {
   deviceRegistry: DeviceRegistry
-  e2eeKeypair: E2EEKeypair
   onText: (
     socket: AuthenticatedMobileSocket,
     plaintext: string,
@@ -67,7 +70,7 @@ function toAuthenticatedDevice(device: DeviceEntry): E2EEAuthenticatedDevice {
 
 export class MobileSocketWiring {
   private readonly deviceRegistry: DeviceRegistry
-  private readonly e2eeKeypair: E2EEKeypair
+  private readonly identityWarmGate: MobileSocketIdentityWarmGate
   private readonly onText: MobileSocketWiringOptions['onText']
   private readonly onBinary: MobileSocketWiringOptions['onBinary']
   private readonly onClose: MobileSocketWiringOptions['onClose']
@@ -81,7 +84,7 @@ export class MobileSocketWiring {
 
   constructor(options: MobileSocketWiringOptions) {
     this.deviceRegistry = options.deviceRegistry
-    this.e2eeKeypair = options.e2eeKeypair
+    this.identityWarmGate = new MobileSocketIdentityWarmGate(options)
     this.onText = options.onText
     this.onBinary = options.onBinary
     this.onClose = options.onClose
@@ -136,76 +139,110 @@ export class MobileSocketWiring {
     message: MobileSocketPayload,
     metadata: MobileSocketTransportMetadata
   ): void {
-    let channel = this.channels.get(ws)
-    if (!channel) {
-      const connectionId = randomBytes(8).toString('hex')
-      this.connectionIds.set(ws, connectionId)
-      channel = new E2EEChannel(ws, {
-        serverSecretKey: this.e2eeKeypair.secretKey,
-        transportContext:
-          metadata.transport === 'relay'
-            ? { transport: 'relay', relayHostId: metadata.relayHostId }
-            : { transport: 'direct' },
-        requireV2: metadata.transport === 'relay',
-        outboundMemoryBudget: this.outboundMemoryBudget,
-        resolveAuthenticatedDevice: (token) => {
-          const device = this.deviceRegistry.validateToken(token)
-          if (!device) {
-            return null
-          }
-          // Why: outer relay authorization cannot choose the local Orca
-          // identity; E2EE must resolve the same device before readiness.
-          if (metadata.transport === 'relay' && metadata.relayDeviceId !== device.deviceId) {
-            return null
-          }
-          return toAuthenticatedDevice(device)
-        },
-        onReady: (channel, device) => {
-          const socket = {
-            ws,
-            connectionId,
-            device,
-            clientCapabilities: channel.clientCapabilities,
-            transport: metadata
-          }
-          this.authenticatedSockets.set(ws, socket)
-          transport.setClientId(ws, device.deviceToken)
-          this.deviceRegistry.updateLastSeen(device.deviceId)
-          this.onReady?.(socket)
-        },
-        onError: (code, reason) => {
-          const reportUnpairedDevice = code === 4001 && reason === 'Unauthorized'
-          this.channels.get(ws)?.destroy()
-          this.channels.delete(ws)
-          ws.close(code, reason)
-          if (reportUnpairedDevice) {
-            try {
-              this.onUnpairedDeviceAuthFailure?.(metadata)
-            } catch (error) {
-              // Why: renderer teardown can make UI delivery throw; auth cleanup must remain authoritative.
-              console.error('[mobile] Failed to report unpaired-device auth failure:', error)
-            }
-          }
-        }
-      })
-      channel.onMessage((plaintext, reply, sendBinary) => {
-        const socket = this.authenticatedSockets.get(ws)
-        if (socket) {
-          this.onText(socket, plaintext, reply, sendBinary)
-        }
-      })
-      channel.onBinaryMessage((bytes) => {
-        const socket = this.authenticatedSockets.get(ws)
-        if (socket) {
-          this.onBinary(socket, bytes)
-        }
-      })
-      this.channels.set(ws, channel)
+    const channel = this.channels.get(ws)
+    if (channel) {
+      channel.handleRawMessage(message)
+      return
     }
-    channel.handleRawMessage(message)
+    const serverSecretKey = this.identityWarmGate.admit(ws, message, (warmKey, frames) =>
+      this.replayFramesOnWarmedChannel(transport, ws, warmKey, metadata, frames)
+    )
+    if (serverSecretKey) {
+      this.openChannel(transport, ws, serverSecretKey, metadata).handleRawMessage(message)
+    }
+  }
+
+  private replayFramesOnWarmedChannel(
+    transport: MobileSocketTransport,
+    ws: WebSocket,
+    serverSecretKey: Uint8Array,
+    metadata: MobileSocketTransportMetadata,
+    frames: readonly MobileSocketPayload[]
+  ): void {
+    const channel = this.openChannel(transport, ws, serverSecretKey, metadata)
+    for (const frame of frames) {
+      // Why: a failed handshake destroys the channel mid-drain; the rest of the queue is dead with it.
+      if (this.channels.get(ws) !== channel) {
+        return
+      }
+      channel.handleRawMessage(frame)
+    }
+  }
+
+  private openChannel(
+    transport: MobileSocketTransport,
+    ws: WebSocket,
+    serverSecretKey: Uint8Array,
+    metadata: MobileSocketTransportMetadata
+  ): E2EEChannel {
+    const connectionId = randomBytes(8).toString('hex')
+    this.connectionIds.set(ws, connectionId)
+    const channel = new E2EEChannel(ws, {
+      serverSecretKey,
+      transportContext:
+        metadata.transport === 'relay'
+          ? { transport: 'relay', relayHostId: metadata.relayHostId }
+          : { transport: 'direct' },
+      requireV2: metadata.transport === 'relay',
+      outboundMemoryBudget: this.outboundMemoryBudget,
+      resolveAuthenticatedDevice: (token) => {
+        const device = this.deviceRegistry.validateToken(token)
+        if (!device) {
+          return null
+        }
+        // Why: outer relay authorization cannot choose the local Orca
+        // identity; E2EE must resolve the same device before readiness.
+        if (metadata.transport === 'relay' && metadata.relayDeviceId !== device.deviceId) {
+          return null
+        }
+        return toAuthenticatedDevice(device)
+      },
+      onReady: (channel, device) => {
+        const socket = {
+          ws,
+          connectionId,
+          device,
+          clientCapabilities: channel.clientCapabilities,
+          transport: metadata
+        }
+        this.authenticatedSockets.set(ws, socket)
+        transport.setClientId(ws, device.deviceToken)
+        this.deviceRegistry.updateLastSeen(device.deviceId)
+        this.onReady?.(socket)
+      },
+      onError: (code, reason) => {
+        const reportUnpairedDevice = code === 4001 && reason === 'Unauthorized'
+        this.channels.get(ws)?.destroy()
+        this.channels.delete(ws)
+        ws.close(code, reason)
+        if (reportUnpairedDevice) {
+          try {
+            this.onUnpairedDeviceAuthFailure?.(metadata)
+          } catch (error) {
+            // Why: renderer teardown can make UI delivery throw; auth cleanup must remain authoritative.
+            console.error('[mobile] Failed to report unpaired-device auth failure:', error)
+          }
+        }
+      }
+    })
+    channel.onMessage((plaintext, reply, sendBinary) => {
+      const socket = this.authenticatedSockets.get(ws)
+      if (socket) {
+        this.onText(socket, plaintext, reply, sendBinary)
+      }
+    })
+    channel.onBinaryMessage((bytes) => {
+      const socket = this.authenticatedSockets.get(ws)
+      if (socket) {
+        this.onBinary(socket, bytes)
+      }
+    })
+    this.channels.set(ws, channel)
+    return channel
   }
 
   private handleClose(ws: WebSocket): void {
+    this.identityWarmGate.forget(ws)
     const socket = this.authenticatedSockets.get(ws) ?? null
     this.authenticatedSockets.delete(ws)
     this.channels.get(ws)?.destroy()

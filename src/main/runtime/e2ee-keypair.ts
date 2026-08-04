@@ -3,9 +3,13 @@
 // offer so the mobile client can derive a shared secret via ECDH.
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { safeStorage } from 'electron'
 import { generateKeyPair } from '../../shared/e2ee-crypto'
 import { hardenExistingSecureFile, writeSecureJsonFile } from '../../shared/secure-file'
+import {
+  runE2EESecretHelper,
+  type E2EESecretHelperOptions,
+  type E2EESecretHelperResult
+} from './e2ee-secret-unseal-host'
 import { E2EE_KEYPAIR_FILENAME } from './mobile-pairing-files'
 
 const KEYPAIR_FILENAME = E2EE_KEYPAIR_FILENAME
@@ -45,95 +49,199 @@ export type E2EEKeypair = {
   publicKeyB64: string
 }
 
-// Why: in the vitest node runtime `electron` resolves to a path string, so
-// safeStorage is undefined; treat any failure as "unavailable" and fall back.
-function isEncryptionAvailable(): boolean {
-  try {
-    return safeStorage?.isEncryptionAvailable() === true
-  } catch {
-    return false
-  }
+/**
+ * Whether a human can answer an OS keychain prompt right now. Unsealing goes through the bounded
+ * out-of-process helper in both contexts (there is no alternative — regenerating would silently
+ * invalidate every paired device). Sealing does have a lossless alternative (a 0600 plaintext
+ * envelope, upgraded on the next interactive load), so 'headless' skips it rather than spend the
+ * helper's timeout budget on a prompt nobody can answer.
+ */
+export type E2EEKeychainContext = 'interactive' | 'headless'
+
+/**
+ * Named refusals. A driver must never confuse "I could not look" with "there is nothing there":
+ * `unseal_failed` means a sealed identity exists and every paired device is still valid;
+ * `identity_unavailable` means no identity exists and none could be created.
+ */
+export type E2EEIdentityRefusalReason = 'unseal_failed' | 'identity_unavailable'
+
+export type E2EEIdentityResolution =
+  | { ok: true; keypair: E2EEKeypair }
+  | { ok: false; reason: E2EEIdentityRefusalReason; message: string }
+
+export type E2EEKeypairResolveOptions = {
+  keychainContext?: E2EEKeychainContext
+  helper?: E2EESecretHelperOptions
 }
 
-function buildKeypairFile(publicKeyB64: string, secretKeyB64: string): KeypairFile {
-  if (isEncryptionAvailable()) {
-    return {
-      v: KEYPAIR_VERSION,
-      publicKeyB64,
-      secretKeyFormat: 'electron-safe-storage-v1',
-      secretKeyCiphertextB64: safeStorage.encryptString(secretKeyB64).toString('base64')
-    }
-  }
-  return { v: KEYPAIR_VERSION, publicKeyB64, secretKeyFormat: 'plaintext', secretKeyB64 }
+function refuse(reason: E2EEIdentityRefusalReason, detail: unknown): E2EEIdentityResolution {
+  const message = detail instanceof Error ? detail.message : String(detail)
+  return { ok: false, reason, message }
 }
 
-// Why: returns null when the secret cannot be recovered (unknown format or a
-// keychain that can no longer decrypt) so the caller regenerates the keypair.
-function decodeSecretKeyB64(
-  raw: KeypairFile
-): { secretKeyB64: string; wasPlaintext: boolean } | null {
-  if (raw.v === 1) {
-    return { secretKeyB64: raw.secretKeyB64, wasPlaintext: true }
-  }
-  if (raw.v === KEYPAIR_VERSION) {
-    if (raw.secretKeyFormat === 'plaintext') {
-      return { secretKeyB64: raw.secretKeyB64, wasPlaintext: true }
-    }
-    if (raw.secretKeyFormat === 'electron-safe-storage-v1') {
-      if (!isEncryptionAvailable()) {
-        return null
-      }
-      const secretKeyB64 = safeStorage.decryptString(
-        Buffer.from(raw.secretKeyCiphertextB64, 'base64')
-      )
-      return { secretKeyB64, wasPlaintext: false }
-    }
-  }
-  return null
-}
-
-export function loadOrCreateE2EEKeypair(userDataPath: string): E2EEKeypair {
+export async function resolveE2EEIdentity(
+  userDataPath: string,
+  options: E2EEKeypairResolveOptions = {}
+): Promise<E2EEIdentityResolution> {
+  const keychainContext = options.keychainContext ?? 'interactive'
   const filePath = join(userDataPath, KEYPAIR_FILENAME)
 
-  if (existsSync(filePath)) {
-    try {
-      hardenExistingSecureFile(filePath)
-      // Why: this startup path reads synchronously; valid keypair files are
-      // tiny, so oversized/corrupt files should be replaced without loading.
-      if (statSync(filePath).size > MAX_KEYPAIR_FILE_BYTES) {
-        throw new Error('E2EE keypair file is too large')
-      }
-      const raw: KeypairFile = JSON.parse(readFileSync(filePath, 'utf-8'))
-      const decoded = raw?.publicKeyB64 ? decodeSecretKeyB64(raw) : null
-      if (decoded) {
-        const publicKey = Uint8Array.from(Buffer.from(raw.publicKeyB64, 'base64'))
-        const secretKey = Uint8Array.from(Buffer.from(decoded.secretKeyB64, 'base64'))
-        if (publicKey.length === 32 && secretKey.length === 32) {
-          // Why: upgrade legacy/plaintext-on-disk secrets to the encrypted
-          // envelope once the keychain is available, so at-rest exposure closes.
-          if (decoded.wasPlaintext && isEncryptionAvailable()) {
-            try {
-              writeSecureJsonFile(
-                filePath,
-                buildKeypairFile(raw.publicKeyB64, decoded.secretKeyB64)
-              )
-            } catch {
-              // Migration is best-effort; the loaded keypair is still valid.
-            }
-          }
-          return { publicKey, secretKey, publicKeyB64: raw.publicKeyB64 }
+  const raw = readKeypairFile(filePath)
+  if (raw?.publicKeyB64) {
+    const decoded = await decodeSecretKeyB64(raw, options)
+    if (decoded.kind === 'unsealable') {
+      // Never regenerate here: the sealed identity is intact and every paired device still works.
+      return { ok: false, reason: 'unseal_failed', message: decoded.message }
+    }
+    if (decoded.kind === 'ok') {
+      const keypair = toKeypair(raw.publicKeyB64, decoded.secretKeyB64)
+      if (keypair) {
+        if (decoded.wasPlaintext && keychainContext === 'interactive') {
+          await migratePlaintextEnvelope(filePath, raw.publicKeyB64, decoded.secretKeyB64, options)
         }
+        return { ok: true, keypair }
       }
-    } catch {
-      // Malformed or undecryptable file — regenerate below.
     }
   }
 
+  return await mintKeypair(filePath, options)
+}
+
+function toKeypair(publicKeyB64: string, secretKeyB64: string): E2EEKeypair | null {
+  const publicKey = Uint8Array.from(Buffer.from(publicKeyB64, 'base64'))
+  const secretKey = Uint8Array.from(Buffer.from(secretKeyB64, 'base64'))
+  return publicKey.length === 32 && secretKey.length === 32
+    ? { publicKey, secretKey, publicKeyB64 }
+    : null
+}
+
+type DecodedSecret =
+  | { kind: 'ok'; secretKeyB64: string; wasPlaintext: boolean }
+  /** Sealed but unopenable right now — the caller must refuse, not regenerate. */
+  | { kind: 'unsealable'; message: string }
+  /** Unknown format, or a keychain that genuinely cannot decrypt this ciphertext — regenerate. */
+  | { kind: 'undecodable' }
+
+async function decodeSecretKeyB64(
+  raw: KeypairFile,
+  options: E2EEKeypairResolveOptions
+): Promise<DecodedSecret> {
+  if (raw.v === 1) {
+    return { kind: 'ok', secretKeyB64: raw.secretKeyB64, wasPlaintext: true }
+  }
+  if (raw.v !== KEYPAIR_VERSION) {
+    return { kind: 'undecodable' }
+  }
+  if (raw.secretKeyFormat === 'plaintext') {
+    return { kind: 'ok', secretKeyB64: raw.secretKeyB64, wasPlaintext: true }
+  }
+  if (raw.secretKeyFormat !== 'electron-safe-storage-v1') {
+    return { kind: 'undecodable' }
+  }
+  const unsealed = await runE2EESecretHelper(
+    { op: 'unseal', ciphertextB64: raw.secretKeyCiphertextB64 },
+    options.helper
+  )
+  if (unsealed.ok && unsealed.op === 'unseal') {
+    return {
+      kind: 'ok',
+      secretKeyB64: unsealed.secretKeyB64,
+      wasPlaintext: false
+    }
+  }
+  // Why: a helper that never answered says nothing about the ciphertext, so treating it as
+  // corrupt would burn every pairing on a transient keychain stall.
+  return unsealed.ok || unsealed.reason === 'timeout' || unsealed.reason === 'helper_unavailable'
+    ? {
+        kind: 'unsealable',
+        message: unsealed.ok ? 'Unexpected helper reply.' : unsealed.message
+      }
+    : { kind: 'undecodable' }
+}
+
+async function sealSecretKeyB64(
+  secretKeyB64: string,
+  options: E2EEKeypairResolveOptions
+): Promise<string | null> {
+  // Why: minting/migration have a lossless fallback (0600 plaintext, upgraded on the next
+  // interactive load), so a headless launch never spends the helper budget on an unanswerable prompt.
+  if ((options.keychainContext ?? 'interactive') !== 'interactive') {
+    return null
+  }
+  const sealed: E2EESecretHelperResult = await runE2EESecretHelper(
+    { op: 'seal', secretKeyB64 },
+    options.helper
+  )
+  return sealed.ok && sealed.op === 'seal' ? sealed.ciphertextB64 : null
+}
+
+async function migratePlaintextEnvelope(
+  filePath: string,
+  publicKeyB64: string,
+  secretKeyB64: string,
+  options: E2EEKeypairResolveOptions
+): Promise<void> {
+  // Why: upgrade legacy/plaintext-on-disk secrets to the encrypted envelope once the keychain
+  // answers, so at-rest exposure closes. Best-effort: the loaded keypair is valid either way.
+  try {
+    const ciphertextB64 = await sealSecretKeyB64(secretKeyB64, options)
+    if (ciphertextB64) {
+      writeSecureJsonFile(filePath, {
+        v: KEYPAIR_VERSION,
+        publicKeyB64,
+        secretKeyFormat: 'electron-safe-storage-v1',
+        secretKeyCiphertextB64: ciphertextB64
+      } satisfies EncryptedKeypairFile)
+    }
+  } catch {
+    // Migration is best-effort; the loaded keypair is still valid.
+  }
+}
+
+async function mintKeypair(
+  filePath: string,
+  options: E2EEKeypairResolveOptions
+): Promise<E2EEIdentityResolution> {
   const keypair = generateKeyPair()
   const publicKeyB64 = Buffer.from(keypair.publicKey).toString('base64')
   const secretKeyB64 = Buffer.from(keypair.secretKey).toString('base64')
+  const ciphertextB64 = await sealSecretKeyB64(secretKeyB64, options)
+  try {
+    writeSecureJsonFile(
+      filePath,
+      ciphertextB64
+        ? ({
+            v: KEYPAIR_VERSION,
+            publicKeyB64,
+            secretKeyFormat: 'electron-safe-storage-v1',
+            secretKeyCiphertextB64: ciphertextB64
+          } satisfies EncryptedKeypairFile)
+        : ({
+            v: KEYPAIR_VERSION,
+            publicKeyB64,
+            secretKeyFormat: 'plaintext',
+            secretKeyB64
+          } satisfies PlaintextKeypairFile)
+    )
+  } catch (error) {
+    return refuse('identity_unavailable', error)
+  }
+  return { ok: true, keypair: { ...keypair, publicKeyB64 } }
+}
 
-  writeSecureJsonFile(filePath, buildKeypairFile(publicKeyB64, secretKeyB64))
-
-  return { publicKey: keypair.publicKey, secretKey: keypair.secretKey, publicKeyB64 }
+function readKeypairFile(filePath: string): KeypairFile | null {
+  if (!existsSync(filePath)) {
+    return null
+  }
+  try {
+    hardenExistingSecureFile(filePath)
+    // Why: this read is synchronous; valid keypair files are tiny, so
+    // oversized/corrupt files should be replaced without loading.
+    if (statSync(filePath).size > MAX_KEYPAIR_FILE_BYTES) {
+      return null
+    }
+    return JSON.parse(readFileSync(filePath, 'utf-8')) as KeypairFile
+  } catch {
+    return null
+  }
 }

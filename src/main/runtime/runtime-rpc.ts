@@ -5,7 +5,7 @@ import { readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import type { RuntimeMetadata, RuntimeTransportMetadata } from '../../shared/runtime-bootstrap'
 import type { OrcaRuntimeService } from './orca-runtime'
-import { writeRuntimeMetadata } from './runtime-metadata'
+import { clearRuntimeMetadataIfOwned, writeRuntimeMetadata } from './runtime-metadata'
 import {
   RUNTIME_METADATA_OWNERSHIP_POLL_MS,
   watchRuntimeMetadataOwnership,
@@ -20,11 +20,13 @@ import { WebSocketTransport } from './rpc/ws-transport'
 import { readWsFallbackPort, writeWsFallbackPort } from './rpc/ws-fallback-port-store'
 import type { WebSocket } from 'ws'
 import { DeviceRegistry, type DeviceEntry, type DeviceScope } from './device-registry'
-import { loadOrCreateE2EEKeypair, type E2EEKeypair } from './e2ee-keypair'
+import type { E2EEIdentityResolution, E2EEKeychainContext, E2EEKeypair } from './e2ee-keypair'
+import { createE2EEKeypairProvider, type E2EEKeypairProvider } from './e2ee-keypair-provider'
 import { UnpairedDeviceAuthThrottle } from './rpc/unpaired-device-auth-throttle'
 import {
   MobileSocketWiring,
   type AuthenticatedMobileSocket,
+  type MobileSocketIdentityWarmResult,
   type MobileSocketTransportMetadata
 } from './rpc/mobile-socket-wiring'
 import type { PairingRelay } from '../../shared/mobile-relay-pairing-offer'
@@ -61,6 +63,8 @@ type OrcaRuntimeRpcServerOptions = {
   // Why: true when the caller pinned a port (`orca serve --port`) so bind order prefers it over a stale STA-1511 fallback (#8535).
   preferPinnedWsPort?: boolean
   webClientRoot?: string
+  // Why: 'headless' (serve) has no window to answer a macOS Keychain prompt — see E2EEKeychainContext.
+  keychainContext?: E2EEKeychainContext
   // Why: test-only overrides for the two constants below; production must not pass these (defaults set by §3.1).
   keepaliveIntervalMs?: number
   longPollCap?: number
@@ -71,7 +75,10 @@ type OrcaRuntimeRpcServerOptions = {
 export type PairingOfferUnavailableReason =
   | 'websocket_unavailable'
   | 'device_registry_unavailable'
+  /** No identity exists and none could be created. */
   | 'e2ee_key_unavailable'
+  /** An identity exists but the OS keychain would not open it — distinct on purpose: paired devices are still valid. */
+  | 'e2ee_key_unsealable'
   | 'invalid_advertised_endpoint'
 
 export type PairingOfferUnavailable = {
@@ -81,7 +88,7 @@ export type PairingOfferUnavailable = {
 }
 
 type PairingIdentityInitialization =
-  | { ok: true; deviceRegistry: DeviceRegistry; e2eeKeypair: E2EEKeypair }
+  | { ok: true; deviceRegistry: DeviceRegistry }
   | { ok: false; failure: PairingOfferUnavailable }
 
 function pairingUnavailable(
@@ -95,6 +102,8 @@ const DEVICE_REGISTRY_UNAVAILABLE_GUIDANCE =
   'The pairing registry is unavailable. Verify that the Orca data directory is writable.'
 const E2EE_KEY_UNAVAILABLE_GUIDANCE =
   'The E2EE identity is unavailable. Verify that the Orca data directory is writable.'
+const E2EE_KEY_UNSEALABLE_GUIDANCE =
+  'The stored E2EE identity could not be unsealed from the OS keychain. Launch the Orca app once on this machine and allow keychain access, then retry; paired devices remain valid.'
 
 type MobileRelayPairingProvider = {
   createPairingRelay(
@@ -473,6 +482,7 @@ export class OrcaRuntimeRpcServer {
   private readonly wsPort: number
   private readonly preferPinnedWsPort: boolean
   private readonly webClientRoot: string | undefined
+  private readonly keychainContext: E2EEKeychainContext
   private readonly authToken = randomBytes(24).toString('hex')
   private readonly keepaliveIntervalMs: number
   private readonly longPollCap: number
@@ -480,13 +490,15 @@ export class OrcaRuntimeRpcServer {
   private readonly askLongPollCap: number
   private readonly relayRevokeOutbox: RelayRevokeOutbox
   private deviceRegistry: DeviceRegistry | null = null
-  private e2eeKeypair: E2EEKeypair | null = null
+  private e2eeKeypairProvider: E2EEKeypairProvider | null = null
   private pairingInitializationFailure: PairingOfferUnavailable | null = null
   private tlsFingerprint: string | null = null
   private activeTransports: RpcTransport[] = []
   private transports: RuntimeTransportMetadata[] = []
   private metadataOwnershipWatch: RuntimeMetadataOwnershipWatch | null = null
   private mobileSocketWiring: MobileSocketWiring | null = null
+  // Why: a stop() that lands mid-start must invalidate that start — see publishTransports.
+  private startGeneration = 0
   private mobileRelayPairingProvider: MobileRelayPairingProvider | null = null
   private onUnpairedDeviceAuthFailure: (() => void) | null = null
   private unpairedDeviceAuthThrottle: UnpairedDeviceAuthThrottle | null = null
@@ -512,6 +524,7 @@ export class OrcaRuntimeRpcServer {
     wsPort = DEFAULT_WS_PORT,
     preferPinnedWsPort = false,
     webClientRoot,
+    keychainContext = 'interactive',
     keepaliveIntervalMs = KEEPALIVE_INTERVAL_MS,
     longPollCap = LONG_POLL_CAP,
     metadataOwnershipPollMs = RUNTIME_METADATA_OWNERSHIP_POLL_MS
@@ -525,6 +538,7 @@ export class OrcaRuntimeRpcServer {
     this.wsPort = wsPort
     this.preferPinnedWsPort = preferPinnedWsPort
     this.webClientRoot = webClientRoot
+    this.keychainContext = keychainContext
     this.keepaliveIntervalMs = keepaliveIntervalMs
     this.longPollCap = longPollCap
     this.metadataOwnershipPollMs = metadataOwnershipPollMs
@@ -541,12 +555,34 @@ export class OrcaRuntimeRpcServer {
     return this.tlsFingerprint
   }
 
+  /**
+   * Warm-only, by contract: never reaches the keychain, so it is safe on any thread and on any
+   * path an unauthenticated peer can reach. Whoever needs the identity *produced* awaits
+   * resolveE2EEIdentity(), which is bounded by a killable child process.
+   */
   getE2EEPublicKey(): string | null {
-    return this.e2eeKeypair?.publicKeyB64 ?? null
+    return this.getE2EEKeypair()?.publicKeyB64 ?? null
   }
 
   getE2EEKeypair(): E2EEKeypair | null {
-    return this.e2eeKeypair
+    return this.e2eeKeypairProvider?.peek() ?? null
+  }
+
+  /**
+   * Why: resolves the live keypair rather than reading the stored public half — the two
+   * disagree whenever the on-disk secret can no longer be decoded, and an offer carrying
+   * a public key we cannot back leaves the paired device unable to decrypt anything.
+   */
+  async resolveE2EEIdentity(): Promise<E2EEIdentityResolution> {
+    const provider = this.e2eeKeypairProvider
+    if (!provider) {
+      return {
+        ok: false,
+        reason: 'identity_unavailable',
+        message: 'Pairing is not initialized.'
+      }
+    }
+    return await provider.resolve()
   }
 
   getMobileSocketWiring(): MobileSocketWiring | null {
@@ -621,12 +657,12 @@ export class OrcaRuntimeRpcServer {
     return ws?.endpoint ?? null
   }
 
-  createPairingOffer(args: {
+  async createPairingOffer(args: {
     address?: string | null
     name?: string
     rotate?: boolean
     scope?: DeviceScope
-  }):
+  }): Promise<
     | PairingOfferUnavailable
     | {
         available: true
@@ -634,7 +670,8 @@ export class OrcaRuntimeRpcServer {
         endpoint: string
         deviceId: string
         webClientUrl: string | null
-      } {
+      }
+  > {
     if (this.pairingInitializationFailure) {
       return this.pairingInitializationFailure
     }
@@ -648,10 +685,15 @@ export class OrcaRuntimeRpcServer {
     if (!this.deviceRegistry) {
       return pairingUnavailable('device_registry_unavailable', DEVICE_REGISTRY_UNAVAILABLE_GUIDANCE)
     }
-    const publicKeyB64 = this.getE2EEPublicKey()
-    if (!publicKeyB64) {
-      return pairingUnavailable('e2ee_key_unavailable', E2EE_KEY_UNAVAILABLE_GUIDANCE)
+    // Why: bounded — the helper is a child process with a hard kill, so a wedged keychain costs a
+    // named refusal here instead of parking the runtime's main thread forever.
+    const identity = await this.resolveE2EEIdentity()
+    if (!identity.ok) {
+      return identity.reason === 'unseal_failed'
+        ? pairingUnavailable('e2ee_key_unsealable', E2EE_KEY_UNSEALABLE_GUIDANCE)
+        : pairingUnavailable('e2ee_key_unavailable', E2EE_KEY_UNAVAILABLE_GUIDANCE)
     }
+    const publicKeyB64 = identity.keypair.publicKeyB64
 
     const advertised = resolveAdvertisedPairingEndpoint(rawEndpoint, args.address)
     if (!advertised.ok) {
@@ -716,7 +758,7 @@ export class OrcaRuntimeRpcServer {
         this.queueRelayDeviceRevoke(pending.relayBinding)
       }
     }
-    const direct = this.createPairingOffer({
+    const direct = await this.createPairingOffer({
       ...args,
       rotate: args.rotate || switchingPendingMode,
       scope: 'mobile'
@@ -869,23 +911,26 @@ export class OrcaRuntimeRpcServer {
         )
       }
     }
-    let e2eeKeypair: E2EEKeypair
-    try {
-      e2eeKeypair = loadOrCreateE2EEKeypair(this.userDataPath)
-    } catch (error) {
-      console.error('[runtime] Failed to initialize E2EE identity:', error)
-      return {
-        ok: false,
-        failure: pairingUnavailable('e2ee_key_unavailable', E2EE_KEY_UNAVAILABLE_GUIDANCE)
-      }
+    return { ok: true, deviceRegistry }
+  }
+
+  private async warmE2EEIdentity(provider: E2EEKeypairProvider): Promise<void> {
+    const resolution = await provider.resolve()
+    if (!resolution.ok) {
+      // Named so an operator can tell "I could not look" from "there is nothing there".
+      console.warn(
+        `[runtime] Mobile pairing identity not warmed (${resolution.reason}): ${resolution.message}`
+      )
     }
-    return { ok: true, deviceRegistry, e2eeKeypair }
   }
 
   async start(): Promise<void> {
     if (this.activeTransports.length > 0) {
       return
     }
+    // Why: start() awaits between binds; a stop() landing in one of those gaps must win, or we
+    // republish endpoints it already tore down and arm the ownership watch over a dead socket.
+    const generation = ++this.startGeneration
 
     // Why: SIGKILL/OOM skip stop(), orphaning `o-<pid>-*.sock` files; sweep them. Skipped on Windows: named pipes leave no filesystem entries.
     if (this.platform !== 'win32') {
@@ -929,21 +974,42 @@ export class OrcaRuntimeRpcServer {
 
     await socketTransport.start()
 
+    if (generation !== this.startGeneration) {
+      // Why: stop() landed while the socket was binding, so it never saw this transport.
+      await socketTransport.stop().catch(() => {})
+      return
+    }
+
     const activeTransports: RpcTransport[] = [socketTransport]
     const transportsMeta: RuntimeTransportMetadata[] = [transportMeta]
+
+    // Why: publish the moment the local socket binds — the CLI's only discovery
+    // channel must not be hostage to whatever the pairing/WebSocket setup below does.
+    await this.publishTransports(generation, activeTransports, transportsMeta)
 
     // Why: WebSocket uses per-device tokens + E2EE (tweetnacl) instead of TLS since React Native can't pin self-signed certs.
     if (this.enableWebSocket) {
       const pairingIdentity = this.initializePairingIdentity()
       if (!pairingIdentity.ok) {
         this.deviceRegistry = null
-        this.e2eeKeypair = null
+        this.e2eeKeypairProvider = null
         this.pairingInitializationFailure = pairingIdentity.failure
       } else {
         this.deviceRegistry = pairingIdentity.deviceRegistry
-        this.e2eeKeypair = pairingIdentity.e2eeKeypair
+        const e2eeKeypairProvider = createE2EEKeypairProvider(this.userDataPath, {
+          keychainContext: this.keychainContext
+        })
+        this.e2eeKeypairProvider = e2eeKeypairProvider
         this.pairingInitializationFailure = null
+        // Why: warm the identity from this self-initiated context so an already-paired device that
+        // connects before any UI touches pairing still finds it. Never awaited — start() must not
+        // sit behind the keychain, and the helper is bounded and killable regardless.
+        void this.warmE2EEIdentity(e2eeKeypairProvider)
         try {
+          // Why: the E2EE identity is now resolved lazily, so this listener binds before we know the
+          // secret is recoverable — previously an unusable identity skipped the bind entirely. Safe
+          // because every socket demands an already-warm secret and closes 4001 e2ee_key_unavailable
+          // otherwise (mobile-socket-wiring), and createPairingOffer refuses for the same reason.
           const wsTransport = new WebSocketTransport({
             host: '0.0.0.0',
             port: this.wsPort,
@@ -958,7 +1024,27 @@ export class OrcaRuntimeRpcServer {
           })
           const mobileSocketWiring = new MobileSocketWiring({
             deviceRegistry: pairingIdentity.deviceRegistry,
-            e2eeKeypair: pairingIdentity.e2eeKeypair,
+            getWarmServerSecretKey: () => e2eeKeypairProvider.peek()?.secretKey ?? null,
+            // Why: between re-warm attempts there is nothing to await, and that gap is most of the
+            // time. A sealed-but-unopened identity must still refuse as "retry", not "re-pair".
+            isIdentityRetryable: () => e2eeKeypairProvider.isRetryable(),
+            // Why: the listener binds while the startup warm is still in flight, so a paired phone
+            // reconnecting in that window must wait for it — refusing 4001 latches it auth-failed.
+            // Bounded by the provider: never a new attempt on a peer's schedule.
+            awaitServerSecretKeyWarm: (): Promise<MobileSocketIdentityWarmResult> | null =>
+              e2eeKeypairProvider.awaitWarmAttempt()?.then(
+                (resolution): MobileSocketIdentityWarmResult =>
+                  resolution.ok
+                    ? {
+                        ok: true,
+                        serverSecretKey: resolution.keypair.secretKey
+                      }
+                    : // A sealed identity we could not open may open later; a missing one is final.
+                      {
+                        ok: false,
+                        retryable: resolution.reason === 'unseal_failed'
+                      }
+              ) ?? null,
             onText: (socket, plaintext, reply, sendBinary) => {
               void this.handleWebSocketMessage(
                 plaintext,
@@ -1020,18 +1106,17 @@ export class OrcaRuntimeRpcServer {
       }
     }
 
-    // Why: set in-memory transport state before writing metadata so the bootstrap file has the real endpoint/token pair.
-    this.activeTransports = activeTransports
-    this.transports = transportsMeta
+    if (generation !== this.startGeneration) {
+      // Why: stop() only knew about the transports published before it ran; close whatever this
+      // start bound afterwards and leave the watch uninstalled rather than resurrect the runtime.
+      this.mobileSocketWiring = null
+      await Promise.all(activeTransports.map((t) => t.stop().catch(() => {})))
+      return
+    }
 
-    try {
-      this.writeMetadata()
-    } catch (error) {
-      // Why: a runtime that can't publish metadata is invisible to the CLI — close transports rather than run undiscoverable.
-      this.activeTransports = []
-      this.transports = []
-      await Promise.all(activeTransports.map((t) => t.stop().catch(() => {}))).catch(() => {})
-      throw error
+    // Why: re-publish so the descriptor also advertises the WebSocket endpoint.
+    if (transportsMeta.length > 1) {
+      await this.publishTransports(generation, activeTransports, transportsMeta)
     }
 
     this.metadataOwnershipWatch = watchRuntimeMetadataOwnership({
@@ -1060,6 +1145,8 @@ export class OrcaRuntimeRpcServer {
   }
 
   async stop(): Promise<void> {
+    // Why: invalidates any start() still in flight so it cannot republish these endpoints.
+    this.startGeneration++
     const transports = this.activeTransports
     this.activeTransports = []
     this.transports = []
@@ -1144,22 +1231,32 @@ export class OrcaRuntimeRpcServer {
     try {
       request = JSON.parse(rawMessage) as RpcRequest
     } catch {
-      return { error: this.buildError('unknown', 'bad_request', 'Invalid JSON request') }
+      return {
+        error: this.buildError('unknown', 'bad_request', 'Invalid JSON request')
+      }
     }
 
     if (typeof request.id !== 'string' || request.id.length === 0) {
-      return { error: this.buildError('unknown', 'bad_request', 'Missing request id') }
+      return {
+        error: this.buildError('unknown', 'bad_request', 'Missing request id')
+      }
     }
     if (typeof request.method !== 'string' || request.method.length === 0) {
-      return { error: this.buildError(request.id, 'bad_request', 'Missing RPC method') }
+      return {
+        error: this.buildError(request.id, 'bad_request', 'Missing RPC method')
+      }
     }
     if (typeof request.authToken !== 'string' || request.authToken.length === 0) {
-      return { error: this.buildError(request.id, 'unauthorized', 'Missing auth token') }
+      return {
+        error: this.buildError(request.id, 'unauthorized', 'Missing auth token')
+      }
     }
     // Why: constant-time compare prevents a local CLI client from inferring
     // how many leading token bytes match via response timing.
     if (!timingSafeTokenCompare(this.authToken, request.authToken)) {
-      return { error: this.buildError(request.id, 'unauthorized', 'Invalid auth token') }
+      return {
+        error: this.buildError(request.id, 'unauthorized', 'Invalid auth token')
+      }
     }
 
     return { request }
@@ -1291,6 +1388,34 @@ export class OrcaRuntimeRpcServer {
 
   private buildError(id: string, code: string, message: string): RpcResponse {
     return errorResponse(id, { runtimeId: this.runtime.getRuntimeId() }, code, message)
+  }
+
+  private async publishTransports(
+    generation: number,
+    activeTransports: RpcTransport[],
+    transportsMeta: RuntimeTransportMetadata[]
+  ): Promise<void> {
+    if (generation !== this.startGeneration) {
+      return
+    }
+    // Why: set in-memory transport state before writing metadata so the bootstrap file has the real endpoint/token pair.
+    this.activeTransports = activeTransports
+    this.transports = transportsMeta
+    try {
+      this.writeMetadata()
+    } catch (error) {
+      // Why: a runtime that can't publish metadata is invisible to the CLI — close transports rather than run undiscoverable.
+      this.activeTransports = []
+      this.transports = []
+      await Promise.all(activeTransports.map((t) => t.stop().catch(() => {}))).catch(() => {})
+      // Why: an earlier publish may already be on disk — retract it rather than advertise transports we just closed.
+      try {
+        clearRuntimeMetadataIfOwned(this.userDataPath, this.pid, this.runtime.getRuntimeId())
+      } catch {
+        // Best-effort retraction; the original publish failure is what matters.
+      }
+      throw error
+    }
   }
 
   private writeMetadata(): void {

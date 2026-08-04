@@ -3,18 +3,56 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { E2EE_KEYPAIR_FILENAME } from './mobile-pairing-files'
+import type { E2EESecretHelperResult } from './e2ee-secret-unseal-host'
+import type { E2EESecretHelperRequest } from './e2ee-secret-unseal-protocol'
 
-// Why: in the vitest node runtime `electron` resolves to a path string, so the
-// real safeStorage is undefined; mock it so both the available and unavailable
-// (headless/SSH) at-rest paths are exercised deterministically.
-const safeStorageControl = vi.hoisted(() => ({ available: true }))
-const safeStorageMock = vi.hoisted(() => ({
-  isEncryptionAvailable: vi.fn(() => safeStorageControl.available),
-  encryptString: vi.fn((plaintext: string) => Buffer.from(`enc:${plaintext}`, 'utf-8')),
-  decryptString: vi.fn((buf: Buffer) => buf.toString('utf-8').replace(/^enc:/, ''))
+// Why: every keychain call now happens in a child Electron process (see e2ee-secret-unseal-host);
+// standing in for that child is the only seam this module has left, and it is also the seam that
+// pins the invariant — nothing here may import `electron` or call safeStorage in-process.
+const helperControl = vi.hoisted(() => ({
+  answer: null as ((request: E2EESecretHelperRequest) => E2EESecretHelperResult) | null
 }))
 
-vi.mock('electron', () => ({ safeStorage: safeStorageMock }))
+const runHelper = vi.hoisted(() => vi.fn())
+
+vi.mock('./e2ee-secret-unseal-host', () => ({
+  runE2EESecretHelper: (request: E2EESecretHelperRequest) => {
+    runHelper(request)
+    return Promise.resolve(
+      helperControl.answer?.(request) ?? {
+        ok: false,
+        reason: 'helper_unavailable',
+        message: 'no helper'
+      }
+    )
+  }
+}))
+
+/** The child on a healthy host: safeStorage answers immediately. */
+function workingKeychain(request: E2EESecretHelperRequest): E2EESecretHelperResult {
+  return request.op === 'seal'
+    ? {
+        ok: true,
+        op: 'seal',
+        ciphertextB64: Buffer.from(`enc:${request.secretKeyB64}`, 'utf-8').toString('base64')
+      }
+    : {
+        ok: true,
+        op: 'unseal',
+        secretKeyB64: Buffer.from(request.ciphertextB64, 'base64')
+          .toString('utf-8')
+          .replace(/^enc:/, '')
+      }
+}
+
+/** The shipped wedge: the helper was killed because the OS keychain never answered. */
+function wedgedKeychain(): E2EESecretHelperResult {
+  return {
+    ok: false,
+    reason: 'timeout',
+    message: 'The OS keychain did not answer within 5000ms'
+  }
+}
 
 async function loadModule() {
   vi.resetModules()
@@ -24,20 +62,28 @@ async function loadModule() {
 let dir = ''
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'e2ee-keypair-'))
-  safeStorageControl.available = true
-  safeStorageMock.isEncryptionAvailable.mockClear()
-  safeStorageMock.encryptString.mockClear()
-  safeStorageMock.decryptString.mockClear()
+  helperControl.answer = workingKeychain
+  runHelper.mockClear()
 })
 afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
 const filePath = () => join(dir, E2EE_KEYPAIR_FILENAME)
 const readFile = () => JSON.parse(readFileSync(filePath(), 'utf-8'))
 
-describe('loadOrCreateE2EEKeypair', () => {
+async function requireKeypair(userDataPath: string, keychainContext?: 'interactive' | 'headless') {
+  const { resolveE2EEIdentity } = await loadModule()
+  const resolution = await resolveE2EEIdentity(userDataPath, {
+    keychainContext
+  })
+  if (!resolution.ok) {
+    throw new Error(`${resolution.reason}: ${resolution.message}`)
+  }
+  return resolution.keypair
+}
+
+describe('resolveE2EEIdentity', () => {
   it('persists a new secret encrypted at rest, never as raw base64', async () => {
-    const { loadOrCreateE2EEKeypair } = await loadModule()
-    const kp = loadOrCreateE2EEKeypair(dir)
+    const kp = await requireKeypair(dir)
     const onDisk = readFile()
     expect(onDisk.v).toBe(2)
     expect(onDisk.secretKeyFormat).toBe('electron-safe-storage-v1')
@@ -48,37 +94,36 @@ describe('loadOrCreateE2EEKeypair', () => {
     expect('secretKeyB64' in onDisk).toBe(false)
   })
 
-  it('round-trips: a reload returns the identical keypair via decrypt', async () => {
-    const { loadOrCreateE2EEKeypair } = await loadModule()
-    const first = loadOrCreateE2EEKeypair(dir)
-    const second = loadOrCreateE2EEKeypair(dir)
+  it('round-trips: a reload returns the identical keypair via the unseal helper', async () => {
+    const first = await requireKeypair(dir)
+    runHelper.mockClear()
+    const second = await requireKeypair(dir)
     expect(Buffer.from(second.secretKey).toString('base64')).toBe(
       Buffer.from(first.secretKey).toString('base64')
     )
     expect(second.publicKeyB64).toBe(first.publicKeyB64)
-    expect(safeStorageMock.decryptString).toHaveBeenCalled()
+    expect(runHelper).toHaveBeenCalledWith(expect.objectContaining({ op: 'unseal' }))
   })
 
-  it('falls back to a plaintext envelope only when safeStorage is unavailable', async () => {
-    safeStorageControl.available = false
-    const { loadOrCreateE2EEKeypair } = await loadModule()
-    loadOrCreateE2EEKeypair(dir)
-    const onDisk = readFile()
-    expect(onDisk.secretKeyFormat).toBe('plaintext')
-    expect(safeStorageMock.encryptString).not.toHaveBeenCalled()
+  it('falls back to a plaintext envelope only when the keychain cannot seal', async () => {
+    helperControl.answer = () => ({
+      ok: false,
+      reason: 'encryption_unavailable',
+      message: 'no OS encryption'
+    })
+    await requireKeypair(dir)
+    expect(readFile().secretKeyFormat).toBe('plaintext')
   })
 
   it('migrates a legacy v1 plaintext file to the encrypted envelope on load', async () => {
-    // Seed a real keypair, capture its keys, then downgrade the file to v1 plaintext.
-    const { loadOrCreateE2EEKeypair } = await loadModule()
-    const seeded = loadOrCreateE2EEKeypair(dir)
+    const seeded = await requireKeypair(dir)
     const secretKeyB64 = Buffer.from(seeded.secretKey).toString('base64')
     writeFileSync(
       filePath(),
       JSON.stringify({ v: 1, publicKeyB64: seeded.publicKeyB64, secretKeyB64 })
     )
 
-    const loaded = loadOrCreateE2EEKeypair(dir)
+    const loaded = await requireKeypair(dir)
     // Same keys recovered...
     expect(Buffer.from(loaded.secretKey).toString('base64')).toBe(secretKeyB64)
     // ...and the on-disk file was upgraded to the encrypted envelope.
@@ -88,16 +133,73 @@ describe('loadOrCreateE2EEKeypair', () => {
     expect(readFileSync(filePath(), 'utf-8')).not.toContain(secretKeyB64)
   })
 
-  it('regenerates when an encrypted file cannot be decrypted', async () => {
-    const { loadOrCreateE2EEKeypair } = await loadModule()
-    const first = loadOrCreateE2EEKeypair(dir)
+  it('regenerates when the keychain reports it genuinely cannot decrypt the envelope', async () => {
+    const first = await requireKeypair(dir)
     const firstSecret = Buffer.from(first.secretKey).toString('base64')
 
-    // Keychain became unavailable (rotation / restored profile): the encrypted
-    // file can no longer be decrypted, so a fresh keypair must be minted.
-    safeStorageControl.available = false
-    const regenerated = loadOrCreateE2EEKeypair(dir)
+    // Keychain rotation / restored profile: the ciphertext is real garbage now.
+    helperControl.answer = () => ({
+      ok: false,
+      reason: 'keychain_error',
+      message: 'decryption failed'
+    })
+    const regenerated = await requireKeypair(dir)
     expect(Buffer.from(regenerated.secretKey).toString('base64')).not.toBe(firstSecret)
     expect(regenerated.secretKey.length).toBe(32)
+  })
+
+  it('refuses with unseal_failed — and keeps the sealed file — when the helper is killed', async () => {
+    const sealed = await requireKeypair(dir)
+    const onDiskBefore = readFileSync(filePath(), 'utf-8')
+
+    helperControl.answer = wedgedKeychain
+    const { resolveE2EEIdentity } = await loadModule()
+    const resolution = await resolveE2EEIdentity(dir)
+
+    // The distinction a driver must never lose: "I could not look" is not "there is nothing there".
+    // Regenerating here would silently invalidate every paired device over a transient stall.
+    expect(resolution).toMatchObject({ ok: false, reason: 'unseal_failed' })
+    expect(readFileSync(filePath(), 'utf-8')).toBe(onDiskBefore)
+    expect(JSON.parse(onDiskBefore).publicKeyB64).toBe(sealed.publicKeyB64)
+  })
+})
+
+describe('headless keychain context', () => {
+  it('mints a plaintext envelope without spawning the helper at all', async () => {
+    const minted = await requireKeypair(dir, 'headless')
+
+    // Sealing has a lossless alternative, so a launch with no window to answer a prompt must not
+    // spend the helper's timeout budget on one.
+    expect(runHelper).not.toHaveBeenCalled()
+    expect(readFile().secretKeyFormat).toBe('plaintext')
+    expect(minted.secretKey.length).toBe(32)
+  })
+
+  it('reads a plaintext envelope without paying the migration seal', async () => {
+    const minted = await requireKeypair(dir, 'headless')
+    const reloaded = await requireKeypair(dir, 'headless')
+
+    expect(reloaded.publicKeyB64).toBe(minted.publicKeyB64)
+    expect(runHelper).not.toHaveBeenCalled()
+    expect(readFile().secretKeyFormat).toBe('plaintext')
+  })
+
+  it('still unseals an existing sealed envelope, because regenerating is not an option', async () => {
+    const sealed = await requireKeypair(dir, 'interactive')
+    runHelper.mockClear()
+
+    const reloaded = await requireKeypair(dir, 'headless')
+
+    // D1: a headless serve that skipped this would have to mint, orphaning every paired device.
+    expect(reloaded.publicKeyB64).toBe(sealed.publicKeyB64)
+    expect(runHelper).toHaveBeenCalledWith(expect.objectContaining({ op: 'unseal' }))
+  })
+
+  it('upgrades the headless-minted plaintext secret on the next interactive load', async () => {
+    const minted = await requireKeypair(dir, 'headless')
+    const upgraded = await requireKeypair(dir, 'interactive')
+
+    expect(upgraded.publicKeyB64).toBe(minted.publicKeyB64)
+    expect(readFile().secretKeyFormat).toBe('electron-safe-storage-v1')
   })
 })

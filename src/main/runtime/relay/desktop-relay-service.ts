@@ -6,6 +6,7 @@ import type {
   PairingGetEndpointsResult,
   PairingProvisionRelayParams
 } from '../../../shared/mobile-relay-credential-contract'
+import type { E2EEKeypair } from '../e2ee-keypair'
 import { readRelayAuthContext } from './relay-auth-context'
 import { RelayAuthCoordinator } from './relay-auth-coordinator'
 import { RelaySessionBroker, type RelayBrokerStatus } from './relay-session-broker'
@@ -51,17 +52,26 @@ export class DesktopRelayService {
   private stopped = false
 
   constructor(options: DesktopRelayServiceOptions) {
-    const keypair = options.runtimeRpc.getE2EEKeypair()
     const mobileSocketWiring = options.runtimeRpc.getMobileSocketWiring()
-    if (!keypair || !mobileSocketWiring) {
+    const deviceRegistry = options.runtimeRpc.getDeviceRegistry()
+    if (!mobileSocketWiring || !deviceRegistry) {
       throw new Error('mobile_runtime_not_ready')
+    }
+    // Why: resolving the E2EE keypair can block the main thread on an OS keychain prompt, and this
+    // runs inline with app startup — so take it lazily; every use below is already past a first await.
+    const requireKeypair = (): E2EEKeypair => {
+      const keypair = options.runtimeRpc.getE2EEKeypair()
+      if (!keypair) {
+        throw new Error('mobile_runtime_not_ready')
+      }
+      return keypair
     }
     this.runtimeRpc = options.runtimeRpc
     this.revokeOutbox = options.runtimeRpc.getRelayRevokeOutbox()
     this.demandLedger = new RelayDemandLedger({
-      deviceRegistry: options.runtimeRpc.getDeviceRegistry()!,
+      deviceRegistry,
       revokeOutbox: this.revokeOutbox,
-      relayHostId: deriveRelayHostId(keypair.publicKey)
+      relayHostId: () => deriveRelayHostId(requireKeypair().publicKey)
     })
     this.coordinator = new RelayAuthCoordinator({
       readContext: () => readRelayAuthContext(options.authConfig, options.userDataPath),
@@ -74,7 +84,7 @@ export class DesktopRelayService {
           authConfig: options.authConfig,
           accessToken: context.accessToken,
           identity: context.identity,
-          keypair,
+          keypair: requireKeypair(),
           appVersion: options.appVersion,
           mobileSocketWiring,
           isCurrent,
@@ -89,7 +99,14 @@ export class DesktopRelayService {
   }
 
   start(): void {
-    this.refreshDemand()
+    // Why: the E2EE identity now resolves in a child process, so it is not warm the instant the
+    // runtime starts. Refreshing demand before it lands throws mobile_runtime_not_ready and would
+    // leave relay disabled for the whole session; the resolve is bounded, so waiting is safe.
+    void this.runtimeRpc.resolveE2EEIdentity().then((resolution) => {
+      if (resolution.ok && !this.stopped) {
+        this.refreshDemand()
+      }
+    })
   }
 
   authMutated(): void {

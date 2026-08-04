@@ -13,6 +13,7 @@ import { deriveSharedKey, encrypt, generateKeyPair } from './e2ee-crypto'
 import { deriveMobileE2EEV2KeySchedule } from './mobile-e2ee-v2-key-schedule'
 import {
   MobileSocketWiring,
+  type MobileSocketIdentityWarmResult,
   type MobileSocketTransport,
   type MobileSocketTransportMetadata
 } from './mobile-socket-wiring'
@@ -79,11 +80,7 @@ describe('MobileSocketWiring', () => {
     const desktop = generateKeyPair()
     const wiring = new MobileSocketWiring({
       deviceRegistry: registryFor('device-1', 'valid-token'),
-      e2eeKeypair: {
-        publicKey: desktop.publicKey,
-        secretKey: desktop.secretKey,
-        publicKeyB64: Buffer.from(desktop.publicKey).toString('base64')
-      },
+      getWarmServerSecretKey: () => desktop.secretKey,
       onText: vi.fn(),
       onBinary: vi.fn(),
       onClose: vi.fn()
@@ -107,11 +104,7 @@ describe('MobileSocketWiring', () => {
     const desktop = generateKeyPair()
     const wiring = new MobileSocketWiring({
       deviceRegistry: registryFor('device-1', 'valid-token'),
-      e2eeKeypair: {
-        publicKey: desktop.publicKey,
-        secretKey: desktop.secretKey,
-        publicKeyB64: Buffer.from(desktop.publicKey).toString('base64')
-      },
+      getWarmServerSecretKey: () => desktop.secretKey,
       onText: vi.fn(),
       onBinary: vi.fn(),
       onClose: vi.fn()
@@ -143,11 +136,7 @@ describe('MobileSocketWiring', () => {
     const onClose = vi.fn()
     const wiring = new MobileSocketWiring({
       deviceRegistry: registryFor('device-1', 'valid-token', 'runtime'),
-      e2eeKeypair: {
-        publicKey: desktop.publicKey,
-        secretKey: desktop.secretKey,
-        publicKeyB64: Buffer.from(desktop.publicKey).toString('base64')
-      },
+      getWarmServerSecretKey: () => desktop.secretKey,
       onText,
       onBinary: vi.fn(),
       onClose
@@ -201,11 +190,7 @@ describe('MobileSocketWiring', () => {
     })
     const wiring = new MobileSocketWiring({
       deviceRegistry: registryFor('device-1', 'valid-token'),
-      e2eeKeypair: {
-        publicKey: desktop.publicKey,
-        secretKey: desktop.secretKey,
-        publicKeyB64: Buffer.from(desktop.publicKey).toString('base64')
-      },
+      getWarmServerSecretKey: () => desktop.secretKey,
       onText: vi.fn(),
       onBinary: vi.fn(),
       onClose: vi.fn(),
@@ -249,11 +234,7 @@ describe('MobileSocketWiring', () => {
     const onUnpairedDeviceAuthFailure = vi.fn()
     const wiring = new MobileSocketWiring({
       deviceRegistry: registryFor('device-1', 'valid-token'),
-      e2eeKeypair: {
-        publicKey: currentDesktop.publicKey,
-        secretKey: currentDesktop.secretKey,
-        publicKeyB64: Buffer.from(currentDesktop.publicKey).toString('base64')
-      },
+      getWarmServerSecretKey: () => currentDesktop.secretKey,
       onText: vi.fn(),
       onBinary: vi.fn(),
       onClose: vi.fn(),
@@ -294,11 +275,7 @@ describe('MobileSocketWiring', () => {
     }
     const wiring = new MobileSocketWiring({
       deviceRegistry: registryFor('e2ee-device', 'valid-token'),
-      e2eeKeypair: {
-        publicKey: desktop.publicKey,
-        secretKey: desktop.secretKey,
-        publicKeyB64: Buffer.from(desktop.publicKey).toString('base64')
-      },
+      getWarmServerSecretKey: () => desktop.secretKey,
       onText: vi.fn(),
       onBinary: vi.fn(),
       onClose: vi.fn()
@@ -346,5 +323,297 @@ describe('MobileSocketWiring', () => {
 
     expect(transport.setClientId).not.toHaveBeenCalled()
     expect(ws.close).toHaveBeenCalledWith(4001, 'Unauthorized')
+  })
+
+  it('fails an unauthenticated first frame closed without initiating any keychain work', () => {
+    const phone = generateKeyPair()
+    const ws = new FakeSocket()
+    const transport = new FakeTransport()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    // Stands in for the whole keychain seam: resolving is what a remote peer must never be able
+    // to trigger. The listener is on 0.0.0.0 with no pre-upgrade auth, so a resolve reachable
+    // here is a remote wedge (blocking safeStorage) or a spawn-per-frame DoS (bounded helper).
+    const resolveSecret = vi.fn()
+    const getWarmServerSecretKey = vi.fn((): Uint8Array | null => {
+      resolveSecret()
+      return null
+    })
+    const wiring = new MobileSocketWiring({
+      deviceRegistry: registryFor('device-1', 'valid-token'),
+      getWarmServerSecretKey,
+      onText: vi.fn(),
+      onBinary: vi.fn(),
+      onClose: vi.fn()
+    })
+    wiring.attachTransport(transport)
+
+    expect(getWarmServerSecretKey).not.toHaveBeenCalled()
+
+    transport.receive(
+      ws,
+      JSON.stringify({
+        type: 'e2ee_hello',
+        publicKeyB64: Buffer.from(phone.publicKey).toString('base64')
+      })
+    )
+
+    expect(getWarmServerSecretKey).toHaveBeenCalledOnce()
+    expect(ws.close).toHaveBeenCalledWith(4001, 'e2ee_key_unavailable')
+    expect(ws.sent).toHaveLength(0)
+    expect(wiring.channelCount).toBe(0)
+    expect(wiring.connectionCount).toBe(0)
+    expect(transport.setClientId).not.toHaveBeenCalled()
+    consoleError.mockRestore()
+  })
+
+  it('keeps refusing an unwarmed peer that ignores the close, without opening a channel', () => {
+    const ws = new FakeSocket()
+    const transport = new FakeTransport()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const getWarmServerSecretKey = vi.fn((): Uint8Array | null => null)
+    const wiring = new MobileSocketWiring({
+      deviceRegistry: registryFor('device-1', 'valid-token'),
+      getWarmServerSecretKey,
+      onText: vi.fn(),
+      onBinary: vi.fn(),
+      onClose: vi.fn()
+    })
+    wiring.attachTransport(transport)
+
+    // Amplification check: every extra frame costs one warm-memory read, never a keychain call.
+    transport.receive(ws, 'x')
+    transport.receive(ws, 'y')
+    expect(getWarmServerSecretKey).toHaveBeenCalledTimes(2)
+    expect(ws.close).toHaveBeenCalledTimes(2)
+    expect(wiring.channelCount).toBe(0)
+    expect(wiring.connectionCount).toBe(0)
+    consoleError.mockRestore()
+  })
+})
+
+/** A warm the test releases by hand, standing in for the child Electron process mid-boot. */
+function deferredWarm(): {
+  attempt: Promise<MobileSocketIdentityWarmResult>
+  release: (result: MobileSocketIdentityWarmResult) => void
+} {
+  let release: ((result: MobileSocketIdentityWarmResult) => void) | null = null
+  const attempt = new Promise<MobileSocketIdentityWarmResult>((resolve) => {
+    release = resolve
+  })
+  return { attempt, release: (result) => release?.(result) }
+}
+
+const helloFrame = (publicKey: Uint8Array): string =>
+  JSON.stringify({
+    type: 'e2ee_hello',
+    publicKeyB64: Buffer.from(publicKey).toString('base64')
+  })
+
+describe('MobileSocketWiring identity warm window', () => {
+  it('admits a phone that connects while the startup warm is still in flight', async () => {
+    // The regression this pins: the WebSocket listener binds immediately and the warm is a cold
+    // child-Electron boot behind it. Refusing that window with 4001 spends the phone's whole
+    // three-strike budget in ~1.5s and latches it to auth-failed — a manual re-pair, every launch.
+    const desktop = generateKeyPair()
+    const phone = generateKeyPair()
+    const ws = new FakeSocket()
+    const transport = new FakeTransport()
+    const onText = vi.fn()
+    const warm = deferredWarm()
+    const awaitServerSecretKeyWarm = vi.fn(() => warm.attempt)
+    const wiring = new MobileSocketWiring({
+      deviceRegistry: registryFor('device-1', 'valid-token'),
+      getWarmServerSecretKey: () => null,
+      awaitServerSecretKeyWarm,
+      onText,
+      onBinary: vi.fn(),
+      onClose: vi.fn()
+    })
+    wiring.attachTransport(transport)
+
+    const sharedKey = deriveSharedKey(phone.secretKey, desktop.publicKey)
+    transport.receive(ws, helloFrame(phone.publicKey))
+    transport.receive(
+      ws,
+      encrypt(JSON.stringify({ type: 'e2ee_auth', deviceToken: 'valid-token' }), sharedKey)
+    )
+    transport.receive(ws, encrypt('{"id":"rpc-1","method":"status.get"}', sharedKey))
+
+    expect(ws.close).not.toHaveBeenCalled()
+    // One await for the whole socket, not one keychain question per frame.
+    expect(awaitServerSecretKeyWarm).toHaveBeenCalledOnce()
+
+    warm.release({ ok: true, serverSecretKey: desktop.secretKey })
+    await warm.attempt
+    await Promise.resolve()
+
+    // Replayed in arrival order, so the handshake still sees hello before auth.
+    expect(transport.setClientId).toHaveBeenCalledWith(ws, 'valid-token')
+    expect(onText).toHaveBeenCalledOnce()
+    expect(onText.mock.calls[0]?.[1]).toBe('{"id":"rpc-1","method":"status.get"}')
+    expect(ws.close).not.toHaveBeenCalled()
+    expect(wiring.channelCount).toBe(1)
+  })
+
+  it('fails closed when the awaited warm fails, and starts no keychain work of its own', async () => {
+    const phone = generateKeyPair()
+    const ws = new FakeSocket()
+    const transport = new FakeTransport()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    // Stands in for the whole keychain seam: a remote peer must never be able to reach it.
+    const resolveSecret = vi.fn()
+    const warm = deferredWarm()
+    const awaitServerSecretKeyWarm = vi.fn(() => warm.attempt)
+    const wiring = new MobileSocketWiring({
+      deviceRegistry: registryFor('device-1', 'valid-token'),
+      getWarmServerSecretKey: vi.fn((): Uint8Array | null => {
+        resolveSecret()
+        return null
+      }),
+      awaitServerSecretKeyWarm,
+      onText: vi.fn(),
+      onBinary: vi.fn(),
+      onClose: vi.fn()
+    })
+    wiring.attachTransport(transport)
+
+    transport.receive(ws, helloFrame(phone.publicKey))
+    transport.receive(ws, 'noise-1')
+    transport.receive(ws, 'noise-2')
+
+    warm.release({ ok: false, retryable: true })
+    await warm.attempt
+    await Promise.resolve()
+
+    // The identity is sealed, not missing — 4001 would tell the phone its pairing was revoked.
+    expect(ws.close).toHaveBeenCalledExactlyOnceWith(4002, 'e2ee_key_unsealable')
+    expect(wiring.channelCount).toBe(0)
+    expect(wiring.connectionCount).toBe(0)
+    expect(transport.setClientId).not.toHaveBeenCalled()
+    // Three frames, one desktop-owned attempt joined: no per-frame spawn, no peer-initiated resolve.
+    expect(awaitServerSecretKeyWarm).toHaveBeenCalledOnce()
+    expect(resolveSecret).toHaveBeenCalledOnce()
+    consoleError.mockRestore()
+  })
+
+  it('still says e2ee_key_unavailable when the identity is genuinely gone', async () => {
+    const ws = new FakeSocket()
+    const transport = new FakeTransport()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const warm = deferredWarm()
+    const wiring = new MobileSocketWiring({
+      deviceRegistry: registryFor('device-1', 'valid-token'),
+      getWarmServerSecretKey: () => null,
+      awaitServerSecretKeyWarm: () => warm.attempt,
+      onText: vi.fn(),
+      onBinary: vi.fn(),
+      onClose: vi.fn()
+    })
+    wiring.attachTransport(transport)
+
+    transport.receive(ws, 'x')
+    warm.release({ ok: false, retryable: false })
+    await warm.attempt
+    await Promise.resolve()
+
+    expect(ws.close).toHaveBeenCalledExactlyOnceWith(4001, 'e2ee_key_unavailable')
+    consoleError.mockRestore()
+  })
+
+  it('asks a phone to retry while a sealed identity waits out the re-warm cooldown', async () => {
+    // The live defect: 42 of 45 connections landed between re-warm attempts, where there is no
+    // attempt to await. Answering 4001 there spends the phone's three-strike budget and latches
+    // auth-failed on a pairing that is perfectly valid.
+    const ws = new FakeSocket()
+    const transport = new FakeTransport()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const wiring = new MobileSocketWiring({
+      deviceRegistry: registryFor('device-1', 'valid-token'),
+      getWarmServerSecretKey: () => null,
+      awaitServerSecretKeyWarm: () => null,
+      isIdentityRetryable: () => true,
+      onText: vi.fn(),
+      onBinary: vi.fn(),
+      onClose: vi.fn()
+    })
+    wiring.attachTransport(transport)
+
+    transport.receive(ws, 'x')
+    await Promise.resolve()
+
+    expect(ws.close).toHaveBeenCalledExactlyOnceWith(4002, 'e2ee_key_unsealable')
+    consoleError.mockRestore()
+  })
+
+  it('still says e2ee_key_unavailable with nothing to await and no sealed identity', async () => {
+    const ws = new FakeSocket()
+    const transport = new FakeTransport()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const wiring = new MobileSocketWiring({
+      deviceRegistry: registryFor('device-1', 'valid-token'),
+      getWarmServerSecretKey: () => null,
+      awaitServerSecretKeyWarm: () => null,
+      isIdentityRetryable: () => false,
+      onText: vi.fn(),
+      onBinary: vi.fn(),
+      onClose: vi.fn()
+    })
+    wiring.attachTransport(transport)
+
+    transport.receive(ws, 'x')
+    await Promise.resolve()
+
+    expect(ws.close).toHaveBeenCalledExactlyOnceWith(4001, 'e2ee_key_unavailable')
+    consoleError.mockRestore()
+  })
+
+  it('drops the queue of a socket that disconnects before the warm lands', async () => {
+    const desktop = generateKeyPair()
+    const phone = generateKeyPair()
+    const ws = new FakeSocket()
+    const transport = new FakeTransport()
+    const warm = deferredWarm()
+    const wiring = new MobileSocketWiring({
+      deviceRegistry: registryFor('device-1', 'valid-token'),
+      getWarmServerSecretKey: () => null,
+      awaitServerSecretKeyWarm: () => warm.attempt,
+      onText: vi.fn(),
+      onBinary: vi.fn(),
+      onClose: vi.fn()
+    })
+    wiring.attachTransport(transport)
+
+    transport.receive(ws, helloFrame(phone.publicKey))
+    transport.disconnect(ws)
+
+    warm.release({ ok: true, serverSecretKey: desktop.secretKey })
+    await warm.attempt
+    await Promise.resolve()
+
+    // A late warm must not resurrect a channel for a socket that is already gone.
+    expect(wiring.channelCount).toBe(0)
+    expect(wiring.connectionCount).toBe(0)
+    expect(ws.sent).toHaveLength(0)
+  })
+
+  it('caps the frames a peer can queue against one in-flight warm', () => {
+    const ws = new FakeSocket()
+    const transport = new FakeTransport()
+    const warm = deferredWarm()
+    const wiring = new MobileSocketWiring({
+      deviceRegistry: registryFor('device-1', 'valid-token'),
+      getWarmServerSecretKey: () => null,
+      awaitServerSecretKeyWarm: () => warm.attempt,
+      onText: vi.fn(),
+      onBinary: vi.fn(),
+      onClose: vi.fn()
+    })
+    wiring.attachTransport(transport)
+
+    // Waiting for the warm must not become free memory: the pre-auth conversation is one hello.
+    for (let i = 0; i < 40; i++) {
+      transport.receive(ws, `flood-${i}`)
+    }
+    expect(ws.close).toHaveBeenCalledExactlyOnceWith(4002, 'e2ee_warm_backlog')
   })
 })

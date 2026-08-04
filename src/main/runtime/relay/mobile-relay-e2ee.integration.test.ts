@@ -129,11 +129,7 @@ describe('desktop relay E2EE integration', () => {
     const phoneBinary = deferred<Uint8Array>()
     const wiring = new MobileSocketWiring({
       deviceRegistry: registry,
-      e2eeKeypair: {
-        publicKey: desktopKeys.publicKey,
-        secretKey: desktopKeys.secretKey,
-        publicKeyB64: Buffer.from(desktopKeys.publicKey).toString('base64')
-      },
+      getWarmServerSecretKey: () => desktopKeys.secretKey,
       onText: (socket, plaintext, reply, sendBinary) => {
         expect(socket.transport).toEqual({
           transport: 'relay',

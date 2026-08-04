@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { DeviceRegistry } from '../device-registry'
 import { RelayDemandLedger } from './relay-demand-ledger'
 import { RelayRevokeOutbox, type RelayDeviceBinding } from './relay-revoke-outbox'
@@ -16,7 +16,7 @@ function fixture(now: number) {
   const ledger = new RelayDemandLedger({
     deviceRegistry,
     revokeOutbox,
-    relayHostId,
+    relayHostId: () => relayHostId,
     now: () => now
   })
   return { userDataPath, deviceRegistry, revokeOutbox, ledger }
@@ -48,7 +48,7 @@ describe('RelayDemandLedger', () => {
     const restarted = new RelayDemandLedger({
       deviceRegistry: new DeviceRegistry(userDataPath),
       revokeOutbox: new RelayRevokeOutbox(userDataPath),
-      relayHostId,
+      relayHostId: () => relayHostId,
       now: () => 1_500
     })
     expect(restarted.hasDemand(ownerIdentityKey)).toBe(true)
@@ -81,6 +81,24 @@ describe('RelayDemandLedger', () => {
     expect(ledger.hasDemand(ownerIdentityKey)).toBe(false)
     revokeOutbox.enqueue(binding(paired.deviceId))
     expect(ledger.hasDemand(ownerIdentityKey)).toBe(true)
+  })
+
+  it('derives the relay host id per query, never at construction', () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-relay-demand-'))
+    const resolveHostId = vi.fn(() => relayHostId)
+    const ledger = new RelayDemandLedger({
+      deviceRegistry: new DeviceRegistry(userDataPath),
+      revokeOutbox: new RelayRevokeOutbox(userDataPath),
+      relayHostId: resolveHostId,
+      now: () => 1_000
+    })
+
+    // The host id comes from the E2EE keypair, whose keychain read must stay off app startup.
+    expect(resolveHostId).not.toHaveBeenCalled()
+    expect(ledger.nextPendingExpiry()).toBeNull()
+    expect(resolveHostId).not.toHaveBeenCalled()
+    ledger.hasDemand(ownerIdentityKey)
+    expect(resolveHostId).toHaveBeenCalled()
   })
 
   it('does not activate another signed-in identity or relay host', () => {

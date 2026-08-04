@@ -282,7 +282,7 @@ describe('paired runtime navigation isolation', () => {
     servers.push(server)
     await server.start()
 
-    const offerA = server.createPairingOffer({
+    const offerA = await server.createPairingOffer({
       address: '127.0.0.1',
       name: 'client-a',
       scope: 'runtime'
@@ -292,7 +292,7 @@ describe('paired runtime navigation isolation', () => {
     }
     const clientA = await authenticate(offerA.pairingUrl)
     sessions.push(clientA)
-    const offerB = server.createPairingOffer({
+    const offerB = await server.createPairingOffer({
       address: '127.0.0.1',
       name: 'client-b',
       scope: 'runtime'

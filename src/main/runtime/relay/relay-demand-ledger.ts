@@ -4,7 +4,8 @@ import type { RelayRevokeOutbox } from './relay-revoke-outbox'
 type RelayDemandLedgerOptions = {
   deviceRegistry: DeviceRegistry
   revokeOutbox: RelayRevokeOutbox
-  relayHostId: string
+  // Why: a thunk — the host id derives from the E2EE keypair, whose keychain read must stay off the startup path.
+  relayHostId: () => string
   now?: () => number
 }
 
@@ -37,7 +38,8 @@ export class RelayDemandLedger {
     if (this.transientRefs.size > 0) {
       return true
     }
-    if (this.options.revokeOutbox.pendingFor(ownerIdentityKey, this.options.relayHostId).length) {
+    const relayHostId = this.options.relayHostId()
+    if (this.options.revokeOutbox.pendingFor(ownerIdentityKey, relayHostId).length) {
       return true
     }
     const now = (this.options.now ?? Date.now)()
@@ -47,7 +49,7 @@ export class RelayDemandLedger {
         device.scope !== 'mobile' ||
         !binding ||
         binding.ownerIdentityKey !== ownerIdentityKey ||
-        binding.relayHostId !== this.options.relayHostId
+        binding.relayHostId !== relayHostId
       ) {
         return false
       }

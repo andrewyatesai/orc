@@ -72,6 +72,38 @@ describe('startup ordering', () => {
     expect(source).toContain("logStartupMilestone('wsl-cli-barrier-resolved'")
   })
 
+  it('gives headless serve a keychain context that cannot prompt', () => {
+    const source = readFileSync(join(process.cwd(), 'src/main/index.ts'), 'utf8')
+    const ctorStart = source.indexOf('runtimeRpc = new OrcaRuntimeRpcServer({')
+    const ctorEnd = source.indexOf('registerMobileHandlers(', ctorStart)
+
+    // Sealing has a lossless fallback (a 0600 plaintext envelope), so a launch with no window to
+    // answer a macOS Keychain prompt must not spend the unseal helper's timeout budget minting one.
+    expect(ctorStart).toBeGreaterThanOrEqual(0)
+    expect(source.slice(ctorStart, ctorEnd)).toContain(
+      "serveOptions ? { keychainContext: 'headless' as const } : {}"
+    )
+  })
+
+  it('publishes serve readiness even when the pairing offer is refused', () => {
+    const source = readFileSync(join(process.cwd(), 'src/main/index.ts'), 'utf8')
+    const body = source.slice(
+      source.indexOf('async function printServeReady('),
+      source.indexOf('notifyServeSupervisorReady(')
+    )
+    const offerIndex = body.indexOf('await runtimeRpc.createPairingOffer(')
+    const publishIndex = body.indexOf('await serveReadinessPublisher.publish(')
+
+    // The offer is bounded (a child process with a hard kill) but it can still refuse. "Orca server
+    // ready" must print either way: a published descriptor behind a runtime that never reports ready
+    // is worse than no descriptor, because the CLI discovers it and then hangs.
+    expect(offerIndex).toBeGreaterThanOrEqual(0)
+    expect(publishIndex).toBeGreaterThan(offerIndex)
+    const between = body.slice(offerIndex, publishIndex)
+    expect(between).not.toContain('return')
+    expect(between).not.toContain('throw')
+  })
+
   it('notifies the serve supervisor only after publishing readiness', () => {
     const source = readFileSync(join(process.cwd(), 'src/main/index.ts'), 'utf8')
     const readyStart = source.indexOf('await serveReadinessPublisher.publish(')
