@@ -17,10 +17,10 @@ function jsonResponse(body, init = {}) {
 
 describe('parseDesktopStableTag', () => {
   it('accepts canonical ALab desktop release tags', () => {
-    expect(parseDesktopStableTag('v1.5.0')).toEqual({
-      tag: 'v1.5.0',
-      major: 1,
-      minor: 5,
+    expect(parseDesktopStableTag('v0.1.0')).toEqual({
+      tag: 'v0.1.0',
+      major: 0,
+      minor: 1,
       patch: 0,
       fork: null
     })
@@ -54,24 +54,24 @@ describe('parseDesktopStableTag', () => {
 describe('latestStableDesktopReleaseTag', () => {
   it('chooses the newest X.Y.0 release-line cut instead of release list order', () => {
     const releases = [
-      { tag_name: 'v1.5.0', draft: false },
-      { tag_name: 'v1.7.0', draft: false },
-      { tag_name: 'v1.6.0', draft: false },
-      { tag_name: 'v1.8.0-rc.0', draft: false },
+      { tag_name: 'v0.1.0', draft: false },
+      { tag_name: 'v0.3.0', draft: false },
+      { tag_name: 'v0.2.0', draft: false },
+      { tag_name: 'v0.4.0-rc.0', draft: false },
       { tag_name: 'mobile-v0.0.12', draft: false }
     ]
 
-    expect(latestStableDesktopReleaseTag(releases)).toBe('v1.7.0')
+    expect(latestStableDesktopReleaseTag(releases)).toBe('v0.3.0')
   })
 
   it('never lets an imported upstream-style tag advance the release line', () => {
     const releases = [
-      { tag_name: 'v1.5.0', draft: false },
+      { tag_name: 'v0.1.0', draft: false },
       { tag_name: 'v1.4.200', draft: false },
       { tag_name: 'v1.4.147-fork.9', draft: false }
     ]
 
-    expect(latestStableDesktopReleaseTag(releases)).toBe('v1.5.0')
+    expect(latestStableDesktopReleaseTag(releases)).toBe('v0.1.0')
   })
 
   it('falls back to the retired fork series before the first X.Y.0 cut', () => {
@@ -86,11 +86,11 @@ describe('latestStableDesktopReleaseTag', () => {
 
   it('ignores draft ALab releases', () => {
     const releases = [
-      { tag_name: 'v1.6.0', draft: true },
-      { tag_name: 'v1.5.0', draft: false }
+      { tag_name: 'v0.2.0', draft: true },
+      { tag_name: 'v0.1.0', draft: false }
     ]
 
-    expect(latestStableDesktopReleaseTag(releases)).toBe('v1.5.0')
+    expect(latestStableDesktopReleaseTag(releases)).toBe('v0.1.0')
   })
 
   it('retains semver ordering for legacy plain stable releases', () => {

@@ -150,9 +150,12 @@ describe('check:aterm-pin rejects drift it is supposed to catch', () => {
     const sandbox = await createSandbox()
 
     // Repinned, so the leak is the only thing left for the gate to notice.
+    // Linux-form home on purpose: containsLocalCargoSourcePath treats /home and /Users
+    // identically, and a literal /Users/<name> here trips the publication export's
+    // central forbidden-content baseline, which no repository policy can suppress.
     await writeFile(
       sandbox.artifact('aterm_wasm_bg.wasm'),
-      `\0asm aterm(${ENGINE_VERSION})\0/Users/builder/.cargo/registry/src/engine.rs\0`
+      `\0asm aterm(${ENGINE_VERSION})\0/home/builder/.cargo/registry/src/engine.rs\0`
     )
     await sandbox.repin()
 

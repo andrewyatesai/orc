@@ -92,7 +92,14 @@ describe('isReleaseCutDraft', () => {
     expect(
       isReleaseCutDraft({
         draft: true,
-        tag_name: 'v0.4.2-fork.1',
+        tag_name: 'v0.1.0',
+        author: { login: 'github-actions[bot]' }
+      })
+    ).toBe(true)
+    expect(
+      isReleaseCutDraft({
+        draft: true,
+        tag_name: 'v0.04.2-fork.1',
         author: { login: 'github-actions[bot]' }
       })
     ).toBe(false)

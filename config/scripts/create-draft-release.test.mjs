@@ -79,10 +79,22 @@ describe('parseDesktopReleaseTag', () => {
       fork: 3
     })
     expect(parseDesktopReleaseTag('v1.4.147-fork.0')).toBeNull()
-    expect(parseDesktopReleaseTag('v0.4.147-fork.1')).toBeNull()
     expect(parseDesktopReleaseTag('v1.04.147-fork.1')).toBeNull()
     expect(parseDesktopReleaseTag('v1.4.147-fork.01')).toBeNull()
     expect(parseDesktopReleaseTag('v9007199254740992.4.147-fork.1')).toBeNull()
+  })
+
+  it('parses the pre-1.0 ALab line without admitting leading zeros', () => {
+    expect(parseDesktopReleaseTag('v0.1.0')).toEqual({
+      tag: 'v0.1.0',
+      major: 0,
+      minor: 1,
+      patch: 0,
+      rc: null,
+      fork: null
+    })
+    expect(parseDesktopReleaseTag('v00.1.0')).toBeNull()
+    expect(parseDesktopReleaseTag('v0.01.0')).toBeNull()
   })
 
   it('retains stable and rc desktop release tag support', () => {

@@ -1,7 +1,9 @@
 // Why: every release gate must agree on the tags GitHub and the updater treat as desktop cuts.
+// MAJOR admits 0: the ALab line is a pre-1.0 `0.MINOR.0` series, and a `[1-9]` major silently
+// parsed every `v0.x.y` cut as "not a desktop release" instead of failing loudly.
 const VERSION_COMPONENT = '(?:0|[1-9][0-9]*)'
 const DESKTOP_RELEASE_TAG_PATTERN = new RegExp(
-  `^v([1-9][0-9]*)\\.(${VERSION_COMPONENT})\\.(${VERSION_COMPONENT})(?:-rc\\.(${VERSION_COMPONENT})|-fork\\.([1-9][0-9]*))?$`
+  `^v(${VERSION_COMPONENT})\\.(${VERSION_COMPONENT})\\.(${VERSION_COMPONENT})(?:-rc\\.(${VERSION_COMPONENT})|-fork\\.([1-9][0-9]*))?$`
 )
 
 function safeVersionNumber(value) {

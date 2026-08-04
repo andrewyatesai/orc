@@ -86,21 +86,21 @@ export type TerminalKeyboardModeFlag =
  *  gets names, and so a future engine flag shows up as an unnamed bit in
  *  `modeBits` instead of silently renaming an existing one. */
 export const TERMINAL_KEYBOARD_MODE_FLAGS: readonly TerminalKeyboardModeFlag[] = [
-  'disambiguate-esc-codes',
-  'report-event-types',
-  'application-cursor',
-  'application-keypad',
-  'modify-other-keys-1',
-  'modify-other-keys-2',
-  'format-other-keys',
-  'report-alternate-keys',
-  'report-all-keys-as-esc',
-  'report-associated-text',
-  'vt52',
-  'backarrow-sends-bs',
-  'alt-no-esc',
-  'meta-sends-esc',
-  'no-special-modifiers'
+  'disambiguate-esc-codes', // 0
+  'report-event-types', // 1
+  'application-cursor', // 2
+  'application-keypad', // 3
+  'modify-other-keys-1', // 4
+  'modify-other-keys-2', // 5
+  'format-other-keys', // 6
+  'report-alternate-keys', // 7
+  'report-all-keys-as-esc', // 8
+  'report-associated-text', // 9
+  'vt52', // 10
+  'backarrow-sends-bs', // 11
+  'alt-no-esc', // 12
+  'meta-sends-esc', // 13
+  'no-special-modifiers' // 14
 ]
 
 export type TerminalKeyEncodingModes = {
