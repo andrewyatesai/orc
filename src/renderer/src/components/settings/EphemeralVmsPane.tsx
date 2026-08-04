@@ -8,10 +8,7 @@ import { Button } from '../ui/button'
 import { AgentSkillSetupPanel } from './AgentSkillSetupPanel'
 import { EphemeralVmRecipeRow } from './EphemeralVmRecipeRow'
 import { translate } from '@/i18n/i18n'
-import {
-  AGENT_SKILL_CLI_PREREQUISITE_NOTICE,
-  ensureOrcaCliAvailableForAgentSkillTerminal
-} from '@/lib/agent-skill-cli-prerequisite'
+import { ensureOrcaCliAvailableForAgentSkillTerminal } from '@/lib/agent-skill-cli-prerequisite'
 import {
   EPHEMERAL_VMS_SKILL_INSTALL_COMMAND,
   EPHEMERAL_VMS_SKILL_NAME,
@@ -22,6 +19,10 @@ import {
   useInstalledAgentSkill
 } from '@/hooks/useInstalledAgentSkills'
 import { useActiveProjectSkillRuntime } from '@/hooks/useActiveProjectSkillRuntime'
+import {
+  bundledSkillOfflineInstallPanelProps,
+  isBundledSkillOfflineInstallSupported
+} from '@/lib/bundled-skill-offline-install'
 import {
   buildSkillCommandForRuntime,
   ensureWslCliAvailableForAgentSkillTerminal,
@@ -59,6 +60,7 @@ export function EphemeralVmsPane(): React.JSX.Element {
           activeSkillRuntime.agentRuntime
         )
       : EPHEMERAL_VMS_SKILL_UPDATE_COMMAND
+  const offlineInstallSupported = isBundledSkillOfflineInstallSupported(activeSkillRuntime)
 
   const {
     installed: skillDetected,
@@ -149,7 +151,6 @@ export function EphemeralVmsPane(): React.JSX.Element {
         error={activeSkillRuntime.installDisabledReason ?? skillError}
         installDisabled={Boolean(activeSkillRuntime.installDisabledReason)}
         icon={<Server className="size-5" />}
-        preInstallNotice={AGENT_SKILL_CLI_PREREQUISITE_NOTICE}
         getPrerequisiteStatus={() =>
           activeSkillRuntime.agentRuntime?.runtime === 'wsl'
             ? window.api.cli.getWslInstallStatus(
@@ -162,6 +163,15 @@ export function EphemeralVmsPane(): React.JSX.Element {
             ? ensureWslCliAvailableForAgentSkillTerminal(activeSkillRuntime.agentRuntime)
             : ensureOrcaCliAvailableForAgentSkillTerminal())
         }}
+        {...bundledSkillOfflineInstallPanelProps({
+          supported: offlineInstallSupported,
+          names: [EPHEMERAL_VMS_SKILL_NAME],
+          skillLabel: translate(
+            'auto.components.settings.EphemeralVmsPane.offlineSkillLabel',
+            'the Per-Workspace Environments skill'
+          ),
+          onInstalled: refreshSkill
+        })}
         onRecheck={refreshSkill}
         freshnessSkillName={
           activeSkillRuntime.agentRuntime?.runtime === 'wsl' ? undefined : EPHEMERAL_VMS_SKILL_NAME

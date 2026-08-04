@@ -9,7 +9,6 @@ import {
   ORCA_CLI_SKILL_UPDATE_COMMAND
 } from '@/lib/agent-feature-install-commands'
 import {
-  AGENT_SKILL_CLI_PREREQUISITE_NOTICE,
   ensureOrcaCliAvailableForAgentSkillTerminal,
   isOrcaCliAvailableOnPath
 } from '@/lib/agent-skill-cli-prerequisite'
@@ -18,6 +17,10 @@ import {
   useInstalledAgentSkill
 } from '@/hooks/useInstalledAgentSkills'
 import { useMountedRef } from '@/hooks/useMountedRef'
+import {
+  bundledSkillOfflineInstallPanelProps,
+  isBundledSkillOfflineInstallSupported
+} from '@/lib/bundled-skill-offline-install'
 import { Button } from '../ui/button'
 import { Label } from '../ui/label'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip'
@@ -31,6 +34,11 @@ import {
   getSkillDiscoveryTargetForRuntime,
   getWslCliDistroRequest
 } from './CliSkillRuntimeSetup'
+import {
+  getCliInstallDescription,
+  getCliRevealLabel,
+  getFallbackCliCommandName
+} from './cli-registration-platform-copy'
 import { WslCliRegistration } from './WslCliRegistration'
 import { translate } from '@/i18n/i18n'
 
@@ -40,33 +48,6 @@ type CliSectionProps = {
   wslSupportedPlatform?: boolean
   wslAvailable?: boolean
   wslCapabilitiesLoading?: boolean
-}
-
-function getRevealLabel(platform: string): string {
-  if (platform === 'darwin') {
-    return 'Show in Finder'
-  }
-  if (platform === 'win32') {
-    return 'Show in Explorer'
-  }
-  return 'Show in File Manager'
-}
-
-function getInstallDescription(platform: string): string {
-  if (platform === 'darwin') {
-    return 'Register `orca` in /usr/local/bin.'
-  }
-  if (platform === 'linux') {
-    return 'Register `orca-ide` in ~/.local/bin.'
-  }
-  if (platform === 'win32') {
-    return 'Register `orca` in your user PATH.'
-  }
-  return 'CLI registration is not yet available on this platform.'
-}
-
-function getFallbackCommandName(platform: string): string {
-  return platform === 'linux' ? 'orca-ide' : 'orca'
 }
 
 export function CliSection({
@@ -112,6 +93,9 @@ export function CliSection({
     settings,
     agentRuntime
   )
+  const offlineInstallSupported = isBundledSkillOfflineInstallSupported({
+    agentRuntime
+  })
   const getCliSkillPrerequisiteStatus = useCallback(
     () =>
       agentRuntime.runtime === 'wsl'
@@ -159,8 +143,8 @@ export function CliSection({
   const isEnabled = status?.state === 'installed' && !pathStatusUnknown
   const isSupported = status?.supported ?? false
   const isBrowserManaged = status?.unsupportedReason === 'launch_mode_unavailable'
-  const revealLabel = getRevealLabel(currentPlatform)
-  const commandName = status?.commandName ?? getFallbackCommandName(currentPlatform)
+  const revealLabel = getCliRevealLabel(currentPlatform)
+  const commandName = status?.commandName ?? getFallbackCliCommandName(currentPlatform)
   const canRevealCommandPath =
     status?.commandPath != null && ['installed', 'stale', 'conflict'].includes(status.state)
 
@@ -260,7 +244,7 @@ export function CliSection({
                     'auto.components.settings.CliSection.d363e5929b',
                     'Checking CLI registration…'
                   )
-                : (status?.detail ?? getInstallDescription(currentPlatform))}
+                : (status?.detail ?? getCliInstallDescription(currentPlatform))}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -384,7 +368,15 @@ export function CliSection({
               installed={cliSkillDetected}
               loading={cliSkillLoading}
               error={cliSkillError}
-              preInstallNotice={AGENT_SKILL_CLI_PREREQUISITE_NOTICE}
+              {...bundledSkillOfflineInstallPanelProps({
+                supported: offlineInstallSupported,
+                names: [ORCA_CLI_SKILL_NAME],
+                skillLabel: translate(
+                  'auto.components.settings.CliSection.offlineSkillLabel',
+                  'the Orca CLI skill'
+                ),
+                onInstalled: refreshCliSkill
+              })}
               getPrerequisiteStatus={getCliSkillPrerequisiteStatus}
               isPrerequisiteAvailable={isOrcaCliAvailableOnPath}
               onBeforeOpenTerminal={async () => {

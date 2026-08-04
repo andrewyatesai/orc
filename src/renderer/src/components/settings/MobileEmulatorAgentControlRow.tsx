@@ -4,10 +4,11 @@ import {
   ORCA_CLI_SKILL_NAME,
   ORCA_CLI_SKILL_UPDATE_COMMAND
 } from '@/lib/agent-feature-install-commands'
+import { ensureOrcaCliAvailableForAgentSkillTerminal } from '@/lib/agent-skill-cli-prerequisite'
 import {
-  AGENT_SKILL_CLI_PREREQUISITE_NOTICE,
-  ensureOrcaCliAvailableForAgentSkillTerminal
-} from '@/lib/agent-skill-cli-prerequisite'
+  buildBundledSkillOfflineInstall,
+  bundledSkillOfflineInstallCliNotice
+} from '@/lib/bundled-skill-offline-install'
 import { cn } from '@/lib/utils'
 import { useMobileEmulatorAgentSetupState } from '../emulator-pane/use-mobile-emulator-agent-setup-state'
 import { AgentSkillSetupPanel } from './AgentSkillSetupPanel'
@@ -163,7 +164,7 @@ export function MobileEmulatorAgentControlRow(): React.JSX.Element {
             error={setup.cliSkillError}
             installDisabled={setup.step2Blocked}
             leading={<StepBadge index={2} state={setup.cliSkillInstalled ? 'done' : 'pending'} />}
-            preInstallNotice={AGENT_SKILL_CLI_PREREQUISITE_NOTICE}
+            preInstallNotice={bundledSkillOfflineInstallCliNotice()}
             openingHint={translate(
               'auto.components.settings.MobileEmulatorAgentControlRow.3941719a56',
               'Checking Orca CLI before opening skill setup.'
@@ -171,6 +172,17 @@ export function MobileEmulatorAgentControlRow(): React.JSX.Element {
             onBeforeOpenTerminal={async () => {
               await ensureOrcaCliAvailableForAgentSkillTerminal()
             }}
+            // Why: this row builds its commands for the local host only, so the
+            // bundled payload always lands where the row is pointing.
+            offlineInstall={buildBundledSkillOfflineInstall({
+              supported: true,
+              names: [ORCA_CLI_SKILL_NAME],
+              skillLabel: translate(
+                'auto.components.settings.MobileEmulatorAgentControlRow.offlineSkillLabel',
+                'the Orca CLI skill'
+              ),
+              onInstalled: setup.refreshCliSkill
+            })}
             onRecheck={setup.refreshCliSkill}
             // Why: this row builds its commands for the local host only, so the
             // local-host freshness scan can vouch for the copy it points at.

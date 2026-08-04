@@ -9,10 +9,7 @@ import {
   ORCA_LINEAR_SKILL_INSTALL_COMMAND,
   ORCA_LINEAR_SKILL_NAME
 } from '@/lib/agent-feature-install-commands'
-import {
-  AGENT_SKILL_CLI_PREREQUISITE_NOTICE,
-  ensureOrcaCliAvailableForAgentSkillTerminal
-} from '@/lib/agent-skill-cli-prerequisite'
+import { ensureOrcaCliAvailableForAgentSkillTerminal } from '@/lib/agent-skill-cli-prerequisite'
 import { getLinearAgentSkillUpdateTarget } from '@/lib/linear-agent-skill-update-command'
 import { getLinearUsageExamples } from '@/lib/linear-usage-examples'
 import type { SkillUsageExample } from '@/lib/skill-usage-example'
@@ -21,6 +18,10 @@ import {
   useInstalledAgentSkillNames
 } from '@/hooks/useInstalledAgentSkills'
 import { useActiveProjectSkillRuntime } from '@/hooks/useActiveProjectSkillRuntime'
+import {
+  bundledSkillOfflineInstallPanelProps,
+  isBundledSkillOfflineInstallSupported
+} from '@/lib/bundled-skill-offline-install'
 import { AgentSkillSetupPanel } from './AgentSkillSetupPanel'
 import {
   buildSkillCommandForRuntime,
@@ -93,6 +94,7 @@ export function LinearAgentSkillPane(): React.JSX.Element {
     activeSkillRuntime.installDisabledReason,
     updateTarget.command
   ])
+  const offlineInstallSupported = isBundledSkillOfflineInstallSupported(activeSkillRuntime)
 
   return (
     <SearchableSetting
@@ -130,7 +132,6 @@ export function LinearAgentSkillPane(): React.JSX.Element {
         error={activeSkillRuntime.installDisabledReason ?? linearSkillError}
         installDisabled={Boolean(activeSkillRuntime.installDisabledReason)}
         icon={<LinearIcon className="size-5" />}
-        preInstallNotice={AGENT_SKILL_CLI_PREREQUISITE_NOTICE}
         getPrerequisiteStatus={() =>
           activeSkillRuntime.agentRuntime?.runtime === 'wsl'
             ? window.api.cli.getWslInstallStatus(
@@ -143,6 +144,17 @@ export function LinearAgentSkillPane(): React.JSX.Element {
             ? ensureWslCliAvailableForAgentSkillTerminal(activeSkillRuntime.agentRuntime)
             : ensureOrcaCliAvailableForAgentSkillTerminal())
         }}
+        // Why: the update target is the name actually on disk, so a legacy-only
+        // install converges its own package instead of installing a second copy.
+        {...bundledSkillOfflineInstallPanelProps({
+          supported: offlineInstallSupported,
+          names: [updateTarget.skillName],
+          skillLabel: translate(
+            'auto.components.settings.LinearAgentSkillPane.offlineSkillLabel',
+            'the Linear skill'
+          ),
+          onInstalled: refreshLinearSkill
+        })}
         onRecheck={refreshLinearSkill}
         // Why: the local-host-only freshness scan cannot vouch for a WSL runtime,
         // so fall back to the presence-only pill there (mirrors the other skills).

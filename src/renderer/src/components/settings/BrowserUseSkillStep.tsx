@@ -13,6 +13,7 @@ type Props = {
   terminalShellOverride?: string
   preInstallNotice?: ReactNode
   getPrerequisiteStatus?: () => Promise<Awaited<ReturnType<typeof window.api.cli.getInstallStatus>>>
+  offlineInstall?: () => Promise<boolean>
   onBeforeOpenTerminal?: () => void | Promise<void>
   onRecheck: () => void | Promise<unknown>
 }
@@ -27,6 +28,7 @@ export function BrowserUseSkillStep({
   terminalShellOverride,
   preInstallNotice,
   getPrerequisiteStatus,
+  offlineInstall,
   onBeforeOpenTerminal,
   onRecheck
 }: Props): React.JSX.Element {
@@ -54,6 +56,7 @@ export function BrowserUseSkillStep({
       leading={<StepBadge index={2} state={skillDetected ? 'done' : 'pending'} />}
       preInstallNotice={preInstallNotice}
       getPrerequisiteStatus={getPrerequisiteStatus}
+      offlineInstall={offlineInstall}
       onBeforeOpenTerminal={onBeforeOpenTerminal}
       onRecheck={onRecheck}
     />

@@ -16,6 +16,7 @@ import {
   AGENT_SKILL_CLI_PREREQUISITE_NOTICE,
   isOrcaCliAvailableOnPath
 } from '@/lib/agent-skill-cli-prerequisite'
+import { bundledSkillOfflineInstallCliNotice } from '@/lib/bundled-skill-offline-install'
 import { translate } from '@/i18n/i18n'
 
 type AgentSkillSetupPanelProps = ComponentProps<typeof AgentSkillSetupPanel>
@@ -32,6 +33,7 @@ type LinearAgentSkillSetupDialogProps = {
   loading: boolean
   error: string | null
   getPrerequisiteStatus?: AgentSkillSetupPanelProps['getPrerequisiteStatus']
+  offlineInstall?: AgentSkillSetupPanelProps['offlineInstall']
   onBeforeOpenTerminal: AgentSkillSetupPanelProps['onBeforeOpenTerminal']
   onRecheck: AgentSkillSetupPanelProps['onRecheck']
   onOpenChange: (open: boolean) => void
@@ -51,6 +53,7 @@ export function LinearAgentSkillSetupDialog({
   loading,
   error,
   getPrerequisiteStatus,
+  offlineInstall,
   onBeforeOpenTerminal,
   onRecheck,
   onOpenChange,
@@ -140,16 +143,30 @@ export function LinearAgentSkillSetupDialog({
               installed={installed}
               loading={loading}
               error={error}
-              installLabel={translate(
-                'auto.components.sidebar.LinearAgentSkillSetupPrompt.install',
-                'Install CLI & Skill'
-              )}
+              // Why: the offline path writes only the skill, so promising the CLI
+              // too would name a step this button never takes.
+              installLabel={
+                offlineInstall
+                  ? translate(
+                      'auto.components.sidebar.LinearAgentSkillSetupPrompt.installSkillOnly',
+                      'Install skill'
+                    )
+                  : translate(
+                      'auto.components.sidebar.LinearAgentSkillSetupPrompt.install',
+                      'Install CLI & Skill'
+                    )
+              }
               // Why: Install is this modal's sole CTA, so make it the filled primary —
               // matching the other setup surfaces (filled primary + muted dismiss).
               installVariant="default"
-              preInstallNotice={AGENT_SKILL_CLI_PREREQUISITE_NOTICE}
+              preInstallNotice={
+                offlineInstall
+                  ? bundledSkillOfflineInstallCliNotice()
+                  : AGENT_SKILL_CLI_PREREQUISITE_NOTICE
+              }
               getPrerequisiteStatus={getPrerequisiteStatus}
               isPrerequisiteAvailable={isOrcaCliAvailableOnPath}
+              offlineInstall={offlineInstall}
               onBeforeOpenTerminal={onBeforeOpenTerminal}
               onRecheck={onRecheck}
             />

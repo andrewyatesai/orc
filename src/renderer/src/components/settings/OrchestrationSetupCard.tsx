@@ -1,13 +1,14 @@
 import type { JSX } from 'react'
-import {
-  AGENT_SKILL_CLI_PREREQUISITE_NOTICE,
-  ensureOrcaCliAvailableForAgentSkillTerminal
-} from '@/lib/agent-skill-cli-prerequisite'
+import { ensureOrcaCliAvailableForAgentSkillTerminal } from '@/lib/agent-skill-cli-prerequisite'
 import {
   ORCHESTRATION_SKILL_INSTALL_COMMAND,
   ORCHESTRATION_SKILL_UPDATE_COMMAND
 } from '@/lib/orchestration-install-command'
 import { ORCHESTRATION_SKILL_NAME } from '@/lib/agent-feature-install-commands'
+import {
+  bundledSkillOfflineInstallPanelProps,
+  isBundledSkillOfflineInstallSupported
+} from '@/lib/bundled-skill-offline-install'
 import type { InstalledAgentSkillState } from '@/hooks/useInstalledAgentSkills'
 import { useActiveProjectSkillRuntime } from '@/hooks/useActiveProjectSkillRuntime'
 import { AgentSkillSetupPanel } from './AgentSkillSetupPanel'
@@ -38,6 +39,7 @@ export function OrchestrationSetupCard(props: {
         activeSkillRuntime.agentRuntime
       )
     : ORCHESTRATION_SKILL_UPDATE_COMMAND
+  const offlineInstallSupported = isBundledSkillOfflineInstallSupported(activeSkillRuntime)
 
   const setupPanel = (
     <AgentSkillSetupPanel
@@ -61,7 +63,6 @@ export function OrchestrationSetupCard(props: {
       error={activeSkillRuntime.installDisabledReason ?? skill.error}
       installDisabled={Boolean(activeSkillRuntime.installDisabledReason)}
       terminalHeightPx={terminalHeightPx}
-      preInstallNotice={AGENT_SKILL_CLI_PREREQUISITE_NOTICE}
       getPrerequisiteStatus={() =>
         activeSkillRuntime.agentRuntime?.runtime === 'wsl'
           ? window.api.cli.getWslInstallStatus(
@@ -75,6 +76,17 @@ export function OrchestrationSetupCard(props: {
           ? ensureWslCliAvailableForAgentSkillTerminal(activeSkillRuntime.agentRuntime)
           : ensureOrcaCliAvailableForAgentSkillTerminal())
       }}
+      {...bundledSkillOfflineInstallPanelProps({
+        supported: offlineInstallSupported,
+        names: [ORCHESTRATION_SKILL_NAME],
+        skillLabel: translate(
+          'auto.components.settings.OrchestrationSetupCard.offlineSkillLabel',
+          'the orchestration skill'
+        ),
+        onBeforeInstall: () =>
+          useAppStore.getState().recordFeatureInteraction('agent-orchestration-setup'),
+        onInstalled: skill.refresh
+      })}
       onRecheck={skill.refresh}
       freshnessSkillName={
         activeSkillRuntime.agentRuntime?.runtime === 'wsl' ? undefined : ORCHESTRATION_SKILL_NAME

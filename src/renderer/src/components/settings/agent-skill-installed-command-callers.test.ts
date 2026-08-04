@@ -50,10 +50,11 @@ const updateCapableCallers = new Map<string, readonly string[]>([
     ['ORCA_CLI_SKILL_UPDATE_COMMAND', 'installedCommand={updateCommand}']
   ],
   [
-    // Why: the single-skill update command selection moved into
-    // getLinearAgentSkillUpdateCommand so the settings install CTA shares it.
+    // Why: the shared update-target resolver, like the settings pane — the prompt
+    // needs the resolved skill NAME too, so the offline rail converges the package
+    // actually on disk rather than installing a second copy under the canonical name.
     'src/renderer/src/components/sidebar/LinearAgentSkillSetupPrompt.tsx',
-    ['getLinearAgentSkillUpdateCommand', 'installedCommand={installedCommand}']
+    ['getLinearAgentSkillUpdateTarget', 'installedCommand={installedCommand}']
   ],
   [
     'src/renderer/src/components/sidebar/LinearAgentSkillSetupDialog.tsx',

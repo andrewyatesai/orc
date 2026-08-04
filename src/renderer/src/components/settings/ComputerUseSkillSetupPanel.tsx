@@ -4,15 +4,16 @@ import {
   COMPUTER_USE_SKILL_NAME,
   COMPUTER_USE_SKILL_UPDATE_COMMAND
 } from '@/lib/agent-feature-install-commands'
-import {
-  AGENT_SKILL_CLI_PREREQUISITE_NOTICE,
-  ensureOrcaCliAvailableForAgentSkillTerminal
-} from '@/lib/agent-skill-cli-prerequisite'
+import { ensureOrcaCliAvailableForAgentSkillTerminal } from '@/lib/agent-skill-cli-prerequisite'
 import {
   GLOBAL_AGENT_SKILL_SOURCE_KINDS,
   useInstalledAgentSkill
 } from '@/hooks/useInstalledAgentSkills'
 import { useActiveProjectSkillRuntime } from '@/hooks/useActiveProjectSkillRuntime'
+import {
+  bundledSkillOfflineInstallPanelProps,
+  isBundledSkillOfflineInstallSupported
+} from '@/lib/bundled-skill-offline-install'
 import { useAppStore } from '@/store'
 import { AgentSkillSetupPanel } from './AgentSkillSetupPanel'
 import {
@@ -36,6 +37,7 @@ export function ComputerUseSkillSetupPanel(): React.JSX.Element {
         activeSkillRuntime.agentRuntime
       )
     : COMPUTER_USE_SKILL_UPDATE_COMMAND
+  const offlineInstallSupported = isBundledSkillOfflineInstallSupported(activeSkillRuntime)
   const {
     installed: computerUseSkillDetected,
     loading: computerUseSkillLoading,
@@ -64,7 +66,6 @@ export function ComputerUseSkillSetupPanel(): React.JSX.Element {
       error={activeSkillRuntime.installDisabledReason ?? computerUseSkillError}
       installDisabled={Boolean(activeSkillRuntime.installDisabledReason)}
       icon={<MonitorCog className="size-5" />}
-      preInstallNotice={AGENT_SKILL_CLI_PREREQUISITE_NOTICE}
       getPrerequisiteStatus={() =>
         activeSkillRuntime.agentRuntime?.runtime === 'wsl'
           ? window.api.cli.getWslInstallStatus(
@@ -78,6 +79,17 @@ export function ComputerUseSkillSetupPanel(): React.JSX.Element {
           ? ensureWslCliAvailableForAgentSkillTerminal(activeSkillRuntime.agentRuntime)
           : ensureOrcaCliAvailableForAgentSkillTerminal())
       }}
+      {...bundledSkillOfflineInstallPanelProps({
+        supported: offlineInstallSupported,
+        names: [COMPUTER_USE_SKILL_NAME],
+        skillLabel: translate(
+          'auto.components.settings.ComputerUsePane.offlineSkillLabel',
+          'the Computer Use skill'
+        ),
+        onBeforeInstall: () =>
+          useAppStore.getState().recordFeatureInteraction('computer-use-setup'),
+        onInstalled: refreshComputerUseSkill
+      })}
       onRecheck={refreshComputerUseSkill}
       freshnessSkillName={
         activeSkillRuntime.agentRuntime?.runtime === 'wsl' ? undefined : COMPUTER_USE_SKILL_NAME

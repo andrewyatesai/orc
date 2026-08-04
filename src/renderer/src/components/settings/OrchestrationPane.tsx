@@ -2,14 +2,15 @@ import { useState } from 'react'
 import { ArrowRightLeft, GitBranch, ListChecks, Workflow, type LucideIcon } from 'lucide-react'
 import { ORCHESTRATION_SKILL_NAME } from '@/lib/agent-feature-install-commands'
 import type { SkillUsageExample } from '@/lib/skill-usage-example'
-import {
-  AGENT_SKILL_CLI_PREREQUISITE_NOTICE,
-  ensureOrcaCliAvailableForAgentSkillTerminal
-} from '@/lib/agent-skill-cli-prerequisite'
+import { ensureOrcaCliAvailableForAgentSkillTerminal } from '@/lib/agent-skill-cli-prerequisite'
 import {
   ORCHESTRATION_SKILL_INSTALL_COMMAND,
   ORCHESTRATION_SKILL_UPDATE_COMMAND
 } from '@/lib/orchestration-install-command'
+import {
+  bundledSkillOfflineInstallPanelProps,
+  isBundledSkillOfflineInstallSupported
+} from '@/lib/bundled-skill-offline-install'
 import { getOrchestrationUsageExamples } from '@/lib/orchestration-usage-examples'
 import {
   GLOBAL_AGENT_SKILL_SOURCE_KINDS,
@@ -60,6 +61,7 @@ export function OrchestrationPane(): React.JSX.Element {
         activeSkillRuntime.agentRuntime
       )
     : ORCHESTRATION_SKILL_UPDATE_COMMAND
+  const offlineInstallSupported = isBundledSkillOfflineInstallSupported(activeSkillRuntime)
 
   const {
     installed: orchestrationSkillDetected,
@@ -109,7 +111,6 @@ export function OrchestrationPane(): React.JSX.Element {
         error={activeSkillRuntime.installDisabledReason ?? orchestrationSkillError}
         installDisabled={Boolean(activeSkillRuntime.installDisabledReason)}
         icon={<Workflow className="size-5" />}
-        preInstallNotice={AGENT_SKILL_CLI_PREREQUISITE_NOTICE}
         getPrerequisiteStatus={() =>
           activeSkillRuntime.agentRuntime?.runtime === 'wsl'
             ? window.api.cli.getWslInstallStatus(
@@ -123,6 +124,17 @@ export function OrchestrationPane(): React.JSX.Element {
             ? ensureWslCliAvailableForAgentSkillTerminal(activeSkillRuntime.agentRuntime)
             : ensureOrcaCliAvailableForAgentSkillTerminal())
         }}
+        {...bundledSkillOfflineInstallPanelProps({
+          supported: offlineInstallSupported,
+          names: [ORCHESTRATION_SKILL_NAME],
+          skillLabel: translate(
+            'auto.components.settings.OrchestrationPane.offlineSkillLabel',
+            'the orchestration skill'
+          ),
+          onBeforeInstall: () =>
+            useAppStore.getState().recordFeatureInteraction('agent-orchestration-setup'),
+          onInstalled: refreshOrchestrationSkill
+        })}
         actionHint={
           // Installed updates stay on the primary panel so there is only one update path.
           activeSkillRuntime.installDisabledReason || orchestrationSkillDetected ? null : (

@@ -4,10 +4,11 @@ import {
   ORCA_CLI_SKILL_NAME,
   ORCA_CLI_SKILL_UPDATE_COMMAND
 } from '@/lib/agent-feature-install-commands'
+import { ensureOrcaCliAvailableForAgentSkillTerminal } from '@/lib/agent-skill-cli-prerequisite'
 import {
-  AGENT_SKILL_CLI_PREREQUISITE_NOTICE,
-  ensureOrcaCliAvailableForAgentSkillTerminal
-} from '@/lib/agent-skill-cli-prerequisite'
+  bundledSkillOfflineInstallPanelProps,
+  isBundledSkillOfflineInstallSupported
+} from '@/lib/bundled-skill-offline-install'
 import { BROWSER_USE_ENABLED_STORAGE_KEY } from '@/lib/browser-use-setup-state'
 import type { InstalledAgentSkillState } from '@/hooks/useInstalledAgentSkills'
 import { useActiveProjectSkillRuntime } from '@/hooks/useActiveProjectSkillRuntime'
@@ -33,6 +34,7 @@ export function BrowserUseSkillSetupCard(props: {
   const updateCommand = !activeSkillRuntime.installDisabledReason
     ? buildSkillCommandForRuntime(ORCA_CLI_SKILL_UPDATE_COMMAND, activeSkillRuntime.agentRuntime)
     : ORCA_CLI_SKILL_UPDATE_COMMAND
+  const offlineInstallSupported = isBundledSkillOfflineInstallSupported(activeSkillRuntime)
 
   const handleBeforeOpenTerminal = async (): Promise<void> => {
     useAppStore.getState().recordFeatureInteraction('agent-browser-setup')
@@ -64,7 +66,6 @@ export function BrowserUseSkillSetupCard(props: {
       error={activeSkillRuntime.installDisabledReason ?? skill.error}
       installDisabled={Boolean(activeSkillRuntime.installDisabledReason)}
       terminalHeightPx={terminalHeightPx}
-      preInstallNotice={AGENT_SKILL_CLI_PREREQUISITE_NOTICE}
       getPrerequisiteStatus={() =>
         activeSkillRuntime.agentRuntime?.runtime === 'wsl'
           ? window.api.cli.getWslInstallStatus(
@@ -73,6 +74,21 @@ export function BrowserUseSkillSetupCard(props: {
           : window.api.cli.getInstallStatus()
       }
       onBeforeOpenTerminal={handleBeforeOpenTerminal}
+      {...bundledSkillOfflineInstallPanelProps({
+        supported: offlineInstallSupported,
+        names: [ORCA_CLI_SKILL_NAME],
+        skillLabel: translate(
+          'auto.components.feature.wall.BrowserUseSkillSetupCard.offlineSkillLabel',
+          'the Browser Use skill'
+        ),
+        // Why: the terminal path marks the feature enabled on its way out; the
+        // offline path is the same commitment, so it must record it too.
+        onBeforeInstall: () => {
+          useAppStore.getState().recordFeatureInteraction('agent-browser-setup')
+          localStorage.setItem(BROWSER_USE_ENABLED_STORAGE_KEY, '1')
+        },
+        onInstalled: skill.refresh
+      })}
       showRecheckWhenInstalled={false}
       onRecheck={skill.refresh}
       // Why: the local-host-only freshness scan cannot vouch for a WSL runtime,

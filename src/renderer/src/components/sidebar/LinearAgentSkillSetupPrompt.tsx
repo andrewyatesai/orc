@@ -11,7 +11,11 @@ import {
   LINEAR_AGENT_SKILL_NAMES,
   ORCA_LINEAR_SKILL_INSTALL_COMMAND
 } from '@/lib/agent-feature-install-commands'
-import { getLinearAgentSkillUpdateCommand } from '@/lib/linear-agent-skill-update-command'
+import { getLinearAgentSkillUpdateTarget } from '@/lib/linear-agent-skill-update-command'
+import {
+  buildBundledSkillOfflineInstall,
+  isBundledSkillOfflineInstallSupported
+} from '@/lib/bundled-skill-offline-install'
 import {
   ensureOrcaCliAvailableForAgentSkillTerminal,
   isOrcaCliAvailableOnPath
@@ -121,14 +125,15 @@ export function LinearAgentSkillSetupPrompt({
     () => buildSkillCommandForRuntime(ORCA_LINEAR_SKILL_INSTALL_COMMAND, agentRuntime),
     [agentRuntime]
   )
-  const installedCommand = useMemo(
-    () =>
-      buildSkillCommandForRuntime(
-        getLinearAgentSkillUpdateCommand(skill.skills, skill.installed),
-        agentRuntime
-      ),
-    [agentRuntime, skill.installed, skill.skills]
+  const updateTarget = useMemo(
+    () => getLinearAgentSkillUpdateTarget(skill.skills, skill.installed),
+    [skill.installed, skill.skills]
   )
+  const installedCommand = useMemo(
+    () => buildSkillCommandForRuntime(updateTarget.command, agentRuntime),
+    [agentRuntime, updateTarget.command]
+  )
+  const offlineInstallSupported = !remote && isBundledSkillOfflineInstallSupported({ agentRuntime })
   const terminalShellOverride = getLinearPromptTerminalShellOverride(
     currentPlatform,
     settings,
@@ -295,6 +300,17 @@ export function LinearAgentSkillSetupPrompt({
           ? () => window.api.cli.getWslInstallStatus(getWslCliDistroRequest(agentRuntime))
           : undefined
       }
+      // Why: the update target is the name actually on disk, so a legacy-only
+      // install converges its own package instead of installing a second copy.
+      offlineInstall={buildBundledSkillOfflineInstall({
+        supported: offlineInstallSupported,
+        names: [updateTarget.skillName],
+        skillLabel: translate(
+          'auto.components.sidebar.LinearAgentSkillSetupPrompt.offlineSkillLabel',
+          'the Linear skill'
+        ),
+        onInstalled: skill.refresh
+      })}
       onBeforeOpenTerminal={async () => {
         const requestIdentity = setupCheckIdentity
         const writeIfCurrent = (write: () => void): void => {

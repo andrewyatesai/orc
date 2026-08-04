@@ -7,10 +7,13 @@ import {
   ORCA_CLI_SKILL_UPDATE_COMMAND
 } from '@/lib/agent-feature-install-commands'
 import {
-  AGENT_SKILL_CLI_PREREQUISITE_NOTICE,
   ensureOrcaCliAvailableForAgentSkillTerminal,
   isOrcaCliAvailableOnPath
 } from '@/lib/agent-skill-cli-prerequisite'
+import {
+  bundledSkillOfflineInstallPanelProps,
+  isBundledSkillOfflineInstallSupported
+} from '@/lib/bundled-skill-offline-install'
 import { BROWSER_USE_ENABLED_STORAGE_KEY } from '@/lib/browser-use-setup-state'
 import {
   GLOBAL_AGENT_SKILL_SOURCE_KINDS,
@@ -62,6 +65,7 @@ export function BrowserUseSetup({
   const browserUseUpdateCommand = !activeSkillRuntime.installDisabledReason
     ? buildSkillCommandForRuntime(ORCA_CLI_SKILL_UPDATE_COMMAND, activeSkillRuntime.agentRuntime)
     : ORCA_CLI_SKILL_UPDATE_COMMAND
+  const offlineInstallSupported = isBundledSkillOfflineInstallSupported(activeSkillRuntime)
 
   const handleCliStatusChange = useCallback(
     (nextStatus: CliInstallStatus | null): void => {
@@ -282,7 +286,6 @@ export function BrowserUseSetup({
             skillError={activeSkillRuntime.installDisabledReason ?? skillError}
             disabled={step2Blocked}
             terminalShellOverride={activeSkillRuntime.terminalShellOverride}
-            preInstallNotice={AGENT_SKILL_CLI_PREREQUISITE_NOTICE}
             getPrerequisiteStatus={() =>
               activeSkillRuntime.agentRuntime?.runtime === 'wsl'
                 ? window.api.cli.getWslInstallStatus(
@@ -298,6 +301,17 @@ export function BrowserUseSetup({
                     onStatusChange: handleCliStatusChange
                   }))
             }}
+            {...bundledSkillOfflineInstallPanelProps({
+              supported: offlineInstallSupported,
+              names: [ORCA_CLI_SKILL_NAME],
+              skillLabel: translate(
+                'auto.components.settings.BrowserUsePane.offlineSkillLabel',
+                'the Browser Use skill'
+              ),
+              onBeforeInstall: () =>
+                useAppStore.getState().recordFeatureInteraction('agent-browser-setup'),
+              onInstalled: refreshSkill
+            })}
             onRecheck={refreshSkill}
           />
         </SearchableSetting>

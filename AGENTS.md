@@ -17,6 +17,10 @@ NEVER add a `max-lines` disable (`eslint-disable max-lines`, `oxlint-disable max
 
 Never use vague names like `helpers`, `utils`, `common`, `misc`, or `shared-stuff` for files, folders, or modules. They carry zero info and tend to become dumping grounds. Name files after what they _actually_ contain — prefer the concrete domain concept (e.g. `tab-group-state.ts`, `terminal-orphan-cleanup.ts`) over the generic role (`tabs-helpers.ts`, `terminal-utils.ts`). If you find yourself reaching for `helpers`, the file probably has more than one responsibility and should be split, or there's a better name hiding in the code that describes what the functions operate on.
 
+## Tests Must Prove Reachability
+
+A test that constructs its own inputs proves the logic, never that production reaches it. When a capability has to work in the shipped app, exercise the production construction path — the registered IPC handler, the real dispatcher, the gate's own CLI — not a hand-built double. Every guard needs a test that plants a violation and watches it fail; a test you have never seen fail proves nothing.
+
 ## Type Declarations: Prefer `.ts` Over `.d.ts`
 
 # Considerations

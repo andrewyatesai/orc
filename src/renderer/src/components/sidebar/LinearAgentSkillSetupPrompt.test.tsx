@@ -350,11 +350,13 @@ describe('LinearAgentSkillSetupPrompt', () => {
         installedCommand:
           "wsl.exe -d 'Fedora' -- bash -lc 'npx skills update orca-linear --global'",
         terminalShellOverride: 'powershell.exe',
-        getPrerequisiteStatus: expect.any(Function)
+        getPrerequisiteStatus: expect.any(Function),
+        // Why: the bundled payload only reaches this machine's homes, so a WSL
+        // distro keeps the terminal rail that can actually write into it.
+        offlineInstall: undefined
       })
     )
     const getPrerequisiteStatus = mocks.panelProps.at(-1)?.getPrerequisiteStatus
-    expect(getPrerequisiteStatus).toEqual(expect.any(Function))
     await (getPrerequisiteStatus as () => Promise<unknown>)()
     expect(mocks.getWslCliStatus).toHaveBeenLastCalledWith({ distro: 'Fedora' })
 
@@ -464,9 +466,12 @@ describe('LinearAgentSkillSetupPrompt', () => {
     // Why: the permanent opt-out is an EyeOff icon (no visible text); the casual
     // dismiss is the dialog ×. Neither "Not now" nor any dismiss label shows as text.
     expect(document.body.textContent).not.toContain('Not now')
+    // Why: on this machine's own skill home the shipped payload is the install, so
+    // the panel gets the offline rail and says what it will and will not do.
     expect(mocks.panelProps.at(-1)).toEqual(
       expect.objectContaining({
-        preInstallNotice: 'CLI registration notice'
+        preInstallNotice: expect.stringContaining('installs from this app build'),
+        offlineInstall: expect.any(Function)
       })
     )
 

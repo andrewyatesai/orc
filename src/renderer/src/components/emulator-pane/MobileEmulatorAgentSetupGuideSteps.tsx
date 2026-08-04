@@ -1,11 +1,15 @@
 import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store'
-import { ORCA_CLI_SKILL_INSTALL_COMMAND } from '@/lib/agent-feature-install-commands'
 import {
-  AGENT_SKILL_CLI_PREREQUISITE_NOTICE,
-  ensureOrcaCliAvailableForAgentSkillTerminal
-} from '@/lib/agent-skill-cli-prerequisite'
+  ORCA_CLI_SKILL_INSTALL_COMMAND,
+  ORCA_CLI_SKILL_NAME
+} from '@/lib/agent-feature-install-commands'
+import { ensureOrcaCliAvailableForAgentSkillTerminal } from '@/lib/agent-skill-cli-prerequisite'
+import {
+  buildBundledSkillOfflineInstall,
+  bundledSkillOfflineInstallCliNotice
+} from '@/lib/bundled-skill-offline-install'
 import { AgentSkillSetupPanel } from '../settings/AgentSkillSetupPanel'
 import { StepBadge } from '../settings/BrowserUseStepBadge'
 import { Button } from '../ui/button'
@@ -166,7 +170,7 @@ export function MobileEmulatorAgentSetupGuideSteps({
             showInstallWhenInstalled={!setup.cliSkillInstalled}
             terminalHeightPx={112}
             preInstallNotice={
-              showSkillPreInstallNotice ? AGENT_SKILL_CLI_PREREQUISITE_NOTICE : undefined
+              showSkillPreInstallNotice ? bundledSkillOfflineInstallCliNotice() : undefined
             }
             openingHint={translate(
               'auto.components.emulator.pane.MobileEmulatorAgentSetupGuideSteps.3941719a56',
@@ -176,6 +180,18 @@ export function MobileEmulatorAgentSetupGuideSteps({
               recordFeatureInteraction('mobile-emulator-agent-setup')
               await ensureOrcaCliAvailableForAgentSkillTerminal()
             }}
+            // Why: these steps target the local host only, so the bundled payload
+            // always lands on the machine the guide is describing.
+            offlineInstall={buildBundledSkillOfflineInstall({
+              supported: true,
+              names: [ORCA_CLI_SKILL_NAME],
+              skillLabel: translate(
+                'auto.components.emulator.pane.MobileEmulatorAgentSetupGuideSteps.offlineSkillLabel',
+                'the Orca CLI skill'
+              ),
+              onBeforeInstall: () => recordFeatureInteraction('mobile-emulator-agent-setup'),
+              onInstalled: setup.recheckSetup
+            })}
             onRecheck={() => {
               recordFeatureInteraction('mobile-emulator-agent-setup')
               void setup.recheckSetup()
