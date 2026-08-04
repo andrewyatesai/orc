@@ -13,10 +13,10 @@ vi.mock('../persistence', () => ({
 
 import { OrchestrationDb } from '../runtime/orchestration/db'
 import { OrcaRuntimeService } from '../runtime/orca-runtime'
-import type Database from '../sqlite/sync-database'
 import type { HostCliPassthroughOptions } from './ssh-remote-cli-host-passthrough'
 import { runRemoteOrcaCli } from './ssh-remote-orca-cli'
 import { acknowledgeRemoteOrcaCliPostOutput } from './ssh-remote-orchestration-post-output'
+import { orchestrationSqliteProbe } from '../runtime/orchestration/orchestration-sqlite-probe'
 
 const LEGACY_FALLBACK_OPTIONS: HostCliPassthroughOptions = {
   execPath: '/host/electron',
@@ -58,7 +58,7 @@ function createLegacyRuntime() {
     createdByTerminalHandle: COORDINATOR_HANDLE
   })
   const dispatch = db.createDispatchContext(task.id, WORKER_HANDLE, WORKER_PANE)
-  const sqlite = (db as unknown as { db: Database.Database }).db
+  const sqlite = orchestrationSqliteProbe(db)
   sqlite
     .prepare(
       `UPDATE dispatch_contexts
@@ -318,7 +318,7 @@ describe('legacy SSH orchestration fallback', () => {
     try {
       const first = await runRemoteOrcaCli(runtime, request, LEGACY_FALLBACK_OPTIONS)
       const replay = await runRemoteOrcaCli(runtime, request, LEGACY_FALLBACK_OPTIONS)
-      const sqlite = (db as unknown as { db: Database.Database }).db
+      const sqlite = orchestrationSqliteProbe(db)
 
       const firstResult = JSON.parse(first.stdout) as { messageId: string; timedOut: boolean }
       const replayResult = JSON.parse(replay.stdout) as { messageId: string; timedOut: boolean }
@@ -352,7 +352,7 @@ describe('legacy SSH orchestration fallback', () => {
       consumerGeneration: run.consumer_generation,
       body: 'yes'
     })
-    const sqlite = (db as unknown as { db: Database.Database }).db
+    const sqlite = orchestrationSqliteProbe(db)
     sqlite
       .prepare(
         `UPDATE messages

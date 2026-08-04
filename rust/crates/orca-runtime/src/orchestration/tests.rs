@@ -21,7 +21,7 @@ fn status_of(db: &OrchestrationDb, id: &str) -> String {
 }
 
 fn new_task(db: &OrchestrationDb, id: &str, spec: &str, deps: &[&str]) {
-    db.create_task(id, spec, None, deps, None, None, None).unwrap();
+    db.create_task(id, spec, None, deps, None, None, None, None).unwrap();
 }
 
 #[test]
@@ -102,11 +102,11 @@ fn delivered_marker_is_distinct_from_read_replay_guard() {
 #[test]
 fn create_task_deps_drive_initial_status_and_display() {
     let db = OrchestrationDb::open_in_memory().unwrap();
-    db.create_task("t1", "build the parser", None, &[], Some("term-1"), Some("Parser"), Some("Build parser"))
+    db.create_task("t1", "build the parser", None, &[], Some("term-1"), Some("Parser"), Some("Build parser"), None)
         .unwrap();
     new_task(&db, "t2", "write tests", &["t1"]);
 
-    let all = db.list_tasks(None).unwrap();
+    let all = db.list_tasks(None, None).unwrap();
     assert_eq!(all.len(), 2);
     assert_eq!(all[0].status, "ready"); // no deps
     assert_eq!(all[0].task_title.as_deref(), Some("Parser"));
@@ -114,6 +114,45 @@ fn create_task_deps_drive_initial_status_and_display() {
     assert_eq!(all[0].created_by_terminal_handle.as_deref(), Some("term-1"));
     assert_eq!(all[1].status, "pending"); // has a dep
     assert_eq!(all[1].deps, "[\"t1\"]");
+}
+
+/// The membership guards live in the store, not the shim, so a direct caller
+/// cannot cross-link a task into another Run. Messages match TS `createTask`.
+#[test]
+fn create_task_rejects_cross_run_parent_and_dependency() {
+    let db = OrchestrationDb::open_in_memory().unwrap();
+    db.create_run("run_other", "objective", "coordinator", "pane_other").unwrap();
+    new_task(&db, "legacy_task", "in the legacy run", &[]);
+
+    let missing_run = db
+        .create_task("t_a", "spec", None, &[], None, None, None, Some("run_absent"))
+        .unwrap_err();
+    assert_eq!(missing_run.to_string(), "Run not found: run_absent");
+
+    let foreign_parent = db
+        .create_task("t_b", "spec", Some("legacy_task"), &[], None, None, None, Some("run_other"))
+        .unwrap_err();
+    assert_eq!(
+        foreign_parent.to_string(),
+        "Parent task legacy_task must belong to run run_other"
+    );
+
+    let foreign_dep = db
+        .create_task("t_c", "spec", None, &["legacy_task"], None, None, None, Some("run_other"))
+        .unwrap_err();
+    assert_eq!(
+        foreign_dep.to_string(),
+        "Dependency task legacy_task must belong to run run_other"
+    );
+
+    // An absent task and a foreign task fail identically — no existence oracle.
+    let absent_dep = db
+        .create_task("t_d", "spec", None, &["nope"], None, None, None, Some("run_other"))
+        .unwrap_err();
+    assert_eq!(absent_dep.to_string(), "Dependency task nope must belong to run run_other");
+
+    assert!(db.get_task("t_a").unwrap().is_none());
+    assert!(db.get_task("t_b").unwrap().is_none());
 }
 
 #[test]
@@ -143,9 +182,9 @@ fn list_tasks_with_dispatch_surfaces_only_active_assignee() {
     let db = OrchestrationDb::open_in_memory().unwrap();
     new_task(&db, "ready", "ready task", &[]);
     new_task(&db, "active", "active task", &[]);
-    db.create_dispatch_context("active", "term-worker", "ctx1", None).unwrap();
+    db.create_dispatch_context("active", "term-worker", "ctx1", None, None).unwrap();
 
-    let rows = db.list_tasks_with_dispatch(None).unwrap();
+    let rows = db.list_tasks_with_dispatch(None, None).unwrap();
     let ready_row = rows.iter().find(|r| r.task.id == "ready").unwrap();
     let active_row = rows.iter().find(|r| r.task.id == "active").unwrap();
     assert_eq!(ready_row.assignee_handle, None);
@@ -155,7 +194,7 @@ fn list_tasks_with_dispatch_surfaces_only_active_assignee() {
 
     // Completing the task drops it from the "active" join.
     db.update_task_status("active", "completed", None, Some("2026-01-01T00:00:00.000Z")).unwrap();
-    let rows = db.list_tasks_with_dispatch(None).unwrap();
+    let rows = db.list_tasks_with_dispatch(None, None).unwrap();
     let active_row = rows.iter().find(|r| r.task.id == "active").unwrap();
     assert_eq!(active_row.assignee_handle, None);
     assert_eq!(active_row.dispatch_id, None);
@@ -165,7 +204,7 @@ fn list_tasks_with_dispatch_surfaces_only_active_assignee() {
 fn decision_gate_blocks_task_and_resolution_unblocks_it() {
     let db = OrchestrationDb::open_in_memory().unwrap();
     new_task(&db, "t1", "spec", &[]);
-    db.create_dispatch_context("t1", "worker-1", "ctx1", None).unwrap();
+    db.create_dispatch_context("t1", "worker-1", "ctx1", None, None).unwrap();
 
     let gate = db.create_gate("g1", "t1", "Proceed?", &["yes", "no"], None).unwrap();
     assert_eq!(gate.status, "pending");
@@ -198,20 +237,20 @@ fn dispatch_requires_ready_task_and_one_active_per_assignee() {
     new_task(&db, "t1", "spec1", &["dep"]); // pending
     new_task(&db, "t2", "spec2", &[]); // ready
 
-    assert!(db.create_dispatch_context("t1", "worker-1", "ctx0", None).is_err());
-    let err = db.create_dispatch_context("nope", "worker-1", "ctxX", None).unwrap_err();
+    assert!(db.create_dispatch_context("t1", "worker-1", "ctx0", None, None).is_err());
+    let err = db.create_dispatch_context("nope", "worker-1", "ctxX", None, None).unwrap_err();
     assert!(err.to_string().contains("Task not found: nope"), "{err}");
 
     db.update_task_status("dep", "completed", None, Some("2026-01-01T00:00:00.000Z")).unwrap();
     assert_eq!(status_of(&db, "t1"), "ready");
 
-    let ctx = db.create_dispatch_context("t1", "worker-1", "ctx1", None).unwrap();
+    let ctx = db.create_dispatch_context("t1", "worker-1", "ctx1", None, None).unwrap();
     assert_eq!(ctx.status, "dispatched");
     assert_eq!(status_of(&db, "t1"), "dispatched");
     assert_eq!(db.get_active_dispatch_for_terminal("worker-1").unwrap().unwrap().id, "ctx1");
 
     // The exact "for task" error text is load-bearing for CLI UX.
-    let err = db.create_dispatch_context("t2", "worker-1", "ctx2", None).unwrap_err();
+    let err = db.create_dispatch_context("t2", "worker-1", "ctx2", None, None).unwrap_err();
     assert_eq!(
         err.to_string(),
         "Terminal worker-1 already has an active dispatch (ctx1 for task t1)"
@@ -219,7 +258,7 @@ fn dispatch_requires_ready_task_and_one_active_per_assignee() {
 
     assert_eq!(db.complete_dispatch("ctx1").unwrap(), 1);
     assert!(db.get_active_dispatch_for_terminal("worker-1").unwrap().is_none());
-    let ctx3 = db.create_dispatch_context("t2", "worker-1", "ctx3", None).unwrap();
+    let ctx3 = db.create_dispatch_context("t2", "worker-1", "ctx3", None, None).unwrap();
     assert_eq!(ctx3.task_id, "t2");
     assert_eq!(db.get_latest_dispatch_for_terminal("worker-1").unwrap().unwrap().id, "ctx3");
 }
@@ -230,7 +269,7 @@ fn fail_dispatch_carries_failures_and_trips_circuit_breaker_at_three() {
     new_task(&db, "t1", "spec", &[]);
 
     for (ctx_id, expected_count) in [("ctx1", 1_i64), ("ctx2", 2)] {
-        let ctx = db.create_dispatch_context("t1", "worker-1", ctx_id, None).unwrap();
+        let ctx = db.create_dispatch_context("t1", "worker-1", ctx_id, None, None).unwrap();
         assert_eq!(ctx.failure_count, expected_count - 1); // carried forward
         let failed = db.fail_dispatch(ctx_id, "boom").unwrap().unwrap();
         assert_eq!(failed.status, "failed");
@@ -240,7 +279,7 @@ fn fail_dispatch_carries_failures_and_trips_circuit_breaker_at_three() {
         assert_eq!(status_of(&db, "t1"), "ready");
     }
 
-    db.create_dispatch_context("t1", "worker-1", "ctx3", None).unwrap();
+    db.create_dispatch_context("t1", "worker-1", "ctx3", None, None).unwrap();
     let broken = db.fail_dispatch("ctx3", "boom").unwrap().unwrap();
     assert_eq!(broken.status, "circuit_broken");
     assert_eq!(broken.failure_count, 3);
@@ -254,7 +293,7 @@ fn fail_dispatch_carries_failures_and_trips_circuit_breaker_at_three() {
 fn fail_dispatch_keeps_the_first_completion_stamp() {
     let db = OrchestrationDb::open_in_memory().unwrap();
     new_task(&db, "t1", "spec", &[]);
-    db.create_dispatch_context("t1", "worker-1", "ctx1", None).unwrap();
+    db.create_dispatch_context("t1", "worker-1", "ctx1", None, None).unwrap();
     // A same-second re-stamp is indistinguishable from a preserved one, so plant a
     // sentinel the COALESCE must keep.
     db.connection()
@@ -270,7 +309,7 @@ fn fail_dispatch_keeps_the_first_completion_stamp() {
 fn heartbeat_only_touches_dispatched_and_stale_detector_respects_threshold() {
     let db = OrchestrationDb::open_in_memory().unwrap();
     new_task(&db, "t1", "spec", &[]);
-    db.create_dispatch_context("t1", "worker-1", "ctx1", None).unwrap();
+    db.create_dispatch_context("t1", "worker-1", "ctx1", None, None).unwrap();
 
     // Fresh dispatch, no heartbeat, is stale against a future threshold.
     let future = "2999-01-01 00:00:00";
@@ -307,7 +346,7 @@ fn stale_detector_compares_by_time_across_space_and_iso_t_formats() {
     // operands makes the compare time-correct.
     let db = OrchestrationDb::open_in_memory().unwrap();
     new_task(&db, "t1", "spec", &[]);
-    db.create_dispatch_context("t1", "worker-1", "ctx1", None).unwrap();
+    db.create_dispatch_context("t1", "worker-1", "ctx1", None, None).unwrap();
     db.set_dispatch_timestamps("ctx1", Some("2026-07-14 10:00:00"), None).unwrap();
 
     // ISO-T threshold 5 min AFTER dispatched_at → genuinely stale.
@@ -328,7 +367,7 @@ fn stale_detector_compares_by_time_across_space_and_iso_t_formats() {
 fn set_dispatch_timestamps_backdates_for_the_grace_window() {
     let db = OrchestrationDb::open_in_memory().unwrap();
     new_task(&db, "t1", "spec", &[]);
-    db.create_dispatch_context("t1", "worker-1", "ctx1", None).unwrap();
+    db.create_dispatch_context("t1", "worker-1", "ctx1", None, None).unwrap();
 
     // With dispatched_at ≈ now (2026) and no heartbeat, a mid-2026 threshold does
     // not make it stale (dispatched_at not < threshold — the grace shields it).
@@ -361,7 +400,7 @@ fn coordinator_run_lifecycle_and_idle_terminals() {
     db.send_message(&msg("m1", "worker-a", "hi")).unwrap();
     db.send_message(&msg("m2", "worker-b", "hi")).unwrap();
     new_task(&db, "t1", "spec", &[]);
-    db.create_dispatch_context("t1", "worker-a", "ctx1", None).unwrap();
+    db.create_dispatch_context("t1", "worker-a", "ctx1", None, None).unwrap();
     let idle = db.get_idle_terminals(&["coordinator"]).unwrap();
     assert!(idle.contains(&"worker-b".to_string()));
     assert!(!idle.contains(&"worker-a".to_string())); // busy
@@ -388,11 +427,11 @@ fn reset_helpers_clear_the_right_tables() {
     let db = OrchestrationDb::open_in_memory().unwrap();
     db.send_message(&msg("m1", "a", "hi")).unwrap();
     new_task(&db, "t1", "spec", &[]);
-    db.create_dispatch_context("t1", "worker-1", "ctx1", None).unwrap();
+    db.create_dispatch_context("t1", "worker-1", "ctx1", None, None).unwrap();
 
     db.reset_tasks().unwrap();
     assert_eq!(db.get_inbox(10).unwrap().len(), 1);
-    assert!(db.list_tasks(None).unwrap().is_empty());
+    assert!(db.list_tasks(None, None).unwrap().is_empty());
     assert!(db.dispatch_context_by_id("ctx1").unwrap().is_none());
 
     db.reset_messages().unwrap();
@@ -425,4 +464,38 @@ fn gate_round_trips_its_origin_message_id() {
         db.list_gates(Some("t1"), None).unwrap().iter().filter(|g| g.origin_message_id.is_some()).count(),
         1
     );
+}
+
+/// The JSON boundary is the contract: a row struct must emit the exact key the
+/// TS emits. Composed result objects in db.ts are camelCase; table rows are not.
+#[test]
+fn serialized_keys_match_the_ts_json() {
+    let db = OrchestrationDb::open_in_memory().unwrap();
+    db.create_run("run_a", "ship it", "term-1", "tab1:leaf").unwrap();
+
+    // db.ts:252 — `RunListPage = { runs, nextCursor }`.
+    let page = serde_json::to_value(db.list_runs(Some(1), None).unwrap()).unwrap();
+    assert!(page.get("nextCursor").is_some(), "RunListPage must emit nextCursor: {page}");
+    assert!(page.get("next_cursor").is_none());
+    assert!(page["nextCursor"].is_string(), "a second page exists");
+
+    // db.ts:1691 — `{ terminalHandle, paneKey }`.
+    let candidate = serde_json::to_value(legacy_compat::LegacyCoordinatorCandidate {
+        terminal_handle: "term-1".to_string(),
+        pane_key: "tab1:leaf".to_string(),
+    })
+    .unwrap();
+    assert_eq!(candidate["terminalHandle"], "term-1");
+    assert_eq!(candidate["paneKey"], "tab1:leaf");
+    assert!(candidate.get("terminal_handle").is_none());
+
+    // Table rows stay snake_case, and `type` is the reserved-word rename.
+    let message = serde_json::to_value(
+        db.send_message(&msg("m1", "worker-a", "subject")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(message["type"], "status");
+    assert!(message.get("from_handle").is_some() && message.get("fromHandle").is_none());
+    let run = serde_json::to_value(db.get_run("run_a").unwrap().unwrap()).unwrap();
+    assert!(run.get("home_database").is_some() && run.get("homeDatabase").is_none());
 }

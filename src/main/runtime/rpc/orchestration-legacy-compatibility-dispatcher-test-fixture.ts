@@ -11,6 +11,7 @@ import { OrchestrationDb } from '../orchestration/db'
 import type { RpcRequest, RpcResponse } from './core'
 import { RpcDispatcher } from './dispatcher'
 import { ORCHESTRATION_METHODS } from './methods/orchestration'
+import { orchestrationSqliteProbe } from '../orchestration/orchestration-sqlite-probe'
 
 export const WORKER_HANDLE = 'term_legacy_worker'
 export const WORKER_PANE = 'tab_worker:33333333-3333-4333-8333-333333333333'
@@ -189,7 +190,7 @@ export async function invoke(
 }
 
 export function counts(db: OrchestrationDb): Record<string, number> {
-  const sqlite = (db as unknown as { db: Database.Database }).db
+  const sqlite = orchestrationSqliteProbe(db)
   return Object.fromEntries(
     [
       'messages',

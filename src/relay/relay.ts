@@ -23,7 +23,7 @@ import {
 import { readLaunchVersion, runConnectHandshake, setupDaemonHandshake } from './relay-handshake'
 import { RelayDispatcher } from './dispatcher'
 import { RelayContext, expandTilde } from './context'
-import { bindRelayOrcaDispatch } from './git-wasm'
+import { bindRelayOrcaDispatch, detectExplicitPiAgentKindFromCommand } from './git-wasm'
 import { PtyHandler } from './pty-handler'
 import { FsHandler } from './fs-handler'
 import { installRelayLogRotation } from './rotating-log-writer'
@@ -48,7 +48,6 @@ import { assertPluginSourceUnderByteCap } from './plugin-source-limit'
 import { resolveOpenCodeSourceConfigDir, resolvePiSourceAgentDir } from './plugin-overlay-env'
 import { isPiCompatibleAgentType } from '../shared/pi-agent-kind'
 // Why: the launch-command detectors live in the Rust orca-text core — the relay reaches it via wasm.
-import { detectExplicitPiAgentKindFromCommand } from './git-wasm'
 import { resolveSetupAgentSequenceLaunchCommand } from '../shared/setup-agent-sequencing'
 import { pickRemoteCliEnv } from './remote-cli-env'
 import {

@@ -40,7 +40,7 @@ import os from 'node:os'
 import { delimiter, join, resolve } from 'node:path'
 
 const scriptDir = import.meta.dirname
-const repoRoot = resolve(scriptDir, '..', '..')
+const repoRoot = resolve(scriptDir, '..', '..', '..')
 const require = createRequire(import.meta.url)
 
 function parseArgs(argv) {

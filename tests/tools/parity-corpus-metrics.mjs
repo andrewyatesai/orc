@@ -26,10 +26,10 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 
-const repo = resolve(import.meta.dirname, '..')
+const repo = resolve(import.meta.dirname, '..', '..')
 // The ratchet baseline: parity coverage may only GROW. A drop means a corpus was
 // deleted/shrunk (a regression in the machine-checked equivalence net) and fails.
-const BASELINE = join(repo, 'tools', 'terminal-bench', 'parity-corpus-baseline.json')
+const BASELINE = join(repo, 'tests', 'tools', 'terminal-bench', 'parity-corpus-baseline.json')
 
 // A corpus line that carries a case: not blank, not a `#` comment.
 const isCaseLine = (line) => {
@@ -38,7 +38,7 @@ const isCaseLine = (line) => {
 }
 
 function dispatchParityVectors() {
-  const dir = join(repo, 'tools', 'parity', 'vectors')
+  const dir = join(repo, 'tests', 'tools', 'parity', 'vectors')
   const modules = []
   if (!existsSync(dir)) {
     return modules

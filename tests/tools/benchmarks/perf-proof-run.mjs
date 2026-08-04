@@ -30,7 +30,7 @@ import { parseCriterionOutput } from './criterion-output-parse.mjs'
 import { extractMetrics, formatMetricValue, PERF_PROOF_METRICS } from './perf-proof-metrics.mjs'
 
 const scriptDir = import.meta.dirname
-const repoRoot = resolve(scriptDir, '..', '..')
+const repoRoot = resolve(scriptDir, '..', '..', '..')
 const resultsDir = join(scriptDir, 'results')
 const require = createRequire(import.meta.url)
 const playwrightCli = resolve(dirname(require.resolve('@playwright/test/package.json')), 'cli.js')

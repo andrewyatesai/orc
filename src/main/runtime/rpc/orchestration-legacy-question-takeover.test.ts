@@ -11,6 +11,7 @@ import { OrcaRuntimeService } from '../orca-runtime'
 import type { RpcRequest } from './core'
 import { RpcDispatcher } from './dispatcher'
 import { ORCHESTRATION_METHODS } from './methods/orchestration'
+import { orchestrationSqliteProbe } from '../orchestration/orchestration-sqlite-probe'
 
 const COORDINATOR_HANDLE = 'term_legacy_coord'
 const CURRENT_COORDINATOR_HANDLE = 'term_current_coord'
@@ -175,7 +176,7 @@ describe('legacy question takeover compatibility', () => {
         legacyCompatibility: { replayed: true }
       }
     })
-    const sqlite = (harness.db as unknown as { db: Database.Database }).db
+    const sqlite = orchestrationSqliteProbe(harness.db)
     expect(
       (
         sqlite
@@ -226,7 +227,7 @@ describe('legacy question takeover compatibility', () => {
         }
       }
     })
-    const sqlite = (harness.db as unknown as { db: Database.Database }).db
+    const sqlite = orchestrationSqliteProbe(harness.db)
     expect(
       (sqlite.prepare('SELECT COUNT(*) AS count FROM question_threads').get() as { count: number })
         .count
@@ -332,7 +333,7 @@ describe('legacy question takeover compatibility', () => {
           workerEvidence
         )
       )
-    const sqlite = (harness.db as unknown as { db: Database.Database }).db
+    const sqlite = orchestrationSqliteProbe(harness.db)
     sqlite
       .prepare('UPDATE messages SET to_handle = ? WHERE id = ?')
       .run('dispatch:foreign', acknowledgement.answerMessageId)

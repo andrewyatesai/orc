@@ -1,17 +1,9 @@
 import type { MessageRow } from './types'
+import { exposeUtcTimestamp } from './db-row-timestamp-exposure'
 
 // Why: SQLite stores UTC as timezone-less space format for SQL ordering, but
 // RPC/CLI consumers need an explicit offset (#9167). The Rust store returns the
 // rows as written; this module owns the RFC3339 exposure at the JSON boundary.
-const SQLITE_UTC_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/
-
-function exposeUtcTimestamp(timestamp: string | null): string | null {
-  if (!timestamp || !SQLITE_UTC_TIMESTAMP_RE.test(timestamp)) {
-    return timestamp
-  }
-  return `${timestamp.replace(' ', 'T')}Z`
-}
-
 export function exposeMessageTimestamps(message: MessageRow): MessageRow {
   return {
     ...message,

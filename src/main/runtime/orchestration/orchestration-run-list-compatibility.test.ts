@@ -1,10 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import type Database from '../../sqlite/sync-database'
 import { OrchestrationDb } from './db'
+import {
+  orchestrationSqliteProbe,
+  type OrchestrationSqliteProbe
+} from './orchestration-sqlite-probe'
 import { ORCHESTRATION_RUN_METHODS } from '../rpc/methods/orchestration-runs'
 
-function sqliteFor(db: OrchestrationDb): Database.Database {
-  return (db as unknown as { db: Database.Database }).db
+// The fork's store is in Rust; raw SQL goes through the spec probe.
+function sqliteFor(db: OrchestrationDb): OrchestrationSqliteProbe {
+  return orchestrationSqliteProbe(db)
 }
 
 describe('orchestration Run list compatibility', () => {

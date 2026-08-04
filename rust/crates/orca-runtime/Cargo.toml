@@ -18,6 +18,15 @@ serde_json = { version = "1", default-features = false, features = ["std"] }
 # Row structs derive Serialize so the napi shim can marshal them to the exact
 # TS Row JSON (snake_case columns; `type` via serde rename).
 serde = { version = "1", default-features = false, features = ["std", "derive"] }
+# Capability minting is the TS `randomBytes(32)` — an unforgeable auth token, so
+# it needs the OS CSPRNG, not SQLite's `randomblob`.
+getrandom = { version = "0.3", default-features = false }
+# Dispatch capabilities are stored as the SHA-256 of the token, matching
+# node:crypto `createHash('sha256')` in db.ts. Vendored/stripped RustCrypto.
+sha2 = { version = "0.10", default-features = false }
+# `timingSafeEqual` equivalent: the capability-hash compare must stay
+# constant-time, so it goes through `ConstantTimeEq`, never `==`.
+subtle = { version = "2", default-features = false }
 
 [lints.rust]
 unsafe_code = "forbid"

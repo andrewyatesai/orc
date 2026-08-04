@@ -86,7 +86,11 @@ describe('PR workflow parallelism', () => {
   })
 
   it('keeps every real-zsh test in the dedicated shell lane', () => {
-    const discoveredFiles = globSync(testFilePatterns)
+    // Vendored dependencies ship their own zsh-touching tests (node-pty's, under
+    // the terminal-bench install); the shell lane covers this repo's tests only.
+    const discoveredFiles = globSync(testFilePatterns, {
+      exclude: (path) => path.includes('node_modules')
+    })
       .filter((testFile) => realZshUsage.test(readFileSync(testFile, 'utf8')))
       .sort()
 

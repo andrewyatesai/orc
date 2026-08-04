@@ -34,122 +34,13 @@ export type RustNdjsonParserHandle = {
 
 export type RustNdjsonParserCtor = new (maxLineBytes?: number) => RustNdjsonParserHandle
 
-/** The stateful multi-agent orchestration store (messages/tasks/dispatch/gates/
- *  coordinator runs) backed by orca-runtime's bundled SQLite. The main-process
- *  `OrchestrationDb` shim holds ONE of these and delegates every method to it;
- *  the deleted TS `node:sqlite` twin was byte-identical. Row-returning methods
- *  return the JSON string of the TS Row shape (parse on the shim side); the
- *  shim owns all JS-side nondeterminism (generated ids, ISO completion stamps,
- *  display strings) and passes it IN — every other timestamp is SQLite's
- *  `datetime('now')`. Methods throw on store errors (matching the TS twin's
- *  thrown Error text for the dispatch/task guard paths). */
-export type RustOrchestrationStoreHandle = {
-  // messages
-  insertMessage(
-    id: string,
-    fromHandle: string,
-    toHandle: string,
-    subject: string,
-    body: string,
-    messageType: string,
-    priority: string,
-    threadId: string | null,
-    payload: string | null,
-    senderPaneKey: string | null,
-    recipientPaneKey: string | null
-  ): string
-  getMessageById(id: string): string | null
-  /** Rewrite a superseded worker_done/heartbeat into an audit-only rejection. */
-  convertLifecycleMessageToRejection(id: string, reason: string): string | null
-  getUnreadMessages(handle: string, types: string[] | undefined): string
-  getUndeliveredUnreadMessages(handle: string, types: string[] | undefined): string
-  getAllMessages(handle: string, limit: number): string
-  getAllMessagesForHandle(handle: string, limit: number, types: string[] | undefined): string
-  getInbox(limit: number): string
-  getThreadMessagesFor(
-    threadId: string,
-    toHandle: string,
-    afterSequence: number | undefined
-  ): string
-  markAsRead(ids: string[]): void
-  markAsDelivered(ids: string[]): void
-  markAsReadAndDelivered(ids: string[]): void
-  // tasks
-  createTask(
-    id: string,
-    spec: string,
-    parentId: string | null,
-    deps: string[],
-    createdBy: string | null,
-    taskTitle: string | null,
-    displayName: string | null
-  ): string
-  getTask(id: string): string | null
-  listTasks(status: string | undefined): string
-  listTasksWithDispatch(status: string | undefined): string
-  updateTaskStatus(
-    id: string,
-    status: string,
-    result: string | null,
-    completedAt: string | null
-  ): string | null
-  // dispatch contexts
-  createDispatchContext(
-    taskId: string,
-    assigneeHandle: string,
-    id: string,
-    assigneePaneKey: string | null
-  ): string
-  getDispatchContext(taskId: string): string | null
-  getDispatchContextById(id: string): string | null
-  getActiveDispatchForTerminal(handle: string): string | null
-  getLatestDispatchForTerminal(handle: string): string | null
-  completeDispatch(id: string): void
-  completeActiveDispatchForTask(taskId: string): void
-  failActiveDispatchForTask(taskId: string, error: string): string | null
-  failDispatch(id: string, error: string): string | null
-  recordHeartbeat(id: string, at: string): void
-  getStaleDispatches(thresholdIso: string): string
-  setDispatchTimestamps(
-    id: string,
-    dispatchedAt: string | null,
-    lastHeartbeatAt: string | null
-  ): void
-  // decision gates
-  createGate(
-    id: string,
-    taskId: string,
-    question: string,
-    options: string[],
-    originMessageId: string | null
-  ): string
-  resolveGate(id: string, resolution: string): string | null
-  timeoutGate(id: string): string | null
-  listGates(taskId: string | undefined, status: string | undefined): string
-  getGate(id: string): string | null
-  // coordinator runs
-  createCoordinatorRun(
-    id: string,
-    spec: string,
-    coordinatorHandle: string,
-    pollIntervalMs: number | undefined
-  ): string
-  getCoordinatorRun(id: string): string | null
-  updateCoordinatorRun(id: string, status: string, completedAt: string | null): string | null
-  getActiveCoordinatorRun(): string | null
-  /** Every still-running coordinator, newest first — multi-orchestrator gating (#4389). */
-  getActiveCoordinatorRuns(): string
-  // queries + lifecycle
-  getIdleTerminals(excludeHandles: string[]): string
-  resetAll(): void
-  resetTasks(): void
-  resetMessages(): void
-  /** Raw all-tables dump (real ids/timestamps) for the parity state harness. */
-  dumpTablesJson(): string
-  close(): void
-}
+// The orchestration store surface (~135 methods) lives in its own module.
+import type { RustOrchestrationStoreCtor } from './rust-orchestration-store-binding'
 
-export type RustOrchestrationStoreCtor = new (path: string) => RustOrchestrationStoreHandle
+export type {
+  RustOrchestrationStoreCtor,
+  RustOrchestrationStoreHandle
+} from './rust-orchestration-store-binding'
 
 /** The JS git executor the "A bridge" calls back into. It MUST resolve (never
  *  reject) for a git that spawned and exited, carrying its `exitCode`, so Rust can

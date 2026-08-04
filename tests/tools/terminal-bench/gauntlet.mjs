@@ -43,13 +43,13 @@ import { corpusGate } from './gauntlet-corpus.mjs'
 import { rustTypeToArgspec } from './rust-type-to-argspec.mjs'
 
 const here = import.meta.dirname
-const repo = resolve(here, '..', '..')
+const repo = resolve(here, '..', '..', '..')
 const require = createRequire(import.meta.url)
 
 const ADDON = join(repo, 'native', 'orca-node', 'orca_node.node')
 const XTERM = join(here, 'node_modules', '@xterm', 'headless', 'lib-headless', 'xterm-headless.js')
-const CONF_CORPUS = join(repo, 'tools', 'aterm-vs-xterm', 'corpus.json')
-const CONF_JSONL = join(repo, 'tools', 'conformance', 'cases.jsonl')
+const CONF_CORPUS = join(repo, 'tests', 'tools', 'aterm-vs-xterm', 'corpus.json')
+const CONF_JSONL = join(repo, 'tests', 'tools', 'conformance', 'cases.jsonl')
 const BENCH_DIR = join(tmpdir(), 'orca-bench')
 const PERF_CORPUS = join(BENCH_DIR, 'corpus.bin')
 const REPORT = join(here, '.gauntlet-report.json')
@@ -484,7 +484,7 @@ const CENSUS_BASELINE = join(here, 'census-ratchet.json')
 function census() {
   mkdirSync(BENCH_DIR, { recursive: true })
   const out = join(BENCH_DIR, 'census.json')
-  sh('node', [join(repo, 'tools', 'repo-census.mjs'), '--json', out])
+  sh('node', [join(repo, 'tests', 'tools', 'repo-census.mjs'), '--json', out])
   const snap = JSON.parse(readFileSync(out, 'utf8'))
   const current = {
     shimWholeFileLoc: snap.deliveryReliabilityShim.wholeFileTotalLoc,
@@ -533,7 +533,7 @@ function provenance() {
   let out
   let code = 0
   try {
-    out = sh('node', [join(repo, 'tools', 'port-provenance.mjs'), '--json'])
+    out = sh('node', [join(repo, 'tests', 'tools', 'port-provenance.mjs'), '--json'])
   } catch (e) {
     code = e.status ?? 1
     out = `${e.stdout ?? ''}`

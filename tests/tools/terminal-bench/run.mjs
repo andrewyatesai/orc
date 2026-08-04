@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
 const here = import.meta.dirname
-const repo = resolve(here, '..', '..')
+const repo = resolve(here, '..', '..', '..')
 const trials = Number(process.argv[2] ?? 5)
 const corpusMB = Number(process.argv[3] ?? 16)
 const corpus = '/tmp/orca-bench/corpus.bin'

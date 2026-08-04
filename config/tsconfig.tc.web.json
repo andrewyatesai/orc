@@ -10,6 +10,7 @@
     "../src/main/gitlab/mappers.ts",
     "../src/main/rust-gitlab-pipeline-checks.ts",
     "../src/main/daemon/rust-git-addon.ts",
+    "../src/main/daemon/rust-orchestration-store-binding.ts",
     "../src/main/daemon/orca-node-addon-paths.ts",
     "../src/main/ipc/worktree-branch-name.ts",
     "../src/main/ipc/worktree-logic.ts",
@@ -22,12 +23,8 @@
   ],
   "compilerOptions": {
     "paths": {
-      "@renderer/*": [
-        "../src/renderer/src/*"
-      ],
-      "@/*": [
-        "../src/renderer/src/*"
-      ]
+      "@renderer/*": ["../src/renderer/src/*"],
+      "@/*": ["../src/renderer/src/*"]
     }
   }
 }

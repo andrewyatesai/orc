@@ -36,7 +36,7 @@ import {
 // PROTOCOL_VERSION in rust/crates/orca-daemon/src/protocol.rs.
 const MIN_PROTOCOL_VERSION = 1018
 const SUBSCRIBER_PROTOCOL_VERSION = 1019
-const repoRoot = resolve(import.meta.dirname, '..', '..')
+const repoRoot = resolve(import.meta.dirname, '..', '..', '..')
 const scratch = mkdtempSync(join(os.tmpdir(), 'daemon-parity-'))
 const cleanup = []
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))

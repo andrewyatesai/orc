@@ -11,6 +11,7 @@ import { OrchestrationDb } from '../orchestration/db'
 import type { RpcRequest, RpcResponse } from './core'
 import { RpcDispatcher } from './dispatcher'
 import { ORCHESTRATION_METHODS } from './methods/orchestration'
+import { orchestrationSqliteProbe } from '../orchestration/orchestration-sqlite-probe'
 
 const COORDINATOR_HANDLE = 'term_legacy_coord'
 const COORDINATOR_PANE = 'tab_coord:44444444-4444-4444-8444-444444444444'
@@ -167,14 +168,14 @@ function settleLegacyWorkerAndTakeOver(harness: Harness, result: string): void {
 }
 
 function mutationReceiptCount(db: OrchestrationDb): number {
-  const sqlite = (db as unknown as { db: Database.Database }).db
+  const sqlite = orchestrationSqliteProbe(db)
   return (
     sqlite.prepare('SELECT COUNT(*) AS count FROM mutation_receipts').get() as { count: number }
   ).count
 }
 
 function messageCount(db: OrchestrationDb): number {
-  const sqlite = (db as unknown as { db: Database.Database }).db
+  const sqlite = orchestrationSqliteProbe(db)
   return (sqlite.prepare('SELECT COUNT(*) AS count FROM messages').get() as { count: number }).count
 }
 
@@ -474,7 +475,7 @@ describe('legacy coordinator takeover races', () => {
         mutation: { requestId: 'check-ack-takeover', replayed: false }
       }
     })
-    const sqlite = (harness.db as unknown as { db: Database.Database }).db
+    const sqlite = orchestrationSqliteProbe(harness.db)
     expect(sqlite.prepare('SELECT state FROM mutation_receipts').get()).toEqual({
       state: 'completed'
     })

@@ -15,7 +15,7 @@ import {
 } from './autoformalize-signature-spec.mjs'
 import { buildModuleContext, classifyFunctionBody } from './autoformalize-candidate-purity.mjs'
 
-const REPO_ROOT = dirname(import.meta.dirname)
+const REPO_ROOT = dirname(dirname(import.meta.dirname))
 const SCAN_ROOTS = [
   join('src', 'shared'),
   join('src', 'main'),
@@ -301,7 +301,7 @@ function main() {
     }
   }
   entries.sort(compareRank)
-  const outPath = join(REPO_ROOT, 'tools', 'autoformalize-candidates.json')
+  const outPath = join(REPO_ROOT, 'tests', 'tools', 'autoformalize-candidates.json')
   writeFileSync(
     outPath,
     `${JSON.stringify(

@@ -4,11 +4,16 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import Database from '../../sqlite/sync-database'
 import { OrchestrationDb } from './db'
+import {
+  orchestrationSqliteProbe,
+  type OrchestrationSqliteProbe
+} from './orchestration-sqlite-probe'
 
 const MUTATION_RECEIPT_MAX_ROWS = 10_000
 
-function sqliteFor(db: OrchestrationDb): Database.Database {
-  return (db as unknown as { db: Database.Database }).db
+// The fork's store is in Rust; raw SQL goes through the spec probe.
+function sqliteFor(db: OrchestrationDb): OrchestrationSqliteProbe {
+  return orchestrationSqliteProbe(db)
 }
 
 function insertMutationReceipts(

@@ -24,7 +24,7 @@ import os from 'node:os'
 import { join, resolve } from 'node:path'
 
 const scriptDir = import.meta.dirname
-const repoRoot = resolve(scriptDir, '..', '..')
+const repoRoot = resolve(scriptDir, '..', '..', '..')
 
 const CURRENT_PROTOCOL_VERSION = 12
 const LEGACY_PROTOCOL_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]

@@ -6,7 +6,7 @@
 // The mapping is derived mechanically (no hand-maintained table):
 //   • parity registry — the match arms in rust/crates/{orca-dispatch,orca-parity}/
 //     src/modules/mod.rs name every vector module; each module's TS sources come from
-//     its tools/parity/dispatch/<module>.ts value-imports (type-only imports are
+//     its tests/tools/parity/dispatch/<module>.ts value-imports (type-only imports are
 //     excluded — they cannot change the executed reference leg), and its Rust twins
 //     from the dispatch adapter's `use orca_*::…` statements (root re-exports resolved
 //     through the crate's lib.rs `pub use` map).
@@ -19,8 +19,8 @@
 // once the merge resolves.
 //
 // Usage:
-//   node tools/port-provenance.mjs --generate    derive + write the manifest
-//   node tools/port-provenance.mjs [--json]      re-derive, diff against the committed
+//   node tests/tools/port-provenance.mjs --generate    derive + write the manifest
+//   node tests/tools/port-provenance.mjs [--json]      re-derive, diff against the committed
 //                                                manifest; exit 0 clean / 2 on drift
 // Env:
 //   PROVENANCE_ROOT=<dir>  overlay root: any repo-relative path present under it is
@@ -29,10 +29,10 @@
 
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 
-const repo = resolve(import.meta.dirname, '..')
-const MANIFEST_REL = 'tools/terminal-bench/port-provenance.json'
+const repo = resolve(import.meta.dirname, '..', '..')
+const MANIFEST_REL = 'tests/tools/terminal-bench/port-provenance.json'
 const overlay = process.env.PROVENANCE_ROOT ? resolve(process.env.PROVENANCE_ROOT) : null
 
 const readRel = (rel) => {
@@ -82,11 +82,15 @@ function parityTsSources(dispatchTsRel, unmapped, moduleId) {
     if (spec.startsWith('./') || !spec.startsWith('.')) {
       continue // harness-local module or bare package dependency, not a ported source
     }
-    if (!spec.startsWith('../../src/')) {
+    // Resolve against the adapter's own directory rather than matching a fixed
+    // `../../` depth: the dispatch tree has moved before, and a hardcoded depth
+    // fails open — every import lands in `unmapped` and the module silently
+    // loses its pins instead of failing loudly.
+    const rel = relative(repo, resolve(dirname(join(repo, dispatchTsRel)), spec))
+    if (rel.startsWith('..') || !rel.startsWith(`src${sep}`)) {
       unmapped.push({ id: moduleId, reason: `unresolvable dispatch import: ${spec}` })
       continue
     }
-    const rel = spec.slice('../../../'.length)
     const hit = [`${rel}.ts`, `${rel}/index.ts`, rel].find((c) => existsRel(c))
     if (hit === undefined) {
       unmapped.push({ id: moduleId, reason: `dispatch import resolves to no file: ${spec}` })
@@ -250,11 +254,22 @@ function deriveMapping() {
   ]
   for (const reg of registries) {
     for (const { module, rustMod } of registryArms(reg.arms)) {
-      const dispatchTs = `tools/parity/dispatch/${module}.ts`
+      const dispatchTs = `tests/tools/parity/dispatch/${module}.ts`
       const dispatchRs = `${reg.dir}/${rustMod}.rs`
-      const { files, oracle } = parityTsSources(dispatchTs, unmapped, module)
+      const vectors = `tests/tools/parity/vectors/${module}.json`
+      // A module whose TS original a Rust cutover deleted has no live TS leg by
+      // design (its vectors say so, and are checked Rust-vs-golden). Record that
+      // as retired, not "adapter missing" — otherwise the honest answer looks
+      // like a regression someone would "fix" by re-adding a self-comparison.
+      const retired =
+        readRel(vectors) === null ? null : JSON.parse(readRel(vectors)).tsReferenceRetired
+      const { files, oracle } = retired
+        ? { files: [], oracle: false }
+        : parityTsSources(dispatchTs, unmapped, module)
+      if (retired) {
+        unmapped.push({ id: module, reason: `TS reference retired by a Rust cutover: ${retired}` })
+      }
       const twins = parityRustTwins(dispatchRs, unmapped, module)
-      const vectors = `tools/parity/vectors/${module}.json`
       if (!existsRel(vectors)) {
         unmapped.push({ id: module, reason: `vector corpus missing: ${vectors}` })
       }
@@ -383,7 +398,7 @@ function diffAgainstManifest(manifest, derived) {
   const manifestById = new Map(manifest.modules.map((m) => [m.id, m]))
   const derivedById = new Map(derived.modules.map((m) => [m.id, m]))
   const regen =
-    'then regenerate the manifest (node tools/port-provenance.mjs --generate) and commit it'
+    'then regenerate the manifest (node tests/tools/port-provenance.mjs --generate) and commit it'
 
   for (const [id, dm] of derivedById) {
     const mm = manifestById.get(id)
@@ -548,7 +563,7 @@ function main() {
         {
           kind: 'no-manifest',
           module: '(manifest)',
-          action: `no committed manifest at ${MANIFEST_REL} — generate it (node tools/port-provenance.mjs --generate) and commit it`
+          action: `no committed manifest at ${MANIFEST_REL} — generate it (node tests/tools/port-provenance.mjs --generate) and commit it`
         }
       ]
     })

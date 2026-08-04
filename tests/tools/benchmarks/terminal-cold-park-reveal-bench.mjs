@@ -45,7 +45,7 @@ import {
   setupTimeoutMs
 } from '../../../config/scripts/windows-apphang-repro/repro-timing.mjs'
 
-const rootDir = path.resolve(fileURLToPath(new URL('../..', import.meta.url)))
+const rootDir = path.resolve(fileURLToPath(new URL('../../..', import.meta.url)))
 const scenarioTimeoutMs = 300_000
 
 // Short enough that a tab parks within a few seconds of being hidden, long

@@ -3,8 +3,7 @@ import { getTerminalLogicalText, waitForActivePanePtyId } from './helpers/termin
 import { waitForActiveAtermController } from './helpers/aterm-controller'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 import { atermCanvasReady } from './helpers/aterm-canvas-pixels'
-import { existsSync } from 'node:fs'
-import { writeFileSync } from 'node:fs'
+import { existsSync, writeFileSync } from 'node:fs'
 
 // RENDER proof of the host → IPC → set_fallback_font / add_fallback_font chain:
 // scripts the primary JetBrains Mono face LACKS (CJK, Arabic, Devanagari) must

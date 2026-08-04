@@ -1,5 +1,6 @@
 {
   "module": "orchestration-store",
+  "tsReferenceRetired": "The TypeScript orchestration store was deleted by the orca-runtime cutover: src/main/runtime/orchestration/db.ts is now a shim over the same Rust code these vectors exercise, so a TS leg would compare Rust against itself. The `expected` values below were recorded from the real TS store before it was deleted, so they remain an independent oracle \u2014 this module is checked Rust-vs-golden.",
   "cases": [
     {
       "function": "runOpSequence",
@@ -13,17 +14,12 @@
           {
             "op": "createTask",
             "spec": "mid",
-            "deps": [
-              "@0"
-            ]
+            "deps": ["@0"]
           },
           {
             "op": "createTask",
             "spec": "leaf",
-            "deps": [
-              "@0",
-              "@1"
-            ]
+            "deps": ["@0", "@1"]
           },
           {
             "op": "listTasks"
@@ -82,9 +78,7 @@
               "parent_id": null,
               "spec": "mid",
               "status": "pending",
-              "deps": [
-                "task_0"
-              ],
+              "deps": ["task_0"],
               "result": null
             },
             {
@@ -92,10 +86,7 @@
               "parent_id": null,
               "spec": "leaf",
               "status": "pending",
-              "deps": [
-                "task_0",
-                "task_1"
-              ],
+              "deps": ["task_0", "task_1"],
               "result": null
             }
           ],
@@ -107,9 +98,7 @@
             "parent_id": null,
             "spec": "mid",
             "status": "ready",
-            "deps": [
-              "task_0"
-            ],
+            "deps": ["task_0"],
             "result": null
           },
           {
@@ -117,10 +106,7 @@
             "parent_id": null,
             "spec": "leaf",
             "status": "pending",
-            "deps": [
-              "task_0",
-              "task_1"
-            ],
+            "deps": ["task_0", "task_1"],
             "result": null
           },
           {
@@ -131,10 +117,7 @@
             "parent_id": null,
             "spec": "leaf",
             "status": "ready",
-            "deps": [
-              "task_0",
-              "task_1"
-            ],
+            "deps": ["task_0", "task_1"],
             "result": null
           },
           [
@@ -143,10 +126,7 @@
               "parent_id": null,
               "spec": "leaf",
               "status": "ready",
-              "deps": [
-                "task_0",
-                "task_1"
-              ],
+              "deps": ["task_0", "task_1"],
               "result": null
             }
           ]
@@ -171,9 +151,7 @@
               "created_by_terminal_handle": null,
               "spec": "mid",
               "status": "completed",
-              "deps": [
-                "task_0"
-              ],
+              "deps": ["task_0"],
               "result": null,
               "completed_at": "SET",
               "created_at": "SET"
@@ -184,10 +162,7 @@
               "created_by_terminal_handle": null,
               "spec": "leaf",
               "status": "ready",
-              "deps": [
-                "task_0",
-                "task_1"
-              ],
+              "deps": ["task_0", "task_1"],
               "result": null,
               "completed_at": null,
               "created_at": "SET"
@@ -346,9 +321,7 @@
           {
             "op": "createTask",
             "spec": "t1",
-            "deps": [
-              "@0"
-            ]
+            "deps": ["@0"]
           },
           {
             "op": "createDispatch",
@@ -434,9 +407,7 @@
               "created_by_terminal_handle": null,
               "spec": "t1",
               "status": "pending",
-              "deps": [
-                "task_0"
-              ],
+              "deps": ["task_0"],
               "result": null,
               "completed_at": null,
               "created_at": "SET"
@@ -513,10 +484,7 @@
             "op": "createGate",
             "task": "@0",
             "question": "go?",
-            "options": [
-              "yes",
-              "no"
-            ]
+            "options": ["yes", "no"]
           },
           {
             "op": "getTask",
@@ -539,9 +507,7 @@
             "op": "createGate",
             "task": "@0",
             "question": "again?",
-            "options": [
-              "ok"
-            ]
+            "options": ["ok"]
           },
           {
             "op": "timeoutGate",

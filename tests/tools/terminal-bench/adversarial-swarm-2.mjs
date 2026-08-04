@@ -1,8 +1,8 @@
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)))
-const benchDir = join(repoRoot, 'tools', 'terminal-bench')
+const repoRoot = resolve(fileURLToPath(new URL('../../..', import.meta.url)))
+const benchDir = join(repoRoot, 'tests', 'tools', 'terminal-bench')
 const headlessSource = join(repoRoot, 'rust', 'crates', 'orca-terminal', 'src', 'headless.rs')
 
 export const meta = {

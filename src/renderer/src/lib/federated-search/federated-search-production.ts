@@ -26,16 +26,14 @@ import { createLivePaneSearchAdapter } from './live-pane-search-adapter'
 import { createRemotePaneSearchAdapter } from './remote-pane-search-adapter'
 import { discoverLiveFederatedPanes } from './live-pane-discovery'
 import { discoverRemoteFederatedPanes, productionRemoteSearchCall } from './remote-pane-discovery'
-import type { FederatedGroupOrderContext } from './federated-search-grouping'
-import type { FederatedPaneRef, FederatedQueryOpts } from './federated-search-model'
+import type { FederatedGroupOrderContext, FederatedResultGroup } from './federated-search-grouping'
+import type { FederatedPaneRef, FederatedQueryOpts, FederatedMatch } from './federated-search-model'
 import {
   jumpToFederatedResult,
   type FederatedJumpDeps,
   type FederatedJumpOutcome,
   type FederatedJumpPane
 } from './federated-search-navigation'
-import type { FederatedResultGroup } from './federated-search-grouping'
-import type { FederatedMatch } from './federated-search-model'
 
 // Un-park wait: activation mounts the pane; the engine restore (snapshot/replay)
 // finishes within a few frames on healthy hosts — poll briefly, bounded.

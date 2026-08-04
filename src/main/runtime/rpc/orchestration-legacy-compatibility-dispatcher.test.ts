@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type Database from '../../sqlite/sync-database'
+import { orchestrationSqliteProbe } from '../orchestration/orchestration-sqlite-probe'
 import {
   cleanupLegacyCompatibilityDispatcherHarnesses,
   COORDINATOR_HANDLE,
@@ -246,7 +246,7 @@ describe('legacy compatibility through RpcDispatcher', () => {
 
   it('rejects a reused pane whose live process incarnation is not the legacy worker', async () => {
     const harness = createHarness()
-    const sqlite = (harness.db as unknown as { db: Database.Database }).db
+    const sqlite = orchestrationSqliteProbe(harness.db)
     sqlite
       .prepare('UPDATE dispatch_contexts SET process_incarnation = ? WHERE id = ?')
       .run('different-process', harness.dispatchId)

@@ -11,10 +11,11 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
-const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)))
+const repoRoot = resolve(fileURLToPath(new URL('../../..', import.meta.url)))
 const { Terminal } = require(
   join(
     repoRoot,
+    'tests',
     'tools',
     'terminal-bench',
     'node_modules',

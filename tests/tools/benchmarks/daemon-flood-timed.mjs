@@ -144,7 +144,7 @@ function resolveDaemonBin(explicit) {
     }
     return explicit
   }
-  const repoRoot = resolve(import.meta.dirname, '..', '..')
+  const repoRoot = resolve(import.meta.dirname, '..', '..', '..')
   const exe = process.platform === 'win32' ? 'orca-daemon.exe' : 'orca-daemon'
   // Why: release first — debug-build throughput is not a usable flood number.
   const candidates = ['release', 'debug'].map((p) => join(repoRoot, 'rust', 'target', p, exe))
@@ -303,7 +303,8 @@ async function main() {
   const corpusMb = corpusBytes / 1e6
 
   const cleanup = []
-  const scratch = process.platform === 'win32' ? null : mkdtempSync(join(os.tmpdir(), 'daemon-flood-'))
+  const scratch =
+    process.platform === 'win32' ? null : mkdtempSync(join(os.tmpdir(), 'daemon-flood-'))
   if (scratch) {
     cleanup.push(() => rmSync(scratch, { recursive: true, force: true }))
   }
@@ -437,8 +438,7 @@ async function main() {
   }
 }
 
-const invokedDirectly =
-  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
 if (invokedDirectly) {
   main().catch((err) => {
     console.error(err.message ?? err)

@@ -28,7 +28,7 @@ import {
 } from '../../../config/scripts/windows-apphang-repro/repro-timing.mjs'
 import { safeRemoveLocalDirectory } from '../../../config/scripts/windows-apphang-repro/wsl-workspace-fixture.mjs'
 
-const rootDir = path.resolve(fileURLToPath(new URL('../..', import.meta.url)))
+const rootDir = path.resolve(fileURLToPath(new URL('../../..', import.meta.url)))
 const scenarioTimeoutMs = 300_000
 const defaultIterations = 8
 const defaultSwitches = 24

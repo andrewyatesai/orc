@@ -10,7 +10,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
-const repo = path.resolve(import.meta.dirname, '..')
+const repo = path.resolve(import.meta.dirname, '..', '..')
 
 const tracked = execFileSync('git', ['ls-files'], { cwd: repo, maxBuffer: 64 * 1024 * 1024 })
   .toString()

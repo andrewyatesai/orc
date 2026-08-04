@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import type Database from '../../sqlite/sync-database'
 import SyncDatabase from '../../sqlite/sync-database'
+import { orchestrationSqliteProbe } from './orchestration-sqlite-probe'
 import { OrchestrationDb } from './db'
 
 const LEGACY_COORDINATOR_HANDLE = 'term_legacy_coord'
@@ -224,7 +224,7 @@ describe('adopted Run binding without --takeover-legacy', () => {
 // JS isEquivalentPaneKey filter stays authoritative. These pin both halves of that contract.
 describe('pane-bound Run lookup', () => {
   function explain(db: OrchestrationDb, paneKey: string): string {
-    const sqlite = (db as unknown as { db: Database.Database }).db
+    const sqlite = orchestrationSqliteProbe(db)
     return (
       sqlite
         .prepare(
@@ -346,7 +346,7 @@ describe('pane-bound Run lookup', () => {
 
   it('hands the JS filter an O(1) candidate set regardless of bound-Run count', () => {
     const db = track(new OrchestrationDb(':memory:'))
-    const sqlite = (db as unknown as { db: Database.Database }).db
+    const sqlite = orchestrationSqliteProbe(db)
     const leaf = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
     for (let i = 0; i < 500; i++) {
       db.createRun({

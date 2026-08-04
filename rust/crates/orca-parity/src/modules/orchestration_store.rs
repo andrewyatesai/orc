@@ -130,7 +130,7 @@ fn run_op_sequence(input: &Value) -> Value {
                 let parent = op.get("parentId").map(|v| resolve_ref(Some(v), &created));
                 let created_by = opt_str_field(op, "createdBy");
                 let ok = db
-                    .create_task(&gen, &str_field(op, "spec"), parent.as_deref(), &deps_ref, created_by.as_deref(), None, None)
+                    .create_task(&gen, &str_field(op, "spec"), parent.as_deref(), &deps_ref, created_by.as_deref(), None, None, None)
                     .is_ok();
                 if ok {
                     created_id = Some(gen);
@@ -153,6 +153,7 @@ fn run_op_sequence(input: &Value) -> Value {
                     &str_field(op, "assignee"),
                     &gen,
                     opt_str_field(op, "assigneePaneKey").as_deref(),
+                    None,
                 ) {
                     Ok(_) => {
                         created_id = Some(gen);
@@ -224,7 +225,7 @@ fn run_op_sequence(input: &Value) -> Value {
             ),
             "listTasks" => {
                 let status = opt_str_field(op, "status");
-                Pending::Tasks(db.list_tasks(status.as_deref()).unwrap_or_default())
+                Pending::Tasks(db.list_tasks(status.as_deref(), None).unwrap_or_default())
             }
             "getTask" => {
                 let task = resolve_ref(op.get("task"), &created);

@@ -5,7 +5,7 @@
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)))
+const repoRoot = resolve(fileURLToPath(new URL('../../..', import.meta.url)))
 const shellPath = (value) => `'${value.replaceAll("'", "'\\''")}'`
 const repoRootForShell = shellPath(repoRoot)
 
