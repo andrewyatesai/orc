@@ -137,15 +137,9 @@ describe('maybePushMode2031Flip', () => {
   })
 })
 
-// The renderer-side CSI mode-2031 handlers (installMode2031Handlers) are inert
-// under aterm: the facade parser no-ops registerCsiHandler (see
-// aterm-facade-parser.ts), so `CSI ?2031h/l` never reaches them. The real
-// subscribe/reply behavior — recognizing mode 2031 and pushing the current
-// color scheme — is handled natively by the aterm wasm engine and covered by
-// the aterm e2e specs (tests/e2e/terminal-tab-switch-visual-restore.spec.ts via
-// hiddenRendererMode2031ReplyCount), which run against the real engine + PTY.
-// The pure spam-gate logic the renderer still owns (maybePushMode2031Flip) is
-// covered above without an xterm parser.
+// No CSI-handler coverage here: mode-2031 reply authority is pty-connection's
+// per-chunk scanner (#10817), covered by its own spec and by the aterm e2e run
+// (hiddenRendererMode2031ReplyCount). This file keeps the pure spam-gate above.
 
 describe('applyTerminalAppearance theme assignment', () => {
   // Value-gated assignment: re-theming calls atermController.updateTheme, which rebuilds the engine palette and would

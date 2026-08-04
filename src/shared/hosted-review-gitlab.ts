@@ -1,5 +1,6 @@
 import type { HostedReviewInfo, HostedReviewQueueSummary } from './hosted-review'
 import type { PRCheckDetail, PRComment } from './types'
+import { derivePRCheckStatus } from './pr-check-status'
 
 export type HostedReviewFromGitLabInfoArgs = {
   review: HostedReviewInfo & { provider: 'gitlab' }
@@ -58,35 +59,10 @@ function deriveChecksStatus(
   reviewStatus: HostedReviewInfo['status'],
   checks?: PRCheckDetail[]
 ): HostedReviewInfo['status'] {
-  if (!checks || checks.length === 0) {
+  if (!checks) {
     return reviewStatus
   }
-  const hasFailure = checks.some(
-    (check) =>
-      check.conclusion === 'failure' ||
-      check.conclusion === 'timed_out' ||
-      // Why: GitLab maps canceled/canceling jobs to 'cancelled'; without this a
-      // [success, cancelled] pipeline reads as green (parity with GitHub twin).
-      check.conclusion === 'cancelled' ||
-      // Why: a blocking manual job maps to 'action_required' and gates the
-      // pipeline; it must not read as green (parity with GitHub twin).
-      check.conclusion === 'action_required'
-  )
-  if (hasFailure) {
-    return 'failure'
-  }
-  const hasPending = checks.some(
-    (check) =>
-      check.status !== 'completed' || check.conclusion === null || check.conclusion === 'pending'
-  )
-  if (hasPending) {
-    return 'pending'
-  }
-  const hasSuccess = checks.some((check) => check.conclusion === 'success')
-  if (hasSuccess) {
-    return 'success'
-  }
-  return 'neutral'
+  return derivePRCheckStatus(checks)
 }
 
 export function hostedReviewSummaryFromGitLabInfo(

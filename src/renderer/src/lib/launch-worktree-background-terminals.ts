@@ -9,10 +9,8 @@ import { singlePaneLayoutSnapshot } from '@/store/slices/terminal-helpers'
 import { retireUnownedTerminal } from '@/lib/retire-unowned-background-terminal'
 import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
-import { isWindowsAbsolutePathLike } from '../../../shared/cross-platform-path'
 import { makePaneKey } from '../../../shared/stable-pane-id'
-import { buildSetupRunnerCommand } from '../../../shared/setup-runner-command'
-import { getWorktreeSetupTerminalShellFamily } from '@/lib/setup-runner'
+import { buildWorktreeSetupLaunchCommand } from '@/lib/worktree-setup-launch-command'
 import type {
   TerminalLayoutSnapshot,
   Worktree,
@@ -120,22 +118,6 @@ function registerBackgroundPaneBuffer(tabId: string, leafId: string, ptyId: stri
   })
 }
 
-function buildSetupCommand(setup: WorktreeSetupLaunch, worktreeId: string): string {
-  const state = useAppStore.getState()
-  return buildSetupRunnerCommand(
-    setup.runnerScriptPath,
-    isWindowsAbsolutePathLike(setup.runnerScriptPath) ? 'windows' : 'posix',
-    // Why: the setup command is typed into the pane's interactive shell, so a
-    // Git Bash terminal needs POSIX delivery instead of a cmd.exe wrapper (#6896).
-    getWorktreeSetupTerminalShellFamily(
-      state,
-      worktreeId,
-      state.settings?.terminalWindowsShell,
-      state.settings?.terminalPosixShell
-    )
-  )
-}
-
 async function spawnPane(args: {
   worktree: Worktree
   connectionId: string | null
@@ -193,7 +175,7 @@ async function createBackgroundTab(args: {
   }
   if (
     await retireUnownedTerminal({
-      tabId: tab.id,
+      owner: { tabId: tab.id },
       ptyId,
       runtimeTarget: { kind: 'local' }
     })
@@ -220,12 +202,12 @@ async function addSetupSplit(args: {
     connectionId: args.connectionId,
     tabId: args.tab.tabId,
     leafId: setupLeafId,
-    command: buildSetupCommand(args.setup, args.worktree.id),
+    command: buildWorktreeSetupLaunchCommand(args.setup, args.worktree.id),
     env: args.setup.envVars
   })
   if (
     await retireUnownedTerminal({
-      tabId: args.tab.tabId,
+      owner: { tabId: args.tab.tabId },
       ptyId: setupPtyId,
       runtimeTarget: { kind: 'local' }
     })
@@ -315,7 +297,7 @@ export async function launchWorktreeBackgroundTerminals(
       connectionId,
       launch: {
         title: getSetupTabTitle(),
-        command: buildSetupCommand(args.setup, worktree.id),
+        command: buildWorktreeSetupLaunchCommand(args.setup, worktree.id),
         env: args.setup.envVars
       }
     })

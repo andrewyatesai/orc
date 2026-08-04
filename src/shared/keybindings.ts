@@ -26,6 +26,7 @@ export type KeybindingMatchOptions = {
 }
 
 export type AgentTabActionId = `tab.newAgent.${TuiAgent}`
+export type PluginKeybindingActionId = `plugin:${string}`
 
 export type KeybindingActionId =
   | 'worktree.quickOpen'
@@ -117,6 +118,7 @@ export type KeybindingActionId =
   | 'terminal.splitDown'
   | 'terminal.switchInputSource'
   | 'terminal.composeBox'
+  | PluginKeybindingActionId
 
 /** Ids for user-defined custom shortcuts live in a reserved namespace so they can never collide with the fixed union. */
 export type CustomKeybindingActionId = `custom.${string}`
@@ -217,6 +219,7 @@ export type CustomKeybindingConflictEntry = {
 
 export type FindKeybindingConflictOptions = {
   ignoredActionIds?: Iterable<KeybindingActionId>
+  relevantActionIds?: Iterable<KeybindingActionId>
 }
 
 export const KEYBINDING_DEFINITIONS: readonly KeybindingDefinition[] = [
@@ -1202,7 +1205,16 @@ export function getKeybindingPlatform(platform: NodeJS.Platform): KeybindingPlat
 }
 
 export function isKeybindingActionId(value: string): value is KeybindingActionId {
-  return DEFINITION_IDS.has(value as KeybindingActionId)
+  return DEFINITION_IDS.has(value as KeybindingActionId) || isPluginKeybindingActionId(value)
+}
+
+export function isPluginKeybindingActionId(value: string): value is PluginKeybindingActionId {
+  return (
+    value.length <= 400 &&
+    /^plugin:[a-z0-9]+(?:-[a-z0-9]+)*\.[a-z0-9]+(?:-[a-z0-9]+)*\/[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*$/.test(
+      value
+    )
+  )
 }
 
 function hasModifier(
@@ -1922,9 +1934,6 @@ export function getEffectiveKeybindingsForAction(
   overrides?: KeybindingOverrides
 ): string[] {
   const definition = DEFINITIONS_BY_ID.get(actionId)
-  if (!definition) {
-    return []
-  }
   const override = overrides?.[actionId]
   if (Array.isArray(override)) {
     // Why: canonicalize digit-index overrides to <mods>+1 so display/conflict stay consistent even if a hand-edited file stored a different digit.
@@ -1945,6 +1954,18 @@ export function getEffectiveKeybindingsForAction(
       )
       return normalized.ok ? [normalized.value] : []
     })
+  }
+  return definition ? getDefaultBindings(definition, platform) : []
+}
+
+export function getEffectiveKeybindingsForDefinition(
+  definition: KeybindingDefinition,
+  platform: NodeJS.Platform,
+  overrides?: KeybindingOverrides
+): string[] {
+  const override = overrides?.[definition.id]
+  if (Array.isArray(override)) {
+    return getEffectiveKeybindingsForAction(definition.id, platform, overrides)
   }
   return getDefaultBindings(definition, platform)
 }
@@ -2204,7 +2225,7 @@ function keybindingConflictIdentityForParsed(
   ].join('+')
 }
 
-function keybindingConflictIdentity(binding: string, platform: NodeJS.Platform): string {
+export function getKeybindingConflictIdentity(binding: string, platform: NodeJS.Platform): string {
   const parsed = parseKeybinding(binding)
   return parsed ? keybindingConflictIdentityForParsed(parsed, platform) : binding
 }
@@ -2216,7 +2237,8 @@ export function keybindingsShareConflictIdentity(
   platform: NodeJS.Platform
 ): boolean {
   return (
-    keybindingConflictIdentity(first, platform) === keybindingConflictIdentity(second, platform)
+    getKeybindingConflictIdentity(first, platform) ===
+    getKeybindingConflictIdentity(second, platform)
   )
 }
 
@@ -2225,7 +2247,7 @@ function keybindingConflictIdentities(
   binding: string,
   platform: NodeJS.Platform
 ): readonly string[] {
-  const exact = keybindingConflictIdentity(binding, platform)
+  const exact = getKeybindingConflictIdentity(binding, platform)
   if (!isDigitIndexActionId(actionId)) {
     return [exact]
   }
@@ -2356,6 +2378,23 @@ export function formatKeybindingList(
     .join(', ')
 }
 
+export function findKeybindingActionsForBinding(
+  binding: string,
+  platform: NodeJS.Platform,
+  overrides?: KeybindingOverrides,
+  scopes: readonly KeybindingScope[] = ['global', 'tabs']
+): KeybindingActionId[] {
+  const identity = getKeybindingConflictIdentity(binding, platform)
+  const allowedScopes = new Set(scopes)
+  return KEYBINDING_DEFINITIONS.filter(
+    (definition) =>
+      allowedScopes.has(definition.scope) &&
+      getEffectiveKeybindingsForAction(definition.id, platform, overrides).some((candidate) =>
+        keybindingConflictIdentities(definition.id, candidate, platform).includes(identity)
+      )
+  ).map((definition) => definition.id)
+}
+
 function formatKeyToken(token: string): string {
   const labels: Record<string, string> = {
     BracketLeft: '[',
@@ -2396,6 +2435,22 @@ export function findKeybindingConflicts(
   options: FindKeybindingConflictOptions = {},
   customEntries?: readonly CustomKeybindingConflictEntry[]
 ): KeybindingConflict[] {
+  return findKeybindingConflictsForDefinitions(
+    KEYBINDING_DEFINITIONS,
+    platform,
+    overrides,
+    options,
+    customEntries
+  )
+}
+
+export function findKeybindingConflictsForDefinitions(
+  definitions: readonly KeybindingDefinition[],
+  platform: NodeJS.Platform,
+  overrides?: KeybindingOverrides,
+  options: FindKeybindingConflictOptions = {},
+  customEntries?: readonly CustomKeybindingConflictEntry[]
+): KeybindingConflict[] {
   const owners = new Map<
     string,
     { binding: string; actionIds: Set<KeybindingActionId | CustomKeybindingActionId> }
@@ -2407,11 +2462,16 @@ export function findKeybindingConflicts(
         isKeybindingActionId(actionId) && !ignoredActionIds.has(actionId)
     )
   )
-  for (const definition of KEYBINDING_DEFINITIONS) {
+  for (const actionId of options.relevantActionIds ?? []) {
+    if (!ignoredActionIds.has(actionId)) {
+      customizedActions.add(actionId)
+    }
+  }
+  for (const definition of definitions) {
     if (ignoredActionIds.has(definition.id)) {
       continue
     }
-    for (const binding of getEffectiveKeybindingsForAction(definition.id, platform, overrides)) {
+    for (const binding of getEffectiveKeybindingsForDefinition(definition, platform, overrides)) {
       const groups = new Set([definition.conflictGroup ?? definition.scope])
       if (definition.conflictGroup) {
         // Why: native menu accelerators can consume global chords, so check custom bindings against both the menu bucket and scope.
@@ -2439,7 +2499,7 @@ export function findKeybindingConflicts(
   // Why: custom entries are terminal-scope user config by definition — every collision they join is reportable.
   for (const entry of customEntries ?? []) {
     for (const binding of entry.bindings) {
-      const conflictKey = `terminal\u0000${keybindingConflictIdentity(binding, platform)}`
+      const conflictKey = `terminal\u0000${getKeybindingConflictIdentity(binding, platform)}`
       const current = owners.get(conflictKey) ?? { binding, actionIds: new Set() }
       current.actionIds.add(entry.id)
       owners.set(conflictKey, current)

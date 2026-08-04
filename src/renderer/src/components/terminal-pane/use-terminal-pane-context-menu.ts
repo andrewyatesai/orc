@@ -214,16 +214,31 @@ export function useTerminalPaneContextMenu({
     if (!pane) {
       return
     }
-    // Why: orchestration targets use ORCA_PANE_KEY, which survives renderer
-    // remounts; the numeric PaneManager id is only a local runtime handle.
-    await window.api.ui.writeClipboardText(makePaneKey(tabId, pane.leafId))
-    toast.success(
-      translate(
-        'auto.components.terminal.pane.use.terminal.pane.context.menu.a29b9faa01',
-        'Pane ID copied'
+    try {
+      // Why: orchestration targets use ORCA_PANE_KEY, which survives renderer
+      // remounts; the numeric PaneManager id is only a local runtime handle.
+      const copied = await window.api.ui.writeClipboardText(makePaneKey(tabId, pane.leafId))
+      // Why: the write is verified by read-back, so claiming success for an
+      // unverified copy is the silent lie this branch exists to remove.
+      if (copied === false) {
+        throw new Error('clipboard write unverified')
+      }
+      toast.success(
+        translate(
+          'auto.components.terminal.pane.use.terminal.pane.context.menu.a29b9faa01',
+          'Pane ID copied'
+        )
       )
-    )
-    pane.terminal.focus()
+    } catch {
+      toast.error(
+        translate(
+          'auto.components.terminal.pane.use.terminal.pane.context.menu.pane.id.copy.failed',
+          'Unable to copy pane ID'
+        )
+      )
+    } finally {
+      pane.terminal.focus()
+    }
   }
 
   const getShortcutPlatform = (): NodeJS.Platform => {

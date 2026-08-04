@@ -1,8 +1,7 @@
 // @vitest-environment happy-dom
 
 import '@/lib/git-wasm/init-git-wasm-for-test'
-import React from 'react'
-import { act } from 'react'
+import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { describe, expect, it, vi } from 'vitest'
 import type { HostedReviewCreationEligibility } from '../../../../shared/hosted-review'

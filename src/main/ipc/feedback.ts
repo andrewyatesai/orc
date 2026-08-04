@@ -1,6 +1,23 @@
 import os from 'node:os'
 import { app, ipcMain, net } from 'electron'
-import { resolveDiagnosticBuildIdentity } from '../observability/diagnostic-upload-endpoint'
+import {
+  readFeedbackImagesDelivered,
+  validateFeedbackImages,
+  type FeedbackImageAttachment
+} from './feedback-image-attachments'
+import {
+  FEEDBACK_ENDPOINT_NOT_CONFIGURED,
+  resolveFeedbackEndpoint
+} from './feedback-endpoint-resolution'
+import {
+  feedbackRequestBodyInit,
+  type FeedbackDiagnosticBundleAttachment,
+  type FeedbackSubmissionType,
+  type FeedbackSubmitBody
+} from './feedback-request-body'
+
+export type { FeedbackImageAttachment, FeedbackDiagnosticBundleAttachment, FeedbackSubmissionType }
+export { FEEDBACK_ENDPOINT_NOT_CONFIGURED, resolveFeedbackEndpoint }
 
 // Why: the production Mac build loads the renderer from a file:// origin, so a
 // cross-origin POST from fetch() triggers a CORS preflight that the feedback
@@ -8,77 +25,18 @@ import { resolveDiagnosticBuildIdentity } from '../observability/diagnostic-uplo
 // subject to CORS, so we proxy the submission through IPC. This mirrors the
 // same pattern used by updater-changelog.ts and updater-nudge.ts.
 
-// Why fail-closed: this is a fork of public Orca. The vendor's endpoints
-// (onorca.dev) must never receive fork feedback or crash reports — they would
-// deliver fork-internal diagnostics to an external party's inbox. The endpoint
-// is a compile-time build constant (electron-vite `define`, like
-// ORCA_POSTHOG_WRITE_KEY); builds without one return a typed
-// 'endpoint-not-configured' result instead of falling back to any hardcoded
-// host. Module-local ambient declaration because the constant is only read here.
-declare const ORCA_FEEDBACK_ENDPOINT: string | null
-
-export const FEEDBACK_ENDPOINT_NOT_CONFIGURED = 'endpoint-not-configured'
-
 const FEEDBACK_REQUEST_TIMEOUT_MS = 10_000
 const FEEDBACK_ATTACHMENT_REQUEST_TIMEOUT_MS = 60_000
-const DIAGNOSTIC_BUNDLE_CONTENT_TYPE = 'application/x-ndjson'
 // Why: corporate filters can reject multipart with 403 while allowing the
 // small JSON report, so content-shaped failures should shed the attachment.
 const DIAGNOSTIC_BUNDLE_JSON_RETRY_STATUSES = new Set([400, 403, 408, 413, 415, 422])
-
-function resolveBuildFeedbackEndpoint(): string | null {
-  // The `globalThis` dance mirrors telemetry/client.ts: compile-time
-  // substitution in production, safe undefined in vitest (which lets tests
-  // inject an endpoint via `globalThis`).
-  const endpoint =
-    typeof ORCA_FEEDBACK_ENDPOINT !== 'undefined'
-      ? ORCA_FEEDBACK_ENDPOINT
-      : ((globalThis as { ORCA_FEEDBACK_ENDPOINT?: string | null }).ORCA_FEEDBACK_ENDPOINT ?? null)
-  return typeof endpoint === 'string' && endpoint.length > 0 ? endpoint : null
-}
-
-export function resolveFeedbackEndpoint(): string | null {
-  const buildEndpoint = resolveBuildFeedbackEndpoint()
-  // Why: official builds stay pinned to the CI-substituted endpoint; user env
-  // cannot redirect reports the UI labels as going to the Orca fork team.
-  // Dev/contributor builds may point at a scratch server via env — the same
-  // rule diagnostic-upload-endpoint.ts applies to ORCA_DIAGNOSTICS_TOKEN_URL.
-  if (resolveDiagnosticBuildIdentity()) {
-    return buildEndpoint
-  }
-  const fromEnv = process.env.ORCA_FEEDBACK_ENDPOINT
-  if (fromEnv && fromEnv.length > 0) {
-    return fromEnv
-  }
-  return buildEndpoint
-}
-
-export type FeedbackSubmissionType = 'feedback' | 'crash'
 
 export type FeedbackSubmitArgs = {
   feedback: string
   submitAnonymously?: boolean
   githubLogin: string | null
   githubEmail: string | null
-}
-
-export type FeedbackDiagnosticBundleAttachment = {
-  bundleSubmissionId: string
-  content: string
-  bytes: number
-  spanCount: number
-}
-
-type FeedbackSubmitBody = {
-  feedback: string
-  submissionType: FeedbackSubmissionType
-  githubLogin: string | null
-  githubEmail: string | null
-  appVersion: string
-  platform: NodeJS.Platform
-  osRelease: string
-  arch: string
-  diagnosticBundle?: FeedbackDiagnosticBundleAttachment
+  images?: FeedbackImageAttachment[]
 }
 
 export type FeedbackRequestFailure = {
@@ -87,7 +45,12 @@ export type FeedbackRequestFailure = {
 }
 
 export type FeedbackSubmitResult =
-  | { ok: true; diagnosticBundleFailure?: FeedbackRequestFailure }
+  | {
+      ok: true
+      diagnosticBundleFailure?: FeedbackRequestFailure
+      /** Absent when nothing was attached; false when the text landed but the images did not. */
+      imagesDelivered?: boolean
+    }
   | ({ ok: false } & FeedbackRequestFailure & {
         diagnosticBundleFailure?: FeedbackRequestFailure
       })
@@ -120,19 +83,22 @@ function buildSubmitBody(args: InternalFeedbackSubmitArgs): FeedbackSubmitBody {
     arch: process.arch,
     ...(args.submissionType === 'crash' && args.diagnosticBundle
       ? { diagnosticBundle: args.diagnosticBundle }
-      : {})
+      : {}),
+    // Why: images are a feedback-only affordance; crash reports already carry
+    // diagnostic bundles and the server rejects images on that lane.
+    ...(args.submissionType !== 'crash' && args.images?.length ? { images: args.images } : {})
   }
 }
 
 async function postFeedback(
   url: string,
   body: FeedbackSubmitBody,
-  timeoutMs = FEEDBACK_REQUEST_TIMEOUT_MS
+  timeoutMs = FEEDBACK_REQUEST_TIMEOUT_MS,
+  readResponse?: (response: Response) => Promise<void>
 ): Promise<Response> {
   const controller = new AbortController()
-  // Why: a silent feedback endpoint should not leave IPC or crash-report
-  // submission flows pending forever. Diagnostic attachments pass a longer
-  // budget than the small JSON report path.
+  // Why: a silent endpoint should not leave IPC or crash-report submission flows pending forever.
+  // Attachment lanes pass a longer budget than the small JSON report path.
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const init: RequestInit = {
@@ -140,61 +106,24 @@ async function postFeedback(
       ...feedbackRequestBodyInit(body),
       signal: controller.signal
     }
-    return await net.fetch(url, init)
+    const response = await net.fetch(url, init)
+    if (readResponse) {
+      await readResponse(response)
+    }
+    // Why: a response parser may tolerate malformed legacy bodies, but it must
+    // not turn the deadline's aborted body into a confirmed delivery.
+    if (controller.signal.aborted) {
+      throw new Error(`request timed out after ${timeoutMs / 1000} seconds`)
+    }
+    return response
   } catch (error) {
-    // Why: Electron and Node use different AbortError messages. Normalize our
-    // client deadline so support logs explain which request budget expired.
+    // Why: Electron and Node report AbortError differently; keep deadline logs stable.
     if (controller.signal.aborted) {
       throw new Error(`request timed out after ${timeoutMs / 1000} seconds`)
     }
     throw error
   } finally {
     clearTimeout(timeout)
-  }
-}
-
-function feedbackRequestBodyInit(body: FeedbackSubmitBody): Pick<RequestInit, 'body' | 'headers'> {
-  if (!body.diagnosticBundle) {
-    return {
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    }
-  }
-
-  const formData = new FormData()
-  appendFeedbackFormField(formData, 'feedback', body.feedback)
-  appendFeedbackFormField(formData, 'submissionType', body.submissionType)
-  appendFeedbackFormField(formData, 'githubLogin', body.githubLogin)
-  appendFeedbackFormField(formData, 'githubEmail', body.githubEmail)
-  appendFeedbackFormField(formData, 'appVersion', body.appVersion)
-  appendFeedbackFormField(formData, 'platform', body.platform)
-  appendFeedbackFormField(formData, 'osRelease', body.osRelease)
-  appendFeedbackFormField(formData, 'arch', body.arch)
-  appendFeedbackFormField(
-    formData,
-    'diagnosticBundleSubmissionId',
-    body.diagnosticBundle.bundleSubmissionId
-  )
-  appendFeedbackFormField(formData, 'diagnosticBundleBytes', String(body.diagnosticBundle.bytes))
-  appendFeedbackFormField(
-    formData,
-    'diagnosticBundleSpanCount',
-    String(body.diagnosticBundle.spanCount)
-  )
-  formData.append(
-    'diagnosticBundleFile',
-    new Blob([body.diagnosticBundle.content], { type: DIAGNOSTIC_BUNDLE_CONTENT_TYPE }),
-    `orca-diagnostics-${body.diagnosticBundle.bundleSubmissionId}.ndjson`
-  )
-
-  // Why: multipart avoids JSON-escaping a near-cap NDJSON bundle over the
-  // backend request limit while still submitting one feedback request.
-  return { body: formData }
-}
-
-function appendFeedbackFormField(formData: FormData, key: string, value: string | null): void {
-  if (value !== null) {
-    formData.append(key, value)
   }
 }
 
@@ -300,6 +229,14 @@ async function submitFeedbackWithDiagnosticBundle(
 export async function submitFeedback(
   args: InternalFeedbackSubmitArgs
 ): Promise<FeedbackSubmitResult> {
+  // Why: buildSubmitBody drops images on the crash lane, so validating them
+  // there would abort a crash report over attachments it never meant to send.
+  if (args.submissionType !== 'crash' && args.images !== undefined) {
+    const imageError = validateFeedbackImages(args.images)
+    if (imageError) {
+      return { ok: false, status: null, error: imageError }
+    }
+  }
   const endpoint = resolveFeedbackEndpoint()
   if (!endpoint) {
     // Fail closed, typed: the renderer surfaces this as a submission failure
@@ -307,6 +244,28 @@ export async function submitFeedback(
     return { ok: false, status: null, error: FEEDBACK_ENDPOINT_NOT_CONFIGURED }
   }
   const body = buildSubmitBody(args)
+  if (body.images?.length) {
+    try {
+      let imagesDelivered = true
+      const response = await postFeedback(
+        endpoint,
+        body,
+        FEEDBACK_ATTACHMENT_REQUEST_TIMEOUT_MS,
+        async (nextResponse) => {
+          imagesDelivered = nextResponse.ok ? await readFeedbackImagesDelivered(nextResponse) : true
+        }
+      )
+      if (response.ok) {
+        return { ok: true, imagesDelivered }
+      }
+      // Why: the text lane retries 5xx, this one does not. Replaying up to
+      // 32 MiB of attachments on a flaky link costs more than it saves, and the
+      // dialog keeps the draft and thumbnails so the user can resend.
+      return { ok: false, ...responseFailure(response) }
+    } catch (error) {
+      return { ok: false, ...errorFailure(error) }
+    }
+  }
   if (body.diagnosticBundle) {
     const bodyWithoutDiagnosticBundle =
       args.feedbackWithoutDiagnosticBundle !== undefined
@@ -336,9 +295,20 @@ export async function submitFeedback(
 
 export function registerFeedbackHandlers(): void {
   ipcMain.removeHandler('feedback:submit')
-  ipcMain.handle('feedback:submit', (_event, args: FeedbackSubmitArgs) =>
+  ipcMain.handle('feedback:submit', (_event, args: FeedbackSubmitArgs) => {
+    // Why: validate the raw clone before normalization so a tiny hostile value
+    // cannot become a large main-process typed-array allocation.
+    if (args.images !== undefined) {
+      const imageError = validateFeedbackImages(args.images)
+      if (imageError) {
+        return { ok: false, status: null, error: imageError }
+      }
+    }
     // Why: crash submissions are main-only. A compromised renderer can invoke
     // this channel directly, so force the public feedback lane at the boundary.
-    submitFeedback({ ...args, submissionType: 'feedback' })
-  )
+    return submitFeedback({
+      ...args,
+      submissionType: 'feedback'
+    })
+  })
 }

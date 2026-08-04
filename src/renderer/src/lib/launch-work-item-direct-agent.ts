@@ -127,7 +127,10 @@ export function buildDirectWorkItemAgentStartupPlan(args: {
 export function buildDirectWorkItemStartupOpts(
   agent: TuiAgent | null,
   plan: AgentStartupPlan | null,
-  launchSource: LaunchSource
+  launchSource: LaunchSource,
+  /** Unsent launch context, for the view-mode decision only. Set it for every
+   *  draft launch — a natively-prefilled plan carries no `draftPrompt`. */
+  launchDraftText?: string
 ): {
   startup?: {
     command: string
@@ -135,6 +138,7 @@ export function buildDirectWorkItemStartupOpts(
     launchConfig?: SleepingAgentLaunchConfig
     launchAgent?: TuiAgent
     draftPrompt?: string
+    launchDraftText?: string
     sessionOptions?: AgentStartupPlan['sessionOptions']
     startupCommandDelivery?: StartupCommandDelivery
     telemetry?: AgentStartedTelemetry
@@ -155,6 +159,7 @@ export function buildDirectWorkItemStartupOpts(
       ...(plan.sessionOptions ? { sessionOptions: plan.sessionOptions } : {}),
       ...(agent ? { launchAgent: agent } : {}),
       ...(plan.draftPrompt ? { draftPrompt: plan.draftPrompt } : {}),
+      ...(launchDraftText ? { launchDraftText } : {}),
       ...(plan.startupCommandDelivery
         ? { startupCommandDelivery: plan.startupCommandDelivery }
         : {}),

@@ -85,6 +85,14 @@ export type AiVaultSession = {
   messageCount: number
   totalTokens: number
   previewMessages: AiVaultSessionPreviewMessage[]
+  /** Older messages fell out of the newest-N window: the earliest preview turn
+   * is NOT the opening ask, so first-prompt consumers must not scan it. */
+  previewMessagesTruncated?: boolean
+  /**
+   * Full first non-injected user prompt. List scans omit this (payload/perf);
+   * populated only by on-demand `aiVault.getFirstUserPrompt` re-parses for copy.
+   */
+  firstUserPrompt?: string | null
   /** Latest provider-authenticated user prompt; absent when the transcript has no trustworthy signal. */
   lastUserPrompt?: string | null
   // Recoverable signal for sessions whose conversation transcript persisted zero
@@ -110,6 +118,21 @@ export type AiVaultSubagentListArgs = {
 export type AiVaultSubagentListResult = {
   sessions: AiVaultSession[]
   issues: AiVaultScanIssue[]
+}
+
+/** On-demand full first-prompt read for Agent Session History copy/reuse. */
+export type AiVaultFirstUserPromptArgs = {
+  agent: AiVaultAgent
+  filePath: string
+  // Required for OpenCode SQLite rows (filePath is the db; session is a row id).
+  sessionId?: string
+  // Transcripts are local-FS only; non-local hosts resolve to null prompt.
+  executionHostId?: ExecutionHostId
+  codexHome?: string | null
+}
+
+export type AiVaultFirstUserPromptResult = {
+  prompt: string | null
 }
 
 // A session is only offered for normal resume when its transcript actually holds

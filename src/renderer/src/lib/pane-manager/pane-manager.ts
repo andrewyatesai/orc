@@ -37,6 +37,7 @@ import { PaneIdentityRegistry } from './pane-identity-registry'
 import {
   closeManagedPane,
   detachManagedPaneForExternalMove,
+  retireManagedPanePreservingPty,
   splitManagedPane
 } from './pane-split-close'
 import { FIRST_PANE_ID } from '../../../../shared/pane-key'
@@ -63,6 +64,7 @@ export class PaneManager {
   // While true, panes created here start with draw scheduling paused so a
   // hidden/background manager paints no frames until resumeRendering().
   private renderingSuspended = false
+  private atlasRecoveryVisible = true
   private identities = new PaneIdentityRegistry()
   private pendingPaneReparentFrameIds = new Set<number>()
 
@@ -75,6 +77,9 @@ export class PaneManager {
     // Why: hidden visited worktrees keep TerminalPane mounted; panes created
     // for them must not paint (or hold GPU budget) until the tab is revealed.
     this.renderingSuspended = options.initialRenderingSuspended === true
+    // Why: a manager born suspended is not on screen, so repaint recovery must
+    // skip it until the renderer reports it visible.
+    this.atlasRecoveryVisible = !this.renderingSuspended
     // Registered so bulk restore (refitAndRefreshAllTerminalPanes) reaches every
     // live manager.
     registerLivePaneManager(this)
@@ -184,8 +189,30 @@ export class PaneManager {
     })
   }
 
+  retirePanePreservingPty(paneId: number): boolean {
+    return retireManagedPanePreservingPty({
+      paneId,
+      activePaneId: this.activePaneId,
+      panes: this.panes,
+      root: this.root,
+      styleOptions: this.styleOptions,
+      managerOptions: this.options,
+      getDragCallbacks: () => this.getDragCallbacks(),
+      releasePaneIdentity: (numericPaneId) => this.identities.release(numericPaneId),
+      setActivePaneId: (id) => {
+        this.activePaneId = id
+      }
+    })
+  }
+
   getPanes(): ManagedPane[] {
     return Array.from(this.panes.values()).map(toPublicPane)
+  }
+
+  /** Why separate from getPanes: the census runs on the crash path, where
+   *  materializing every public pane view just to read `.length` is waste. */
+  getPaneCount(): number {
+    return this.panes.size
   }
 
   fitAllPanes(): void {
@@ -205,7 +232,7 @@ export class PaneManager {
   refreshAllPanes(): void {
     for (const pane of this.panes.values()) {
       // Suspended GPU panes re-present the whole grid on resume, so a forced
-      // repaint here buys nothing (upstream's retained-WebGL-context skip).
+      // repaint here buys nothing.
       if (pane.startRenderingSuspended && pane.atermController?.rendererKind() === 'gpu') {
         continue
       }
@@ -294,6 +321,17 @@ export class PaneManager {
    *  rebuild; re-rasterizing the current frame is the real equivalent). */
   rebuildPaneWebgl(paneId: number): void {
     this.panes.get(paneId)?.atermController?.scheduleDraw()
+  }
+
+  setAtlasRecoveryVisible(visible: boolean): void {
+    this.atlasRecoveryVisible = visible
+  }
+
+  /** Gate for the cross-manager repaint recovery: an off-screen or destroyed
+   *  manager is excluded so the wake-up repaint stays proportional to what the
+   *  user can actually see. */
+  isVisibleForAtlasRecovery(): boolean {
+    return this.atlasRecoveryVisible && !this.destroyed
   }
 
   /** True when this pane paints on the aterm GPU draw path — the honest aterm

@@ -5,6 +5,7 @@ import type { DecisionGateRow, MessageRow, OrchestrationDb } from './db'
 function gate(overrides: Partial<DecisionGateRow> = {}): DecisionGateRow {
   return {
     id: 'gate_1',
+    run_id: 'run_1',
     task_id: 'task_1',
     question: 'Ship it?',
     options: '["yes","no"]',

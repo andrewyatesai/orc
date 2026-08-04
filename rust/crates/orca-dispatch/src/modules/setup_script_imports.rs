@@ -80,7 +80,7 @@ mod tests {
     use crate::compare::json_semantic_eq;
 
     const VECTORS: &str =
-        include_str!("../../../../../tools/parity/vectors/setup-script-imports.json");
+        include_str!("../../../../../tests/tools/parity/vectors/setup-script-imports.json");
 
     /// Replays the shared vector corpus through this dispatch and checks every
     /// TS-derived golden — the same check the harness bin performs.

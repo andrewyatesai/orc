@@ -8,11 +8,28 @@ import {
   type AtermPaneController
 } from '@/lib/pane-manager/aterm/aterm-pane-renderer'
 import { atermThemeColorsFromITheme } from '@/lib/pane-manager/aterm/aterm-theme-colors'
-import { buildDefaultTerminalOptions } from '@/lib/pane-manager/pane-terminal-options'
-import { resolveTerminalMinimumContrastRatio } from '@/lib/terminal-contrast-correction'
+import {
+  normalizeTerminalFastScrollSensitivity,
+  normalizeTerminalScrollSensitivity
+} from '@/lib/pane-manager/pane-terminal-options'
+import { normalizeTerminalTuiMouseWheelMultiplier } from '@/lib/pane-manager/pane-terminal-tui-wheel-reports'
+import { resolveTerminalLigaturesEnabled } from '../../../../shared/terminal-ligatures'
+import { resolveCursorAgentImeAnchor } from '@/lib/pane-manager/terminal-ime-anchor'
 import type { ITheme } from '@/lib/pane-manager/aterm/terminal-types'
+import type { GlobalSettings } from '../../../../shared/types'
+import type { DashboardCardTerminalInput } from '../../../../shared/dashboard-snapshot'
+import { useAppStore } from '@/store'
+import { buildPreviewTerminalOptions } from './preview-terminal-options'
 
 const PREVIEW_SCROLLBACK_LIMIT = 1000
+
+/** terminalCursorStyle + terminalCursorBlink as a DECSCUSR param (block 1/2,
+ *  underline 3/4, bar 5/6) — the engine's default cursor shape. */
+function previewCursorStyleParam(facade: AtermTerminalFacade): number {
+  const style = facade.options.cursorStyle
+  const base = style === 'bar' ? 5 : style === 'underline' ? 3 : 1
+  return facade.options.cursorBlink === false ? base + 1 : base
+}
 
 /**
  * The dashboard popout preview's aterm terminal, split in two because the engine
@@ -21,21 +38,24 @@ const PREVIEW_SCROLLBACK_LIMIT = 1000
  * owns the PTY stream; this owns the fork's renderer seam.
  */
 export function createPreviewTerminalFacade(args: {
+  settings: GlobalSettings | null
+  /** Host-input facts for the agent's PTY (ConPTY backend, kitty advertisement). */
+  terminalInput: DashboardCardTerminalInput | null
+  macOptionIsMeta: boolean
   theme: ITheme | null
   appSurface: 'dark' | 'light'
   cols: number
   rows: number
 }): AtermTerminalFacade {
   const facade = createAtermTerminalFacade({
-    options: {
-      ...buildDefaultTerminalOptions(),
-      theme: args.theme ?? undefined,
-      minimumContrastRatio: resolveTerminalMinimumContrastRatio(
-        args.theme?.background,
-        args.appSurface
-      ),
+    options: buildPreviewTerminalOptions({
+      settings: args.settings,
+      terminalInput: args.terminalInput,
+      macOptionIsMeta: args.macOptionIsMeta,
+      theme: args.theme,
+      themeMode: args.appSurface,
       scrollback: PREVIEW_SCROLLBACK_LIMIT
-    }
+    })
   })
   // Pre-attach the facade holds this and applies it to the engine BEFORE the
   // buffered replay lands, so the frame parses in the PTY's real grid.
@@ -61,13 +81,53 @@ export async function createPreviewAtermController(args: {
     (text) => facade.paste(text),
     undefined,
     {
-      // The one handler installPreviewClipboardShortcuts registers (copy/paste
+      // The one handler installPreviewTerminalKeyHandler registers (copy/paste
       // chords + the IME claim), read live per keydown.
       getCustomKeyEventHandler: () => facade.__customKeyEventHandler,
+      // Appearance/behavior read off the facade's options bag (seeded from the
+      // user's settings, rewritten live by the appearance sync) so the preview
+      // emulator is configured exactly like the pane it mirrors.
       getMacOptionIsMeta: () => facade.options.macOptionIsMeta === true,
       getCursorBlink: () => facade.options.cursorBlink !== false,
       getFontPx: () => facade.options.fontSize ?? ATERM_RENDERER_FONT_PX,
-      getScrollbackLines: () => facade.options.scrollback ?? PREVIEW_SCROLLBACK_LIMIT
+      getLineHeight: () => facade.options.lineHeight ?? 1,
+      getCursorStyleParam: () => previewCursorStyleParam(facade),
+      getScrollSensitivity: () =>
+        normalizeTerminalScrollSensitivity(facade.options.scrollSensitivity),
+      getFastScrollSensitivity: () =>
+        normalizeTerminalFastScrollSensitivity(facade.options.fastScrollSensitivity),
+      // The per-pane kitty policy the card relayed (local Windows ConPTY withholds it).
+      getKittyKeyboardEnabled: () => facade.options.vtExtensions?.kittyKeyboard !== false,
+      getScrollbackLines: () => facade.options.scrollback ?? PREVIEW_SCROLLBACK_LIMIT,
+      // Font face / ligatures / TUI wheel come from the store like a pane's: the
+      // engine resolves the raw family+weight itself (set_primary_font), and the
+      // facade bag only carries the CSS stack.
+      getFontFamily: () => useAppStore.getState().settings?.terminalFontFamily,
+      getFontWeight: () => useAppStore.getState().settings?.terminalFontWeight,
+      getLigatures: () => {
+        const settings = useAppStore.getState().settings
+        return resolveTerminalLigaturesEnabled(
+          settings?.terminalLigatures ?? 'auto',
+          settings?.terminalFontFamily
+        )
+      },
+      getTuiScrollMultiplier: () =>
+        normalizeTerminalTuiMouseWheelMultiplier(
+          useAppStore.getState().settings?.terminalTuiScrollSensitivity
+        ),
+      // Agent CLIs (Cursor Agent) draw their prompt while parking the real cursor
+      // on a blank row — anchor the OS IME candidate window on the prompt (#7061).
+      getImeAnchor: () => {
+        const buffer = facade.buffer.active
+        const anchor = resolveCursorAgentImeAnchor({
+          buffer,
+          rows: facade.rows,
+          cols: facade.cols,
+          cursorX: buffer.cursorX,
+          cursorY: buffer.cursorY
+        })
+        return anchor ? { row: anchor.row, col: anchor.column } : null
+      }
     }
   )
   if (args.theme) {

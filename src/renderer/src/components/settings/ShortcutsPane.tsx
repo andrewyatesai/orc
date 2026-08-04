@@ -1,19 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
-  findKeybindingConflicts,
-  formatKeybindingList,
-  getEffectiveKeybindingsForAction,
+  getEffectiveKeybindingsForDefinition,
+  getKeybindingDefinition,
   keybindingFromInputForAction,
   normalizeKeybindingListForAction,
   type KeybindingActionId,
+  type KeybindingDefinition,
   type KeybindingInput
 } from '../../../../shared/keybindings'
-import { resolveKeybindingTitle } from '../../../../shared/custom-keybindings'
-import {
-  EMPTY_DISABLED_TUI_AGENTS,
-  disabledAgentTabActionIds,
-  groupDefinitions
-} from './shortcut-groups'
+import { EMPTY_DISABLED_TUI_AGENTS } from './shortcut-groups'
 import { useAppStore } from '../../store'
 import { CustomShortcutsSection } from './CustomShortcutsSection'
 import { KeybindingsFileActions } from './KeybindingsFileActions'
@@ -47,6 +42,8 @@ import {
 } from './shortcut-binding-list-mutations'
 import { useMountedRef } from '@/hooks/useMountedRef'
 import { translate } from '@/i18n/i18n'
+import { useEditablePluginCommands } from '@/store/plugin-panels'
+import { useShortcutConflictCatalog } from './shortcut-conflict-catalog'
 
 const isMac = navigator.userAgent.includes('Mac')
 const platform: NodeJS.Platform = isMac
@@ -70,6 +67,7 @@ export function ShortcutsPane(): React.JSX.Element {
   const setKeybindingOverride = useAppStore((state) => state.setKeybindingOverride)
   const resetKeybindingOverride = useAppStore((state) => state.resetKeybindingOverride)
   const disableKeybindingAction = useAppStore((state) => state.disableKeybindingAction)
+  const pluginCommands = useEditablePluginCommands()
   const mountedRef = useMountedRef()
   const [errors, setErrors] = useState<Partial<Record<KeybindingActionId, string>>>({})
   const [recordingActionId, setRecordingActionId] = useState<KeybindingActionId | null>(null)
@@ -92,37 +90,29 @@ export function ShortcutsPane(): React.JSX.Element {
     return () => window.api.ui.setShortcutRecorderFocused(false)
   }, [recordingActionId])
 
-  const groups = useMemo(() => groupDefinitions(disabledTuiAgents), [disabledTuiAgents])
-  const ignoredConflictActionIds = useMemo(
-    () => disabledAgentTabActionIds(disabledTuiAgents),
-    [disabledTuiAgents]
-  )
-  const conflictByAction = useMemo(() => {
-    const result = new Map<string, string[]>()
-    for (const conflict of findKeybindingConflicts(
-      platform,
+  const { groups, definitionsByAction, conflictByAction, describeBlockingConflict } =
+    useShortcutConflictCatalog({
+      disabledTuiAgents,
+      pluginCommands,
       keybindings,
-      { ignoredActionIds: ignoredConflictActionIds },
-      customKeybindings
-    )) {
-      const labels = conflict.actionIds
-        .map((id) => resolveKeybindingTitle(id, customKeybindings))
-        .join(', ')
-      for (const actionId of conflict.actionIds) {
-        result.set(actionId, [
-          ...(result.get(actionId) ?? []),
-          `${formatKeybindingList([conflict.binding], platform)} conflicts with ${labels}.`
-        ])
-      }
-    }
-    return result
-  }, [customKeybindings, ignoredConflictActionIds, keybindings])
+      customKeybindings,
+      platform
+    })
+  const definitionForAction = (actionId: KeybindingActionId): KeybindingDefinition | null =>
+    definitionsByAction.get(actionId) ?? getKeybindingDefinition(actionId)
+  const effectiveBindingsForAction = (
+    actionId: KeybindingActionId,
+    overrides = keybindings
+  ): string[] => {
+    const definition = definitionForAction(actionId)
+    return definition ? getEffectiveKeybindingsForDefinition(definition, platform, overrides) : []
+  }
   const shortcutGroups = useMemo<ShortcutRowsByGroup[]>(
     () =>
       groups.map((group) => ({
         title: group.title,
         rows: group.items.map((item) => {
-          const effective = getEffectiveKeybindingsForAction(item.id, platform, keybindings)
+          const effective = getEffectiveKeybindingsForDefinition(item, platform, keybindings)
           const modified = hasOwnBindingOverride(keybindings, item.id)
           const warnings = conflictByAction.get(item.id) ?? []
           return {
@@ -181,27 +171,26 @@ export function ShortcutsPane(): React.JSX.Element {
       return false
     }
 
-    const defaults = getEffectiveKeybindingsForAction(actionId, platform, {})
+    const definition = definitionForAction(actionId)
+    if (!definition) {
+      setErrors((prev) => ({
+        ...prev,
+        [actionId]: translate(
+          'auto.components.settings.ShortcutsPane.shortcutUnavailable',
+          'Shortcut is no longer available.'
+        )
+      }))
+      return false
+    }
+    const defaults = getEffectiveKeybindingsForDefinition(definition, platform, {})
     const next =
       sameBindings(normalizedResult, defaults) ||
       (normalizedResult.length === 0 && defaults.length === 0)
         ? removeBindingOverride(keybindings, actionId)
         : { ...keybindings, [actionId]: normalizedResult }
-    const blockingConflict = findKeybindingConflicts(
-      platform,
-      next,
-      { ignoredActionIds: ignoredConflictActionIds },
-      customKeybindings
-    ).find((conflict) => conflict.actionIds.includes(actionId))
+    const blockingConflict = describeBlockingConflict(actionId, next)
     if (blockingConflict) {
-      const labels = blockingConflict.actionIds
-        .filter((id) => id !== actionId)
-        .map((id) => resolveKeybindingTitle(id, customKeybindings))
-        .join(', ')
-      setErrors((prev) => ({
-        ...prev,
-        [actionId]: `${formatKeybindingList([blockingConflict.binding], platform)} conflicts with ${labels}.`
-      }))
+      setErrors((prev) => ({ ...prev, [actionId]: blockingConflict }))
       return false
     }
 
@@ -237,7 +226,7 @@ export function ShortcutsPane(): React.JSX.Element {
 
     // Edit just the targeted binding (or append a new one) instead of replacing
     // the whole list, so an action's other bindings survive the capture.
-    const current = getEffectiveKeybindingsForAction(actionId, platform, keybindings)
+    const current = effectiveBindingsForAction(actionId)
     const next =
       recordingBindingIndex === null || recordingBindingIndex >= current.length
         ? appendBinding(current, captured.value)
@@ -250,7 +239,7 @@ export function ShortcutsPane(): React.JSX.Element {
 
   const removeBinding = async (actionId: KeybindingActionId, index: number): Promise<void> => {
     setErrors((prev) => ({ ...prev, [actionId]: undefined }))
-    const current = getEffectiveKeybindingsForAction(actionId, platform, keybindings)
+    const current = effectiveBindingsForAction(actionId)
     await saveBindings(actionId, removeBindingAt(current, index))
   }
 
@@ -258,7 +247,7 @@ export function ShortcutsPane(): React.JSX.Element {
     setErrors((prev) => ({ ...prev, [actionId]: undefined }))
     try {
       await (hasCommonBindingOverride(keybindingSnapshot, actionId)
-        ? setKeybindingOverride(actionId, getEffectiveKeybindingsForAction(actionId, platform, {}))
+        ? setKeybindingOverride(actionId, effectiveBindingsForAction(actionId, {}))
         : resetKeybindingOverride(actionId))
     } catch (error) {
       if (mountedRef.current) {
@@ -382,7 +371,7 @@ export function ShortcutsPane(): React.JSX.Element {
               clearError(actionId)
             }}
             onAppendBinding={(actionId) => {
-              const current = getEffectiveKeybindingsForAction(actionId, platform, keybindings)
+              const current = effectiveBindingsForAction(actionId)
               setRecordingActionId(actionId)
               setRecordingBindingIndex(current.length)
               clearError(actionId)
@@ -411,7 +400,7 @@ export function ShortcutsPane(): React.JSX.Element {
             }}
             onDisableAction={(actionId) => {
               // Remember the current bindings first so "Enable" can restore them.
-              const current = getEffectiveKeybindingsForAction(actionId, platform, keybindings)
+              const current = effectiveBindingsForAction(actionId)
               setDisableMemory((memory) => ({ ...memory, [actionId]: current }))
               clearRecordingForAction(actionId)
               void disableBinding(actionId)

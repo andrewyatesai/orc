@@ -131,9 +131,9 @@ export function mapCheckConclusion(state: string): PRCheckDetail['conclusion'] {
     case 'SUCCESS':
     case 'PASS':
       return 'success'
+    // Why: commit-status contexts (Jenkins/Prow) report ERROR as their terminal failure — keep in sync with mapCommitStatusRESTConclusion.
     case 'FAILURE':
     case 'FAIL':
-    // Why: commit-status contexts (Jenkins/Prow) report ERROR as their terminal failure — keep in sync with mapCommitStatusRESTConclusion.
     case 'ERROR':
     case 'STALE':
     case 'STARTUP_FAILURE':
@@ -146,10 +146,10 @@ export function mapCheckConclusion(state: string): PRCheckDetail['conclusion'] {
       return 'timed_out'
     case 'SKIPPED':
       return 'skipped'
+    // Why: EXPECTED is a required context that hasn't reported yet — pending, not done.
     case 'PENDING':
     case 'QUEUED':
     case 'IN_PROGRESS':
-    // Why: EXPECTED is a required context that hasn't reported yet — pending, not done.
     case 'EXPECTED':
       return 'pending'
     case 'NEUTRAL':
@@ -230,8 +230,8 @@ function classifyStatusContextState(state: string): RollupEntryVerdict {
     case 'FAILURE':
     case 'ERROR':
       return 'failure'
-    case 'PENDING':
     // Why: EXPECTED is a required context that hasn't reported yet — it blocks merge, so it must not read green.
+    case 'PENDING':
     case 'EXPECTED':
       return 'pending'
     default: {
@@ -250,13 +250,13 @@ function classifyCheckRunEntry(
     switch (c) {
       case 'SUCCESS':
         return 'success'
+      // Why: action_required (e.g. an unapproved workflow run) blocks merge until someone acts;
+      // treat it as needs-attention rather than a silent pass. STARTUP_FAILURE/STALE stay in sync
+      // with mapCheckConclusion — both are terminal failures (upstream #4605).
       case 'FAILURE':
       case 'TIMED_OUT':
       case 'CANCELLED':
-      // Why: action_required (e.g. an unapproved workflow run) blocks merge until
-      // someone acts; treat it as needs-attention rather than a silent pass.
       case 'ACTION_REQUIRED':
-      // Why: keep in sync with mapCheckConclusion — both are terminal failures (upstream #4605).
       case 'STARTUP_FAILURE':
       case 'STALE':
         return 'failure'
@@ -272,10 +272,10 @@ function classifyCheckRunEntry(
   }
   const s = status as RollupCheckRunStatus | (string & {}) | undefined
   switch (s) {
+    // Why: WAITING (deployment protection) and REQUESTED are not-yet-complete — they must not read green.
     case 'QUEUED':
     case 'IN_PROGRESS':
     case 'PENDING':
-    // Why: WAITING (deployment protection) and REQUESTED are not-yet-complete — they must not read green.
     case 'WAITING':
     case 'REQUESTED':
       return 'pending'

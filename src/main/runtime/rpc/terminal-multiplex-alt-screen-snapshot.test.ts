@@ -59,6 +59,16 @@ describe('terminal.multiplex alt-screen snapshot shape (#6106)', () => {
           rows: 24,
           seq: 42
         }),
+        // Why: a requested snapshot reads the authoritative (provider) buffer, the
+        // subscribe snapshot the available one — both must yield the alt frame here.
+        serializeAuthoritativeTerminalBuffer: vi.fn().mockResolvedValue({
+          data: ALT_FRAME,
+          scrollbackAnsi: PRE_TUI_SCROLLBACK,
+          alternateScreen: true,
+          cols: 80,
+          rows: 24,
+          seq: 42
+        }),
         getTerminalSize: vi.fn().mockReturnValue({ cols: 80, rows: 24 }),
         getMobileDisplayMode: vi.fn().mockReturnValue('auto'),
         getLayout: vi.fn().mockReturnValue({ seq: 1 }),

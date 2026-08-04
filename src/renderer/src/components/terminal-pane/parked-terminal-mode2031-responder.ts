@@ -15,9 +15,10 @@
  * consumed while the gate is ON — this sidecar stays the only answerer here.
  */
 import {
+  INITIAL_MODE_2031_REPLY_SCAN_STATE,
   mode2031SequenceFor,
   resolveTerminalColorSchemeMode,
-  scanMode2031Sequences
+  scanMode2031ReplyDecision
 } from '../../../../shared/terminal-color-scheme-protocol'
 import { useAppStore } from '@/store'
 import { getSystemPrefersDark } from '@/lib/terminal-theme'
@@ -37,13 +38,13 @@ export function startParkedTerminalMode2031Responder(
   const { ptyId, sendInput } = options
   const subscribeBytes =
     options.subscribeBytes ?? ((cb: (data: string) => void) => subscribeToPtyData(ptyId, cb))
-  // Why: a DECSET 2031 subscribe can be split across PTY chunks; the scan
-  // carries a bounded tail between chunks so split sequences still match.
-  let scanTail = ''
+  // Why: a DECSET 2031 toggle can split across PTY chunks; the scan state carries a
+  // bounded tail so a subscribe the next bytes withdraw is never answered (#9993).
+  let scanState = INITIAL_MODE_2031_REPLY_SCAN_STATE
   return subscribeBytes((data) => {
-    const scan = scanMode2031Sequences(scanTail, data)
-    scanTail = scan.tail
-    if (!scan.subscribe) {
+    const result = scanMode2031ReplyDecision(scanState, data)
+    scanState = result.state
+    if (result.decision !== 'subscribed') {
       return
     }
     // Why: reply with the resolved theme so TUIs that subscribe while parked

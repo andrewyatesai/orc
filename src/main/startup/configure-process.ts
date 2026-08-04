@@ -2,7 +2,6 @@ import { app } from 'electron'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { TERMINAL_WEBGL_MAX_ACTIVE_CONTEXTS } from '../../shared/terminal-webgl-context-budget'
 import { getVersionManagerBinPaths } from '../codex-cli/command'
 import { getMainE2EConfig } from '../e2e-config'
 
@@ -266,13 +265,6 @@ function appendComposedEnableFeatures(featureFlags: string[]): void {
   }
 }
 
-export function configureMainProcessWebglContextBudget(): void {
-  app.commandLine.appendSwitch(
-    'max-active-webgl-contexts',
-    String(TERMINAL_WEBGL_MAX_ACTIVE_CONTEXTS)
-  )
-}
-
 export function enableMainProcessGpuFeatures(): void {
   // Why: unlocks the SAB byte ring (renderer->worker) without COOP/COEP on the
   // file:// renderer; consumers must keep a typeof SharedArrayBuffer runtime
@@ -303,7 +295,7 @@ export function enableMainProcessGpuFeatures(): void {
 
   // Why: Blink evicts the oldest WebGL context past 16/renderer and each terminal pane holds one, silently downgrading panes to DOM.
   // 128 raises the ceiling for real layouts while staying bounded so context leaks still surface.
-  configureMainProcessWebglContextBudget()
+  app.commandLine.appendSwitch('max-active-webgl-contexts', '128')
 
   const ozonePlatform = (app.commandLine.getSwitchValue('ozone-platform') ?? '').toLowerCase()
   const ozonePlatformHint = (process.env.ELECTRON_OZONE_PLATFORM_HINT ?? '').toLowerCase()

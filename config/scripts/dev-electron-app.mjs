@@ -132,10 +132,10 @@ export function prepareMacDevElectronApp(
 
   const title = env.ORCA_DEV_DOCK_TITLE || DEFAULT_DEV_DOCK_TITLE
   const identityKey = env.ORCA_DEV_INSTANCE_KEY || repoRoot
-  // v6: bundle the notification-status helper (real permission readout) and
-  // ad-hoc re-sign after plist edits so Notification Center accepts the
-  // bundle; bumping forces stale cached copies to be recreated.
-  const bundleLayoutVersion = 'dock-title-app-preserve-framework-symlinks-v6'
+  // v7: give the terminal daemon helper an Orca-specific TCC identity, on top of
+  // v6's bundled notification-status helper and post-plist ad-hoc re-sign;
+  // bumping forces stale cached copies to be recreated.
+  const bundleLayoutVersion = 'dock-title-app-preserve-framework-symlinks-v7'
   const hash = createHash('sha1')
     .update(
       `${sourceAppPath}\0${electronVersion ?? ''}\0${title}\0${identityKey}\0${bundleLayoutVersion}`
@@ -151,6 +151,9 @@ export function prepareMacDevElectronApp(
   // Why: one stable id for every dev instance. Per-instance ids registered a
   // new macOS Notification Settings entry for each branch x Electron version.
   const bundleId = 'com.stablyai.orca.dev'
+  // Why: macos-tcc-prompt-watch keys dev permission prompts to `<bundleId>.helper`,
+  // which is the process that actually spawns terminals.
+  const helperBundleId = `${bundleId}.helper`
   env.ORCA_DEV_MACOS_BUNDLE_ID = bundleId
   const expectedMarker = JSON.stringify(
     { title, appBundleName, bundleId, sourceAppPath, electronVersion, bundleLayoutVersion },
@@ -201,9 +204,22 @@ export function prepareMacDevElectronApp(
   restoreElectronFrameworkSymlinks(appPath)
 
   const plistPath = path.join(appPath, 'Contents', 'Info.plist')
+  const helperPlistPath = path.join(
+    appPath,
+    'Contents',
+    'Frameworks',
+    'Electron Helper.app',
+    'Contents',
+    'Info.plist'
+  )
   setPlistValue(plistPath, 'CFBundleName', title, execFile)
   setPlistValue(plistPath, 'CFBundleDisplayName', title, execFile)
   setPlistValue(plistPath, 'CFBundleIdentifier', bundleId, execFile)
+  // Why: an Electron dist without the helper bundle must not fail the whole dev launch —
+  // this path also runs from `orca-dev open`, not just the electron-vite dev runner.
+  if (existsSync(helperPlistPath)) {
+    setPlistValue(helperPlistPath, 'CFBundleIdentifier', helperBundleId, execFile)
+  }
 
   // Why: the helper reads the app's real macOS notification authorization.
   // Non-fatal: without swiftc the permission card falls back to probes.

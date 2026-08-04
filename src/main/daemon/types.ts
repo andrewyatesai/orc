@@ -18,9 +18,9 @@ import type { TuiAgent } from '../../shared/types'
 // guard-host min, previous-version list) live in daemon-protocol-versions.ts —
 // re-exported so this stays the one wire-shape entry point.
 export * from './daemon-protocol-versions'
-// Upstream-new v24 gates only (clean disconnect, startup ingress). The
-// overlapping names (PROTOCOL_VERSION, guard-host min, previous-version list)
-// must keep coming from the fork's daemon-protocol-versions.ts above.
+// Upstream-new gates only (clean disconnect, startup ingress, mode-2031
+// unsubscribe fact). The overlapping names (PROTOCOL_VERSION, guard-host min,
+// previous-version list) must keep coming from daemon-protocol-versions.ts above.
 export {
   AGENT_SESSION_CLAIM_DAEMON_PROTOCOL_VERSION,
   AGENT_SESSION_CREATE_OPERATION_DAEMON_PROTOCOL_VERSION,
@@ -28,6 +28,8 @@ export {
   COMPLETION_PROCESS_INSPECTION_PROTOCOL_VERSION,
   GET_FOREGROUND_PROCESS_PROTOCOL_VERSION,
   PTY_STARTUP_INGRESS_PROTOCOL_VERSION,
+  MODE_2031_UNSUBSCRIBE_FACT_PROTOCOL_VERSION,
+  supportsMode2031UnsubscribeFact,
   supportsPtyStartupIngress
 } from './daemon-protocol-version'
 import type { PtyStartupIngressIntent } from '../../shared/pty-startup-ingress'
@@ -35,6 +37,7 @@ import type {
   AgentSessionExecutionClaim,
   AgentSessionSurfaceBinding
 } from '../../shared/agent-session-host-authority'
+import type * as HistorySeedProtocol from './terminal-history-seed-transfer-protocol'
 export type { TerminalModes } from './terminal-modes'
 import type { TerminalSnapshot } from './terminal-snapshot'
 export type { TerminalSnapshot } from './terminal-snapshot'
@@ -87,7 +90,7 @@ export type HelloResponse = {
 export type CreateOrAttachRequest = {
   id: string
   type: 'createOrAttach'
-  payload: {
+  payload: HistorySeedProtocol.CreateOrAttachHistorySeedPayload & {
     sessionId: string
     cols: number
     rows: number
@@ -123,8 +126,6 @@ export type CreateOrAttachRequest = {
      *  terminalScrollbackRows setting). Optional and skew-tolerated: absent
      *  keeps the historical 5k default, and pre-field daemons ignore it. */
     scrollbackRows?: number
-    /** Recovered ANSI applied before the new subprocess can emit startup output. */
-    historySeed?: string
     startupIngress?: PtyStartupIngressIntent
     agentSessionEnsure?: {
       claim: AgentSessionExecutionClaim
@@ -142,9 +143,7 @@ export type CloseStartupQueryAuthorityRequest = {
 export type CancelCreateOrAttachRequest = {
   id: string
   type: 'cancelCreateOrAttach'
-  payload: {
-    sessionId: string
-  }
+  payload: { sessionId: string }
 }
 
 export type WriteRequest = {
@@ -341,6 +340,7 @@ export type TakePendingOutputResult = {
 
 export type DaemonRequest =
   | CreateOrAttachRequest
+  | HistorySeedProtocol.TerminalHistorySeedTransferRequest
   | CancelCreateOrAttachRequest
   | WriteRequest
   | ResizeRequest

@@ -109,7 +109,7 @@ export async function createOrAttachTerminalSession(
     shellReadySupported,
     // Why: without this the emulator falls back to 5000 rows, silently capping every restore below the user's setting.
     ...(opts.scrollbackRows !== undefined ? { scrollback: opts.scrollbackRows } : {}),
-    historySeed: opts.historySeed,
+    historySeedChunks: opts.historySeedChunks,
     ...(opts.startupIngress ? { startupIngress: opts.startupIngress } : {}),
     wslDistro,
     onExit: () => deps.onSessionExit(opts.sessionId, opts.agentSessionGeneration),

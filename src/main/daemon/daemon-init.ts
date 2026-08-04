@@ -14,7 +14,7 @@ import {
   type DaemonLauncher,
   type DaemonProcessHandle
 } from './daemon-spawner'
-import { DaemonPtyAdapter } from './daemon-pty-adapter'
+import { DaemonPtyAdapter, type DaemonRespawnReason } from './daemon-pty-adapter'
 import { DaemonPtyRouter } from './daemon-pty-router'
 import { DaemonClient } from './client'
 import {
@@ -34,6 +34,8 @@ import {
   queryWindowsProcessIdentity
 } from './daemon-health'
 import { DegradedDaemonPtyProvider } from './degraded-daemon-pty-provider'
+import { trackDaemonReplaced, trackDaemonRetired } from './daemon-lifecycle-event'
+import type { DaemonReplaceReason } from '../../shared/daemon-lifecycle-telemetry'
 import {
   getLocalPtyProvider,
   setLocalPtyProvider,
@@ -266,6 +268,12 @@ async function shouldPreserveDaemonWithLiveSessions(
   return true
 }
 
+// Why: the adapter decides a runtime resolver replacement, but the launcher completes it — and by
+// then the daemon has usually self-retired (dropping its last authenticated client is enough), so
+// there is nothing left to kill and the launcher's own confirmed-kill gate would report nothing.
+// The adapter hands the reason across so the launch it triggers reports what actually drove it.
+let attributedReplaceReason: DaemonReplaceReason | null = null
+
 // Resolve the orca-daemon binary. ORCA_RUST_DAEMON_BIN overrides. The Rust daemon
 // is THE terminal daemon on every platform — its Windows transport is a real
 // named-pipe `serve` (orca-winpipe), and there is no Node fallback anywhere: a
@@ -304,19 +312,24 @@ function getRustDaemonBinPath(): string | null {
   return candidates.find((p) => existsSync(p)) ?? null
 }
 
-// Reconcile the daemon already sitting on the socket before launching a fresh
-// one. Returns a handle to REUSE/PRESERVE the existing daemon, or null meaning
-// "no reusable daemon — kill any stale process and launch fresh". Shared by both
-// launch paths (Rust on Unix, Node on Windows) so the reuse/replace/preserve
-// decision lives in exactly one place; identityMarker is the launcher's own
-// identity (the Rust bin path or the Node entry path) that getDaemonLaunchIdentity
-// checks the pid-file against.
+type DaemonReconcileOutcome = {
+  /** Non-null to REUSE/PRESERVE the daemon on the socket; null means "kill any stale process and launch fresh". */
+  handle: DaemonProcessHandle | null
+  /** Why this reconcile decided to replace. Emitted only once a kill is confirmed. */
+  pendingReplacement?: { reason: DaemonReplaceReason; liveSessionCount: number | null }
+  /** True when cleanupDaemonForProtocol actually tore a live daemon down. */
+  confirmedReplacement: boolean
+}
+
+// Reconcile the daemon already sitting on the socket before launching a fresh one, so the
+// reuse/replace/preserve decision lives in exactly one place. identityMarker is the launcher's own
+// identity (the Rust bin path) that getDaemonLaunchIdentity checks the pid-file against.
 async function reconcileExistingDaemon(
   runtimeDir: string,
   socketPath: string,
   tokenPath: string,
   identityMarker: string
-): Promise<DaemonProcessHandle | null> {
+): Promise<DaemonReconcileOutcome> {
   const health = await checkDaemonHealth(socketPath, tokenPath)
   if (health === 'healthy') {
     const resolverHealth = await getMacDaemonSystemResolverHealth(socketPath, tokenPath)
@@ -328,10 +341,14 @@ async function reconcileExistingDaemon(
             ? '[daemon] Preserving daemon with unavailable macOS system resolver because live session state could not be verified'
             : `[daemon] Preserving daemon with unavailable macOS system resolver because it owns ${liveSessionCount} live session${liveSessionCount === 1 ? '' : 's'}`
         )
-        return createPreservedDaemonHandle(runtimeDir)
+        return { handle: createPreservedDaemonHandle(runtimeDir), confirmedReplacement: false }
       }
       console.warn('[daemon] Replacing daemon with unavailable macOS system resolver')
-      await cleanupDaemonForProtocol(runtimeDir, PROTOCOL_VERSION)
+      return {
+        handle: null,
+        pendingReplacement: { reason: 'unhealthy_resolver', liveSessionCount },
+        confirmedReplacement: (await cleanupDaemonForProtocol(runtimeDir, PROTOCOL_VERSION)).cleaned
+      }
     } else {
       // Why: a protocol-healthy daemon can outlive the app bundle that
       // launched it. In dev this happens after deleting/rebuilding a
@@ -353,18 +370,27 @@ async function reconcileExistingDaemon(
           ? 'launched before the current app bundle was installed'
           : 'launched from a different app path'
         if (await shouldPreserveDaemonWithLiveSessions(socketPath, tokenPath, replacementLabel)) {
-          return createPreservedDaemonHandle(runtimeDir)
+          return { handle: createPreservedDaemonHandle(runtimeDir), confirmedReplacement: false }
         }
         console.warn(
           stalePackagedBundle
             ? '[daemon] Replacing daemon launched before the current app bundle was installed'
             : '[daemon] Replacing daemon launched from a different app path'
         )
-        await cleanupDaemonForProtocol(runtimeDir, PROTOCOL_VERSION)
+        // liveSessionCount is 0: shouldPreserveDaemonWithLiveSessions() only falls through at exactly 0.
+        return {
+          handle: null,
+          pendingReplacement: {
+            reason: stalePackagedBundle ? 'stale_bundle' : 'different_app_path',
+            liveSessionCount: 0
+          },
+          confirmedReplacement: (await cleanupDaemonForProtocol(runtimeDir, PROTOCOL_VERSION))
+            .cleaned
+        }
       } else {
         // Why: daemon is already running from a previous app session and
         // responded to a protocol-level ping. Safe to reuse.
-        return createPreservedDaemonHandle(runtimeDir)
+        return { handle: createPreservedDaemonHandle(runtimeDir), confirmedReplacement: false }
       }
     }
   } else {
@@ -399,16 +425,19 @@ async function reconcileExistingDaemon(
         console.warn(
           `[daemon] DEGRADED MODE: preserving daemon that failed the PTY spawn health check because it owns ${liveSessionCount} live session${liveSessionCount === 1 ? '' : 's'}. Existing sessions keep working; fresh terminals run on the local provider WITHOUT daemon persistence until you restart the daemon (Manage Sessions → Restart).`
         )
-        return createPreservedDaemonHandle(
-          runtimeDir,
-          PROTOCOL_VERSION,
-          'degraded-new-pty-fallback'
-        )
+        return {
+          handle: createPreservedDaemonHandle(
+            runtimeDir,
+            PROTOCOL_VERSION,
+            'degraded-new-pty-fallback'
+          ),
+          confirmedReplacement: false
+        }
       }
       console.warn(
         `[daemon] Preserving daemon that failed the health check because it owns ${liveSessionCount} live session${liveSessionCount === 1 ? '' : 's'}`
       )
-      return createPreservedDaemonHandle(runtimeDir)
+      return { handle: createPreservedDaemonHandle(runtimeDir), confirmedReplacement: false }
     }
     // Why: the sibling replace branches announce themselves, but this one used
     // to kill a daemon silently — leaving no way to tell a replacement apart
@@ -421,31 +450,35 @@ async function reconcileExistingDaemon(
         `[daemon] Replacing daemon that failed the health check (health=${health}, liveSessions=${liveSessionCount ?? 'unverifiable'}, graceRetries=${graceRetry})`
       )
     }
+    // Why: unlike the log above, telemetry gates on the post-kill truth, so a cold start that
+    // killed nothing never reports a replacement.
+    return {
+      handle: null,
+      pendingReplacement: { reason: 'failed_health_check', liveSessionCount },
+      confirmedReplacement: false
+    }
   }
-  // No reusable daemon on the socket — caller must kill any stale process and
-  // launch a fresh one.
-  return null
 }
 
 // Why: JSON pid file carries pid + process start time so later killStaleDaemon()
 // can verify the pid still belongs to the daemon we launched before SIGTERMing
 // it — prevents the pid-recycling hazard where the OS hands the daemon's old pid
 // to an unrelated process. entryPath = the launcher's identity marker so
-// getDaemonLaunchIdentity recognizes our own daemon on the next launch. Shared by
-// both launch paths. selfReportedStartedAtMs is the daemon's own start-time
-// report (Node ready message): Windows has no cheap OS query for start time, so
-// without it the recycling guard was permanently inert on win32.
+// getDaemonLaunchIdentity recognizes our own daemon on the next launch.
+// backfilledStartedAtMs is the async win32 answer: there is no cheap sync OS
+// query there, and the Rust daemon has no IPC ready message to self-report one,
+// so without it the recycling guard would be permanently inert on win32.
 function writeDaemonPidFile(
   runtimeDir: string,
   pid: number,
   entryPath: string,
-  selfReportedStartedAtMs: number | null = null
+  backfilledStartedAtMs: number | null = null
 ): void {
   writeFileSync(
     getDaemonPidPath(runtimeDir),
     serializeDaemonPidFile({
       pid,
-      startedAtMs: getProcessStartedAtMs(pid) ?? selfReportedStartedAtMs,
+      startedAtMs: getProcessStartedAtMs(pid) ?? backfilledStartedAtMs,
       entryPath,
       appVersion: app.getVersion()
     }),
@@ -465,13 +498,39 @@ function killPidBestEffort(pid?: number): void {
   }
 }
 
-// The shutdown handle both launchers return: SIGTERM the detached daemon on app
+// The shutdown handle the launcher returns: SIGTERM the detached daemon on app
 // teardown. Best-effort — the pid may already be gone.
 function makeDaemonSigtermHandle(pid: number | undefined): DaemonProcessHandle {
   return {
     shutdown: async () => {
       killPidBestEffort(pid)
     }
+  }
+}
+
+// Why rank rather than merge: a confirmed kill whose reason positively identified the daemon
+// outranks the adapter's attribution, so a stale bundle caught here is not billed to the resolver.
+// failed_health_check is the residual "couldn't tell" bucket though — it also absorbs wedges and
+// crashes — so the attribution beats it. That case is not exotic: the same dead login session that
+// fails the resolver also fails the PTY spawn probe, and with zero live sessions that lands there
+// rather than in the degraded preserve.
+function reportDaemonReplacement(
+  pendingReplacement: DaemonReconcileOutcome['pendingReplacement'],
+  confirmedReplacement: boolean,
+  attributedReason: DaemonReplaceReason | null
+): void {
+  const identified =
+    pendingReplacement &&
+    confirmedReplacement &&
+    pendingReplacement.reason !== 'failed_health_check'
+      ? pendingReplacement
+      : null
+  if (identified) {
+    trackDaemonReplaced(identified.reason, identified.liveSessionCount)
+  } else if (attributedReason) {
+    trackDaemonReplaced(attributedReason, 0)
+  } else if (pendingReplacement && confirmedReplacement) {
+    trackDaemonReplaced(pendingReplacement.reason, pendingReplacement.liveSessionCount)
   }
 }
 
@@ -487,6 +546,12 @@ async function launchRustDaemon(
   tokenPath: string,
   macosLoginSessionWatch: boolean
 ): Promise<DaemonProcessHandle> {
+  // One-shot: whichever launch consumes it owns the attribution, so a later unrelated launch can't
+  // reuse it. The write in the respawn closure reaches here without an intervening await, which is
+  // what makes a bare module-scoped slot safe — keep this read before the first await or a
+  // concurrent launch can steal it.
+  const attributedReason = attributedReplaceReason
+  attributedReplaceReason = null
   const binPath = getRustDaemonBinPath()
   if (!binPath) {
     throw new Error(
@@ -507,20 +572,27 @@ async function launchRustDaemon(
     adoptionClient = null
   }
   try {
-    const reused = await reconcileExistingDaemon(runtimeDir, socketPath, tokenPath, binPath)
-    if (reused) {
+    const reconciled = await reconcileExistingDaemon(runtimeDir, socketPath, tokenPath, binPath)
+    if (reconciled.handle) {
       // Every preserve path just proved connectivity (health check or listSessions),
       // so acquiring the adoption lease here cannot regress wedged-daemon preservation.
       const connectedClient = adoptionClient ?? undefined
       adoptionClient = null
-      return await holdDaemonAdoptionLease(reused, socketPath, tokenPath, connectedClient)
+      return await holdDaemonAdoptionLease(
+        reconciled.handle,
+        socketPath,
+        tokenPath,
+        connectedClient
+      )
     }
 
     // Why: a raw socket can outlive a broken daemon; kill by PID before respawn
     // so the new daemon doesn't race the stale one.
     adoptionClient?.disconnect()
     adoptionClient = null
-    await killStaleDaemon(runtimeDir, socketPath, tokenPath)
+    const confirmedReplacement =
+      (await killStaleDaemon(runtimeDir, socketPath, tokenPath)) || reconciled.confirmedReplacement
+    reportDaemonReplacement(reconciled.pendingReplacement, confirmedReplacement, attributedReason)
 
     const userDataPath = app.getPath('userData')
     // Why the flag survives the Rust port: it marks a daemon born inside a macOS
@@ -634,13 +706,29 @@ function createOutOfProcessLauncher(
 
 // Why: when the daemon process dies (e.g. killed by a signal, OOM, or cascading
 // from a force-quit of child processes), the adapter's ensureConnected() detects
-// the dead socket and calls this to fork a replacement daemon before retrying the
+// the dead socket and calls this to launch a replacement daemon before retrying the
 // connection. Shared by the initial adapter and the restart adapter. Returns the
 // launcher's temporary adoption-lease release so the adapter can drop it once
 // its own permanent pair is re-established.
-function makeRespawnCallback(spawner: DaemonSpawner): () => Promise<void | (() => void)> {
-  return async () => {
-    console.warn('[daemon] Daemon process died — respawning')
+function makeRespawnCallback(
+  spawner: DaemonSpawner
+): (reason: DaemonRespawnReason) => Promise<void | (() => void)> {
+  return async (reason) => {
+    // Why: attribute rather than emit — the launcher below is the one that completes the
+    // replacement, and emitting here would fire before the outcome is known.
+    // Caveat: a wedged-but-alive daemon (#8689) can still report died_respawn here and
+    // failed_health_check from the launcher — the app cannot tell wedged from dead at this point.
+    if (reason === 'daemon_died') {
+      console.warn('[daemon] Daemon process died — respawning')
+      // Why: a manual restart tears the daemon down under a still-live adapter, so a pane
+      // respawning on its synthetic exit would bill a user action to the crash bucket.
+      if (!restartInFlight) {
+        trackDaemonRetired('died_respawn')
+      }
+    } else if (reason === 'unhealthy_resolver') {
+      // Must reach launchRustDaemon without an await in between; see the consume site.
+      attributedReplaceReason = 'unhealthy_resolver'
+    }
     spawner.resetHandle()
     await spawner.ensureRunning()
     return takeDaemonAdoptionLeaseRelease(spawner.getHandle())
@@ -703,7 +791,9 @@ async function runInitDaemonPtyProvider(
     // Why: fail-open may already have spawned fallback PTYs; don't install late, but retire an empty daemon (live sessions reject it and survive).
     const abortedStartupAdapter = new DaemonPtyAdapter({
       socketPath: info.socketPath,
-      tokenPath: info.tokenPath
+      tokenPath: info.tokenPath,
+      pidPath: getDaemonPidPath(runtimeDir),
+      profileScope: runtimeDir
     })
     releaseDaemonAdoptionLease(newSpawner.getHandle())
     await abortedStartupAdapter.disconnectOnly()
@@ -713,6 +803,8 @@ async function runInitDaemonPtyProvider(
   const newAdapter = new DaemonPtyAdapter({
     socketPath: info.socketPath,
     tokenPath: info.tokenPath,
+    pidPath: getDaemonPidPath(runtimeDir),
+    profileScope: runtimeDir,
     historyPath: getHistoryDir(),
     respawn: makeRespawnCallback(newSpawner)
   })
@@ -801,6 +893,26 @@ async function reconcileSeededClaudeLivePtys(provider: DaemonProvider): Promise<
 // Why: a narrow getter (not a raw export) keeps the "swap on restart" invariant in one place (replaceDaemonProvider).
 export function getDaemonProvider(): DaemonProvider | null {
   return adapter
+}
+
+/** Returns null unless every daemon generation supplied an authoritative inventory. */
+export async function listLiveDaemonPtyIds(): Promise<string[] | null> {
+  if (!adapter) {
+    return null
+  }
+  const adapters =
+    adapter instanceof DaemonPtyRouter || adapter instanceof DegradedDaemonPtyProvider
+      ? adapter.getAllAdapters()
+      : [adapter]
+  const inventories = await Promise.allSettled(
+    adapters.map((daemonAdapter) => daemonAdapter.listProcesses())
+  )
+  if (inventories.some((inventory) => inventory.status === 'rejected')) {
+    return null
+  }
+  return inventories.flatMap((inventory) =>
+    inventory.status === 'fulfilled' ? inventory.value.map((process) => process.id) : []
+  )
 }
 
 // Why: keep the module-level adapter and ipc/pty.ts's localProvider in sync so app-quit can't dispose a stale reference.
@@ -930,6 +1042,8 @@ async function runRestartDaemon(): Promise<RestartDaemonResult> {
   const newCurrent = new DaemonPtyAdapter({
     socketPath: info.socketPath,
     tokenPath: info.tokenPath,
+    pidPath: getDaemonPidPath(runtimeDir),
+    profileScope: runtimeDir,
     historyPath: getHistoryDir(),
     respawn: makeRespawnCallback(currentSpawner)
   })
@@ -1141,6 +1255,8 @@ export async function createLegacyDaemonAdapters(
       new DaemonPtyAdapter({
         socketPath,
         tokenPath,
+        pidPath: getDaemonPidPath(runtimeDir, protocolVersion),
+        profileScope: runtimeDir,
         protocolVersion,
         historyPath
       })

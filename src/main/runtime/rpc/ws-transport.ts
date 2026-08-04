@@ -148,8 +148,11 @@ export class WebSocketTransport implements RpcTransport {
         await this.tryListen(port)
         return
       } catch (error: unknown) {
-        // Why: any fallback-port failure must degrade to the next candidate (Windows can reserve the port → EACCES, not just EADDRINUSE); only non-EADDRINUSE preferred-port failures are fatal.
-        if (port !== persistedFallbackPort && (!isEAddressInUse(error) || port === 0)) {
+        // Why: a persisted fallback may fail for any reason, while configured ports fall through only when their listen is occupied or denied.
+        if (
+          port !== persistedFallbackPort &&
+          (!isPortListenFallbackError(error, port) || port === 0)
+        ) {
           throw error
         }
         console.warn(
@@ -294,14 +297,6 @@ export class WebSocketTransport implements RpcTransport {
       this.connectionCloseHandler?.(clientId, ws, hasOtherConnections)
     }
 
-    // Why: seed alive before arming so a fresh first socket is pinged, not reaped, on the immediate arm sweep.
-    this.heartbeatConnections.add(ws)
-    this.heartbeat.noteAlive(ws)
-    // Why: arm only on the first client — an idle server shouldn't spin a no-op sweep.
-    if (this.heartbeatConnections.size === 1) {
-      this.heartbeat.start(() => this.wss?.clients ?? [])
-    }
-
     const preAuthTimer = setTimeout(() => {
       if (!this.wsClientIds.has(ws)) {
         // Why: a silent auto-ponging client would otherwise hold a finite mobile slot forever without starting the E2EE handshake.
@@ -317,6 +312,15 @@ export class WebSocketTransport implements RpcTransport {
     // Why: clean up connection-scoped state (e.g. mobile-fit overrides) so a dropped phone doesn't leave orphaned phone-fit on desktop.
     ws.on('close', finalizeConnection)
     ws.on('error', onError)
+
+    // Why: every lifecycle event must have an owner before the first synchronous probe;
+    // seed alive before arming so a fresh first socket is pinged, not reaped, and arm
+    // only on the first client so an idle server never spins a no-op sweep.
+    this.heartbeatConnections.add(ws)
+    this.heartbeat.noteAlive(ws)
+    if (this.heartbeatConnections.size === 1) {
+      this.heartbeat.start(() => this.wss?.clients ?? [])
+    }
   }
 
   private clearPreAuthTimer(ws: WebSocket): void {
@@ -328,6 +332,18 @@ export class WebSocketTransport implements RpcTransport {
   }
 }
 
-function isEAddressInUse(error: unknown): boolean {
-  return error instanceof Error && 'code' in error && error.code === 'EADDRINUSE'
+function isPortListenFallbackError(error: unknown, port: number): boolean {
+  if (!(error instanceof Error) || !('code' in error)) {
+    return false
+  }
+  if (error.code === 'EADDRINUSE') {
+    return true
+  }
+  return (
+    error.code === 'EACCES' &&
+    'syscall' in error &&
+    error.syscall === 'listen' &&
+    'port' in error &&
+    error.port === port
+  )
 }

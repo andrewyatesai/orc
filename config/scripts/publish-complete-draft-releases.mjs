@@ -124,7 +124,7 @@ export async function publishCompleteDraftReleases({
 
   for (const release of candidates) {
     const tag = release.tag_name
-    if (!(await isDraftBuiltFromCurrentRef({ tag, release }))) {
+    if (!(await Promise.resolve(isDraftBuiltFromCurrentRef({ tag, release })))) {
       const reason = 'tag is not built from the current release ref'
       skipped.push({ tag, reason })
       log(`Skipping stale ALab desktop draft ${tag}: ${reason}`)

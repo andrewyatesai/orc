@@ -311,7 +311,7 @@ suite('orca-git napi surface', () => {
     // unknown→typed guards are a JS-only concern, so vectors carry typed inputs).
     const vectors = JSON.parse(
       readFileSync(
-        new URL('../../../tools/parity/vectors/git-push-target.json', import.meta.url),
+        new URL('../../../tests/tools/parity/vectors/git-push-target.json', import.meta.url),
         'utf8'
       )
     ) as {

@@ -1,5 +1,4 @@
-import type { IDisposable, IMarker } from './aterm/terminal-types'
-import type { ITerminalOptions } from './aterm/terminal-types'
+import type { IDisposable, IMarker, ITerminalOptions } from './aterm/terminal-types'
 import type { GlobalSettings } from '../../../../shared/types'
 import type { TerminalLeafId } from '../../../../shared/stable-pane-id'
 import type { AtermPaneController } from './aterm/aterm-pane-renderer'
@@ -26,7 +25,7 @@ export type PaneSpawnHints = {
 export type ClosedPaneInfo = {
   paneId: number
   leafId: TerminalLeafId
-  reason?: 'close' | 'detach'
+  reason?: 'close' | 'detach' | 'retire'
 }
 
 export type PaneExternalDropTarget = {
@@ -59,6 +58,10 @@ export type PaneManagerOptions = {
   terminalOptions?: (paneId: number) => Partial<ITerminalOptions>
   terminalTuiScrollSensitivity?: () => number | undefined
   onLinkClick?: (event: MouseEvent | undefined, url: string) => void
+  /** Resolved per hover so link-routing setting changes apply without recreating panes. */
+  // Why: required so dropping the wiring is a compile error — an optional hint with a
+  // default would silently serve stale copy that no test can distinguish.
+  linkOpenHint: () => string
   formatLinkTooltip?: (
     url: string,
     openLinkHint: string
@@ -168,6 +171,10 @@ export type ManagedPaneInternal = {
   /** PaneManagerOptions.formatLinkTooltip, threaded to the aterm hover tooltip
    *  (read live at hover time by the controller's options). */
   formatLinkTooltip?: PaneManagerOptions['formatLinkTooltip']
+  /** PaneManagerOptions.linkOpenHint — the URL affordance wording, which depends
+   *  on the live link-routing settings, so the aterm tooltip must call it per
+   *  hover rather than use the static per-kind fallback. */
+  linkOpenHint?: PaneManagerOptions['linkOpenHint']
   // Read by aterm-gpu-auto-policy at wiring time to pick the GPU vs CPU drawer.
   terminalGpuAcceleration: GlobalSettings['terminalGpuAcceleration']
   fitResizeObserver: ResizeObserver | null
@@ -193,6 +200,9 @@ export type ManagedPaneInternal = {
   // Stored so disposePane() can detach the streamed-output hover-cache reset
   // that keeps freshly printed links linkifiable without a scroll.
   linkifierHoverResetDisposable?: IDisposable | null
+  // Stored because the mouseleave reset is bound to the pane's canvas host, not
+  // to the terminal the facade disposes.
+  linkifierMouseLeaveResetDisposable?: IDisposable | null
   // Stored so disposePane() can deregister the joiner; terminal.dispose()
   // does not remove registered character joiners.
   arabicShapingJoinerCleanup?: (() => void) | null

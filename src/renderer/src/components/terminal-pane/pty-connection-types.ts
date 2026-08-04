@@ -1,4 +1,5 @@
 import type { PtyTransport } from './pty-transport'
+import type { SessionRestoredBannerReason } from './session-restored-banner-pane-state'
 import type { ReplayingPanesRef } from './replay-guard'
 import type { RestoredViewportBlankingPanesRef } from './terminal-restored-viewport'
 import type { AgentCompletionStatusSnapshot } from './agent-completion-coordinator-types'
@@ -13,6 +14,13 @@ import type {
 import type { TerminalKittyKeyboardModeTracker } from '../../../../shared/terminal-kitty-keyboard-mode-tracker'
 import type { PtyTransportRecoveryState } from './pty-transport-types'
 import type { SessionOptionValue } from '../../../../shared/native-chat-session-options'
+import type { DirectSshPaneRetryAttemptId } from '@/store/slices/direct-ssh-terminal-recovery'
+
+/** Why: upstream tags WHY the banner shows; the fork's #7596 payload carries the
+ *  recovered command that powers its type-it-again affordance. Both reach the owner. */
+export type SessionRestoredBannerDetail =
+  | SessionRestoredBannerReason
+  | { lastCommand?: string | null }
 
 export type PtyConnectionDeps = {
   tabId: string
@@ -75,16 +83,19 @@ export type PtyConnectionDeps = {
   updateTabTitle: (tabId: string, title: string) => void
   setRuntimePaneTitle: (tabId: string, paneId: number, title: string) => void
   clearRuntimePaneTitle: (tabId: string, paneId: number) => void
-  updateTabPtyId: (tabId: string, ptyId: string, replacedPtyId?: string) => void
+  updateTabPtyId: (
+    tabId: string,
+    ptyId: string,
+    replacedPtyId?: string,
+    directSshRetryAttemptId?: DirectSshPaneRetryAttemptId
+  ) => void
   markWorktreeUnread: (worktreeId: string) => void
   markTerminalTabUnread: (tabId: string) => void
   markTerminalPaneUnread: (paneKey: string) => void
   clearWorktreeUnread: (worktreeId: string) => void
   clearTerminalTabUnread: (tabId: string) => void
   clearTerminalPaneUnread: (paneKey: string) => void
-  // Why: lastCommand (#7596) powers the restored banner's type-it-again
-  // affordance; absent/null keeps the plain "session restored" marker.
-  onShowSessionRestoredBanner: (paneId: number, info?: { lastCommand?: string | null }) => void
+  onShowSessionRestoredBanner: (paneId: number, detail?: SessionRestoredBannerDetail) => void
   // Why: the renderer dispatches four notification sources — BEL from the PTY
   // byte stream, agent-task-complete on the working→idle title transition,
   // long-command-complete on OSC 133 C→D past the settings threshold, and

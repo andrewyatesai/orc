@@ -9,6 +9,7 @@ import type { AtermMemoryBenchResult } from '@/lib/pane-manager/aterm/aterm-memo
 import type { AtermWorkerState } from '@/lib/pane-manager/aterm/aterm-render-worker-protocol'
 import type { languages } from 'monaco-editor'
 import type { MonacoE2EProbe } from './components/editor/monaco-e2e-probe'
+import type { TerminalWorktreeParkingDebugVerdict } from './components/terminal-pane/terminal-parking-e2e-overrides'
 
 declare module 'monaco-editor/esm/vs/basic-languages/python/python.js' {
   export const conf: languages.LanguageConfiguration
@@ -144,6 +145,8 @@ declare global {
     __terminalParkingDebug?: {
       parkDelayMs: number
       parkedTabIds: () => string[]
+      retentionLimit: number | null
+      worktreeVerdicts: () => TerminalWorktreeParkingDebugVerdict[]
     }
     __monacoEditorE2E?: MonacoE2EProbe
     __e2ePtyAppliedSizeReadDelayMs?: number
@@ -152,6 +155,7 @@ declare global {
 
 // oxlint-disable-next-line typescript-eslint/consistent-type-definitions -- declaration merging requires interface
 interface ImportMetaEnv {
+  readonly VITE_DIRECT_SSH_RECONNECT_COORDINATOR?: string
   readonly VITE_EXPOSE_STORE?: boolean
 }
 

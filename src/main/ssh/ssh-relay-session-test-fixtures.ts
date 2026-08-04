@@ -1,5 +1,6 @@
 import { vi, type Mock } from 'vitest'
 import type { BrowserWindow } from 'electron'
+import { PtyConsumerSession } from '../../shared/pty-consumer-session'
 import type { SshConnection } from './ssh-connection'
 import type { Store } from '../persistence'
 import type { SshPortForwardManager } from './ssh-port-forward'
@@ -17,11 +18,16 @@ export function createMockDeps(): SshRelaySessionTestDeps {
   const mockConn = {} as SshConnection
   const mockStore = {
     getRepos: vi.fn().mockReturnValue([]),
+    getSshPtyConsumerRecovery: vi.fn().mockReturnValue(null),
+    upsertSshPtyConsumerRecovery: vi.fn(),
+    removeSshPtyConsumerRecovery: vi.fn(),
     getSshRemotePtyLeases: vi.fn().mockReturnValue([]),
-    // Why: the real markSshRemotePtyLease returns whether a durable change
-    // occurred; reattach uses that to decide on the single trailing flush.
+    // Why: the real markSshRemotePtyLease reports whether a durable change occurred,
+    // which callers batching their own flush depend on.
     markSshRemotePtyLease: vi.fn().mockReturnValue(true),
     markSshRemotePtyLeases: vi.fn(),
+    markSshRemotePtyLeasesAsync: vi.fn(),
+    markSshRemotePtyLeasesAttachedAsync: vi.fn(),
     persistPtyBinding: vi.fn(),
     flush: vi.fn()
   } as unknown as Store
@@ -49,4 +55,40 @@ export function mockDeploySuccess(): void {
     },
     platform: 'linux-x64'
   })
+}
+
+export function createMismatchedOwnerRecoveryError(): unknown {
+  const stateMachine = new PtyConsumerSession({
+    serverBuildId: 'test-relay-build',
+    createLease: () => 'retained-owner-lease'
+  })
+  const owner = stateMachine.admit(
+    { clientInstanceId: 'retained-client', requestedRole: 'session-owner' },
+    {
+      connectionId: 'retained-connection',
+      principal: 'retained-principal',
+      authenticated: true,
+      allowSessionOwner: true
+    }
+  )
+  owner.commitPublication()
+  stateMachine.close('retained-connection')
+  try {
+    stateMachine.admit(
+      {
+        clientInstanceId: 'retained-client',
+        requestedRole: 'session-owner',
+        resume: { ownerGeneration: 1, ownerLease: 'retained-owner-lease' }
+      },
+      {
+        connectionId: 'stale-connection',
+        principal: 'stale-principal',
+        authenticated: true,
+        allowSessionOwner: true
+      }
+    )
+  } catch (error) {
+    return error
+  }
+  throw new Error('Expected mismatched owner recovery to fail')
 }

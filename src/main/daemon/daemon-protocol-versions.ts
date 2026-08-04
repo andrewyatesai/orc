@@ -50,13 +50,14 @@ export const FORK_DAEMON_PROTOCOL_NAMESPACE_START = 1000
 // supportsGitCredentialGuardHost).
 export const GIT_CREDENTIAL_GUARD_HOST_PROTOCOL_VERSION = 22
 
-// Why 18–24 are listed: a live public Node daemon (with running agent
-// sessions) found at daemon-v18..v24.* is attached via the legacy-adapter path
+// Why 18–30 are listed: a live public Node daemon (with running agent
+// sessions) found at daemon-v18..v30.* is attached via the legacy-adapter path
 // instead of being killed or impersonated, so installing the fork over public
 // Orca preserves in-flight terminals across the public protocol range (upstream
-// v1.4.147 ships public protocol 24).
+// v1.4.165 ships public protocol 30). Mirror this list forward whenever the
+// public range grows, or those in-flight terminals are killed instead.
 // Why 1018/1019/1020 are listed: a fork daemon preserved across an app update
 // to 1021 keeps its sessions via the same legacy-adapter path (it lives at
 // daemon-v1018.* / daemon-v1019.* / daemon-v1020.*).
 // prettier-ignore
-export const PREVIOUS_DAEMON_PROTOCOL_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 1018, 1019, 1020] as const
+export const PREVIOUS_DAEMON_PROTOCOL_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 1018, 1019, 1020] as const

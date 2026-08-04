@@ -25,10 +25,11 @@ export function SessionRestoredBannerPortals({
           return null
         }
         return createPortal(
-          // Why: resumed TUIs repaint xterm immediately, so the wake marker
+          // Why: resumed TUIs repaint the terminal immediately, so the wake marker
           // must live in that pane's chrome instead of the PTY byte stream.
           <SessionRestoredBanner
             visible
+            reason={state.reason}
             lastCommand={state.lastCommand}
             onTypeItAgain={(command) => onTypeItAgain(pane, command)}
           />,

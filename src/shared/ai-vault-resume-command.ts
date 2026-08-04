@@ -1,3 +1,6 @@
+// Resume-command construction for Agent Session History rows: turns a scanned
+// session into the shell line that re-enters it, quoted for the target platform
+// and (when known) the live tab's shell.
 import { TUI_AGENT_CONFIG } from './tui-agent-config'
 import {
   commandSeparator,
@@ -165,10 +168,12 @@ function buildAgentResumeInvocation(
     case 'opencode':
     // Why: pi's `--session` arg is the absolute transcript path when known
     // (see buildAiVaultResumeCommand); a bare session id is not resumable.
+    // falls through
     case 'pi':
     // Why: Kimi Code resumes with `kimi --session <id>` (alias `-S`). Sessions
     // are work-dir-scoped, so the cwd prefix from buildAiVaultResumeCommand is
     // required — resuming from another directory is rejected by the CLI.
+    // falls through
     case 'kimi':
       return `${baseCommand} --session ${sessionArg}`
     case 'copilot':
@@ -183,6 +188,7 @@ function buildAgentResumeInvocation(
     case 'droid':
     // Why: OMP resumes by absolute transcript path (see buildAiVaultResumeCommand),
     // but the `--resume <arg>` invocation form is identical to the others here.
+    // falls through
     case 'omp':
       return `${baseCommand} --resume ${sessionArg}`
     case 'antigravity':

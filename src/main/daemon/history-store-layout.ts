@@ -110,6 +110,27 @@ export function migrateLegacyDaemonSessionDirs(
   return moved
 }
 
+// Why recursive and mode-aware: the tombstone queue (.pending-delete/<uuid>/…) and recovery
+// quarantine (.recovery-quarantine/<hash>/<uuid>/…) nest directories, and a directory left at 0o600
+// is undeletable — its drain then fails EACCES and the tree leaks. Symlinks are skipped so chmod
+// cannot escape the store.
+function tightenSessionStoreTree(dir: string): void {
+  chmodSync(dir, HISTORY_DIR_MODE)
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const entryPath = join(dir, entry.name)
+    try {
+      if (entry.isDirectory()) {
+        tightenSessionStoreTree(entryPath)
+      } else if (entry.isFile()) {
+        chmodSync(entryPath, HISTORY_FILE_MODE)
+      }
+    } catch {
+      // Per-entry, non-fatal — a vanished or unreadable entry must not
+      // abort the sweep for the rest of the store.
+    }
+  }
+}
+
 /**
  * One-time tightening sweep for files written by older builds at umask
  * defaults. POSIX chmods the tree; Windows follows the secure-file ACL
@@ -122,23 +143,7 @@ export function tightenDaemonSessionStorePermissions(sessionsRoot: string): void
     return
   }
   try {
-    chmodSync(sessionsRoot, HISTORY_DIR_MODE)
-    for (const entry of readdirSync(sessionsRoot, { withFileTypes: true })) {
-      const entryPath = join(sessionsRoot, entry.name)
-      try {
-        if (entry.isDirectory()) {
-          chmodSync(entryPath, HISTORY_DIR_MODE)
-          for (const file of readdirSync(entryPath)) {
-            chmodSync(join(entryPath, file), HISTORY_FILE_MODE)
-          }
-        } else {
-          chmodSync(entryPath, HISTORY_FILE_MODE)
-        }
-      } catch {
-        // Per-entry, non-fatal — a vanished or unreadable entry must not
-        // abort the sweep for the rest of the store.
-      }
-    }
+    tightenSessionStoreTree(sessionsRoot)
   } catch (err) {
     console.warn(
       `[history:layout] permission sweep failed: ${err instanceof Error ? err.message : String(err)}`

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { UpdateStatus } from '../shared/types'
 import {
   compareVersions,
   isBenignCheckFailure,
@@ -71,6 +72,42 @@ describe('isMissingUpdateManifestFailure', () => {
 describe('isBenignCheckFailure', () => {
   it('treats in-progress release asset publication as retryable', () => {
     expect(isBenignCheckFailure('Latest release assets are still publishing')).toBe(true)
+  })
+})
+
+describe('statusesEqual', () => {
+  const recovery = {
+    kind: 'linux-package-install',
+    packageType: 'deb',
+    reason: 'authentication-agent-unavailable',
+    version: '1.0.61'
+  } as const
+  const withRecovery: UpdateStatus = { state: 'error', message: 'install failed', recovery }
+  const withoutRecovery: UpdateStatus = { state: 'error', message: 'install failed' }
+
+  it('does not dedupe a recovery-carrying error against the same message without recovery', () => {
+    // Why: deduping here would leave the card's copy/show actions enabled with no usable package.
+    expect(statusesEqual(withRecovery, withoutRecovery)).toBe(false)
+    expect(statusesEqual(withoutRecovery, withRecovery)).toBe(false)
+  })
+
+  it('separates recovery statuses that differ only in package type, reason, or version', () => {
+    expect(
+      statusesEqual(withRecovery, {
+        ...withRecovery,
+        recovery: { ...recovery, packageType: 'rpm' }
+      })
+    ).toBe(false)
+    expect(
+      statusesEqual(withRecovery, {
+        ...withRecovery,
+        recovery: { ...recovery, reason: 'package-install-failed' }
+      })
+    ).toBe(false)
+    expect(
+      statusesEqual(withRecovery, { ...withRecovery, recovery: { ...recovery, version: '1.0.62' } })
+    ).toBe(false)
+    expect(statusesEqual(withRecovery, { ...withRecovery })).toBe(true)
   })
 })
 

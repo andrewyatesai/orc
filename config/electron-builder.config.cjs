@@ -12,10 +12,16 @@ const {
   verifyPackagedMainRuntimeDeps
 } = require('./packaged-runtime-node-modules.cjs')
 const { verifyLinuxGlibcFloor } = require('./scripts/verify-linux-glibc-floor.cjs')
+const { writeMacBuildCompatibility } = require('./scripts/mac-build-compatibility.cjs')
+const { verifyPackagedPluginResources } = require('./scripts/verify-packaged-plugin-resources.cjs')
+const { verifySkillsCliRuntime } = require('./scripts/verify-skills-cli-runtime.cjs')
 
 const { assertBundledBinaryArchitectures } = require('./scripts/assert-bundled-binary-arch.cjs')
 
 const isMacRelease = process.env.ORCA_MAC_RELEASE === '1'
+// Why: build-mac-local.mjs stamps the packaged semver of a local validation build.
+// Release packaging must keep package.json's version, so the override is off there.
+const localBuildVersion = isMacRelease ? undefined : process.env.ORCA_LOCAL_BUILD_VERSION
 // Why: signing is three INDEPENDENT tiers, not one boolean — ad-hoc ('-', the default),
 // a configured identity, and notarization on top of a Developer ID. Read from the
 // environment ONLY, never discovered from the keychain, so a dev build can never
@@ -50,6 +56,12 @@ const macTargetArches = process.env.ORCA_MAC_BUILD_ARCHES
   : isMacRelease
     ? ['x64', 'arm64']
     : [process.arch === 'x64' ? 'x64' : 'arm64']
+// Why ONE object rather than two spreads: a second `extraMetadata` spread replaces
+// the first, so productName isolation and the local semver override must share it.
+const extraMetadata = {
+  ...(isPublicIdentity ? {} : { productName }),
+  ...(localBuildVersion ? { version: localBuildVersion } : {})
+}
 const featureWallResources = {
   from: 'resources/onboarding/feature-wall',
   to: 'onboarding/feature-wall'
@@ -117,9 +129,17 @@ const thirdPartyLicenseResources = [
   }
 ]
 
+// Why: bundled plugins are immutable install inputs and must remain ordinary
+// directories so the startup bootstrap can verify and publish exact bytes.
+const bundledPluginResources = {
+  from: 'resources/plugins/launch',
+  to: 'plugins/launch'
+}
+
 const commonExtraResources = [
   relayExtraResource,
   terminalAddonResource,
+  bundledPluginResources,
   ...thirdPartyLicenseResources,
   skillFreshnessResources
 ]
@@ -146,7 +166,7 @@ module.exports = {
   // isolates staging state from public Orca's. Public-identity diff builds
   // skip the injection so their packaged metadata stays byte-compatible with
   // upstream (whose runtime app.name starts as the raw 'orca').
-  ...(isPublicIdentity ? {} : { extraMetadata: { productName } }),
+  ...(Object.keys(extraMetadata).length > 0 ? { extraMetadata } : {}),
   // Why: OS-level orca:// registration (#4384) — builder propagates per-platform
   // (mac CFBundleURLTypes, NSIS HKCU class key, Linux x-scheme-handler MimeType).
   // Fork + public builds both claim the SAME scheme by design: the grammar is the
@@ -176,13 +196,20 @@ module.exports = {
     '!skill-guides{,/**/*}',
     '!skill-stubs{,/**/*}',
     '!tests{,/**/*}',
+    // Why: examples/ is plugin authoring documentation with no runtime consumer —
+    // bundled plugins ship via extraResources from resources/plugins/launch/. It also
+    // carries hostile-panel, the adversarial fixture the containment tests point at,
+    // which must never reach a user's install.
+    '!examples{,/**/*}',
     // Why: pr-evidence/ is a local e2e screenshot output (ORCA_CAPTURE_EVIDENCE);
     // it is gitignored, but exclude it defensively so a stray local capture at
     // package time never bloats app.asar.
     '!pr-evidence{,/**/*}',
     '!Casks{,/**/*}',
-    '!{AGENTS.md,CLAUDE.md,DEVELOPING.md,THIRD-PARTY-NOTICES.md,bundle-size-progress.md}',
+    '!{AGENTS.md,CLAUDE.md,DEVELOPING.md,THIRD-PARTY-NOTICES.md,bundle-size-progress.md,ORCHESTRATION_IMPLEMENTATION_CHECKLIST.md,ORCHESTRATION_STRUCTURED_OUTPUT_DESIGN.md}',
     '!out/**/*.test.js',
+    // Why: Vite's manifest is only used to project the paired web client.
+    '!out/renderer/.vite{,/**/*}',
     '!electron.vite.config.{js,ts,mjs,cjs}',
     '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,CHANGELOG.md,README.md}',
     '!{.env,.env.*,.npmrc,pnpm-lock.yaml}',
@@ -191,6 +218,9 @@ module.exports = {
     // it from process.resourcesPath; exclude the source copy from app.asar.
     '!resources/onboarding/feature-wall/**',
     '!resources/skills/**',
+    // Why: bundled plugins ship via extraResources to resources/plugins/launch;
+    // packing the source tree into app.asar would duplicate those exact bytes.
+    '!resources/plugins/launch/**',
     // Why: the Windows CLI shim ships via extraResources to resources/bin/orca.cmd
     // (beside the native resources/bin/orca.exe). Packing the source tree into
     // app.asar too lets asarUnpack:['resources/**'] extract a second copy at
@@ -222,6 +252,7 @@ module.exports = {
     'out/main/agent-hooks/**',
     'out/main/antigravity/**',
     'out/main/claude/**',
+    'out/main/claude-accounts/keychain.js',
     'out/main/codex/**',
     'out/main/copilot/**',
     'out/main/cursor/**',
@@ -229,7 +260,7 @@ module.exports = {
     'out/main/gemini/**',
     'out/main/grok/**',
     'out/main/hermes/**',
-    'out/main/win32-utils.js',
+    'out/main/plugin-host-entry.js',
     'out/main/computer-sidecar.js',
     'out/main/parcel-watcher-process-entry.js',
     'out/main/chunks/**',
@@ -257,7 +288,26 @@ module.exports = {
           )
         : join(context.appOutDir, 'resources')
     if (!existsSync(resourcesDir)) {
-      return
+      throw new Error(`Missing packaged resources directory: ${resourcesDir}`)
+    }
+    if (context.electronPlatformName === 'darwin') {
+      const architectureByEnum = { 1: 'x64', 3: 'arm64' }
+      const architecture = architectureByEnum[context.arch]
+      if (!architecture) {
+        throw new Error(`Unsupported local-build compatibility architecture: ${context.arch}`)
+      }
+      const version = context.packager.appInfo.version
+      let commit = process.env.ORCA_BUILD_COMMIT || process.env.GITHUB_SHA || 'unknown'
+      if (commit === 'unknown') {
+        try {
+          commit = execFileSync('git', ['rev-parse', '--short=12', 'HEAD'], {
+            encoding: 'utf8'
+          }).trim()
+        } catch {
+          // Source archives can still produce a signed build with an explicit version.
+        }
+      }
+      writeMacBuildCompatibility(resourcesDir, { version, commit, architecture })
     }
     // Why: electron-builder only checks that extraResources exist; a host-arch
     // cargo binary copied into a foreign-arch bundle passes silently and the
@@ -270,6 +320,23 @@ module.exports = {
     })
     prunePackagedRuntimeNodeModules(resourcesDir, context.electronPlatformName, context.arch)
     verifyPackagedMainRuntimeDeps(resourcesDir)
+    // Why: the packaged skills CLI probes run real commands, so they only work on
+    // the slice the packaging host can execute. `Arch` enum: ia32=0, x64=1,
+    // armv7l=2, arm64=3, universal=4 (universal contains the host slice).
+    const archEnumByNodeArch = { ia32: 0, x64: 1, armv7l: 2, arm64: 3 }
+    const hostArchEnum = archEnumByNodeArch[process.arch]
+    const canExecuteTargetArch = context.arch === hostArchEnum || context.arch === 4
+    verifySkillsCliRuntime(join(resourcesDir, 'app.asar.unpacked', 'out'), resourcesDir, {
+      executeCommands: canExecuteTargetArch
+    })
+    if (!canExecuteTargetArch) {
+      console.log(
+        `[verify-skills-cli-runtime] skipped command probes on cross-arch slice (target ${context.arch}, host ${process.arch})`
+      )
+    }
+    // Why: inspect electron-builder's real output so a broken extraResources
+    // mapping fails packaging before bundled content reaches users.
+    verifyPackagedPluginResources(resourcesDir)
     chmodUnixCliLaunchers(resourcesDir, context.electronPlatformName)
     chmodMacServeSimHelpers(resourcesDir, context.electronPlatformName)
     for (const filename of readdirSync(resourcesDir)) {
@@ -369,6 +436,8 @@ module.exports = {
     },
     // Why: hardened runtime + notarization require a Developer ID; ad-hoc and
     // self-signed builds must not request either (see the tier note at the top).
+    // Notarizing when a Developer ID IS configured also keeps TCC grants alive
+    // across updates — a ticket anchors them on identifier + team, not cdhash.
     hardenedRuntime: isNotarizedMacRelease,
     notarize: isNotarizedMacRelease,
     extraResources: [

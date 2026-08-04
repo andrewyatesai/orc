@@ -589,6 +589,9 @@ mod tests {
     fn only_allows_agent_prompt_quick_commands_for_launch_time_prompt_agents() {
         assert!(supports_terminal_agent_quick_command("claude"));
         assert!(supports_terminal_agent_quick_command("gemini"));
+        // trae takes the prompt on argv, so it is quick-command eligible; ante does not.
+        assert!(supports_terminal_agent_quick_command("trae"));
+        assert!(!supports_terminal_agent_quick_command("ante"));
         assert!(!supports_terminal_agent_quick_command("aider"));
         assert!(!supports_terminal_agent_quick_command("not-real"));
     }

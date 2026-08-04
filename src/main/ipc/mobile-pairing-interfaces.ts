@@ -10,6 +10,9 @@ export type NetworkInterface = {
 // Why: fe80::/10 link-local addresses need a zone index the phone cannot dial.
 const IPV6_LINK_LOCAL_RE = /^fe[89ab]/i
 
+// Why: 198.18.0.0/15 proxy fake IPs are only routable inside the desktop proxy (#10404).
+const PROXY_FAKE_IP_V4_RE = /^198\.(?:18|19)\./
+
 export type PairingInterfaceDeps = {
   readInterfaces?: typeof networkInterfaces
   isTailnetIPv4?: (address: string) => boolean
@@ -31,6 +34,9 @@ export function listPairingNetworkInterfaces(deps: PairingInterfaceDeps = {}): N
         continue
       }
       if (addr.family === 'IPv4') {
+        if (PROXY_FAKE_IP_V4_RE.test(addr.address)) {
+          continue
+        }
         candidates.push({
           entry: { name, address: addr.address },
           rank: isTailnetIPv4Safely(isTailnetIPv4, addr.address) ? 0 : 1

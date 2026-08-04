@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { deriveTaskPagePRCheckSummary } from './task-page-pr-check-summary'
 import type { PRCheckDetail } from '../../../shared/types'
@@ -20,7 +20,8 @@ describe('deriveTaskPagePRCheckSummary', () => {
       total: 0,
       passed: 0,
       failed: 0,
-      pending: 0
+      pending: 0,
+      neutral: 0
     })
   })
 
@@ -36,11 +37,12 @@ describe('deriveTaskPagePRCheckSummary', () => {
       total: 3,
       passed: 1,
       failed: 1,
-      pending: 1
+      pending: 1,
+      neutral: 0
     })
   })
 
-  it('treats neutral and skipped checks as passed for the compact PR table label', () => {
+  it('keeps neutral checks out of passed while skipped checks pass', () => {
     expect(
       deriveTaskPagePRCheckSummary([
         check({ conclusion: 'success' }),
@@ -50,9 +52,10 @@ describe('deriveTaskPagePRCheckSummary', () => {
     ).toEqual({
       state: 'success',
       total: 3,
-      passed: 3,
+      passed: 2,
       failed: 0,
-      pending: 0
+      pending: 0,
+      neutral: 1
     })
   })
 
@@ -67,7 +70,8 @@ describe('deriveTaskPagePRCheckSummary', () => {
       total: 2,
       passed: 0,
       failed: 2,
-      pending: 0
+      pending: 0,
+      neutral: 0
     })
   })
 
@@ -82,30 +86,27 @@ describe('deriveTaskPagePRCheckSummary', () => {
       total: 2,
       passed: 1,
       failed: 0,
-      pending: 1
+      pending: 1,
+      neutral: 0
     })
   })
 
-  it('fails closed on an out-of-union conclusion instead of reading green', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    try {
-      // Why: conclusions cross IPC/relay as JSON — a version-skewed producer can send values outside the union.
-      expect(
-        deriveTaskPagePRCheckSummary([
-          check({ conclusion: 'success' }),
-          check({ conclusion: 'stale' as PRCheckDetail['conclusion'] })
-        ])
-      ).toEqual({
-        state: 'failure',
-        total: 2,
-        passed: 1,
-        failed: 1,
-        pending: 0
-      })
-      expect(warn).toHaveBeenCalledTimes(1)
-    } finally {
-      warn.mockRestore()
-    }
+  it('never folds an out-of-union conclusion into passed alongside a real pass', () => {
+    // Why: conclusions cross IPC/relay as JSON — a version-skewed producer can send values
+    // outside the union, and the pill must still read 1/2, not an all-green 2/2.
+    expect(
+      deriveTaskPagePRCheckSummary([
+        check({ conclusion: 'success' }),
+        check({ conclusion: 'stale' as PRCheckDetail['conclusion'] })
+      ])
+    ).toEqual({
+      state: 'success',
+      total: 2,
+      passed: 1,
+      failed: 0,
+      pending: 0,
+      neutral: 1
+    })
   })
 
   it('counts action_required as failed so a blocked PR never reads as passing', () => {
@@ -119,7 +120,23 @@ describe('deriveTaskPagePRCheckSummary', () => {
       total: 2,
       passed: 1,
       failed: 1,
-      pending: 0
+      pending: 0,
+      neutral: 0
+    })
+  })
+
+  it('keeps unknown completed outcomes neutral', () => {
+    expect(
+      deriveTaskPagePRCheckSummary([
+        check({ conclusion: 'future_state' as PRCheckDetail['conclusion'] })
+      ])
+    ).toEqual({
+      state: 'neutral',
+      total: 1,
+      passed: 0,
+      failed: 0,
+      pending: 0,
+      neutral: 1
     })
   })
 })

@@ -33,8 +33,7 @@ function isFailureState(state: string | null | undefined): boolean {
     case 'success':
     case 'neutral':
     case 'skipped':
-    case 'pending':
-    // Raw status values seen when conclusion is null:
+    case 'pending': // below: raw status values seen when conclusion is null
     case 'queued':
     case 'in_progress':
     case 'waiting':

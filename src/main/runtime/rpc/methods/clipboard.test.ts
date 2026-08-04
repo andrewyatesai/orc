@@ -354,10 +354,17 @@ describe('clipboard RPC methods', () => {
 
   it('is idempotent under a concurrent/retried commit and writes one temp file', async () => {
     let resolveSave: (path: string) => void = () => {}
+    let announceSaveEntered: () => void = () => {}
+    // Why: dispatch awaits the legacy-orchestration compatibility probe before the
+    // handler, so the deferred save is not yet armed when the second commit starts.
+    const saveEntered = new Promise<void>((resolve) => {
+      announceSaveEntered = resolve
+    })
     saveClipboardImageBufferAsTempFile.mockImplementation(
       () =>
         new Promise<string>((resolve) => {
           resolveSave = resolve
+          announceSaveEntered()
         })
     )
     const dispatcher = makeDispatcher()
@@ -385,6 +392,7 @@ describe('clipboard RPC methods', () => {
     const second = dispatcher.dispatch(
       makeRequest('clipboard.commitImageUpload', { uploadId: uploadId.uploadId })
     )
+    await saveEntered
     resolveSave('/tmp/orca-paste-image.png')
     const [firstResult, secondResult] = await Promise.all([first, second])
 

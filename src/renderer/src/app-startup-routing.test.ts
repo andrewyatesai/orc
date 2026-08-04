@@ -37,6 +37,12 @@ describe('renderer startup runtime routing', () => {
     const localReposIndex = indexInStartupBlock(
       "actions.fetchReposForAllHosts({ remoteHosts: 'skip' })"
     )
+    const repoCatalogSettlementIndex = indexInStartupBlock(
+      "timeRendererStartupStep('repo-catalog-settlement'"
+    )
+    const finalRepoCatalogSettlementIndex = indexInStartupBlock(
+      "timeRendererStartupStep('repo-catalog-final-settlement'"
+    )
     const localGroupsIndex = indexInStartupBlock(
       "actions.fetchProjectGroupsForAllHosts({ remoteHosts: 'skip' })"
     )
@@ -56,6 +62,10 @@ describe('renderer startup runtime routing', () => {
     expect(settingsIndex).toBeLessThan(uiGetIndex)
     expect(uiGetIndex).toBeLessThan(hydrateUiIndex)
     expect(hydrateUiIndex).toBeLessThan(localReposIndex)
+    expect(localReposIndex).toBeLessThan(repoCatalogSettlementIndex)
+    expect(repoCatalogSettlementIndex).toBeLessThan(sessionIndex)
+    expect(sessionIndex).toBeLessThan(finalRepoCatalogSettlementIndex)
+    expect(finalRepoCatalogSettlementIndex).toBeLessThan(startupBlockEnd)
     // The local catalog chain stays internally ordered (folders merge against project groups).
     expect(localReposIndex).toBeLessThan(localGroupsIndex)
     expect(localGroupsIndex).toBeLessThan(localFoldersIndex)
@@ -99,6 +109,7 @@ describe('renderer startup runtime routing', () => {
     // while a sibling is still mutating the store.
     const joinStart = indexInStartupBlock('await Promise.allSettled([')
     expect(joinStart).toBeGreaterThan(hydrateUiIndex)
+    expect(joinStart).toBeLessThan(finalRepoCatalogSettlementIndex)
     const joinBlock = source.slice(joinStart, startupBlockEnd)
     expect(joinBlock).toContain('hydrationSessionChain')
     expect(joinBlock).toContain('localCatalogChain')
@@ -154,10 +165,27 @@ describe('renderer startup runtime routing', () => {
     expect(servicesIndex).toBeGreaterThanOrEqual(0)
     expect(servicesIndex).toBeLessThan(reconnectIndex)
 
+    // Legacy worker PTYs are reconciled on BOTH sides of reconnect: before, so restored
+    // panes bind to live ptys; after, so the ones reconnect just published settle too.
+    const preReconnectRecoveryIndex = source.indexOf(
+      'window.api.app.recoverLegacyWorkerTerminalsForRendererStartup()',
+      servicesIndex
+    )
+    const postReconnectRecoveryIndex = source.indexOf(
+      'window.api.app.recoverLegacyWorkerTerminalsForRendererStartup()',
+      reconnectIndex
+    )
+    expect(preReconnectRecoveryIndex).toBeGreaterThan(servicesIndex)
+    expect(preReconnectRecoveryIndex).toBeLessThan(reconnectIndex)
+    expect(postReconnectRecoveryIndex).toBeGreaterThan(reconnectIndex)
+
     // The recovery path reconnects only when the success path never started it.
     const recovery = read(RECOVERY)
     expect(recovery).toContain('await window.api.app.awaitFirstWindowStartupServices()')
     expect(recovery).toContain('if (reconnectStarted) {')
+    expect(recovery).toContain(
+      'await window.api.app.recoverLegacyWorkerTerminalsForRendererStartup()'
+    )
   })
 
   it('reconnects SSH targets before terminal restoration, skipping runtime-owned ones', () => {
@@ -286,6 +314,17 @@ describe('renderer startup runtime routing', () => {
     expect(source).toContain('<WorkspacePortScanner enabled={vm.workspaceSessionReady} />')
   })
 
+  it('prefetches terminal snapshot capabilities before reconnect unlocks cold activation', () => {
+    const source = read(HYDRATION)
+    const capabilityIndex = source.indexOf(
+      "timeRendererStartupStep('terminal-provider-snapshot-capabilities'"
+    )
+    const reconnectIndex = source.indexOf("timeRendererStartupStep('reconnect-terminals'")
+
+    expect(capabilityIndex).toBeGreaterThanOrEqual(0)
+    expect(reconnectIndex).toBeGreaterThan(capabilityIndex)
+  })
+
   it('does not load the terminal workbench on the no-workspace landing path', () => {
     const lazySurfaces = read(LAZY_SURFACES)
     const viewModel = read(VIEW_MODEL)
@@ -357,6 +396,18 @@ describe('renderer startup runtime routing', () => {
     expect(sidebarSource).toContain(
       "activeModal === 'confirm-remove-folder' ? <RemoveFolderDialog /> : null"
     )
+  })
+
+  it('loads Linear agent setup implementation only after the prompt opens it', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'src/renderer/src/components/sidebar/LinearAgentSkillSetupPrompt.tsx'),
+      'utf8'
+    )
+
+    expect(source).toContain("() => import('./LinearAgentSkillSetupDialog')")
+    expect(source).not.toContain("from './LinearAgentSkillSetupDialog'")
+    expect(source).toContain('const setupDialog = setupDialogOpen ? (')
+    expect(source).toContain('<Suspense fallback={null}>')
   })
 
   it('does not eagerly import optional status-bar segments on startup', () => {
@@ -447,7 +498,7 @@ describe('renderer startup runtime routing', () => {
     expect(checkpointBlock).toContain(
       'buildWorkspaceSessionHostSnapshots(buildWorkspaceSessionPayload(freshState), freshState)'
     )
-    expect(checkpointBlock).toContain('window.api.app.persistBeforeUnloadSync({')
+    expect(checkpointBlock).toContain('window.api.app.stageBeforeUnloadSync({')
     expect(checkpointBlock).toContain('sessions: sessionSnapshots')
     expect(checkpointBlock).toContain('ui: buildActiveViewUnloadPatch(freshState)')
     // The guard must wrap that capture, and every abort path must reset it.

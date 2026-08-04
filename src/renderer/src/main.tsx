@@ -1,7 +1,6 @@
 import './assets/main.css'
 
 import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
 import { useTranslation } from 'react-i18next'
 import App from './App'
 import { RecoverableRenderErrorBoundary } from './components/error-boundaries/RecoverableRenderErrorBoundary'
@@ -12,13 +11,16 @@ import {
 import { applyDocumentTheme } from './lib/document-theme'
 import { startGitWasm } from './lib/git-wasm/git-line-stats'
 import { startCryptoWasm } from './lib/crypto-wasm/browser-crypto-wasm'
+import { installTypingLatencyDiagnostic } from './lib/typing-latency-diagnostic'
 import { shouldEnableReactGrab } from './lib/react-grab-dev-gate'
 import { I18nProvider } from './i18n/I18nProvider'
 import { translate } from './i18n/i18n'
+import { getOrCreateRendererRoot } from './lib/react-renderer-root'
 import { applyAppDocumentTitle } from './startup/app-document-title'
 
 recordRendererCrashBreadcrumb('renderer_bootstrap_started', { dev: import.meta.env.DEV })
 installRendererCrashDiagnostics()
+installTypingLatencyDiagnostic()
 void applyAppDocumentTitle(() => window.api.app.getIdentity(), document)
 // Compile the orca-git wasm eagerly. It backs the Rust agent-startup plan
 // builders (session auto-resume / cold-restore run these imperatively on boot,
@@ -68,7 +70,7 @@ function RendererRoot(): React.JSX.Element {
 }
 
 function renderApp(): void {
-  createRoot(rootContainer).render(
+  getOrCreateRendererRoot(rootContainer, import.meta.hot?.data).render(
     <StrictMode>
       <I18nProvider>
         <RendererRoot />

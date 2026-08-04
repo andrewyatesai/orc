@@ -14,6 +14,9 @@ import { buildWrappedLogicalLine, rangeForParsedFileLink } from './wrapped-termi
 
 type UrlLinkHitTestDeps = {
   worktreeId: string
+  /** The gesture named a destination outright, so it also skips the routing prompt. */
+  modifierHeld?: boolean
+  /** Legacy alias for {@link modifierHeld}; the engine link opener still speaks it. */
   forceSystemBrowser?: boolean
   requestOpenLinksInAppPreference?: TerminalLinkRoutingPreferenceRequester
 }
@@ -250,7 +253,7 @@ export function installHttpLinkClickFallback(
     // never established, while defaultPrevented avoids duplicate opens.
     const opened = openHttpLinkAtBufferPosition(terminal.buffer.active, position, terminal.cols, {
       worktreeId: deps.worktreeId,
-      forceSystemBrowser: event.shiftKey,
+      modifierHeld: event.shiftKey,
       requestOpenLinksInAppPreference: deps.requestOpenLinksInAppPreference
     })
     if (opened) {
@@ -318,8 +321,10 @@ function rangeContainsBufferPosition(
 }
 
 export function openTerminalHttpLink(url: string, deps: UrlLinkHitTestDeps): void {
-  if (deps.forceSystemBrowser) {
-    openHttpLink(url, { worktreeId: deps.worktreeId, forceSystemBrowser: true })
+  if (deps.modifierHeld === true || deps.forceSystemBrowser === true) {
+    // Why: the modifier states a destination outright, so it also skips the
+    // one-time routing prompt; openHttpLink resolves which destination it means.
+    openHttpLink(url, { worktreeId: deps.worktreeId, modifierHeld: true })
     return
   }
 

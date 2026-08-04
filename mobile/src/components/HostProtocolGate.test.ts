@@ -2,6 +2,7 @@ import { createElement } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RpcClient } from '../transport/rpc-client'
+import { ORCA_ALAB_PUBLIC_RELEASES_URL } from '../../../src/shared/repository-endpoints'
 import { HostProtocolGate, useHostProtocolGates } from './HostProtocolGate'
 
 const nativeTestState = vi.hoisted(() => ({
@@ -87,7 +88,7 @@ describe('HostProtocolGate', () => {
     renderer = await renderGate()
     const output = renderedText(renderer)
     expect(output).toContain('Update Orca Mobile')
-    expect(output).toContain('Open App Store')
+    expect(output).toContain('Open upstream App Store')
     expect(output).not.toContain('HostContent')
   })
 
@@ -106,9 +107,7 @@ describe('HostProtocolGate', () => {
     expect(output).not.toContain('mobile app store')
     expect(output).not.toContain('HostContent')
     act(() => renderer?.root.findAllByType('Pressable')[0]?.props.onPress())
-    expect(nativeTestState.openUrl).toHaveBeenCalledWith(
-      'https://github.com/stablyai/orca/releases'
-    )
+    expect(nativeTestState.openUrl).toHaveBeenCalledWith(ORCA_ALAB_PUBLIC_RELEASES_URL)
   })
 
   it('replaces the host UI with the block screen when desktop is too old', async () => {

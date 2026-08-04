@@ -220,10 +220,12 @@ export type RustGitBinding = {
    *  tails identically). */
   gitPullRebaseFromBaseViaExecutor(baseRef: string, executor: RustGitExecutor): Promise<void>
   /** IO-tier "A bridge" cutover: Rust drives the branch-cleanup safe-to-delete
-   *  DECISION (gather base refs → non-fatal fetch → tree/merge/patch/squash checks,
-   *  the squash path piping patch text to `git patch-id --stable` via executor stdin)
-   *  over the JS `executor`. Resolves the boolean; the destructive `git branch -d`
-   *  stays in TS, gated on it. Only ever moves toward *preserve* — never over-deletes. */
+   *  DECISION (gather base refs → tree/merge/patch/squash checks on local refs →
+   *  non-fatal fetch + re-check the remote-tracking refs only if those were
+   *  inconclusive, the squash path piping patch text to `git patch-id --stable` via
+   *  executor stdin) over the JS `executor`. Resolves the boolean; the destructive
+   *  `git branch -d` stays in TS, gated on it. Only ever moves toward *preserve* —
+   *  never over-deletes. */
   branchIsSafeToDeleteViaExecutor(branchName: string, executor: RustGitExecutor): Promise<boolean>
   /** IO-tier "A bridge" cutover (the one destructive op): Rust drives `git push`
    *  — validate an explicit target, resolve the refspec (explicit, else the branch's

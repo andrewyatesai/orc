@@ -1,13 +1,12 @@
 import {
-  keybindingChordHasNoNonShiftModifiers,
   keybindingMatchesAction,
-  type KeybindingActionId,
-  type KeybindingOverrides
+  type KeybindingInput,
+  type KeybindingMatchOptions,
+  type KeybindingOverrides,
+  type TerminalShortcutPolicy
 } from '../../../../shared/keybindings'
-import {
-  matchCustomKeybinding,
-  type ResolvedCustomKeybinding
-} from '../../../../shared/custom-keybindings'
+import type { ResolvedCustomKeybinding } from '../../../../shared/custom-keybindings'
+import { resolveCustomTerminalKeybindingAction } from './terminal-custom-keybinding-shortcuts'
 import type { WindowsShiftEnterEncoding } from './terminal-windows-shift-enter'
 
 export type TerminalShortcutEvent = {
@@ -23,6 +22,23 @@ export type TerminalShortcutEvent = {
 }
 
 export type MacOptionAsAlt = 'true' | 'false' | 'left' | 'right'
+
+// Shared close-chord predicate: the terminal pane (L3) and the floating panel's focused-terminal
+// branch (L2) both treat terminal.closePane OR a terminal-scope tab.close as "close the active
+// pane," so the two layers can't diverge. Callers pass the options each binding needs —
+// terminal.closePane is context-free; tab.close is scoped to the terminal surface.
+export function isTerminalPaneCloseChord(
+  event: KeybindingInput,
+  platform: NodeJS.Platform,
+  keybindings: KeybindingOverrides | undefined,
+  closePaneOptions?: KeybindingMatchOptions,
+  tabCloseOptions?: KeybindingMatchOptions
+): boolean {
+  return (
+    keybindingMatchesAction('terminal.closePane', event, platform, keybindings, closePaneOptions) ||
+    keybindingMatchesAction('tab.close', event, platform, keybindings, tabCloseOptions)
+  )
+}
 
 // Why: macOS composition rewrites event.key for punctuation, so map event.code to the unmodified char for Esc+ sequences.
 const PUNCTUATION_CODE_MAP: Record<string, string> = {
@@ -75,24 +91,6 @@ export type TerminalShortcutAction =
   | { type: 'switchInputSource' }
   | { type: 'toggleComposeBox' }
 
-// Why: the repeat-precedence guard for custom entries must mirror the !repeat ladder in
-// resolveTerminalShortcutAction — keep this list in sync with the keybindingMatchesAction calls there.
-const REPEAT_GATED_TERMINAL_ACTION_IDS: readonly KeybindingActionId[] = [
-  'terminal.copySelection',
-  'terminal.search',
-  'terminal.clear',
-  'terminal.focusPreviousPane',
-  'terminal.focusNextPane',
-  'terminal.equalizePaneSizes',
-  'terminal.expandPane',
-  'terminal.setTitle',
-  'terminal.clearPaneTitle',
-  'terminal.closePane',
-  'terminal.splitRight',
-  'terminal.splitDown',
-  'terminal.composeBox'
-]
-
 /** Un-shifted ASCII character for a physical key code (letters, digits, punctuation map), or undefined. */
 function resolveUnshiftedCharacterForCode(code: string | undefined): string | undefined {
   if (!code) {
@@ -130,8 +128,18 @@ export function resolveTerminalShortcutAction(
   getWindowsShiftEnterEncoding?: () => WindowsShiftEnterEncoding,
   // Why: keybindings follow the client OS, but byte protocols follow the PTY host — they differ for macOS clients on Windows runtimes.
   isWindowsTerminalHost: () => boolean = () => isWindows,
-  customKeybindings?: readonly ResolvedCustomKeybinding[]
+  // Why: gates the tab.close pane-close alias — under terminal-first a remapped tab.close yields to the shell (terminal.closePane, scope terminal, still closes).
+  // Why the union: this slot carries the shortcut policy for host callers and the custom-keybinding
+  // table for pane callers; both pass a bare 12th argument, so it is disambiguated by type.
+  policyOrCustomKeybindings:
+    | TerminalShortcutPolicy
+    | readonly ResolvedCustomKeybinding[] = 'orca-first',
+  customKeybindingsArg?: readonly ResolvedCustomKeybinding[]
 ): TerminalShortcutAction | null {
+  const terminalShortcutPolicy: TerminalShortcutPolicy =
+    typeof policyOrCustomKeybindings === 'string' ? policyOrCustomKeybindings : 'orca-first'
+  const customKeybindings =
+    typeof policyOrCustomKeybindings === 'string' ? customKeybindingsArg : policyOrCustomKeybindings
   const platform: NodeJS.Platform = isMac ? 'darwin' : isWindows ? 'win32' : 'linux'
 
   // Why: capture this chord even on repeat without blocking the OS default input-source switch.
@@ -176,7 +184,14 @@ export function resolveTerminalShortcutAction(
       return { type: 'clearPaneTitle' }
     }
 
-    if (keybindingMatchesAction('terminal.closePane', event, platform, keybindings)) {
+    // Why: recognize the active tab.close binding as a pane-close alias too, so a user who remaps
+    // tab.close alone still closes the focused split pane (never the whole tab); L2 always defers to us.
+    if (
+      isTerminalPaneCloseChord(event, platform, keybindings, undefined, {
+        context: 'terminal',
+        terminalShortcutPolicy
+      })
+    ) {
       return { type: 'closeActivePane' }
     }
 
@@ -195,33 +210,14 @@ export function resolveTerminalShortcutAction(
 
   // Custom user entries sit between the configurable ladder above (built-ins win a shared
   // chord) and the hardcoded byte rewrites below (a user remap of e.g. Shift+Enter must win).
-  // Hard IME gate: never match mid-composition — candidate-window keystrokes stay untouched.
-  if (event.isComposing !== true && event.key !== 'Process' && customKeybindings?.length) {
-    const custom = matchCustomKeybinding(customKeybindings, event, platform)
-    // Why: repeats skip the !repeat ladder above, so a held built-in chord would otherwise
-    // fall through to a same-chord custom entry; write-time conflict blocking is only defense #1.
-    const shadowedByBuiltIn =
-      custom !== null &&
-      REPEAT_GATED_TERMINAL_ACTION_IDS.some((actionId) =>
-        keybindingMatchesAction(actionId, event, platform, keybindings)
-      )
-    if (custom && !shadowedByBuiltIn) {
-      if (custom.entry.action.type === 'runQuickCommand') {
-        // Why: command-like customs are once-per-press; swallowing repeats keeps a held chord
-        // from falling through to the byte rewrites below or reaching the engine encoder.
-        return event.repeat
-          ? { type: 'consumeKey' }
-          : { type: 'runQuickCommand', quickCommandId: custom.entry.action.quickCommandId }
-      }
-      if (custom.entry.decodedText !== undefined) {
-        // sendText fires on key repeat — it substitutes for typing, so a held remapped key auto-repeats.
-        return {
-          type: 'sendInput',
-          data: custom.entry.decodedText,
-          suppressTextInsertion: keybindingChordHasNoNonShiftModifiers(custom.binding)
-        }
-      }
-    }
+  const customAction = resolveCustomTerminalKeybindingAction(
+    event,
+    platform,
+    keybindings,
+    customKeybindings
+  )
+  if (customAction) {
+    return customAction
   }
 
   // Once the active pane's app has negotiated an enhanced key protocol the

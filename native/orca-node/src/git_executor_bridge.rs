@@ -26,10 +26,7 @@ use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::{Env, Result, Status, Task};
 use napi_derive::napi;
 
-use orca_git::branch_cleanup::{
-    branch_has_no_unmerged_changes_on_any_target, get_branch_cleanup_target_refs,
-    refresh_branch_cleanup_target_refs,
-};
+use orca_git::branch_cleanup::branch_is_safe_to_delete;
 use orca_git::push_target::{validate_git_push_target, GitPushTarget};
 use orca_git::remote::{git_fetch, git_pull_rebase_from_base, git_push};
 use orca_git::runner::{GitError, GitOutput, GitRunner};
@@ -313,11 +310,12 @@ impl Task for PullRebaseFromBaseTask {
 }
 
 /// Drive orca-git's branch-cleanup safe-to-delete DECISION over the JS executor:
-/// gather candidate base refs, refresh the relevant remotes (a non-fatal
-/// `fetch --prune`, the one mutation, inside the driver), then decide whether the
-/// branch has any unmerged changes — tree-equal merge, patch-equivalent commits,
-/// or a squash match (which pipes patch text to `git patch-id --stable` via the
-/// executor's stdin). Resolves the boolean; the destructive `git branch -d/-D`
+/// gather candidate base refs, then decide whether the branch has any unmerged
+/// changes — tree-equal merge, patch-equivalent commits, or a squash match (which
+/// pipes patch text to `git patch-id --stable` via the executor's stdin). Local
+/// refs decide first; the relevant remotes are refreshed (a non-fatal
+/// `fetch --prune`, the one mutation, inside the driver) only when they are
+/// inconclusive. Resolves the boolean; the destructive `git branch -d/-D`
 /// stays in TS, gated on this result. The decision only ever moves toward
 /// *preserve*, so it can never over-delete.
 #[napi(ts_return_type = "Promise<boolean>")]
@@ -340,14 +338,7 @@ impl Task for BranchCleanupDecisionTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         let runner = JsExecutorGitRunner { tsfn: &self.tsfn };
-        let refs = get_branch_cleanup_target_refs(&runner, &self.branch_name);
-        let refs_as_str: Vec<&str> = refs.iter().map(String::as_str).collect();
-        refresh_branch_cleanup_target_refs(&runner, &refs_as_str);
-        Ok(branch_has_no_unmerged_changes_on_any_target(
-            &runner,
-            &self.branch_name,
-            &refs_as_str,
-        ))
+        Ok(branch_is_safe_to_delete(&runner, &self.branch_name))
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {

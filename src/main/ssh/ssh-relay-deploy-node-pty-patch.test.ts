@@ -5,6 +5,7 @@
  * remote `npm install` so the registry files cannot win.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type * as RelayInstallMarkerModule from './ssh-relay-install-marker'
 
 vi.mock('electron', () => ({
   app: { getAppPath: () => '/mock/app' }
@@ -39,6 +40,12 @@ vi.mock('./ssh-remote-node-resolution', () => ({
   resolveRemoteNodePath: vi.fn().mockResolvedValue('/usr/bin/node')
 }))
 
+// Why: the staged-upload slot/promotion replies are owner-authenticated, so the owner must be deterministic to script them.
+vi.mock('./ssh-relay-install-marker', async (importOriginal) => ({
+  ...(await importOriginal<typeof RelayInstallMarkerModule>()),
+  createRelayInstallMarkerFileName: () => '.sftp-namespace-00000000000000000000000000000000'
+}))
+
 vi.mock('./ssh-relay-versioned-install', () => ({
   readLocalFullVersion: vi.fn().mockReturnValue('0.1.0+abcdef012345'),
   computeRemoteRelayDir: (home: string, v: string) => `${home}/.orca-remote/relay-${v}`,
@@ -66,7 +73,22 @@ vi.mock('./ssh-connection-utils', () => ({
 import { readdirSync } from 'node:fs'
 import { deployAndLaunchRelay } from './ssh-relay-deploy'
 import { execCommand } from './ssh-relay-deploy-helpers'
+import {
+  makeStagedFirstInstallExecPrefix,
+  type ExecResponse
+} from './ssh-relay-native-deps-install-fixture'
 import type { SshConnection } from './ssh-connection'
+
+function feed(responses: ExecResponse[]): void {
+  const mock = vi.mocked(execCommand)
+  for (const response of responses) {
+    if (typeof response === 'string') {
+      mock.mockResolvedValueOnce(response)
+    } else {
+      mock.mockRejectedValueOnce(new Error(response.reject))
+    }
+  }
+}
 
 function makeInstallCapableConnection(): SshConnection {
   return {
@@ -91,16 +113,17 @@ describe('deployAndLaunchRelay node-pty patch delivery', () => {
   it('overwrites the remote node-pty install with the local patched payload after npm install', async () => {
     const conn = makeInstallCapableConnection()
     const mockExecCommand = vi.mocked(execCommand)
-    mockExecCommand.mockResolvedValueOnce('__ORCA_REMOTE_PLATFORM__ Linux x86_64') // platform probe
-    mockExecCommand.mockResolvedValueOnce('/home/user') // echo $HOME
-    mockExecCommand.mockResolvedValueOnce('') // mkdir remote relay dir
-    mockExecCommand.mockResolvedValueOnce('') // chmod +x node
-    mockExecCommand.mockResolvedValueOnce('') // npm install
-    mockExecCommand.mockResolvedValueOnce('') // chmod spawn-helper prebuilds
-    mockExecCommand.mockResolvedValueOnce('ORCA-NPTY-PROBE-OK') // post-install probe
-    mockExecCommand.mockResolvedValueOnce('') // rm probe stderr
-    mockExecCommand.mockResolvedValueOnce('DEAD') // socket probe
-    mockExecCommand.mockResolvedValueOnce('READY') // socket poll
+    feed([
+      ...makeStagedFirstInstallExecPrefix(),
+      '', // npm install
+      '', // chmod spawn-helper prebuilds
+      'ORCA-NPTY-PROBE-OK', // post-install probe
+      '', // rm probe stderr
+      '', // clean stage root
+      'DEAD', // socket probe
+      '', // publish the per-launch credential
+      'READY' // socket poll
+    ])
     const dirent = (name: string, directory: boolean) => ({
       name,
       isDirectory: () => directory,
@@ -121,10 +144,10 @@ describe('deployAndLaunchRelay node-pty patch delivery', () => {
 
     const writtenPaths = vi.mocked(conn.writeFile!).mock.calls.map(([p]) => p as string)
     expect(writtenPaths).toContain(
-      '/home/user/.orca-remote/relay-0.1.0+abcdef012345/node_modules/node-pty/lib/conpty_console_list_agent.js'
+      '/home/u/.orca-remote/relay-0.1.0+abcdef012345/node_modules/node-pty/lib/conpty_console_list_agent.js'
     )
     expect(writtenPaths).toContain(
-      '/home/user/.orca-remote/relay-0.1.0+abcdef012345/node_modules/node-pty/lib/unixTerminal.js'
+      '/home/u/.orca-remote/relay-0.1.0+abcdef012345/node_modules/node-pty/lib/unixTerminal.js'
     )
     // Delivery must land after npm install so the vanilla files cannot win.
     const npmInstallIndex = mockExecCommand.mock.calls.findIndex(([, c]) =>

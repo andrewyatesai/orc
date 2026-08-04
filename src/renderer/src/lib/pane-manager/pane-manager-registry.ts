@@ -8,6 +8,8 @@ type RegisteredPaneManager = {
   refreshAllPanes?: () => void
   getRenderingDiagnostics?: () => PaneRenderingDiagnostics[]
   getPanes?: () => { id: number; terminal: unknown }[]
+  getPaneCount?: () => number
+  isVisibleForAtlasRecovery?: () => boolean
 }
 
 // Omit: the base getPanes (desync-sentinel shape) would otherwise win overload
@@ -138,9 +140,15 @@ export function resetAllTerminalWebglAtlases(): void {
 export function resetAndRefreshAllTerminalWebglAtlases(): void {
   // Why: the atlas wipe is the heavy recovery path; recording it lets a freeze
   // report show whether a post-wake repaint actually ran. Silent breadcrumb.
-  recordTerminalWebglDiagnostic('webgl-atlas-reset', { managers: liveManagers.size })
+  const recoveryManagers = Array.from(liveManagers).filter(
+    (manager) => manager.isVisibleForAtlasRecovery?.() !== false
+  )
+  recordTerminalWebglDiagnostic('webgl-atlas-reset', {
+    managers: recoveryManagers.length,
+    mountedManagers: liveManagers.size
+  })
   const resetManagers: RegisteredPaneManager[] = []
-  for (const manager of liveManagers) {
+  for (const manager of recoveryManagers) {
     try {
       manager.resetWebglTextureAtlases?.()
       resetManagers.push(manager)
@@ -178,6 +186,26 @@ export function getAllPaneRenderingDiagnostics(): PaneRenderingDiagnostics[] {
     }
   }
   return all
+}
+
+/**
+ * Live pane census: managers (≈ terminal tabs) and the panes they hold.
+ *
+ * Why: this is the population number crash reports have been inferring from
+ * breadcrumb multiplicity, which never worked — `pane.id` restarts at 1 per
+ * manager, so N panes and one looping pane are indistinguishable in the ring.
+ * Measure it instead.
+ */
+export function getLivePaneCensus(): { managers: number; panes: number } {
+  let panes = 0
+  for (const manager of liveManagers) {
+    try {
+      panes += manager.getPaneCount?.() ?? manager.getPanes?.().length ?? 0
+    } catch {
+      // Why: a manager mid-teardown must not sink the count for the rest.
+    }
+  }
+  return { managers: liveManagers.size, panes }
 }
 
 /**

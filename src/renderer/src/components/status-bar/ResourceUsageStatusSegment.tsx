@@ -34,8 +34,7 @@ import { useDaemonActions, DaemonActionDialog } from '../shared/useDaemonActions
 import type { AppMemory, BrowserWorkspace, UsageValues, Worktree } from '../../../../shared/types'
 import { ORPHAN_WORKTREE_ID } from '../../../../shared/constants'
 import { getRepoExecutionHostId, parseExecutionHostId } from '../../../../shared/execution-host'
-import { isFolderRepo } from '../../../../shared/repo-kind'
-import { isWorkspaceOldForCleanup } from '@/lib/git-wasm/workspace-cleanup'
+import { countEstimatedInactiveWorkspaces } from '../workspace-cleanup/inactive-workspace-estimate'
 import { mergeSnapshotAndSessions, UNATTRIBUTED_REPO_ID } from './mergeSnapshotAndSessions'
 import type {
   Metric,
@@ -52,6 +51,7 @@ import {
 import {
   getResourceUsageAllWorktrees,
   getResourceUsageBrowserTabsByWorktree,
+  getResourceUsageDeferredSshSessionIdsByTabId,
   getResourceUsagePtyIdsByTabId,
   getResourceUsageRepos,
   getResourceUsageRuntimePaneTitlesByTabId,
@@ -66,6 +66,8 @@ import {
   getResourceManagerAriaLabel,
   getResourceManagerTooltipLines
 } from './resource-manager-terminal-copy'
+import { getResourceMemoryMetricCopy } from './resource-memory-metric-copy'
+import { requiresKillConfirmation } from './resource-session-kill-confirmation'
 import {
   countUnboundDaemonSessions,
   selectVerifiedOrphanSessions,
@@ -98,10 +100,6 @@ function formatMemory(bytes: number): string {
 
 function formatCpu(percent: number): string {
   return `${percent.toFixed(1)}%`
-}
-
-function formatPercent(value: number): string {
-  return `${value.toFixed(0)}%`
 }
 
 function formatMetricCpu(value: Metric): string {
@@ -776,6 +774,10 @@ export function ResourceUsageStatusSegment({
   // Why: full binding maps stay behind open sentinels so unchanged counts don't rerender the closed segment.
   const ptyIdsByTabId = useAppStore((s) => getResourceUsagePtyIdsByTabId(s, open))
   const terminalLayoutsByTabId = useAppStore((s) => getResourceUsageTerminalLayoutsByTabId(s, open))
+  // Why: sessions awaiting SSH reattach are live on the remote host with no other binding.
+  const deferredSshSessionIdsByTabId = useAppStore((s) =>
+    getResourceUsageDeferredSshSessionIdsByTabId(s, open)
+  )
   const resourceSnapshot = snapshot
   // Why: ptyIdsByTabId tracks mounted/live panes only; Resource Manager reads restored wake hints only for classification.
   const resourceSessionBindings = useMemo<ResourceSessionBindingInputs>(
@@ -783,9 +785,16 @@ export function ResourceUsageStatusSegment({
       ptyIdsByTabId,
       tabsByWorktree,
       terminalLayoutsByTabId,
+      deferredSshSessionIdsByTabId,
       workspaceSessionReady
     }),
-    [ptyIdsByTabId, tabsByWorktree, terminalLayoutsByTabId, workspaceSessionReady]
+    [
+      ptyIdsByTabId,
+      tabsByWorktree,
+      terminalLayoutsByTabId,
+      deferredSshSessionIdsByTabId,
+      workspaceSessionReady
+    ]
   )
 
   // Why: after a kill unmounts the session, focus would fall to <body>; park a ref on the popover body to restore it stably for keyboard users.
@@ -867,6 +876,12 @@ export function ResourceUsageStatusSegment({
     }
   }, [open, fetchSnapshot, refreshSessions])
 
+  useEffect(() => {
+    if (!open) {
+      clearSessionsError()
+    }
+  }, [open, clearSessionsError])
+
   const repoDisplayNameById = useMemo(() => {
     const map = new Map<string, string>()
     for (const repo of repos) {
@@ -903,31 +918,21 @@ export function ResourceUsageStatusSegment({
     [allWorktrees]
   )
 
-  const oldWorkspaceCount = useMemo(() => {
-    const now = Date.now()
-    let count = 0
-    for (const worktree of allWorktrees) {
-      const repo = repoById.get(worktree.repoId)
-      if (!repo || isFolderRepo(repo) || worktree.isMainWorktree) {
-        continue
-      }
-      if (isWorkspaceOldForCleanup(worktree, now)) {
-        count += 1
-      }
-    }
-    return count
-  }, [allWorktrees, repoById])
+  const oldWorkspaceCount = useMemo(
+    () => countEstimatedInactiveWorkspaces(allWorktrees, repoById, Date.now()),
+    [allWorktrees, repoById]
+  )
 
   // Why: skip the merge when closed; the always-mounted segment recomputing on every keystroke-driven store mutation made the app laggy.
   const unifiedRepos = useMemo(
     () =>
       open
         ? mergeSnapshotAndSessions(resourceSnapshot, sessions, {
-            tabsByWorktree,
-            ptyIdsByTabId,
-            terminalLayoutsByTabId,
+            // Why spread: the rows and the bulk selector must classify from the identical binding
+            // inputs. Re-listing them here let the row path miss deferred SSH sessions, so their
+            // single-row kill skipped confirmation while bulk cleanup correctly spared them (#8459).
+            ...resourceSessionBindings,
             runtimePaneTitlesByTabId,
-            workspaceSessionReady,
             repoDisplayNameById,
             repoConnectionIdById,
             repoRuntimeScopedById,
@@ -939,11 +944,8 @@ export function ResourceUsageStatusSegment({
       open,
       resourceSnapshot,
       sessions,
-      tabsByWorktree,
-      ptyIdsByTabId,
-      terminalLayoutsByTabId,
+      resourceSessionBindings,
       runtimePaneTitlesByTabId,
-      workspaceSessionReady,
       repoDisplayNameById,
       repoConnectionIdById,
       repoRuntimeScopedById,
@@ -964,14 +966,15 @@ export function ResourceUsageStatusSegment({
   // closed path used boundPtyIds (wake hints) and inflated the chip to 60+.
   const triggerSessionCount = sessionInventory.count
 
-  const { totalMemory, totalCpu, hostShare, memBadgeLabel } = useMemo(() => {
+  const memoryMetricCopy = getResourceMemoryMetricCopy(
+    resourceSnapshot?.processMemoryMetric ?? 'rss'
+  )
+  const { totalMemory, totalCpu, memBadgeLabel } = useMemo(() => {
     const memory = resourceSnapshot?.totalMemory ?? 0
     const cpu = resourceSnapshot?.totalCpu ?? 0
-    const hostTotal = resourceSnapshot?.host.totalMemory ?? 0
     return {
       totalMemory: memory,
       totalCpu: cpu,
-      hostShare: hostTotal > 0 ? (memory / hostTotal) * 100 : 0,
       memBadgeLabel: resourceSnapshot ? formatMemory(memory) : '—'
     }
   }, [resourceSnapshot])
@@ -981,7 +984,9 @@ export function ResourceUsageStatusSegment({
   // Why: sessions IPC can fail while snapshot IPC works; flag it so the empty session list isn't mistaken for healthy.
   const sessionsOnlyError = sessionsError && memorySnapshotError === null
   const resourceManagerTooltipLines = getResourceManagerTooltipLines({
-    memoryLabel: memBadgeLabel,
+    memoryLabel: resourceSnapshot
+      ? `${memBadgeLabel} · ${memoryMetricCopy.summaryLabel}`
+      : memBadgeLabel,
     sessionCount: triggerSessionCount,
     spaceScanReady
   })
@@ -1047,8 +1052,9 @@ export function ResourceUsageStatusSegment({
 
   const handleKillSession = useCallback(
     (session: UnifiedSessionRow): void => {
-      // Why: orphan sessions have no tab here (no unsaved work to lose), so a single-row kill skips the confirm dialog; bound sessions and the bulk kill still confirm.
-      if (!session.bound) {
+      // Why: only a provably ownerless, unbound row skips the prompt; bound rows,
+      // unprovable owners, and the bulk kill all confirm.
+      if (!requiresKillConfirmation(session)) {
         removeSession(session.sessionId)
         // Why: await the kill before refreshing, else the refresh re-reads the daemon list before the kill lands and re-adds the row.
         void (async () => {
@@ -1085,6 +1091,8 @@ export function ResourceUsageStatusSegment({
         void refreshSessions()
         return
       }
+      // Why this selector: it applies the same unbound + proven-ownerless predicate that
+      // produced the advertised count, so the kill set can never widen past it (#8459).
       const orphans = selectVerifiedOrphanSessions(freshSessions, resourceSessionBindings)
       if (orphans.length === 0) {
         return
@@ -1357,35 +1365,14 @@ export function ResourceUsageStatusSegment({
                     tabIndex={0}
                     className="font-medium text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:rounded"
                   >
-                    {formatMemory(totalMemory)}
+                    {formatMemory(totalMemory)}{' '}
+                    <span className="font-normal text-muted-foreground">
+                      {memoryMetricCopy.summaryLabel}
+                    </span>
                   </span>
                 </TooltipTrigger>
                 <TooltipContent side="top" sideOffset={6} className="z-[70] max-w-xs">
-                  {translate(
-                    'auto.components.status.bar.ResourceUsageStatusSegment.9e2525c89f',
-                    "Resident memory held by Orca plus the processes under each worktree's terminals."
-                  )}
-                </TooltipContent>
-              </Tooltip>
-              <span className="text-muted-foreground/50">·</span>
-              <Tooltip delayDuration={200}>
-                <TooltipTrigger asChild>
-                  <span
-                    tabIndex={0}
-                    className="text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:rounded"
-                  >
-                    {formatPercent(hostShare)}{' '}
-                    {translate(
-                      'auto.components.status.bar.ResourceUsageStatusSegment.e7ccce7e87',
-                      'of system RAM'
-                    )}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top" sideOffset={6} className="z-[70] max-w-xs">
-                  {translate(
-                    'auto.components.status.bar.ResourceUsageStatusSegment.6449a95c78',
-                    "How much of this machine's physical RAM the Orca-tracked processes are sitting on."
-                  )}
+                  {memoryMetricCopy.description}
                 </TooltipContent>
               </Tooltip>
             </div>
@@ -1462,10 +1449,7 @@ export function ResourceUsageStatusSegment({
                     )}
                     aria-pressed={sortOption === 'memory'}
                   >
-                    {translate(
-                      'auto.components.status.bar.ResourceUsageStatusSegment.1b24a32d3a',
-                      'Memory'
-                    )}
+                    {memoryMetricCopy.columnLabel}
                   </button>
                 </div>
                 {/* Why: empty trailing gutter keeps CPU/Memory header cells aligned with rows that reserve this width for the kill-X. */}

@@ -1,5 +1,14 @@
 /* eslint-disable max-lines -- Why: terminal pane component co-locates title state, layout serialization, and portal rendering to keep pane lifecycle consistent. */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { createPortal } from 'react-dom'
 import type { CSSProperties } from 'react'
@@ -57,6 +66,7 @@ import type { MacOptionAsAlt } from './terminal-shortcut-policy'
 import { useEffectiveMacOptionAsAlt } from '@/lib/keyboard-layout/use-effective-mac-option-as-alt'
 import { useTerminalFontZoom } from './useTerminalFontZoom'
 import CloseTerminalDialog, { type CloseTerminalDialogCopyKind } from './CloseTerminalDialog'
+import CodexRestartChip from '../CodexRestartChip'
 import { MobileDriverOverlay } from './MobileDriverOverlay'
 import { stripSshReconnectOwnedErrorLines, TerminalErrorToast } from './TerminalErrorToast'
 import { TerminalDeadPaneOverlay } from './TerminalDeadPaneOverlay'
@@ -81,6 +91,7 @@ import {
   syncSessionRestoredBannerTitleSpace,
   type SessionRestoredBannerDismissEvent,
   type SessionRestoredBannerPane,
+  type SessionRestoredBannerReason,
   type SessionRestoredBannerState
 } from './session-restored-banner-pane-state'
 import { useSystemPrefersDark } from './use-system-prefers-dark'
@@ -98,6 +109,7 @@ import type { PreparedAgentSessionFork } from './terminal-agent-session-fork'
 import type { AgentSessionContinuationRequest } from '@/lib/agent-session-continuation'
 import { useNotificationDispatch } from './use-notification-dispatch'
 import { connectPanePty } from './pty-connection'
+import type { SessionRestoredBannerDetail } from './pty-connection-types'
 import { resolveTerminalLayoutActiveLeafId } from './terminal-layout-leaf-ids'
 import { shouldPreserveTerminalScrollbackBuffers } from '../../../../shared/workspace-session-terminal-buffers'
 import {
@@ -261,6 +273,10 @@ type TerminalPaneProps = {
   onCloseTab: () => void
 }
 
+export type TerminalPaneHandle = {
+  closeActivePane: () => void
+}
+
 type TerminalQuickCommandEditorDialogProps = {
   command: TerminalQuickCommand
   onOpenChange: (open: boolean) => void
@@ -291,18 +307,21 @@ function formatClipboardImagePasteError(error: unknown): string {
   return `Image paste failed: ${detail}`
 }
 
-export default function TerminalPane({
-  tabId,
-  worktreeId,
-  cwd,
-  isActive,
-  isVisible = true,
-  isWorktreeActive = isVisible,
-  isolatedPaneKey = null,
-  showSplitButton = true,
-  onPtyExit,
-  onCloseTab
-}: TerminalPaneProps): React.JSX.Element {
+function TerminalPane(
+  {
+    tabId,
+    worktreeId,
+    cwd,
+    isActive,
+    isVisible = true,
+    isWorktreeActive = isVisible,
+    isolatedPaneKey = null,
+    showSplitButton = true,
+    onPtyExit,
+    onCloseTab
+  }: TerminalPaneProps,
+  ref: React.ForwardedRef<TerminalPaneHandle>
+): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const managerRef = useRef<PaneManager | null>(null)
   const paneFontSizesRef = useRef<Map<number, number>>(new Map())
@@ -385,7 +404,11 @@ export default function TerminalPane({
   const handleToggleComposeBox = useCallback(() => setComposeOpen((prev) => !prev), [])
   const searchOpenRef = useRef(false)
   searchOpenRef.current = searchOpen
-  const searchStateRef = useRef<SearchState>({ query: '', caseSensitive: false, regex: false })
+  const searchStateRef = useRef<SearchState>({
+    query: '',
+    caseSensitive: false,
+    regex: false
+  })
   const [pendingCloseConfirmation, setPendingCloseConfirmation] = useState<{
     paneId: number
     copyKind: CloseTerminalDialogCopyKind
@@ -856,9 +879,13 @@ export default function TerminalPane({
   }, [])
 
   const showRestoredSessionBanner = useCallback(
-    (paneId: number, info?: { lastCommand?: string | null }): void => {
+    (paneId: number, detail?: SessionRestoredBannerDetail): void => {
+      // Why: the detail is either upstream's reason tag or the fork's #7596 re-run payload.
+      const isReason = typeof detail === 'string'
+      const reason: SessionRestoredBannerReason = isReason ? detail : 'restored'
+      const lastCommand = isReason ? null : (detail?.lastCommand ?? null)
       setSessionRestoredBannerPanes((prev) => {
-        const next = addSessionRestoredBannerPane(prev, paneId, info?.lastCommand ?? null)
+        const next = addSessionRestoredBannerPane(prev, paneId, lastCommand, reason)
         return next === prev ? prev : next
       })
     },
@@ -959,7 +986,9 @@ export default function TerminalPane({
   const saveQuickCommand = useCallback(
     (command: TerminalQuickCommand): void => {
       const currentCommands = useAppStore.getState().settings?.terminalQuickCommands ?? []
-      void updateSettings({ terminalQuickCommands: [...currentCommands, command] })
+      void updateSettings({
+        terminalQuickCommands: [...currentCommands, command]
+      })
     },
     [updateSettings]
   )
@@ -1385,13 +1414,30 @@ export default function TerminalPane({
           if (!process.hasChildProcesses || settings?.skipCloseTerminalWithRunningProcessConfirm) {
             executeClosePane(paneId)
           } else {
-            setPendingCloseConfirmation({ paneId, copyKind: getCloseDialogCopyKind(paneId) })
+            setPendingCloseConfirmation({
+              paneId,
+              copyKind: getCloseDialogCopyKind(paneId)
+            })
           }
         })
         // Why: if the child-process probe rejects (wedged IPC, legacy provider), close anyway — Cmd+W doing nothing is worse than closing a pane with a child.
         .catch(() => executeClosePane(paneId))
     },
     [executeClosePane, tabId, worktreeId, getCloseDialogCopyKind]
+  )
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      closeActivePane: (): void => {
+        const manager = managerRef.current
+        const pane = manager?.getActivePane() ?? manager?.getPanes()[0]
+        if (pane) {
+          handleRequestClosePane(pane.id)
+        }
+      }
+    }),
+    [handleRequestClosePane]
   )
 
   const handleSearchSelectedText = useCallback((selectedText: string): void => {
@@ -1407,7 +1453,9 @@ export default function TerminalPane({
       const paneId = pendingCloseConfirmation.paneId
       setPendingCloseConfirmation(null)
       if (dontAskAgain) {
-        void updateSettings({ skipCloseTerminalWithRunningProcessConfirm: true })
+        void updateSettings({
+          skipCloseTerminalWithRunningProcessConfirm: true
+        })
       }
       executeClosePane(paneId)
     },
@@ -1645,7 +1693,10 @@ export default function TerminalPane({
       const root = containerRef.current?.firstElementChild
       if (root instanceof HTMLElement) {
         // Why: Activity requested an exact pane; if it can't be resolved, fail closed rather than show the whole split terminal.
-        snapshots.set(root, { display: root.style.display, flex: root.style.flex })
+        snapshots.set(root, {
+          display: root.style.display,
+          flex: root.style.flex
+        })
         root.style.display = 'none'
       }
       const frame = scheduleRefit()
@@ -1859,6 +1910,14 @@ export default function TerminalPane({
     }
   }, [executeClosePane])
 
+  // Why leaf bindings are a dep: a parked or deferred tab mounts with no
+  // transport, so a queued restart has no ptyId to match on the mount pass. The
+  // reconnected PTY rewrites this map when it binds — `ptyIdsByTabId` does not,
+  // because a restored id is already listed there before the pane ever mounts.
+  // Panes with no mounted TerminalPane at all are executed by the detached
+  // driver instead (codex-detached-pane-restart), which leaves anything a live
+  // transport owns to this effect.
+  const panePtyLayoutBindings = savedLayout.ptyIdsByLeafId
   useEffect(() => {
     const manager = managerRef.current
     if (!manager) {
@@ -1875,7 +1934,12 @@ export default function TerminalPane({
         handleRestartCodexPane(pane.id)
       }
     }
-  }, [consumePendingCodexPaneRestart, handleRestartCodexPane, pendingCodexPaneRestartIds])
+  }, [
+    consumePendingCodexPaneRestart,
+    handleRestartCodexPane,
+    panePtyLayoutBindings,
+    pendingCodexPaneRestartIds
+  ])
 
   useTerminalFontZoom({
     isActive,
@@ -2203,7 +2267,10 @@ export default function TerminalPane({
         readClipboardText,
         readClipboardFilePaths: () => window.api.ui.readClipboardFilePaths(),
         saveClipboardImageAsTempFile: window.api.ui.saveClipboardImageAsTempFile,
-        targetShell: resolveTerminalPasteTargetShell({ worktreeId, fallbackCwd: cwd }),
+        targetShell: resolveTerminalPasteTargetShell({
+          worktreeId,
+          fallbackCwd: cwd
+        }),
         connectionId,
         runtimeEnvironmentId,
         forceBracketedMultilineTextPaste,
@@ -2352,7 +2419,10 @@ export default function TerminalPane({
         readClipboardText: window.api.ui.readClipboardText,
         readClipboardFilePaths: () => window.api.ui.readClipboardFilePaths(),
         saveClipboardImageAsTempFile: window.api.ui.saveClipboardImageAsTempFile,
-        targetShell: resolveTerminalPasteTargetShell({ worktreeId, fallbackCwd: cwd }),
+        targetShell: resolveTerminalPasteTargetShell({
+          worktreeId,
+          fallbackCwd: cwd
+        }),
         connectionId,
         runtimeEnvironmentId,
         forceBracketedMultilineTextPaste,
@@ -2398,7 +2468,9 @@ export default function TerminalPane({
     }
     container.addEventListener('pointerdown', onPointerDown, { capture: true })
     return () => {
-      container.removeEventListener('pointerdown', onPointerDown, { capture: true })
+      container.removeEventListener('pointerdown', onPointerDown, {
+        capture: true
+      })
     }
   }, [tabId, worktreeId, clearTerminalTabUnread, clearTerminalPaneUnread, clearWorktreeUnread])
 
@@ -2613,7 +2685,10 @@ export default function TerminalPane({
     }
     setPaneTitles((prev) => ({ ...prev, [renamingPaneId]: trimmed }))
     // Eagerly update the ref so persistLayoutSnapshot sees the new title before React's next render.
-    paneTitlesRef.current = { ...paneTitlesRef.current, [renamingPaneId]: trimmed }
+    paneTitlesRef.current = {
+      ...paneTitlesRef.current,
+      [renamingPaneId]: trimmed
+    }
     const leafId = managerRef.current?.getPanes().find((pane) => pane.id === renamingPaneId)?.leafId
     if (leafId) {
       removedTitleLeafIdsRef.current.delete(leafId)
@@ -3138,6 +3213,24 @@ export default function TerminalPane({
           })
         }}
       />
+      {managedPanes.map((pane) => {
+        const ptyId =
+          paneTransportsRef.current.get(pane.id)?.getPtyId() ??
+          savedLayout.ptyIdsByLeafId?.[pane.leafId]
+        if (!ptyId) {
+          return null
+        }
+        return createPortal(
+          <CodexRestartChip
+            key={`codex-restart-${pane.id}-${ptyId}`}
+            isVisible={isVisible}
+            ptyId={ptyId}
+            shouldFocus={isActive && isVisible && activePane?.id === pane.id}
+          />,
+          pane.container,
+          `codex-restart-${pane.id}`
+        )
+      })}
       {/* Why: the reconnect banner already owns SSH recovery UX; the z-50 error
           toast was painting over it (same bottom strip) with the raw ssh:connect failure. */}
       {terminalError && isActive && !showSshReconnectOverlay ? (
@@ -3313,7 +3406,11 @@ export default function TerminalPane({
         onQuickCommand={dispatchQuickCommandWithTrustGate}
         onAddQuickCommand={
           quickCommandRepoId
-            ? () => openQuickCommandEditor({ type: 'repo', repoId: quickCommandRepoId })
+            ? () =>
+                openQuickCommandEditor({
+                  type: 'repo',
+                  repoId: quickCommandRepoId
+                })
             : () => openQuickCommandEditor({ type: 'global' })
         }
         onToggleExpand={contextMenu.onToggleExpand}
@@ -3450,3 +3547,5 @@ export default function TerminalPane({
     </>
   )
 }
+
+export default forwardRef(TerminalPane)

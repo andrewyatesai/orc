@@ -15,8 +15,8 @@ const localCliRunners = [
   'config/scripts/run-terminal-scale-perf-e2e.mjs',
   'config/scripts/verify-linux-wayland-gpu-sandbox.mjs',
   'tests/e2e/global-setup.ts',
-  'tools/benchmarks/perf-proof-run.mjs',
-  'tools/repro-watcher-crash-7547/fixed-child.cjs'
+  'tests/tools/benchmarks/perf-proof-run.mjs',
+  'tests/tools/repro-watcher-crash-7547/fixed-child.cjs'
 ]
 
 describe('local CLI invocation', () => {

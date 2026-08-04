@@ -1,6 +1,7 @@
 import {
   buildSetupRunnerCommand as buildSharedSetupRunnerCommand,
-  getSetupRunnerCommandPlatformForPath
+  getSetupRunnerCommandPlatformForPath,
+  type SetupRunnerShellArg
 } from '../../../shared/setup-runner-command'
 import type { AgentStartupShell } from '../../../shared/tui-agent-startup-shell'
 import { resolveLocalAgentStartupShell } from '../../../shared/local-agent-startup-shell'
@@ -9,7 +10,7 @@ import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
 
 export function buildSetupRunnerCommand(
   runnerScriptPath: string,
-  terminalShellFamily?: AgentStartupShell
+  shell?: SetupRunnerShellArg
 ): string {
   // Why: the runner may live on a remote/WSL filesystem, so the shell follows
   // the runner path format rather than the local renderer OS.
@@ -19,7 +20,7 @@ export function buildSetupRunnerCommand(
       runnerScriptPath,
       navigator.userAgent.includes('Windows') ? 'windows' : 'posix'
     ),
-    terminalShellFamily
+    shell
   )
 }
 

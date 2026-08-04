@@ -280,6 +280,9 @@ describe('recoverVisibleTerminalWindowWake', () => {
     const { enforceTerminalCurrentScrollIntent, syncTerminalScrollIntentFromViewport } = vi.mocked(
       await import('@/lib/pane-manager/terminal-scroll-intent')
     )
+    const { flushTerminalOutput } = vi.mocked(
+      await import('@/lib/pane-manager/pane-terminal-output-scheduler')
+    )
 
     recoverVisibleTerminalWindowWake({ manager, isActive: true, clearGlyphAtlases: false })
 
@@ -289,6 +292,11 @@ describe('recoverVisibleTerminalWindowWake', () => {
     )
     expect(manager.resumeRendering.mock.invocationCallOrder[0]).toBeLessThan(
       manager.fitAllRevealedPanes.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+    )
+    // Why: streaming refocus must latch before the recovered backlog lands, or the
+    // flush's transient geometry re-latches a pin as followOutput (upstream #11915).
+    expect(syncTerminalScrollIntentFromViewport.mock.invocationCallOrder[0]).toBeLessThan(
+      flushTerminalOutput.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
     )
     // One pre-resume latch only; no same-tick post-flush re-sync (flush is async).
     expect(syncTerminalScrollIntentFromViewport).toHaveBeenCalledTimes(1)

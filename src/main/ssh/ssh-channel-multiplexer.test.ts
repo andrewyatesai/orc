@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import {
   SshChannelMultiplexer,
+  MAX_ORDINARY_UNACKED_TIMESTAMPS,
   MAX_UNACKED_TIMESTAMPS,
   type MultiplexerTransport
 } from './ssh-channel-multiplexer'
@@ -16,7 +17,9 @@ function createMockTransport(): MultiplexerTransport & {
   const written: Buffer[] = []
 
   return {
-    write: (data: Buffer) => written.push(data),
+    write: (data: Buffer) => {
+      written.push(data)
+    },
     onData: (cb) => dataCallbacks.push(cb),
     onClose: (cb) => closeCallbacks.push(cb),
     dataCallbacks,
@@ -73,6 +76,7 @@ type MuxInternals = {
   disposeHandlers: unknown[]
   lastReceivedAt: number
   unackedTimestamps: Map<number, number>
+  writerSaturated: boolean
 }
 
 function getMuxInternals(instance: SshChannelMultiplexer): MuxInternals {
@@ -125,6 +129,28 @@ describe('SshChannelMultiplexer', () => {
       transport.dataCallbacks[0](response)
 
       await expect(promise).rejects.toThrow('PTY allocation failed')
+    })
+
+    it('runs beforeResolve before an adjacent notification in the same decoder turn', async () => {
+      const order: string[] = []
+      mux.onNotification(() => order.push('notification'))
+      const promise = mux.request(
+        'pty.attach',
+        { id: 'pty-1' },
+        {
+          beforeResolve: () => order.push('beforeResolve')
+        }
+      )
+
+      transport.dataCallbacks[0](
+        Buffer.concat([
+          makeResponseFrame(1, { incarnationId: 'incarnation-1' }, 1),
+          makeNotificationFrame('pty.data', { id: 'pty-1', data: 'first' }, 2)
+        ])
+      )
+
+      expect(order).toEqual(['beforeResolve', 'notification'])
+      await expect(promise).resolves.toEqual({ incarnationId: 'incarnation-1' })
     })
 
     it('times out after 30s with no response', async () => {
@@ -332,22 +358,64 @@ describe('SshChannelMultiplexer', () => {
       vi.advanceTimersByTime(25_000)
       expect(mux.isDisposed()).toBe(true)
     })
+
+    it('suppresses false death while locally saturated and rebases both clocks on drain', () => {
+      mux.dispose()
+      let drain = (): void => {}
+      const written: Buffer[] = []
+      const saturatedTransport: MultiplexerTransport = {
+        write: (data) => {
+          written.push(data)
+          return false
+        },
+        supportsWriteSettlement: true,
+        onDrain: (callback) => {
+          drain = callback
+        },
+        onData: vi.fn(),
+        onClose: vi.fn()
+      }
+      mux = new SshChannelMultiplexer(saturatedTransport)
+
+      vi.advanceTimersByTime(5_000)
+      expect(getMuxInternals(mux).writerSaturated).toBe(true)
+      vi.advanceTimersByTime(25_000)
+      expect(mux.isDisposed()).toBe(false)
+      expect(written).toHaveLength(1)
+
+      drain()
+      const resumedAt = Date.now()
+      const internals = getMuxInternals(mux)
+      expect(internals.writerSaturated).toBe(false)
+      expect(internals.lastReceivedAt).toBe(resumedAt)
+      expect(new Set(internals.unackedTimestamps.values())).toEqual(new Set([resumedAt]))
+
+      vi.advanceTimersByTime(20_000)
+      expect(mux.isDisposed()).toBe(false)
+      vi.advanceTimersByTime(5_000)
+      expect(mux.isDisposed()).toBe(true)
+    })
   })
 
   describe('unacked timestamp bounding', () => {
     it('caps unackedTimestamps against a non-acking peer while preserving dead-link detection', () => {
       const internals = getMuxInternals(mux)
       // Peer never acks (no inbound frames); every outbound send would otherwise
-      // accumulate forever. The map must stop growing at the cap.
-      for (let i = 0; i < MAX_UNACKED_TIMESTAMPS + 50; i++) {
+      // accumulate forever. Ordinary traffic must stop growing at its cap.
+      for (let i = 0; i < MAX_ORDINARY_UNACKED_TIMESTAMPS + 50; i++) {
         mux.notify('pty.data', { id: 'p', data: 'x' })
       }
+      expect(internals.unackedTimestamps.size).toBe(MAX_ORDINARY_UNACKED_TIMESTAMPS)
+
+      // The reserved slot means a keepalive probe is never the send that
+      // saturating ordinary traffic starved out.
+      vi.advanceTimersByTime(5_000)
       expect(internals.unackedTimestamps.size).toBe(MAX_UNACKED_TIMESTAMPS)
 
       // The retained (oldest) entries still let the health check declare the
       // link dead once no inbound frame refreshes lastReceivedAt.
       expect(mux.isDisposed()).toBe(false)
-      vi.advanceTimersByTime(25_000)
+      vi.advanceTimersByTime(20_000)
       expect(mux.isDisposed()).toBe(true)
     })
   })

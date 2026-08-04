@@ -87,6 +87,8 @@ export type PtyConnectResult = {
   }
   replay?: string
   startupCwdFallback?: { kind: 'worktree'; cwd: string }
+  /** Main declined an unverifiable provider-session resume and launched fresh. */
+  agentResumeUnavailable?: true
   /** Trailing partial escape the daemon emulator held mid-parse; the reattach
    *  replay writes it LAST (after the reset) so a racing live continuation
    *  completes it instead of rendering literally (#7329). */
@@ -113,7 +115,9 @@ type PtyCallbacks = {
    *  replay limit and was dropped (old host without the subscribe budget); the
    *  pane should restore via the server-bounded requested-snapshot path. */
   onSnapshotOverflow?: () => void
+  onWriteUnavailable?: () => void
   onRecoveryStateChange?: (state: PtyTransportRecoveryState) => void
+  onOutputPauseChanged?: (paused: boolean, supported: boolean) => void
 }
 
 export type PtyTransportRecoveryState = {
@@ -149,6 +153,8 @@ export type PtyTransport = {
     launchToken?: string
     launchAgent?: TuiAgent
     startupCommandDelivery?: StartupCommandDelivery
+    /** Reject a stale restored identity before this transport can publish global PTY handlers. */
+    admitPtyId?: (ptyId: string) => boolean
     callbacks: PtyCallbacks
   }) => void | Promise<void | string | PtyConnectResult>
   attach: (options: {
@@ -169,6 +175,8 @@ export type PtyTransport = {
   sendInputImmediate: (data: string) => boolean
   sendInputAccepted?: (data: string) => Promise<boolean>
   claimViewport?: (cols: number, rows: number) => boolean
+  /** Capability-negotiated paired-runtime delivery gate; false preserves legacy delivery. */
+  setOutputPaused?: (paused: boolean) => boolean
   resize: (
     cols: number,
     rows: number,
@@ -208,7 +216,7 @@ export type PtyTransport = {
   resetCrossChunkParserState?: () => void
   serializeBuffer?: (opts?: { scrollbackRows?: number }) => Promise<PtyBufferSnapshot | null>
   preserve?: () => void
-  detach?: () => void
+  detach?: (options?: { preserveExitObserver?: boolean }) => void
   destroy?: () => void | Promise<void>
 }
 

@@ -9,10 +9,12 @@
 /// `(TuiAgent, concrete AgentKind)` pairs, in source order.
 pub const TUI_AGENT_KIND_PAIRS: &[(&str, &str)] = &[
     ("claude", "claude-code"),
+    ("claude-agent-teams", "claude-agent-teams"),
     ("openclaude", "openclaude"),
     ("codex", "codex"),
     ("autohand", "autohand"),
     ("opencode", "opencode"),
+    ("mimo-code", "mimo-code"),
     ("pi", "pi"),
     ("omp", "omp"),
     ("gemini", "gemini"),
@@ -38,6 +40,9 @@ pub const TUI_AGENT_KIND_PAIRS: &[(&str, &str)] = &[
     ("openclaw", "openclaw"),
     ("copilot", "copilot"),
     ("grok", "grok"),
+    ("devin", "devin"),
+    ("ante", "ante"),
+    ("trae", "trae"),
 ];
 
 /// Maps a TuiAgent to its telemetry kind; unknown agents → `"other"` so the
@@ -71,6 +76,15 @@ mod tests {
     fn uses_product_id_for_claude_and_tui_id_for_pi() {
         assert_eq!(tui_agent_to_agent_kind("claude"), "claude-code");
         assert_eq!(tui_agent_to_agent_kind("pi"), "pi");
+    }
+
+    #[test]
+    fn carries_the_agents_added_after_the_first_port() {
+        // Why: a pair missing from the table is invisible — telemetry just collapses that agent
+        // into `other`, which is exactly how these five drifted out of the TuiAgent union.
+        for agent in ["claude-agent-teams", "mimo-code", "devin", "ante", "trae"] {
+            assert_eq!(tui_agent_to_agent_kind(agent), agent);
+        }
     }
 
     #[test]

@@ -148,6 +148,31 @@ describe('remote transport requested-snapshot alt-screen threading (#6106)', () 
     const subscribePayload = decodeTerminalStreamJson<{ streamId: number }>(subscribeFrame!.payload)
     const streamId = subscribePayload!.streamId
 
+    // The host answers Subscribe with the initial snapshot; only that opens the
+    // transport's attachment gate (#11416), so no request may precede it.
+    for (const frame of [
+      encodeTerminalStreamFrame({
+        opcode: TerminalStreamOpcode.SnapshotStart,
+        streamId,
+        seq: 0,
+        payload: encodeTerminalStreamJson({ cols: 80, rows: 24, seq: 1, source: 'headless' })
+      }),
+      encodeTerminalStreamFrame({
+        opcode: TerminalStreamOpcode.SnapshotChunk,
+        streamId,
+        seq: 0,
+        payload: encodeTerminalStreamText(PRE_TUI_SCROLLBACK)
+      }),
+      encodeTerminalStreamFrame({
+        opcode: TerminalStreamOpcode.SnapshotEnd,
+        streamId,
+        seq: 0,
+        payload: new Uint8Array(0)
+      })
+    ]) {
+      subscriptionCallbacks?.onBinary?.(frame)
+    }
+
     // The hidden-tab restore issues a requested snapshot over the live stream.
     const framesSentBeforeRequest = subscriptionSendBinary.mock.calls.length
     const snapshotPromise = transport.serializeBuffer!({ scrollbackRows: 10_000 })

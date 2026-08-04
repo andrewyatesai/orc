@@ -87,6 +87,7 @@ describe('registerSkillsHandlers', () => {
       schemaVersion: 1,
       installations: [],
       eligibleUpdateNames: [],
+      scanIssues: [],
       scannedAt: 1
     })
     getWslHomeMock.mockReturnValue('\\\\wsl.localhost\\Ubuntu\\home\\alice')

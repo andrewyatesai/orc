@@ -44,4 +44,32 @@ final class AgentEntrypointSourceSafetyTests: XCTestCase {
             .appendingPathComponent("main.swift")
         return try String(contentsOf: mainPath, encoding: .utf8)
     }
+
+    func testSyntheticModifiersHaveGuaranteedReleaseAndModifiedClicksUseFlags() throws {
+        let source = try agentEntrypointSource()
+
+        XCTAssertTrue(source.contains("var pressedModifiers: [KeyModifier] = []"))
+        XCTAssertTrue(source.contains(
+            """
+            defer {
+                        for modifier in pressedModifiers.reversed() {
+                            flags.remove(modifier.flag)
+                            try? keyEvent(modifier.keyCode, down: false, flags: flags, pid: pid)
+            """
+        ))
+        XCTAssertTrue(source.contains("event.flags = flags\n        event.postToPid(pid)"))
+    }
+
+    private func agentEntrypointSource() throws -> String {
+        let testFile = URL(fileURLWithPath: #filePath)
+        let packageRoot = testFile
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let mainPath = packageRoot
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("OrcaComputerUseMacOS")
+            .appendingPathComponent("main.swift")
+        return try String(contentsOf: mainPath, encoding: .utf8)
+    }
 }

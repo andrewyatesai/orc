@@ -21,11 +21,20 @@ import {
   resolveBrowserSessionTabTarget,
   resolveZoomTarget
 } from './useIpcEvents'
+import {
+  createHarnessStoreState,
+  loadIpcEventsHarness,
+  type HarnessStoreState
+} from './ipc-events-test-harness'
 import type { SleepingAgentLaunchConfig } from '../../../shared/agent-session-resume'
 import type { AgentStatusClearIpcPayload } from '../../../shared/agent-status-types'
 import type { TuiAgent } from '../../../shared/types'
 import { makePaneKey } from '../../../shared/stable-pane-id'
 import { YOLO_TUI_AGENT_ARGS } from '../../../shared/tui-agent-permissions'
+import {
+  FLOATING_WORKSPACE_GUEST_CLOSE_EVENT,
+  FLOATING_WORKSPACE_GUEST_SELECT_INDEX_EVENT
+} from '@/lib/floating-workspace-guest-bridge'
 
 const { closeTerminalTabMock } = vi.hoisted(() => ({
   closeTerminalTabMock: vi.fn()
@@ -1016,6 +1025,8 @@ describe('useIpcEvents browser tab create routing', () => {
           replyTabSetProfile: () => {},
           onNewTerminalTab: () => () => {},
           onCloseActiveTab: () => () => {},
+          onCloseFloatingItem: () => () => {},
+          onSelectFloatingIndex: () => () => {},
           onSwitchTab: () => () => {},
           onSwitchTabAcrossAllTypes: () => () => {},
           onSwitchRecentTab: () => () => {},
@@ -1080,6 +1091,12 @@ describe('useIpcEvents browser tab create routing', () => {
 
     expect(acquireBrowserAutomationVisibility).toHaveBeenCalledWith('page-new')
     expect(acquireBrowserAutomationVisibility).not.toHaveBeenCalledWith('page-active')
+    expect(state.createBrowserTab).toHaveBeenCalledWith(
+      'wt-1',
+      'https://example.com',
+      expect.objectContaining({ activate: false })
+    )
+    expect(state.createBrowserTab.mock.calls[0]?.[2]).not.toHaveProperty('allowWindowClose')
     expect(replyTabCreate).toHaveBeenCalledWith({
       requestId: 'req-create',
       browserPageId: 'page-new'
@@ -1235,6 +1252,8 @@ describe('useIpcEvents updater integration', () => {
           replyTabSetProfile: () => {},
           onNewTerminalTab: () => () => {},
           onCloseActiveTab: () => () => {},
+          onCloseFloatingItem: () => () => {},
+          onSelectFloatingIndex: () => () => {},
           onSwitchTab: () => () => {},
           onSwitchTabAcrossAllTypes: () => () => {},
           onSwitchRecentTab: () => () => {},
@@ -1441,7 +1460,7 @@ describe('useIpcEvents updater integration', () => {
   })
 
   it('clears stale remote PTYs when an SSH connection fully disconnects', async () => {
-    const clearTabPtyId = vi.fn()
+    const clearDirectSshTargetPtyBindings = vi.fn(() => 1)
     const setSshConnectionState = vi.fn()
     const setSshTargetsMetadata = vi.fn()
     const clearRemovedSshTargetState = vi.fn()
@@ -1493,7 +1512,7 @@ describe('useIpcEvents updater integration', () => {
       removeSshCredentialRequest: vi.fn(),
       clearRemoteDetectedAgents: vi.fn(),
       clearRemovedSshTargetState,
-      clearTabPtyId,
+      clearDirectSshTargetPtyBindings,
       repos: [{ id: 'repo-1', connectionId: 'conn-1' }],
       worktreesByRepo: {
         'repo-1': [{ id: 'wt-1', repoId: 'repo-1', hostId: 'ssh:conn-1' }]
@@ -1511,7 +1530,6 @@ describe('useIpcEvents updater integration', () => {
         openAgentTabsInChatByDefault: false
       }
     }
-
     vi.doMock('react', async () => {
       const actual = await vi.importActual<typeof ReactModule>('react')
       return {
@@ -1606,6 +1624,8 @@ describe('useIpcEvents updater integration', () => {
           replyTabSetProfile: () => {},
           onNewTerminalTab: () => () => {},
           onCloseActiveTab: () => () => {},
+          onCloseFloatingItem: () => () => {},
+          onSelectFloatingIndex: () => () => {},
           onSwitchTab: () => () => {},
           onSwitchTabAcrossAllTypes: () => () => {},
           onSwitchRecentTab: () => () => {},
@@ -1679,8 +1699,8 @@ describe('useIpcEvents updater integration', () => {
       'conn-1',
       expect.objectContaining({ status: 'disconnected' })
     )
-    expect(clearTabPtyId).toHaveBeenCalledWith('tab-1')
-    expect(clearTabPtyId).not.toHaveBeenCalledWith('tab-2')
+    expect(clearDirectSshTargetPtyBindings).toHaveBeenCalledOnce()
+    expect(clearDirectSshTargetPtyBindings).toHaveBeenCalledWith('conn-1')
     expect(storeState.clearRemoteDetectedAgents).toHaveBeenCalledWith('conn-1')
 
     setSshConnectionState.mockClear()
@@ -1795,7 +1815,11 @@ describe('useIpcEvents updater integration', () => {
   })
 
   it('surfaces terminal creates without stealing focus unless requested', async () => {
-    const createTab = vi.fn(() => ({ id: 'tab-new' }))
+    const createTab = vi.fn(
+      (_worktreeId: string, _groupId?: string, _tabType?: string, options?: { id?: string }) => ({
+        id: options?.id ?? 'tab-new'
+      })
+    )
     const setActiveView = vi.fn()
     const setActiveWorktree = vi.fn()
     const markWorktreeVisited = vi.fn()
@@ -1882,6 +1906,20 @@ describe('useIpcEvents updater integration', () => {
         activeRuntimeEnvironmentId: undefined as string | undefined
       }
     }
+    updateTabPtyId.mockImplementation((tabId: string, ptyId: string) => {
+      storeState.ptyIdsByTabId[tabId] = [
+        ...new Set([...(storeState.ptyIdsByTabId[tabId] ?? []), ptyId])
+      ]
+      for (const tabs of Object.values(storeState.tabsByWorktree)) {
+        const tab = tabs.find((candidate) => candidate.id === tabId)
+        if (tab) {
+          tab.ptyId = ptyId
+        }
+      }
+    })
+    setTabLayout.mockImplementation((tabId: string, layout: unknown) => {
+      storeState.terminalLayoutsByTabId[tabId] = layout
+    })
     const createTerminalListenerRef: {
       current:
         | ((data: {
@@ -1894,6 +1932,7 @@ describe('useIpcEvents updater integration', () => {
             title?: string
             ptyId?: string
             activate?: boolean
+            focus?: boolean
             presentation?: 'background' | 'focused'
             tabId?: string
             leafId?: string
@@ -2042,6 +2081,7 @@ describe('useIpcEvents updater integration', () => {
               title?: string
               ptyId?: string
               activate?: boolean
+              focus?: boolean
               presentation?: 'background' | 'focused'
               tabId?: string
               leafId?: string
@@ -2116,6 +2156,8 @@ describe('useIpcEvents updater integration', () => {
             return () => {}
           },
           onCloseActiveTab: () => () => {},
+          onCloseFloatingItem: () => () => {},
+          onSelectFloatingIndex: () => () => {},
           onSwitchTab: () => () => {},
           onSwitchTabAcrossAllTypes: () => () => {},
           onSwitchRecentTab: () => () => {},
@@ -2283,6 +2325,7 @@ describe('useIpcEvents updater integration', () => {
     setActiveTabType.mockClear()
     setActiveTab.mockClear()
     revealWorktreeInSidebar.mockClear()
+    dispatchEvent.mockClear()
     createTerminalListenerRef.current({
       worktreeId: 'wt-2',
       title: 'Runner',
@@ -2591,6 +2634,7 @@ describe('useIpcEvents updater integration', () => {
     setActiveTab.mockClear()
     revealWorktreeInSidebar.mockClear()
     replyTerminalCreate.mockClear()
+    dispatchEvent.mockClear()
     requestTerminalCreateListenerRef.current({
       requestId: 'req-renderer-backed-background',
       worktreeId: 'wt-2',
@@ -2608,6 +2652,12 @@ describe('useIpcEvents updater integration', () => {
     expect(setActiveTabType).not.toHaveBeenCalled()
     expect(setActiveTab).not.toHaveBeenCalled()
     expect(revealWorktreeInSidebar).not.toHaveBeenCalled()
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'orca-background-mount-terminal-worktree',
+        detail: { worktreeId: 'wt-2', tabIds: ['tab-new'] }
+      })
+    )
     expect(replyTerminalCreate).toHaveBeenCalledWith({
       requestId: 'req-renderer-backed-background',
       tabId: 'tab-new',
@@ -2711,6 +2761,7 @@ describe('useIpcEvents updater integration', () => {
     setActiveTabType.mockClear()
     setActiveTab.mockClear()
     revealWorktreeInSidebar.mockClear()
+    dispatchEvent.mockClear()
     createTerminalListenerRef.current({
       worktreeId: 'wt-2',
       ptyId: 'pty-bg-3',
@@ -2728,6 +2779,50 @@ describe('useIpcEvents updater integration', () => {
     expect(setActiveTabType).not.toHaveBeenCalled()
     expect(setActiveTab).not.toHaveBeenCalled()
     expect(revealWorktreeInSidebar).not.toHaveBeenCalled()
+    expect(dispatchEvent).toHaveBeenCalledOnce()
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'orca-background-mount-terminal-worktree',
+        detail: { worktreeId: 'wt-2', tabIds: ['tab-cli-bg-reveal'] }
+      })
+    )
+
+    createTab.mockClear()
+    setActiveView.mockClear()
+    setActiveWorktree.mockClear()
+    setActiveTabType.mockClear()
+    setActiveTab.mockClear()
+    revealWorktreeInSidebar.mockClear()
+    focusRuntimeTerminalSurface.mockClear()
+    focusTerminalTabSurface.mockClear()
+    dispatchEvent.mockClear()
+    createTerminalListenerRef.current({
+      worktreeId: 'wt-2',
+      ptyId: 'pty-recovery-bg',
+      activate: true,
+      focus: false,
+      tabId: 'tab-recovery-bg'
+    })
+
+    expect(createTab).toHaveBeenCalledWith('wt-2', undefined, undefined, {
+      initialPtyId: 'pty-recovery-bg',
+      activate: false,
+      id: 'tab-recovery-bg'
+    })
+    expect(setActiveView).not.toHaveBeenCalled()
+    expect(setActiveWorktree).not.toHaveBeenCalled()
+    expect(setActiveTabType).not.toHaveBeenCalled()
+    expect(setActiveTab).not.toHaveBeenCalled()
+    expect(revealWorktreeInSidebar).not.toHaveBeenCalled()
+    expect(focusRuntimeTerminalSurface).not.toHaveBeenCalled()
+    expect(focusTerminalTabSurface).not.toHaveBeenCalled()
+    expect(dispatchEvent).toHaveBeenCalledOnce()
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'orca-background-mount-terminal-worktree',
+        detail: { worktreeId: 'wt-2', tabIds: ['tab-recovery-bg'] }
+      })
+    )
 
     storeState.tabsByWorktree = {
       'wt-2': [{ id: 'tab-existing', ptyId: 'pty-bg', title: 'Terminal 1' }]
@@ -2810,7 +2905,13 @@ describe('useIpcEvents updater integration', () => {
     expect(replyTerminalCreate).toHaveBeenCalledWith({
       requestId: 'req-adopt-pending',
       tabId: pendingTabId,
-      title: 'Terminal 3'
+      title: 'Terminal 3',
+      identity: {
+        worktreeId: 'wt-2',
+        tabId: pendingTabId,
+        leafId: pendingLeafId,
+        ptyId: 'serve-cf39bedb-a33a-417c-9ab6-f304dc27a6c0'
+      }
     })
 
     storeState.tabsByWorktree = {
@@ -2876,7 +2977,13 @@ describe('useIpcEvents updater integration', () => {
     expect(replyTerminalCreate).toHaveBeenCalledWith({
       requestId: 'req-split',
       tabId: 'tab-existing',
-      title: 'Terminal 1'
+      title: 'Terminal 1',
+      identity: {
+        worktreeId: 'wt-2',
+        tabId: 'tab-existing',
+        leafId: 'leaf-split',
+        ptyId: 'pty-split'
+      }
     })
 
     storeState.terminalLayoutsByTabId = {
@@ -2951,6 +3058,9 @@ describe('useIpcEvents browser tab close routing', () => {
   beforeEach(() => {
     vi.resetModules()
     vi.unstubAllGlobals()
+    // Undo a partial mock of this module leaked by an earlier describe so the real
+    // resolveFloatingWorkspaceBrowserWorkspaceId (source validation) is used here.
+    vi.doUnmock('@/lib/floating-workspace-terminal-actions')
     closeTerminalTabMock.mockReset()
   })
 
@@ -2960,12 +3070,16 @@ describe('useIpcEvents browser tab close routing', () => {
     worktreeId?: string
   }) => void
   type CloseActiveTabListener = () => void
+  type CloseFloatingItemListener = (payload: { sourceId: string }) => void
+  type SelectFloatingIndexListener = (payload: { index: number }) => void
   type CloseTerminalListener = (data: { tabId: string; paneRuntimeId?: number | null }) => void
   type CloseSessionTabListener = (data: { tabId: string; worktreeId: string }) => void
   type TerminalTabCloseRequestListener = (data: { requestId: string; tabId: string }) => void
 
   async function useIpcEventsForCloseRouting({
     closeActiveTabListenerRef,
+    closeFloatingItemListenerRef,
+    selectFloatingIndexListenerRef,
     closeSessionTabListenerRef,
     closeTerminalListenerRef,
     getState,
@@ -2976,6 +3090,8 @@ describe('useIpcEvents browser tab close routing', () => {
     persistWorkspaceSession = vi.fn().mockResolvedValue(undefined)
   }: {
     closeActiveTabListenerRef?: { current: CloseActiveTabListener | null }
+    closeFloatingItemListenerRef?: { current: CloseFloatingItemListener | null }
+    selectFloatingIndexListenerRef?: { current: SelectFloatingIndexListener | null }
     closeSessionTabListenerRef?: { current: CloseSessionTabListener | null }
     closeTerminalListenerRef?: { current: CloseTerminalListener | null }
     getState: () => Record<string, unknown>
@@ -3147,6 +3263,18 @@ describe('useIpcEvents browser tab close routing', () => {
           onCloseActiveTab: (listener: CloseActiveTabListener) => {
             if (closeActiveTabListenerRef) {
               closeActiveTabListenerRef.current = listener
+            }
+            return () => {}
+          },
+          onCloseFloatingItem: (listener: CloseFloatingItemListener) => {
+            if (closeFloatingItemListenerRef) {
+              closeFloatingItemListenerRef.current = listener
+            }
+            return () => {}
+          },
+          onSelectFloatingIndex: (listener: SelectFloatingIndexListener) => {
+            if (selectFloatingIndexListenerRef) {
+              selectFloatingIndexListenerRef.current = listener
             }
             return () => {}
           },
@@ -3690,6 +3818,8 @@ describe('useIpcEvents browser tab close routing', () => {
           replyTabSetProfile: () => {},
           onNewTerminalTab: () => () => {},
           onCloseActiveTab: () => () => {},
+          onCloseFloatingItem: () => () => {},
+          onSelectFloatingIndex: () => () => {},
           onSwitchTab: () => () => {},
           onSwitchTabAcrossAllTypes: () => () => {},
           onSwitchRecentTab: () => () => {},
@@ -3910,6 +4040,8 @@ describe('useIpcEvents browser tab close routing', () => {
           replyTabSetProfile: () => {},
           onNewTerminalTab: () => () => {},
           onCloseActiveTab: () => () => {},
+          onCloseFloatingItem: () => () => {},
+          onSelectFloatingIndex: () => () => {},
           onSwitchTab: () => () => {},
           onSwitchTabAcrossAllTypes: () => () => {},
           onSwitchRecentTab: () => () => {},
@@ -4125,6 +4257,8 @@ describe('useIpcEvents browser tab close routing', () => {
           replyTabSetProfile: () => {},
           onNewTerminalTab: () => () => {},
           onCloseActiveTab: () => () => {},
+          onCloseFloatingItem: () => () => {},
+          onSelectFloatingIndex: () => () => {},
           onSwitchTab: () => () => {},
           onSwitchTabAcrossAllTypes: () => () => {},
           onSwitchRecentTab: () => () => {},
@@ -4191,6 +4325,95 @@ describe('useIpcEvents browser tab close routing', () => {
       requestId: 'req-3',
       error: 'Browser tab missing-page not found'
     })
+  })
+
+  // The floating-guest close receiver validates the source id still names a live floating
+  // browser tab, then re-dispatches a typed window event for the mounted panel.
+  function dispatchedEventTypes(): string[] {
+    const dispatchEvent = (window.dispatchEvent as ReturnType<typeof vi.fn>).mock.calls
+    return dispatchEvent.map((call) => (call[0] as Event).type)
+  }
+
+  // Main forwards the guest's page id, so the receiver must resolve it to the owning workspace id.
+  it('re-dispatches a floating-guest close for a live floating browser page source', async () => {
+    const closeFloatingItemListenerRef: { current: CloseFloatingItemListener | null } = {
+      current: null
+    }
+
+    await useIpcEventsForCloseRouting({
+      closeFloatingItemListenerRef,
+      getState: () => ({
+        browserTabsByWorktree: { 'global-floating-terminal': [{ id: 'workspace-1' }] },
+        browserPagesByWorkspace: { 'workspace-1': [{ id: 'page-1' }] }
+      })
+    })
+
+    closeFloatingItemListenerRef.current?.({ sourceId: 'page-1' })
+
+    const closeEvents = (window.dispatchEvent as ReturnType<typeof vi.fn>).mock.calls
+      .map((call) => call[0] as CustomEvent)
+      .filter((event) => event.type === FLOATING_WORKSPACE_GUEST_CLOSE_EVENT)
+    expect(closeEvents).toHaveLength(1)
+    expect(closeEvents[0].detail).toEqual({ sourceId: 'workspace-1' })
+  })
+
+  it('re-dispatches a floating-guest close for a live floating browser workspace source', async () => {
+    const closeFloatingItemListenerRef: { current: CloseFloatingItemListener | null } = {
+      current: null
+    }
+
+    await useIpcEventsForCloseRouting({
+      closeFloatingItemListenerRef,
+      getState: () => ({
+        browserTabsByWorktree: { 'global-floating-terminal': [{ id: 'workspace-1' }] },
+        browserPagesByWorkspace: { 'workspace-1': [{ id: 'page-1' }] }
+      })
+    })
+
+    closeFloatingItemListenerRef.current?.({ sourceId: 'workspace-1' })
+
+    const closeEvents = (window.dispatchEvent as ReturnType<typeof vi.fn>).mock.calls
+      .map((call) => call[0] as CustomEvent)
+      .filter((event) => event.type === FLOATING_WORKSPACE_GUEST_CLOSE_EVENT)
+    expect(closeEvents).toHaveLength(1)
+    expect(closeEvents[0].detail).toEqual({ sourceId: 'workspace-1' })
+  })
+
+  it('ignores a floating-guest close for a stale/unknown source (no-op)', async () => {
+    const closeFloatingItemListenerRef: { current: CloseFloatingItemListener | null } = {
+      current: null
+    }
+
+    await useIpcEventsForCloseRouting({
+      closeFloatingItemListenerRef,
+      getState: () => ({
+        browserTabsByWorktree: { 'global-floating-terminal': [{ id: 'workspace-1' }] },
+        browserPagesByWorkspace: { 'workspace-1': [{ id: 'page-1' }] }
+      })
+    })
+
+    closeFloatingItemListenerRef.current?.({ sourceId: 'already-closed' })
+
+    expect(dispatchedEventTypes()).not.toContain(FLOATING_WORKSPACE_GUEST_CLOSE_EVENT)
+  })
+
+  it('re-dispatches a floating-guest index select', async () => {
+    const selectFloatingIndexListenerRef: { current: SelectFloatingIndexListener | null } = {
+      current: null
+    }
+
+    await useIpcEventsForCloseRouting({
+      selectFloatingIndexListenerRef,
+      getState: () => ({})
+    })
+
+    selectFloatingIndexListenerRef.current?.({ index: 2 })
+
+    const selectEvents = (window.dispatchEvent as ReturnType<typeof vi.fn>).mock.calls
+      .map((call) => call[0] as CustomEvent)
+      .filter((event) => event.type === FLOATING_WORKSPACE_GUEST_SELECT_INDEX_EVENT)
+    expect(selectEvents).toHaveLength(1)
+    expect(selectEvents[0].detail).toEqual({ index: 2 })
   })
 })
 
@@ -4358,6 +4581,8 @@ describe('useIpcEvents CLI-created worktree activation', () => {
           replyTabSetProfile: () => {},
           onNewTerminalTab: () => () => {},
           onCloseActiveTab: () => () => {},
+          onCloseFloatingItem: () => () => {},
+          onSelectFloatingIndex: () => () => {},
           onSwitchTab: () => () => {},
           onSwitchTabAcrossAllTypes: () => () => {},
           onSwitchRecentTab: () => () => {},
@@ -4621,6 +4846,8 @@ describe('useIpcEvents CLI-created worktree activation', () => {
           replyTabSetProfile: () => {},
           onNewTerminalTab: () => () => {},
           onCloseActiveTab: () => () => {},
+          onCloseFloatingItem: () => () => {},
+          onSelectFloatingIndex: () => () => {},
           onSwitchTab: () => () => {},
           onSwitchTabAcrossAllTypes: () => () => {},
           onSwitchRecentTab: () => () => {},
@@ -4709,7 +4936,7 @@ describe('useIpcEvents CLI-created worktree activation', () => {
 
     fetchWorktrees.mockClear()
     fetchWorktreeLineage.mockClear()
-    mockSettings.activeRuntimeEnvironmentId = 'env-1'
+    mockSettings.activeRuntimeEnvironmentId = null
     if (!runtimeOnResponse) {
       throw new Error('Expected runtime client event callbacks')
     }
@@ -4720,9 +4947,12 @@ describe('useIpcEvents CLI-created worktree activation', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    expect(fetchWorktrees).toHaveBeenCalledWith('repo-1', { ownerHostId: 'runtime:env-1' })
-    expect(fetchWorktreeLineage).toHaveBeenCalledTimes(1)
-    expect(fetchWorktreeLineage).toHaveBeenCalledWith(undefined)
+    expect(fetchWorktrees).toHaveBeenCalledWith('repo-1', {
+      executionHostId: 'runtime:env-1'
+    })
+    expect(fetchWorktreeLineage).toHaveBeenCalledWith({
+      executionHostId: 'runtime:env-1'
+    })
   })
 })
 
@@ -4849,10 +5079,15 @@ describe('useIpcEvents agent status snapshot integration', () => {
   function buildWindowApi(args: {
     onSet: (cb: (data: AgentStatusSetData) => void) => () => void
     onClear?: (cb: (data: AgentStatusClearIpcPayload) => void) => () => void
+    onLegacyWorkerTerminalRecovery?: (
+      cb: (data: { paneKey: string; resolution: 'adopted' | 'exited' }) => void
+    ) => () => void
     getSnapshot?: () => Promise<AgentStatusSetData[]>
     drop?: (paneKey: string) => void
     remoteWorkspace?: Record<string, unknown>
     runtime?: Record<string, unknown>
+    ssh?: Record<string, unknown>
+    ui?: Record<string, unknown>
   }): Record<string, unknown> {
     return {
       api: {
@@ -4905,6 +5140,8 @@ describe('useIpcEvents agent status snapshot integration', () => {
           replyTabSetProfile: () => {},
           onNewTerminalTab: () => () => {},
           onCloseActiveTab: () => () => {},
+          onCloseFloatingItem: () => () => {},
+          onSelectFloatingIndex: () => () => {},
           onSwitchTab: () => () => {},
           onSwitchTabAcrossAllTypes: () => () => {},
           onSwitchRecentTab: () => () => {},
@@ -4913,7 +5150,8 @@ describe('useIpcEvents agent status snapshot integration', () => {
           onFullscreenChanged: () => () => {},
           onTerminalZoom: () => () => {},
           getZoomLevel: () => 0,
-          set: vi.fn()
+          set: vi.fn(),
+          ...args.ui
         },
         settings: { onChanged: () => () => {} },
         updater: {
@@ -4950,11 +5188,14 @@ describe('useIpcEvents agent status snapshot integration', () => {
           onCredentialRequest: () => () => {},
           onCredentialResolved: () => () => {},
           onPortForwardsChanged: () => () => {},
-          onDetectedPortsChanged: () => () => {}
+          onDetectedPortsChanged: () => () => {},
+          ...args.ssh
         },
         agentStatus: {
           onSet: args.onSet,
           onClear: args.onClear ?? vi.fn(() => () => {}),
+          onLegacyWorkerTerminalRecovery:
+            args.onLegacyWorkerTerminalRecovery ?? vi.fn(() => () => {}),
           getSnapshot: args.getSnapshot ?? vi.fn(() => Promise.resolve([])),
           drop: args.drop ?? vi.fn()
         },
@@ -4996,9 +5237,664 @@ describe('useIpcEvents agent status snapshot integration', () => {
     vi.doMock('@/lib/zoom-events', () => ({ dispatchZoomLevelChanged: vi.fn() }))
   }
 
+  function buildSshAuthorityReconciliationHarness(args: {
+    partialAuthority: { providerEpoch?: string; connectionGeneration?: number }
+    latestAuthority: { providerEpoch: string; connectionGeneration: number }
+  }): {
+    emitPartialState: () => void
+    getState: ReturnType<typeof vi.fn>
+    requestReconnect: ReturnType<typeof vi.fn>
+    setSshConnectionState: ReturnType<typeof vi.fn>
+    storedState: () => Record<string, unknown> | undefined
+  } {
+    const targetId = 'target-reconciliation'
+    const baseState = {
+      targetId,
+      status: 'connected' as const,
+      error: null,
+      reconnectAttempt: 0
+    }
+    const partialState = { ...baseState, ...args.partialAuthority }
+    const latestState = { ...baseState, ...args.latestAuthority }
+    const sshConnectionStates = new Map<string, Record<string, unknown>>()
+    let sshStateListener: ((data: { targetId: string; state: unknown }) => void) | undefined
+    const getState = vi.fn(() => Promise.resolve(latestState))
+    const requestReconnect = vi.fn(async () => ({ status: 'complete' }))
+    const setSshConnectionState = vi.fn((nextTargetId: string, state: Record<string, unknown>) => {
+      sshConnectionStates.set(nextTargetId, state)
+    })
+    const storeState = buildStoreState({
+      sshTargetLabels: new Map([[targetId, 'Reconciliation Target']]),
+      sshConnectionStates,
+      setSshConnectionState,
+      invalidateStaleDirectSshTargetPtyBindings: vi.fn(() => 0),
+      retryDirectSshTargetPanes: vi.fn(() => 0),
+      setSshTargetsMetadata: vi.fn(),
+      setRemovedSshTargetLabels: vi.fn(),
+      setRemoteWorkspaceSyncStatus: vi.fn(),
+      clearRemoteDetectedAgents: vi.fn(),
+      clearDirectSshTargetPtyBindings: vi.fn(),
+      clearRemovedSshTargetState: vi.fn()
+    })
+    const coordinator = {
+      requestReconnect,
+      replaceAuthority: vi.fn(),
+      prepareOnly: vi.fn(),
+      correctUnboundTerminals: vi.fn(() => 0),
+      finalizeHydratedTerminals: vi.fn(() => 0),
+      invalidate: vi.fn(),
+      stop: vi.fn()
+    }
+
+    stubReactSyncEffect()
+    stubAuxiliaryModules()
+    vi.doMock('../store', () => ({
+      useAppStore: {
+        subscribe: vi.fn(() => () => {}),
+        getState: () => storeState
+      }
+    }))
+    vi.doMock('./direct-ssh-reconnect-rollout', () => ({
+      isDirectSshReconnectCoordinatorRoutingEnabled: () => true
+    }))
+    vi.doMock('./direct-ssh-worktree-refresh-scheduler', () => ({
+      createDirectSshWorktreeRefreshScheduler: () => ({
+        stop: vi.fn(),
+        disposeProvider: vi.fn()
+      })
+    }))
+    vi.doMock('./direct-ssh-host-hydration', () => ({
+      createDirectSshHostHydration: () => ({
+        capturePreparationInput: vi.fn(),
+        readHostScopedLineage: vi.fn(),
+        isPreparationTokenCurrent: vi.fn(() => true),
+        stop: vi.fn()
+      })
+    }))
+    vi.doMock('./direct-ssh-reconnect-coordinator', () => ({
+      createDirectSshReconnectCoordinator: () => coordinator
+    }))
+    vi.doMock('@/lib/direct-ssh-reconnect-product-telemetry', () => ({
+      createDirectSshReconnectProductTelemetryAdapter: vi.fn()
+    }))
+    vi.stubGlobal(
+      'window',
+      buildWindowApi({
+        onSet: () => () => {},
+        ssh: {
+          getState,
+          onStateChanged: (listener: (data: { targetId: string; state: unknown }) => void) => {
+            sshStateListener = listener
+            return () => {}
+          }
+        }
+      })
+    )
+
+    return {
+      emitPartialState: () => {
+        if (!sshStateListener) {
+          throw new Error('Expected SSH state listener')
+        }
+        sshStateListener({ targetId, state: partialState })
+      },
+      getState,
+      requestReconnect,
+      setSshConnectionState,
+      storedState: () => sshConnectionStates.get(targetId)
+    }
+  }
+
   beforeEach(() => {
     vi.resetModules()
     vi.unstubAllGlobals()
+  })
+
+  it('retires the exact sleeping record after adopted or exited legacy worker recovery', async () => {
+    const clearSleepingAgentSession = vi.fn()
+    const setSleepingAgentAutomaticResumeBlocked = vi.fn()
+    let listener:
+      | ((data: { paneKey: string; resolution: 'adopted' | 'exited' }) => void)
+      | undefined
+    const storeState = buildStoreState({
+      clearSleepingAgentSession,
+      setSleepingAgentAutomaticResumeBlocked
+    })
+
+    stubReactSyncEffect()
+    vi.doMock('../store', () => ({
+      useAppStore: {
+        subscribe: vi.fn(() => () => {}),
+        getState: () => storeState
+      }
+    }))
+    stubAuxiliaryModules()
+    vi.stubGlobal(
+      'window',
+      buildWindowApi({
+        onSet: () => () => {},
+        onLegacyWorkerTerminalRecovery: (callback) => {
+          listener = callback
+          return () => {}
+        }
+      })
+    )
+
+    const { useIpcEvents } = await import('./useIpcEvents')
+    useIpcEvents()
+    await Promise.resolve()
+    expect(listener).toBeTypeOf('function')
+
+    listener?.({ paneKey: 'tab-adopted:leaf-adopted', resolution: 'adopted' })
+    expect(clearSleepingAgentSession).toHaveBeenCalledWith('tab-adopted:leaf-adopted')
+    expect(setSleepingAgentAutomaticResumeBlocked).not.toHaveBeenCalled()
+
+    clearSleepingAgentSession.mockClear()
+    listener?.({ paneKey: 'tab-exited:leaf-exited', resolution: 'exited' })
+    expect(clearSleepingAgentSession).toHaveBeenCalledWith('tab-exited:leaf-exited')
+    expect(setSleepingAgentAutomaticResumeBlocked).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { partialAuthority: { providerEpoch: 'epoch-current' } },
+    { partialAuthority: { connectionGeneration: 7 } }
+  ])(
+    'fills a same-watermark partial SSH authority and routes it once',
+    async ({ partialAuthority }) => {
+      const harness = buildSshAuthorityReconciliationHarness({
+        partialAuthority,
+        latestAuthority: {
+          providerEpoch: 'epoch-current',
+          connectionGeneration: 7
+        }
+      })
+      const { useIpcEvents } = await import('./useIpcEvents')
+      useIpcEvents()
+
+      harness.emitPartialState()
+
+      await vi.waitFor(() => {
+        expect(harness.requestReconnect).toHaveBeenCalledOnce()
+      })
+      expect(harness.getState).toHaveBeenCalledOnce()
+      expect(harness.setSshConnectionState).toHaveBeenCalledTimes(2)
+      expect(harness.storedState()).toEqual({
+        targetId: 'target-reconciliation',
+        status: 'connected',
+        error: null,
+        reconnectAttempt: 0,
+        providerEpoch: 'epoch-current',
+        connectionGeneration: 7
+      })
+    }
+  )
+
+  it.each([
+    { partialAuthority: { providerEpoch: 'epoch-conflict' } },
+    { partialAuthority: { connectionGeneration: 6 } }
+  ])(
+    'rejects a reconciliation reply that conflicts with present authority',
+    async ({ partialAuthority }) => {
+      const harness = buildSshAuthorityReconciliationHarness({
+        partialAuthority,
+        latestAuthority: {
+          providerEpoch: 'epoch-current',
+          connectionGeneration: 7
+        }
+      })
+      const { useIpcEvents } = await import('./useIpcEvents')
+      useIpcEvents()
+
+      harness.emitPartialState()
+
+      await vi.waitFor(() => {
+        expect(harness.getState).toHaveBeenCalledOnce()
+      })
+      await Promise.resolve()
+      expect(harness.requestReconnect).not.toHaveBeenCalled()
+      expect(harness.setSshConnectionState).toHaveBeenCalledOnce()
+      expect(harness.storedState()).toEqual(
+        expect.objectContaining({
+          targetId: 'target-reconciliation',
+          ...partialAuthority
+        })
+      )
+    }
+  )
+
+  it.each([
+    { enabled: true, expectedRoute: ['request'] },
+    {
+      enabled: false,
+      expectedRoute: ['replace', 'invalidate', 'retry', 'capture', 'prepare']
+    }
+  ])(
+    'routes a changed direct SSH authority through the enabled=$enabled path',
+    async ({ enabled, expectedRoute }) => {
+      const order: string[] = []
+      let sshStateListener: ((data: { targetId: string; state: unknown }) => void) | undefined
+      const oldState = {
+        targetId: 'target-a',
+        status: 'connected' as const,
+        error: null,
+        reconnectAttempt: 0,
+        providerEpoch: 'epoch-old',
+        connectionGeneration: 1
+      }
+      const nextState = {
+        ...oldState,
+        providerEpoch: 'epoch-new',
+        connectionGeneration: 2
+      }
+      const storeState = buildStoreState({
+        sshTargetLabels: new Map([['target-a', 'Target A']]),
+        sshConnectionStates: new Map([['target-a', oldState]]),
+        setSshConnectionState: (targetId: string, state: unknown) => {
+          ;(storeState.sshConnectionStates as Map<string, unknown>).set(targetId, state)
+        },
+        invalidateStaleDirectSshTargetPtyBindings: () => {
+          order.push('invalidate')
+          return 1
+        },
+        retryDirectSshTargetPanes: () => {
+          order.push('retry')
+          return 1
+        },
+        setSshTargetsMetadata: vi.fn(),
+        setRemovedSshTargetLabels: vi.fn(),
+        setRemoteWorkspaceSyncStatus: vi.fn(),
+        clearRemoteDetectedAgents: vi.fn(),
+        clearDirectSshTargetPtyBindings: vi.fn(),
+        clearRemovedSshTargetState: vi.fn()
+      })
+      const coordinator = {
+        requestReconnect: vi.fn(async () => {
+          order.push('request')
+          return { status: 'complete' }
+        }),
+        replaceAuthority: vi.fn(() => {
+          order.push('replace')
+        }),
+        prepareOnly: vi.fn(async () => {
+          order.push('prepare')
+          return { token: null }
+        }),
+        correctUnboundTerminals: vi.fn(() => 0),
+        finalizeHydratedTerminals: vi.fn(() => 0),
+        invalidate: vi.fn(),
+        stop: vi.fn()
+      }
+      const capturePreparationInput = vi.fn(async (authority, reason) => {
+        order.push('capture')
+        return {
+          ...authority,
+          reason,
+          catalogRevision: 1,
+          repoRefs: [],
+          authorityRequirement: 'required'
+        }
+      })
+
+      stubReactSyncEffect()
+      stubAuxiliaryModules()
+      vi.doMock('../store', () => ({
+        useAppStore: {
+          subscribe: vi.fn(() => () => {}),
+          getState: () => storeState
+        }
+      }))
+      vi.doMock('./direct-ssh-reconnect-rollout', () => ({
+        isDirectSshReconnectCoordinatorRoutingEnabled: () => enabled
+      }))
+      vi.doMock('./direct-ssh-worktree-refresh-scheduler', () => ({
+        createDirectSshWorktreeRefreshScheduler: () => ({
+          stop: vi.fn(),
+          disposeProvider: vi.fn()
+        })
+      }))
+      vi.doMock('./direct-ssh-host-hydration', () => ({
+        createDirectSshHostHydration: () => ({
+          capturePreparationInput,
+          readHostScopedLineage: vi.fn(),
+          isPreparationTokenCurrent: vi.fn(() => true),
+          stop: vi.fn()
+        })
+      }))
+      vi.doMock('./direct-ssh-reconnect-coordinator', () => ({
+        createDirectSshReconnectCoordinator: () => coordinator
+      }))
+      vi.doMock('@/lib/direct-ssh-reconnect-product-telemetry', () => ({
+        createDirectSshReconnectProductTelemetryAdapter: vi.fn()
+      }))
+      vi.stubGlobal(
+        'window',
+        buildWindowApi({
+          onSet: () => () => {},
+          ssh: {
+            onStateChanged: (listener: (data: { targetId: string; state: unknown }) => void) => {
+              sshStateListener = listener
+              return () => {}
+            }
+          }
+        })
+      )
+
+      const { useIpcEvents } = await import('./useIpcEvents')
+      useIpcEvents()
+      sshStateListener?.({ targetId: 'target-a', state: nextState })
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(order).toEqual(expectedRoute)
+      if (enabled) {
+        expect(coordinator.requestReconnect).toHaveBeenCalledOnce()
+        expect(coordinator.prepareOnly).not.toHaveBeenCalled()
+      } else {
+        expect(coordinator.requestReconnect).not.toHaveBeenCalled()
+        expect(coordinator.replaceAuthority).toHaveBeenCalledOnce()
+        expect(coordinator.prepareOnly).toHaveBeenCalledOnce()
+      }
+    }
+  )
+
+  it('does not let initial SSH port snapshots overwrite newer push events', async () => {
+    const targetId = 'target-ports'
+    const secondTargetId = 'target-ports-second'
+    const rejectingTargetId = 'target-ports-rejecting'
+    const partialTargetId = 'target-ports-partial'
+    const connectedState = {
+      targetId,
+      status: 'connected' as const,
+      error: null,
+      reconnectAttempt: 0,
+      providerEpoch: 'epoch-ports',
+      connectionGeneration: 3
+    }
+    const secondConnectedState = {
+      ...connectedState,
+      targetId: secondTargetId,
+      providerEpoch: 'epoch-ports-second'
+    }
+    const rejectingConnectedState = {
+      ...connectedState,
+      targetId: rejectingTargetId,
+      providerEpoch: 'epoch-ports-rejecting'
+    }
+    const partialConnectedState = {
+      ...connectedState,
+      targetId: partialTargetId,
+      providerEpoch: null,
+      connectionGeneration: undefined
+    }
+    const reconciledPartialState = {
+      ...connectedState,
+      targetId: partialTargetId,
+      providerEpoch: 'epoch-ports-partial',
+      connectionGeneration: 4
+    }
+    const liveForward = {
+      id: 'forward-live',
+      targetId,
+      localPort: 17860,
+      remoteHost: '127.0.0.1',
+      remotePort: 7860,
+      status: 'active' as const
+    }
+    const secondForward = {
+      ...liveForward,
+      id: 'forward-second',
+      targetId: secondTargetId,
+      localPort: 17861,
+      remotePort: 7861
+    }
+    const rejectingTargetForward = {
+      ...liveForward,
+      id: 'forward-rejecting-target',
+      targetId: rejectingTargetId,
+      localPort: 17862,
+      remotePort: 7862
+    }
+    const partialTargetForward = {
+      ...liveForward,
+      id: 'forward-partial-target',
+      targetId: partialTargetId,
+      localPort: 17863,
+      remotePort: 7863
+    }
+    const detectedPort = {
+      port: 7860,
+      pid: 42,
+      processName: 'python',
+      command: 'python -m http.server 7860'
+    }
+    const secondDetectedPort = {
+      ...detectedPort,
+      port: 7861,
+      pid: 43,
+      command: 'python -m http.server 7861'
+    }
+    let resolveForwards: (value: []) => void = () => {}
+    let resolveDetected: (value: (typeof detectedPort)[]) => void = () => {}
+    let resolveSecondForwards: (value: (typeof secondForward)[]) => void = () => {}
+    let resolveSecondDetected: (value: []) => void = () => {}
+    const forwardsSnapshot = new Promise<[]>((resolve) => {
+      resolveForwards = resolve
+    })
+    const detectedSnapshot = new Promise<(typeof detectedPort)[]>((resolve) => {
+      resolveDetected = resolve
+    })
+    const secondForwardsSnapshot = new Promise<(typeof secondForward)[]>((resolve) => {
+      resolveSecondForwards = resolve
+    })
+    const secondDetectedSnapshot = new Promise<[]>((resolve) => {
+      resolveSecondDetected = resolve
+    })
+    const listPortForwards = vi.fn(({ targetId: requestedTargetId }: { targetId: string }) => {
+      if (requestedTargetId === rejectingTargetId) {
+        return Promise.resolve([rejectingTargetForward])
+      }
+      if (requestedTargetId === partialTargetId) {
+        return Promise.resolve([partialTargetForward])
+      }
+      return requestedTargetId === targetId ? forwardsSnapshot : secondForwardsSnapshot
+    })
+    const listDetectedPorts = vi.fn(({ targetId: requestedTargetId }: { targetId: string }) => {
+      if (requestedTargetId === rejectingTargetId) {
+        return Promise.reject(new Error('detected snapshot unavailable'))
+      }
+      if (requestedTargetId === partialTargetId) {
+        return Promise.resolve([])
+      }
+      return requestedTargetId === targetId ? detectedSnapshot : secondDetectedSnapshot
+    })
+    let forwardListener:
+      | ((data: { targetId: string; forwards: (typeof liveForward)[] }) => void)
+      | undefined
+    let detectedListener:
+      | ((data: { targetId: string; ports: (typeof detectedPort)[] }) => void)
+      | undefined
+    const setPortForwards = vi.fn()
+    const setDetectedPorts = vi.fn()
+    const sshConnectionStates = new Map<
+      string,
+      | typeof connectedState
+      | typeof secondConnectedState
+      | typeof rejectingConnectedState
+      | typeof partialConnectedState
+      | typeof reconciledPartialState
+    >()
+    const storeState = buildStoreState({
+      sshTargetLabels: new Map([
+        [targetId, 'Ports Target'],
+        [secondTargetId, 'Second Ports Target'],
+        [rejectingTargetId, 'Rejecting Ports Target'],
+        [partialTargetId, 'Partial Ports Target']
+      ]),
+      sshConnectionStates,
+      setSshConnectionState: (
+        nextTargetId: string,
+        state:
+          | typeof connectedState
+          | typeof secondConnectedState
+          | typeof rejectingConnectedState
+          | typeof partialConnectedState
+          | typeof reconciledPartialState
+      ) => {
+        sshConnectionStates.set(nextTargetId, state)
+      },
+      setPortForwards,
+      setDetectedPorts,
+      setSshTargetsMetadata: vi.fn(),
+      setRemovedSshTargetLabels: vi.fn(),
+      setRemoteWorkspaceSyncStatus: vi.fn(),
+      fetchRuntimeEnvironmentRepos: vi.fn(async () => []),
+      fetchWorktreeLineage: vi.fn(async () => undefined),
+      clearRemoteDetectedAgents: vi.fn(),
+      clearDirectSshTargetPtyBindings: vi.fn(),
+      clearRemovedSshTargetState: vi.fn(),
+      invalidateStaleDirectSshTargetPtyBindings: vi.fn(() => 0),
+      retryDirectSshTargetPanes: vi.fn(() => 0)
+    })
+    const coordinator = {
+      requestReconnect: vi.fn(async () => ({ status: 'complete' })),
+      replaceAuthority: vi.fn(),
+      prepareOnly: vi.fn(async () => ({ token: null })),
+      correctUnboundTerminals: vi.fn(() => 0),
+      finalizeHydratedTerminals: vi.fn(() => 0),
+      invalidate: vi.fn(),
+      stop: vi.fn()
+    }
+    let partialTargetStateCalls = 0
+
+    stubReactSyncEffect()
+    stubAuxiliaryModules()
+    vi.doMock('../store', () => ({
+      useAppStore: {
+        subscribe: vi.fn(() => () => {}),
+        getState: () => storeState
+      }
+    }))
+    vi.doMock('./direct-ssh-reconnect-rollout', () => ({
+      isDirectSshReconnectCoordinatorRoutingEnabled: () => true
+    }))
+    vi.doMock('./direct-ssh-worktree-refresh-scheduler', () => ({
+      createDirectSshWorktreeRefreshScheduler: () => ({
+        stop: vi.fn(),
+        disposeProvider: vi.fn()
+      })
+    }))
+    vi.doMock('./direct-ssh-host-hydration', () => ({
+      createDirectSshHostHydration: () => ({
+        capturePreparationInput: vi.fn(),
+        readHostScopedLineage: vi.fn(),
+        isPreparationTokenCurrent: vi.fn(() => true),
+        stop: vi.fn()
+      })
+    }))
+    vi.doMock('./direct-ssh-reconnect-coordinator', () => ({
+      createDirectSshReconnectCoordinator: () => coordinator
+    }))
+    vi.doMock('@/lib/direct-ssh-reconnect-product-telemetry', () => ({
+      createDirectSshReconnectProductTelemetryAdapter: vi.fn()
+    }))
+    vi.stubGlobal(
+      'window',
+      buildWindowApi({
+        onSet: () => () => {},
+        ssh: {
+          listTargets: () =>
+            Promise.resolve([
+              { id: rejectingTargetId, label: 'Rejecting Ports Target' },
+              { id: partialTargetId, label: 'Partial Ports Target' },
+              { id: targetId, label: 'Ports Target' },
+              { id: secondTargetId, label: 'Second Ports Target' }
+            ]),
+          listRemovedTargetLabels: () => Promise.resolve({}),
+          getState: ({ targetId: requestedTargetId }: { targetId: string }) => {
+            if (requestedTargetId === partialTargetId) {
+              partialTargetStateCalls += 1
+              return Promise.resolve(
+                partialTargetStateCalls === 1 ? partialConnectedState : reconciledPartialState
+              )
+            }
+            return Promise.resolve(
+              requestedTargetId === rejectingTargetId
+                ? rejectingConnectedState
+                : requestedTargetId === targetId
+                  ? connectedState
+                  : secondConnectedState
+            )
+          },
+          listPortForwards,
+          listDetectedPorts,
+          onPortForwardsChanged: (
+            listener: (data: { targetId: string; forwards: (typeof liveForward)[] }) => void
+          ) => {
+            forwardListener = listener
+            return () => {}
+          },
+          onDetectedPortsChanged: (
+            listener: (data: { targetId: string; ports: (typeof detectedPort)[] }) => void
+          ) => {
+            detectedListener = listener
+            return () => {}
+          }
+        }
+      })
+    )
+
+    const { useIpcEvents } = await import('./useIpcEvents')
+    useIpcEvents()
+
+    await vi.waitFor(() => {
+      expect(forwardListener).toBeTypeOf('function')
+      expect(detectedListener).toBeTypeOf('function')
+      expect(partialTargetStateCalls).toBe(2)
+      expect(sshConnectionStates.get(partialTargetId)).toEqual(reconciledPartialState)
+      expect(listPortForwards).toHaveBeenCalledTimes(4)
+      expect(listDetectedPorts).toHaveBeenCalledTimes(4)
+      expect(
+        setPortForwards.mock.calls.filter(
+          ([requestedTargetId]) => requestedTargetId === rejectingTargetId
+        )
+      ).toEqual([[rejectingTargetId, [rejectingTargetForward]]])
+      expect(
+        setPortForwards.mock.calls.filter(
+          ([requestedTargetId]) => requestedTargetId === partialTargetId
+        )
+      ).toEqual([[partialTargetId, [partialTargetForward]]])
+    })
+    forwardListener?.({ targetId, forwards: [liveForward] })
+    resolveForwards([])
+    resolveDetected([detectedPort])
+
+    await vi.waitFor(() => {
+      expect(
+        setPortForwards.mock.calls.filter(([requestedTargetId]) => requestedTargetId === targetId)
+      ).toEqual([[targetId, [liveForward]]])
+      expect(
+        setDetectedPorts.mock.calls.filter(([requestedTargetId]) => requestedTargetId === targetId)
+      ).toEqual([[targetId, [detectedPort]]])
+      expect(listPortForwards).toHaveBeenCalledTimes(4)
+      expect(listDetectedPorts).toHaveBeenCalledTimes(4)
+    })
+    forwardListener?.({ targetId, forwards: [liveForward] })
+    detectedListener?.({ targetId: secondTargetId, ports: [secondDetectedPort] })
+    resolveSecondForwards([secondForward])
+    resolveSecondDetected([])
+
+    await vi.waitFor(() => {
+      expect(
+        setPortForwards.mock.calls.filter(
+          ([requestedTargetId]) => requestedTargetId === secondTargetId
+        )
+      ).toEqual([[secondTargetId, [secondForward]]])
+      expect(
+        setDetectedPorts.mock.calls.filter(
+          ([requestedTargetId]) => requestedTargetId === secondTargetId
+        )
+      ).toEqual([[secondTargetId, [secondDetectedPort]]])
+    })
   })
 
   it('caps pending mobile state events while startup hydration is unresolved', async () => {
@@ -7477,126 +8373,6 @@ describe('useIpcEvents agent status snapshot integration', () => {
     expect(hydrateBrowserSession).not.toHaveBeenCalled()
   })
 
-  it('applies SSH remote workspace snapshots only to the matching host worktrees', async () => {
-    const hydrateWorkspaceSession = vi.fn()
-    const hydrateTabsSession = vi.fn()
-    const hydrateEditorSession = vi.fn()
-    const hydrateBrowserSession = vi.fn()
-    const onChangedListenerRef: {
-      current:
-        | ((event: {
-            targetId: string
-            sourceClientId?: string
-            snapshot: Record<string, unknown>
-          }) => void)
-        | null
-    } = { current: null }
-    const storeState: StoreLike = buildStoreState({
-      workspaceSessionReady: true,
-      repos: [
-        { id: 'same-repo', executionHostId: 'local' },
-        { id: 'same-repo', connectionId: 'conn-1', executionHostId: 'ssh:conn-1' }
-      ],
-      worktreesByRepo: {
-        'same-repo': [
-          { id: 'same-repo::/local', repoId: 'same-repo', hostId: 'local' },
-          { id: 'same-repo::/remote', repoId: 'same-repo', hostId: 'ssh:conn-1' }
-        ]
-      },
-      tabsByWorktree: {
-        'same-repo::/local': [
-          { id: 'local-tab', ptyId: 'local-pty', worktreeId: 'same-repo::/local', title: 'Local' }
-        ],
-        'same-repo::/remote': [
-          { id: 'old-remote-tab', ptyId: null, worktreeId: 'same-repo::/remote', title: 'Old' }
-        ]
-      },
-      fetchWorktrees: vi.fn(() => Promise.resolve(true)),
-      fetchWorktreeLineage: vi.fn(() => Promise.resolve()),
-      hydrateWorkspaceSession,
-      hydrateTabsSession,
-      hydrateEditorSession,
-      hydrateBrowserSession,
-      markRemoteWorkspaceHydrated: vi.fn(),
-      setRemoteWorkspaceSyncStatus: vi.fn(),
-      reconnectPersistedTerminals: vi.fn(() => Promise.resolve())
-    })
-
-    stubReactSyncEffect()
-    vi.doMock('../store', () => ({
-      useAppStore: {
-        subscribe: vi.fn(() => () => {}),
-        getState: () => storeState
-      }
-    }))
-    stubAuxiliaryModules()
-    // Why: an earlier test doMocks '@/lib/workspace-session' with an empty payload; restore the real builder for this merge-path test.
-    vi.doMock(
-      '@/lib/workspace-session',
-      async () => await vi.importActual('@/lib/workspace-session')
-    )
-    vi.stubGlobal(
-      'window',
-      buildWindowApi({
-        onSet: () => () => {},
-        remoteWorkspace: {
-          clientId: () => Promise.resolve('client-local'),
-          onChanged: (cb: typeof onChangedListenerRef.current) => {
-            onChangedListenerRef.current = cb
-            return () => {}
-          }
-        }
-      })
-    )
-
-    const { useIpcEvents } = await import('./useIpcEvents')
-    useIpcEvents()
-    await Promise.resolve()
-
-    onChangedListenerRef.current?.({
-      targetId: 'conn-1',
-      sourceClientId: 'client-remote',
-      snapshot: {
-        revision: 2,
-        updatedAt: Date.now(),
-        session: {
-          activeWorktreePath: '/remote',
-          activeTabId: 'remote-tab',
-          tabsByWorktreePath: {
-            '/remote': [
-              {
-                id: 'remote-tab',
-                ptyId: null,
-                worktreePath: '/remote',
-                title: 'Remote',
-                customTitle: null,
-                color: null,
-                sortOrder: 1,
-                createdAt: 1
-              }
-            ]
-          },
-          terminalLayoutsByTabId: {}
-        }
-      }
-    })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    expect(storeState.fetchWorktrees).toHaveBeenCalledWith('same-repo', {
-      ownerHostId: 'ssh:conn-1'
-    })
-    const hydrated = hydrateTabsSession.mock.calls[0]?.[0] as {
-      tabsByWorktree: Record<string, { id: string }[]>
-    }
-    expect(hydrated.tabsByWorktree['same-repo::/local']).toEqual([
-      expect.objectContaining({ id: 'local-tab' })
-    ])
-    expect(hydrated.tabsByWorktree['same-repo::/remote']).toEqual([
-      expect.objectContaining({ id: 'remote-tab' })
-    ])
-  })
-
   it('silently discards snapshot entries whose tabs are still unknown', async () => {
     const setAgentStatus = vi.fn()
     const getSnapshot = vi.fn(() =>
@@ -8180,6 +8956,16 @@ describe('useIpcEvents worktrees:changed local-owner refresh (#6628)', () => {
           onToggleStatusBar: () => () => {},
           onFullscreenChanged: () => () => {},
           onTerminalZoom: () => () => {},
+          onCloseFloatingItem: () => () => {},
+          onSelectFloatingIndex: () => () => {},
+          onDeleteCurrentWorkspace: () => () => {},
+          onNewSimulatorTab: () => () => {},
+          onOpenSetupGuide: () => () => {},
+          onOpenWorkspaceBoard: () => () => {},
+          onSystemResumed: () => () => {},
+          onTerminalShortcutCaptured: () => () => {},
+          onTerminalTabCloseRequest: () => () => {},
+          respondTerminalTabClose: () => {},
           getZoomLevel: () => 0,
           set: vi.fn()
         },
@@ -8407,5 +9193,215 @@ describe('useIpcEvents worktrees:changed local-owner refresh (#6628)', () => {
     // and reaps the row the fresh scan no longer lists.
     expect(purgeWorktreeTerminalState).toHaveBeenCalledWith(['wt-remote'])
     expect(removeWorkspaceSpaceWorktrees).toHaveBeenCalledWith(['wt-remote'])
+  })
+})
+
+describe('parked terminal recovery on repos:changed', () => {
+  it('remounts a pane that parked on an unresolved host once repos hydrate', async () => {
+    vi.resetModules()
+    const remountTerminalTabForRecovery = vi.fn(() => true)
+    let reposChangedListener: (() => void) | undefined
+
+    const state = {
+      settings: { activeRuntimeEnvironmentId: null },
+      repos: [{ id: 'repo1', connectionId: 'conn-1' }],
+      worktreesByRepo: { repo1: [{ id: 'wt-1', repoId: 'repo1' }] },
+      folderWorkspaces: [],
+      projectGroups: [],
+      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: null }] },
+      ptyIdsByTabId: {},
+      remountTerminalTabForRecovery,
+      fetchRepos: vi.fn(() => Promise.resolve()),
+      fetchProjectGroups: vi.fn(() => Promise.resolve()),
+      fetchFolderWorkspaces: vi.fn(() => Promise.resolve())
+    }
+
+    vi.doMock('react', async () => {
+      const actual = await vi.importActual<typeof ReactModule>('react')
+      return { ...actual, useEffect: (effect: () => void | (() => void)) => void effect() }
+    })
+    vi.doMock('../store', () => ({
+      useAppStore: { subscribe: vi.fn(() => () => {}), getState: () => state }
+    }))
+    // Why: this hook registers dozens of IPC namespaces at mount; auto-stub every
+    // unspecified listener so the test asserts the repos:changed wiring, not the mock surface.
+    const noopListener = (): (() => void) => () => {}
+    const autoStubNamespace = new Proxy(
+      {},
+      {
+        get:
+          () =>
+          (...args: unknown[]) => {
+            const maybeCallback = args[0]
+            if (typeof maybeCallback === 'function') {
+              return noopListener()
+            }
+            // Why: a resolving promise would run the hook's .then() handlers against
+            // store setters this test does not model, surfacing as unhandled rejections
+            // that Vitest flags as possible false positives. A pending promise leaves
+            // those unrelated paths dormant.
+            return new Promise(() => {})
+          }
+      }
+    )
+    const api = new Proxy(
+      {
+        repos: {
+          onChanged: (cb: () => void) => {
+            reposChangedListener = cb
+            return () => {}
+          }
+        }
+      } as Record<string, unknown>,
+      {
+        get: (target, prop: string) => target[prop] ?? autoStubNamespace
+      }
+    )
+    vi.stubGlobal('window', { api })
+
+    const { recordTerminalTabParkedOnUnresolvedHost, clearTerminalTabsParkedOnUnresolvedHost } =
+      await import('@/lib/parked-terminal-host-hydration')
+    clearTerminalTabsParkedOnUnresolvedHost()
+
+    const { useIpcEvents } = await import('./useIpcEvents')
+    useIpcEvents()
+    expect(reposChangedListener).toBeDefined()
+
+    // No parked pane yet: a refresh must not remount anything.
+    reposChangedListener?.()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(remountTerminalTabForRecovery).not.toHaveBeenCalled()
+
+    // The pane parks (its repo row had not merged when it mounted), then repos land.
+    recordTerminalTabParkedOnUnresolvedHost('wt-1', 'tab-1')
+    reposChangedListener?.()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(remountTerminalTabForRecovery).toHaveBeenCalledWith('tab-1')
+    clearTerminalTabsParkedOnUnresolvedHost()
+  })
+})
+
+describe('useIpcEvents silent terminal adoption (surfaceOwner: false)', () => {
+  const asMock = (value: unknown): ReturnType<typeof vi.fn> => value as ReturnType<typeof vi.fn>
+
+  function createBackgroundWorkspaceState(): HarnessStoreState {
+    return createHarnessStoreState({
+      tabsByWorktree: {},
+      // Honour the pre-minted tab id so adoption resolves the same tab main asked for.
+      createTab: vi.fn(
+        (_worktreeId: string, _groupId?: string, _tabType?: string, options?: { id?: string }) => ({
+          id: options?.id ?? 'tab-minted'
+        })
+      ),
+      worktreesByRepo: {
+        'repo-1': [
+          { id: 'wt-1', repoId: 'repo-1' },
+          { id: 'wt-2', repoId: 'repo-1' }
+        ]
+      }
+    })
+  }
+
+  it('adopts a background workspace terminal without scrolling the sidebar to it', async () => {
+    const storeState = createBackgroundWorkspaceState()
+    const harness = await loadIpcEventsHarness(storeState)
+    harness.useIpcEvents()
+
+    // Control: `orca terminal create` (no surfaceOwner) keeps its reveal so the
+    // user can find the terminal they just asked for.
+    harness.createTerminal({
+      worktreeId: 'wt-2',
+      ptyId: 'pty-cli',
+      activate: false,
+      tabId: 'tab-cli'
+    })
+
+    expect(storeState.createTab).toHaveBeenCalledWith('wt-2', undefined, undefined, {
+      initialPtyId: 'pty-cli',
+      activate: false,
+      id: 'tab-cli'
+    })
+    expect(storeState.revealWorktreeInSidebar).toHaveBeenCalledWith('wt-2')
+
+    asMock(storeState.createTab).mockClear()
+    asMock(storeState.revealWorktreeInSidebar).mockClear()
+    asMock(storeState.setActiveView).mockClear()
+    asMock(storeState.setActiveWorktree).mockClear()
+    asMock(storeState.setActiveTabType).mockClear()
+    asMock(storeState.setActiveTab).mockClear()
+
+    // Regression: a workspace created in the background spawns its agent terminal
+    // here; the tab must still be adopted, but the sidebar must not scroll to it.
+    harness.createTerminal({
+      worktreeId: 'wt-2',
+      ptyId: 'pty-background-create',
+      activate: false,
+      surfaceOwner: false,
+      tabId: 'tab-background-create'
+    })
+
+    expect(storeState.createTab).toHaveBeenCalledWith('wt-2', undefined, undefined, {
+      initialPtyId: 'pty-background-create',
+      activate: false,
+      id: 'tab-background-create'
+    })
+    expect(storeState.revealWorktreeInSidebar).not.toHaveBeenCalled()
+    expect(storeState.setActiveView).not.toHaveBeenCalled()
+    expect(storeState.setActiveWorktree).not.toHaveBeenCalled()
+    expect(storeState.setActiveTabType).not.toHaveBeenCalled()
+    expect(storeState.setActiveTab).not.toHaveBeenCalled()
+  })
+
+  it('replies to a requested terminal create without scrolling the sidebar when surfaceOwner is false', async () => {
+    const storeState = createBackgroundWorkspaceState()
+    const harness = await loadIpcEventsHarness(storeState)
+    harness.useIpcEvents()
+
+    // Control: the same request without surfaceOwner still reveals its workspace.
+    harness.requestTerminalCreate({
+      requestId: 'req-cli',
+      worktreeId: 'wt-2',
+      title: 'Claude'
+    })
+
+    expect(harness.replyTerminalCreate).toHaveBeenCalledWith({
+      requestId: 'req-cli',
+      tabId: 'tab-minted',
+      title: 'Claude'
+    })
+    expect(storeState.revealWorktreeInSidebar).toHaveBeenCalledWith('wt-2')
+
+    asMock(storeState.createTab).mockClear()
+    asMock(storeState.revealWorktreeInSidebar).mockClear()
+    asMock(storeState.setActiveView).mockClear()
+    asMock(storeState.setActiveWorktree).mockClear()
+    asMock(storeState.setActiveTabType).mockClear()
+    asMock(storeState.setActiveTab).mockClear()
+    harness.replyTerminalCreate.mockClear()
+
+    harness.requestTerminalCreate({
+      requestId: 'req-background-create',
+      worktreeId: 'wt-2',
+      title: 'Claude',
+      surfaceOwner: false
+    })
+
+    expect(storeState.createTab).toHaveBeenCalledWith('wt-2', undefined, undefined, {
+      activate: false,
+      recordInteraction: false
+    })
+    expect(harness.replyTerminalCreate).toHaveBeenCalledWith({
+      requestId: 'req-background-create',
+      tabId: 'tab-minted',
+      title: 'Claude'
+    })
+    expect(storeState.revealWorktreeInSidebar).not.toHaveBeenCalled()
+    expect(storeState.setActiveView).not.toHaveBeenCalled()
+    expect(storeState.setActiveWorktree).not.toHaveBeenCalled()
+    expect(storeState.setActiveTabType).not.toHaveBeenCalled()
+    expect(storeState.setActiveTab).not.toHaveBeenCalled()
   })
 })

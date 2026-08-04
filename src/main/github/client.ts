@@ -27,6 +27,7 @@ import {
   normalizeHostedReviewHeadRef
 } from '../rust-hosted-review-refs'
 import { normalizeGitHubPRMergeMethodSettings } from '../rust-github-pr-merge-methods'
+import { summarizeProviderChecks } from '../../shared/provider-check-summary'
 import { isGitHubWorkItemsQueryTooLarge } from '../../shared/github-work-items-query-bounds'
 import { classifyGitHubUnavailable } from '../../shared/github-api-availability'
 import { parseTaskQuery } from '../rust-task-query'
@@ -55,6 +56,7 @@ import {
   release,
   classifyGhError,
   classifyListIssuesError,
+  classifyListPrsError,
   ghRepoExecOptions,
   githubRepoContext,
   getRemoteUrlForRepo,
@@ -199,6 +201,52 @@ async function assertRateLimitBudget(
       `GitHub ${bucket} rate limit is low; retry after ${new Date(guard.resetAt * 1000).toLocaleTimeString()}`
     )
   }
+}
+
+// Why: a branch lookup prefers REST but can fall back to `gh pr list` and
+// `gh pr view`, so both buckets are guarded and charged. Mirrors the PR refresh
+// coordinator's own estimate.
+const PR_BRANCH_LOOKUP_BUCKETS = ['core', 'graphql'] as const
+
+/**
+ * Rate-limit floor for GitHub PR lookups that do not run through the PR refresh
+ * coordinator's queue (#11532).
+ *
+ * The coordinator guards and paces its own background refreshes, but
+ * `hostedReview:forBranch` polls the same lookup straight from the renderer.
+ * Ungated, the two paths together could spend the user's entire hourly quota —
+ * which is per user and shared with their own `gh` and CLI agents.
+ * Returns the reset time when the caller must not spend, else `null`.
+ */
+export async function getGitHubPRLookupRateLimitBlock(
+  repoPath: string,
+  connectionId?: string | null,
+  localGitOptions: LocalGitExecOptions = {}
+): Promise<{ resetAt: number } | null> {
+  const executionOptions = ghRepoExecOptions(
+    githubRepoContext(repoPath, connectionId, localGitOptions)
+  )
+  // Why: identity resolution runs local git, which can fail for reasons that
+  // have nothing to do with the budget; let the lookup itself classify those.
+  const repository = await getOriginGitHubApiRepository(
+    repoPath,
+    connectionId,
+    executionOptions
+  ).catch(() => null)
+  if (repository === null) {
+    return null
+  }
+  if (spendsSharedGitHubComQuota(repository, executionOptions)) {
+    // Why: the probe only warms the snapshot and is exempt from limits, so a
+    // failure must fail open rather than block the lookup (#7553).
+    await getRateLimit().catch(() => undefined)
+  }
+  // Why: retrying at the earlier reset would fail again on the bucket that has
+  // not reset yet, so the latest blocked reset is the only honest retry time.
+  const resets = PR_BRANCH_LOOKUP_BUCKETS.map((bucket) =>
+    repositoryRateLimitGuard(repository, bucket, executionOptions)
+  ).flatMap((guard) => (guard.blocked ? [guard.resetAt] : []))
+  return resets.length > 0 ? { resetAt: Math.max(...resets) } : null
 }
 
 function prRefreshUpstreamError(
@@ -667,50 +715,23 @@ function checkRollupEntries(value: unknown): unknown[] {
 }
 
 function deriveWorkItemCheckSummary(value: unknown): GitHubWorkItem['checksSummary'] {
-  // Collapse superseded runs so a stale CANCELLED/FAILURE doesn't inflate `failed`.
-  const entries = latestRollupEntriesByName(checkRollupEntries(value))
-  if (entries.length === 0) {
-    return { state: 'none', total: 0, passed: 0, failed: 0, pending: 0 }
-  }
-  let passed = 0
-  let failed = 0
-  let pending = 0
-  for (const entry of entries) {
-    if (typeof entry !== 'object' || entry === null) {
-      pending += 1
-      continue
-    }
-    const raw = entry as Record<string, unknown>
-    const conclusion = String(raw.conclusion ?? raw.state ?? '').toUpperCase()
-    const status = String(raw.status ?? '').toUpperCase()
-    if (['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(conclusion)) {
-      passed += 1
-    } else if (
-      // Why: keep in sync with mapCheckConclusion — STALE/STARTUP_FAILURE are terminal failures (upstream #4605).
-      [
-        'FAILURE',
-        'ERROR',
-        'TIMED_OUT',
-        'CANCELLED',
-        'ACTION_REQUIRED',
-        'STARTUP_FAILURE',
-        'STALE'
-      ].includes(conclusion)
-    ) {
-      failed += 1
-    } else if (status === 'COMPLETED' && conclusion) {
-      failed += 1
-    } else {
-      pending += 1
-    }
-  }
-  return {
-    state: failed > 0 ? 'failure' : pending > 0 ? 'pending' : 'success',
-    total: entries.length,
-    passed,
-    failed,
-    pending
-  }
+  return summarizeProviderChecks(
+    // Collapse superseded runs so a stale CANCELLED/FAILURE doesn't inflate `failed`.
+    latestRollupEntriesByName(checkRollupEntries(value)).map((entry) => {
+      if (typeof entry !== 'object' || entry === null) {
+        return { status: '', conclusion: '' }
+      }
+      const raw = entry as Record<string, unknown>
+      // Why: StatusContext reports `state` and carries no `status`; CheckRun reports both.
+      const conclusion = String(raw.conclusion ?? raw.state ?? '')
+      return {
+        status: String(raw.status ?? ''),
+        // Why: keep in sync with mapCheckConclusion — GitHub's STALE is a terminal failure the
+        // provider-neutral classifier does not know (upstream #4605).
+        conclusion: conclusion.toUpperCase() === 'STALE' ? 'failure' : conclusion
+      }
+    })
+  )
 }
 
 function mapPullRequestWorkItem(
@@ -1120,10 +1141,11 @@ function buildWorkItemListRequest(args: {
   return { args: out, offset: (page - 1) * limit }
 }
 
-// Why: shared shape so listWorkItems can lift the issue-side error (#1076 silent wrongness) into the IPC envelope; PR errors out of scope (§6).
+// Why: shared shape so listWorkItems can lift per-side errors (#1076 silent wrongness) into the IPC envelope — a swallowed side reads as end-of-data to pagination (#11485).
 type PartialWorkItemsResult = {
   items: MainWorkItem[]
   issuesError?: ClassifiedError
+  prsError?: ClassifiedError
 }
 
 function assertSshRepoHasResolvedGitHubSource(args: {
@@ -1280,6 +1302,7 @@ async function listQueriedWorkItems(
   let successfulRequestCount = 0
   let nonAvailabilityFailureCount = 0
   let availabilityError: unknown
+  let prsError: ClassifiedError | undefined
 
   // Why: surface the issue-side error separately for the IPC envelope; PR-side keeps prior swallow-and-log (parent doc §6).
   const issueFetch = (async (): Promise<PartialWorkItemsResult> => {
@@ -1354,6 +1377,7 @@ async function listQueriedWorkItems(
     } catch (err) {
       console.warn('listQueriedWorkItems PRs partial failure:', err)
       const stderr = err instanceof Error ? err.message : String(err)
+      prsError = classifyListPrsError(stderr)
       if (classifyGitHubUnavailable(stderr)) {
         availabilityError ??= err
       } else {
@@ -1370,7 +1394,8 @@ async function listQueriedWorkItems(
   }
   return {
     items: sortWorkItemsByNumber([...issueResult.items, ...prItems]).slice(0, limit),
-    issuesError: issueResult.issuesError
+    issuesError: issueResult.issuesError,
+    prsError
   }
 }
 
@@ -1428,7 +1453,13 @@ export async function listWorkItems(
           localGitOptions
         )
 
-    const errors = partial.issuesError ? { issues: partial.issuesError } : undefined
+    const errors =
+      partial.issuesError || partial.prsError
+        ? {
+            ...(partial.issuesError ? { issues: partial.issuesError } : {}),
+            ...(partial.prsError ? { prs: partial.prsError } : {})
+          }
+        : undefined
     return {
       items: partial.items,
       sources: {
@@ -3071,6 +3102,13 @@ export async function getPRForBranchOutcome(
     // here can honor process GH_REPO/GH_HOST and return an unrelated PR.
     if (connectionId && candidates.length === 0) {
       return { kind: 'no-pr', fetchedAt: Date.now() }
+    }
+    // Why (#11532): account every lookup, not just the coordinator's queue —
+    // `hostedReview:forBranch` reaches this directly from renderer polling and
+    // was spending the shared quota invisibly. headRepo is `origin`, the same
+    // identity the coordinator guards on.
+    for (const bucket of PR_BRANCH_LOOKUP_BUCKETS) {
+      noteRepositoryRateLimitSpend(headRepo ?? candidates[0], bucket, 1, ghOptions)
     }
     let data: PullRequestLookupData | null = null
     let dataRepo: OwnerRepo | null = null

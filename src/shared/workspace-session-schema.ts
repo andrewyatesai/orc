@@ -8,20 +8,16 @@
 // field-type flip, a truncated write) to "use defaults" — never letting it
 // reach React or throw into main.
 //
-// TODO(upstream-merge v1.4.150): the Rust parser is a strict allowlist (it
+// TODO(upstream-merge v1.4.165): the Rust parser is a strict allowlist (it
 // rebuilds the object from known keys, so unknown keys are dropped by design —
 // see the drift-pass note in orca-dispatch/src/modules/workspace_session_schema.rs).
-// Fields upstream added to its zod schema in this merge that are NOT in that
-// allowlist are silently stripped on every load even though
-// WorkspaceSessionState (types.ts) declares them and main/renderer already read
-// them. `externalSshTargetId` is now ported (persistedOpenFile parser); still to
-// add in rust/crates/orca-config/src/workspace_session_schema.rs:
-//   terminalPtyIncarnationsByPaneKey -> record(string, string 1..128)
-//   terminalTopologyRevisionByRepoId -> record(string, nonneg int)
-//   terminalSurfaceTombstonesByPaneKey -> record(string, { worktreeId, parentTabId,
-//                                       leafId, ptyId, incarnationId 1..128, retiredAt })
-// Until then terminal PTY-incarnation fences, topology revisions and surface
-// tombstones do not survive a restart.
+// A field upstream adds to its zod schema is silently stripped on every load
+// until it is mirrored in rust/crates/orca-config/src/workspace_session_schema.rs,
+// even though WorkspaceSessionState (types.ts) declares it and the renderer
+// already reads it. Still to add:
+//   activeWorkspaceExecutionHostId -> nullable ExecutionHostId (parseExecutionHostId)
+// Until then a folder workspace's active execution host (ssh target / runtime
+// env) falls back to local on every restart.
 import type { WorkspaceSessionState } from './types'
 
 /** Validate raw JSON as a WorkspaceSessionState. Returns a discriminated union

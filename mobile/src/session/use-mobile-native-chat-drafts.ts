@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import type { NativeChatMessage } from '../../../src/shared/native-chat-types'
-import { normalizedUserText, type UnconfirmedSend } from './mobile-native-chat-draft-reconcile'
-import { isImageSourceUserTurn } from './mobile-native-chat-image-transcript-markers'
+import type { UnconfirmedSend } from './mobile-native-chat-draft-reconcile'
+import { reconcileLandedEchoes } from './mobile-native-chat-echo-claims'
 import { mobileNativeChatScopeKey } from './mobile-native-chat-scope-key'
+import { useMobileNativeChatLaunchDraftSeed } from './use-mobile-native-chat-launch-draft-seed'
+import type { MobileNativeChatLaunchDraftSeed } from './use-mobile-native-chat-launch-draft-seed'
 
 export type MobileNativeChatPendingMessage = {
   id: string
@@ -27,104 +29,36 @@ const NO_PENDING_MESSAGES: MobileNativeChatPendingMessage[] = []
 // that delivery remains unconfirmed.
 const UNCONFIRMED_SEND_DEADLINE_MS = 20_000
 
-// Match each entry to a NEW transcript echo: one whose index is after the entry's
-// captured tail (prepended history has index <= tail) and not already claimed by
-// another entry. Shared by the unconfirmed-send hold and the optimistic-pending
-// clear so paged-in identical turns can never satisfy either path.
-//
-// Returns the landed entries and the survivors with their baselines advanced past
-// every echo this pass consumed. Persisting the claim in the survivor's baseline is
-// what stops a later transcript change (e.g. an assistant append) from recomputing
-// claims fresh and re-matching an already-consumed echo to a surviving duplicate
-// before that survivor's own echo lands (cx2). A survivor is a duplicate whose own
-// echo has not arrived yet, so it can never match anything at or below the max
-// consumed index; advancing only-forward loses no legitimate future match.
-function reconcileLandedEchoes<
-  T extends { normalizedText: string; baselineTailMessageId: string | null; images?: string[] }
->(messages: readonly NativeChatMessage[], entries: readonly T[]): { landed: T[]; survivors: T[] } {
-  const messageIndexById = new Map<string, number>()
-  const userMessagesByText = new Map<string, Array<{ id: string; index: number }>>()
-  for (const [index, message] of messages.entries()) {
-    messageIndexById.set(message.id, index)
-    if (message.role !== 'user') {
-      continue
-    }
-    // `[Image: source: …]` turns — and any other text-less user turn — key by ''
-    // so an image-only send, which has no caption to match, claims one of those
-    // and never an unrelated text echo.
-    const key = isImageSourceUserTurn(message) ? '' : (normalizedUserText(message) ?? '')
-    const current = userMessagesByText.get(key) ?? []
-    current.push({ id: message.id, index })
-    userMessagesByText.set(key, current)
-  }
-
-  const tailIndexOf = (entry: T): number | undefined =>
-    entry.baselineTailMessageId ? messageIndexById.get(entry.baselineTailMessageId) : -1
-
-  const claimedMessageIds = new Set<string>()
-  const landed: T[] = []
-  const nonLanded: T[] = []
-  let maxConsumedIndex = -1
-  const claimEchoes = (key: string, tailIndex: number, limit: number): number => {
-    let claims = 0
-    for (const message of userMessagesByText.get(key) ?? []) {
-      if (claims >= limit) {
-        break
-      }
-      if (message.index > tailIndex && !claimedMessageIds.has(message.id)) {
-        claimedMessageIds.add(message.id)
-        maxConsumedIndex = Math.max(maxConsumedIndex, message.index)
-        claims++
-      }
-    }
-    return claims
-  }
-  for (const entry of entries) {
-    const tailIndex = tailIndexOf(entry)
-    // Baseline message paged out of the transcript: can't validate an echo, so hold.
-    if (tailIndex === undefined) {
-      nonLanded.push(entry)
-      continue
-    }
-    // An image-only send reserves one echo turn per ridden-along image, so a later
-    // photo send cannot mistake this send's second image for its own echo.
-    const claimed =
-      entry.normalizedText === ''
-        ? claimEchoes('', tailIndex, entry.images?.length || 1)
-        : claimEchoes(entry.normalizedText, tailIndex, 1)
-    if (claimed > 0) {
-      landed.push(entry)
-    } else {
-      nonLanded.push(entry)
-    }
-  }
-
-  const consumedBaselineId = maxConsumedIndex >= 0 ? messages[maxConsumedIndex].id : null
-  const survivors =
-    consumedBaselineId === null
-      ? nonLanded
-      : nonLanded.map((entry) => {
-          const tailIndex = tailIndexOf(entry)
-          // Advance only-forward: never regress a survivor whose baseline already sits
-          // past this pass's consumed echoes (its echo is further ahead still).
-          return tailIndex !== undefined && tailIndex < maxConsumedIndex
-            ? { ...entry, baselineTailMessageId: consumedBaselineId }
-            : entry
-        })
-  return { landed, survivors }
-}
-
 export function useMobileNativeChatDrafts(args: {
   hostId: string
   worktreeId: string
   tabId: string | null
   sessionId: string | null
   messages: readonly NativeChatMessage[]
+  /** Host-provided launch context still parked as an unsent TUI-input draft. */
+  launchDraft?: string | null
+  launchDraftCreatedAt?: number | null
+  /** Whether the tab is currently resolved to the chat view. Off-chat the
+   *  launch-draft effects hold their state instead of acting on it. */
+  chatActive?: boolean
+  /** `messages` is not yet this session's real history (read in flight, or the
+   *  transcript still belongs to the previously active tab), so it cannot be
+   *  trusted to decline or retire the seed. */
+  transcriptLoading?: boolean
 }): {
   composerText: string
   setComposerText: Dispatch<SetStateAction<string>>
   pending: MobileNativeChatPendingMessage[]
   captureSendOrigin: (text: string) => MobileNativeChatSendOrigin | null
+  /** Launch-context text still believed to be parked on the agent's TUI input
+   *  line, or null once it has been declined or retired. Send paths size their
+   *  pre-clear from it, since one Ctrl+U clears only one logical line. */
+  readSeededLaunchDraft: () => string | null
+  readSeededLaunchDraftSeed: () => MobileNativeChatLaunchDraftSeed | null
+  /** Clear the composer at send time, before the RPC settles. */
+  clearDraftForSend: (origin: MobileNativeChatSendOrigin, text: string) => void
+  /** Put the text back after a definite rejection, unless newer edits exist. */
+  restoreRejectedDraft: (origin: MobileNativeChatSendOrigin, text: string) => void
   acceptSend: (origin: MobileNativeChatSendOrigin, text: string, images?: string[]) => void
   holdUnconfirmedSend: (
     origin: MobileNativeChatSendOrigin,
@@ -132,7 +66,17 @@ export function useMobileNativeChatDrafts(args: {
     onUnconfirmed: () => void
   ) => void
 } {
-  const { hostId, worktreeId, tabId, sessionId, messages } = args
+  const {
+    hostId,
+    worktreeId,
+    tabId,
+    sessionId,
+    messages,
+    launchDraft,
+    launchDraftCreatedAt,
+    chatActive = true,
+    transcriptLoading
+  } = args
   const draftKey = mobileNativeChatScopeKey(hostId, worktreeId, tabId)
   const pendingKey = draftKey && sessionId ? `${draftKey}\0${sessionId}` : null
   const [drafts, setDrafts] = useState<Record<string, string>>({})
@@ -147,6 +91,16 @@ export function useMobileNativeChatDrafts(args: {
   const activePendingKeyRef = useRef(pendingKey)
   activePendingKeyRef.current = pendingKey
   const mountedRef = useRef(false)
+
+  const { readSeededLaunchDraft, readSeededLaunchDraftSeed } = useMobileNativeChatLaunchDraftSeed({
+    draftKey,
+    messages,
+    launchDraft,
+    launchDraftCreatedAt,
+    chatActive,
+    transcriptLoading,
+    setDrafts
+  })
 
   const setComposerText: Dispatch<SetStateAction<string>> = useCallback(
     (value) => {
@@ -179,17 +133,28 @@ export function useMobileNativeChatDrafts(args: {
     [draftKey, pendingKey]
   )
 
+  // Why: over relay the send RPC can take seconds (or lose only its ack), and a
+  // composer that waits for settlement to empty reads as "my prompt didn't
+  // send". Clear at send time; a definite rejection restores the text below.
+  const clearDraftForSend = useCallback((origin: MobileNativeChatSendOrigin, text: string) => {
+    setDrafts((previous) =>
+      (previous[origin.draftKey] ?? '').trim() === text.trim()
+        ? { ...previous, [origin.draftKey]: '' }
+        : previous
+    )
+  }, [])
+
+  const restoreRejectedDraft = useCallback((origin: MobileNativeChatSendOrigin, text: string) => {
+    // Why: never clobber text the user typed while the rejection was in flight.
+    setDrafts((previous) =>
+      (previous[origin.draftKey] ?? '') === '' ? { ...previous, [origin.draftKey]: text } : previous
+    )
+  }, [])
+
   const acceptSend = useCallback(
     (origin: MobileNativeChatSendOrigin, text: string, images?: string[]) => {
-      // Why: an RPC may settle after a tab switch; mutate only the tab that
-      // originated the send, without erasing edits typed after it began.
-      setDrafts((previous) =>
-        (previous[origin.draftKey] ?? '').trim() === text.trim()
-          ? { ...previous, [origin.draftKey]: '' }
-          : previous
-      )
       // Why: the first prompt can be sent before the provider reports a session
-      // id; clear its draft, but wait for an id before keying an optimistic echo.
+      // id; wait for an id before keying an optimistic echo.
       if (!origin.pendingKey) {
         return
       }
@@ -213,8 +178,9 @@ export function useMobileNativeChatDrafts(args: {
 
   // Why: a relay drop mid-send loses only the ack in the common case — the
   // desktop already delivered the message. Hold the send instead of claiming
-  // failure (which baits a duplicate): clear the draft when the transcript echo
+  // failure (which baits a duplicate): stay quiet when the transcript echo
   // lands, and surface the uncertainty if the deadline passes without one.
+  // The composer was already cleared at send time, so this never touches drafts.
   const unconfirmedRef = useRef<UnconfirmedSend[]>([])
   const holdUnconfirmedSend = useCallback(
     (origin: MobileNativeChatSendOrigin, text: string, onUnconfirmed: () => void) => {
@@ -237,11 +203,6 @@ export function useMobileNativeChatDrafts(args: {
         isActiveTranscript &&
         reconcileLandedEchoes(messagesRef.current, [entry]).landed.length > 0
       ) {
-        setDrafts((previous) =>
-          (previous[origin.draftKey] ?? '').trim() === text.trim()
-            ? { ...previous, [origin.draftKey]: '' }
-            : previous
-        )
         return
       }
       entry.deadline = setTimeout(() => {
@@ -278,12 +239,6 @@ export function useMobileNativeChatDrafts(args: {
       if (entry.deadline !== null) {
         clearTimeout(entry.deadline)
       }
-      // Same guard as acceptSend: never erase edits typed after the send began.
-      setDrafts((previous) =>
-        (previous[entry.draftKey] ?? '').trim() === entry.text.trim()
-          ? { ...previous, [entry.draftKey]: '' }
-          : previous
-      )
     }
   }, [messages, draftKey, pendingKey])
 
@@ -339,6 +294,10 @@ export function useMobileNativeChatDrafts(args: {
     setComposerText,
     pending,
     captureSendOrigin,
+    readSeededLaunchDraft,
+    readSeededLaunchDraftSeed,
+    clearDraftForSend,
+    restoreRejectedDraft,
     acceptSend,
     holdUnconfirmedSend
   }

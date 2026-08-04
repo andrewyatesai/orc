@@ -1,4 +1,4 @@
-import type { IDisposable, IParser, ITheme } from '../../lib/pane-manager/aterm/terminal-types'
+import type { ITheme } from '../../lib/pane-manager/aterm/terminal-types'
 import { atermThemeColorsFromITheme } from '@/lib/pane-manager/aterm/aterm-theme-colors'
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
 import type { GlobalSettings } from '../../../../shared/types'
@@ -9,7 +9,6 @@ import {
   resolveEffectiveTerminalAppearance
 } from '@/lib/terminal-theme'
 import { buildFontFamily } from './layout-serialization'
-import { guardParserHandler } from './terminal-parser-handler-guard'
 import { safeFit, safeFitAndThen } from '@/lib/pane-manager/pane-tree-ops'
 import {
   normalizeTerminalFastScrollSensitivity,
@@ -25,56 +24,10 @@ import { normalizeTerminalLineHeight } from '../../../../shared/terminal-line-he
 import { maybePushMode2031Flip } from './terminal-mode-2031-replies'
 import { resolveTerminalMinimumContrastRatio } from '@/lib/terminal-contrast-correction'
 
-// Why Pick over a hand-rolled type: stays tied to xterm's canonical signature so upstream tightening surfaces here.
-type Mode2031Parser = Pick<IParser, 'registerCsiHandler'>
-
-type Mode2031HandlerDeps = {
-  paneId: number
-  parser: Mode2031Parser
-  /** Called when a real (non-replayed) `CSI ?2031h` arrives, after the subscribe flag is set.
-   *  A callback so the lifecycle hook keeps its transport-aware `pushMode2031ForPane` closure. */
-  onSubscribe: () => void
-  isReplaying: () => boolean
-  paneMode2031: Map<number, boolean>
-  paneLastThemeMode: Map<number, 'dark' | 'light'>
-}
-
-// Why a pure function: lets tests drive a real xterm parser end-to-end against the "random characters on restart" guard.
-export function installMode2031Handlers(deps: Mode2031HandlerDeps): IDisposable[] {
-  const hasMode2031 = (params: (number | number[])[]): boolean =>
-    params.some((p) => (Array.isArray(p) ? p.includes(2031) : p === 2031))
-
-  // Why return false: we only observe mode 2031; false lets xterm's built-in DEC handler still process compound sequences.
-  return [
-    deps.parser.registerCsiHandler(
-      { prefix: '?', final: 'h' },
-      guardParserHandler('csi-mode2031-subscribe', (params) => {
-        if (hasMode2031(params)) {
-          // Why gate on isReplaying: a restored buffer's replayed `?2031h` would push `?997;1n` into a fresh shell with no
-          // TUI, which echoes it as literal text; pty-connection's guard covers only xterm auto-replies, not handler sends.
-          // Return early (before recording the subscribe bit) so a later theme flip won't push into a shell that isn't subscribed.
-          if (deps.isReplaying()) {
-            return false
-          }
-          deps.paneMode2031.set(deps.paneId, true)
-          deps.onSubscribe()
-        }
-        return false
-      })
-    ),
-    // Why no replay guard here: we only push CSI 997 on subscribe; unsubscribe just clears map entries, so replay is harmless.
-    deps.parser.registerCsiHandler(
-      { prefix: '?', final: 'l' },
-      guardParserHandler('csi-mode2031-unsubscribe', (params) => {
-        if (hasMode2031(params)) {
-          deps.paneMode2031.delete(deps.paneId)
-          deps.paneLastThemeMode.delete(deps.paneId)
-        }
-        return false
-      })
-    )
-  ]
-}
+// The renderer no longer observes `CSI ?2031h/l` here: reply authority moved to
+// pty-connection's per-PTY-chunk scanner (#10817), so a chunk that withdraws the
+// subscription it just made is never answered. hexToRgba/isHexColor are gone with
+// it — the aterm engine applies background/cursor opacity itself.
 
 // Why extracted: lets the settings preview compose the same theme without depending on PaneManager. Keep pure.
 export function composeActiveTerminalTheme(

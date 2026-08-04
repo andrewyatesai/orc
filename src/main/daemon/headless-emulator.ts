@@ -7,10 +7,7 @@ import { createPrivateModeScanner } from './private-mode-scan'
 import { TerminalKittyKeyboardModeTracker } from '../../shared/terminal-kitty-keyboard-mode-tracker'
 import { advancePartialEscapeTail } from '../../shared/terminal-partial-escape-tail'
 import { TerminalOscCwdTitleScanner } from './terminal-osc-cwd-title-scanner'
-import {
-  createTerminalModelQueryResponder,
-  type TerminalModelQueryResponder
-} from './terminal-model-query-responder'
+import { HeadlessEmulatorQueryAuthority } from './headless-emulator-query-authority'
 import {
   emulatorSearchContext,
   searchEmulatorScrollback,
@@ -26,6 +23,7 @@ import { buildEmulatorSnapshotReport } from './headless-emulator-snapshot-report
 import type { TerminalSnapshot, TerminalModes } from './types'
 import type { TerminalViewAttributes } from '../../shared/terminal-view-attributes'
 import type { TerminalOscLinkRange } from '../../shared/terminal-osc-link-ranges'
+import { stripAnsiControlSequences } from '../../shared/commit-message-agent-output'
 
 export type HeadlessEmulatorOptions = {
   cols: number
@@ -69,8 +67,8 @@ const DEFAULT_SCROLLBACK = 5000
  * "renderer is the only responder" stance: it answers for parked/hidden/SSH/
  * cold panes with no live renderer attached. The daemon Session emulator
  * passes no sink and stays write-only (it must never race the renderer's
- * reply). aterm's headless engine emits no replies of its own, so the reply
- * grammar lives in TerminalModelQueryResponder, not the native addon.
+ * reply). That responder's lifecycle, its sink and the ConPTY overrides live
+ * in headless-emulator-query-authority.ts.
  */
 export class HeadlessEmulator {
   private term: RustHeadlessTerminalHandle
@@ -100,10 +98,8 @@ export class HeadlessEmulator {
   // later engine call is skipped — this session degrades to scan-only state and
   // empty snapshots instead of the panic killing the whole daemon.
   private failed = false
-  // Query-authority (terminal-query-authority.md). onQueryReply is read at
-  // reply time so disableQueryReplyForwarding can mute a respawn-reused id.
-  private onQueryReply: ((reply: string) => void) | null
-  private queryResponder: TerminalModelQueryResponder | null = null
+  // Query-authority reply ownership lives in headless-emulator-query-authority.ts.
+  private readonly queries: HeadlessEmulatorQueryAuthority
 
   constructor(opts: HeadlessEmulatorOptions) {
     const binding = loadRustTerminalBinding()
@@ -129,35 +125,12 @@ export class HeadlessEmulator {
       opts.rows,
       opts.scrollback ?? DEFAULT_SCROLLBACK
     )
-    this.onQueryReply = opts.onQueryReply ?? null
-    // Only the runtime per-PTY emulators pass a sink; the daemon Session
-    // emulator omits it and never builds a responder (stays write-only).
-    if (this.onQueryReply) {
-      this.ensureQueryResponder()
-    }
-  }
-
-  /** Build the query responder lazily so the daemon Session emulator (no
-   *  onQueryReply, no view-attr responder, no ConPTY override) never carries
-   *  one. Wired to read onQueryReply + engine state at reply time. */
-  private ensureQueryResponder(): TerminalModelQueryResponder {
-    this.queryResponder ??= createTerminalModelQueryResponder({
-      emitReply: (reply) => this.onQueryReply?.(reply),
-      getCursor: () => this.readCursor(),
-      getRows: () => this.rows
+    this.queries = new HeadlessEmulatorQueryAuthority({
+      run: (op, call, fallback) => this.engineCall(op, call, fallback),
+      term: this.term,
+      getRows: () => this.rows,
+      onQueryReply: opts.onQueryReply
     })
-    return this.queryResponder
-  }
-
-  private readCursor(): [number, number] {
-    return this.engineCall(
-      'cursor',
-      () => {
-        const [row, col] = this.term.cursor()
-        return [row, col] as [number, number]
-      },
-      () => [0, 0]
-    )
   }
 
   /** Run one native engine call with panic containment: catch_unwind surfaces a
@@ -216,38 +189,26 @@ export class HeadlessEmulator {
     // Advance after the parse so the tracked tail reflects the same bytes the
     // grid does; only the trailing unparsed partial sequence is retained.
     this.partialEscapeTail = advancePartialEscapeTail(this.partialEscapeTail, data)
-    // After the engine parse so CPR reads the post-write cursor; state tracking
-    // (OSC SET overrides, mode flags) runs even when replies are gated off.
-    this.queryResponder?.ingest(data, forwardQueryReplies)
+    this.queries.ingest(data, forwardQueryReplies)
   }
 
-  /** Query-authority reply sink for chunks flagged `forwardQueryReplies`.
-   *  When set, DA/DSR/CPR/DECRQM/DECRQSS/XTVERSION/kitty/OSC-color queries are
-   *  answered; the OSC-color + ?996n family also needs a view-attribute
-   *  responder installed (colors stay silent until the first renderer push). */
+  /** Query-authority surface — semantics in headless-emulator-query-authority.ts. */
   installViewAttributeResponder(getter: () => TerminalViewAttributes | null): void {
-    this.ensureQueryResponder().setViewAttributesGetter(getter)
+    this.queries.installViewAttributeResponder(getter)
   }
 
-  /** Store the latest renderer view-attribute push: cursor style/blink feed
-   *  DECRQSS DECSCUSR / DECRQM ?12, and the per-PTY OSC color overrides reset
-   *  (a theme apply overwrites mutated colors on visible panes too). */
   applyPushedViewAttributes(attributes: TerminalViewAttributes): void {
-    if (this.disposed) {
-      return
+    if (!this.disposed) {
+      this.queries.applyPushedViewAttributes(attributes)
     }
-    this.queryResponder?.applyPushedViewAttributes(attributes)
   }
 
-  /** ConPTY 1.22+ blocks at spawn on DA1 and answers it itself with a
-   *  different identity; override the DA1 reply to `CSI ?61;4c`. Idempotent. */
   installConptyPrimaryDeviceAttributesOverride(): void {
-    this.ensureQueryResponder().enableConptyDa1Override()
+    this.queries.enableConptyDa1Override()
   }
 
-  /** ConPTY echoes OSC 10/11/12 replies written as PTY input into the prompt (#6975); mute them. Idempotent. */
   installConptyOscColorReplySuppression(): void {
-    this.ensureQueryResponder().enableConptyOscColorReplySuppression()
+    this.queries.enableConptyOscColorReplySuppression()
   }
 
   /** Re-seed persisted kitty-keyboard flags via the same `CSI = flags ; 1 u`
@@ -261,11 +222,8 @@ export class HeadlessEmulator {
     return this.write(`\x1b[=${flags};1u`)
   }
 
-  /** Permanently mute the reply sink at PTY teardown: queued writeChain links
-   *  may still parse after dispose, and daemon respawns reuse session ids — a
-   *  late reply must never reach a successor PTY under this id. */
   disableQueryReplyForwarding(): void {
-    this.onQueryReply = null
+    this.queries.mute()
   }
 
   resize(cols: number, rows: number): void {
@@ -275,9 +233,7 @@ export class HeadlessEmulator {
     this.cols = cols
     this.rows = rows
     this.restoredOscLinks = []
-    // A resize resets the scroll region to the full viewport (DECSTBM), so the
-    // query responder's margin cache must follow.
-    this.queryResponder?.onResize()
+    this.queries.onResize()
     this.engineCall(
       'resize',
       () => this.term.resize(cols, rows),
@@ -376,6 +332,37 @@ export class HeadlessEmulator {
     return this.disposed || !readOrigin
       ? null
       : this.engineCall('retainedOriginRow', readOrigin, () => null)
+  }
+
+  /** Last `limit` rows of history + viewport as plain text — xterm's
+   *  `buffer.active` tail re-derived on aterm, which has no such row buffer. */
+  getBufferTailLines(limit: number): string[] {
+    const rows = Math.max(0, Math.floor(limit))
+    if (rows === 0) {
+      return []
+    }
+    // Why: on the alt screen xterm's buffer.active IS the alt buffer, so primary
+    // history is not part of the tail.
+    const history = this.isAlternateScreen ? [] : this.scrollbackTailLines(rows)
+    return [...history, ...this.getVisibleLines()].slice(-rows)
+  }
+
+  /** Newest `rows` history lines as plain text. Why: only scrollback serializes
+   *  newline-separated — serializeAnsi positions viewport rows with CUP, so
+   *  line-splitting it mashes the whole grid into one line. */
+  private scrollbackTailLines(rows: number): string[] {
+    const ansi = this.engineCall(
+      'serializeScrollbackAnsi',
+      () => this.term.serializeScrollbackAnsi(rows),
+      () => ''
+    )
+    const history = stripAnsiControlSequences(ansi)
+    if (history.length === 0) {
+      return []
+    }
+    // Every history row is newline-terminated; drop only that final terminator.
+    const lines = history.replace(/\r?\n$/, '').split(/\r?\n/)
+    return lines.map((line) => line.trimEnd())
   }
 
   getCwd(): string | null {

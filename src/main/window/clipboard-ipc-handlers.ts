@@ -37,6 +37,7 @@ import {
 } from './clipboard-remote-file-copy'
 import { saveClipboardImageBufferInRuntime } from './clipboard-runtime-image-upload'
 import { readWindowsClipboardImageFileAsPng } from './clipboard-windows-image-file'
+import { writeClipboardTextAndVerify } from './clipboard-text-write-verify'
 import { writeClipboardTextVerified } from './clipboard-write-verification'
 import { isDashboardPopoutRenderer } from './dashboard-popout-window'
 
@@ -97,6 +98,7 @@ export function registerClipboardHandlers(store: Store): void {
   ipcMain.removeHandler('clipboard:readText')
   ipcMain.removeHandler('clipboard:readSelectionText')
   ipcMain.removeHandler('clipboard:writeText')
+  ipcMain.removeHandler('clipboard:writeTerminalText')
   ipcMain.removeHandler('clipboard:writeSelectionText')
   ipcMain.removeHandler('clipboard:writeImage')
   ipcMain.removeHandler('clipboard:writeFile')
@@ -185,6 +187,12 @@ export function registerClipboardHandlers(store: Store): void {
   ipcMain.handle('clipboard:readFilePaths', (event): Promise<string[]> => {
     assertTrustedClipboardSender(event)
     return readClipboardFilePaths(makeClipboardFileReadDeps())
+  })
+  // Why: terminal copies keep upstream's strict contract — reject so the caller
+  // can retry, rather than the boolean the general text writes report.
+  ipcMain.handle('clipboard:writeTerminalText', async (event, text: string) => {
+    assertTrustedClipboardTextSender(event)
+    return writeClipboardTextAndVerify(await assertClipboardTextWriteWithinLimitWithYield(text))
   })
   // Both text writes verify by read-back and return whether the write landed
   // (PC-5611/8977: silent clipboard failures must be visible to the renderer).

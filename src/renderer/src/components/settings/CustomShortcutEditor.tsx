@@ -65,9 +65,10 @@ export function CustomShortcutEditor({
   const keybindings = useAppStore((state) => state.keybindings)
   const customKeybindings = useAppStore((state) => state.customKeybindings)
   const upsertCustomKeybinding = useAppStore((state) => state.upsertCustomKeybinding)
-  const quickCommands = useAppStore((state) => state.settings?.terminalQuickCommands ?? [])
+  // Why: defaulting inside the selector would return a fresh array on every store write.
+  const quickCommands = useAppStore((state) => state.settings?.terminalQuickCommands)
   const terminalQuickCommands = useMemo(
-    () => quickCommands.filter((command) => !isTerminalAgentQuickCommand(command)),
+    () => (quickCommands ?? []).filter((command) => !isTerminalAgentQuickCommand(command)),
     [quickCommands]
   )
 

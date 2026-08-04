@@ -10,9 +10,9 @@
  */
 export type PiAgentKind = 'pi' | 'omp'
 
-// The launch-command detector (detectPiAgentKindFromCommand) moved to the Rust
-// orca-text core: the main process drives it via napi
-// (src/main/pi/rust-pi-agent-kind.ts), the relay via wasm
+// The launch-command detectors (detectPiAgentKindFromCommand and its
+// explicit/nullable variant) moved to the Rust orca-text core: the main process
+// drives them via napi (src/main/pi/rust-pi-agent-kind.ts), the relay via wasm
 // (src/relay/git-wasm.ts). This shared module keeps only the type + the
 // agent-type predicate below.
 

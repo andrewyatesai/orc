@@ -25,6 +25,7 @@ describe('orca-dev package bin', () => {
         `fs.writeFileSync(${JSON.stringify(outputPath)}, JSON.stringify({`,
         '  argv: process.argv.slice(2),',
         '  userDataPath: process.env.ORCA_USER_DATA_PATH,',
+        '  devCliInvocation: process.env.ORCA_DEV_CLI_INVOCATION,',
         '  appExecutable: process.env.ORCA_APP_EXECUTABLE',
         '}));'
       ].join('\n'),
@@ -47,6 +48,7 @@ describe('orca-dev package bin', () => {
     expect(JSON.parse(readFileSync(outputPath, 'utf8'))).toEqual({
       argv: ['--help'],
       userDataPath: path.join(root, 'user-data'),
+      devCliInvocation: '1',
       appExecutable: path.join(root, 'Electron')
     })
   })
@@ -59,10 +61,13 @@ describe('orca-dev package bin', () => {
       mkdirSync(scriptsDir, { recursive: true })
       const isolatedWrapperPath = path.join(scriptsDir, 'orca-dev.mjs')
       cpSync(wrapperPath, isolatedWrapperPath)
-      cpSync(
-        path.join(projectDir, 'config', 'scripts', 'dev-electron-app.mjs'),
-        path.join(scriptsDir, 'dev-electron-app.mjs')
-      )
+      // Every sibling module orca-dev.mjs imports must exist in the isolated tree.
+      for (const moduleName of ['dev-electron-app.mjs', 'dev-cli-terminal-wrapper.mjs']) {
+        cpSync(
+          path.join(projectDir, 'config', 'scripts', moduleName),
+          path.join(scriptsDir, moduleName)
+        )
+      }
 
       const sourceAppPath = path.join(root, 'node_modules', 'electron', 'dist', 'Electron.app')
       const sourceExecutablePath = path.join(sourceAppPath, 'Contents', 'MacOS', 'Electron')

@@ -38,7 +38,7 @@ describe('TerminalWindowsShellSection', () => {
 
     expect(screen.queryByRole('radio', { name: 'Git Bash' })).not.toBeInTheDocument()
     const nushellOption = screen.getByRole('radio', { name: 'Nushell' })
-    expect(nushellOption).toBeEnabled()
+    expect(nushellOption).not.toHaveAttribute('aria-disabled', 'true')
 
     await user.click(nushellOption)
     expect(updateSettings).toHaveBeenCalledWith({ terminalWindowsShell: 'nushell' })
@@ -55,7 +55,10 @@ describe('TerminalWindowsShellSection', () => {
     )
 
     expect(screen.queryByRole('radio', { name: 'Nushell' })).not.toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: 'Git Bash' })).toBeEnabled()
+    expect(screen.getByRole('radio', { name: 'Git Bash' })).not.toHaveAttribute(
+      'aria-disabled',
+      'true'
+    )
   })
 
   it('keeps a selected-but-missing Nushell visible and disabled', () => {
@@ -69,7 +72,8 @@ describe('TerminalWindowsShellSection', () => {
     )
 
     const nushellOption = screen.getByRole('radio', { name: 'Nushell' })
-    expect(nushellOption).toBeDisabled()
+    // Why: unavailable segments are aria-disabled, not natively disabled, so their tooltip stays focusable.
+    expect(nushellOption).toHaveAttribute('aria-disabled', 'true')
     expect(nushellOption).toBeChecked()
   })
 
@@ -84,7 +88,7 @@ describe('TerminalWindowsShellSection', () => {
     )
 
     const wslOption = screen.getByRole('radio', { name: 'WSL' })
-    expect(wslOption).toBeDisabled()
+    expect(wslOption).toHaveAttribute('aria-disabled', 'true')
     expect(wslOption).toBeChecked()
     // Why (#9779): PowerShell must not be shown as selected when the real default is WSL.
     expect(screen.getByRole('radio', { name: 'PowerShell' })).not.toBeChecked()

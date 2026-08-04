@@ -38,6 +38,7 @@ export type WellKnownAgentType =
   | 'hermes'
   | 'devin'
   | 'ante'
+  | 'trae'
   | 'unknown'
 export type AgentType = WellKnownAgentType | (string & {})
 
@@ -60,6 +61,8 @@ export const AGENT_STATE_HISTORY_MAX = 20
 export type AgentStatusOrchestrationContext = {
   taskId: string
   dispatchId: string
+  /** Runtime-authoritative lifecycle state. Hook-only contexts may omit it. */
+  dispatchStatus?: 'pending' | 'dispatched' | 'completed' | 'failed' | 'circuit_broken'
   taskTitle?: string
   displayName?: string
   parentTerminalHandle?: string

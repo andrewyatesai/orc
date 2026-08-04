@@ -1,9 +1,14 @@
-import { randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import type { ReadStream } from 'node:fs'
 import { lstat, open, readdir, realpath } from 'node:fs/promises'
 import { isAbsolute, join as pathJoin, relative, sep } from 'node:path'
+import { finished } from 'node:stream/promises'
 import type { SFTPWrapper } from 'ssh2'
+import {
+  promoteTempToFinal,
+  stagingTempPath,
+  unlinkQuietSftp
+} from './sftp-staged-upload-promotion'
 
 export function mkdirSftp(
   sftp: SFTPWrapper,
@@ -29,135 +34,94 @@ export function uploadFile(
   sftp: SFTPWrapper,
   localPath: string,
   remotePath: string,
-  options?: { exclusive?: boolean }
+  options?: { exclusive?: boolean; signal?: AbortSignal }
 ): Promise<void> {
+  return uploadFileAndJoinTeardown(sftp, localPath, remotePath, options)
+}
+
+async function uploadFileAndJoinTeardown(
+  sftp: SFTPWrapper,
+  localPath: string,
+  remotePath: string,
+  options?: { exclusive?: boolean; signal?: AbortSignal }
+): Promise<void> {
+  const handle = await open(localPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
+  let handleClose: Promise<void> | undefined
+  let readStream: ReadStream | undefined
+  let writeStream: ReturnType<SFTPWrapper['createWriteStream']> | undefined
   // Why: stage to a unique temp sibling and rename into place only after the
   // stream fully flushes, so a mid-transfer disconnect/read-error never leaves
   // a truncated file at remotePath (fail-closed atomic upload).
   const tempPath = stagingTempPath(remotePath)
-  return new Promise((resolve, reject) => {
-    let settled = false
-    let readStream: ReadStream | null = null
-    let fileHandle: Awaited<ReturnType<typeof open>> | null = null
-    let writeStream: ReturnType<SFTPWrapper['createWriteStream']> | null = null
-
-    const cleanupListeners = (): void => {
-      writeStream?.off('close', onWriteClose)
-      writeStream?.off('error', onWriteError)
-      readStream?.off('error', onReadError)
-    }
-    const settle = (fn: typeof resolve | typeof reject, val?: unknown): void => {
-      if (settled) {
-        return
-      }
-      settled = true
-      cleanupListeners()
-      readStream?.destroy()
-      writeStream?.destroy()
-      void fileHandle?.close().catch(() => {})
-      // Why: on failure discard the staged temp so a partial never lingers, and
-      // AWAIT the REMOVE before surfacing the error — the caller closes the SFTP
-      // channel (sftp.end()) right after we reject, which would cancel a still-
-      // pending unlink and orphan the `.orca-tmp-*` temp. The final path is
-      // untouched until a successful promoteTempToFinal below.
-      if (fn === reject && writeStream) {
-        void unlinkQuietSftp(sftp, tempPath).then(() => fn(val as never))
-        return
-      }
-      fn(val as never)
-    }
-    const onWriteClose = (): void => {
-      void promoteTempToFinal(sftp, tempPath, remotePath, options?.exclusive === true).then(
-        () => settle(resolve),
-        (err: unknown) => settle(reject, err)
-      )
-    }
-    const onWriteError = (err: Error): void => settle(reject, err)
-    const onReadError = (err: Error): void => settle(reject, err)
-
-    void open(localPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
-      .then(async (handle) => {
-        if (settled) {
-          void handle.close().catch(() => {})
-          return
-        }
-        fileHandle = handle
-        const statResult = await lstat(localPath)
-        if (statResult.isSymbolicLink() || !statResult.isFile()) {
-          throw new Error(`Unsupported upload source: ${localPath}`)
-        }
-        const openedStat = await handle.stat()
-        if (
-          !openedStat.isFile() ||
-          openedStat.size !== statResult.size ||
-          (statResult.ino !== 0 && openedStat.ino !== 0 && openedStat.ino !== statResult.ino) ||
-          (statResult.dev !== 0 && openedStat.dev !== 0 && openedStat.dev !== statResult.dev)
-        ) {
-          throw new Error(`File changed during upload: ${localPath}`)
-        }
-        // Why: validate the local source before creating the remote write
-        // target, so rejected sources do not leave empty files behind.
-        writeStream = sftp.createWriteStream(tempPath, { flags: 'wx' })
-        writeStream.on('close', onWriteClose)
-        writeStream.on('error', onWriteError)
-        readStream = handle.createReadStream()
-        readStream.on('error', onReadError)
-        readStream.pipe(writeStream)
-      })
-      .catch((err: unknown) => settle(reject, err))
-  })
-}
-
-// Why: stage under a SHORT fixed-length sibling name in the destination's parent
-// directory, derived independently of the destination basename length. Appending
-// a suffix to remotePath (the old scheme) inflated the final path COMPONENT and,
-// for a valid basename near the ~255-byte NAME_MAX, pushed the staged component
-// past the limit — regressing valid uploads. A short name in the same parent
-// stays well under NAME_MAX for any valid destination and keeps rename atomic.
-function stagingTempPath(remotePath: string): string {
-  const lastSlash = remotePath.lastIndexOf('/')
-  const shortId = randomUUID().replace(/-/g, '').slice(0, 20)
-  const base = `.orca-tmp-${shortId}`
-  return lastSlash >= 0 ? `${remotePath.slice(0, lastSlash + 1)}${base}` : base
-}
-
-// Why: promote a fully-written temp file to its destination. Exclusive uploads
-// use plain rename (SFTP v3 fails if the target exists, preserving no-clobber);
-// overwrite uploads prefer posix-rename@openssh.com for an atomic replace.
-async function promoteTempToFinal(
-  sftp: SFTPWrapper,
-  tempPath: string,
-  remotePath: string,
-  exclusive: boolean
-): Promise<void> {
-  if (exclusive) {
-    await renameSftp(sftp, tempPath, remotePath)
-    return
+  let staged = false
+  let promoted = false
+  const closeHandle = (): Promise<void> => {
+    handleClose ??= handle.close()
+    return handleClose
   }
   try {
-    await new Promise<void>((resolve, reject) => {
-      // ext_openssh_rename throws synchronously when the server lacks the
-      // extension, so the try/catch also covers the unsupported case.
-      sftp.ext_openssh_rename(tempPath, remotePath, (err) => (err ? reject(err) : resolve()))
-    })
-    return
-  } catch {
-    /* extension unsupported or failed — fall back to unlink + rename */
+    options?.signal?.throwIfAborted()
+    const statResult = await lstat(localPath)
+    if (statResult.isSymbolicLink() || !statResult.isFile()) {
+      throw new Error(`Unsupported upload source: ${localPath}`)
+    }
+    const openedStat = await handle.stat()
+    if (
+      !openedStat.isFile() ||
+      openedStat.size !== statResult.size ||
+      (statResult.ino !== 0 && openedStat.ino !== 0 && openedStat.ino !== statResult.ino) ||
+      (statResult.dev !== 0 && openedStat.dev !== 0 && openedStat.dev !== statResult.dev)
+    ) {
+      throw new Error(`File changed during upload: ${localPath}`)
+    }
+    // Why: rejected local sources must not leave an empty remote file.
+    writeStream = sftp.createWriteStream(tempPath, { flags: 'wx' })
+    staged = true
+    readStream = handle.createReadStream({ autoClose: false })
+    const abortTransfer = (): void => {
+      const reason =
+        options?.signal?.reason instanceof Error
+          ? options.signal.reason
+          : Object.assign(new Error('Upload aborted'), { name: 'AbortError' })
+      readStream?.destroy(reason)
+      writeStream?.destroy()
+      void closeHandle().catch(() => {})
+    }
+    options?.signal?.addEventListener('abort', abortTransfer, { once: true })
+    if (options?.signal?.aborted) {
+      abortTransfer()
+    }
+    try {
+      const readDone = finished(readStream, { cleanup: true }).catch((error: unknown) => {
+        writeStream?.destroy()
+        throw error
+      })
+      const writeDone = finished(writeStream, { cleanup: true }).catch((error: unknown) => {
+        readStream?.destroy(error instanceof Error ? error : undefined)
+        throw error
+      })
+      readStream.pipe(writeStream)
+      const results = await Promise.allSettled([readDone, writeDone])
+      const failure = results.find((result) => result.status === 'rejected')
+      if (failure?.status === 'rejected') {
+        throw failure.reason
+      }
+    } finally {
+      options?.signal?.removeEventListener('abort', abortTransfer)
+    }
+    await promoteTempToFinal(sftp, tempPath, remotePath, options?.exclusive === true)
+    promoted = true
+  } finally {
+    readStream?.destroy()
+    writeStream?.destroy()
+    await closeHandle()
+    // Why: AWAIT the REMOVE before the error surfaces — the caller closes the SFTP
+    // channel right after we reject, which would cancel a still-pending unlink and
+    // orphan the `.orca-tmp-*` temp. The final path is untouched until promotion.
+    if (staged && !promoted) {
+      await unlinkQuietSftp(sftp, tempPath)
+    }
   }
-  await unlinkQuietSftp(sftp, remotePath)
-  await renameSftp(sftp, tempPath, remotePath)
-}
-
-function renameSftp(sftp: SFTPWrapper, from: string, to: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    sftp.rename(from, to, (err) => (err ? reject(err) : resolve()))
-  })
-}
-
-function unlinkQuietSftp(sftp: SFTPWrapper, remotePath: string): Promise<void> {
-  return new Promise((resolve) => {
-    sftp.unlink(remotePath, () => resolve())
-  })
 }
 
 export function uploadBuffer(
@@ -236,11 +200,13 @@ export async function uploadDirectory(
   localDir: string,
   remoteDir: string,
   rootRealPath = localDir,
-  options?: { exclusive?: boolean }
+  options?: { exclusive?: boolean; signal?: AbortSignal }
 ): Promise<void> {
+  options?.signal?.throwIfAborted()
   await assertLocalUploadPathInsideRoot(rootRealPath, localDir)
   const entries = await readdir(localDir, { withFileTypes: true })
   for (const entry of entries) {
+    options?.signal?.throwIfAborted()
     const localPath = pathJoin(localDir, entry.name)
     const remotePath = `${remoteDir}/${entry.name}`
     await assertLocalUploadPathInsideRoot(rootRealPath, localPath)
@@ -258,7 +224,7 @@ export async function uploadDirectory(
       await mkdirSftp(sftp, remotePath, { allowExisting: !options?.exclusive })
       await uploadDirectory(sftp, localPath, remotePath, rootRealPath, options)
     } else {
-      await uploadFile(sftp, localPath, remotePath, { exclusive: options?.exclusive })
+      await uploadFile(sftp, localPath, remotePath, options)
     }
   }
 }
@@ -333,26 +299,4 @@ async function assertLocalUploadPathInsideRoot(
   ) {
     throw new Error(`Path escaped upload root: ${candidatePath}`)
   }
-}
-
-/**
- * Check whether a path exists on the remote via SFTP lstat.
- * Returns true if the path exists (file, directory, or symlink).
- */
-export function sftpPathExists(sftp: SFTPWrapper, remotePath: string): Promise<boolean> {
-  return new Promise((resolve, reject) => {
-    sftp.lstat(remotePath, (err) => {
-      if (!err) {
-        resolve(true)
-        return
-      }
-      // Why: SFTP status code 2 = SSH_FX_NO_SUCH_FILE — the path does not
-      // exist, which is the expected "no collision" signal for deconfliction.
-      if ((err as { code?: number }).code === 2) {
-        resolve(false)
-        return
-      }
-      reject(err)
-    })
-  })
 }

@@ -18,6 +18,7 @@ import {
   ptyExitHandlers,
   ptyTeardownHandlers,
   ptyShutdownLifecycleHandlers,
+  ptyWriteUnavailableHandlers,
   ensurePtyDispatcher,
   getEagerPtyBufferHandle,
   isPtyDataHandlerShutdownPending
@@ -69,6 +70,13 @@ const SSH_SESSION_EXPIRED_ERROR = 'SSH_SESSION_EXPIRED'
 const SSH_PTY_CONNECTION_MISMATCH_MARKER = 'belongs to SSH connection'
 const STALE_TITLE_TIMEOUT = 3000 // ms before stale working title is cleared
 const MAX_PTY_SIDE_EFFECTS_PER_DRAIN = 64
+// Why: background timer throttling clamps the drain to ~64 effects/s while an agent CLI can queue
+// hundreds/s, so an overnight minimized window otherwise grows this queue without bound (C1/H2).
+// 512 ≈ 8 drain ticks of catch-up latency once visible; entries are compact facts (≤1 title/payload).
+export const MAX_PENDING_PTY_SIDE_EFFECTS = 512
+// Why: agent status is last-wins store state, but payloads can carry KB-scale prompt/tool strings;
+// carry only the newest few through eviction so a status flood cannot re-grow what it evicted.
+export const MAX_EVICTED_AGENT_STATUS_PAYLOAD_CARRY = 16
 
 type PtyOutputCallbacks = Parameters<PtyTransport['connect']>[0]['callbacks']
 
@@ -207,6 +215,38 @@ export function createPtyOutputProcessor({
     sideEffectDrainTimer = setTimeout(drainPtySideEffects, 0)
   }
 
+  // Why: oldest-first eviction at the cap. Evicted titles are safe to drop (titles are last-wins);
+  // bells and agent-status payloads collapse onto the next-oldest survivor so a pending bell latch
+  // and the newest statuses still apply on drain instead of vanishing.
+  function evictOldestPendingSideEffectsIfFull(): void {
+    while (pendingSideEffects.length - pendingSideEffectIndex >= MAX_PENDING_PTY_SIDE_EFFECTS) {
+      const evicted = pendingSideEffects[pendingSideEffectIndex]
+      if (!evicted) {
+        return
+      }
+      pendingSideEffectIndex += 1
+      // Why: mirror applyPtySideEffect's accounting so stale-probe arming doesn't stick past eviction.
+      pendingWorkingTitleSideEffects -= countWorkingTitles(evicted.titles)
+      if (pendingWorkingTitleSideEffects < 0) {
+        pendingWorkingTitleSideEffects = 0
+      }
+      const survivor = pendingSideEffects[pendingSideEffectIndex]
+      if (survivor) {
+        if (evicted.containsBell) {
+          survivor.containsBell = true
+        }
+        if (evicted.payloads.length > 0) {
+          const merged = evicted.payloads.concat(survivor.payloads)
+          survivor.payloads =
+            merged.length > MAX_EVICTED_AGENT_STATUS_PAYLOAD_CARRY
+              ? merged.slice(-MAX_EVICTED_AGENT_STATUS_PAYLOAD_CARRY)
+              : merged
+        }
+      }
+      compactPendingSideEffectsIfNeeded()
+    }
+  }
+
   function enqueuePtySideEffect(next: PendingPtySideEffect): void {
     const workingTitleCount = countWorkingTitles(next.titles)
     const prior = pendingSideEffects.at(-1)
@@ -225,6 +265,7 @@ export function createPtyOutputProcessor({
       pendingWorkingTitleSideEffects += workingTitleCount
       return
     }
+    evictOldestPendingSideEffectsIfFull()
     pendingSideEffects.push(next)
     pendingWorkingTitleSideEffects += workingTitleCount
   }
@@ -531,7 +572,11 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
   // Why: a new pane can attach to the same ptyId before the old instance's detach() runs; track owned handlers so unregister never deletes the live one.
   const ownedDataAndReplayHandlers = new Map<
     string,
-    { data: (data: string, meta?: PtyDataMeta) => void; replay: (data: string) => void }
+    {
+      data: (data: string, meta?: PtyDataMeta) => void
+      replay: (data: string) => void
+      writeUnavailable: () => void
+    }
   >()
   const ownedExitHandlers = new Map<string, (code: number) => void>()
 
@@ -558,6 +603,9 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
       }
       if (ptyReplayHandlers.get(id) === owned.replay) {
         ptyReplayHandlers.delete(id)
+      }
+      if (ptyWriteUnavailableHandlers.get(id) === owned.writeUnavailable) {
+        ptyWriteUnavailableHandlers.delete(id)
       }
     }
     ownedDataAndReplayHandlers.delete(id)
@@ -590,7 +638,20 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
       )
     }
     ptyDataHandlers.set(id, dataHandler)
-    ownedDataAndReplayHandlers.set(id, { data: dataHandler, replay: replayHandler })
+    // Guard like the data/replay handlers: a transport that rebinds to a new id without
+    // detaching leaves this entry behind, and a fan-out for the stale id would otherwise
+    // remount a healthy pane.
+    const writeUnavailable = (): void => {
+      if (ptyId === id) {
+        storedCallbacks.onWriteUnavailable?.()
+      }
+    }
+    ptyWriteUnavailableHandlers.set(id, writeUnavailable)
+    ownedDataAndReplayHandlers.set(id, {
+      data: dataHandler,
+      replay: replayHandler,
+      writeUnavailable
+    })
     if (!isPtyDataHandlerShutdownPending(id)) {
       drainPreHandlerPtyData(id, dataHandler)
       drainRolledBackPtyShutdownData(id)
@@ -699,6 +760,9 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
         hasPreHandlerPtyExit(options.sessionId) &&
         hasPreHandlerPtyData(options.sessionId)
       ) {
+        if (options.admitPtyId && !options.admitPtyId(options.sessionId)) {
+          return { id: options.sessionId } satisfies PtyConnectResult
+        }
         ptyId = options.sessionId
         connected = true
         registerPtyDataHandler(options.sessionId)
@@ -763,13 +827,22 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
         const resultLaunchAgent = isTuiAgent(spawnResult.launchAgent)
           ? spawnResult.launchAgent
           : undefined
+        const retireFreshSpawn = async (): Promise<void> => {
+          if (!spawnResult.isReattach && !spawnResult.coldRestore) {
+            await window.api.pty.kill(spawnResult.id)
+          }
+        }
 
         // Why: on destroy mid-connect, kill only a fresh spawn — killing a reattached session (owned by the tab lifecycle) loses a live shell.
         if (destroyed) {
-          if (!options.sessionId) {
-            window.api.pty.kill(spawnResult.id)
-          }
+          await retireFreshSpawn()
           return
+        }
+
+        if (options.admitPtyId && !options.admitPtyId(spawnResult.id)) {
+          // Why: a rejected session-expired fallback has no owner to retire its newly created process.
+          await retireFreshSpawn()
+          return spawnResult
         }
 
         ptyId = spawnResult.id
@@ -838,7 +911,10 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
             sessionExpired: spawnResult.sessionExpired,
             coldRestore: spawnResult.coldRestore,
             replay: spawnResult.replay,
-            pendingEscapeTailAnsi: spawnResult.pendingEscapeTailAnsi
+            pendingEscapeTailAnsi: spawnResult.pendingEscapeTailAnsi,
+            // Why: the cold-restore path re-runs the launch command, so it needs the
+            // same "main declined the resume" signal the fresh-spawn path gets.
+            ...(spawnResult.agentResumeUnavailable ? { agentResumeUnavailable: true as const } : {})
           } satisfies PtyConnectResult
         }
         // Why: we asked to reattach (options.sessionId) but the daemon returned
@@ -855,17 +931,26 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
             // registerEffectiveLaunchConfig re-registers the agent, so dropping
             // it here would strand follow-up/draft delivery for the new session.
             ...(resultLaunchAgent ? { launchAgent: resultLaunchAgent } : {}),
-            ...(spawnResult.launchConfig ? { launchConfig: spawnResult.launchConfig } : {})
+            ...(spawnResult.launchConfig ? { launchConfig: spawnResult.launchConfig } : {}),
+            // A declined provider-session resume can arrive on this path too; the
+            // banner reason must survive the respawnedFresh short-circuit.
+            ...(spawnResult.agentResumeUnavailable ? { agentResumeUnavailable: true as const } : {})
           } satisfies PtyConnectResult
         }
-        if (resultLaunchAgent || spawnResult.launchConfig || spawnResult.startupCwdFallback) {
+        if (
+          resultLaunchAgent ||
+          spawnResult.launchConfig ||
+          spawnResult.startupCwdFallback ||
+          spawnResult.agentResumeUnavailable
+        ) {
           return {
             id: spawnResult.id,
             ...(resultLaunchAgent ? { launchAgent: resultLaunchAgent } : {}),
             ...(spawnResult.launchConfig ? { launchConfig: spawnResult.launchConfig } : {}),
             ...(spawnResult.startupCwdFallback
               ? { startupCwdFallback: spawnResult.startupCwdFallback }
-              : {})
+              : {}),
+            ...(spawnResult.agentResumeUnavailable ? { agentResumeUnavailable: true as const } : {})
           } satisfies PtyConnectResult
         }
         return spawnResult.id
@@ -984,13 +1069,17 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
       }
     },
 
-    detach() {
+    detach(options) {
       clearAccumulatedState()
       inputWriteQueue.clear()
       pendingPreConnectResize = null
       if (ptyId) {
         // Why: on remount keep the exit observer alive so a shell dying in the gap still clears stale tab/leaf bindings before reattach.
-        unregisterPtyDataAndStatusHandlers(ptyId)
+        if (options?.preserveExitObserver === false) {
+          unregisterPtyHandlers(ptyId)
+        } else {
+          unregisterPtyDataAndStatusHandlers(ptyId)
+        }
       }
       connected = false
       ptyId = null

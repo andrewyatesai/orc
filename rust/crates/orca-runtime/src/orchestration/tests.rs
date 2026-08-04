@@ -236,6 +236,7 @@ fn fail_dispatch_carries_failures_and_trips_circuit_breaker_at_three() {
         assert_eq!(failed.status, "failed");
         assert_eq!(failed.failure_count, expected_count);
         assert_eq!(failed.last_failure.as_deref(), Some("boom"));
+        assert!(failed.completed_at.is_some(), "a failed dispatch is closed, not left open");
         assert_eq!(status_of(&db, "t1"), "ready");
     }
 
@@ -243,9 +244,26 @@ fn fail_dispatch_carries_failures_and_trips_circuit_breaker_at_three() {
     let broken = db.fail_dispatch("ctx3", "boom").unwrap().unwrap();
     assert_eq!(broken.status, "circuit_broken");
     assert_eq!(broken.failure_count, 3);
+    assert!(broken.completed_at.is_some());
     assert_eq!(status_of(&db, "t1"), "failed");
 
     assert!(db.fail_dispatch("nope", "boom").unwrap().is_none());
+}
+
+#[test]
+fn fail_dispatch_keeps_the_first_completion_stamp() {
+    let db = OrchestrationDb::open_in_memory().unwrap();
+    new_task(&db, "t1", "spec", &[]);
+    db.create_dispatch_context("t1", "worker-1", "ctx1", None).unwrap();
+    // A same-second re-stamp is indistinguishable from a preserved one, so plant a
+    // sentinel the COALESCE must keep.
+    db.connection()
+        .execute("UPDATE dispatch_contexts SET completed_at = '2020-01-01 00:00:00' WHERE id = 'ctx1'", [])
+        .unwrap();
+
+    let failed = db.fail_dispatch("ctx1", "boom").unwrap().unwrap();
+    assert_eq!(failed.completed_at.as_deref(), Some("2020-01-01 00:00:00"));
+    assert_eq!(failed.status, "failed");
 }
 
 #[test]

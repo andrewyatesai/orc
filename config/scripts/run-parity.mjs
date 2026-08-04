@@ -3,7 +3,7 @@
 // Runnable gate for the TS↔Rust differential parity suite. Two legs:
 //   1. Regenerate rust_outputs.json by running the orca-parity binary over the
 //      shared vector corpus (the Rust leg — also golden-checks each case).
-//   2. Run the vitest driver (tools/parity/parity.test.ts) which asserts
+//   2. Run the vitest driver (tests/tools/parity/parity.test.ts) which asserts
 //      TS == Rust (and TS == golden) for every case.
 //
 // Toolchain: the orca-crates workspace needs rustc 1.96, but the machine default
@@ -23,8 +23,8 @@ import { orcaParityExecutablePaths } from './rust-host-executable-paths.mjs'
 
 const projectDir = resolve(import.meta.dirname, '../..')
 const require = createRequire(import.meta.url)
-const vectorsDir = resolve(projectDir, 'tools/parity/vectors')
-const outputsFile = resolve(projectDir, 'tools/parity/rust_outputs.json')
+const vectorsDir = resolve(projectDir, 'tests/tools/parity/vectors')
+const outputsFile = resolve(projectDir, 'tests/tools/parity/rust_outputs.json')
 const vitestCli = resolve(dirname(require.resolve('vitest/package.json')), 'vitest.mjs')
 
 function rustupBin(tool) {

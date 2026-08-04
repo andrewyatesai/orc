@@ -5,14 +5,62 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   getCachedWindowsTerminalCapabilities,
-  getWindowsTerminalCapabilityOwnerKey,
   hasCachedWindowsTerminalCapabilities,
+  isWindowsTerminalCapabilityHost,
   loadWindowsTerminalCapabilities,
   refreshWindowsTerminalCapabilities,
   resetWindowsTerminalCapabilitiesForTests,
   selectWindowsTerminalCapabilitiesForOwner,
+  useLocalWindowsTerminalCapabilities,
   useWindowsTerminalCapabilities
 } from './windows-terminal-capabilities'
+
+describe('Windows terminal capability host ownership', () => {
+  it.each([
+    {
+      name: 'local Windows desktop while the platform probe loads',
+      isWindowsRenderer: true,
+      isWebClient: false,
+      target: { kind: 'local' } as const,
+      hostPlatform: null,
+      expected: true
+    },
+    {
+      name: 'Windows desktop attached to remote Linux',
+      isWindowsRenderer: true,
+      isWebClient: false,
+      target: { kind: 'environment', environmentId: 'linux' } as const,
+      hostPlatform: 'linux' as const,
+      expected: false
+    },
+    {
+      name: 'Windows browser paired to a Linux server',
+      isWindowsRenderer: true,
+      isWebClient: true,
+      target: { kind: 'local' } as const,
+      hostPlatform: 'linux' as const,
+      expected: false
+    },
+    {
+      name: 'non-Windows browser paired to a Windows server',
+      isWindowsRenderer: false,
+      isWebClient: true,
+      target: { kind: 'local' } as const,
+      hostPlatform: 'win32' as const,
+      expected: true
+    },
+    {
+      name: 'non-Windows desktop attached to remote Windows',
+      isWindowsRenderer: false,
+      isWebClient: false,
+      target: { kind: 'environment', environmentId: 'windows' } as const,
+      hostPlatform: 'win32' as const,
+      expected: true
+    }
+  ])('$name', ({ expected, ...args }) => {
+    expect(isWindowsTerminalCapabilityHost(args)).toBe(expected)
+  })
+})
 
 function stubTerminalCapabilityApi(args: {
   wslAvailable: boolean
@@ -165,6 +213,24 @@ describe('windows terminal capabilities', () => {
     expect(wslIsAvailable).toHaveBeenCalledTimes(2)
   })
 
+  it('rechecks availability when distro discovery invalidates a stale failure', async () => {
+    const wslIsAvailable = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+    vi.stubGlobal('window', {
+      api: {
+        wsl: { isAvailable: wslIsAvailable, listDistros: vi.fn().mockResolvedValue(['Ubuntu']) },
+        pwsh: { isAvailable: vi.fn().mockResolvedValue(false) },
+        gitBash: { isAvailable: vi.fn().mockResolvedValue(false) },
+        runtime: { getStatus: vi.fn().mockResolvedValue({ hostPlatform: 'win32' }) }
+      }
+    })
+
+    await expect(loadWindowsTerminalCapabilities()).resolves.toMatchObject({
+      wslAvailable: true,
+      wslDistros: ['Ubuntu']
+    })
+    expect(wslIsAvailable).toHaveBeenCalledTimes(2)
+  })
+
   it('re-probes when the capability cache expires', async () => {
     const wslIsAvailable = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false)
     const pwshIsAvailable = vi.fn().mockResolvedValue(false)
@@ -229,272 +295,6 @@ describe('windows terminal capabilities', () => {
     expect(runtimeGetStatus).toHaveBeenCalledTimes(2)
   })
 
-  it('loads remote runtime host capabilities through runtime RPC', async () => {
-    const runtimeEnvironmentCall = vi.fn(async (args: { selector: string; method: string }) => {
-      const resultByMethod: Record<string, unknown> = {
-        'status.get': {
-          hostPlatform: 'win32',
-          runtimeProtocolVersion: 3,
-          minCompatibleRuntimeClientVersion: 2
-        },
-        'host.wsl.isAvailable': true,
-        'host.wsl.listDistros': ['Ubuntu'],
-        'host.pwsh.isAvailable': true,
-        'host.gitBash.isAvailable': false,
-        'host.nushell.isAvailable': false
-      }
-      return {
-        id: args.method,
-        ok: true,
-        result: resultByMethod[args.method]
-      }
-    })
-    vi.stubGlobal('window', {
-      api: {
-        runtimeEnvironments: {
-          call: runtimeEnvironmentCall
-        }
-      }
-    })
-
-    await expect(
-      loadWindowsTerminalCapabilities({
-        ownerKey: 'runtime:env-win',
-        target: { kind: 'environment', environmentId: 'env-win' }
-      })
-    ).resolves.toEqual({
-      wslAvailable: true,
-      wslDistros: ['Ubuntu'],
-      pwshAvailable: true,
-      gitBashAvailable: false,
-      nushellAvailable: false,
-      hostPlatform: 'win32',
-      isLoading: false
-    })
-
-    expect(runtimeEnvironmentCall).toHaveBeenCalledWith(
-      expect.objectContaining({ selector: 'env-win', method: 'host.wsl.isAvailable' })
-    )
-    expect(runtimeEnvironmentCall).toHaveBeenCalledWith(
-      expect.objectContaining({ selector: 'env-win', method: 'host.wsl.listDistros' })
-    )
-    expect(runtimeEnvironmentCall).toHaveBeenCalledWith(
-      expect.objectContaining({ selector: 'env-win', method: 'host.pwsh.isAvailable' })
-    )
-    expect(runtimeEnvironmentCall).toHaveBeenCalledWith(
-      expect.objectContaining({ selector: 'env-win', method: 'host.gitBash.isAvailable' })
-    )
-    expect(runtimeEnvironmentCall).toHaveBeenCalledWith(
-      expect.objectContaining({ selector: 'env-win', method: 'host.nushell.isAvailable' })
-    )
-    expect(runtimeEnvironmentCall).toHaveBeenCalledWith(
-      expect.objectContaining({ selector: 'env-win', method: 'status.get' })
-    )
-  })
-
-  it('loads SSH Windows host capabilities through the SSH preflight bridge', async () => {
-    const detectRemoteWindowsTerminalCapabilities = vi.fn().mockResolvedValue({
-      wslAvailable: true,
-      wslDistros: ['Ubuntu'],
-      pwshAvailable: true,
-      gitBashAvailable: true,
-      hostPlatform: 'win32'
-    })
-    vi.stubGlobal('window', {
-      api: {
-        preflight: {
-          detectRemoteWindowsTerminalCapabilities
-        }
-      }
-    })
-
-    await expect(
-      loadWindowsTerminalCapabilities({
-        ownerKey: 'ssh:ssh-1',
-        sshConnectionId: 'ssh-1'
-      })
-    ).resolves.toEqual({
-      wslAvailable: true,
-      wslDistros: ['Ubuntu'],
-      pwshAvailable: true,
-      gitBashAvailable: true,
-      nushellAvailable: false,
-      hostPlatform: 'win32',
-      isLoading: false
-    })
-
-    expect(detectRemoteWindowsTerminalCapabilities).toHaveBeenCalledWith({
-      connectionId: 'ssh-1'
-    })
-    expect(getCachedWindowsTerminalCapabilities('ssh:ssh-1')).toEqual({
-      wslAvailable: true,
-      wslDistros: ['Ubuntu'],
-      pwshAvailable: true,
-      gitBashAvailable: true,
-      nushellAvailable: false,
-      hostPlatform: 'win32',
-      isLoading: false
-    })
-  })
-
-  it('derives the SSH owner cache key when callers omit ownerKey', async () => {
-    const detectRemoteWindowsTerminalCapabilities = vi
-      .fn()
-      .mockResolvedValueOnce({
-        wslAvailable: true,
-        wslDistros: ['Ubuntu'],
-        pwshAvailable: true,
-        gitBashAvailable: true,
-        hostPlatform: 'win32'
-      })
-      .mockResolvedValueOnce({
-        wslAvailable: true,
-        wslDistros: ['Ubuntu', 'Debian'],
-        pwshAvailable: true,
-        gitBashAvailable: false,
-        hostPlatform: 'win32'
-      })
-    vi.stubGlobal('window', {
-      api: {
-        preflight: {
-          detectRemoteWindowsTerminalCapabilities
-        }
-      }
-    })
-
-    const sshOwnerKey = getWindowsTerminalCapabilityOwnerKey(null, 'ssh-1')
-    await expect(loadWindowsTerminalCapabilities({ sshConnectionId: 'ssh-1' })).resolves.toEqual({
-      wslAvailable: true,
-      wslDistros: ['Ubuntu'],
-      pwshAvailable: true,
-      gitBashAvailable: true,
-      nushellAvailable: false,
-      hostPlatform: 'win32',
-      isLoading: false
-    })
-
-    expect(getCachedWindowsTerminalCapabilities(sshOwnerKey)).toEqual({
-      wslAvailable: true,
-      wslDistros: ['Ubuntu'],
-      pwshAvailable: true,
-      gitBashAvailable: true,
-      nushellAvailable: false,
-      hostPlatform: 'win32',
-      isLoading: false
-    })
-    expect(getCachedWindowsTerminalCapabilities()).toEqual({
-      wslAvailable: false,
-      wslDistros: [],
-      pwshAvailable: false,
-      gitBashAvailable: false,
-      nushellAvailable: false,
-      hostPlatform: null,
-      isLoading: false
-    })
-
-    await expect(
-      refreshWindowsTerminalCapabilities(undefined, { kind: 'local' }, 'ssh-1')
-    ).resolves.toEqual({
-      wslAvailable: true,
-      wslDistros: ['Ubuntu', 'Debian'],
-      pwshAvailable: true,
-      gitBashAvailable: false,
-      nushellAvailable: false,
-      hostPlatform: 'win32',
-      isLoading: false
-    })
-
-    expect(getCachedWindowsTerminalCapabilities(sshOwnerKey)).toEqual({
-      wslAvailable: true,
-      wslDistros: ['Ubuntu', 'Debian'],
-      pwshAvailable: true,
-      gitBashAvailable: false,
-      nushellAvailable: false,
-      hostPlatform: 'win32',
-      isLoading: false
-    })
-  })
-
-  it('loads runtime-owned SSH capabilities through runtime RPC with a scoped cache key', async () => {
-    const detectRemoteWindowsTerminalCapabilities = vi.fn()
-    const runtimeEnvironmentCall = vi.fn(async (args: { selector: string; method: string }) => {
-      const resultByMethod: Record<string, unknown> = {
-        'status.get': {
-          hostPlatform: 'linux',
-          runtimeProtocolVersion: 3,
-          minCompatibleRuntimeClientVersion: 2
-        },
-        'preflight.detectRemoteWindowsTerminalCapabilities': {
-          wslAvailable: true,
-          wslDistros: ['Ubuntu'],
-          pwshAvailable: true,
-          gitBashAvailable: false,
-          hostPlatform: 'win32'
-        }
-      }
-      return {
-        id: args.method,
-        ok: true,
-        result: resultByMethod[args.method]
-      }
-    })
-    vi.stubGlobal('window', {
-      api: {
-        preflight: {
-          detectRemoteWindowsTerminalCapabilities
-        },
-        runtimeEnvironments: {
-          call: runtimeEnvironmentCall
-        }
-      }
-    })
-
-    const ownerKey = getWindowsTerminalCapabilityOwnerKey('env-1', 'ssh-1')
-    expect(ownerKey).toBe('runtime:env-1:ssh:ssh-1')
-
-    await expect(
-      loadWindowsTerminalCapabilities({
-        target: { kind: 'environment', environmentId: 'env-1' },
-        sshConnectionId: 'ssh-1'
-      })
-    ).resolves.toEqual({
-      wslAvailable: true,
-      wslDistros: ['Ubuntu'],
-      pwshAvailable: true,
-      gitBashAvailable: false,
-      nushellAvailable: false,
-      hostPlatform: 'win32',
-      isLoading: false
-    })
-
-    expect(detectRemoteWindowsTerminalCapabilities).not.toHaveBeenCalled()
-    expect(runtimeEnvironmentCall).toHaveBeenCalledWith(
-      expect.objectContaining({
-        selector: 'env-1',
-        method: 'preflight.detectRemoteWindowsTerminalCapabilities',
-        params: { connectionId: 'ssh-1' }
-      })
-    )
-    expect(getCachedWindowsTerminalCapabilities(ownerKey)).toEqual({
-      wslAvailable: true,
-      wslDistros: ['Ubuntu'],
-      pwshAvailable: true,
-      gitBashAvailable: false,
-      nushellAvailable: false,
-      hostPlatform: 'win32',
-      isLoading: false
-    })
-    expect(getCachedWindowsTerminalCapabilities('ssh:ssh-1')).toEqual({
-      wslAvailable: false,
-      wslDistros: [],
-      pwshAvailable: false,
-      gitBashAvailable: false,
-      nushellAvailable: false,
-      hostPlatform: null,
-      isLoading: false
-    })
-  })
-
   it('does not re-probe on parent rerenders with the same capability target', async () => {
     const detectRemoteWindowsTerminalCapabilities = vi.fn().mockResolvedValue({
       wslAvailable: true,
@@ -540,6 +340,135 @@ describe('windows terminal capabilities', () => {
     })
 
     expect(detectRemoteWindowsTerminalCapabilities).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes local capabilities while a long-lived consumer remains mounted', async () => {
+    vi.useFakeTimers()
+    const { wslIsAvailable, wslListDistros } = stubTerminalCapabilityApi({
+      wslAvailable: false,
+      pwshAvailable: true,
+      wslDistros: []
+    })
+    wslIsAvailable.mockResolvedValueOnce(false).mockResolvedValue(true)
+    wslListDistros.mockResolvedValueOnce([]).mockResolvedValue(['Ubuntu'])
+    let latest: ReturnType<typeof useWindowsTerminalCapabilities> | null = null
+
+    function HookProbe(): null {
+      latest = useWindowsTerminalCapabilities(true)
+      return null
+    }
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    hookRoots.push(root)
+
+    try {
+      await act(async () => {
+        root.render(createElement(HookProbe))
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      expect(latest).toMatchObject({ wslAvailable: false, wslDistros: [] })
+
+      await act(async () => {
+        vi.advanceTimersByTime(30_000)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      expect(latest).toMatchObject({ wslAvailable: true, wslDistros: ['Ubuntu'] })
+      expect(wslIsAvailable).toHaveBeenCalledTimes(2)
+      vi.advanceTimersByTime(30_000)
+      expect(wslIsAvailable).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([
+    {
+      name: 'Windows to Linux',
+      firstPlatform: 'win32' as const,
+      firstAvailable: true,
+      firstDistros: ['Ubuntu'],
+      secondPlatform: 'linux' as const,
+      secondAvailable: false,
+      secondDistros: []
+    },
+    {
+      name: 'Linux to Windows',
+      firstPlatform: 'linux' as const,
+      firstAvailable: false,
+      firstDistros: [],
+      secondPlatform: 'win32' as const,
+      secondAvailable: true,
+      secondDistros: ['Debian']
+    }
+  ])('re-probes the local transport when the paired owner changes: $name', async (args) => {
+    const wslIsAvailable = vi
+      .fn()
+      .mockResolvedValueOnce(args.firstAvailable)
+      .mockResolvedValueOnce(args.secondAvailable)
+    const wslListDistros = vi
+      .fn()
+      .mockResolvedValueOnce(args.firstDistros)
+      .mockResolvedValueOnce(args.secondDistros)
+    const runtimeGetStatus = vi
+      .fn()
+      .mockResolvedValueOnce({ hostPlatform: args.firstPlatform })
+      .mockResolvedValueOnce({ hostPlatform: args.secondPlatform })
+    vi.stubGlobal('window', {
+      api: {
+        wsl: { isAvailable: wslIsAvailable, listDistros: wslListDistros },
+        pwsh: { isAvailable: vi.fn().mockResolvedValue(false) },
+        gitBash: { isAvailable: vi.fn().mockResolvedValue(false) },
+        runtime: { getStatus: runtimeGetStatus }
+      }
+    })
+    let ownerKey = 'runtime:paired-a'
+    let latest: ReturnType<typeof useLocalWindowsTerminalCapabilities> | null = null
+
+    function HookProbe(): null {
+      latest = useLocalWindowsTerminalCapabilities(true, false, ownerKey)
+      return null
+    }
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    hookRoots.push(root)
+
+    await act(async () => {
+      root.render(createElement(HookProbe))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(latest).toMatchObject({
+      hostPlatform: args.firstPlatform,
+      wslAvailable: args.firstAvailable,
+      wslDistros: args.firstDistros
+    })
+
+    ownerKey = 'runtime:paired-b'
+    await act(async () => {
+      root.render(createElement(HookProbe))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(latest).toMatchObject({
+      hostPlatform: args.secondPlatform,
+      wslAvailable: args.secondAvailable,
+      wslDistros: args.secondDistros
+    })
+    expect(wslIsAvailable).toHaveBeenCalledTimes(2)
+    expect(runtimeGetStatus).toHaveBeenCalledTimes(2)
+    expect(getCachedWindowsTerminalCapabilities('runtime:paired-a')).toMatchObject({
+      hostPlatform: args.firstPlatform
+    })
+    expect(getCachedWindowsTerminalCapabilities('runtime:paired-b')).toMatchObject({
+      hostPlatform: args.secondPlatform
+    })
   })
 
   it('prunes expired runtime owner capability caches', async () => {
@@ -662,27 +591,5 @@ describe('windows terminal capabilities', () => {
       nushellAvailable: true
     })
     expect(isNushellAvailable).toHaveBeenCalledTimes(1)
-  })
-
-  it('coerces missing nushellAvailable from older SSH hosts to false', async () => {
-    // Why: an older deployed relay omits the field; gating must stay a real boolean.
-    const detectRemoteWindowsTerminalCapabilities = vi.fn().mockResolvedValue({
-      wslAvailable: false,
-      wslDistros: [],
-      pwshAvailable: true,
-      gitBashAvailable: true,
-      hostPlatform: 'win32'
-    })
-    vi.stubGlobal('window', {
-      api: {
-        preflight: {
-          detectRemoteWindowsTerminalCapabilities
-        }
-      }
-    })
-
-    await expect(
-      loadWindowsTerminalCapabilities({ ownerKey: 'ssh:old-relay', sshConnectionId: 'old-relay' })
-    ).resolves.toMatchObject({ nushellAvailable: false, gitBashAvailable: true })
   })
 })

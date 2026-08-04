@@ -96,6 +96,7 @@ vi.mock('@/lib/agent-background-session-timeout-toast', () => ({
 }))
 
 import {
+  canUseIssueCommandForLinkedItemProvider,
   ensureAgentStartupInTerminal,
   getSetupConfig,
   getWorkspaceSeedName,
@@ -110,6 +111,15 @@ beforeAll(() => {
   initGitWasmForTestFromBytes(
     readFileSync(new URL('./git-wasm/orca_git_wasm_bg.wasm', import.meta.url))
   )
+})
+
+describe('linked-item issue commands', () => {
+  it('keeps Jira and Linear sentinel numbers out of repository issue templates', () => {
+    expect(canUseIssueCommandForLinkedItemProvider('github')).toBe(true)
+    expect(canUseIssueCommandForLinkedItemProvider('gitlab')).toBe(true)
+    expect(canUseIssueCommandForLinkedItemProvider('jira')).toBe(false)
+    expect(canUseIssueCommandForLinkedItemProvider('linear')).toBe(false)
+  })
 })
 
 describe('getWorkspaceSeedName', () => {

@@ -1,9 +1,9 @@
+import type { AiVaultSession } from '../../../shared/ai-vault-types'
 import {
   buildAiVaultResumeCommand,
   buildAiVaultResumeShellCommand,
   realHomeCodexResumeEnvDeletion
 } from '../../../shared/ai-vault-resume-command'
-import type { AiVaultSession } from '../../../shared/ai-vault-types'
 import {
   isResumableTuiAgent,
   type AgentProviderSessionMetadata,
@@ -15,8 +15,7 @@ import {
   resolveTuiAgentLaunchEnv
 } from '../../../shared/tui-agent-launch-defaults'
 import { parseWslUncPath } from '../../../shared/wsl-paths'
-import { resolveWindowsShellStartupFamily } from '../../../shared/windows-terminal-shell'
-import { resolveLocalPosixAgentStartupShell } from '../../../shared/posix-terminal-shell'
+import { resolveAiVaultResumeShellFamily } from '@/lib/ai-vault-resume-shell-family'
 import type { AgentStartupShell } from '../../../shared/tui-agent-startup-shell'
 import {
   clearEnvCommand,
@@ -24,6 +23,7 @@ import {
   resolveStartupShell
 } from '../../../shared/tui-agent-startup-shell'
 import type { AppState } from '@/store/types'
+import type { AiVaultSessionDragPayload } from '@/lib/ai-vault-session-drag'
 import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
 import { CLIENT_PLATFORM } from '@/lib/new-workspace'
 import { buildAgentResumeStartupPlan } from '@/lib/tui-agent-startup'
@@ -83,6 +83,43 @@ export function buildAiVaultResumeStartupForWorktree(
   return buildAiVaultResumeForWorktree(args)
 }
 
+/**
+ * Rebuilds a drag-drop resume startup under the account home the host
+ * substituted, or null when the payload cannot be repinned.
+ *
+ * Why: the drag payload's prebuilt command pins the session's recorded home,
+ * which the substitution just proved belongs to the wrong account. A null
+ * sessionCwd is a real value (session has no cwd; rebuild without a cd
+ * prefix); only an ABSENT sessionCwd — a payload from an older serializer —
+ * declines, because the original cwd is unrecoverable.
+ */
+export function buildAiVaultDropRepinStartup(args: {
+  state: AiVaultResumeWorktreeArgs['state']
+  payload: Pick<
+    AiVaultSessionDragPayload,
+    'agent' | 'sessionId' | 'sessionCwd' | 'sessionExecutionHostId' | 'sessionFilePath'
+  >
+  substituteCodexHome: string
+  worktreeId: string
+}): AiVaultResumeStartup | null {
+  if (args.payload.sessionCwd === undefined || !args.payload.sessionFilePath) {
+    return null
+  }
+  return buildAiVaultResumeStartupForWorktree({
+    state: args.state,
+    worktreeId: args.worktreeId,
+    session: {
+      agent: args.payload.agent,
+      sessionId: args.payload.sessionId,
+      cwd: args.payload.sessionCwd,
+      codexHome: args.substituteCodexHome,
+      executionHostId: args.payload.sessionExecutionHostId,
+      filePath: args.payload.sessionFilePath
+    },
+    commandOverride: args.state.settings?.agentCmdOverrides?.[args.payload.agent]
+  })
+}
+
 function buildAiVaultResumeForWorktree(args: AiVaultResumeWorktreeArgs): AiVaultResumeStartup {
   const providerSession = getAiVaultAgentProviderSession(args.session)
   if (
@@ -106,24 +143,14 @@ function buildAiVaultResumeForWorktree(args: AiVaultResumeWorktreeArgs): AiVault
       ? args.session.executionHostPlatform
       : getAiVaultResumePlatform(args.state, args.worktreeId)
   const codexHome = getAiVaultResumeCodexHome(args.session.codexHome, platform)
-  const isLocalSession =
-    !args.session.executionHostId || args.session.executionHostId === LOCAL_EXECUTION_HOST_ID
   const resumeFilePath = normalizeAiVaultResumeFilePath(args.session.filePath, platform)
-  // Why: local shell settings do not describe a remote Windows host, whose
-  // queued resume command uses the remote default PowerShell syntax.
-  const liveShell: AgentStartupShell | undefined =
-    platform === 'win32'
-      ? isLocalSession
-        ? resolveWindowsShellStartupFamily(args.state.settings?.terminalWindowsShell)
-        : 'powershell'
-      : isLocalSession
-        ? resolveLocalPosixAgentStartupShell({
-            platform,
-            clientPlatform: CLIENT_PLATFORM,
-            isRemote: false,
-            terminalPosixShell: args.state.settings?.terminalPosixShell
-          })
-        : undefined
+  // Why: a remote Windows host queues its resume command in its own default PowerShell.
+  const liveShell = resolveAiVaultResumeShellFamily({
+    executionHostId: args.session.executionHostId,
+    settings: args.state.settings,
+    platform,
+    remoteWindowsShell: 'powershell'
+  })
   // Why: a null provider session means the agent has no valid resume locator
   // (pi without a transcript, #8876), so fall through to the rebuild below.
   if (providerSession && isResumableTuiAgent(args.session.agent)) {
@@ -222,23 +249,13 @@ function resolveAiVaultResumeShell(args: AiVaultResumeWorktreeArgs): AgentStartu
     args.session.executionHostPlatform
       ? args.session.executionHostPlatform
       : getAiVaultResumePlatform(args.state, args.worktreeId)
-  const isLocalSession =
-    !args.session.executionHostId || args.session.executionHostId === LOCAL_EXECUTION_HOST_ID
-  // Why: mirror the queued command's own dialect, including the fork's local
-  // POSIX shell setting — a nushell user's copied prefix needs `hide-env`, not `unset`.
-  const shell =
-    platform === 'win32'
-      ? isLocalSession
-        ? resolveWindowsShellStartupFamily(args.state.settings?.terminalWindowsShell)
-        : undefined
-      : isLocalSession
-        ? resolveLocalPosixAgentStartupShell({
-            platform,
-            clientPlatform: CLIENT_PLATFORM,
-            isRemote: false,
-            terminalPosixShell: args.state.settings?.terminalPosixShell
-          })
-        : undefined
+  // Why: mirror the queued command's own dialect, including the local POSIX shell
+  // setting — a nushell user's copied prefix needs `hide-env`, not `unset`.
+  const shell = resolveAiVaultResumeShellFamily({
+    executionHostId: args.session.executionHostId,
+    settings: args.state.settings,
+    platform
+  })
   return resolveStartupShell(platform, shell)
 }
 

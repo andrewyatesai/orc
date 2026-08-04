@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
 import { closeSync, mkdirSync, openSync, readSync, rmSync, statSync } from 'node:fs'
+import { mkdir, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { app } from 'electron'
-import { writeFileAtomicSync } from './atomic-file-write'
+import { writeFileAtomicAsync, writeFileAtomicSync } from './atomic-file-write'
 import type { WorkspaceSessionState } from '../shared/types'
 import { capTerminalScrollbackSessionBuffer } from '../shared/workspace-session-terminal-buffers'
 import {
@@ -122,6 +123,35 @@ export function writeTerminalScrollbackSnapshotSync(args: {
   }
 }
 
+export async function writeTerminalScrollbackSnapshot(args: {
+  tabId: string
+  leafId: string
+  buffer: string
+  storage?: TerminalScrollbackSnapshotStorage
+}): Promise<string | null> {
+  if (!args.buffer) {
+    return null
+  }
+  const ref = makeTerminalScrollbackSnapshotRef(args.tabId, args.leafId)
+  const snapshotRoot = getSnapshotRoot(args.storage)
+  const path = snapshotPath(ref, snapshotRoot)
+  if (!path) {
+    return null
+  }
+  try {
+    await mkdir(snapshotRoot, { recursive: true, mode: 0o700 })
+    const bytes = trailingUtf8Bytes(args.buffer, TERMINAL_SCROLLBACK_STORE_BYTE_LIMIT)
+    // Why fsync (via writeFileAtomicAsync): snapshots have no backup ring, so a power-loss-torn file is lost outright.
+    await writeFileAtomicAsync(path, bytes, { mode: 0o600 })
+    return ref
+  } catch (err) {
+    console.warn(
+      `[terminal-scrollback] Failed to write snapshot: ${err instanceof Error ? err.message : String(err)}`
+    )
+    return null
+  }
+}
+
 export function readTerminalScrollbackSnapshotSync(
   ref: string,
   storage?: TerminalScrollbackSnapshotStorage
@@ -147,6 +177,15 @@ export function deleteTerminalScrollbackSnapshotSync(
       // Best-effort cleanup; stale refs are harmless and bounded by per-file caps.
     }
   }
+}
+
+export async function deleteTerminalScrollbackSnapshot(
+  ref: string,
+  storage?: TerminalScrollbackSnapshotStorage
+): Promise<void> {
+  await Promise.all(
+    snapshotReadPaths(ref, storage).map((path) => rm(path, { force: true }).catch(() => {}))
+  )
 }
 
 export function collectTerminalScrollbackSnapshotRefs(session: WorkspaceSessionState): Set<string> {

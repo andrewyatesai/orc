@@ -628,6 +628,43 @@ mod tests {
     }
 
     #[test]
+    fn launches_trae_with_the_prompt_positional_behind_the_option_terminator() {
+        let plan = startup(&startup_args("trae", "Summarize the failing tests", "linux"));
+        assert_eq!(
+            plan,
+            AgentStartupPlan {
+                agent: "trae".to_string(),
+                launch_command: "traecli -- 'Summarize the failing tests'".to_string(),
+                expected_process: "traecli".to_string(),
+                followup_prompt: None,
+                launch_config: SleepingAgentLaunchConfig {
+                    agent_command: Some("traecli".to_string()),
+                    agent_args: String::new(),
+                    agent_env: Vec::new(),
+                },
+                env: None,
+                startup_command_delivery: None,
+            }
+        );
+        // Without `--` these would dispatch to Trae's `help`/`config` subcommands.
+        assert_eq!(
+            startup(&startup_args("trae", "help me name this config", "linux")).launch_command,
+            "traecli -- 'help me name this config'"
+        );
+        // Same terminator on the grok argv arm it shares.
+        assert_eq!(
+            startup(&startup_args("grok", "--version", "linux")).launch_command,
+            "grok -- '--version'"
+        );
+        // The empty-prompt launch has no prompt to protect, so no terminator.
+        let bare = startup(&AgentStartupPlanArgs {
+            allow_empty_prompt_launch: true,
+            ..startup_args("trae", "   ", "linux")
+        });
+        assert_eq!(bare.launch_command, "traecli");
+    }
+
+    #[test]
     fn launches_mistral_vibe_through_the_installed_vibe_executable() {
         let plan = startup(&startup_args("mistral-vibe", "fix it", "linux"));
         assert_eq!(

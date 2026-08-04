@@ -1,9 +1,8 @@
 import { toast } from 'sonner'
 import { useAppStore } from '@/store'
 import { planAgentCliArgsSuffix } from '@/lib/tui-agent-startup'
-import { resolveDefaultTuiAgentPreference } from '@/lib/custom-agent-resolve'
 import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
-import { isTuiAgentEnabled, pickTuiAgent } from '../../../shared/tui-agent-selection'
+import { resolveDirectWorkItemAgent } from '@/lib/launch-work-item-direct-agent-selection'
 import {
   buildPersonalizedAgentPrompt,
   resolveAgentPersonalizationPrompt
@@ -18,6 +17,7 @@ import {
   workspaceActivationErrorMessage
 } from '@/lib/launch-work-item-direct-messages'
 import { ensureHooksConfirmed } from '@/lib/ensure-hooks-confirmed'
+import { seedNativeChatLaunchDraftForAgentTab } from '@/lib/agent-launch-prompt-delivery'
 import { getConnectionId } from '@/lib/connection-context'
 import type {
   CustomAgentProfile,
@@ -217,54 +217,29 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
               repoProjectRuntime)
             : undefined
       })
-    if (agentOverride) {
-      const detectedAgents =
-        typeof launchConnectionId === 'string'
-          ? await latestStore.ensureRemoteDetectedAgents(launchConnectionId)
-          : await latestStore.ensureDetectedAgents()
-      if (
-        !detectedAgents.includes(agentOverride) ||
-        !isTuiAgentEnabled(agentOverride, latestStore.settings?.disabledTuiAgents)
-      ) {
-        activateAndRevealWorktree(worktreeId, {
-          sidebarRevealBehavior: 'auto',
-          setup: result.setup
-        })
-        toast.error(unavailableAgentErrorMessage())
-        return false
-      }
-      effectiveAgent = agentOverride
-    } else {
-      const detectedAgents =
-        launchConnectionId === repoConnectionId
-          ? await detectedAgentsPromise!
-          : typeof launchConnectionId === 'string'
-            ? await latestStore.ensureRemoteDetectedAgents(launchConnectionId)
-            : await latestStore.ensureDetectedAgents()
-      const detectedIds = new Set(detectedAgents)
-      // Why: a custom-profile default participates as its baseAgent; keep the
-      // profile only when that base survives detection/disabled filtering.
-      const resolvedDefault = resolveDefaultTuiAgentPreference(settings)
-      if (
-        resolvedDefault.kind === 'custom' &&
-        detectedIds.has(resolvedDefault.agent) &&
-        isTuiAgentEnabled(resolvedDefault.agent, settings?.disabledTuiAgents)
-      ) {
-        effectiveAgent = resolvedDefault.agent
-        effectiveCustomProfile = resolvedDefault.profile
-      } else {
-        const defaultPref = settings?.defaultTuiAgent
-        effectiveAgent = pickTuiAgent(
-          defaultPref && typeof defaultPref === 'object' ? null : defaultPref,
-          detectedIds,
-          settings?.disabledTuiAgents
-        )
-      }
+    const selection = await resolveDirectWorkItemAgent({
+      agentOverride,
+      launchConnectionId,
+      repoConnectionId,
+      detectedAgentsPromise,
+      latestStore,
+      settings
+    })
+    if (selection.kind === 'unavailable') {
+      activateAndRevealWorktree(worktreeId, {
+        sidebarRevealBehavior: 'auto',
+        setup: result.setup
+      })
+      toast.error(unavailableAgentErrorMessage())
+      return false
     }
+    effectiveAgent = selection.agent
+    effectiveCustomProfile = selection.customProfile
     if (effectiveAgent) {
       // Why: direct task launch creates and starts the workspace in separate
-      // steps so agent detection can overlap git worktree creation. Persist
-      // the chosen agent once known so empty-worktree reopen can recreate it.
+      // steps so agent detection can overlap git worktree creation. Persist the
+      // chosen agent once known so removal safety and ownership see it — reopen
+      // no longer relaunches from this field.
       void store.updateWorktreeMeta(worktreeId, { createdWithAgent: effectiveAgent }).catch(() => {
         // Non-critical: activation still has the explicit startup below.
       })
@@ -311,7 +286,12 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
       sidebarRevealBehavior: 'auto',
       setup: result.setup,
       defaultTabs: result.defaultTabs,
-      ...buildDirectWorkItemStartupOpts(effectiveAgent, startupPlan, launchSource)
+      ...buildDirectWorkItemStartupOpts(
+        effectiveAgent,
+        startupPlan,
+        launchSource,
+        promptDelivery === 'draft' ? draftContent : undefined
+      )
     })
     if (!activation) {
       // Worktree vanished between create and activate — extremely unlikely but
@@ -331,6 +311,17 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   if (startupPlanFailed) {
     toast.error(agentLaunchCommandErrorMessage())
     return false
+  }
+
+  // Why: draft delivery lands only in the TUI input buffer (argv prefill or
+  // startup-owned paste); seed the chat-composer copy so the work-item context
+  // isn't invisible in the GUI view.
+  if (promptDelivery === 'draft' && primaryTabId && effectiveAgent) {
+    seedNativeChatLaunchDraftForAgentTab({
+      tabId: primaryTabId,
+      agent: effectiveAgent,
+      text: draftContent
+    })
   }
 
   // Why: at this point the workspace is live and the agent (if any) has

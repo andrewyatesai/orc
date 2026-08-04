@@ -1,41 +1,62 @@
 import { parseDocument } from 'yaml'
-import {
-  MAX_QUICK_COMMAND_AGENT_PROMPT_LENGTH,
-  MAX_QUICK_COMMAND_LABEL_LENGTH,
-  MAX_QUICK_COMMAND_TERMINAL_TEXT_LENGTH
-} from './terminal-quick-commands'
 import type {
   OrcaDefaultTabTemplate,
   OrcaHooks,
-  OrcaProjectQuickCommand,
   OrcaVmRecipe,
   OrcaVmRecipeDiagnostic
 } from './types'
+import { asRecord, asTrimmedString } from './orca-yaml-field-coercion'
+import { normalizeQuickCommands } from './orca-yaml-quick-commands'
 import {
-  isOrcaYamlFieldWithinLimit,
   isOrcaYamlTextWithinLimit,
   MAX_ORCA_YAML_ALIAS_COUNT,
   MAX_ORCA_YAML_COLLECTION_ENTRIES
 } from './orca-yaml-file-limit'
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null
-}
-
-function asTrimmedString(value: unknown): string | undefined {
-  if (typeof value !== 'string' || !isOrcaYamlFieldWithinLimit(value)) {
-    return undefined
-  }
-  const trimmed = value.trim()
-  return trimmed || undefined
-}
-
 const DEFAULT_TAB_COLOR_RE = /^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$/
 export const ORCA_VM_RECIPE_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/
 export const ORCA_VM_RECIPE_ID_RULE =
   'Use 1-64 lowercase letters, numbers, dots, underscores, or hyphens, starting with a letter or number.'
+
+// Why: bound the work one repo file can request; entries beyond this are ignored.
+const MAX_SHARED_DIRECTORIES = 100
+
+/** Normalize `worktree.sharedDirectories` into deduped repo-root-relative paths.
+ *  `\` becomes `/`, a `./` prefix and trailing `/` are stripped. Absolute paths,
+ *  `..` traversal and `.git` are dropped here so callers get only safe entries.
+ *
+ *  Entries that would still need collapsing (`apps/./web`) are dropped rather
+ *  than rewritten: `resolve()` collapses them when the symlink is created, but
+ *  Git reports the collapsed path, so every later comparison against the stored
+ *  entry would miss and the link would look like permanent untracked work. */
+function normalizeSharedDirectories(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const seen = new Set<string>()
+  for (const entry of value.slice(0, MAX_SHARED_DIRECTORIES)) {
+    const raw = asTrimmedString(entry)
+    if (!raw) {
+      continue
+    }
+    const normalized = raw.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '')
+    const segments = normalized.split('/')
+    if (
+      !normalized ||
+      normalized.startsWith('/') ||
+      /^[a-zA-Z]:/.test(normalized) ||
+      segments.includes('..') ||
+      segments.includes('.') ||
+      segments.includes('') ||
+      segments.includes('.git')
+    ) {
+      continue
+    }
+    seen.add(normalized)
+  }
+  return Array.from(seen)
+}
 
 function normalizeDefaultTabs(value: unknown): OrcaDefaultTabTemplate[] {
   if (!Array.isArray(value) || value.length > MAX_ORCA_YAML_COLLECTION_ENTRIES) {
@@ -149,93 +170,6 @@ function normalizeVmRecipes(value: unknown): VmRecipeParseResult {
   return { recipes, diagnostics }
 }
 
-// Why: shared yaml is repo-controlled input — a hard entry cap plus the settings
-// text caps bound what a hostile orca.yaml can push at the trust dialog and menus.
-export const ORCA_YAML_QUICK_COMMAND_CAP = 30
-
-type QuickCommandParseResult = {
-  quickCommands: OrcaProjectQuickCommand[]
-  diagnostics: OrcaVmRecipeDiagnostic[]
-}
-
-function normalizeQuickCommands(value: unknown): QuickCommandParseResult {
-  const diagnostics: OrcaVmRecipeDiagnostic[] = []
-  if (!Array.isArray(value)) {
-    return { quickCommands: [], diagnostics }
-  }
-
-  const quickCommands: OrcaProjectQuickCommand[] = []
-  for (const [index, entry] of value.entries()) {
-    if (quickCommands.length >= ORCA_YAML_QUICK_COMMAND_CAP) {
-      diagnostics.push({
-        index,
-        message: `quickCommands is capped at ${ORCA_YAML_QUICK_COMMAND_CAP} entries; ${value.length - index} extra ignored.`
-      })
-      break
-    }
-    // Upstream's collection-entry cap re-expressed here: an all-invalid array
-    // otherwise emits one diagnostic per entry, since the 30-command cap never trips.
-    if (index >= MAX_ORCA_YAML_COLLECTION_ENTRIES) {
-      diagnostics.push({
-        index,
-        message: `Only the first ${MAX_ORCA_YAML_COLLECTION_ENTRIES} quickCommands entries are read.`
-      })
-      break
-    }
-    const record = asRecord(entry)
-    if (!record) {
-      diagnostics.push({ index, message: 'Quick command entry must be a mapping.' })
-      continue
-    }
-    const label = asTrimmedString(record.label)?.slice(0, MAX_QUICK_COMMAND_LABEL_LENGTH)
-    if (!label) {
-      diagnostics.push({ index, field: 'label', message: 'Quick command label is required.' })
-      continue
-    }
-    const action = record.action
-    if (action !== undefined && action !== 'agent-prompt' && action !== 'terminal-command') {
-      diagnostics.push({
-        index,
-        field: 'action',
-        message: `Quick command "${label}" has an unknown action. Use "agent-prompt" or omit action.`
-      })
-      continue
-    }
-    if (action === 'agent-prompt') {
-      const agent = asTrimmedString(record.agent)
-      const prompt = asTrimmedString(record.prompt)?.slice(0, MAX_QUICK_COMMAND_AGENT_PROMPT_LENGTH)
-      if (!agent || !prompt) {
-        diagnostics.push({
-          index,
-          field: agent ? 'prompt' : 'agent',
-          message: `Quick command "${label}" needs both agent and prompt for agent-prompt.`
-        })
-        continue
-      }
-      quickCommands.push({ label, action: 'agent-prompt', agent, prompt })
-      continue
-    }
-    const command = asTrimmedString(record.command)?.slice(
-      0,
-      MAX_QUICK_COMMAND_TERMINAL_TEXT_LENGTH
-    )
-    if (!command) {
-      diagnostics.push({
-        index,
-        field: 'command',
-        message: `Quick command "${label}" is missing command.`
-      })
-      continue
-    }
-    quickCommands.push({
-      label,
-      command,
-      ...(record.appendEnter === false ? { appendEnter: false } : {})
-    })
-  }
-  return { quickCommands, diagnostics }
-}
-
 /**
  * Parse the supported project defaults from `orca.yaml`.
  */
@@ -277,6 +211,10 @@ export function parseOrcaYaml(content: string): OrcaHooks | null {
   const quickCommandParse = normalizeQuickCommands(record.quickCommands)
   const quickCommands = quickCommandParse.quickCommands
   const quickCommandDiagnostics = quickCommandParse.diagnostics
+  const worktreeRecord = asRecord(record.worktree)
+  const sharedDirectories = worktreeRecord
+    ? normalizeSharedDirectories(worktreeRecord.sharedDirectories)
+    : []
 
   if (
     !preCreate &&
@@ -287,7 +225,8 @@ export function parseOrcaYaml(content: string): OrcaHooks | null {
     environmentRecipes.length === 0 &&
     environmentRecipeDiagnostics.length === 0 &&
     quickCommands.length === 0 &&
-    quickCommandDiagnostics.length === 0
+    quickCommandDiagnostics.length === 0 &&
+    sharedDirectories.length === 0
   ) {
     return null
   }
@@ -303,6 +242,7 @@ export function parseOrcaYaml(content: string): OrcaHooks | null {
     ...(environmentRecipes.length > 0 ? { environmentRecipes } : {}),
     ...(environmentRecipeDiagnostics.length > 0 ? { environmentRecipeDiagnostics } : {}),
     ...(quickCommands.length > 0 ? { quickCommands } : {}),
-    ...(quickCommandDiagnostics.length > 0 ? { quickCommandDiagnostics } : {})
+    ...(quickCommandDiagnostics.length > 0 ? { quickCommandDiagnostics } : {}),
+    ...(sharedDirectories.length > 0 ? { worktree: { sharedDirectories } } : {})
   }
 }

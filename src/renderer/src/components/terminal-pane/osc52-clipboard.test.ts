@@ -13,12 +13,20 @@ function b64(s: string): string {
 describe('parseOsc52', () => {
   it('decodes the canonical clipboard write payload', () => {
     const result = parseOsc52(`c;${b64('hello world')}`)
-    expect(result).toEqual({ kind: 'write', selections: 'c', text: 'hello world' })
+    expect(result).toEqual({
+      kind: 'write',
+      selections: 'c',
+      text: 'hello world'
+    })
   })
 
   it('preserves multi-byte UTF-8', () => {
     const result = parseOsc52(`c;${b64('café — 日本語')}`)
-    expect(result).toEqual({ kind: 'write', selections: 'c', text: 'café — 日本語' })
+    expect(result).toEqual({
+      kind: 'write',
+      selections: 'c',
+      text: 'café — 日本語'
+    })
   })
 
   it('accepts combined selection letters (e.g. primary + clipboard)', () => {
@@ -28,7 +36,11 @@ describe('parseOsc52', () => {
 
   it('accepts numeric select-buffer indices', () => {
     const result = parseOsc52(`s0;${b64('buffered')}`)
-    expect(result).toEqual({ kind: 'write', selections: 's0', text: 'buffered' })
+    expect(result).toEqual({
+      kind: 'write',
+      selections: 's0',
+      text: 'buffered'
+    })
   })
 
   it('flags clipboard queries without decoding — we must not answer them', () => {
@@ -129,7 +141,10 @@ describe('handleOsc52ClipboardRequest', () => {
 
     for (const query of ['c;?', ';?']) {
       expect(
-        handleOsc52ClipboardRequest(query, { allowClipboardWrite: true, writeClipboardText })
+        handleOsc52ClipboardRequest(query, {
+          allowClipboardWrite: true,
+          writeClipboardText
+        })
       ).toBe(true)
     }
 
@@ -230,6 +245,20 @@ describe('handleOsc52ClipboardRequest', () => {
     expect(writeClipboardText).not.toHaveBeenCalled()
     expect(onWriteResult).not.toHaveBeenCalled()
   })
+
+  it('surfaces host clipboard write failures for OSC 52 requests', async () => {
+    const onWriteFailure = vi.fn()
+
+    handleOsc52ClipboardRequest(`c;${b64('from tui')}`, {
+      allowClipboardWrite: true,
+      writeClipboardText: vi
+        .fn<(text: string) => Promise<void>>()
+        .mockRejectedValue(new Error('clipboard unchanged')),
+      onWriteFailure
+    })
+
+    await vi.waitFor(() => expect(onWriteFailure).toHaveBeenCalledTimes(1))
+  })
 })
 
 describe('createOsc52OscHandler', () => {
@@ -238,6 +267,7 @@ describe('createOsc52OscHandler', () => {
       settingEnabled?: boolean | null
       replaying?: boolean
       writeClipboardText?: ReturnType<typeof vi.fn<(text: string) => Promise<void>>>
+      showWriteFailedToast?: ReturnType<typeof vi.fn<() => void>>
     } = {}
   ) {
     const settingEnabled = 'settingEnabled' in overrides ? overrides.settingEnabled : true
@@ -245,13 +275,20 @@ describe('createOsc52OscHandler', () => {
       overrides.writeClipboardText ??
       vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
     const showBlockedWriteToast = vi.fn()
+    const showWriteFailedToast = overrides.showWriteFailedToast ?? vi.fn()
     const handler = createOsc52OscHandler({
       getSettingEnabled: () => settingEnabled,
       getReplaying: () => overrides.replaying ?? false,
       writeClipboardText,
-      showBlockedWriteToast
+      showBlockedWriteToast,
+      showWriteFailedToast
     })
-    return { handler, writeClipboardText, showBlockedWriteToast }
+    return {
+      handler,
+      writeClipboardText,
+      showBlockedWriteToast,
+      showWriteFailedToast
+    }
   }
 
   it('writes through to the clipboard for a live pane', async () => {
@@ -329,7 +366,7 @@ describe('createOsc52OscHandler', () => {
     expect(writeClipboardText).toHaveBeenCalledWith('copy me')
   })
 
-  it('swallows a rejected clipboard write rather than leaking an unhandled rejection', async () => {
+  it('surfaces a rejected clipboard write without leaking an unhandled rejection', async () => {
     // Why the listener: an unhandled rejection here does not fail this suite on its own,
     // so without it the `.catch` on the coalesced write is deletable with nothing going red.
     const unhandled: unknown[] = []
@@ -338,6 +375,9 @@ describe('createOsc52OscHandler', () => {
     }
     process.on('unhandledRejection', record)
     const written: string[] = []
+    const showWriteFailedToast = vi.fn(() => {
+      throw new Error('toast unavailable')
+    })
     try {
       // Why not vi.fn here: the spy tracks settled results, which marks the rejection
       // handled and hides exactly the leak this test exists to catch.
@@ -348,7 +388,8 @@ describe('createOsc52OscHandler', () => {
           written.push(text)
           return Promise.reject(new Error('denied by OS'))
         },
-        showBlockedWriteToast: vi.fn()
+        showBlockedWriteToast: vi.fn(),
+        showWriteFailedToast
       })
 
       expect(handler(`c;${b64('copy me')}`)).toBe(true)
@@ -359,6 +400,25 @@ describe('createOsc52OscHandler', () => {
 
     expect(written).toEqual(['copy me'])
     expect(unhandled).toEqual([])
+    expect(showWriteFailedToast).toHaveBeenCalledTimes(1)
+  })
+
+  it('surfaces a synchronous clipboard bridge throw as a failed write toast', async () => {
+    const showWriteFailedToast = vi.fn(() => {
+      throw new Error('toast unavailable')
+    })
+    const { handler } = setup({
+      writeClipboardText: vi.fn<(text: string) => Promise<void>>(() => {
+        throw new Error('clipboard unavailable')
+      }),
+      showWriteFailedToast
+    })
+
+    expect(handler(`c;${b64('copy me')}`)).toBe(true)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(showWriteFailedToast).toHaveBeenCalledTimes(1)
   })
 
   it('keeps coalescing after a failed write instead of wedging the pane', async () => {
@@ -382,7 +442,9 @@ describe('createOsc52OscHandler', () => {
   })
 
   it('drops a replayed write and stays silent about it', async () => {
-    const { handler, writeClipboardText, showBlockedWriteToast } = setup({ replaying: true })
+    const { handler, writeClipboardText, showBlockedWriteToast } = setup({
+      replaying: true
+    })
     expect(handler(`c;${b64('stale scrollback copy')}`)).toBe(true)
     await Promise.resolve()
     expect(writeClipboardText).not.toHaveBeenCalled()

@@ -77,7 +77,10 @@ export async function recoverFromStartupHydrationFailure({
   // Why: reconnect flips workspaceSessionReady so the UI mounts, but hydrationSucceeded stays false so the session writer can't overwrite the file we failed to load.
   try {
     await window.api.app.awaitFirstWindowStartupServices()
+    // Why: reconcile legacy worker authority on both sides of reconnect, same as the success path.
+    await window.api.app.recoverLegacyWorkerTerminalsForRendererStartup()
     await reconnectPersistedTerminals(abortSignal)
+    await window.api.app.recoverLegacyWorkerTerminalsForRendererStartup()
   } catch (reconnectErr) {
     console.error('[startup] reconnectPersistedTerminals failed in error path:', reconnectErr)
     // Why (issue #1158): the await may have run during StrictMode teardown; re-check so a cancelled pass 1 doesn't stomp pass 2's hydration.

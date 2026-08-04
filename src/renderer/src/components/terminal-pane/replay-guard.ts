@@ -9,6 +9,7 @@ import {
   notifyUndeliverableWrite,
   recordTerminalParseProgress
 } from '@/lib/pane-manager/terminal-write-pipeline-health'
+import { redactPtyIdForDiagnostics } from '../../../../shared/pty-delivery-diagnostics'
 
 // Why this guard exists: the terminal auto-replies to query sequences (DA1/DECRQM/OSC 10-11/CPR) via onData → shell stdin, so replaying recorded PTY bytes leaks stray replies onto the new shell's prompt.
 // No wasUserInput flag distinguishes replay replies from real keystrokes, so a per-pane in-flight counter gates onData; bounded by real parse completion — the write callback plus the aterm controller's settle() fence (the worker engine parses in a later task than the write ack) — not a timer, so only auto-replies from replayed bytes are dropped.
@@ -20,12 +21,54 @@ export type ReplayingPanesRef = React.RefObject<Map<number, number>>
 const REPLAY_GUARD_STALL_CHECK_MS = 10_000
 
 type ReplayTerminalOptions = {
+  breadcrumbIdentity?: {
+    tabId?: string
+    worktreeId?: string
+    ptyId?: string | null
+  }
   shouldRefreshViewportSynchronously?: () => boolean
   shouldReleaseRenderPause?: () => boolean
   stallCheckMs?: number
 }
 
 type ReplayGuardWriteTarget = Pick<ManagedPane['terminal'], 'write'>
+
+type ReplayGuardBreadcrumbData = {
+  paneId: number
+  tabIdHash?: string
+  worktreeIdHash?: string
+  leafIdHash?: string
+  ptyId?: string
+}
+
+function hashReplayIdentity(value: string): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0')
+}
+
+function replayGuardBreadcrumbData(
+  pane: ManagedPane,
+  identity: ReplayTerminalOptions['breadcrumbIdentity']
+): ReplayGuardBreadcrumbData {
+  const data: ReplayGuardBreadcrumbData = { paneId: pane.id }
+  if (pane.leafId) {
+    data.leafIdHash = hashReplayIdentity(pane.leafId)
+  }
+  if (identity?.tabId) {
+    data.tabIdHash = hashReplayIdentity(identity.tabId)
+  }
+  if (identity?.worktreeId) {
+    data.worktreeIdHash = hashReplayIdentity(identity.worktreeId)
+  }
+  if (identity?.ptyId) {
+    data.ptyId = redactPtyIdForDiagnostics(identity.ptyId)
+  }
+  return data
+}
 
 export function isPaneReplaying(ref: ReplayingPanesRef, paneId: number): boolean {
   return (ref.current.get(paneId) ?? 0) > 0
@@ -46,6 +89,7 @@ function engageReplayGuard(
   pane: ManagedPane,
   map: Map<number, number>,
   stallCheckMs: number,
+  breadcrumbData: ReplayGuardBreadcrumbData,
   onRelease?: () => void
 ): ReplayGuardWriteCallbacks {
   const paneId = pane.id
@@ -72,12 +116,12 @@ function engageReplayGuard(
       console.error(
         `[terminal] replay guard released for pane ${paneId} — the probe write parsed but the replay completion never arrived (lost write callback)`
       )
-      recordRendererCrashBreadcrumb('terminal_replay_guard_lost_completion', { paneId })
+      recordRendererCrashBreadcrumb('terminal_replay_guard_lost_completion', breadcrumbData)
     } else if (reason === 'wedged') {
       console.error(
         `[terminal] replay guard released for pane ${paneId} — the terminal rejected the replay write or its probe never parsed (undeliverable write pipeline; pane likely needs recovery)`
       )
-      recordRendererCrashBreadcrumb('terminal_replay_guard_wedged_release', { paneId })
+      recordRendererCrashBreadcrumb('terminal_replay_guard_wedged_release', breadcrumbData)
       // Why: a rejected replay or silent probe makes the pipeline undeliverable; recover instead of a fossil that eats input.
       notifyUndeliverableWrite(terminal, 'replay-wedged')
     }
@@ -178,7 +222,8 @@ export function replayIntoTerminal(
   const guardCallbacks = engageReplayGuard(
     pane,
     replayingPanesRef.current,
-    options.stallCheckMs ?? REPLAY_GUARD_STALL_CHECK_MS
+    options.stallCheckMs ?? REPLAY_GUARD_STALL_CHECK_MS,
+    replayGuardBreadcrumbData(pane, options.breadcrumbIdentity)
   )
   // Also paint the restored bytes onto the aterm canvas if this pane is aterm-
   // rendered (snapshot/reattach/cold-restore only fed xterm before, leaving the
@@ -216,6 +261,7 @@ export function replayIntoTerminalAsync(
       pane,
       replayingPanesRef.current,
       options.stallCheckMs ?? REPLAY_GUARD_STALL_CHECK_MS,
+      replayGuardBreadcrumbData(pane, options.breadcrumbIdentity),
       resolve
     )
     // Mirror the restored bytes to the aterm canvas too (see replayIntoTerminal).

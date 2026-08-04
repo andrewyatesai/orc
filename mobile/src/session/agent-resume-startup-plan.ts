@@ -4,9 +4,9 @@
 import {
   getAgentResumeArgv,
   type AgentProviderSessionMetadata,
-  type ResumableTuiAgent,
-  type SleepingAgentLaunchConfig
+  type ResumableTuiAgent
 } from '../../../src/shared/agent-session-resume'
+import { buildSleepingAgentLaunchConfig } from '../../../src/shared/sleeping-agent-launch-config'
 import {
   planAgentCliArgsSuffix,
   quoteStartupArg,
@@ -38,19 +38,6 @@ function resolveBaseCommand(args: {
   return { ok: true, command: suffix.suffix ? `${command} ${suffix.suffix}` : command }
 }
 
-function buildSleepingAgentLaunchConfig(args: {
-  agentCommand?: string | null
-  agentArgs?: string | null
-  agentEnv?: Record<string, string> | null
-}): SleepingAgentLaunchConfig {
-  return {
-    ...(args.agentCommand?.trim() ? { agentCommand: args.agentCommand } : {}),
-    agentArgs: args.agentArgs ?? '',
-    // Why: the durable resume snapshot is limited to Orca-managed agent env inputs.
-    agentEnv: args.agentEnv ? { ...args.agentEnv } : {}
-  }
-}
-
 export function buildAgentResumeStartupPlan(args: {
   agent: ResumableTuiAgent
   providerSession: AgentProviderSessionMetadata
@@ -63,8 +50,11 @@ export function buildAgentResumeStartupPlan(args: {
   /** Why: SSH remotes deploy the CLI shim as plain `orca`, so the Linux-only
    * `orca-ide` rename must be skipped for remote launches. */
   isRemote?: boolean
+  /** Why: omp cold-resumes by transcript path, only falling back to the session
+   * id — kept separate from pi's transcriptPath, which pi requires outright. */
+  ompResumeFilePath?: string | null
 }): AgentStartupPlan | null {
-  const argv = getAgentResumeArgv(args.agent, args.providerSession)
+  const argv = getAgentResumeArgv(args.agent, args.providerSession, args.ompResumeFilePath)
   if (!argv) {
     return null
   }

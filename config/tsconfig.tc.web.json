@@ -7,17 +7,27 @@
     "../src/renderer/coordinator/**/*",
     "../src/preload/api-types.ts",
     "../src/shared/**/*",
+    "../src/main/gitlab/mappers.ts",
+    "../src/main/rust-gitlab-pipeline-checks.ts",
+    "../src/main/daemon/rust-git-addon.ts",
+    "../src/main/daemon/orca-node-addon-paths.ts",
     "../src/main/ipc/worktree-branch-name.ts",
     "../src/main/ipc/worktree-logic.ts",
     "../src/main/ipc/worktree-linked-work-item-metadata.ts",
     "../src/main/ipc/worktree-metadata-merge.ts",
     "../src/main/ipc/worktree-path-comparison.ts",
+    "../src/main/wsl-distro-list-output.ts",
+    "../src/main/wsl-distro-retry.ts",
     "../src/main/wsl.ts"
   ],
   "compilerOptions": {
     "paths": {
-      "@renderer/*": ["../src/renderer/src/*"],
-      "@/*": ["../src/renderer/src/*"]
+      "@renderer/*": [
+        "../src/renderer/src/*"
+      ],
+      "@/*": [
+        "../src/renderer/src/*"
+      ]
     }
   }
 }

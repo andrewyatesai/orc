@@ -9,7 +9,9 @@ import {
   cleanCommandCodePromptCandidate,
   isCommandCodeIdlePromptCandidate
 } from './command-code-prompt-text'
-import { stripTerminalControl } from './terminal-control-sequence-strip'
+import { stripTerminalControl } from './terminal-control-stripping'
+
+export { stripTerminalControl } from './terminal-control-stripping'
 
 type CommandCodeOutputStatusDetector = {
   observe: (data: string) => boolean
@@ -209,11 +211,16 @@ function isIdlePromptText(context: StatusScanContext): boolean {
 
 export function createCommandCodeOutputStatusDetector(args: {
   startupCommand?: string | null
+  /** Continuity seed for a detector created long after launch (parked watchers):
+   *  the banner is off-screen by then, so a turn known to be in flight both arms
+   *  the scrape and carries its prompt into the idle-composer done check. */
+  inFlightTurn?: { prompt: string } | null
   onWorking: (prompt: string) => void
   onDone?: (prompt: string) => void
 }): CommandCodeOutputStatusDetector {
-  let hasSeenCommandCodeUi = isCommandCodeLaunchCommand(args.startupCommand)
-  let lastSubmittedPrompt = ''
+  let hasSeenCommandCodeUi =
+    isCommandCodeLaunchCommand(args.startupCommand) || Boolean(args.inFlightTurn)
+  let lastSubmittedPrompt = args.inFlightTurn?.prompt ?? ''
   let recentRawText = ''
 
   return {

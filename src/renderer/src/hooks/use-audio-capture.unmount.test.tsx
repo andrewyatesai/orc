@@ -57,7 +57,12 @@ beforeEach(() => {
     configurable: true,
     value: {
       getUserMedia: vi.fn(async () => ({
-        getTracks: () => [{ stop: trackStop }]
+        getTracks: () => [{ stop: trackStop }],
+        // A real MediaStream always exposes getAudioTracks; start() subscribes to the
+        // track's 'ended' event to detect capture loss.
+        getAudioTracks: () => [
+          { stop: trackStop, addEventListener: vi.fn(), removeEventListener: vi.fn() }
+        ]
       }))
     }
   })

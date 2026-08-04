@@ -82,7 +82,7 @@ export function useTerminalPaneGlobalEffects({
   worktreeIdRef.current = worktreeId
   const cwdRef = useRef(cwd)
   cwdRef.current = cwd
-  // Starts true so initially hidden tabs never allocate WebGL.
+  // Starts true so a tab that mounts hidden still takes a suspend on its first render.
   const wasVisibleRef = useRef(true)
   const wasWorktreeActiveRef = useRef(isWorktreeActive)
   const hasCompletedVisibleResumeRef = useRef(false)
@@ -155,6 +155,9 @@ export function useTerminalPaneGlobalEffects({
     if (!manager) {
       return
     }
+    // Why: the cross-manager wake repaint only touches managers that report
+    // themselves visible, so this manager's gate must track every flip.
+    manager.setAtlasRecoveryVisible?.(rendererVisible)
     if (rendererVisible) {
       postPaintVisibilityRecoveryRef.current = resumeTerminalVisibility({
         manager,

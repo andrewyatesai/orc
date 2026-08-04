@@ -1,4 +1,5 @@
 import { AGENT_STATUS_MAX_SUBAGENTS, type AgentSubagentSnapshot } from './agent-status-types'
+import type { ClaudeBackgroundAgentTask } from './claude-background-task-inventory'
 
 /** Mirrors the wire-normalization id cap in agent-status-types. Enforced at
  *  upsert so an over-long id can't gate the pane 'working' while being
@@ -36,6 +37,13 @@ export type TrackedClaudeSubagent = {
    *  removes it even when teammate-shaped, so it can't gate the pane
    *  'working' forever. Cleared once live activity re-tracks the id. */
   backgroundTasksAuthoritative?: boolean
+  /** The row was rebuilt from a persisted snapshot at restore and no live event
+   *  has confirmed it since, so the only thing backing it is a claim written by
+   *  an agent process that may no longer exist. Cleared by any live activity on
+   *  the id. Lets a liveness check reap it when that process is gone — the
+   *  inventory reap alone needs the parent to speak, and an idle parent never
+   *  does. */
+  restoredFromSnapshot?: boolean
   /** A subagent-typed background task listed this lifecycle id id-exact
    *  (workflow/named lanes) — proof the task list tracks this id, so a later
    *  complete list omitting it means finished/killed even though the id is
@@ -70,6 +78,9 @@ export function upsertWorkingClaudeSubagent(
     // background_tasks omission must stop reaping it (teammate-shaped ids
     // never appear there). The fold re-tags its own recreations after this.
     existing.backgroundTasksAuthoritative = undefined
+    // Why: the live event proves the agent process behind the restored row is
+    // still running it, so the liveness reap must stop treating it as a claim.
+    existing.restoredFromSnapshot = undefined
     return
   }
   // Why: beyond the wire cap extra rows would be invisible anyway; idle
@@ -116,6 +127,153 @@ export function stopClaudeSubagent(roster: ClaudeSubagentRoster, id: string): vo
     return
   }
   tracked.state = 'idle'
+}
+
+/** Fold a lead Stop's `background_tasks` into the lifecycle-tracked roster.
+ *
+ *  The list is authoritative for subagent-typed entries only: a running
+ *  one-shot/workflow lane is always listed under its lifecycle `agent_id`,
+ *  foreground children cannot span a lead Stop, and finished tasks drop from
+ *  the list. Teammate-typed entries prove nothing per-agent (unrelated ids,
+ *  permanently "running") — but their PRESENCE proves the session has
+ *  named-agent/teammate machinery, and their total absence from a complete
+ *  inventory proves no teammate-shaped child can still be alive. So:
+ *  - an empty list proves nothing is left alive → clear the roster;
+ *  - an id-exact subagent-typed match that is running is trusted fully and
+ *    tagged listedAsSubagentTask; one reported not running is removed;
+ *  - an unmatched RUNNING subagent-typed entry is a one-shot this listener
+ *    never saw start (Orca/relay restart mid-run) → recreate it;
+ *  - an unlisted entry is finished or dead (its SubagentStop was lost) →
+ *    remove it — UNLESS it is teammate-shaped, live-tracked, never
+ *    subagent-listed, the list still shows teammate-typed tasks, AND it is
+ *    working or TeammateIdle-confirmed: that is a named teammate whose id
+ *    simply never appears, and removing it would drop the pane's done-gate
+ *    (working) or its parked idle row (confirmed). */
+export function foldClaudeBackgroundTasksIntoRoster(
+  roster: ClaudeSubagentRoster,
+  tasks: ClaudeBackgroundAgentTask[],
+  now: number,
+  options?: { inventoryComplete?: boolean }
+): void {
+  if (tasks.length === 0) {
+    if (options?.inventoryComplete !== false) {
+      roster.clear()
+    }
+    return
+  }
+  const listedIds = new Set<string>()
+  const pendingRunningTasks = new Map<string, ClaudeBackgroundAgentTask>()
+  const hasTeammateTypedTask = tasks.some((task) => task.teammate)
+  for (const task of tasks) {
+    if (task.teammate) {
+      continue
+    }
+    listedIds.add(task.id)
+    const existing = roster.get(task.id)
+    if (existing) {
+      if (!task.running) {
+        roster.delete(task.id)
+        pendingRunningTasks.delete(task.id)
+        continue
+      }
+      // Why: a Stop can park the row before the lead inventory confirms the
+      // same workflow lane is still running; the authoritative task wins.
+      existing.state = 'working'
+      existing.agentType = task.agentType ?? existing.agentType
+      existing.description = task.description ?? existing.description
+      existing.listedAsSubagentTask = true
+      // Why: a live inventory listed the id as running — the restored claim is
+      // now confirmed by the current process, so liveness can't reap it.
+      existing.restoredFromSnapshot = undefined
+      continue
+    }
+    if (!task.running) {
+      pendingRunningTasks.delete(task.id)
+      continue
+    }
+    upsertWorkingClaudeSubagent(
+      roster,
+      task.id,
+      { agentType: task.agentType, description: task.description },
+      now
+    )
+    const created = roster.get(task.id)
+    if (created) {
+      created.backgroundTasksAuthoritative = true
+      created.listedAsSubagentTask = true
+    } else {
+      // Why: a full roster may still contain stale entries that this same
+      // inventory will reap. Retry after cleanup so a replacement stays live.
+      pendingRunningTasks.set(task.id, task)
+    }
+  }
+  if (options?.inventoryComplete !== false) {
+    for (const [id, tracked] of roster) {
+      if (listedIds.has(id)) {
+        continue
+      }
+      if (
+        hasTeammateTypedTask &&
+        !tracked.backgroundTasksAuthoritative &&
+        tracked.listedAsSubagentTask !== true &&
+        isClaudeTeammateLifecycleId(id) &&
+        // Why: an idle row that no TeammateIdle ever confirmed is a finished
+        // workflow lane wearing a teammate-shaped id — reap it here or the
+        // pre-#8825 idle pile rebuilds one lane per lead turn.
+        (tracked.state === 'working' || tracked.confirmedTeammate === true)
+      ) {
+        continue
+      }
+      roster.delete(id)
+    }
+  }
+  for (const task of pendingRunningTasks.values()) {
+    if (roster.size >= AGENT_STATUS_MAX_SUBAGENTS) {
+      break
+    }
+    upsertWorkingClaudeSubagent(
+      roster,
+      task.id,
+      { agentType: task.agentType, description: task.description },
+      now
+    )
+    const created = roster.get(task.id)
+    if (created) {
+      created.backgroundTasksAuthoritative = true
+      created.listedAsSubagentTask = true
+    }
+  }
+}
+
+/** Second reap path for restored rows, used when the agent process that wrote
+ *  the snapshot is gone. The inventory reap needs the parent to emit a complete
+ *  `background_tasks` list; a parent that went idle before Orca restarted never
+ *  emits one, so an unconfirmed row would gate the pane 'working' forever and
+ *  keep it out of hibernation. Rows confirmed by live activity are untouched.
+ *  Returns whether anything was dropped. */
+export function reapRestoredClaudeSubagentsWithoutLiveAgent(roster: ClaudeSubagentRoster): boolean {
+  let changed = false
+  for (const [id, tracked] of roster) {
+    if (tracked.restoredFromSnapshot === true) {
+      roster.delete(id)
+      changed = true
+    }
+  }
+  return changed
+}
+
+export function claudeRosterHasRestoredSnapshotSubagent(
+  roster: ClaudeSubagentRoster | undefined
+): boolean {
+  if (!roster) {
+    return false
+  }
+  for (const tracked of roster.values()) {
+    if (tracked.restoredFromSnapshot === true) {
+      return true
+    }
+  }
+  return false
 }
 
 /** Whether a lifecycle agent id belongs to the named teammate. Teammate ids

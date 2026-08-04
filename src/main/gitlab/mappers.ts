@@ -9,6 +9,7 @@ import {
   mapGitLabPipelineJobStatusToCheckStatus,
   mapGitLabPipelineJobStatusToConclusion
 } from '../rust-gitlab-pipeline-checks'
+import { summarizeProviderChecks } from '../../shared/provider-check-summary'
 
 // ── Pipeline job mapping (GitLab REST `/pipelines/:id/jobs`) ────────
 // Why: GitLab pipeline jobs roughly map to GitHub check-runs, but use a
@@ -145,7 +146,12 @@ function deriveMergeable(data: GitLabMRRaw): MRInfo['mergeable'] {
 // GitHub side does. Accept either shape.
 
 export function derivePipelineStatus(
-  rollup: { status?: string }[] | { status?: string } | string | null | undefined
+  rollup:
+    | { status?: string; allow_failure?: boolean }[]
+    | { status?: string }
+    | string
+    | null
+    | undefined
 ): CheckStatus {
   if (!rollup) {
     return 'neutral'
@@ -156,46 +162,26 @@ export function derivePipelineStatus(
   if (!Array.isArray(rollup)) {
     return classifyPipelineString(rollup.status ?? '')
   }
-  if (rollup.length === 0) {
-    return 'neutral'
-  }
-  let hasFailure = false
-  let hasPending = false
-  let hasSuccess = false
-  for (const job of rollup) {
-    const s = job.status?.toLowerCase()
-    // Why: canceled/manual/blocked mirror GitHub's CANCELLED/ACTION_REQUIRED —
-    // terminal-not-green states must not read as a pass.
-    if (
-      s === 'failed' ||
-      s === 'canceled' ||
-      s === 'canceling' ||
-      s === 'manual' ||
-      s === 'blocked'
-    ) {
-      hasFailure = true
-    } else if (
-      s === 'created' ||
-      s === 'pending' ||
-      s === 'running' ||
-      s === 'waiting_for_resource' ||
-      s === 'preparing' ||
-      s === 'scheduled'
-    ) {
-      hasPending = true
-    } else if (s === 'success') {
-      hasSuccess = true
-    }
-  }
-  if (hasFailure) {
-    return 'failure'
-  }
-  if (hasPending) {
-    return 'pending'
-  }
-  // Why: a rollup with no succeeded job (e.g. all skipped) must not read
-  // green — match classifyPipelineString's neutral for the same inputs.
-  return hasSuccess ? 'success' : 'neutral'
+  // Why: a job array is just a check list, so roll it up through the shared classifier instead of
+  // a second copy of the rules here — the copy drifted (all-skipped read grey while the Checks tab
+  // and mobile read it green). The fork's blocking-manual→action_required tone still applies: it
+  // lives in the Rust job mapper below, and action_required is a merge blocker to the classifier.
+  const { state } = summarizeProviderChecks(
+    rollup.map((job) => {
+      const status = job.status?.toLowerCase() ?? ''
+      return {
+        status: mapPipelineJobStatusToCheckStatus(status),
+        // Why: orca-core has no action_required arm yet, and mirrored GitHub-shaped pipelines
+        // reach this path — keep them red until the Rust mapper carries the status.
+        conclusion:
+          status === 'action_required'
+            ? 'action_required'
+            : mapPipelineJobStatusToConclusion(status, job.allow_failure === true)
+      }
+    })
+  )
+  // Why: CheckStatus has no 'none'; an empty job list carries the same "nothing to report" meaning.
+  return state === 'none' ? 'neutral' : state
 }
 
 // ── Raw → GitLabWorkItem mapping ────────────────────────────────────
@@ -222,6 +208,8 @@ type GitLabMRRawForWorkItem = {
    *  when the workspace flow can't safely resolve the head. */
   source_project_id?: number
   target_project_id?: number
+  has_conflicts?: boolean
+  detailed_merge_status?: string
 }
 
 export function mapMRToWorkItem(
@@ -250,6 +238,9 @@ export function mapMRToWorkItem(
       data.target_project_id !== undefined &&
       data.source_project_id !== data.target_project_id,
     repoId,
+    ...(data.has_conflicts !== undefined || data.detailed_merge_status !== undefined
+      ? { mergeable: deriveMergeable(data) }
+      : {}),
     ...(projectRef ? { projectRef } : {})
   }
 }
@@ -304,7 +295,8 @@ function classifyPipelineString(status: string): CheckStatus {
     s === 'canceled' ||
     s === 'canceling' ||
     s === 'manual' ||
-    s === 'blocked'
+    s === 'blocked' ||
+    s === 'action_required'
   ) {
     return 'failure'
   }

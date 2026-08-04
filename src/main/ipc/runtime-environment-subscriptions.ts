@@ -2,6 +2,7 @@ import { app, ipcMain } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { resolveEnvironment } from '../../shared/runtime-environment-store'
 import type { RemoteRuntimeSubscription } from '../../shared/remote-runtime-client'
+import { isRuntimeEnvironmentManuallyDisconnected } from './runtime-environment-connectivity-handlers'
 import { getRuntimeEnvironmentTransportGeneration } from './runtime-environment-transport-generation'
 import { subscribeRuntimeEnvironment } from './runtime-environment-transport-routing'
 
@@ -46,6 +47,9 @@ export function registerRuntimeEnvironmentSubscriptionHandlers(): void {
         throw new Error('Runtime environment subscription id already exists')
       }
       const environment = resolveEnvironment(getUserDataPath(), args.selector)
+      if (isRuntimeEnvironmentManuallyDisconnected(environment.id)) {
+        throw new Error('runtime_manually_disconnected')
+      }
       const pairingRevision = environment.pairingRevision ?? environment.createdAt
       if (
         args.expectedEnvironmentPairingRevision !== undefined &&

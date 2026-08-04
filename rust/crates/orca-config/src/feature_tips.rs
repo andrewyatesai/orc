@@ -116,10 +116,10 @@ pub const FEATURE_TIPS: [FeatureTip; 3] = [
         id: FeatureTipId::VoiceDictation,
         priority: FeatureTipPriority::Unseen,
         eyebrow: "Tip",
-        title: "Voice Dictation is here",
-        description: "Speak into any focused pane and Orca will transcribe it. Press the dictation shortcut to start and stop.",
+        title: "Dictate into any pane",
+        description: "Start voice dictation in any focused pane, then use the shortcut again to stop.",
         action: FeatureTipAction::EnableVoice,
-        cta_label: "Set Up Voice",
+        cta_label: "Set up voice dictation",
         completed_by_feature_interactions: &[FeatureInteractionId::VoiceDictation],
     },
 ];
@@ -285,5 +285,7 @@ mod tests {
 
         assert_eq!(voice_tip.eyebrow, "Tip");
         assert_eq!(voice_tip.priority, FeatureTipPriority::Unseen);
+        assert_eq!(voice_tip.title, "Dictate into any pane");
+        assert_eq!(voice_tip.cta_label, "Set up voice dictation");
     }
 }

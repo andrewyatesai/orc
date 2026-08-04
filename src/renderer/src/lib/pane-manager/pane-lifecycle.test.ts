@@ -1,4 +1,31 @@
-import { describe, expect, it } from 'vitest'
+/**
+ * @vitest-environment happy-dom
+ */
+import { describe, expect, it, vi } from 'vitest'
+import type { TerminalLeafId } from '../../../../shared/stable-pane-id'
+import type { PaneManagerOptions } from './pane-manager-types'
+import type { DragReorderCallbacks, DragReorderState } from './pane-drag-reorder'
+
+// The engine/facade layers are exercised elsewhere; these tests target the
+// pane-lifecycle DOM wiring only.
+vi.mock('./aterm/aterm-pane-open', () => ({ openAtermPane: vi.fn() }))
+vi.mock('./aterm/aterm-theme-colors', () => ({
+  resolveAtermThemeColors: vi.fn(() => ({ bg: 0x0a0a0a }))
+}))
+vi.mock('./aterm/aterm-terminal-facade', () => ({
+  createAtermTerminalFacade: vi.fn(() => ({
+    options: {},
+    resetLinkHoverCache: vi.fn(),
+    dispose: vi.fn()
+  }))
+}))
+vi.mock('./aterm/aterm-addon-facades', () => ({
+  createAtermFitAddonFacade: vi.fn(() => ({})),
+  createAtermSearchAddonFacade: vi.fn(() => ({})),
+  createAtermSerializeAddonFacade: vi.fn(() => ({}))
+}))
+
+import { createPaneDOM, disposePane } from './pane-lifecycle'
 import {
   buildDefaultTerminalOptions,
   DEFAULT_TERMINAL_FAST_SCROLL_SENSITIVITY,
@@ -132,6 +159,38 @@ describe('buildDefaultTerminalOptions', () => {
   })
 })
 
+describe('createPaneDOM linkifier mouseleave reset', () => {
+  function buildPane(): ReturnType<typeof createPaneDOM> {
+    return createPaneDOM(
+      1,
+      '11111111-1111-4111-8111-111111111111' as TerminalLeafId,
+      {} as PaneManagerOptions,
+      {} as DragReorderState,
+      {} as DragReorderCallbacks,
+      vi.fn(),
+      vi.fn()
+    )
+  }
+
+  it('drops the same-cell hover short-circuit when the pointer leaves the pane', () => {
+    const pane = buildPane()
+
+    pane.xtermContainer.dispatchEvent(new MouseEvent('mouseleave'))
+
+    expect(pane.terminal.resetLinkHoverCache).toHaveBeenCalledTimes(1)
+  })
+
+  it('removes the mouseleave listener on dispose', () => {
+    const pane = buildPane()
+
+    disposePane(pane, new Map([[pane.id, pane]]))
+    pane.xtermContainer.dispatchEvent(new MouseEvent('mouseleave'))
+
+    expect(pane.terminal.resetLinkHoverCache).not.toHaveBeenCalled()
+    expect(pane.linkifierMouseLeaveResetDisposable).toBeNull()
+  })
+})
+
 // The xterm WebGL/ligatures attach tests were removed with the xterm DOM
 // renderer: aterm owns GPU rendering (aterm-gpu-drawer) and shapes ligatures
 // natively, so those render-addon paths no longer exist. The xterm
@@ -147,4 +206,6 @@ describe('buildDefaultTerminalOptions', () => {
 // streamed-output linkifier hover-reset wiring test (#9320) is also out: the
 // aterm facade exposes no onWriteParsed seam to install it against. Same for
 // upstream's two offscreen webglRebuildDeferred ligature cases — aterm toggles
-// ligatures on the live engine with no atlas rebuild to defer.
+// ligatures on the live engine with no atlas rebuild to defer. Upstream's
+// mouseleave hover-reset case is kept above, re-aimed at the pane's canvas host
+// (aterm has no `.xterm-screen` element to bind to).

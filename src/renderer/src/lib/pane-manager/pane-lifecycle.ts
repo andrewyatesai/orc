@@ -17,6 +17,7 @@ import {
   createAtermSerializeAddonFacade
 } from './aterm/aterm-addon-facades'
 import { buildDefaultTerminalOptions } from './pane-terminal-options'
+import { resetTerminalLinkifierHoverState } from './terminal-linkifier-hover-reset'
 
 // ---------------------------------------------------------------------------
 // Pane creation, terminal open/close, addon management
@@ -100,6 +101,7 @@ export function createPaneDOM(
     linkTooltip,
     terminalTuiScrollSensitivity: options.terminalTuiScrollSensitivity,
     formatLinkTooltip: options.formatLinkTooltip,
+    linkOpenHint: options.linkOpenHint,
     // The aterm controller owns GPU acceleration via its own draw strategy
     // (aterm-gpu-auto-policy reads this setting at wiring time).
     terminalGpuAcceleration: options.terminalGpuAcceleration ?? 'auto',
@@ -127,6 +129,14 @@ export function createPaneDOM(
   // Focus-follows-mouse handler: when the setting is enabled, hovering a pane
   // makes it active. All gating lives in the PaneManager callback.
   container.addEventListener('mouseenter', paneMouseEnterHandler)
+
+  // Why: aterm's link input short-circuits same-cell mousemoves, so re-entering the
+  // pane on the cell you left would keep a stale hit unless the cache is dropped here.
+  const resetLinkHoverOnLeave = (): void => resetTerminalLinkifierHoverState(pane.terminal)
+  xtermContainer.addEventListener('mouseleave', resetLinkHoverOnLeave)
+  pane.linkifierMouseLeaveResetDisposable = {
+    dispose: () => xtermContainer.removeEventListener('mouseleave', resetLinkHoverOnLeave)
+  }
 
   return pane
 }
@@ -165,6 +175,8 @@ export function disposePane(
   }
   pane.paneDragCleanup?.()
   pane.paneDragCleanup = null
+  pane.linkifierMouseLeaveResetDisposable?.dispose()
+  pane.linkifierMouseLeaveResetDisposable = null
   try {
     clearPendingSplitScrollRestore(pane)
   } catch {

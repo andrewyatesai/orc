@@ -227,6 +227,34 @@ describe('createWorktreeChangeRefreshQueue', () => {
     })
   })
 
+  it('does not coalesce same-ID refreshes from different runtime hosts', async () => {
+    const firstRefresh = deferred()
+    const handler = vi.fn().mockReturnValueOnce(firstRefresh.promise).mockResolvedValue(undefined)
+    const queue = createWorktreeChangeRefreshQueue(handler)
+
+    queue.enqueue({ repoId: 'same-repo', ownerHostId: 'runtime:env-1' })
+    queue.enqueue({ repoId: 'same-repo', ownerHostId: 'runtime:env-1' })
+    queue.enqueue({ repoId: 'same-repo', ownerHostId: 'runtime:env-2' })
+
+    // Why: the queue is keyed per host, so env-2 scans immediately instead of
+    // waiting behind (or folding into) env-1's in-flight scan.
+    expect(handler).toHaveBeenCalledTimes(2)
+    expect(handler).toHaveBeenNthCalledWith(1, 'same-repo', 'runtime:env-1', undefined, {
+      forceLocalOwner: undefined
+    })
+    expect(handler).toHaveBeenNthCalledWith(2, 'same-repo', 'runtime:env-2', undefined, {
+      forceLocalOwner: undefined
+    })
+
+    firstRefresh.resolve()
+    await flushPromises()
+
+    expect(handler).toHaveBeenCalledTimes(3)
+    expect(handler).toHaveBeenNthCalledWith(3, 'same-repo', 'runtime:env-1', undefined, {
+      forceLocalOwner: undefined
+    })
+  })
+
   it('drops queued trailing refreshes after disposal', async () => {
     const firstRefresh = deferred()
     const handler = vi.fn().mockReturnValueOnce(firstRefresh.promise).mockResolvedValue(undefined)

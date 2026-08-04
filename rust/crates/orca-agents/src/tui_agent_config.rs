@@ -352,6 +352,16 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
     // Ante's `--prompt` is headless (runs once and exits), so Orca launches the
     // bare TUI and injects the prompt after startup.
     ("ante", agent("ante", "ante", "ante", StdinAfterStart)),
+    // Detect TRAE CN on `traecli`: the unrelated bytedance/trae-agent owns the
+    // `trae-cli` name. `--` stops its Cobra parser so a prompt shaped like
+    // `help`/`config`/`-…` stays the positional task instead of a subcommand.
+    (
+        "trae",
+        TuiAgentConfig {
+            argv_prompt_separator: Some("--"),
+            ..agent("traecli", "traecli", "traecli", Argv)
+        },
+    ),
     // `devin -- <prompt>` auto-submits, so launch bare and send the prompt to the
     // PTY after startup.
     ("devin", agent("devin", "devin", "devin", StdinAfterStart)),
@@ -409,8 +419,9 @@ mod tests {
         assert!(is_tui_agent("command-code"));
         assert!(!is_tui_agent("not-real"));
         assert!(!is_tui_agent(""));
-        // The full TuiAgent union has 34 members.
-        assert_eq!(TUI_AGENT_CONFIG.len(), 34);
+        assert!(is_tui_agent("trae"));
+        // The full TuiAgent union has 35 members.
+        assert_eq!(TUI_AGENT_CONFIG.len(), 35);
     }
 
     #[test]
@@ -434,6 +445,13 @@ mod tests {
         let command_code = tui_agent_config("command-code").unwrap();
         assert_eq!(command_code.launch_cmd, "command-code --trust");
         assert_eq!(command_code.expected_process, "command-code");
+
+        // TRAE CN ships `traecli`; `trae-cli` belongs to another project.
+        let trae = tui_agent_config("trae").unwrap();
+        assert_eq!(trae.detect_cmd, "traecli");
+        assert_eq!(trae.launch_cmd, "traecli");
+        assert_eq!(trae.expected_process, "traecli");
+        assert_eq!(get_tui_agent_detect_commands(trae), vec!["traecli"]);
     }
 
     #[test]
@@ -472,5 +490,14 @@ mod tests {
             tui_agent_config("aider").unwrap().prompt_injection_mode,
             AgentPromptInjectionMode::StdinAfterStart
         );
+        // grok and trae are the argv agents that terminate options before the prompt.
+        assert_eq!(tui_agent_config("grok").unwrap().argv_prompt_separator, Some("--"));
+        let trae = tui_agent_config("trae").unwrap();
+        assert_eq!(trae.prompt_injection_mode, AgentPromptInjectionMode::Argv);
+        assert_eq!(trae.argv_prompt_separator, Some("--"));
+        assert_eq!(trae.draft_prompt_flag, None);
+        assert_eq!(trae.draft_prompt_env_var, None);
+        assert_eq!(trae.preflight_trust, None);
+        assert_eq!(trae.draft_paste_ready_signal, None);
     }
 }

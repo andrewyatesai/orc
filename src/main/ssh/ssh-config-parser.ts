@@ -30,9 +30,7 @@ export type SshConfigHost = {
  * home, which the pure Rust port takes explicitly.
  */
 export function parseSshConfig(content: string): SshConfigHost[] {
-  return JSON.parse(
-    requireRustGitBinding().parseSshConfig(content, homedir())
-  ) as SshConfigHost[]
+  return JSON.parse(requireRustGitBinding().parseSshConfig(content, homedir())) as SshConfigHost[]
 }
 
 /** Read and parse the user's ~/.ssh/config file. Returns empty array if not found. */

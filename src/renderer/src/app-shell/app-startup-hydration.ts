@@ -9,6 +9,11 @@ import { mapWithConcurrency } from '../../../shared/map-with-concurrency'
 import { syncZoomCSSVar } from '@/lib/ui-zoom'
 import { getSystemPrefersDark } from '../lib/terminal-theme'
 import { publishTerminalViewAttributesAtAppStart } from '../components/terminal-pane/terminal-appearance'
+import {
+  collectTerminalProviderSnapshotPtyIds,
+  synchronizeTerminalProviderSnapshotCapabilities
+} from '../components/terminal/terminal-provider-snapshot-capability'
+import { sweepRestoredCodexPanesForStaleAccounts } from '../lib/codex-stale-pane-sweep'
 import { hydratePersistedUIAfterStartupRead } from '../lib/startup-ui-hydration'
 import { fetchWorkspaceSessionWithRuntimeHostOwners } from '../lib/workspace-session-host-persistence'
 import {
@@ -34,6 +39,7 @@ export type StartupHydrationActions = Pick<
   | 'fetchKeybindings'
   | 'hydratePersistedUI'
   | 'fetchReposForAllHosts'
+  | 'awaitLocalRepoCatalogSettlement'
   | 'fetchProjectGroupsForAllHosts'
   | 'fetchFolderWorkspacesForAllHosts'
   | 'fetchWorktrees'
@@ -157,6 +163,11 @@ export async function runAppStartupHydration({
     await timeRendererStartupStep('fetch-repos-local', () =>
       actions.fetchReposForAllHosts({ remoteHosts: 'skip' })
     )
+    // Why: a catalog fetch started elsewhere (watcher/settings) can still be in flight; settle it so
+    // session-get and worktree hydration route on the final repo list, not a half-written one.
+    await timeRendererStartupStep('repo-catalog-settlement', () =>
+      actions.awaitLocalRepoCatalogSettlement()
+    )
     // Why: folder workspaces merge against projectGroups (repos.ts fetchFolderWorkspacesForAllHosts),
     // so keep this two-step catalog chain internally ordered; it is otherwise independent of
     // repos/worktrees/session and overlaps the session-scoped hydration chain below.
@@ -220,6 +231,11 @@ export async function runAppStartupHydration({
     }
     const sessionRead = sessionOutcome.value
     await keybindingsPromise
+    // Why: the concurrent catalog chain may have restarted the local repo fetch; settle again so the
+    // session stores hydrate against the settled catalog.
+    await timeRendererStartupStep('repo-catalog-final-settlement', () =>
+      actions.awaitLocalRepoCatalogSettlement()
+    )
     if (isCancelled()) {
       return
     }
@@ -260,10 +276,27 @@ export async function runAppStartupHydration({
     await timeRendererStartupStep('first-window-services-await', () =>
       window.api.app.awaitFirstWindowStartupServices()
     )
+    // Why: reconcile legacy worker authority before reconnect so restored panes bind to live PTYs.
+    await timeRendererStartupStep('recover-legacy-worker-terminals-pre-reconnect', () =>
+      window.api.app.recoverLegacyWorkerTerminalsForRendererStartup()
+    )
+    // Why: prefetch snapshot authority so reconnect can unlock cold activation without a round-trip per pane.
+    await timeRendererStartupStep('terminal-provider-snapshot-capabilities', () =>
+      synchronizeTerminalProviderSnapshotCapabilities(
+        collectTerminalProviderSnapshotPtyIds(useAppStore.getState())
+      )
+    )
     reconnectStarted = true
     await timeRendererStartupStep('reconnect-terminals', () =>
       actions.reconnectPersistedTerminals(abortSignal)
     )
+    // Why: reconnect publishes more PTYs; run recovery again so the ones it just restored settle too.
+    await timeRendererStartupStep('recover-legacy-worker-terminals-post-reconnect', () =>
+      window.api.app.recoverLegacyWorkerTerminalsForRendererStartup()
+    )
+    // Why here: reconnect just published restored PTY ids; sweeping now re-offers stale Codex panes
+    // whose tabs never mount this session.
+    sweepRestoredCodexPanesForStaleAccounts(useAppStore.getState())
     syncZoomCSSVar()
     // Why (issue #1158): unlock the session writer only after hydration and all dependent steps succeeded, so a mid-startup throw can't serialize partially-mutated state to disk.
     actions.setHydrationSucceeded(true)

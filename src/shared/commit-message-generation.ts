@@ -14,14 +14,6 @@ export type CommitMessageDraftContext = {
   linkedIssue?: number | null
 }
 
-export type CommitMessageDraftOptions = {
-  agentId: CommitMessageDraftAgent
-  model: string
-  thinkingLevel?: string
-  customPrompt?: string
-  customAgentCommand?: string
-}
-
 export type GeneratedCommitMessage = {
   subject: string
   body: string

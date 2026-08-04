@@ -10,6 +10,9 @@ export const isPrereleaseVersion = isPrereleaseAppVersion
 export const isValidVersion = isValidAppVersion
 
 export function statusesEqual(left: UpdateStatus, right: UpdateStatus): boolean {
+  if (left.source !== right.source) {
+    return false
+  }
   switch (left.state) {
     case 'idle':
       return right.state === 'idle'
@@ -49,7 +52,12 @@ export function statusesEqual(left: UpdateStatus, right: UpdateStatus): boolean 
         left.message === right.message &&
         left.userInitiated === right.userInitiated &&
         left.activeNudgeId === right.activeNudgeId &&
-        left.retryAction === right.retryAction
+        left.retryAction === right.retryAction &&
+        // Why: clearing recovery must reach the renderer even when the message is unchanged, or dead actions stay enabled.
+        left.recovery?.kind === right.recovery?.kind &&
+        left.recovery?.packageType === right.recovery?.packageType &&
+        left.recovery?.reason === right.recovery?.reason &&
+        left.recovery?.version === right.recovery?.version
       )
   }
 }

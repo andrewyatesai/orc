@@ -73,7 +73,7 @@ fn parse_corpus(text: &str) -> Vec<Case> {
 }
 
 fn main() {
-    let path = env::args().nth(1).unwrap_or_else(|| "tools/conformance/corpus.rec".to_string());
+    let path = env::args().nth(1).unwrap_or_else(|| "tests/tools/conformance/corpus.rec".to_string());
     let text = match fs::read_to_string(&path) {
         Ok(t) => t,
         Err(e) => {

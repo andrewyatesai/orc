@@ -1,0 +1,39 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { parse } from 'yaml'
+import { describe, expect, it } from 'vitest'
+
+// Why: the fork runs no hosted CI, so pr.yml is dropped — gate on the asserted
+// file so the contract runs wherever it ships and skips cleanly where it does not.
+const HAS_CI_PR_WORKFLOW = existsSync('.github/workflows/pr.yml')
+
+describe('packaged hang watchdog worker contract', () => {
+  it.skipIf(!HAS_CI_PR_WORKFLOW)('boots the worker from app.asar in PR checks', () => {
+    const workflow = parse(readFileSync('.github/workflows/pr.yml', 'utf8'))
+    const smokeSource = readFileSync(
+      'config/scripts/smoke-packaged-hang-watchdog-worker.mjs',
+      'utf8'
+    )
+    const smokeStep = workflow.jobs.package.steps.find(
+      (step) => step.name === 'Smoke packaged hang watchdog worker'
+    )
+
+    expect(smokeStep.run).toBe(
+      'xvfb-run --auto-servernum node config/scripts/smoke-packaged-hang-watchdog-worker.mjs --app-dir=dist/linux-unpacked'
+    )
+    expect(smokeSource).toContain(
+      "process.platform === 'linux' ? ['--no-sandbox', launcherDir] : [launcherDir]"
+    )
+  })
+
+  // Why: Electron ignores process.exitCode, so the gate needs app.exit plus a stdout assertion.
+  it('fails the smoke when the packaged worker never reports success', () => {
+    const smokeSource = readFileSync(
+      'config/scripts/smoke-packaged-hang-watchdog-worker.mjs',
+      'utf8'
+    )
+
+    expect(smokeSource).toContain('app.exit(1)')
+    expect(smokeSource).not.toContain('app.quit()')
+    expect(smokeSource).toContain('if (!result.stdout.includes(SUCCESS_LINE))')
+  })
+})

@@ -41,6 +41,10 @@ pub enum TerminalStreamOpcode {
     /// Transformed output plus its pre-transform length, encoded as JSON so
     /// sequence-gap detection can preserve the raw terminal byte count.
     OutputSpan = 15,
+    /// Client-driven output backpressure (JSON `{ paused }`), negotiated per
+    /// stream. Mirrors the TS enum's 16; without this arm the host would drop
+    /// every pause frame and keep flooding a stalled renderer.
+    SetOutputPaused = 16,
 }
 
 impl TerminalStreamOpcode {
@@ -61,6 +65,7 @@ impl TerminalStreamOpcode {
             13 => Some(Self::Ack),
             14 => Some(Self::ClaimViewport),
             15 => Some(Self::OutputSpan),
+            16 => Some(Self::SetOutputPaused),
             _ => None,
         }
     }
@@ -250,12 +255,13 @@ mod tests {
     }
 
     #[test]
-    fn round_trips_post_metadata_opcodes_13_through_15() {
+    fn round_trips_post_metadata_opcodes_13_through_16() {
         // Why: missing a live TS opcode silently drops that frame at the Rust relay boundary.
         for opcode in [
             TerminalStreamOpcode::Ack,
             TerminalStreamOpcode::ClaimViewport,
             TerminalStreamOpcode::OutputSpan,
+            TerminalStreamOpcode::SetOutputPaused,
         ] {
             let frame = decode_terminal_stream_frame(&encode_terminal_stream_frame(
                 &TerminalStreamFrame { opcode, stream_id: 7, seq: 3, payload: Vec::new() },
@@ -266,14 +272,14 @@ mod tests {
             assert_eq!(frame.seq, 3);
             assert!(frame.payload.is_empty());
         }
-        // Opcode 16 is now the first unknown value beyond OutputSpan.
+        // Opcode 17 is now the first unknown value beyond SetOutputPaused.
         let mut unknown = encode_terminal_stream_frame(&TerminalStreamFrame {
             opcode: TerminalStreamOpcode::Output,
             stream_id: 1,
             seq: 1,
             payload: Vec::new(),
         });
-        unknown[2] = 16;
+        unknown[2] = 17;
         assert_eq!(decode_terminal_stream_frame(&unknown), None);
     }
 

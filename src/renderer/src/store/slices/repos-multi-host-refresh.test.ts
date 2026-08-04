@@ -328,11 +328,10 @@ describe('repo slice multi-host refresh', () => {
     ])
   })
 
-  // Fork adaptation: fetchRepos serializes via reposFetchGeneration (#7020) — a
-  // superseded fetch is dropped instead of merged, and multi-host loads go
-  // through fetchReposForAllHosts. Assert that a late stale fetch cannot
-  // clobber sibling-host rows already known to the store.
-  it('drops a superseded cross-host refresh without clobbering known sibling rows', async () => {
+  // Why: since #11611 the #7020 fetch generation is claimed per host, so a runtime
+  // refresh no longer supersedes an in-flight local one — each catalog must apply
+  // host-scoped and leave the sibling host's rows alone in both directions.
+  it('applies overlapping cross-host refreshes host-scoped without clobbering sibling rows', async () => {
     const localList = deferred<Repo[]>()
     const runtimeList = deferred<{
       id: string
@@ -390,12 +389,10 @@ describe('repo slice multi-host refresh', () => {
     localList.resolve([])
     await localRefresh
 
-    // The superseded local fetch (empty list) is dropped — it must not erase either row.
-    expect(store.getState().repos).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: localRepo.id, executionHostId: 'local' }),
-        expect.objectContaining({ id: runtimeRepo.id, executionHostId: 'runtime:env-1' })
-      ])
-    )
+    // The slower local catalog is still the latest for its own host, so it prunes the
+    // local row — and only that row: the runtime sibling survives untouched.
+    expect(store.getState().repos).toEqual([
+      expect.objectContaining({ id: runtimeRepo.id, executionHostId: 'runtime:env-1' })
+    ])
   })
 })

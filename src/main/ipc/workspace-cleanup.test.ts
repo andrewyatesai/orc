@@ -82,7 +82,8 @@ const REPO: Repo = {
   path: '/repo',
   displayName: 'Repo',
   badgeColor: '#000',
-  addedAt: NOW
+  addedAt: NOW,
+  symlinkPaths: ['node_modules']
 }
 function makeWorktreeMeta(overrides: Partial<WorktreeMeta> = {}): WorktreeMeta {
   return {
@@ -170,7 +171,10 @@ describe('workspace cleanup scan', () => {
   it('default-selects inactive workspaces when git status is clean', async () => {
     const result = await scanWorkspaceCleanup(makeStore())
 
-    expect(getStatusMock).toHaveBeenCalledTimes(1)
+    expect(getStatusMock).toHaveBeenCalledWith('/repo-feature', {
+      signal: expect.any(AbortSignal),
+      sharedLinkPaths: ['node_modules']
+    })
     expect(result.candidates).toHaveLength(1)
     expect(result.candidates[0]).toMatchObject({
       tier: 'ready',

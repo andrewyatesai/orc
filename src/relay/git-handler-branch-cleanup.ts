@@ -13,9 +13,10 @@ export async function deleteAlreadyMergedRelayBranchAfterSafeDeleteFailure(
   const runGit = (args: string[], stdin: string | null) =>
     stdin !== null ? git(args, repoPath, { stdin }) : git(args, repoPath)
   // Why: SSH worktrees hit the same squash-merge shape as local worktrees. Rust
-  // gathers the base refs, fetch --prunes the relevant remotes, and runs the
-  // tree/patch/squash no-op-merge proof (the same code main runs via napi), so we
-  // clean up only branches whose changes already exist on the saved base ref.
+  // gathers the base refs and runs the tree/patch/squash no-op-merge proof (the same
+  // code main runs via napi), fetch --pruning the relevant remotes only when local
+  // refs are inconclusive, so we clean up only branches whose changes already exist
+  // on the saved base ref.
   if (!(await branchIsSafeToDelete(runGit, branchName))) {
     return false
   }

@@ -39,11 +39,15 @@ describe('issue #8784 GHE avatar fallback (regression)', () => {
     expect(githubAvatarUrl('corp-user')).toBe('https://github.com/corp-user.png?size=64')
   })
 
-  it('keeps the display-only URL builder out of the issue-mutations module', () => {
-    // Why: githubAvatarUrl is a pure display helper; leaving it in
-    // github-issue-mutations.ts misdescribes the module (AGENTS.md naming rule).
-    const mutations = readFileSync(join(__dirname, 'github-issue-mutations.ts'), 'utf8')
-    expect(mutations).not.toMatch(/githubAvatarUrl/)
+  it('keeps the display-only URL builder out of the work-item mutation modules', () => {
+    // Why: githubAvatarUrl is a pure display helper; living beside the mutation
+    // IPCs misdescribes those modules (AGENTS.md naming rule).
+    for (const module of [
+      'github-work-item-comment-mutations.ts',
+      'github-work-item-edit-mutations.ts'
+    ]) {
+      expect(readFileSync(join(__dirname, module), 'utf8')).not.toMatch(/githubAvatarUrl/)
+    }
   })
 
   it('source routes PR author/reviewer avatars through GitHubUserAvatar + authorAvatarUrl', () => {

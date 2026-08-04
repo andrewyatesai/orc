@@ -45,9 +45,29 @@ export type Osc52ClipboardRequestOptions = {
   /** Fires with the verified outcome of an ALLOWED write (never for blocked
    *  writes or queries) so silent OSC 52 failures become visible. */
   onWriteResult?: (ok: boolean) => void
+  /** Failure-only shorthand; fires alongside `onWriteResult(false)`. */
+  onWriteFailure?: () => void
 }
 
 const MAX_OSC52_BASE64_CHARS = 128 * 1024
+
+function runOsc52ClipboardNotifier(notify?: () => void): void {
+  try {
+    notify?.()
+  } catch {
+    // A failed notifier must not escape an already-handled clipboard outcome.
+  }
+}
+
+function reportOsc52ClipboardWriteOutcome(
+  options: Osc52ClipboardRequestOptions,
+  ok: boolean
+): void {
+  runOsc52ClipboardNotifier(() => options.onWriteResult?.(ok))
+  if (!ok) {
+    runOsc52ClipboardNotifier(options.onWriteFailure)
+  }
+}
 
 /** Resolves whether an incoming OSC 52 write may touch the clipboard, and whether a
  *  refusal is worth telling the user about. */
@@ -83,8 +103,11 @@ export function resolveOsc52ClipboardGate(input: {
 export function createOsc52OscHandler(deps: {
   getSettingEnabled: () => boolean | null | undefined
   getReplaying: () => boolean
-  writeClipboardText: (text: string) => Promise<void>
+  /** A boolean resolution reports whether the write VERIFIED (read-back matched);
+   *  void resolutions are treated as success for legacy callers. */
+  writeClipboardText: (text: string) => Promise<boolean | void>
   showBlockedWriteToast: () => void
+  showWriteFailedToast?: () => void
 }): (data: string) => boolean {
   // Why coalesce: each sequence is only ~15 bytes, so one hostile chunk can fire a
   // million parser callbacks — each a main-process clipboard write. Only the last of
@@ -104,16 +127,26 @@ export function createOsc52OscHandler(deps: {
           // Why try/catch and not just .catch(): the write moved out of the guarded
           // parser handler into a microtask, where a sync throw (or a preload that
           // never installed writeClipboardText) would surface as an uncaught error.
+          // Report the otherwise invisible host failure.
           try {
-            void deps.writeClipboardText(next)?.catch(() => {
-              /* ignore clipboard write failures */
-            })
+            void deps.writeClipboardText(next)?.then(
+              (ok) => {
+                if (ok === false) {
+                  runOsc52ClipboardNotifier(deps.showWriteFailedToast)
+                }
+              },
+              () => {
+                runOsc52ClipboardNotifier(deps.showWriteFailedToast)
+              }
+            )
           } catch {
-            /* ignore clipboard write failures */
+            runOsc52ClipboardNotifier(deps.showWriteFailedToast)
           }
         }
       })
     }
+    // Always resolve here: the outcome is reported in the microtask above, so
+    // onWriteResult/onWriteFailure on handleOsc52ClipboardRequest would be dead.
     return Promise.resolve()
   }
 
@@ -146,8 +179,8 @@ export function handleOsc52ClipboardRequest(
 
   // The parser handler stays synchronous; the verified result flows out of band.
   void options.writeClipboardText(parsed.text).then(
-    (ok) => options.onWriteResult?.(ok !== false),
-    () => options.onWriteResult?.(false)
+    (ok) => reportOsc52ClipboardWriteOutcome(options, ok !== false),
+    () => reportOsc52ClipboardWriteOutcome(options, false)
   )
   return true
 }

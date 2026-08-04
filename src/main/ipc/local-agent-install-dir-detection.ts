@@ -1,6 +1,8 @@
 import path from 'node:path'
-import { resolveCliCommands } from '../codex-cli/command'
+import { resolveCliCommands } from '../../shared/node-cli-command-resolution'
 
+// Why: path.isAbsolute binds to the host OS at load, so a stubbed win32 platform needs the explicit
+// win32 matcher for Windows install-dir detection (#5149).
 function isPlatformAbsolute(candidate: string): boolean {
   return process.platform === 'win32'
     ? path.win32.isAbsolute(candidate)

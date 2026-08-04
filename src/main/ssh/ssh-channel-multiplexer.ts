@@ -14,19 +14,27 @@ import {
   type JsonRpcResponse,
   type JsonRpcNotification
 } from './relay-protocol'
+import {
+  SshMultiplexerTransportWriter,
+  type MultiplexerTransport,
+  type MultiplexerWriteSettlement,
+  type MultiplexerWriterLane
+} from './ssh-multiplexer-transport-writer'
 
-export type MultiplexerTransport = {
-  write: (data: Buffer) => void
-  onData: (cb: (data: Buffer) => void) => void
-  onClose: (cb: () => void) => void
-  close?: () => void
-}
+export type { MultiplexerTransport, MultiplexerWriteSettlement }
 
 type PendingRequest = {
   resolve: (result: unknown) => void
   reject: (error: Error) => void
+  beforeResolve?: (result: unknown) => void
   timer: ReturnType<typeof setTimeout>
   cleanup: () => void
+}
+
+export type SshMultiplexerRequestOptions = {
+  signal?: AbortSignal
+  timeoutMs?: number
+  beforeResolve?: (result: unknown) => void
 }
 
 export type NotificationHandler = (method: string, params: Record<string, unknown>) => void
@@ -34,21 +42,21 @@ export type MethodNotificationHandler = (params: Record<string, unknown>) => voi
 export type RequestHandler = (params: Record<string, unknown>) => Promise<unknown> | unknown
 
 const REQUEST_TIMEOUT_MS = 30_000
+// Why: unackedTimestamps is pruned only when the peer's ack advances, so a peer
+// that stays live but never acks would grow it unbounded; past the cap newer
+// sends go untracked, and dead-link detection needs only the OLDEST entry.
+// Liveness frames get one extra slot so a keepalive probe is never the send
+// that ordinary traffic starved out.
+export const MAX_ORDINARY_UNACKED_TIMESTAMPS = 4095
+export const MAX_UNACKED_TIMESTAMPS = MAX_ORDINARY_UNACKED_TIMESTAMPS + 1
 // Why: a tick gap far beyond the interval means the process was paused
 // (system sleep, App Nap timer throttling) — not that the link is dead (#7773).
 const WAKE_GAP_MS = KEEPALIVE_SEND_MS * 3
-// Why: unackedTimestamps is pruned only when the peer's ack advances. A peer
-// that stays live (its inbound frames keep lastReceivedAt fresh, so the
-// no-data half of dead-link detection never trips) but never advances ack would
-// grow this map unbounded (~1 entry per keepalive, ~17k/day). Cap the tracked
-// set far above any realistic in-flight window; past it, newer sends go
-// untracked. Dead-link detection needs only the OLDEST unacked timestamp, which
-// the retained entries preserve, and ack-deleting an untracked seq is a no-op.
-export const MAX_UNACKED_TIMESTAMPS = 50_000
 
 export class SshChannelMultiplexer {
   private decoder: FrameDecoder
   private transport: MultiplexerTransport
+  private writer: SshMultiplexerTransportWriter
   private nextRequestId = 1
   private nextOutgoingSeq = 1
   private highestReceivedSeq = 0
@@ -64,6 +72,8 @@ export class SshChannelMultiplexer {
   private disposeHandlers: ((reason: 'shutdown' | 'connection_lost') => void)[] = []
   private connectionHealthTimer: ReturnType<typeof setInterval> | null = null
   private disposed = false
+  private decoderReadPaused = false
+  private writerSaturated = false
 
   // Track the oldest unacked outgoing message timestamp
   private unackedTimestamps = new Map<number, number>()
@@ -74,10 +84,19 @@ export class SshChannelMultiplexer {
 
   constructor(transport: MultiplexerTransport) {
     this.transport = transport
+    this.writer = new SshMultiplexerTransportWriter(
+      transport,
+      (error) => this.handleProtocolError(error),
+      (saturated) => this.handleWriterSaturationChange(saturated)
+    )
 
     this.decoder = new FrameDecoder(
       (frame) => this.handleFrame(frame),
-      (err) => this.handleProtocolError(err)
+      (err) => this.handleProtocolError(err),
+      {
+        pause: () => this.pauseDecoderReads(),
+        resume: () => this.resumeDecoderReads()
+      }
     )
 
     transport.onData((data) => {
@@ -166,7 +185,7 @@ export class SshChannelMultiplexer {
   async request(
     method: string,
     params?: Record<string, unknown>,
-    options?: { signal?: AbortSignal; timeoutMs?: number }
+    options?: SshMultiplexerRequestOptions
   ): Promise<unknown> {
     if (this.disposed) {
       throw new Error('Multiplexer disposed')
@@ -223,7 +242,13 @@ export class SshChannelMultiplexer {
       if (options?.signal) {
         options.signal.addEventListener('abort', onAbort, { once: true })
       }
-      this.pendingRequests.set(id, { resolve, reject, timer, cleanup })
+      this.pendingRequests.set(id, {
+        resolve,
+        reject,
+        beforeResolve: options?.beforeResolve,
+        timer,
+        cleanup
+      })
       this.sendMessage(msg)
     })
   }
@@ -243,6 +268,25 @@ export class SshChannelMultiplexer {
     }
 
     this.sendMessage(msg)
+  }
+
+  notifyWithSettlement(
+    method: string,
+    params: Record<string, unknown> | undefined,
+    onSettled: (result: { ok: true } | { ok: false; error: Error }) => void
+  ): void {
+    if (this.disposed) {
+      onSettled({ ok: false, error: new Error('Multiplexer disposed') })
+      return
+    }
+    this.sendMessage(
+      {
+        jsonrpc: '2.0',
+        method,
+        ...(params !== undefined ? { params } : {})
+      },
+      onSettled
+    )
   }
 
   /**
@@ -305,6 +349,9 @@ export class SshChannelMultiplexer {
       this.pendingRequests.delete(id)
     }
 
+    const writerError = new Error(errorMessage) as Error & { code: string }
+    writerError.code = errorCode
+    this.writer.dispose(writerError)
     this.unackedTimestamps.clear()
     // Why: relay teardown can race with late provider registration; disposed
     // muxes must not retain provider/session closures through subscribers.
@@ -329,44 +376,27 @@ export class SshChannelMultiplexer {
 
   // ── Private ───────────────────────────────────────────────────────
 
-  // Why: cap unackedTimestamps against a live-but-non-acking peer (see
-  // MAX_UNACKED_TIMESTAMPS). Once full we stop tracking newer seqs; the retained
-  // oldest entries keep dead-link staleness detection intact.
-  private recordUnacked(seq: number): void {
-    if (this.unackedTimestamps.size >= MAX_UNACKED_TIMESTAMPS) {
-      return
-    }
-    this.unackedTimestamps.set(seq, Date.now())
-  }
-
-  private sendMessage(msg: JsonRpcMessage): void {
+  private sendMessage(
+    msg: JsonRpcMessage,
+    onSettled?: (result: MultiplexerWriteSettlement) => void
+  ): void {
     const seq = this.nextOutgoingSeq++
     const frame = encodeJsonRpcFrame(msg, seq, this.highestReceivedSeq)
-    this.recordUnacked(seq)
-    try {
-      this.transport.write(frame)
-    } catch (err) {
-      // Why: a remote reboot can make the SSH channel's stdin throw EPIPE
-      // from a timer/request path. Scope it to this mux instead of letting
-      // the Electron main process treat it as an uncaught exception.
-      this.handleProtocolError(err)
-    }
+    this.trackOutgoingTimestamp(seq, false)
+    this.writer.enqueue(frame, messageLane(msg), onSettled)
   }
 
   private sendKeepAlive(): void {
     if (this.disposed) {
       return
     }
-    const seq = this.nextOutgoingSeq++
+    const seq = this.nextOutgoingSeq
     const frame = encodeKeepAliveFrame(seq, this.highestReceivedSeq)
-    this.recordUnacked(seq)
-    try {
-      this.transport.write(frame)
-    } catch (err) {
-      // Why: keepalive runs on an interval; without catching transport
-      // write failures here, a dead SSH host can terminate the whole app.
-      this.handleProtocolError(err)
+    if (!this.writer.enqueue(frame, 'liveness')) {
+      return
     }
+    this.nextOutgoingSeq++
+    this.trackOutgoingTimestamp(seq, true)
   }
 
   private handleFrame(frame: DecodedFrame): void {
@@ -381,12 +411,16 @@ export class SshChannelMultiplexer {
       this.highestReceivedSeq = frame.id
     }
 
-    // Process ack from remote: discard timestamps for acked messages
-    if (frame.ack > this.highestAckedBySelf) {
-      for (let i = this.highestAckedBySelf + 1; i <= frame.ack; i++) {
-        this.unackedTimestamps.delete(i)
+    // Header ACKs are untrusted uint32 values; work stays proportional to the
+    // bounded set of sequence keys we actually retained.
+    const acknowledgedSeq = Math.min(frame.ack, this.nextOutgoingSeq - 1)
+    if (acknowledgedSeq > this.highestAckedBySelf) {
+      for (const seq of this.unackedTimestamps.keys()) {
+        if (seq <= acknowledgedSeq) {
+          this.unackedTimestamps.delete(seq)
+        }
       }
-      this.highestAckedBySelf = frame.ack
+      this.highestAckedBySelf = acknowledgedSeq
     }
 
     if (frame.type === MessageType.KeepAlive) {
@@ -458,7 +492,12 @@ export class SshChannelMultiplexer {
       Object.defineProperty(err, 'data', { value: msg.error.data })
       pending.reject(err)
     } else {
-      pending.resolve(msg.result)
+      try {
+        pending.beforeResolve?.(msg.result)
+        pending.resolve(msg.result)
+      } catch (error) {
+        pending.reject(error instanceof Error ? error : new Error(String(error)))
+      }
     }
   }
 
@@ -518,16 +557,14 @@ export class SshChannelMultiplexer {
       // fresh probe, and the NEXT full window makes an honest liveness call.
       const resumedAfterWake = sinceLastTick > WAKE_GAP_MS
       if (resumedAfterWake) {
-        this.lastReceivedAt = now
-        for (const seq of this.unackedTimestamps.keys()) {
-          this.unackedTimestamps.set(seq, now)
-        }
+        this.rebaseHealthClocks(now)
       }
 
       this.sendKeepAlive()
 
-      // Nothing more to do once disposed, or on the wake tick (reset already ran).
-      if (this.disposed || resumedAfterWake) {
+      // Nothing more to do once disposed, on the wake tick (reset already ran),
+      // or while backpressure makes staleness meaningless.
+      if (this.disposed || resumedAfterWake || this.decoderReadPaused || this.writerSaturated) {
         return
       }
 
@@ -553,4 +590,57 @@ export class SshChannelMultiplexer {
     console.warn(`[ssh-mux] Protocol error: ${err instanceof Error ? err.message : String(err)}`)
     this.dispose('connection_lost')
   }
+
+  private trackOutgoingTimestamp(seq: number, liveness: boolean): void {
+    const limit = liveness ? MAX_UNACKED_TIMESTAMPS : MAX_ORDINARY_UNACKED_TIMESTAMPS
+    if (this.unackedTimestamps.size < limit) {
+      this.unackedTimestamps.set(seq, Date.now())
+    }
+  }
+
+  private pauseDecoderReads(): void {
+    if (this.disposed || this.decoderReadPaused) {
+      return
+    }
+    this.decoderReadPaused = true
+    try {
+      this.transport.pauseReads?.()
+    } catch (error) {
+      this.handleProtocolError(error)
+    }
+  }
+
+  private resumeDecoderReads(): void {
+    if (!this.decoderReadPaused) {
+      return
+    }
+    this.decoderReadPaused = false
+    if (this.disposed) {
+      return
+    }
+    this.rebaseHealthClocks(Date.now())
+    try {
+      this.transport.resumeReads?.()
+    } catch (error) {
+      this.handleProtocolError(error)
+    }
+  }
+
+  private handleWriterSaturationChange(saturated: boolean): void {
+    this.writerSaturated = saturated
+    if (!saturated && !this.disposed) {
+      this.rebaseHealthClocks(Date.now())
+    }
+  }
+
+  private rebaseHealthClocks(now: number): void {
+    this.lastReceivedAt = now
+    for (const seq of this.unackedTimestamps.keys()) {
+      this.unackedTimestamps.set(seq, now)
+    }
+  }
+}
+
+function messageLane(msg: JsonRpcMessage): MultiplexerWriterLane {
+  return 'method' in msg && msg.method === 'pty.data' ? 'ordinary' : 'control'
 }

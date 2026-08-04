@@ -278,15 +278,3 @@ export function redactSpan(span: RedactableSpan, mode: RedactorMode = 'client'):
     exit
   }
 }
-
-// Test-only introspection: lets tests verify the rule set without re-deriving it.
-
-export const _internalsForTests = {
-  PROVIDER_PATTERNS,
-  CLIENT_ATTR_BLOCKLIST,
-  SERVER_ATTR_BLOCKLIST_EXTRA,
-  AUTH_HEADER_KV,
-  LABELED_KV,
-  URL_USERINFO,
-  ENV_LINE
-}

@@ -1047,7 +1047,10 @@ describe('useTerminalPaneGlobalEffects', () => {
     expect(manager.refreshAllPanes).toHaveBeenCalledTimes(1)
   })
 
-  it('clears WebGL texture atlases when the active visible terminal document becomes visible', () => {
+  // Why: macOS fullscreen space switches fire visibilitychange, so treating it
+  // as a genuine wake wiped every registered pane's grid repeatedly; document
+  // visibility takes the light re-present instead (upstream #12061).
+  it('preserves WebGL texture atlases when the active terminal document becomes visible', () => {
     let visibilityState: DocumentVisibilityState = 'hidden'
     const documentListeners = new Map<string, EventListenerOrEventListenerObject>()
     vi.stubGlobal('document', {
@@ -1096,6 +1099,7 @@ describe('useTerminalPaneGlobalEffects', () => {
     }
     manager.resetWebglTextureAtlases.mockClear()
     siblingManager.resetWebglTextureAtlases.mockClear()
+    mocks.resetAllTerminalWebglAtlases.mockClear()
     listener(new Event('visibilitychange'))
     expect(manager.resetWebglTextureAtlases).not.toHaveBeenCalled()
     expect(siblingManager.resetWebglTextureAtlases).not.toHaveBeenCalled()
@@ -1103,8 +1107,46 @@ describe('useTerminalPaneGlobalEffects', () => {
     visibilityState = 'visible'
     listener(new Event('visibilitychange'))
 
-    expect(manager.resetWebglTextureAtlases).toHaveBeenCalledTimes(1)
-    expect(siblingManager.resetWebglTextureAtlases).toHaveBeenCalledTimes(1)
+    expect(manager.resetWebglTextureAtlases).not.toHaveBeenCalled()
+    expect(siblingManager.resetWebglTextureAtlases).not.toHaveBeenCalled()
+    expect(mocks.resetAllTerminalWebglAtlases).toHaveBeenCalledTimes(1)
+  })
+
+  it('tracks this manager visibility for the bounded cross-manager atlas recovery', () => {
+    const manager = {
+      getPanes: vi.fn(() => []),
+      resumeRendering: vi.fn(),
+      resetWebglTextureAtlases: vi.fn(),
+      suspendRendering: vi.fn(),
+      fitAllRevealedPanes: vi.fn(),
+      getActivePane: vi.fn(() => null),
+      setAtlasRecoveryVisible: vi.fn()
+    }
+    const baseArgs = {
+      tabId: 'tab-1',
+      worktreeId: 'wt-1',
+      isSyncFitEnabled: true,
+      paneCount: 0,
+      managerRef: { current: manager as never },
+      containerRef: { current: null },
+      paneTransportsRef: { current: new Map() },
+      isActiveRef: { current: false },
+      isVisibleRef: { current: false },
+      toggleExpandPane: vi.fn()
+    }
+
+    beginHookRender()
+    useTerminalPaneGlobalEffects({ ...baseArgs, isActive: true, isVisible: true })
+    expect(manager.setAtlasRecoveryVisible).toHaveBeenLastCalledWith(true)
+
+    beginHookRender()
+    useTerminalPaneGlobalEffects({
+      ...baseArgs,
+      isActive: false,
+      isVisible: false,
+      isWorktreeActive: false
+    })
+    expect(manager.setAtlasRecoveryVisible).toHaveBeenLastCalledWith(false)
   })
 
   it('registers document visibility recovery for visible inactive terminals but not hidden ones', () => {

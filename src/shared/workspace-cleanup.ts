@@ -152,3 +152,15 @@ export function canQueueWorkspaceCleanupCandidate(
     !candidate.blockers.some((blocker) => WORKSPACE_CLEANUP_QUEUE_BLOCKERS.has(blocker))
   )
 }
+
+/** Newest activity stamp Orca itself persisted; 0 when it never observed the workspace.
+ *  Stays in TS: it normalizes the `lastActivityAt` the Rust classifier is fed,
+ *  it is not part of the classifier contract. */
+export function getPersistedWorkspaceCleanupActivityAt(workspace: {
+  createdAt?: number
+  lastActivityAt: number
+}): number {
+  const lastActivityAt = Number.isFinite(workspace.lastActivityAt) ? workspace.lastActivityAt : 0
+  const createdAt = Number.isFinite(workspace.createdAt) ? (workspace.createdAt ?? 0) : 0
+  return Math.max(lastActivityAt, createdAt)
+}

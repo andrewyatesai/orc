@@ -1,5 +1,6 @@
 import { clearLiveBrowserUrl } from './browser-runtime'
 import { removeBrowserPageViewport } from './browser-page-viewport'
+import { forgetExplicitBrowserPageZoomLevel } from './browser-page-zoom'
 
 // Why: the webview registry is shared coordination state between BrowserPane
 // (React component) and store-layer cleanup helpers (shutdownWorktreeBrowsers,
@@ -188,12 +189,22 @@ export function moveFocusToRendererBeforeWebviewDetach(webview: Electron.Webview
   moveFocusToRendererIfWebviewOwnsFocus(webview)
 }
 
-export function destroyPersistentWebview(browserTabId: string): void {
+export function destroyPersistentWebview(
+  browserTabId: string,
+  { preserveViewport = false }: { preserveViewport?: boolean } = {}
+): void {
   const webview = webviewRegistry.get(browserTabId)
+  // Why: only a real close forgets user zoom; preserveViewport marks a
+  // same-tab rebuild (parent-drift repair) whose zoom must survive.
+  if (!preserveViewport) {
+    forgetExplicitBrowserPageZoomLevel(browserTabId)
+  }
   if (!webview) {
     // Why: the viewport can outlive a missing webview entry; tear it down on
     // explicit close paths so overlay slots do not leak parked shells.
-    removeBrowserPageViewport(browserTabId)
+    if (!preserveViewport) {
+      removeBrowserPageViewport(browserTabId)
+    }
     registeredWebContentsIds.delete(browserTabId)
     clearLiveBrowserUrl(browserTabId)
     return
@@ -211,7 +222,9 @@ export function destroyPersistentWebview(browserTabId: string): void {
   moveFocusToRendererBeforeWebviewDetach(webview)
   webview.remove()
   unregisterPersistentWebview(browserTabId)
-  removeBrowserPageViewport(browserTabId)
+  if (!preserveViewport) {
+    removeBrowserPageViewport(browserTabId)
+  }
   registeredWebContentsIds.delete(browserTabId)
   clearLiveBrowserUrl(browserTabId)
 }

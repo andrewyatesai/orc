@@ -18,6 +18,8 @@ import type { GitProviderStatusOptions } from './git-provider-status-options'
 
 // ─── Git Provider ───────────────────────────────────────────────────
 
+export type { GitProviderStatusOptions } from './git-provider-status-options'
+
 export type IGitProvider = {
   getStatus(worktreePath: string, options?: GitProviderStatusOptions): Promise<GitStatusResult>
   getSubmoduleStatus(
@@ -91,6 +93,7 @@ export type IGitProvider = {
     force?: boolean,
     options?: { deleteBranch?: boolean; forceBranchDelete?: boolean }
   ): Promise<RemoveWorktreeResult>
+  /** currentBranch pins the expected HEAD so the rename fails closed if it moved. */
   renameCurrentBranch?(
     worktreePath: string,
     currentBranch: string,

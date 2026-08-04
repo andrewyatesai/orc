@@ -317,7 +317,7 @@ describe('terminal subscribe buffering', () => {
     }
   })
 
-  it('marks binary subscribed previews truncated when the uncursored read is limited', async () => {
+  it('keeps a limited retained-tail fallback usable for binary first paint', async () => {
     const messages: string[] = []
     const binaryFrames: Uint8Array<ArrayBufferLike>[] = []
     const cleanups = new Map<string, () => void>()
@@ -375,20 +375,20 @@ describe('terminal subscribe buffering', () => {
     expect(subscribed).toMatchObject({
       type: 'subscribed',
       lines: ['line 120'],
-      truncated: true
+      truncated: false
     })
     const snapshotStart = binaryFrames
       .map((frame) => decodeTerminalStreamFrame(frame))
       .find((frame) => frame?.opcode === TerminalStreamOpcode.SnapshotStart)
     expect(snapshotStart && decodeTerminalStreamJson(snapshotStart.payload)).toMatchObject({
-      truncated: true
+      truncated: false
     })
 
     runtime.cleanupSubscription('terminal-1:desktop-1')
     await dispatchPromise
   })
 
-  it('does not mark binary snapshot frames truncated from a limited read when serialized data is available', async () => {
+  it('does not mark binary snapshot frames truncated from an overflowed read when serialized data is available', async () => {
     const messages: string[] = []
     const binaryFrames: Uint8Array<ArrayBufferLike>[] = []
     const cleanups = new Map<string, () => void>()
@@ -396,7 +396,7 @@ describe('terminal subscribe buffering', () => {
       resolveLeafForHandle: vi.fn().mockReturnValue({ ptyId: 'pty-1' }),
       readTerminal: vi.fn().mockResolvedValue({
         tail: ['line 120'],
-        truncated: false,
+        truncated: true,
         limited: true
       }),
       serializeTerminalBuffer: vi.fn().mockResolvedValue({

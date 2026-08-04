@@ -47,8 +47,13 @@ describe('TerminalPosixShellSection', () => {
     render(<TerminalPosixShellSection updateSettings={updateSettings} posixShell={null} />)
 
     expect(screen.getByRole('radio', { name: 'System login shell' })).toBeChecked()
-    await waitFor(() => expect(screen.getByRole('radio', { name: 'zsh' })).toBeEnabled())
-    expect(screen.getByRole('radio', { name: 'bash' })).toBeEnabled()
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: 'zsh' })).not.toHaveAttribute(
+        'aria-disabled',
+        'true'
+      )
+    )
+    expect(screen.getByRole('radio', { name: 'bash' })).not.toHaveAttribute('aria-disabled', 'true')
     expect(screen.queryByRole('radio', { name: 'fish' })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('radio', { name: 'zsh' }))
@@ -70,7 +75,10 @@ describe('TerminalPosixShellSection', () => {
     detectMock.mockResolvedValue(ZSH_BASH_DETECTION)
     render(<TerminalPosixShellSection updateSettings={vi.fn()} posixShell="fish" />)
 
-    await waitFor(() => expect(screen.getByRole('radio', { name: 'fish' })).toBeDisabled())
+    // Why: unavailable segments are aria-disabled, not natively disabled, so their tooltip stays focusable.
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: 'fish' })).toHaveAttribute('aria-disabled', 'true')
+    )
     expect(screen.getByRole('radio', { name: 'fish' })).toBeChecked()
   })
 
@@ -128,7 +136,7 @@ describe('TerminalPosixShellSection', () => {
     render(<TerminalPosixShellSection updateSettings={vi.fn()} posixShell="fish" />)
 
     await waitFor(() => expect(detectMock).toHaveBeenCalled())
-    expect(screen.getByRole('radio', { name: 'fish' })).toBeEnabled()
+    expect(screen.getByRole('radio', { name: 'fish' })).not.toHaveAttribute('aria-disabled', 'true')
     expect(screen.getByRole('radio', { name: 'fish' })).toBeChecked()
   })
 })
@@ -146,7 +154,9 @@ describe('nu choice (#8928 PR1)', () => {
     const updateSettings = vi.fn()
     render(<TerminalPosixShellSection updateSettings={updateSettings} posixShell={null} />)
 
-    await waitFor(() => expect(screen.getByRole('radio', { name: 'nu' })).toBeEnabled())
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: 'nu' })).not.toHaveAttribute('aria-disabled', 'true')
+    )
     await user.click(screen.getByRole('radio', { name: 'nu' }))
     expect(updateSettings).toHaveBeenCalledWith({ terminalPosixShell: 'nu' })
   })
@@ -155,7 +165,12 @@ describe('nu choice (#8928 PR1)', () => {
     detectMock.mockResolvedValue(ZSH_BASH_DETECTION)
     render(<TerminalPosixShellSection updateSettings={vi.fn()} posixShell={null} />)
 
-    await waitFor(() => expect(screen.getByRole('radio', { name: 'zsh' })).toBeEnabled())
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: 'zsh' })).not.toHaveAttribute(
+        'aria-disabled',
+        'true'
+      )
+    )
     expect(screen.queryByRole('radio', { name: 'nu' })).not.toBeInTheDocument()
   })
 })

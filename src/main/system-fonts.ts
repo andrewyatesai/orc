@@ -33,10 +33,6 @@ export async function listSystemFontFamilies(): Promise<string[]> {
   return fontsPromise
 }
 
-export function warmSystemFontFamilies(): void {
-  void listSystemFontFamilies()
-}
-
 function loadSystemFontFamilies(): Promise<string[]> {
   if (process.platform === 'darwin') {
     return listMacFonts()

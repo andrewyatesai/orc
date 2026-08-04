@@ -25,13 +25,17 @@ import {
 import { useAppMenuPaste } from './hooks/useAppMenuPaste'
 import { useLargeTextControlPaste } from './hooks/useLargeTextControlPaste'
 import { useWebSessionTabsSync } from './runtime/web-session-tabs-sync'
+import { useRemoteRuntimeRecoveryTriggers } from './runtime/use-remote-runtime-recovery-triggers'
 import { useGlobalFileDrop } from './hooks/useGlobalFileDrop'
+import { MacosTccPromptNoticeHost } from './hooks/MacosTccPromptNoticeHost'
 import { useRadixBodyPointerEventsRecovery } from './hooks/useRadixBodyPointerEventsRecovery'
 import type { VirtualizedScrollAnchor } from './hooks/useVirtualizedScrollAnchor'
 import { resolveMountedLazyModalIds, type LazyModalId } from './lazy-modal-mount-state'
 import PinnedTabCloseDialog from './components/terminal-pane/PinnedTabCloseDialog'
+import WorktreeBaseFallbackDialog from './components/WorktreeBaseFallbackDialog'
 import RunCommandConsentDialog from './components/terminal-pane/RunCommandConsentDialog'
 import { useOsc52ClipboardDefaultOnNotice } from './components/terminal-pane/osc52-clipboard-default-on-notice'
+import { installCodexDetachedPaneRestartExecutor } from './components/terminal-pane/codex-detached-pane-restart-scheduler'
 import { FloatingTerminalPanel, StatusBar } from './app-shell/app-lazy-surfaces'
 import { AppOverlayHost } from './app-shell/AppOverlayHost'
 import { AppPageRouter } from './app-shell/AppPageRouter'
@@ -149,6 +153,7 @@ function App(): React.JSX.Element {
 
   // Subscribe to IPC push events
   useIpcEvents()
+  useRemoteRuntimeRecoveryTriggers()
   useAutomationDispatchEvents()
   // Why: retention runs at App level (in <RetainedAgentsSyncGate />, a null leaf) so "done" agents survive card collapse and its high-churn subscriptions don't re-render App.
   // Why: git polling lives at App level (RightSidebar unmounts when closed, stranding stale Rebasing/Merging badges); gate on workspaceSessionReady so it doesn't compete with first paint.
@@ -183,6 +188,8 @@ function App(): React.JSX.Element {
       abortController.abort()
     }
   }, [actions, setOnboarding, setOnboardingLoaded])
+
+  useEffect(() => installCodexDetachedPaneRestartExecutor(), [])
 
   useAppSessionPersistence(vm.workspaceSessionReady)
   useAppViewPersistence(vm, actions)
@@ -253,7 +260,7 @@ function App(): React.JSX.Element {
   return (
     <div
       ref={setAppRootNode}
-      className="flex flex-col h-dvh w-screen overflow-hidden"
+      className="app-layout"
       style={
         {
           '--collapsed-sidebar-header-width': `${collapsedSidebarHeaderWidth}px`,
@@ -268,6 +275,8 @@ function App(): React.JSX.Element {
         <ConfirmationDialogProvider>
           <LinkRoutingPreferenceDialogProvider>
             <WorkspacePortScanner enabled={vm.workspaceSessionReady} />
+            {/* Why: the macOS TCC prompt notice polls permission state; keep it off the App render tree. */}
+            <MacosTccPromptNoticeHost />
             {/* Why: leaf-mounted retention sync keeps agent-status subscriptions out of the App render tree. */}
             <RetainedAgentsSyncGate />
             {/* Why: EditorPanel unmounts when its last tab closes, so close cleanup must run from an always-mounted host to not leak models. */}
@@ -384,6 +393,7 @@ function App(): React.JSX.Element {
       </TooltipProvider>
       <Toaster closeButton toastOptions={{ className: 'font-sans text-sm' }} />
       <SkillFreshnessNudge />
+      <WorktreeBaseFallbackDialog />
       <PinnedTabCloseDialog />
       <RunCommandConsentDialog />
       {/* Why: Electron's drag-region hit-test is DOM-order-based (ignores z-index); render last so WindowControls stay clickable. */}

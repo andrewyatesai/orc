@@ -10,6 +10,7 @@ const mockState = vi.hoisted(() => ({
     disconnect: ReturnType<typeof vi.fn>
     status: 'connecting' | 'connected' | 'disconnected' | 'reconnecting'
     target?: { host?: string; port?: number; username?: string }
+    getState: () => { status: MockStatus }
   }[]
 }))
 
@@ -111,5 +112,30 @@ describe('SshConnectionManager', () => {
     expect(second).not.toBe(first)
     expect(mockState.instances).toHaveLength(2)
     expect(manager.getConnection(target.id)).toBe(second)
+  })
+
+  it('keeps the replacement when the disconnected attempt resolves late', async () => {
+    let resolveFirst!: () => void
+    mockState.connectResults.push(
+      new Promise<void>((resolve) => {
+        resolveFirst = resolve
+      }),
+      Promise.resolve()
+    )
+    const manager = new SshConnectionManager({
+      onStateChange: vi.fn()
+    })
+
+    const firstConnect = manager.connect(target)
+    await manager.disconnect(target.id)
+    const replacement = await manager.connect(target)
+    resolveFirst()
+
+    // The superseded attempt tears itself down rather than resolving into the
+    // pool on top of the replacement.
+    await expect(firstConnect).rejects.toThrow('superseded by a disconnect')
+    expect(mockState.instances[0].getState().status).toBe('disconnected')
+    expect(await manager.connect(target)).toBe(replacement)
+    expect(manager.getConnection(target.id)).toBe(replacement)
   })
 })

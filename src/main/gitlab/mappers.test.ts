@@ -248,17 +248,19 @@ describe('derivePipelineStatus', () => {
 
   // Why: parity with GitHub CANCELLED/ACTION_REQUIRED — these block merge and
   // must surface as needs-attention, not disappear as a blank neutral badge.
-  it('classifies canceled/manual/blocked pipeline strings as failure', () => {
+  it('classifies canceled/manual/blocked/action_required pipeline strings as failure', () => {
     expect(derivePipelineStatus('canceled')).toBe('failure')
     expect(derivePipelineStatus('canceling')).toBe('failure')
     expect(derivePipelineStatus('manual')).toBe('failure')
     expect(derivePipelineStatus('blocked')).toBe('failure')
+    expect(derivePipelineStatus('action_required')).toBe('failure')
     expect(derivePipelineStatus({ status: 'canceled' })).toBe('failure')
     expect(derivePipelineStatus({ status: 'manual' })).toBe('failure')
   })
 
   it('keeps skipped as neutral in the string path', () => {
     expect(derivePipelineStatus('skipped')).toBe('neutral')
+    expect(derivePipelineStatus({ status: 'skipped' })).toBe('neutral')
   })
 
   it('rolls up an array of jobs', () => {
@@ -269,6 +271,9 @@ describe('derivePipelineStatus', () => {
 
   it('failure beats pending in the rollup', () => {
     expect(derivePipelineStatus([{ status: 'failed' }, { status: 'running' }])).toBe('failure')
+    expect(derivePipelineStatus([{ status: 'action_required' }, { status: 'success' }])).toBe(
+      'failure'
+    )
   })
 
   // Why: an all-canceled or manual-blocked pipeline must never read green
@@ -280,8 +285,21 @@ describe('derivePipelineStatus', () => {
     expect(derivePipelineStatus([{ status: 'running' }, { status: 'canceling' }])).toBe('failure')
   })
 
-  it('returns neutral, not success, when no job succeeded', () => {
-    expect(derivePipelineStatus([{ status: 'skipped' }, { status: 'skipped' }])).toBe('neutral')
+  // Why: skipped is a deliberate "not applicable", counted as a pass by the shared classifier the
+  // Checks tab and mobile already use — the old neutral here made one MR read grey on the card and
+  // green in the tab. The string path still reports a `skipped` *pipeline* as neutral (above).
+  it('counts an all-skipped rollup as success, matching every other check surface', () => {
+    expect(derivePipelineStatus([{ status: 'skipped' }, { status: 'skipped' }])).toBe('success')
+  })
+
+  // Why: allow_failure is GitLab's "optional job" flag — an optional gate is neutral, only a
+  // blocking one is needs-attention, so the rollup must read the flag, not just the status.
+  it('treats an optional manual job as neutral and a blocking one as failure', () => {
+    expect(derivePipelineStatus([{ status: 'manual', allow_failure: true }])).toBe('neutral')
+    expect(
+      derivePipelineStatus([{ status: 'success' }, { status: 'manual', allow_failure: true }])
+    ).toBe('success')
+    expect(derivePipelineStatus([{ status: 'manual', allow_failure: false }])).toBe('failure')
   })
 
   it('skipped jobs do not drag a green rollup to neutral', () => {
@@ -290,5 +308,18 @@ describe('derivePipelineStatus', () => {
 
   it('handles a single object with status', () => {
     expect(derivePipelineStatus({ status: 'success' })).toBe('success')
+  })
+
+  it('keeps malformed and unknown array jobs neutral', () => {
+    expect(derivePipelineStatus([{ status: 'future_status' }])).toBe('neutral')
+    expect(derivePipelineStatus([{}])).toBe('neutral')
+  })
+
+  // Why: matches the shared rollup rule — one unresolved job must not demote a pipeline that has
+  // a passing job, or the same MR reads green in the Checks tab and grey on the card.
+  it('lets a passing job outweigh an unknown one', () => {
+    expect(derivePipelineStatus([{ status: 'success' }, { status: 'future_status' }])).toBe(
+      'success'
+    )
   })
 })

@@ -1,6 +1,10 @@
 import type { SettingsSearchEntry } from './settings-search'
 import { translate } from '@/i18n/i18n'
 import { translateSearchKeyword } from './settings-search-keywords'
+import {
+  getLinkRoutingModifierDescription,
+  getLinkRoutingModifierTitle
+} from './browser-link-routing-modifier-copy'
 
 type BrowserShortcutPlatform = {
   isMac: boolean
@@ -16,14 +20,24 @@ export function getBrowserLinkRoutingShortcutLabel(platform: BrowserShortcutPlat
   return platform.isMac ? '⇧⌘-click' : 'Shift+Ctrl+click'
 }
 
-export function getBrowserLinkRoutingDescription(platform: BrowserShortcutPlatform): string {
+// Why: "always" stops being true once inverting is on, so only then does the nested
+// row take over the chord sentence — with it off this reads exactly as it always has.
+export function getBrowserLinkRoutingDescription(
+  platform: BrowserShortcutPlatform = getDefaultBrowserShortcutPlatform(),
+  modifierInverts = false
+): string {
   // Why: localize like the sibling entries (#9442) — the shortcut label stays a
   // {{shortcut}} placeholder so translated catalogs keep the platform-correct symbols.
-  return translate(
-    'auto.components.settings.browser.search.d5e0a1b9c2',
-    "Open http(s) links in Orca's built-in browser — from the terminal, markdown, and the editor. {{shortcut}} always uses your system browser.",
-    { shortcut: getBrowserLinkRoutingShortcutLabel(platform) }
-  )
+  return modifierInverts
+    ? translate(
+        'auto.components.settings.browser.search.linkRoutingWithoutModifierClaim',
+        "Open http(s) links in Orca's built-in browser — from the terminal, markdown, and the editor."
+      )
+    : translate(
+        'auto.components.settings.browser.search.d5e0a1b9c2',
+        "Open http(s) links in Orca's built-in browser — from the terminal, markdown, and the editor. {{shortcut}} always uses your system browser.",
+        { shortcut: getBrowserLinkRoutingShortcutLabel(platform) }
+      )
 }
 
 export function getBrowserPaneSearchEntries(
@@ -113,6 +127,38 @@ export function getBrowserPaneSearchEntries(
         ...translateSearchKeyword('auto.components.settings.browser.search.68d1db8929', 'markdown'),
         ...translateSearchKeyword('auto.components.settings.browser.search.8dd4805991', 'file'),
         ...translateSearchKeyword('auto.components.settings.browser.search.a7a07d5415', 'editor')
+      ]
+    },
+    {
+      title: getLinkRoutingModifierTitle(false),
+      description: getLinkRoutingModifierDescription({
+        openLinksInApp: false,
+        isMac: platform.isMac
+      }),
+      keywords: [
+        ...translateSearchKeyword('auto.components.settings.browser.search.2d2d995c58', 'browser'),
+        ...translateSearchKeyword('auto.components.settings.browser.search.bea27bac4b', 'links'),
+        ...translateSearchKeyword('auto.components.settings.browser.search.90425d313c', 'shift'),
+        ...translateSearchKeyword(
+          'auto.components.settings.browser.search.linkRoutingModifier.routing',
+          'routing'
+        ),
+        ...translateSearchKeyword(
+          'auto.components.settings.browser.search.linkRoutingModifier.modifier',
+          'modifier'
+        ),
+        ...translateSearchKeyword(
+          'auto.components.settings.browser.search.linkRoutingModifier.invert',
+          'invert'
+        ),
+        ...translateSearchKeyword(
+          'auto.components.settings.browser.search.linkRoutingModifier.opposite',
+          'opposite'
+        ),
+        // Why: the row renders live copy but this entry is built with openLinksInApp
+        // false, so index the other title too or the row is unfindable by its own text.
+        getLinkRoutingModifierTitle(true),
+        platform.isMac ? 'cmd' : 'ctrl'
       ]
     },
     {

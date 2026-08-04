@@ -89,6 +89,34 @@ describe('dashboard popout clipboard access', () => {
     expect(clipboardBuffer.text).toBe('terminal selection')
   })
 
+  it('keeps legacy writes non-rejecting while verified terminal writes report stale text', async () => {
+    // Simulate the silent OS write failure both paths exist to catch: nothing
+    // lands, so every read-back returns the stale buffer.
+    clipboardWriteText.mockImplementation(() => {})
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    // The fork's writeText reports the unverified write as false rather than
+    // rejecting; only writeTerminalText keeps upstream's throwing contract.
+    await expect(handlers.get('clipboard:writeText')?.(popoutEvent, 'legacy copy')).resolves.toBe(
+      false
+    )
+    await expect(
+      handlers.get('clipboard:writeTerminalText')?.(popoutEvent, 'verified terminal copy')
+    ).rejects.toThrow('Clipboard write verification failed')
+
+    clipboardWriteText.mockImplementation((text: string) => {
+      clipboardBuffer.text = text
+    })
+    await expect(
+      handlers.get('clipboard:writeTerminalText')?.(popoutEvent, 'confirmed terminal copy')
+    ).resolves.toBeUndefined()
+    warn.mockRestore()
+
+    expect(clipboardWriteText).toHaveBeenCalledWith('legacy copy')
+    expect(clipboardWriteText).toHaveBeenCalledWith('verified terminal copy')
+    expect(clipboardWriteText).toHaveBeenCalledWith('confirmed terminal copy')
+  })
+
   it('does not extend popout authority to selection, image, file, or remote clipboard APIs', async () => {
     await expect(handlers.get('clipboard:readSelectionText')?.(popoutEvent)).rejects.toThrow(
       'Unauthorized clipboard IPC sender'
@@ -123,8 +151,21 @@ describe('dashboard popout clipboard access', () => {
     await expect(handlers.get('clipboard:writeText')?.(popoutEvent, 'secret')).rejects.toThrow(
       'Unauthorized clipboard IPC sender'
     )
+    await expect(
+      handlers.get('clipboard:writeTerminalText')?.(popoutEvent, 'secret')
+    ).rejects.toThrow('Unauthorized clipboard IPC sender')
 
     expect(clipboardReadText).not.toHaveBeenCalled()
+    expect(clipboardWriteText).not.toHaveBeenCalled()
+  })
+
+  it('applies the text size gate to verified terminal writes', async () => {
+    await expect(
+      handlers.get('clipboard:writeTerminalText')?.(
+        popoutEvent,
+        'copied-secret-token-value'.repeat(900_000)
+      )
+    ).rejects.toThrow('Clipboard text is too large to copy safely.')
     expect(clipboardWriteText).not.toHaveBeenCalled()
   })
 })

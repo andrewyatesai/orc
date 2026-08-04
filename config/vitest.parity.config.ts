@@ -16,7 +16,7 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['tools/parity/**/*.test.ts'],
+    include: ['tests/tools/parity/**/*.test.ts'],
     testTimeout: 30_000
   }
 })

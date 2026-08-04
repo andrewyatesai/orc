@@ -27,7 +27,7 @@ export type CreateOrAttachOptions = {
   shellReadyTimeoutMs?: number
   /** Session emulator scrollback retention; absent keeps the Session default (5k). */
   scrollbackRows?: number
-  historySeed?: string
+  historySeedChunks?: readonly string[]
   startupIngress?: PtyStartupIngressIntent
   agentSessionEnsure?: {
     claim: AgentSessionExecutionClaim

@@ -652,6 +652,8 @@ impl OrchestrationDb {
     /// Record a dispatch failure (TS `failDispatch`): bumps `failure_count`; the
     /// third failure trips the circuit breaker (`circuit_broken` + task `failed`),
     /// otherwise the dispatch is `failed` and the task returns to `ready`.
+    /// Failure also closes the context (`completed_at`) so a dead worker leaves no
+    /// open-ended dispatch; `COALESCE` keeps an already-completed row's first stamp.
     pub fn fail_dispatch(&self, id: &str, error: &str) -> Result<Option<DispatchContext>, StoreError> {
         let conn = self.db.connection();
         let existing: Option<(String, i64)> = conn
@@ -667,7 +669,10 @@ impl OrchestrationDb {
         let new_failure_count = failure_count + 1;
         let new_status = if new_failure_count >= 3 { "circuit_broken" } else { "failed" };
         conn.execute(
-            "UPDATE dispatch_contexts SET status = ?2, failure_count = ?3, last_failure = ?4 WHERE id = ?1",
+            "UPDATE dispatch_contexts
+             SET status = ?2, failure_count = ?3, last_failure = ?4,
+                 completed_at = COALESCE(completed_at, datetime('now'))
+             WHERE id = ?1",
             params![id, new_status, new_failure_count, error],
         )?;
         let task_status = if new_status == "circuit_broken" { "failed" } else { "ready" };

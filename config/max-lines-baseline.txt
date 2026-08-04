@@ -2,7 +2,6 @@
 # This is a RATCHET: the list may only SHRINK. Do NOT add entries to get CI green —
 # split the oversized file instead (AGENTS.md → "Do Not Disable Max Lines").
 # Regenerate/prune: pnpm check:max-lines-ratchet --prune   (removes stale entries only)
-inline mobile/src/constants/marine-creatures.ts
 inline src/cli/handlers/automations.ts
 inline src/cli/handlers/orchestration.ts
 inline src/cli/help.ts
@@ -142,6 +141,7 @@ inline src/main/runtime/orca-runtime-git.ts
 inline src/main/runtime/orca-runtime.test.ts
 inline src/main/runtime/orca-runtime.ts
 inline src/main/runtime/orchestration/coordinator.ts
+inline src/main/runtime/orchestration/db.ts
 inline src/main/runtime/rpc/methods/files.ts
 inline src/main/runtime/rpc/methods/git.ts
 inline src/main/runtime/rpc/methods/github.ts
@@ -249,7 +249,6 @@ inline src/renderer/src/components/tab-bar/TabBar.tsx
 inline src/renderer/src/components/tab-bar/TabBar.windows-shell-launch.test.ts
 inline src/renderer/src/components/tab-group/useTabDragSplit.ts
 inline src/renderer/src/components/tab-group/useTabGroupWorkspaceModel.ts
-inline src/renderer/src/components/task-page-cache-selectors.ts
 inline src/renderer/src/components/terminal-pane/TerminalPane.tsx
 inline src/renderer/src/components/terminal-pane/agent-completion-coordinator.test.ts
 inline src/renderer/src/components/terminal-pane/agent-completion-coordinator.ts

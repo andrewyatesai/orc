@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildJiraWorkspaceSource,
   buildLinearWorkspaceSource,
   buildWorkspaceSourceSelection,
   getWorkspaceSourceProvider,
@@ -24,6 +25,23 @@ describe('workspace source policy', () => {
       linearWorkspaceId: 'workspace-1',
       linearOrganizationUrlKey: 'acme',
       linearBranchName: 'team/eng-42-ship-mobile-parity'
+    })
+  })
+
+  it('persists a Jira title without repeating its separately stored identifier', () => {
+    expect(
+      buildJiraWorkspaceSource({
+        key: 'ORCA-123',
+        title: 'Fix Jira card details',
+        url: 'https://company.atlassian.net/browse/ORCA-123'
+      })
+    ).toEqual({
+      provider: 'jira',
+      type: 'issue',
+      number: 0,
+      title: 'Fix Jira card details',
+      url: 'https://company.atlassian.net/browse/ORCA-123',
+      jiraIdentifier: 'ORCA-123'
     })
   })
 

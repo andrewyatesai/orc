@@ -1,15 +1,36 @@
+import { isBuiltin } from 'node:module'
 import { resolve } from 'node:path'
 import { execSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
-import { defineConfig } from 'electron-vite'
+import { defineConfig, type UserConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { createBootstrapFatalExitBanner } from './build-plugins/bootstrap-fatal-exit-banner'
 import { createPlainNodeEntryGuardPlugin } from './build-plugins/plain-node-entry-guard'
+import { createStartupDiagnosticsBanner } from './build-plugins/startup-diagnostics-banner'
 import {
   createRendererChunkBudgetPlugin,
   createRendererWorkerChunkBudgetPlugin
 } from './build-plugins/renderer-chunk-budget'
 import { createRendererContentSecurityPolicyPlugin } from './build-plugins/renderer-content-security-policy'
+import packageJson from './package.json' with { type: 'json' }
+
+const BUNDLED_MAIN_DEPENDENCIES = new Set([
+  // Why: Windows NSIS deploys app.asar before external resources; bootstrap must
+  // not race the later resources/node_modules copy.
+  'zod'
+])
+const EXTERNAL_MAIN_DEPENDENCIES = Object.keys(packageJson.dependencies).filter(
+  (dependency) => !BUNDLED_MAIN_DEPENDENCIES.has(dependency)
+)
+
+function isExternalMainModule(source: string): boolean {
+  if (isBuiltin(source) || source === 'electron' || source.startsWith('electron/')) {
+    return true
+  }
+  return EXTERNAL_MAIN_DEPENDENCIES.some(
+    (dependency) => source === dependency || source.startsWith(`${dependency}/`)
+  )
+}
 
 // Build provenance for the About section, baked in at build time (a packaged app
 // has no git repo / rust/aterm tree to read at runtime). Best-effort: any piece
@@ -23,12 +44,7 @@ function git(args: string): string {
   }
 }
 function computeOrcaBuildInfoLiteral(): string {
-  let orcaVersion = 'unknown'
-  try {
-    orcaVersion = JSON.parse(readFileSync(resolve('package.json'), 'utf8')).version ?? 'unknown'
-  } catch {
-    /* keep unknown */
-  }
+  const orcaVersion = packageJson.version ?? 'unknown'
   // aterm is a pinned git submodule; its checked-out commit IS the engine version.
   const atermRevFull = git('-C rust/aterm rev-parse HEAD')
   const atermRev = atermRevFull ? atermRevFull.slice(0, 12) : 'unknown'
@@ -93,143 +109,41 @@ const ORCA_FEEDBACK_ENDPOINT_LITERAL =
     ? JSON.stringify(orcaFeedbackEndpoint)
     : 'null'
 
-function createStartupDiagnosticsBanner(chunkName: string): string {
-  return `
-;(() => {
-  const env = typeof process !== 'undefined' ? process.env : undefined
-  const mode = env?.ORCA_STARTUP_DIAGNOSTICS
-  if (mode !== '1' && mode !== 'trace') {
-    return
-  }
-  const safeJson = (value) => {
-    try {
-      return JSON.stringify(value)
-    } catch {
-      return '"<unserializable>"'
-    }
-  }
-  let closeSync
-  let diagnosticFileDescriptor
-  let openSync
-  let writeSync
-  try {
-    const fs = require('node:fs')
-    closeSync = fs.closeSync
-    openSync = fs.openSync
-    writeSync = fs.writeSync
-  } catch {
-    closeSync = undefined
-    openSync = undefined
-    writeSync = undefined
-  }
-  const diagnosticFile = env?.ORCA_STARTUP_DIAGNOSTICS_FILE
-  if (typeof diagnosticFile === 'string' && diagnosticFile.length > 0 && typeof openSync === 'function') {
-    try {
-      diagnosticFileDescriptor = openSync(diagnosticFile, 'a', 0o600)
-    } catch {
-      diagnosticFileDescriptor = undefined
-    }
-  }
-  const writeLine = (message) => {
-    try {
-      const line = message.endsWith('\\n') ? message : message + '\\n'
-      if (typeof writeSync === 'function') {
-        writeSync(2, line)
-        if (typeof diagnosticFileDescriptor === 'number') {
-          writeSync(diagnosticFileDescriptor, line)
-        }
-      }
-    } catch {
-      // Diagnostics must never affect startup.
-    }
-  }
-  const chunkName = ${JSON.stringify(chunkName)}
-  writeLine('[bootstrap] bundle-enter chunk=' + safeJson(chunkName) + ' pid=' + process.pid + ' ppid=' + process.ppid + ' execPath=' + safeJson(process.execPath) + ' argv=' + safeJson(process.argv) + ' electronRunAsNode=' + safeJson(env?.ELECTRON_RUN_AS_NODE ?? null))
-  if (!globalThis.__ORCA_BOOTSTRAP_EXIT_LOG_INSTALLED__) {
-    globalThis.__ORCA_BOOTSTRAP_EXIT_LOG_INSTALLED__ = true
-    process.once('exit', (code) => {
-      writeLine('[bootstrap] process-exit code=' + code)
-      if (typeof closeSync === 'function' && typeof diagnosticFileDescriptor === 'number') {
-        try {
-          closeSync(diagnosticFileDescriptor)
-        } catch {
-          // Diagnostics must never affect shutdown.
-        }
-      }
-    })
-    process.on('uncaughtExceptionMonitor', (error, origin) => {
-      const message = error && typeof error === 'object' && 'stack' in error ? error.stack : error
-      writeLine('[bootstrap] uncaught-exception origin=' + safeJson(origin) + ' error=' + safeJson(String(message)))
-    })
-    process.on('unhandledRejection', (reason) => {
-      const message = reason && typeof reason === 'object' && 'stack' in reason ? reason.stack : reason
-      writeLine('[bootstrap] unhandled-rejection error=' + safeJson(String(message)))
-    })
-  }
-  if (mode === 'trace' && !globalThis.__ORCA_BOOTSTRAP_REQUIRE_TRACE_INSTALLED__) {
-    globalThis.__ORCA_BOOTSTRAP_REQUIRE_TRACE_INSTALLED__ = true
-    try {
-      const Module = require('node:module')
-      const originalLoad = Module._load
-      const parsedTraceLimit = Number(env?.ORCA_STARTUP_DIAGNOSTICS_TRACE_LIMIT ?? 20000)
-      const traceLimit = Number.isFinite(parsedTraceLimit) && parsedTraceLimit > 0 ? parsedTraceLimit : 20000
-      let traceLineCount = 0
-      let traceLimitReported = false
-      const writeTraceLine = (message) => {
-        if (traceLineCount >= traceLimit) {
-          if (!traceLimitReported) {
-            traceLimitReported = true
-            writeLine('[bootstrap] require-trace-limit-reached limit=' + safeJson(traceLimit))
-          }
-          return
-        }
-        traceLineCount += 1
-        writeLine(message)
-      }
-      Module._load = function (request, parent, isMain) {
-        const parentName = parent && parent.filename ? parent.filename : null
-        writeTraceLine('[bootstrap] require-start request=' + safeJson(request) + ' parent=' + safeJson(parentName) + ' isMain=' + safeJson(Boolean(isMain)))
-        try {
-          const result = Reflect.apply(originalLoad, this, arguments)
-          writeTraceLine('[bootstrap] require-ok request=' + safeJson(request))
-          return result
-        } catch (error) {
-          const message = error && typeof error === 'object' && 'stack' in error ? error.stack : error
-          writeTraceLine('[bootstrap] require-error request=' + safeJson(request) + ' error=' + safeJson(String(message)))
-          throw error
-        }
-      }
-    } catch (error) {
-      writeLine('[bootstrap] require-trace-install-error error=' + safeJson(String(error)))
-    }
-  }
-})();
-`
-}
-
-function createStartupDiagnosticsBootstrapPlugin() {
+function createMainBootstrapPlugin() {
   return {
-    name: 'orca-startup-diagnostics-bootstrap',
+    name: 'orca-main-bootstrap',
     generateBundle(_options, bundle) {
       const mainChunk = bundle['index.js']
       if (!mainChunk || mainChunk.type !== 'chunk') {
         return
       }
 
-      // Why: source-level startup diagnostics run after Rollup's generated
-      // prelude and require() list. Mutate the final emitted chunk so macOS
-      // launch failures can identify the earliest JS boundary reached.
-      mainChunk.code = createStartupDiagnosticsBanner(mainChunk.fileName) + mainChunk.code
+      // Why: source guards and diagnostics run after Rollup's generated require
+      // prelude, too late to handle a missing bootstrap dependency.
+      mainChunk.code =
+        createBootstrapFatalExitBanner() +
+        createStartupDiagnosticsBanner(mainChunk.fileName) +
+        mainChunk.code
     }
   }
 }
 
-export default defineConfig({
+export const electronViteConfig: UserConfig = {
   main: {
     build: {
+      // Why: startup-critical pure JS must survive a partially copied Windows
+      // resources tree, so it is bundled instead of externalized.
+      externalizeDeps: {
+        exclude: [...BUNDLED_MAIN_DEPENDENCIES]
+      },
       rollupOptions: {
+        // Why: native dependencies must resolve from packaged node_modules.
+        external: isExternalMainModule,
         input: {
           index: resolve('src/main/index.ts'),
+          // Why: sandboxed webview preloads cannot load Rollup helper chunks.
+          'browser-window-close-preload': resolve('src/preload/browser-window-close.ts'),
+          'plugin-host-entry': resolve('src/main/plugins/plugin-host-entry.ts'),
           'computer-sidecar': resolve('src/main/computer/sidecar-entry.ts'),
           'stt-worker': resolve('src/main/speech/stt-worker.ts'),
           'warp-theme-parser-worker': resolve('src/main/warp-themes/warp-theme-parser-worker.ts'),
@@ -239,6 +153,11 @@ export default defineConfig({
           // Why: forked with ELECTRON_RUN_AS_NODE so @parcel/watcher faults
           // can't take down the main process (issue #7547).
           'parcel-watcher-process-entry': resolve('src/main/ipc/parcel-watcher-process-entry.ts'),
+          // Why: a worker thread survives the macOS 26 AppKit main-thread deadlock
+          // without paying for another Electron process.
+          'main-thread-hang-watchdog-entry': resolve(
+            'src/main/hang-watchdog/main-thread-hang-watchdog-entry.ts'
+          ),
           // Why: run under ELECTRON_RUN_AS_NODE while the caller blocks on
           // spawnSync — codex app-server trust grants need a live event loop
           // but must finish before a Codex pane launch proceeds.
@@ -249,9 +168,22 @@ export default defineConfig({
           // this path for `orca agent hooks ...`, so it must survive rebuilds.
           'agent-hooks/managed-agent-hook-controls': resolve(
             'src/main/agent-hooks/managed-agent-hook-controls.ts'
-          )
+          ),
+          // Why: account import mutates the user's macOS Keychain from the CLI.
+          'claude-accounts/keychain': resolve('src/main/claude-accounts/keychain.ts'),
+          // Why: `orca status` and `orca terminal stop --all` talk to the running
+          // daemon from the CLI, so these must outlive the out/main clean too.
+          'daemon/client': resolve('src/main/daemon/client.ts'),
+          'daemon/daemon-spawner': resolve('src/main/daemon/daemon-spawner.ts')
         },
-        plugins: [createStartupDiagnosticsBootstrapPlugin(), createPlainNodeEntryGuardPlugin()]
+        // Why: Rolldown's SSR default is ESM, but Electron and sidecar launchers
+        // consume these stable CommonJS paths.
+        output: {
+          format: 'cjs',
+          entryFileNames: '[name].js',
+          chunkFileNames: 'chunks/[name]-[hash].js'
+        },
+        plugins: [createMainBootstrapPlugin(), createPlainNodeEntryGuardPlugin()]
       }
     },
     // Why: compile-time substitution for the telemetry gate. See the block
@@ -292,11 +224,19 @@ export default defineConfig({
     // reflection in the renderer — every `.name` compare is on a data field.
     build: {
       minify: 'esbuild',
+      // Why: config/scripts/project-renderer-web-client.mjs projects the web client
+      // out of this build and resolves its assets through the manifest.
+      manifest: true,
+      modulePreload: { polyfill: true },
+      target: 'es2020',
       // Vite's built-in warning treats every large lazy feature bundle as a
       // startup problem. The plugin below fails at 2.25 MiB per eager file,
       // 4.25 MiB per entry's full static closure, and 4.75 MiB per lazy file.
       chunkSizeWarningLimit: 5_000,
       rollupOptions: {
+        // Why: shared chunks must never import an HTML entry whose module mounts
+        // a different React root.
+        preserveEntrySignatures: 'strict',
         input: {
           index: resolve('src/renderer/index.html'),
           // Coordinator v0's own entry (docs/rust-migration/coordinator-v0-design.md):
@@ -305,7 +245,8 @@ export default defineConfig({
           // Why: the pop-out dashboard is a second top-level window with its own
           // React root, booting independently of the main window while reusing the
           // same preload/window.api.
-          popout: resolve('src/renderer/popout.html')
+          popout: resolve('src/renderer/popout.html'),
+          web: resolve('src/renderer/web-index.html')
         }
       }
     },
@@ -330,4 +271,6 @@ export default defineConfig({
       plugins: () => [createRendererWorkerChunkBudgetPlugin()]
     }
   }
-})
+}
+
+export default defineConfig(electronViteConfig)

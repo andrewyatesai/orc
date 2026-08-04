@@ -27,9 +27,11 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    // Ensure DOM tests have a working Web Storage API on Node 26 (see the setup).
-    // The seam setup binds the Rust dispatch core so cut-over src/shared modules
-    // work without each surface's production bootstrap.
+    // Why: Node 26's undefined Web Storage globals prevent Vitest from installing happy-dom's.
+    execArgv: ['--no-experimental-webstorage'],
+    // The storage setup is the belt to that flag's braces (it no-ops when the DOM env
+    // already has working Storage). The seam setup binds the Rust dispatch core so
+    // cut-over src/shared modules work without each surface's production bootstrap.
     setupFiles: [
       resolve('config/vitest-warning-filter.ts'),
       resolve('config/vitest-dom-storage-polyfill.ts'),
@@ -40,7 +42,7 @@ export default defineConfig({
       'src/**/*.test.tsx',
       'config/scripts/**/*.test.ts',
       'config/scripts/**/*.test.mjs',
-      'tools/**/*.test.mjs',
+      'tests/tools/**/*.test.mjs',
       'tests/e2e/**/*.unit.test.ts'
     ],
     // Why: the full suite runs heavy TS transforms plus real git/http fixtures;

@@ -3,6 +3,7 @@
 import '@/lib/git-wasm/init-git-wasm-for-test'
 import { describe, expect, it } from 'vitest'
 import {
+  buildCreatePrIntentUnavailableEligibility,
   buildLocalBlockerHostedReviewCreationEligibility,
   resolveHostedReviewCreationProviderForTarget
 } from './source-control-hosted-review-creation-eligibility-snapshot'
@@ -35,7 +36,7 @@ describe('resolveHostedReviewCreationProviderForTarget', () => {
 })
 
 describe('buildLocalBlockerHostedReviewCreationEligibility', () => {
-  it('reports dirty without offering create intent when the review lookup failed', () => {
+  it('reports dirty with unavailable lookup while still allowing prepare-only Create PR intent', () => {
     const eligibility = buildLocalBlockerHostedReviewCreationEligibility('github', {
       ...featureBranch,
       hasUncommittedChanges: true,
@@ -48,7 +49,7 @@ describe('buildLocalBlockerHostedReviewCreationEligibility', () => {
       nextAction: 'commit',
       reviewLookupOutcome: 'unavailable'
     })
-    // Why: branch guidance can remain specific, but a failed lookup cannot authorize creation.
+    // Why: branch prep is safe without lookup authority; final create stays fail-closed in main.
     expect(
       resolveCreatePrIntentEligibility({
         stagedCount: 1,
@@ -59,7 +60,7 @@ describe('buildLocalBlockerHostedReviewCreationEligibility', () => {
         hostedReviewCreation: eligibility,
         branchCommitsAhead: 0
       })
-    ).toEqual({ eligible: false, kind: null })
+    ).toEqual({ eligible: true, kind: 'dirty' })
   })
 
   it('prefers dirty over no_upstream when both apply, matching main-process ordering', () => {
@@ -125,6 +126,19 @@ describe('buildLocalBlockerHostedReviewCreationEligibility', () => {
     ).toBeNull()
   })
 
+  it('returns null when the default branch is unknown', () => {
+    expect(
+      buildLocalBlockerHostedReviewCreationEligibility('github', {
+        branch: 'main',
+        baseRef: null,
+        hasUncommittedChanges: true,
+        hasUpstream: true,
+        ahead: 0,
+        behind: 0
+      })
+    ).toBeNull()
+  })
+
   it('returns null for a detached HEAD', () => {
     expect(
       buildLocalBlockerHostedReviewCreationEligibility('github', {
@@ -182,6 +196,75 @@ describe('buildLocalBlockerHostedReviewCreationEligibility', () => {
         ...featureBranch,
         hasUncommittedChanges: true,
         hasUpstream: false,
+        ahead: 0,
+        behind: 0
+      })
+    ).toBeNull()
+  })
+})
+
+describe('buildCreatePrIntentUnavailableEligibility', () => {
+  it('keeps a rejected click-time probe moving through push and final preflight', () => {
+    expect(
+      buildCreatePrIntentUnavailableEligibility('github', {
+        ...featureBranch,
+        hasUncommittedChanges: false,
+        hasUpstream: true,
+        ahead: 2,
+        behind: 0
+      })
+    ).toMatchObject({
+      blockedReason: 'needs_push',
+      nextAction: 'push',
+      reviewLookupOutcome: 'unavailable'
+    })
+    expect(
+      buildCreatePrIntentUnavailableEligibility('github', {
+        ...featureBranch,
+        hasUncommittedChanges: false,
+        hasUpstream: true,
+        ahead: 0,
+        behind: 0
+      })
+    ).toMatchObject({
+      blockedReason: null,
+      nextAction: null,
+      reviewLookupOutcome: 'unavailable'
+    })
+  })
+
+  it('never synthesizes final intent eligibility for the default branch', () => {
+    expect(
+      buildCreatePrIntentUnavailableEligibility('github', {
+        branch: 'main',
+        baseRef: 'origin/main',
+        hasUncommittedChanges: false,
+        hasUpstream: true,
+        ahead: 1,
+        behind: 0
+      })
+    ).toBeNull()
+  })
+
+  it('never synthesizes intent eligibility when the default branch is unknown', () => {
+    expect(
+      buildCreatePrIntentUnavailableEligibility('github', {
+        branch: 'main',
+        baseRef: null,
+        hasUncommittedChanges: true,
+        hasUpstream: true,
+        ahead: 0,
+        behind: 0
+      })
+    ).toBeNull()
+  })
+
+  it('never synthesizes intent eligibility for an unsupported remote provider', () => {
+    expect(
+      buildCreatePrIntentUnavailableEligibility('bitbucket', {
+        ...featureBranch,
+        hasUncommittedChanges: true,
+        hasUpstream: true,
         ahead: 0,
         behind: 0
       })

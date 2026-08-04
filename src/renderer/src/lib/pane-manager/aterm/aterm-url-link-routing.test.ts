@@ -103,9 +103,7 @@ describe('createAtermOscLinkOpener (#6880 kind-0 scheme routing)', () => {
 
   it('http(s) targets keep the in-app/system-browser preference plumbing', () => {
     const requestOpenLinksInAppPreference = vi.fn(() => true)
-    const opener = createAtermOscLinkOpener(() =>
-      makeContext({ requestOpenLinksInAppPreference })
-    )
+    const opener = createAtermOscLinkOpener(() => makeContext({ requestOpenLinksInAppPreference }))
 
     opener('https://example.test/path', clickWithModifier())
 
@@ -114,7 +112,8 @@ describe('createAtermOscLinkOpener (#6880 kind-0 scheme routing)', () => {
       'https://example.test/path',
       expect.objectContaining({
         worktreeId: 'wt-1',
-        forceSystemBrowser: false,
+        // Why: handleOscLink speaks the current `modifierHeld` key; forceSystemBrowser is only the legacy alias.
+        modifierHeld: false,
         requestOpenLinksInAppPreference
       })
     )

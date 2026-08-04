@@ -1,0 +1,15 @@
+{
+  "at": "2026-07-26T12:03:53Z",
+  "results": {
+    "certificates": {
+      "status": "FAIL",
+      "metrics": {
+        "crates": 8,
+        "obligations": 59,
+        "parityCrates": 6,
+        "parity": "FAIL"
+      },
+      "detail": "parity: cargo test exit 101"
+    }
+  }
+}

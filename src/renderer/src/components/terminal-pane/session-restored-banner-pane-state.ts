@@ -2,6 +2,10 @@ import type { ManagedPane } from '@/lib/pane-manager/pane-manager'
 
 export type SessionRestoredBannerPane = Pick<ManagedPane, 'id' | 'container' | 'terminal'>
 
+/** `resume-unavailable`: the pane asked to resume a provider session Orca could not
+ *  verify, so it launched a fresh one — silence would read as a successful restore. */
+export type SessionRestoredBannerReason = 'restored' | 'resume-unavailable'
+
 export type SessionRestoredBannerStartup =
   | {
       showSessionRestoredBanner?: boolean
@@ -9,10 +13,14 @@ export type SessionRestoredBannerStartup =
   | null
   | undefined
 
-/** Per-pane banner payload: lastCommand powers the re-run affordance (#7596). */
+/** Per-pane banner payload: `reason` picks the wording, `lastCommand` powers the
+ *  re-run affordance (#7596). */
 export type SessionRestoredBannerState = {
   lastCommand: string | null
+  reason: SessionRestoredBannerReason
 }
+
+export type SessionRestoredBannerPaneStates = ReadonlyMap<number, SessionRestoredBannerState>
 
 export type SessionRestoredBannerDismissEvent = KeyboardEvent | PointerEvent
 
@@ -33,21 +41,24 @@ export function offerableRestoredLastCommand(lastCommand: string | null | undefi
 }
 
 export function addSessionRestoredBannerPane(
-  states: ReadonlyMap<number, SessionRestoredBannerState>,
+  states: SessionRestoredBannerPaneStates,
   paneId: number,
-  lastCommand: string | null = null
+  lastCommand: string | null = null,
+  reason: SessionRestoredBannerReason = 'restored'
 ): Map<number, SessionRestoredBannerState> {
   const existing = states.get(paneId)
-  // Why: an agent-resume trigger (null) must not clobber a lastCommand already
-  // recorded for the pane; identical state returns the same reference.
-  if (existing && (existing.lastCommand === lastCommand || lastCommand === null)) {
+  // Why: a later trigger without a command (agent resume, reason upgrade) must not
+  // clobber a lastCommand already recorded for the pane, but the newest reason wins —
+  // a pane that turned out to be a fresh session cannot keep claiming a restore.
+  const nextLastCommand = lastCommand ?? existing?.lastCommand ?? null
+  if (existing && existing.lastCommand === nextLastCommand && existing.reason === reason) {
     return states instanceof Map ? states : new Map(states)
   }
-  return new Map(states).set(paneId, { lastCommand })
+  return new Map(states).set(paneId, { lastCommand: nextLastCommand, reason })
 }
 
 export function removeSessionRestoredBannerPane(
-  states: ReadonlyMap<number, SessionRestoredBannerState>,
+  states: SessionRestoredBannerPaneStates,
   paneId: number
 ): Map<number, SessionRestoredBannerState> {
   if (!states.has(paneId)) {
@@ -59,7 +70,7 @@ export function removeSessionRestoredBannerPane(
 }
 
 export function pruneSessionRestoredBannerPanes(
-  states: ReadonlyMap<number, SessionRestoredBannerState>,
+  states: SessionRestoredBannerPaneStates,
   panes: readonly SessionRestoredBannerPane[]
 ): Map<number, SessionRestoredBannerState> {
   const livePaneIds = new Set(panes.map((pane) => pane.id))
@@ -87,7 +98,7 @@ export function getSessionRestoredBannerDismissPaneId(
 }
 
 export function dismissSessionRestoredBannerPanes(
-  states: ReadonlyMap<number, SessionRestoredBannerState>,
+  states: SessionRestoredBannerPaneStates,
   event: SessionRestoredBannerDismissEvent,
   panes: readonly SessionRestoredBannerPane[]
 ): Map<number, SessionRestoredBannerState> {
@@ -105,6 +116,8 @@ export function dismissSessionRestoredBannerPanes(
 export function seedStartupSessionRestoredBanner(
   startup: SessionRestoredBannerStartup,
   paneId: number,
+  // Narrow on purpose: a seeded startup banner is always a plain 'restored' one, so
+  // any wider owner handler (reason or #7596 detail) is assignable here.
   onShowSessionRestoredBanner: (paneId: number) => void
 ): void {
   if (startup?.showSessionRestoredBanner === true) {
@@ -116,7 +129,7 @@ export function syncSessionRestoredBannerTitleSpace(args: {
   panes: readonly SessionRestoredBannerPane[]
   paneTitles: Readonly<Record<number, string>>
   renamingPaneId: number | null
-  sessionRestoredBannerPanes: ReadonlyMap<number, SessionRestoredBannerState>
+  sessionRestoredBannerPanes: SessionRestoredBannerPaneStates
 }): boolean {
   let needsFit = false
   for (const pane of args.panes) {

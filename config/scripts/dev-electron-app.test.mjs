@@ -34,10 +34,20 @@ function createElectronAppFixture(root) {
     'Electron Framework.framework',
     'Resources'
   )
+  const helperPlistPath = path.join(
+    sourceAppPath,
+    'Contents',
+    'Frameworks',
+    'Electron Helper.app',
+    'Contents',
+    'Info.plist'
+  )
   mkdirSync(path.dirname(executablePath), { recursive: true })
   mkdirSync(frameworkResourcesPath, { recursive: true })
+  mkdirSync(path.dirname(helperPlistPath), { recursive: true })
   writeFileSync(executablePath, 'electron fixture', 'utf8')
   writeFileSync(path.join(sourceAppPath, 'Contents', 'Info.plist'), 'plist fixture', 'utf8')
+  writeFileSync(helperPlistPath, 'helper plist fixture', 'utf8')
   writeFileSync(path.join(frameworkResourcesPath, 'icudtl.dat'), 'icu fixture', 'utf8')
 
   const electronPackagePath = path.join(root, 'electron-package.json')
@@ -117,6 +127,15 @@ describe('dev Electron app identity', () => {
     expect(execFile).toHaveBeenCalledWith(
       '/usr/bin/plutil',
       expect.arrayContaining(['CFBundleDisplayName', 'Orca: feature/menu'])
+    )
+    const contentsPath = path.dirname(path.dirname(executablePath))
+    expect(execFile).toHaveBeenCalledWith(
+      '/usr/bin/plutil',
+      expect.arrayContaining([
+        'CFBundleIdentifier',
+        'com.stablyai.orca.dev.helper',
+        path.join(contentsPath, 'Frameworks', 'Electron Helper.app', 'Contents', 'Info.plist')
+      ])
     )
     expect(execFile).toHaveBeenCalledWith(
       '/usr/bin/codesign',

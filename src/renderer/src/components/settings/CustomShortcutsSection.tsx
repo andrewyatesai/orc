@@ -48,7 +48,8 @@ export function CustomShortcutsSection({
 }: CustomShortcutsSectionProps): React.JSX.Element {
   const customKeybindings = useAppStore((state) => state.customKeybindings)
   const removeCustomKeybinding = useAppStore((state) => state.removeCustomKeybinding)
-  const quickCommands = useAppStore((state) => state.settings?.terminalQuickCommands ?? [])
+  // Why: defaulting inside the selector would return a fresh array on every store write.
+  const quickCommands = useAppStore((state) => state.settings?.terminalQuickCommands) ?? []
   const [editorOpen, setEditorOpen] = useState(false)
   const [editingEntry, setEditingEntry] = useState<ResolvedCustomKeybinding | null>(null)
 

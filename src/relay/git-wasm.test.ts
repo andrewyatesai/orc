@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   branchIsSafeToDelete,
+  detectExplicitPiAgentKindFromCommand,
   detectPiAgentKindFromCommand,
   getUpstreamStatus,
   gitFetch,
@@ -37,6 +38,26 @@ describe('detectPiAgentKindFromCommand (orca-git wasm)', () => {
     expect(detectPiAgentKindFromCommand('omp.sh --resume')).toBe('omp')
     expect(detectPiAgentKindFromCommand('pip install foo')).toBe('pi')
     expect(detectPiAgentKindFromCommand('pomp.exe')).toBe('pi')
+  })
+})
+
+describe('detectExplicitPiAgentKindFromCommand (orca-git wasm)', () => {
+  it('classifies only an explicit pi/omp launch', () => {
+    expect(detectExplicitPiAgentKindFromCommand('pi --resume')).toBe('pi')
+    expect(detectExplicitPiAgentKindFromCommand('/usr/local/bin/omp.sh')).toBe('omp')
+    expect(detectExplicitPiAgentKindFromCommand('PI.CMD')).toBe('pi')
+  })
+
+  it('returns null for bare shells and other agents', () => {
+    expect(detectExplicitPiAgentKindFromCommand(undefined)).toBeNull()
+    expect(detectExplicitPiAgentKindFromCommand('')).toBeNull()
+    expect(detectExplicitPiAgentKindFromCommand('codex --resume session')).toBeNull()
+    expect(detectExplicitPiAgentKindFromCommand('pomp.exe')).toBeNull()
+  })
+
+  it('classifies the launched agent instead of mentions in its arguments', () => {
+    expect(detectExplicitPiAgentKindFromCommand('pi "compare omp"')).toBe('pi')
+    expect(detectExplicitPiAgentKindFromCommand('omp "compare pi"')).toBe('omp')
   })
 })
 
@@ -239,9 +260,10 @@ describe('gitFetch (orca-git wasm A-bridge)', () => {
 })
 
 // Branch-cleanup safety decision through the async A-bridge: Rust gathers base
-// refs, fetch --prunes, and runs the no-op-merge proof (with git patch-id stdin).
+// refs, decides on local refs first, fetch --prunes only when they are
+// inconclusive, and runs the no-op-merge proof (with git patch-id stdin).
 describe('branchIsSafeToDelete (orca-git wasm A-bridge)', () => {
-  it('is safe to delete when the branch merges tree-equal into a base', async () => {
+  it('fetch --prunes the saved base remote before trusting its tracking ref', async () => {
     const calls: string[][] = []
     const runGit = async (args: string[]) => {
       calls.push(args)
@@ -257,7 +279,8 @@ describe('branchIsSafeToDelete (orca-git wasm A-bridge)', () => {
       if (args[0] === 'fetch') {
         return { stdout: '', stderr: '' }
       }
-      if (args[0] === 'rev-parse' && args.at(-1)?.endsWith('^{commit}')) {
+      // Only the remote-tracking base resolves, so the local pass can't decide.
+      if (args[0] === 'rev-parse' && args.at(-1) === 'refs/remotes/origin/main^{commit}') {
         return { stdout: 'TOID\n', stderr: '' }
       }
       if (args[0] === 'merge-tree') {
@@ -269,8 +292,37 @@ describe('branchIsSafeToDelete (orca-git wasm A-bridge)', () => {
       return { stdout: '', stderr: '' }
     }
     expect(await branchIsSafeToDelete(runGit, 'feature')).toBe(true)
-    // The one mutation — fetch --prune of the base's remote — ran.
+    // The one mutation — fetch --prune of the base's remote — ran, before the proof.
     expect(calls).toContainEqual(['fetch', '--prune', 'origin'])
+    expect(calls.findIndex((args) => args[0] === 'fetch')).toBeLessThan(
+      calls.findIndex((args) => args[0] === 'merge-tree')
+    )
+  })
+
+  it('skips the remote entirely when a local ref proves the branch is merged', async () => {
+    const calls: string[][] = []
+    const runGit = async (args: string[]) => {
+      calls.push(args)
+      if (args[0] === 'config') {
+        return { stdout: 'refs/remotes/origin/main\n', stderr: '' }
+      }
+      if (args[0] === 'symbolic-ref') {
+        throw Object.assign(new Error('miss'), { code: 1, stderr: '' })
+      }
+      if (args[0] === 'rev-parse' && args.at(-1) === 'HEAD^{commit}') {
+        return { stdout: 'TOID\n', stderr: '' }
+      }
+      if (args[0] === 'merge-tree') {
+        return { stdout: 'SAME\n', stderr: '' }
+      }
+      if (args[0] === 'rev-parse' && args.at(-1) === 'TOID^{tree}') {
+        return { stdout: 'SAME\n', stderr: '' }
+      }
+      return { stdout: '', stderr: '' }
+    }
+    expect(await branchIsSafeToDelete(runGit, 'feature')).toBe(true)
+    expect(calls).not.toContainEqual(['remote'])
+    expect(calls.some((args) => args[0] === 'fetch')).toBe(false)
   })
 
   it('preserves a branch with distinct, non-equivalent commits', async () => {

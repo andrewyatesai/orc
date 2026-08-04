@@ -24,6 +24,7 @@ const CommentMarkdown = React.memo(
       githubRepo: _githubRepo,
       onLinkClick: _onLinkClick,
       allowFileUriLinks: _allowFileUriLinks,
+      expandImages: _expandImages,
       ...rest
     } = props
     return (
