@@ -7,19 +7,22 @@ const FORK_KEY = 'phc_fork1234567890abcdef'
 
 describe('runStagingTelemetryPreflight', () => {
   it('passes non-staging builds without requiring any telemetry env', () => {
-    const result = runStagingTelemetryPreflight({ version: '1.4.122-rc.3', env: {} })
+    const result = runStagingTelemetryPreflight({
+      version: '1.5.0',
+      env: { ORCA_STAGING: '0' }
+    })
     expect(result).toMatchObject({ ok: true, staging: false, dark: false })
   })
 
-  it('detects staging from a -fork. version suffix', () => {
-    const result = runStagingTelemetryPreflight({ version: '1.4.122-fork.1', env: {} })
+  it('treats a bare X.Y.0 build as staging by default', () => {
+    const result = runStagingTelemetryPreflight({ version: '1.5.0', env: {} })
     expect(result.staging).toBe(true)
     expect(result.ok).toBe(false)
   })
 
   it('detects staging from ORCA_STAGING=1', () => {
     const result = runStagingTelemetryPreflight({
-      version: '1.4.122-rc.3',
+      version: '1.5.0',
       env: { ORCA_STAGING: '1' }
     })
     expect(result.staging).toBe(true)
@@ -28,7 +31,7 @@ describe('runStagingTelemetryPreflight', () => {
 
   it('fails loudly when a staging build has no write key', () => {
     const result = runStagingTelemetryPreflight({
-      version: '1.4.122-fork.1',
+      version: '1.5.0',
       env: {}
     })
     expect(result.ok).toBe(false)
@@ -37,7 +40,7 @@ describe('runStagingTelemetryPreflight', () => {
 
   it('allows a keyless staging build only via the explicit dark-staging opt-in', () => {
     const result = runStagingTelemetryPreflight({
-      version: '1.4.122-fork.1',
+      version: '1.5.0',
       env: { ORCA_ALLOW_NO_TELEMETRY: '1' }
     })
     expect(result).toMatchObject({ ok: true, staging: true, dark: true })
@@ -46,7 +49,7 @@ describe('runStagingTelemetryPreflight', () => {
 
   it('allows an explicit local contributor build without a staging warning', () => {
     const result = runStagingTelemetryPreflight({
-      version: '1.4.122-fork.1',
+      version: '1.5.0',
       env: { ORCA_LOCAL_BUILD: '1' }
     })
     expect(result).toMatchObject({
@@ -65,7 +68,7 @@ describe('runStagingTelemetryPreflight', () => {
       { ORCA_LOCAL_BUILD: '1', ORCA_MAC_RELEASE: '1' }
     ]) {
       const result = runStagingTelemetryPreflight({
-        version: '1.4.122-fork.1',
+        version: '1.5.0',
         env
       })
       expect(result.ok).toBe(false)
@@ -75,7 +78,7 @@ describe('runStagingTelemetryPreflight', () => {
 
   it('rejects telemetry constants in local-build mode', () => {
     const result = runStagingTelemetryPreflight({
-      version: '1.4.122-fork.1',
+      version: '1.5.0',
       env: {
         ORCA_LOCAL_BUILD: '1',
         ORCA_POSTHOG_WRITE_KEY: FORK_KEY,
@@ -88,7 +91,7 @@ describe('runStagingTelemetryPreflight', () => {
 
   it('passes a fully keyed staging build', () => {
     const result = runStagingTelemetryPreflight({
-      version: '1.4.122-fork.1',
+      version: '1.5.0',
       env: { ORCA_POSTHOG_WRITE_KEY: FORK_KEY, ORCA_BUILD_IDENTITY: 'rc' }
     })
     expect(result).toMatchObject({ ok: true, staging: true, dark: false })
@@ -96,7 +99,7 @@ describe('runStagingTelemetryPreflight', () => {
 
   it('rejects a malformed write key', () => {
     const result = runStagingTelemetryPreflight({
-      version: '1.4.122-fork.1',
+      version: '1.5.0',
       env: { ORCA_POSTHOG_WRITE_KEY: 'not-a-posthog-key', ORCA_BUILD_IDENTITY: 'rc' }
     })
     expect(result.ok).toBe(false)
@@ -105,7 +108,7 @@ describe('runStagingTelemetryPreflight', () => {
 
   it('rejects a key without a build identity (one-without-other fails closed at runtime)', () => {
     const result = runStagingTelemetryPreflight({
-      version: '1.4.122-fork.1',
+      version: '1.5.0',
       env: { ORCA_POSTHOG_WRITE_KEY: FORK_KEY }
     })
     expect(result.ok).toBe(false)
@@ -114,7 +117,7 @@ describe('runStagingTelemetryPreflight', () => {
 
   it('rejects a key that does not match the pinned fork prefix (public-key guardrail)', () => {
     const result = runStagingTelemetryPreflight({
-      version: '1.4.122-fork.1',
+      version: '1.5.0',
       env: {
         ORCA_POSTHOG_WRITE_KEY: 'phc_public9999999999',
         ORCA_BUILD_IDENTITY: 'rc',
@@ -127,7 +130,7 @@ describe('runStagingTelemetryPreflight', () => {
 
   it('accepts a key matching the pinned fork prefix', () => {
     const result = runStagingTelemetryPreflight({
-      version: '1.4.122-fork.1',
+      version: '1.5.0',
       env: {
         ORCA_POSTHOG_WRITE_KEY: FORK_KEY,
         ORCA_BUILD_IDENTITY: 'rc',
@@ -148,7 +151,7 @@ describe('verify-telemetry-constants --preflight CLI', () => {
   function runPreflight(extraEnv) {
     // Strip ambient ORCA_* vars so a developer's shell cannot flip outcomes,
     // and pin the version via the test hook so the suite stays deterministic
-    // whatever the repo's live package.json version is (rc vs -fork.N).
+    // whatever the repo's live package.json version is.
     const env = { ...process.env }
     delete env.ORCA_STAGING
     delete env.ORCA_POSTHOG_WRITE_KEY
@@ -156,13 +159,13 @@ describe('verify-telemetry-constants --preflight CLI', () => {
     delete env.ORCA_ALLOW_NO_TELEMETRY
     delete env.ORCA_LOCAL_BUILD
     delete env.ORCA_FORK_POSTHOG_KEY_PREFIX
-    env.ORCA_TELEMETRY_PREFLIGHT_VERSION = '1.4.122-rc.3'
+    env.ORCA_TELEMETRY_PREFLIGHT_VERSION = '1.5.0'
     Object.assign(env, extraEnv)
     return spawnSync(process.execPath, [script, '--preflight'], { env, encoding: 'utf8' })
   }
 
-  it('exits 0 for a non-staging build', () => {
-    const result = runPreflight({})
+  it('exits 0 for an explicit non-staging build', () => {
+    const result = runPreflight({ ORCA_STAGING: '0' })
     expect(result.status).toBe(0)
   })
 
@@ -180,7 +183,7 @@ describe('verify-telemetry-constants --preflight CLI', () => {
 
   it('exits 0 for an explicit local contributor build without a warning', () => {
     const result = runPreflight({
-      ORCA_TELEMETRY_PREFLIGHT_VERSION: '1.4.122-fork.1',
+      ORCA_TELEMETRY_PREFLIGHT_VERSION: '1.5.0',
       ORCA_LOCAL_BUILD: '1'
     })
     expect(result.status).toBe(0)
@@ -197,8 +200,9 @@ describe('verify-telemetry-constants --preflight CLI', () => {
     expect(result.status).toBe(0)
   })
 
-  it('honors the -fork. version detection through the version test hook', () => {
-    const result = runPreflight({ ORCA_TELEMETRY_PREFLIGHT_VERSION: '1.4.122-fork.1' })
+  it('fails closed when nothing opts out of staging', () => {
+    const result = runPreflight({})
     expect(result.status).toBe(1)
+    expect(result.stderr).toContain('ORCA_POSTHOG_WRITE_KEY')
   })
 })

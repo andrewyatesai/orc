@@ -41,10 +41,16 @@ export function latestStableDesktopReleaseTag(releases) {
     .map((release) => parseDesktopStableTag(release?.tag_name ?? release?.tagName ?? ''))
     .filter(Boolean)
 
-  // Why: imported upstream-style tags must never advance ALab's independent fork release train.
-  const forkTags = stableTags.filter((release) => release.fork !== null)
+  // Why: ALab's release train is the constellation `X.Y.0` line, so a zero patch slot is what
+  // identifies it. Imported upstream-style tags (patch != 0) and the retired `-fork.N` series
+  // must never advance it. Falls back to every stable tag until the first `X.Y.0` cut lands.
+  const releaseLineTags = stableTags.filter(
+    (release) => release.patch === 0 && release.fork === null
+  )
   return (
-    (forkTags.length > 0 ? forkTags : stableTags).sort(compareDesktopStableTags).at(-1)?.tag ?? ''
+    (releaseLineTags.length > 0 ? releaseLineTags : stableTags)
+      .sort(compareDesktopStableTags)
+      .at(-1)?.tag ?? ''
   )
 }
 

@@ -84,7 +84,7 @@ function findAsar(rootDir) {
 // ── Mode 1: `--preflight` — staging env gate, runs BEFORE the build ─────
 //
 // Wired into the `build:desktop`/`build:release` legs so a staging build
-// (a `-fork.N` version or ORCA_STAGING=1) fails loudly when no PostHog
+// (anything without ORCA_STAGING=0) fails loudly when no PostHog
 // write key is injected, instead of shipping a silently-dark artifact.
 // Non-staging builds pass through untouched. The logic lives in
 // telemetry-staging-preflight.mjs so the test suite can exercise both

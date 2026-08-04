@@ -17,6 +17,19 @@ function jsonResponse(body, init = {}) {
 
 describe('parseDesktopStableTag', () => {
   it('accepts canonical ALab desktop release tags', () => {
+    expect(parseDesktopStableTag('v1.5.0')).toEqual({
+      tag: 'v1.5.0',
+      major: 1,
+      minor: 5,
+      patch: 0,
+      fork: null
+    })
+    expect(parseDesktopStableTag('v1.4.44-rc.0')).toBeNull()
+    expect(parseDesktopStableTag('mobile-v0.0.12')).toBeNull()
+    expect(parseDesktopStableTag('cli-v4.12.28')).toBeNull()
+  })
+
+  it('retains support for the retired -fork.N series', () => {
     expect(parseDesktopStableTag('v1.4.147-fork.3')).toEqual({
       tag: 'v1.4.147-fork.3',
       major: 1,
@@ -25,9 +38,6 @@ describe('parseDesktopStableTag', () => {
       fork: 3
     })
     expect(parseDesktopStableTag('v1.4.147-fork.0')).toBeNull()
-    expect(parseDesktopStableTag('v1.4.44-rc.0')).toBeNull()
-    expect(parseDesktopStableTag('mobile-v0.0.12')).toBeNull()
-    expect(parseDesktopStableTag('cli-v4.12.28')).toBeNull()
   })
 
   it('retains support for legacy plain stable desktop tags', () => {
@@ -42,14 +52,33 @@ describe('parseDesktopStableTag', () => {
 })
 
 describe('latestStableDesktopReleaseTag', () => {
-  it('chooses the newest ALab fork version and cut instead of release list order', () => {
+  it('chooses the newest X.Y.0 release-line cut instead of release list order', () => {
     const releases = [
-      { tag_name: 'v9.0.0', draft: false },
+      { tag_name: 'v1.5.0', draft: false },
+      { tag_name: 'v1.7.0', draft: false },
+      { tag_name: 'v1.6.0', draft: false },
+      { tag_name: 'v1.8.0-rc.0', draft: false },
+      { tag_name: 'mobile-v0.0.12', draft: false }
+    ]
+
+    expect(latestStableDesktopReleaseTag(releases)).toBe('v1.7.0')
+  })
+
+  it('never lets an imported upstream-style tag advance the release line', () => {
+    const releases = [
+      { tag_name: 'v1.5.0', draft: false },
+      { tag_name: 'v1.4.200', draft: false },
+      { tag_name: 'v1.4.147-fork.9', draft: false }
+    ]
+
+    expect(latestStableDesktopReleaseTag(releases)).toBe('v1.5.0')
+  })
+
+  it('falls back to the retired fork series before the first X.Y.0 cut', () => {
+    const releases = [
       { tag_name: 'v1.4.148-fork.1', draft: false },
       { tag_name: 'v1.4.147-fork.3', draft: false },
-      { tag_name: 'v1.4.148-fork.2', draft: false },
-      { tag_name: 'v1.4.149-rc.0', draft: false },
-      { tag_name: 'mobile-v0.0.12', draft: false }
+      { tag_name: 'v1.4.148-fork.2', draft: false }
     ]
 
     expect(latestStableDesktopReleaseTag(releases)).toBe('v1.4.148-fork.2')
@@ -57,11 +86,11 @@ describe('latestStableDesktopReleaseTag', () => {
 
   it('ignores draft ALab releases', () => {
     const releases = [
-      { tag_name: 'v1.4.148-fork.2', draft: true },
-      { tag_name: 'v1.4.148-fork.1', draft: false }
+      { tag_name: 'v1.6.0', draft: true },
+      { tag_name: 'v1.5.0', draft: false }
     ]
 
-    expect(latestStableDesktopReleaseTag(releases)).toBe('v1.4.148-fork.1')
+    expect(latestStableDesktopReleaseTag(releases)).toBe('v1.5.0')
   })
 
   it('retains semver ordering for legacy plain stable releases', () => {

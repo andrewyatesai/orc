@@ -1,6 +1,6 @@
 {
   "name": "orca",
-  "version": "1.4.161-fork.1",
+  "version": "1.5.0",
   "description": "Next-gen IDE for parallel agentic development",
   "homepage": "https://github.com/andrewyatesai/orca-alab",
   "bugs": {

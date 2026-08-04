@@ -1,6 +1,6 @@
 // Staging telemetry preflight — the build-time half of the G0-0/G0-3 gate.
 //
-// A staging build (a `-fork.N` version, or any build with ORCA_STAGING=1)
+// A staging build (every build except one with ORCA_STAGING=0)
 // exists to produce field observability. Building one without a PostHog
 // write key compiles telemetry out to a silent no-op and the cohort ships
 // blind — so the preflight FAILS LOUDLY unless ORCA_ALLOW_NO_TELEMETRY=1
@@ -31,7 +31,9 @@ export function runStagingTelemetryPreflight({ version, env }) {
   const messages = []
   const errors = []
 
-  const staging = version.includes('-fork.') || env.ORCA_STAGING === '1'
+  // Fail closed: the release line is now bare `X.Y.0`, so there is no version marker left to
+  // detect. Every build counts as staging unless ORCA_STAGING=0 opts out explicitly.
+  const staging = env.ORCA_STAGING !== '0'
   const local = env.ORCA_LOCAL_BUILD === '1'
   if (local) {
     const runningInCi = Boolean(env.CI && env.CI !== '0' && env.CI.toLowerCase() !== 'false')
@@ -56,7 +58,7 @@ export function runStagingTelemetryPreflight({ version, env }) {
 
   if (!staging) {
     messages.push(
-      `Not a staging build (version "${version}" has no -fork. suffix and ORCA_STAGING is unset) — ` +
+      `Not a staging build (version "${version}" built with ORCA_STAGING=0) — ` +
         'telemetry constants are optional; compile-out (no-key) behavior applies.'
     )
     return { ok: true, staging: false, dark: false, local: false, messages, errors }
