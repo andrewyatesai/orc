@@ -1,42 +1,42 @@
 {
   "schema": 2,
-  "sourceCommit": "653e30fd0c31b07e8fe414924730cfbad64664f4",
+  "sourceCommit": "dc7239a63f6dfca304726ebeb9e944d7e9146bde",
   "sourcePatch": {
     "path": "config/patches/aterm-wasm-source-fixes.patch",
     "sha256": "e2ebdfc83aa59e55256e4d08d8af8e6ccff6ca045a3788c3610534c2aa0d2675"
   },
   "artifacts": {
     "aterm_wasm.js": {
-      "bytes": 122714,
-      "sha256": "89f97e4c826cc0259484b4876b11d6ccf81aa9e95e15218916884d2c21104dd1"
+      "bytes": 122732,
+      "sha256": "4a06faa93bf600cc29b9f367491aa565c186f8898b66dc703c145b58f7d03731"
     },
     "aterm_wasm.d.ts": {
-      "bytes": 90116,
-      "sha256": "4e3744da6c4fb0088cb28f63d234f5782f04d17a01b537ec249d585474e770a2"
+      "bytes": 90134,
+      "sha256": "d5aab6697d0070e80131525480dee24968ae5d3589691754ce0b79021cf8c4ed"
     },
     "aterm_wasm_bg.wasm": {
-      "bytes": 3865146,
-      "sha256": "cdb7a2bc5f2ca6ef54ec0b196919b60af7425195a858c66ca43f3d3481f79fc3"
+      "bytes": 3883597,
+      "sha256": "43cfa3db6c99bef2bcd94e884a620b52c987542397d433f4022054068db187c0"
     },
     "aterm_wasm_bg.wasm.d.ts": {
       "bytes": 16946,
       "sha256": "c01859bdc9f5cac9e3f6769c03e6bb643ea1916d0e2c0392b8662bed4a9ecfc0"
     },
     "aterm_gpu_web.js": {
-      "bytes": 171699,
-      "sha256": "197bfb56c93aea747f5ef300e952237be281e443feb23385d51cdd52f07623f7"
+      "bytes": 171210,
+      "sha256": "70c52f6e3c981d137bc974c65414ac36e4d5d436c779d12a651631d1ecf229c3"
     },
     "aterm_gpu_web.d.ts": {
-      "bytes": 81850,
-      "sha256": "4454a210f907128908aac6411f9688116f49d7bce6ae7c23e79298788f70184f"
+      "bytes": 81627,
+      "sha256": "6d32243764e2df43b4d82ed365d9166250aaac2e8966b0a4b3621bed6f47232b"
     },
     "aterm_gpu_web_bg.wasm": {
-      "bytes": 6316885,
-      "sha256": "2c4b1ca425e58fb7b9b9b7d074deca790b9580bab5a459dd8d47359046dc1cc8"
+      "bytes": 6347649,
+      "sha256": "c6c50388034b144f5dd58af6f77f0183aaa4d8293dcebd2163ff1b1fa8880c6d"
     },
     "aterm_gpu_web_bg.wasm.d.ts": {
-      "bytes": 17728,
-      "sha256": "d373344162c375b2c317ae9ab368e531ed85e5a9be83fc65d214b4216f5d9757"
+      "bytes": 17487,
+      "sha256": "b426770c3ace294f826df482dfb1daaa295c1592dc238a6b7a7e03ee667b9ce8"
     }
   }
 }

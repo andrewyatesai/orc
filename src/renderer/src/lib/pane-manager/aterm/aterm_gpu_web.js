@@ -1315,8 +1315,8 @@ export class AtermGpuTerminal {
     /**
      * Configure the LUMEN cursor aurora (additive light in the cursor's
      * wake). Mirrors the native knobs + clamps: `style` ∈
-     * `lumen|phaser|nyan|sparkle|fire|laser|beam|water|comet` (unknown →
-     * lumen; `rainbow` = the Nyan banded ribbon);
+     * `lumen|phaser|rainbow kitty|sparkle|fire|laser|beam|water|comet` (unknown →
+     * lumen; `rainbow` = the rainbow kitty banded ribbon);
      * `color`/`accent` omitted derive from the theme cursor (accent = color
      * brightened 1.5×) exactly like the native app; `duration_ms` clamps
      * 30..=2000, `length` (cells) 1..=512, `intensity` 0..=1 (0 = off),
@@ -3062,7 +3062,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue__wasm_bindgen_2fd77d7f9fb91949___JsValue_____(a, state0.b, arg0, arg1);
+                        return wasm_bindgen__convert__closures_____invoke__h8213ea38bdb807ad(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -3439,7 +3439,7 @@ function __wbg_get_imports() {
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
             // Cast intrinsic for `Closure(Closure { dtor_idx: 37, function: Function { arguments: [Externref], shim_idx: 38, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_2fd77d7f9fb91949___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_2fd77d7f9fb91949___JsValue____Output_______, wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue_____);
+            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h3083892b977ce66d, wasm_bindgen__convert__closures_____invoke__hb1346b57a9cb9c6d);
             return ret;
         },
         __wbindgen_cast_0000000000000002: function(arg0) {
@@ -3503,12 +3503,12 @@ function __wbg_get_imports() {
     };
 }
 
-function wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue_____(arg0, arg1, arg2) {
-    wasm.wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue_____(arg0, arg1, arg2);
+function wasm_bindgen__convert__closures_____invoke__hb1346b57a9cb9c6d(arg0, arg1, arg2) {
+    wasm.wasm_bindgen__convert__closures_____invoke__hb1346b57a9cb9c6d(arg0, arg1, arg2);
 }
 
-function wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue__wasm_bindgen_2fd77d7f9fb91949___JsValue_____(arg0, arg1, arg2, arg3) {
-    wasm.wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue__wasm_bindgen_2fd77d7f9fb91949___JsValue_____(arg0, arg1, arg2, arg3);
+function wasm_bindgen__convert__closures_____invoke__h8213ea38bdb807ad(arg0, arg1, arg2, arg3) {
+    wasm.wasm_bindgen__convert__closures_____invoke__h8213ea38bdb807ad(arg0, arg1, arg2, arg3);
 }
 
 const AtermGpuTerminalFinalization = (typeof FinalizationRegistry === 'undefined')
