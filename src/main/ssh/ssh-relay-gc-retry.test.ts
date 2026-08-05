@@ -65,6 +65,7 @@ function makeConnection(): SshConnection {
   const channel = {
     on: vi.fn(),
     stderr: { on: vi.fn() },
+    stdin: { write: vi.fn() },
     close: vi.fn()
   }
   return {

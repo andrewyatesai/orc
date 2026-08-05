@@ -20,7 +20,19 @@ import {
   type DecodedFrame,
   type JsonRpcResponse
 } from './protocol'
-import { readLaunchVersion, runConnectHandshake, setupDaemonHandshake } from './relay-handshake'
+import {
+  allowedMethodsForRole,
+  readLaunchVersion,
+  runConnectHandshake,
+  setupDaemonHandshake,
+  type RelayAuthVerifiers
+} from './relay-handshake'
+import { readConnectAuthLine } from './relay-connect-auth-stdin'
+import {
+  RELAY_AUTH_TOKEN_ENV,
+  isRelayAuthVerifier,
+  type RelayAuthRole
+} from '../shared/ssh-relay-auth-token'
 import { RelayDispatcher } from './dispatcher'
 import { RelayContext, expandTilde } from './context'
 import { bindRelayOrcaDispatch } from './git-wasm'
@@ -104,6 +116,7 @@ function parseArgs(argv: string[]): {
   detached: boolean
   cliMode: boolean
   sockPath: string
+  auth: RelayAuthVerifiers
   endpointDir?: string
   logFile?: string
 } {
@@ -112,6 +125,9 @@ function parseArgs(argv: string[]): {
   let detached = false
   let cliMode = false
   let sockPath = ''
+  // Why: verifiers, not secrets — a SHA-256 digest in argv is public by design, so
+  // `ps` on the remote host reveals nothing that can be replayed onto the socket.
+  const auth: RelayAuthVerifiers = { control: '' }
   let endpointDir: string | undefined
   let logFile: string | undefined
   for (let i = 2; i < argv.length; i++) {
@@ -131,6 +147,12 @@ function parseArgs(argv: string[]): {
     } else if (argv[i] === '--sock-path' && argv[i + 1]) {
       sockPath = argv[i + 1]
       i++
+    } else if (argv[i] === '--auth-verifier' && argv[i + 1]) {
+      auth.control = argv[i + 1]
+      i++
+    } else if (argv[i] === '--cli-auth-verifier' && argv[i + 1]) {
+      auth.cli = argv[i + 1]
+      i++
     } else if (argv[i] === '--endpoint-dir' && argv[i + 1]) {
       endpointDir = argv[i + 1]
       i++
@@ -142,13 +164,13 @@ function parseArgs(argv: string[]): {
   if (!sockPath) {
     sockPath = join(process.cwd(), SOCK_NAME)
   }
-  return { graceTimeMs, connectMode, detached, cliMode, sockPath, endpointDir, logFile }
+  return { graceTimeMs, connectMode, detached, cliMode, sockPath, auth, endpointDir, logFile }
 }
 
 // ── Connect mode ─────────────────────────────────────────────────────
 // Why: --connect bridges a new SSH channel's stdin/stdout to the existing relay's socket so the client keeps talking to the process that owns the live PTYs.
 
-function runConnectMode(sockPath: string): void {
+function runConnectMode(sockPath: string, token: string, stdinLeftover: Buffer): void {
   const myVersion = readLaunchVersion()
   const sock = createConnection({ path: sockPath })
 
@@ -160,13 +182,17 @@ function runConnectMode(sockPath: string): void {
 
   sock.on('connect', () => {
     clearTimeout(connectTimeout)
-    runConnectHandshake(sock, myVersion, {
+    runConnectHandshake(sock, myVersion, token, {
       onAccepted: (leftover: Buffer) => {
         // Why: write RELAY_SENTINEL only after the handshake passes, so a version mismatch is a clean exit-42 instead of a false sentinel + channel drop.
         process.stdout.write(RELAY_SENTINEL)
         // Why: forward handshake-buffered leftover bytes before sock.pipe(process.stdout) so the downstream mux sees them in order.
         if (leftover.length > 0) {
           process.stdout.write(leftover)
+        }
+        // Why: bytes the host pipelined behind the credential line predate the pipe; send them first or the relay sees a truncated frame.
+        if (stdinLeftover.length > 0) {
+          sock.write(stdinLeftover)
         }
         process.stdin.pipe(sock)
         sock.pipe(process.stdout)
@@ -193,6 +219,16 @@ function runConnectMode(sockPath: string): void {
 
 async function runOrcaCliMode(sockPath: string, argv: string[]): Promise<void> {
   const myVersion = readLaunchVersion()
+  // Why: the CLI runs inside a remote pane, so its credential rides the pane env
+  // the relay seeded at spawn. No baked-in fallback: a shell that Orca did not
+  // start has no business driving the channel back to the user's machine.
+  const token = process.env[RELAY_AUTH_TOKEN_ENV]
+  if (!token) {
+    process.stderr.write(
+      `Orca CLI is missing its relay credential (${RELAY_AUTH_TOKEN_ENV}); run it from an Orca terminal pane on this host.\n`
+    )
+    process.exit(1)
+  }
   const stdin = shouldReadRemoteCliStdin(argv) ? await readOrcaCliStdin() : undefined
   const sock = createConnection({ path: sockPath })
   let nextSeq = 1
@@ -259,7 +295,7 @@ async function runOrcaCliMode(sockPath: string, argv: string[]): Promise<void> {
 
   sock.on('connect', () => {
     clearTimeout(connectTimeout)
-    runConnectHandshake(sock, myVersion, {
+    runConnectHandshake(sock, myVersion, token, {
       onAccepted: (leftover) => {
         if (leftover.length > 0) {
           decoder.feed(leftover)
@@ -293,14 +329,23 @@ async function readOrcaCliStdin(): Promise<string | undefined> {
 // ── Normal mode ──────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const { graceTimeMs, connectMode, detached, cliMode, sockPath, endpointDir, logFile } = parseArgs(
-    process.argv
-  )
+  const { graceTimeMs, connectMode, detached, cliMode, sockPath, auth, endpointDir, logFile } =
+    parseArgs(process.argv)
 
   if (connectMode) {
     // --connect is a lightweight stdio bridge to an existing relay; it runs no
     // handlers, so it doesn't need the dispatch seam (kept out of the fast path).
-    runConnectMode(sockPath)
+    let credential: Awaited<ReturnType<typeof readConnectAuthLine>>
+    try {
+      credential = await readConnectAuthLine(process.stdin)
+    } catch (err) {
+      process.stderr.write(
+        `[relay-connect] ${err instanceof Error ? err.message : String(err)}; exiting\n`
+      )
+      process.exit(1)
+      return
+    }
+    runConnectMode(sockPath, credential.token, credential.leftover)
     return
   }
   // Bind the wasm orcaDispatch into the shared seam before any handler or CLI
@@ -315,6 +360,14 @@ async function main(): Promise<void> {
   // Why: only the long-lived detached daemon accumulates relay.log; route it through a size-capped rotator so it can't grow forever.
   if (detached && logFile) {
     installRelayLogRotation(logFile)
+  }
+
+  if (!isRelayAuthVerifier(auth.control)) {
+    // Why: the handshake refuses every client in this state; say so once at boot
+    // so the failure reads as a launch bug, not a mysterious connection refusal.
+    relayLogLine(
+      '[relay] No --auth-verifier supplied; every socket client will be refused. This relay was not launched by Orca.'
+    )
   }
 
   let ownsSocketPath = false
@@ -621,7 +674,7 @@ async function main(): Promise<void> {
     ptyHandler.cancelGraceTimer()
   }
 
-  function attachAcceptedSocket(sock: Socket, leftover: Buffer): void {
+  function attachAcceptedSocket(sock: Socket, leftover: Buffer, role: RelayAuthRole): void {
     // Why: remove the initial stdin data listener once a socket client is accepted, so stale SSH-channel bytes can't interleave.
     process.stdin.pause()
     process.stdin.removeAllListeners('data')
@@ -629,7 +682,7 @@ async function main(): Promise<void> {
     hasAcceptedSocketClient = true
     acceptedSocketConnections++
     relayLogLine(
-      `[relay] Socket client accepted (clients=${socketClients.size + 1}, accepted=${acceptedSocketConnections})`
+      `[relay] Socket client accepted (role=${role}, clients=${socketClients.size + 1}, accepted=${acceptedSocketConnections})`
     )
     cancelGrace('socket client accepted')
 
@@ -659,7 +712,8 @@ async function main(): Promise<void> {
           }
           sockDrainWaiters.add(cb)
         }
-      }
+      },
+      { allowedMethods: allowedMethodsForRole(role) }
     )
     socketClients.set(sock, clientId)
 
@@ -676,8 +730,8 @@ async function main(): Promise<void> {
 
   async function startSocketServer(): Promise<Server> {
     const server = createServer((sock) => {
-      // Why: pre-dispatcher version handshake — see relay-handshake.ts.
-      setupDaemonHandshake(sock, { launchVersion, onAccepted: attachAcceptedSocket })
+      // Why: pre-dispatcher auth + version handshake — see relay-handshake.ts.
+      setupDaemonHandshake(sock, { launchVersion, auth, onAccepted: attachAcceptedSocket })
 
       // Why: destroy on 'end' (FIN from --connect's dying channel) so the 'close' handler fires promptly and the daemon enters grace.
       sock.on('end', () => {

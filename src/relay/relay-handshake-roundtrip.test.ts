@@ -7,8 +7,10 @@ import { join } from 'node:path'
 import {
   setupDaemonHandshake,
   runConnectHandshake,
+  EXIT_CODE_AUTH_DENIED,
   EXIT_CODE_VERSION_MISMATCH
 } from './relay-handshake'
+import { relayAuthVerifier } from '../shared/ssh-relay-auth-token'
 import {
   encodeHandshakeFrame,
   encodeJsonRpcFrame,
@@ -28,6 +30,9 @@ class ExitCalled extends Error {
     this.code = code
   }
 }
+
+const TOKEN = 'a'.repeat(64)
+const VERIFIER = relayAuthVerifier(TOKEN)
 
 describe('handshake round-trip over a real Socket pair', () => {
   let server: Server
@@ -104,6 +109,7 @@ describe('handshake round-trip over a real Socket pair', () => {
         trackServerSocket(sock)
         setupDaemonHandshake(sock, {
           launchVersion: version,
+          auth: { control: VERIFIER },
           onAccepted: (s, leftover) => acceptedDeferred.resolve({ sock: s, leftover })
         })
       })
@@ -118,7 +124,7 @@ describe('handshake round-trip over a real Socket pair', () => {
     await new Promise<void>((r) => bridgeSock.once('connect', () => r()))
 
     const acceptedCb = vi.fn<(leftover: Buffer) => void>()
-    runConnectHandshake(bridgeSock, '0.1.0+match', { onAccepted: acceptedCb })
+    runConnectHandshake(bridgeSock, '0.1.0+match', TOKEN, { onAccepted: acceptedCb })
 
     const { leftover } = await accepted
     expect(leftover.length).toBe(0)
@@ -126,7 +132,7 @@ describe('handshake round-trip over a real Socket pair', () => {
     await vi.waitFor(() => expect(acceptedCb).toHaveBeenCalledTimes(1))
     expect(acceptedCb.mock.calls[0][0].length).toBe(0)
     expect(stderrWrite.mock.calls.map(([line]) => line)).toEqual([
-      '[relay] Handshake OK from version=0.1.0+match\n',
+      '[relay] Handshake OK from version=0.1.0+match role=control\n',
       '[relay-connect] Handshake OK at version=0.1.0+match\n'
     ])
 
@@ -144,7 +150,8 @@ describe('handshake round-trip over a real Socket pair', () => {
 
     const handshakeFrame = encodeHandshakeFrame({
       type: 'orca-relay-handshake',
-      version: '0.1.0+match'
+      version: '0.1.0+match',
+      token: TOKEN
     })
     const trailingPayload = encodeJsonRpcFrame({ jsonrpc: '2.0', method: 'noop', params: {} }, 1, 0)
     bridgeSock.write(Buffer.concat([handshakeFrame, trailingPayload]))
@@ -157,7 +164,7 @@ describe('handshake round-trip over a real Socket pair', () => {
     expect(seen).toHaveLength(1)
     expect(seen[0].type).toBe(MessageType.Regular)
     expect(stderrWrite).toHaveBeenCalledExactlyOnceWith(
-      '[relay] Handshake OK from version=0.1.0+match\n'
+      '[relay] Handshake OK from version=0.1.0+match role=control\n'
     )
 
     bridgeSock.destroy()
@@ -174,7 +181,8 @@ describe('handshake round-trip over a real Socket pair', () => {
         serverHandshakeSeen = true
         const ok = encodeHandshakeFrame({
           type: 'orca-relay-handshake-ok',
-          version: '0.1.0+match'
+          version: '0.1.0+match',
+          auth: 'verified'
         })
         const trailing = encodeJsonRpcFrame(
           { jsonrpc: '2.0', method: 'pty.event', params: { evt: 'data' } },
@@ -191,7 +199,7 @@ describe('handshake round-trip over a real Socket pair', () => {
     await new Promise<void>((r) => bridgeSock.once('connect', () => r()))
 
     const acceptedCb = vi.fn<(leftover: Buffer) => void>()
-    runConnectHandshake(bridgeSock, '0.1.0+match', { onAccepted: acceptedCb })
+    runConnectHandshake(bridgeSock, '0.1.0+match', TOKEN, { onAccepted: acceptedCb })
 
     await vi.waitFor(() => expect(acceptedCb).toHaveBeenCalledTimes(1))
     const leftover = acceptedCb.mock.calls[0][0]
@@ -215,7 +223,7 @@ describe('handshake round-trip over a real Socket pair', () => {
     await new Promise<void>((r) => bridgeSock.once('connect', () => r()))
 
     const acceptedCb = vi.fn()
-    runConnectHandshake(bridgeSock, '0.1.0+different', { onAccepted: acceptedCb })
+    runConnectHandshake(bridgeSock, '0.1.0+different', TOKEN, { onAccepted: acceptedCb })
 
     await vi.waitFor(() => expect(exitSpy).toHaveBeenCalled())
     expect(exitSpy).toHaveBeenCalledWith(EXIT_CODE_VERSION_MISMATCH)
@@ -227,6 +235,55 @@ describe('handshake round-trip over a real Socket pair', () => {
     expect(stderrWrite.mock.calls[1][0]).toBe(
       '[relay-connect] Handshake mismatch: expected=0.1.0+server-version, daemon=0.1.0+different; exiting 42\n'
     )
+
+    bridgeSock.destroy()
+  })
+
+  // Why: version-scoped install dirs mean a pre-auth relay is unreachable at this
+  // socket path, so anything answering here without checking our token is an
+  // impostor, not an old friend. Fail closed rather than hand it the channel.
+  it('refuses a daemon that accepts the handshake without verifying the token', async () => {
+    server = createServer((sock) => {
+      trackServerSocket(sock)
+      const decoder = new FrameDecoder((frame) => {
+        if (frame.type !== MessageType.Handshake) {
+          return
+        }
+        sock.write(
+          encodeHandshakeFrame({ type: 'orca-relay-handshake-ok', version: '0.1.0+match' })
+        )
+      })
+      sock.on('data', (chunk: Buffer) => decoder.feed(chunk))
+    })
+    await new Promise<void>((r) => server.listen(sockPath, () => r()))
+
+    const bridgeSock = connect(sockPath)
+    await new Promise<void>((r) => bridgeSock.once('connect', () => r()))
+
+    const acceptedCb = vi.fn()
+    runConnectHandshake(bridgeSock, '0.1.0+match', TOKEN, { onAccepted: acceptedCb })
+
+    await vi.waitFor(() => expect(exitSpy).toHaveBeenCalled())
+    expect(exitSpy).toHaveBeenCalledWith(EXIT_CODE_AUTH_DENIED)
+    expect(acceptedCb).not.toHaveBeenCalled()
+
+    bridgeSock.destroy()
+  })
+
+  it('exits EXIT_CODE_AUTH_DENIED when the daemon rejects the credential', async () => {
+    await startDaemon('0.1.0+match')
+
+    const bridgeSock = connect(sockPath)
+    await new Promise<void>((r) => bridgeSock.once('connect', () => r()))
+
+    const acceptedCb = vi.fn()
+    runConnectHandshake(bridgeSock, '0.1.0+match', 'b'.repeat(64), { onAccepted: acceptedCb })
+
+    await vi.waitFor(() => expect(exitSpy).toHaveBeenCalled())
+    // Why not 42: a bad credential is recoverable — the deploy path reaps that
+    // relay and launches a fresh one, where 42 would be terminal.
+    expect(exitSpy).toHaveBeenCalledWith(EXIT_CODE_AUTH_DENIED)
+    expect(acceptedCb).not.toHaveBeenCalled()
 
     bridgeSock.destroy()
   })
@@ -244,7 +301,7 @@ describe('handshake round-trip over a real Socket pair', () => {
     await new Promise<void>((r) => bridgeSock.once('connect', () => r()))
 
     const acceptedCb = vi.fn()
-    runConnectHandshake(bridgeSock, '0.1.0+match', { onAccepted: acceptedCb })
+    runConnectHandshake(bridgeSock, '0.1.0+match', TOKEN, { onAccepted: acceptedCb })
 
     await new Promise((r) => setTimeout(r, 100))
     expect(acceptedCb).not.toHaveBeenCalled()

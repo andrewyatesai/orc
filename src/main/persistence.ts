@@ -100,6 +100,7 @@ import {
   type SshTarget
 } from '../shared/ssh-types'
 import { isFolderRepo } from '../shared/repo-kind'
+import { isPtyIncarnationId } from '../shared/pty-incarnation'
 import { getRepoExecutionHostId, parseExecutionHostId } from '../shared/execution-host'
 import {
   getDefaultPersistedState,
@@ -1684,7 +1685,9 @@ function normalizeSshRemotePtyLease(value: unknown): SshRemotePtyLease | null {
     createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : now,
     updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : now,
     ...(typeof raw.lastAttachedAt === 'number' ? { lastAttachedAt: raw.lastAttachedAt } : {}),
-    ...(typeof raw.lastDetachedAt === 'number' ? { lastDetachedAt: raw.lastDetachedAt } : {})
+    ...(typeof raw.lastDetachedAt === 'number' ? { lastDetachedAt: raw.lastDetachedAt } : {}),
+    ...(isPtyIncarnationId(raw.incarnationId) ? { incarnationId: raw.incarnationId } : {}),
+    ...(typeof raw.killRequestedAt === 'number' ? { killRequestedAt: raw.killRequestedAt } : {})
   }
 }
 
@@ -7024,7 +7027,7 @@ export class Store {
     targetId: string,
     ptyId: string,
     state: SshRemotePtyLease['state'],
-    options: { flush?: boolean } = {}
+    options: { flush?: boolean; incarnationId?: string } = {}
   ): boolean {
     const shouldFlush = options.flush ?? true
     const relayPtyId = this.getRelayPtyIdForSshLeaseStorage(targetId, ptyId)
@@ -7034,15 +7037,25 @@ export class Store {
     if (!lease) {
       return false
     }
+    // Why: leases written before incarnations were stored can only become
+    // reapable by backfilling the id the relay reports on reattach.
+    const incarnationChanged =
+      isPtyIncarnationId(options.incarnationId) && lease.incarnationId !== options.incarnationId
+    if (incarnationChanged) {
+      lease.incarnationId = options.incarnationId
+      lease.updatedAt = Date.now()
+    }
     const shouldClearBindings = state === 'terminated' || state === 'expired'
     if (lease.state === state) {
-      if (shouldClearBindings && this.clearSshRemotePtyBindingsForLeases(targetId, [lease])) {
-        if (shouldFlush) {
-          this.flush()
-        }
-        return true
+      const bindingsCleared =
+        shouldClearBindings && this.clearSshRemotePtyBindingsForLeases(targetId, [lease])
+      if (!incarnationChanged && !bindingsCleared) {
+        return false
       }
-      return false
+      if (shouldFlush) {
+        this.flush()
+      }
+      return true
     }
     const now = Date.now()
     lease.state = state
@@ -7059,6 +7072,37 @@ export class Store {
       this.flush()
     }
     return true
+  }
+
+  /** Records that a pane was closed while its relay was unreachable, so the next
+   *  connect can reap the remote shell that outlived it. Returns false when no
+   *  lease describes the PTY — nothing durable identifies it, so nothing may be
+   *  killed later. */
+  recordSshRemotePtyKillIntent(targetId: string, ptyId: string, requestedAt = Date.now()): boolean {
+    const relayPtyId = this.getRelayPtyIdForSshLeaseStorage(targetId, ptyId)
+    const lease = this.state.sshRemotePtyLeases?.find(
+      (entry) => entry.targetId === targetId && entry.ptyId === relayPtyId
+    )
+    if (!lease || lease.killRequestedAt !== undefined) {
+      return false
+    }
+    lease.killRequestedAt = requestedAt
+    lease.updatedAt = requestedAt
+    this.flush()
+    return true
+  }
+
+  clearSshRemotePtyKillIntent(targetId: string, ptyId: string): void {
+    const relayPtyId = this.getRelayPtyIdForSshLeaseStorage(targetId, ptyId)
+    const lease = this.state.sshRemotePtyLeases?.find(
+      (entry) => entry.targetId === targetId && entry.ptyId === relayPtyId
+    )
+    if (!lease || lease.killRequestedAt === undefined) {
+      return
+    }
+    delete lease.killRequestedAt
+    lease.updatedAt = Date.now()
+    this.flush()
   }
 
   removeSshRemotePtyLease(targetId: string, ptyId: string): void {

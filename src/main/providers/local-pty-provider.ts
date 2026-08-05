@@ -881,6 +881,12 @@ export class LocalPtyProvider implements IPtyProvider {
         wslDistro: preferredWslContext?.distro ?? worktreeWslContext?.distro ?? null
       })
       logHistoryInjection(worktreeId, historyResult)
+      if (historyResult.histFile && pathWin32.basename(shellPath).toLowerCase() === 'wsl.exe') {
+        // Why: injectHistoryEnv already wrote the guest-visible /mnt path, but wsl.exe
+        // imports no Windows var that WSLENV does not name — without this the in-distro
+        // shell silently falls back to the distro's shared ~/.bash_history.
+        addWslEnvKeys(finalEnv, ['HISTFILE'])
+      }
     }
 
     await prepareLocalPtySpawn(id, spawnGeneration)

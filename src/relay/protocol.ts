@@ -15,12 +15,15 @@ export const MessageType = {
 
 // Why: a pre-dispatcher envelope on a freshly-accepted Unix socket. The daemon
 // reads exactly one Handshake frame before attaching the JSON-RPC dispatcher,
-// to refuse mismatched-version --connect bridges that would otherwise drive a
-// stale daemon.
+// to authenticate the client and to refuse mismatched-version --connect bridges
+// that would otherwise drive a stale daemon.
 export type HandshakeMessage =
-  | { type: 'orca-relay-handshake'; version: string }
-  | { type: 'orca-relay-handshake-ok'; version: string }
+  | { type: 'orca-relay-handshake'; version: string; token?: string }
+  // `auth` proves the daemon actually checked the token; a client that does not
+  // see it must assume it is talking to something that authenticates nobody.
+  | { type: 'orca-relay-handshake-ok'; version: string; auth?: 'verified' }
   | { type: 'orca-relay-handshake-mismatch'; expected: string; got: string }
+  | { type: 'orca-relay-handshake-denied'; reason: 'auth' }
 
 export function encodeHandshakeFrame(msg: HandshakeMessage): Buffer {
   const payload = Buffer.from(JSON.stringify(msg), 'utf-8')
@@ -33,7 +36,8 @@ export function parseHandshakeMessage(payload: Buffer): HandshakeMessage {
   if (
     t !== 'orca-relay-handshake' &&
     t !== 'orca-relay-handshake-ok' &&
-    t !== 'orca-relay-handshake-mismatch'
+    t !== 'orca-relay-handshake-mismatch' &&
+    t !== 'orca-relay-handshake-denied'
   ) {
     throw new Error(`Unknown handshake type: ${t}`)
   }

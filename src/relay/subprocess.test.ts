@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, afterEach } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, afterEach, vi } from 'vitest'
 import {
   copyFileSync,
   existsSync,
@@ -14,9 +14,25 @@ import { tmpdir } from 'node:os'
 import { execFileSync, spawn as spawnChild } from 'node:child_process'
 import { build } from 'esbuild'
 import { relaySyncOnlyWasmGluePlugin } from '../../config/scripts/relay-sync-only-wasm-glue-plugin.mjs'
-import { spawnRelay, type RelayProcess } from './subprocess-test-utils'
+import {
+  spawnRelay,
+  TEST_RELAY_AUTH_ARGS,
+  TEST_RELAY_SECRET,
+  type RelayProcess
+} from './subprocess-test-utils'
 import { getEndpointFileName } from '../shared/agent-hook-listener'
 import { relayTestSocketPath } from './relay-test-socket-path'
+import { connect as connectSocket, type Socket } from 'node:net'
+import {
+  FrameDecoder,
+  MessageType,
+  encodeHandshakeFrame,
+  encodeJsonRpcFrame,
+  parseHandshakeMessage,
+  parseJsonRpcMessage,
+  type HandshakeMessage,
+  type JsonRpcResponse
+} from './protocol'
 
 const RELAY_TS_ENTRY = path.resolve(__dirname, 'relay.ts')
 const WATCHER_TS_ENTRY = path.resolve(__dirname, '../main/ipc/parcel-watcher-process-entry.ts')
@@ -61,13 +77,15 @@ function spawnRelayEntry(
   args: string[] = [],
   env?: NodeJS.ProcessEnv
 ): RelayProcess {
-  let relayArgs = args
+  // Why: a daemon without a verifier refuses every socket client by design; only
+  // the --connect bridge presents the secret, so it takes no verifier of its own.
+  let relayArgs = args.includes('--connect') ? args : [...args, ...TEST_RELAY_AUTH_ARGS]
   if (!args.includes('--sock-path')) {
     // Why: Windows relays require a named pipe; filesystem socket paths fail with EACCES.
     const socketDir = mkdtempSync(path.join(tmpdir(), 'relay-sock-'))
     spawnedSocketDirs.push(socketDir)
     relayArgs = [
-      ...args,
+      ...relayArgs,
       '--sock-path',
       relayTestSocketPath(socketDir),
       '--endpoint-dir',
@@ -413,6 +431,92 @@ describe('Subprocess: Relay entry point', () => {
     },
     10_000
   )
+
+  // Real daemon, real Unix socket: the case the credential exists for is a
+  // process on the remote host — same account, no SSH involved — dialing the
+  // socket directly and driving the channel back to the user's machine.
+  describe.skipIf(process.platform === 'win32')('socket credential', () => {
+    type RawClient = {
+      sock: Socket
+      handshakes: HandshakeMessage[]
+      responses: JsonRpcResponse[]
+      closed: Promise<void>
+    }
+
+    const rawClients: Socket[] = []
+
+    afterEach(() => {
+      for (const sock of rawClients.splice(0)) {
+        sock.destroy()
+      }
+    })
+
+    async function dial(sockPath: string, token?: string): Promise<RawClient> {
+      const sock = connectSocket(sockPath)
+      rawClients.push(sock)
+      const handshakes: HandshakeMessage[] = []
+      const responses: JsonRpcResponse[] = []
+      const decoder = new FrameDecoder((frame) => {
+        if (frame.type === MessageType.Handshake) {
+          handshakes.push(parseHandshakeMessage(frame.payload))
+        } else if (frame.type === MessageType.Regular) {
+          responses.push(parseJsonRpcMessage(frame.payload) as JsonRpcResponse)
+        }
+      })
+      sock.on('data', (chunk: Buffer) => decoder.feed(chunk))
+      sock.on('error', () => {})
+      const closed = new Promise<void>((r) => sock.once('close', () => r()))
+      await new Promise<void>((r) => sock.once('connect', () => r()))
+      const versionFile = path.join(bundleDir, '.version')
+      const version = existsSync(versionFile) ? readFileSync(versionFile, 'utf8').trim() : '0.1.0'
+      sock.write(
+        encodeHandshakeFrame({
+          type: 'orca-relay-handshake',
+          version,
+          ...(token !== undefined ? { token } : {})
+        })
+      )
+      // Pipelined: a leaky gate would hand this straight to the dispatcher.
+      sock.write(encodeJsonRpcFrame({ jsonrpc: '2.0', id: 1, method: 'relay.status' }, 1, 0))
+      return { sock, handshakes, responses, closed }
+    }
+
+    async function startDaemon(): Promise<string> {
+      tmpDir = mkdtempSync(path.join(tmpdir(), 'relay-auth-'))
+      const sockPath = path.join(tmpDir, 'relay.sock')
+      relay = spawn(['--detached', '--grace-time', '10', '--sock-path', sockPath])
+      await relay.sentinelReceived
+      return sockPath
+    }
+
+    it('refuses a socket client that presents no token', async () => {
+      const client = await dial(await startDaemon())
+
+      await client.closed
+      expect(client.responses).toEqual([])
+      expect(client.handshakes).toEqual([{ type: 'orca-relay-handshake-denied', reason: 'auth' }])
+    }, 15_000)
+
+    it('refuses a socket client that presents the wrong token', async () => {
+      const client = await dial(await startDaemon(), 'e'.repeat(64))
+
+      await client.closed
+      expect(client.responses).toEqual([])
+      expect(client.handshakes[0]).toMatchObject({ type: 'orca-relay-handshake-denied' })
+    }, 15_000)
+
+    it('serves the socket client that presents the real token', async () => {
+      const client = await dial(await startDaemon(), TEST_RELAY_SECRET)
+
+      await vi.waitFor(() => expect(client.responses).toHaveLength(1), { timeout: 5000 })
+      expect(client.handshakes[0]).toMatchObject({
+        type: 'orca-relay-handshake-ok',
+        auth: 'verified'
+      })
+      expect(client.responses[0].error).toBeUndefined()
+      client.sock.destroy()
+    }, 15_000)
+  })
 
   it.skipIf(process.platform === 'win32')(
     'writes and removes the pidfile for a detached relay',

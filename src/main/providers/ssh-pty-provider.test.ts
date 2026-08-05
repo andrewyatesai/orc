@@ -469,7 +469,8 @@ describe('SshPtyProvider', () => {
         binDir: '/home/user/.orca-relay/bin',
         relayDir: '/home/user/.orca-relay/relay-v1',
         nodePath: '/usr/bin/node',
-        sockPath: '/home/user/.orca-relay/relay.sock'
+        sockPath: '/home/user/.orca-relay/relay.sock',
+        cliAuthToken: 'c'.repeat(64)
       })
 
       await provider.spawn({
@@ -489,7 +490,8 @@ describe('SshPtyProvider', () => {
           ORCA_REMOTE_CLI_BIN_DIR: '/home/user/.orca-relay/bin',
           ORCA_RELAY_DIR: '/home/user/.orca-relay/relay-v1',
           ORCA_RELAY_NODE_PATH: '/usr/bin/node',
-          ORCA_RELAY_SOCKET_PATH: '/home/user/.orca-relay/relay.sock'
+          ORCA_RELAY_SOCKET_PATH: '/home/user/.orca-relay/relay.sock',
+          ORCA_RELAY_TOKEN: 'c'.repeat(64)
         }
       })
     })
@@ -500,7 +502,8 @@ describe('SshPtyProvider', () => {
         binDir: '/home/user/.orca-relay/bin',
         relayDir: '/home/user/.orca-relay/relay-v1',
         nodePath: '/usr/bin/node',
-        sockPath: '/home/user/.orca-relay/relay.sock'
+        sockPath: '/home/user/.orca-relay/relay.sock',
+        cliAuthToken: 'c'.repeat(64)
       })
 
       await provider.spawn({
@@ -519,7 +522,8 @@ describe('SshPtyProvider', () => {
           ORCA_REMOTE_CLI_BIN_DIR: '/home/user/.orca-relay/bin',
           ORCA_RELAY_DIR: '/home/user/.orca-relay/relay-v1',
           ORCA_RELAY_NODE_PATH: '/usr/bin/node',
-          ORCA_RELAY_SOCKET_PATH: '/home/user/.orca-relay/relay.sock'
+          ORCA_RELAY_SOCKET_PATH: '/home/user/.orca-relay/relay.sock',
+          ORCA_RELAY_TOKEN: 'c'.repeat(64)
         }
       })
     })
@@ -531,6 +535,7 @@ describe('SshPtyProvider', () => {
         relayDir: 'C:/userhome/me/.orca-remote/relay-v1',
         nodePath: 'C:/Program Files/nodejs/node.exe',
         sockPath: '\\\\.\\pipe\\orca-relay-123',
+        cliAuthToken: 'c'.repeat(64),
         pathDelimiter: ';'
       })
 
@@ -550,7 +555,8 @@ describe('SshPtyProvider', () => {
           ORCA_REMOTE_CLI_BIN_DIR: 'C:/userhome/me/.orca-relay/bin',
           ORCA_RELAY_DIR: 'C:/userhome/me/.orca-remote/relay-v1',
           ORCA_RELAY_NODE_PATH: 'C:/Program Files/nodejs/node.exe',
-          ORCA_RELAY_SOCKET_PATH: '\\\\.\\pipe\\orca-relay-123'
+          ORCA_RELAY_SOCKET_PATH: '\\\\.\\pipe\\orca-relay-123',
+          ORCA_RELAY_TOKEN: 'c'.repeat(64)
         }
       })
     })

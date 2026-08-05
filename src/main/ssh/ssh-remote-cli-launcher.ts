@@ -35,6 +35,9 @@ internal static class OrcaRemoteCliLauncher
             string nodePath = RequireEnvironmentVariable("ORCA_RELAY_NODE_PATH");
             string relayDirectory = RequireEnvironmentVariable("ORCA_RELAY_DIR");
             string socketPath = RequireEnvironmentVariable("ORCA_RELAY_SOCKET_PATH");
+            // The child inherits this; required here so a shell Orca did not spawn
+            // fails with a named cause instead of a refused handshake.
+            RequireEnvironmentVariable("ORCA_RELAY_TOKEN");
             string relayPath = Path.Combine(relayDirectory, "relay.js");
 
             if (!File.Exists(nodePath))
@@ -225,6 +228,13 @@ export function createRemoteCliInstallPlan(env: RemoteCliInstallEnv): RemoteCliI
           `ORCA_RELAY_SOCKET_PATH=\${ORCA_RELAY_SOCKET_PATH:-${quoteSh(env.sockPath)}}`,
           'if [ ! -S "$ORCA_RELAY_SOCKET_PATH" ]; then',
           '  echo "Orca SSH CLI bridge cannot find the relay socket: $ORCA_RELAY_SOCKET_PATH" >&2',
+          '  exit 1',
+          'fi',
+          // Why: no baked-in default, unlike the paths above — the credential only
+          // reaches panes Orca spawned, so a shell Orca did not start is refused here
+          // instead of at the socket, with a message that says what to do.
+          'if [ -z "${ORCA_RELAY_TOKEN:-}" ]; then',
+          '  echo "Orca SSH CLI bridge has no relay credential (ORCA_RELAY_TOKEN); run orca from an Orca terminal pane on this host." >&2',
           '  exit 1',
           'fi',
           'exec "$ORCA_RELAY_NODE_PATH" "$ORCA_RELAY_DIR/relay.js" --sock-path "$ORCA_RELAY_SOCKET_PATH" --orca-cli "$@"',

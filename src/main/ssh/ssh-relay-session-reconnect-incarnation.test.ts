@@ -279,7 +279,9 @@ describe('SshRelaySession reconnect incarnation ordering', () => {
       'target-1',
       'pty-live',
       'attached',
-      { flush: false }
+      // Why: the reported incarnation rides along so a lease written before
+      // incarnations were stored becomes reapable after this reattach.
+      { flush: false, incarnationId }
     )
     expect(mockStore.flush).toHaveBeenCalledTimes(1)
     expect(vi.mocked(mockStore.markSshRemotePtyLease).mock.invocationCallOrder[0]).toBeLessThan(

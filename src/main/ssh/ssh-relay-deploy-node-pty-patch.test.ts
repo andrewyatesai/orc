@@ -74,7 +74,7 @@ function makeInstallCapableConnection(): SshConnection {
     exec: vi.fn().mockResolvedValue({
       on: vi.fn(),
       stderr: { on: vi.fn() },
-      stdin: {},
+      stdin: { write: vi.fn() },
       stdout: { on: vi.fn() },
       close: vi.fn()
     }),

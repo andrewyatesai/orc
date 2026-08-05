@@ -193,7 +193,7 @@ function makeConnection(capture: Capture, options: ConnectionOptions = {}): SshC
     exec: vi.fn().mockResolvedValue({
       on: vi.fn(),
       stderr: { on: vi.fn() },
-      stdin: {},
+      stdin: { write: vi.fn() },
       stdout: { on: vi.fn() },
       close: vi.fn()
     }),

@@ -100,8 +100,17 @@ if (process.argv.includes('--detached')) {
 } else if (process.argv.includes('--connect')) {
   process.stdout.write(sentinel);
   let buffer = Buffer.alloc(0);
+  // Mirrors the real bridge: the host writes the relay credential as the first
+  // stdin line, so frames only start after it.
+  let credentialRead = false;
   process.stdin.on('data', (chunk) => {
     buffer = Buffer.concat([buffer, chunk]);
+    if (!credentialRead) {
+      const newline = buffer.indexOf(0x0a);
+      if (newline === -1) return;
+      credentialRead = true;
+      buffer = buffer.subarray(newline + 1);
+    }
     while (buffer.length >= 13) {
       const type = buffer[0];
       const length = buffer.readUInt32BE(9);

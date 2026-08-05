@@ -915,8 +915,8 @@ pub fn orca_dispatch(module: String, function: String, input_json: String) -> St
 // --- orca-runtime: the multi-agent orchestration store, exposed as the stateful
 // `OrchestrationStore` class the main-process TS OrchestrationDb shim delegates
 // to (the node:sqlite twin was deleted). Its marshalling contract — JSON rows,
-// the params-object-vs-positional argument rule, and how coded
-// OrchestrationErrors reach JS — is documented at the top of the module. ---
+// positional arguments, and how store errors reach JS — is documented at the
+// top of the module. ---
 mod orchestration_store;
 
 /// Result of feeding a chunk to [`NdjsonParser`]: the complete lines to JSON-parse
