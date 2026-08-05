@@ -59,28 +59,48 @@ fn fill_entropy(_bytes: &mut [u8]) -> io::Result<()> {
     Err(io::Error::new(io::ErrorKind::Unsupported, "no OS entropy source on this platform"))
 }
 
-/// Write `token` to `path` create/truncate at mode 0600, matching the Node
-/// daemon's `writeFileSync(tokenPath, token, { mode: 0o600 })`. Perms are also
-/// re-applied in case the file pre-existed with looser bits.
+/// Create the token file at `path` and refuse to write through anything we did
+/// not just create: `O_CREAT|O_EXCL` (never an existing file) plus `O_NOFOLLOW`
+/// (never a symlink, even one that races an unlink). `mode` alone is not a
+/// control — it applies only when the open CREATES the file, so a plain
+/// `create(true)` open of a pre-placed symlink would silently hand every future
+/// token to whatever the link points at, or truncate it.
+#[cfg(unix)]
+fn create_token_file(path: &str) -> io::Result<fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(nix::libc::O_NOFOLLOW)
+        .open(path)
+}
+
+/// Write `token` to `path` owner-only (0600), replacing any prior token —
+/// parity with the Node daemon's `writeFileSync(tokenPath, token, { mode: 0o600 })`
+/// but without its two path-following opens. Unlink first (a stale token from our
+/// own previous run, or an attacker-planted file/symlink at this path), then
+/// create exclusively; the mode is forced through the OPEN fd (`fchmod`), never a
+/// second `set_permissions(path, …)` that would re-resolve the name.
 #[cfg(unix)]
 pub fn write_token_file(path: &str, token: &str) -> io::Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(path)?;
+    use std::os::unix::fs::PermissionsExt;
+    let _ = fs::remove_file(path);
+    let mut file = create_token_file(path)?;
+    file.set_permissions(fs::Permissions::from_mode(0o600))?;
     file.write_all(token.as_bytes())?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-    Ok(())
+    file.flush()
 }
 
 /// Windows: the token file lands in the per-user runtime dir (Electron
 /// `userData`), which is already ACL'd to the user, so a plain write suffices —
 /// the Node daemon's `{ mode: 0o600 }` is likewise a no-op for perm bits on
-/// Windows. (A hardened build could set an explicit owner-only DACL.)
+/// Windows. There is no `O_NOFOLLOW`/`O_EXCL` hardening here because there is no
+/// unprivileged symlink to pre-place: creating one needs SeCreateSymbolicLink
+/// (Administrator, or Developer Mode), so the pre-emption this guards against on
+/// unix is not reachable by a same-user attacker. (A hardened build could still
+/// set an explicit owner-only DACL — see the authority model, §10 item 10.)
 #[cfg(not(unix))]
 pub fn write_token_file(path: &str, token: &str) -> io::Result<()> {
     fs::write(path, token.as_bytes())
@@ -121,5 +141,84 @@ mod tests {
     #[test]
     fn empty_matches_empty() {
         assert!(tokens_match("", ""));
+    }
+
+    #[cfg(unix)]
+    mod token_file {
+        use super::super::{create_token_file, write_token_file};
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        // No rand in this crate; pid + a counter is unique enough for a temp path.
+        fn unique_path(tag: &str) -> String {
+            use std::sync::atomic::{AtomicU32, Ordering};
+            static N: AtomicU32 = AtomicU32::new(0);
+            format!(
+                "{}/orca-daemon-tokenfile-{}-{}-{tag}",
+                std::env::temp_dir().display(),
+                std::process::id(),
+                N.fetch_add(1, Ordering::Relaxed)
+            )
+        }
+
+        #[test]
+        fn writes_the_token_owner_only() {
+            let path = unique_path("plain");
+            write_token_file(&path, "deadbeef").expect("write");
+            assert_eq!(fs::read_to_string(&path).expect("read"), "deadbeef");
+            let mode = fs::metadata(&path).expect("stat").permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "token file is owner-only");
+            let _ = fs::remove_file(&path);
+        }
+
+        /// The attack: a same-uid process pre-points the token path at a file it can
+        /// read (or wants truncated). The write must land in a file we created, and
+        /// the decoy must be untouched.
+        #[test]
+        fn a_preplaced_symlink_never_receives_the_token() {
+            let decoy = unique_path("decoy");
+            let path = unique_path("symlinked");
+            fs::write(&decoy, "PRECIOUS").expect("seed decoy");
+            std::os::unix::fs::symlink(&decoy, &path).expect("plant symlink");
+
+            write_token_file(&path, "deadbeef").expect("write");
+
+            assert_eq!(
+                fs::read_to_string(&decoy).expect("read decoy"),
+                "PRECIOUS",
+                "the symlink target must not be written or truncated"
+            );
+            assert!(
+                !fs::symlink_metadata(&path).expect("lstat").file_type().is_symlink(),
+                "the token path is a real file we created, not the planted link"
+            );
+            assert_eq!(fs::read_to_string(&path).expect("read token"), "deadbeef");
+            let _ = fs::remove_file(&decoy);
+            let _ = fs::remove_file(&path);
+        }
+
+        /// The unlink in `write_token_file` normally clears the path first, so this
+        /// drives the open directly — the O_EXCL|O_NOFOLLOW backstop for a link
+        /// re-planted in the unlink→open race window, which cannot be staged in-process.
+        #[test]
+        fn create_refuses_a_symlink_it_did_not_make() {
+            let decoy = unique_path("race-decoy");
+            let path = unique_path("race-link");
+            fs::write(&decoy, "PRECIOUS").expect("seed decoy");
+            std::os::unix::fs::symlink(&decoy, &path).expect("plant symlink");
+            assert!(create_token_file(&path).is_err(), "open must not follow the link");
+            assert_eq!(fs::read_to_string(&decoy).expect("read decoy"), "PRECIOUS");
+            let _ = fs::remove_file(&decoy);
+            let _ = fs::remove_file(&path);
+        }
+
+        #[test]
+        fn create_refuses_an_existing_regular_file() {
+            let path = unique_path("exists");
+            fs::write(&path, "SOMEONE ELSES").expect("seed");
+            assert!(create_token_file(&path).is_err(), "O_EXCL rejects a pre-existing file");
+            assert_eq!(fs::read_to_string(&path).expect("read"), "SOMEONE ELSES");
+            let _ = fs::remove_file(&path);
+        }
     }
 }

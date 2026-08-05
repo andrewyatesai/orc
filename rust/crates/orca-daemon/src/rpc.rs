@@ -153,46 +153,50 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
                 None => unknown_session_exit(id, registry, client_id, &session_id),
             }
         }
-        // Kill the child; the pump's EOF then reaps the session + emits `exit`. An
-        // unknown session errors, like the Node daemon's getAliveSession.
+        // Kill the child. This is the INTENT seam of the pane teardown pair
+        // (authority model D4.4): `finalize_kill` removes the entry and emits
+        // `exit` on its own, because the pump's EOF reap — the EXIT seam — answers
+        // a different question ("the last holder of the slave closed it") and a
+        // backgrounded descendant defers it indefinitely on Linux. The two are
+        // idempotent, so whichever lands first completes the teardown.
+        //
+        // An unknown session errors, like the Node daemon's getAliveSession.
         //
         // `immediate` mirrors terminal-host.ts kill(): the immediate path force-kills
         // (SIGKILL) at once, while the default graceful path sends SIGHUP (node-pty's
-        // default) so the shell can run its EXIT trap / save history, then escalates
-        // to SIGKILL after KILL_TIMEOUT if the child ignored it.
+        // default) so the shell can run its EXIT trap / save history, then finalizes
+        // after KILL_TIMEOUT if the child ignored it.
         "kill" => {
             let session_id = sid();
             let immediate = payload
                 .get("immediate")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
-            if immediate {
-                match registry.with_session(&session_id, |e| {
-                    // Fence reattach: a session being torn down must not be handed
-                    // back by createOrAttach (see reattach_if_alive).
-                    e.terminating = true;
-                    let _ = e.pty.kill();
-                }) {
-                    Some(()) => void_ack(id),
-                    None => rpc_err(id, "unknown session"),
-                }
-            } else {
-                match registry.with_session(&session_id, |e| {
-                    e.terminating = true;
+            // Under the lock: record the intent and read the pid, nothing that
+            // blocks. `signal` is a bare kill(2); the force-kill's SIGHUP-then-poll
+            // (up to 250ms) belongs to finalize_kill, which runs off the lock.
+            let dispatched = registry.with_session(&session_id, |e| {
+                // Fence reattach: a session being torn down must not be handed
+                // back by createOrAttach (see reattach_if_alive).
+                e.terminating = true;
+                if !immediate {
                     let _ = e.pty.signal("SIGHUP");
-                    e.pid
-                }) {
-                    Some(expected_pid) => {
-                        let reg = registry.clone();
-                        thread::spawn(move || {
-                            thread::sleep(KILL_TIMEOUT);
-                            reg.force_kill_if_still_pid(&session_id, expected_pid);
-                        });
-                        void_ack(id)
-                    }
-                    None => rpc_err(id, "unknown session"),
                 }
+                e.pid
+            });
+            let Some(expected_pid) = dispatched else {
+                return rpc_err(id, "unknown session");
+            };
+            if immediate {
+                registry.finalize_kill(&session_id, expected_pid);
+            } else {
+                let reg = registry.clone();
+                thread::spawn(move || {
+                    thread::sleep(KILL_TIMEOUT);
+                    reg.finalize_kill(&session_id, expected_pid);
+                });
             }
+            void_ack(id)
         }
         // The session already survives control-socket close, so detach is a no-op ack.
         "detach" => void_ack(id),

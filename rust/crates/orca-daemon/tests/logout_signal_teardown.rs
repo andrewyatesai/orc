@@ -52,8 +52,9 @@ fn send_request(stream: &mut UnixStream, reader: &mut BufReader<UnixStream>, req
 }
 
 fn spawn_daemon(socket_path: &str) -> Child {
+    // The auth mode is mandatory now; this test is about signals, not the token.
     Command::new(env!("CARGO_BIN_EXE_orca-daemon"))
-        .args(["--socket", socket_path])
+        .args(["--socket", socket_path, "--insecure-no-token-auth"])
         .spawn()
         .expect("spawn orca-daemon binary")
 }

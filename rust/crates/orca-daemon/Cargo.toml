@@ -29,8 +29,12 @@ orca-winpipe = { path = "../orca-winpipe" }
 
 # SIGTERM/SIGHUP teardown (termination_signals): SigSet::thread_block/wait are
 # safe wrappers, so the logout reaper needs no unsafe handler install (#7936).
+# socket+user: the accept-time peer-uid gate (getpeereid / SO_PEERCRED, geteuid) —
+# safe wrappers again, so this crate stays unsafe_code = "forbid".
+# fs: sys::stat::umask, which makes the bound socket owner-only at creation
+# instead of one chmod after (see bind_private_socket).
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.25", default-features = false, features = ["signal"] }
+nix = { version = "0.25", default-features = false, features = ["fs", "signal", "socket", "user"] }
 
 [dev-dependencies]
 # Integration tests are their own crate; they build request Values + parse responses.

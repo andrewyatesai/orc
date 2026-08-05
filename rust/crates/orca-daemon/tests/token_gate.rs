@@ -9,7 +9,7 @@
 //! Node path, so there is no socket boundary to gate here.
 #![cfg(unix)]
 
-use orca_daemon::serve;
+use orca_daemon::{serve, SocketAuth};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::thread;
@@ -66,7 +66,7 @@ fn token_gate_rejects_wrong_accepts_right() {
     // serve() blocks forever; run it on a detached thread and drive it over the
     // socket. The process exiting tears the thread down.
     thread::spawn(move || {
-        let _ = serve(&sp, Some(&tp));
+        let _ = serve(&sp, SocketAuth::TokenFile(&tp));
     });
 
     assert!(

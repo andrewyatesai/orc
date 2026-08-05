@@ -2,7 +2,15 @@
 restart, teardown); the "swap the provider atomically" invariant keeps restart + singletons co-located. */
 import { join } from 'node:path'
 import { app } from 'electron'
-import { mkdirSync, existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdirSync,
+  existsSync,
+  lstatSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { spawn } from 'node:child_process'
 import { connect } from 'node:net'
 import {
@@ -43,6 +51,8 @@ import {
   rebindLocalProviderListeners
 } from '../ipc/pty'
 import { setDaemonRuntimeStatus } from '../ipc/daemon-status-registry'
+import { cloneInheritedSpawnEnv } from '../pty/inherited-spawn-env'
+import { hardenSecurePath } from '../../shared/secure-file'
 import { isStartupDiagnosticsEnabled, logStartupDiagnostic } from '../startup/startup-diagnostics'
 import { prepareDaemonSessionStoreRoot } from './history-store-layout'
 import { scheduleDaemonSessionHistoryGc } from './history-retention'
@@ -69,9 +79,41 @@ let adapter: DaemonProvider | null = null
 // Why: coalesce concurrent restartDaemon() calls so two entries can't race the 7-step sequence against a half-spawned replacement.
 let restartInFlight: Promise<RestartDaemonResult> | null = null
 
+// Why 0o700: the dir holds the daemon socket and its auth token; a world-readable
+// dir holding a credential is the wrong default even when the files inside are 0600.
+const RUNTIME_DIR_MODE = 0o700
+
+/** Creates the daemon runtime dir 0700 and REFUSES one this user does not
+ *  privately own — mkdir's mode only lands on a dir it creates, and chmod cannot
+ *  change a foreign owner, so a pre-existing dir must be proven ours rather than
+ *  silently adopted: by the time a chmod tightened it, whatever it already
+ *  contains (socket, token) may not be ours. Ported from aterm's
+ *  `ensure_private_dir` (crates/aterm-gui/src/control_auth_unix.rs). */
 function getRuntimeDir(): string {
   const dir = join(app.getPath('userData'), 'daemon')
-  mkdirSync(dir, { recursive: true })
+  mkdirSync(dir, { recursive: true, mode: RUNTIME_DIR_MODE })
+  if (process.platform === 'win32') {
+    // POSIX mode bits do not exist here: userData is already ACL'd to this user,
+    // so apply the same owner-only NTFS restriction the sibling secure stores use.
+    hardenSecurePath(dir, { isDirectory: true, platform: process.platform })
+    return dir
+  }
+  // Judge BEFORE tightening: chmod follows symlinks (so it would act through the
+  // very path being judged) and its success would erase the shared-mode evidence
+  // the refusal rests on, turning a hostile 0777 dir into an adopted one.
+  // lstat, not stat: a symlink planted here would otherwise pass as its target.
+  const info = lstatSync(dir)
+  const uid = process.getuid?.()
+  if (!info.isDirectory() || (uid !== undefined && info.uid !== uid) || (info.mode & 0o022) !== 0) {
+    throw new Error(
+      `Daemon runtime directory must be a directory owned by uid ${uid} and not group/other-writable: ${dir} (remove it and restart)`
+    )
+  }
+  // Proven ours, a real dir, and unshared — only now narrow one an older build (or
+  // a loose umask) left merely readable, e.g. 0755.
+  if ((info.mode & 0o777) !== RUNTIME_DIR_MODE) {
+    chmodSync(dir, RUNTIME_DIR_MODE)
+  }
   return dir
 }
 
@@ -424,7 +466,11 @@ async function reconcileExistingDaemon(
           `[daemon] DEGRADED MODE: preserving daemon that failed the PTY spawn health check because it owns ${liveSessionCount} live session${liveSessionCount === 1 ? '' : 's'}. Existing sessions keep working; fresh terminals run on the local provider WITHOUT daemon persistence until you restart the daemon (Manage Sessions → Restart).`
         )
         return {
-          reused: createPreservedDaemonHandle(runtimeDir, PROTOCOL_VERSION, 'degraded-new-pty-fallback'),
+          reused: createPreservedDaemonHandle(
+            runtimeDir,
+            PROTOCOL_VERSION,
+            'degraded-new-pty-fallback'
+          ),
           confirmedReplacement: false
         }
       }
@@ -545,7 +591,12 @@ async function launchRustDaemon(
       // so acquiring the adoption lease here cannot regress wedged-daemon preservation.
       const connectedClient = adoptionClient ?? undefined
       adoptionClient = null
-      return await holdDaemonAdoptionLease(reconciled.reused, socketPath, tokenPath, connectedClient)
+      return await holdDaemonAdoptionLease(
+        reconciled.reused,
+        socketPath,
+        tokenPath,
+        connectedClient
+      )
     }
 
     // Why: a raw socket can outlive a broken daemon; kill by PID before respawn
@@ -562,7 +613,9 @@ async function launchRustDaemon(
     // the same dead login session that fails the resolver also fails the PTY spawn probe, and with
     // zero live sessions that lands here rather than in the degraded preserve above.
     const identifiedReplacement =
-      pendingReplacement && confirmedReplacement && pendingReplacement.reason !== 'failed_health_check'
+      pendingReplacement &&
+      confirmedReplacement &&
+      pendingReplacement.reason !== 'failed_health_check'
         ? pendingReplacement
         : null
     if (identifiedReplacement) {
@@ -595,7 +648,10 @@ async function launchRustDaemon(
         cwd: userDataPath,
         detached: true,
         stdio: 'ignore',
-        env: { ...process.env, ORCA_USER_DATA_PATH: userDataPath }
+        // Why clone here and not just per-spawn envToDelete: every daemon PTY forks
+        // from THIS env, and createOrAttach paths that carry no envToDelete (adapter
+        // attach/reattach) would hand the pane the raw inherited value.
+        env: { ...cloneInheritedSpawnEnv(), ORCA_USER_DATA_PATH: userDataPath }
       }
     )
     // Why: spawn() reports failures (ENOENT/EACCES) via an async 'error' event, not

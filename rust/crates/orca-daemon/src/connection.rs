@@ -166,8 +166,9 @@ pub fn handle_connection<S: DaemonStream>(
             .write_all(encode_ndjson_line(&hello_err("Protocol version mismatch")).as_bytes());
         return;
     }
-    // Token gate (order matches the Node daemon: version → token → ok). Skipped
-    // when no token is configured (standalone / parity harness).
+    // Token gate (order matches the Node daemon: version → token → ok). `None`
+    // means the caller chose `SocketAuth::Unauthenticated` — reachable only via the
+    // binary's explicit --insecure-no-token-auth; the peer-uid gate still applies.
     if let Some(expected) = expected_token.as_deref() {
         if !crate::token::tokens_match(&hello.token, expected) {
             let _ = writer.write_all(encode_ndjson_line(&hello_err("Invalid token")).as_bytes());
