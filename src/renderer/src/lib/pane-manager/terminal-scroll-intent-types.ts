@@ -12,6 +12,14 @@ export type TerminalScrollIntentTarget = TerminalScrollBufferTarget & {
 
 export type TerminalScrollIntentKey = string
 
+export type TerminalScrollIntent = {
+  kind: TerminalScrollIntentKind
+  bufferType: TerminalScrollBufferType
+  viewportY: number
+  baseY: number
+  revision: number
+}
+
 export type TerminalStructuralScrollIntentSnapshot = {
   kind: TerminalScrollIntentKind
   bufferType: TerminalScrollBufferType

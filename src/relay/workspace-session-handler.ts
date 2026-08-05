@@ -189,6 +189,13 @@ export class WorkspaceSessionHandler {
       })
     }
 
+    // Why: presence() inserts a namespace key for every distinct workspace but never
+    // removed it, so clientsByNamespace grew for the relay's lifetime. Once the TTL
+    // sweep leaves no clients, drop the namespace entirely.
+    if (clients.size === 0) {
+      this.clientsByNamespace.delete(namespace)
+    }
+
     return {
       clients: Array.from(clients.values()).sort((a, b) => b.lastSeenAt - a.lastSeenAt)
     }

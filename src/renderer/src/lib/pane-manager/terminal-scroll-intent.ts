@@ -8,20 +8,19 @@ import {
   type TerminalScrollBufferType
 } from './terminal-scroll-buffer-snapshot'
 import type {
+  TerminalScrollIntent,
   TerminalScrollIntentEnforceOptions,
   TerminalScrollIntentKey,
   TerminalScrollIntentKind,
   TerminalScrollIntentTarget,
   TerminalStructuralScrollIntentSnapshot
 } from './terminal-scroll-intent-types'
-
-type TerminalScrollIntent = {
-  kind: TerminalScrollIntentKind
-  bufferType: TerminalScrollBufferType
-  viewportY: number
-  baseY: number
-  revision: number
-}
+import {
+  readScrollIntentBindingByKey,
+  readScrollIntentByKey,
+  writeScrollIntentBindingByKey,
+  writeScrollIntentByKey
+} from './terminal-scroll-intent-key-store'
 
 const terminalScrollIntentByTerminal = new WeakMap<
   TerminalScrollIntentTarget,
@@ -32,9 +31,6 @@ const terminalScrollIntentKeyByTerminal = new WeakMap<
   TerminalScrollIntentKey
 >()
 const terminalScrollIntentKeyBindingByTerminal = new WeakMap<TerminalScrollIntentTarget, number>()
-const terminalScrollIntentByKey = new Map<TerminalScrollIntentKey, TerminalScrollIntent>()
-const terminalScrollIntentBindingByKey = new Map<TerminalScrollIntentKey, number>()
-
 let nextTerminalScrollIntentRevision = 1
 let nextTerminalScrollIntentKeyBinding = 1
 
@@ -72,7 +68,7 @@ function writeIntentSnapshot(
   terminalScrollIntentByTerminal.set(terminal, intent)
   const key = terminalScrollIntentKeyByTerminal.get(terminal)
   if (key) {
-    terminalScrollIntentByKey.set(key, intent)
+    writeScrollIntentByKey(key, intent)
   }
   return intent
 }
@@ -83,7 +79,7 @@ function readStoredIntent(terminal: TerminalScrollIntentTarget): TerminalScrollI
     return terminalIntent
   }
   const key = terminalScrollIntentKeyByTerminal.get(terminal)
-  return key ? terminalScrollIntentByKey.get(key) : undefined
+  return key ? readScrollIntentByKey(key) : undefined
 }
 
 export function bindTerminalScrollIntentKey(
@@ -97,8 +93,8 @@ export function bindTerminalScrollIntentKey(
   const binding = nextTerminalScrollIntentKeyBinding
   nextTerminalScrollIntentKeyBinding += 1
   terminalScrollIntentKeyBindingByTerminal.set(terminal, binding)
-  terminalScrollIntentBindingByKey.set(key, binding)
-  const existing = terminalScrollIntentByKey.get(key)
+  writeScrollIntentBindingByKey(key, binding)
+  const existing = readScrollIntentByKey(key)
   if (existing) {
     terminalScrollIntentByTerminal.set(terminal, existing)
   }
@@ -113,8 +109,7 @@ export function isTerminalScrollIntentKeyBindingCurrent(
     return true
   }
   return (
-    terminalScrollIntentKeyBindingByTerminal.get(terminal) ===
-    terminalScrollIntentBindingByKey.get(key)
+    terminalScrollIntentKeyBindingByTerminal.get(terminal) === readScrollIntentBindingByKey(key)
   )
 }
 
