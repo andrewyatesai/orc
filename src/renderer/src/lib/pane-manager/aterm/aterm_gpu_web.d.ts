@@ -569,8 +569,8 @@ export class AtermGpuTerminal {
     /**
      * Configure the LUMEN cursor aurora (additive light in the cursor's
      * wake). Mirrors the native knobs + clamps: `style` ∈
-     * `lumen|phaser|nyan|sparkle|fire|laser|beam|water|comet` (unknown →
-     * lumen; `rainbow` = the Nyan banded ribbon);
+     * `lumen|phaser|rainbow kitty|sparkle|fire|laser|beam|water|comet` (unknown →
+     * lumen; `rainbow` = the rainbow kitty banded ribbon);
      * `color`/`accent` omitted derive from the theme cursor (accent = color
      * brightened 1.5×) exactly like the native app; `duration_ms` clamps
      * 30..=2000, `length` (cells) 1..=512, `intensity` 0..=1 (0 = off),
@@ -1505,9 +1505,9 @@ export interface InitOutput {
     readonly selectionrange_end_y: (a: number) => number;
     readonly selectionrange_start_x: (a: number) => number;
     readonly selectionrange_start_y: (a: number) => number;
-    readonly wasm_bindgen_2fd77d7f9fb91949___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_2fd77d7f9fb91949___JsValue____Output_______: (a: number, b: number) => void;
-    readonly wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue__wasm_bindgen_2fd77d7f9fb91949___JsValue_____: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue_____: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__closure__destroy__h3083892b977ce66d: (a: number, b: number) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h8213ea38bdb807ad: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__hb1346b57a9cb9c6d: (a: number, b: number, c: any) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;
