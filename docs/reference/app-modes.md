@@ -1002,7 +1002,10 @@ One spine, one numbering. **ALab is the first non-Classic mode.** It needs the l
 
 Without the pin, a Phase 0 build would read `{"appMode":"alab"}` from disk and apply it with no in-app undo — in an IDE whose purpose is orchestrating agents that write JSON files.
 
-- Delete `src/renderer/src/app-shell/` (Step 0, §5.3).
+- ~~Delete `src/renderer/src/app-shell/`~~ — **Step 0 is DONE and this line was wrong.** It
+  survived from the draft §5.3 corrects: a survey read the tree mid-extraction and took
+  `app-shell/` for a dead parallel copy. It is the live shell (`App.tsx` imports 16 modules
+  from it). Do not delete it; there is nothing to do for Step 0.
 - `src/shared/app-mode/*`: id, surfaces (frozen), manifest, all three registry records, capability reader, resolver (pinned), keybinding-action surface map.
 - `src/main/app-mode-preference.ts` + full wiring (constructor, `waitForPendingWrite`, quit flush, `writesFrozen` guard).
 - The `updateSettings` strip, the memoized `getSettings()` projection, the `updateSettings`/`settings:get`/`settings:get-sync` return fixes, and the **`getSettings()` caller identity audit**.

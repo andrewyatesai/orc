@@ -71,7 +71,9 @@ function normalizeResetDescription(raw: string): string {
   )
 }
 
-function parseResetTimestamp(resetDescription: string | null): number | null {
+/** Exported for the provider-limit output detector (§12 R0), which sees the same
+ *  reset phrasing in a one-line exhaustion notice rather than a usage panel. */
+export function parseResetTimestamp(resetDescription: string | null): number | null {
   if (!resetDescription) {
     return null
   }

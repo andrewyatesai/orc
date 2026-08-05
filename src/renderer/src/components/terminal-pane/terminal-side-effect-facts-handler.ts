@@ -149,6 +149,12 @@ function applyLiveFact(entry: ConsumerEntry, fact: TerminalSideEffectFact, seq: 
       return
     case '2031-unsubscribe':
       entry.callbacks.onMode2031Unsubscribe?.()
+      return
+    case 'provider-limit':
+      // Deliberately no renderer policy. The fact exists for the event journal's
+      // automation subscribers (R1's health service), and a pane that hit its
+      // limit already says so on screen — a toast would only repeat it.
+      return
   }
 }
 

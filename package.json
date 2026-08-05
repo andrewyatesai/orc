@@ -54,7 +54,8 @@
     "typecheck:node": "tsc --noEmit -p config/tsconfig.node.json",
     "typecheck:cli": "tsc --noEmit -p config/tsconfig.tc.cli.json",
     "typecheck:web": "tsc --noEmit -p config/tsconfig.tc.web.json",
-    "typecheck:mobile": "pnpm --dir mobile typecheck",
+    "ensure:mobile-deps": "node config/scripts/ensure-mobile-deps.mjs",
+    "typecheck:mobile": "pnpm run ensure:mobile-deps && pnpm --dir mobile typecheck",
     "typecheck": "tsc --noEmit -p config/tsconfig.node.json && tsc --noEmit -p config/tsconfig.tc.cli.json && tsc --noEmit -p config/tsconfig.tc.web.json && pnpm run typecheck:mobile",
     "typecheck:tsc:node": "tsc --noEmit -p config/tsconfig.node.json --composite false",
     "typecheck:tsc:cli": "tsc --noEmit -p config/tsconfig.cli.json --composite false",
@@ -287,16 +288,6 @@
     "sherpa-onnx-linux-x64": "1.12.37",
     "sherpa-onnx-win-x64": "1.12.37",
     "windows-native-registry": "3.2.2"
-  },
-  "lint-staged": {
-    "*.{ts,tsx,js,jsx,mjs,mts,cts}": [
-      "oxlint",
-      "oxlint --config config/oxlint-react-doctor.json",
-      "oxfmt --write"
-    ],
-    "*.{json,css}": [
-      "oxfmt --write"
-    ]
   },
   "engines": {
     "node": "24"

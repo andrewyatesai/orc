@@ -22,6 +22,10 @@ import {
 } from '../../shared/terminal-output-side-effects'
 import { createCommandCodeOutputStatusDetector } from '../../shared/command-code-output-status'
 import { createCodexErrorOutputStatusDetector } from '../../shared/codex-error-output-status'
+import {
+  createProviderLimitOutputDetector,
+  type ProviderLimitOutputDetector
+} from './provider-limit-output-detector'
 import type {
   TerminalSideEffectBatch,
   TerminalSideEffectFact
@@ -1516,6 +1520,9 @@ type RuntimePtyTitleTrackerEntry = {
   // Why: Codex fatal stream errors finalize the TUI without the Stop hook
   // (#7202); the scrape emits codex-stream-error facts for renderer repair.
   codexErrorDetector: { observe: (data: string) => boolean } | null
+  /** Armed lazily, and only for panes actually running an agent — a plain shell
+   *  has no subscription to exhaust, so it must not pay for the scan. */
+  providerLimitDetector: ProviderLimitOutputDetector | null
 }
 
 /** Why titles are withheld from the bounded journal: a working pane repaints
@@ -8140,6 +8147,7 @@ export class OrcaRuntimeService {
       // control sequences itself, exactly like the renderer byte path.
       titleTrackerEntry.commandCodeDetector?.observe(agentStatusChunk.cleanData)
       titleTrackerEntry.codexErrorDetector?.observe(agentStatusChunk.cleanData)
+      this.observeProviderLimitOutput(ptyId, titleTrackerEntry, agentStatusChunk.cleanData)
     } finally {
       titleTrackerEntry.applyingChunk = false
       try {
@@ -8393,6 +8401,43 @@ export class OrcaRuntimeService {
    *  bytes, emitted immediately for between-chunk facts (stale-title timer).
    *  Journal publication runs alongside the renderer emission, never instead of
    *  it — Classic's pty:sideEffect shape, ordering and batching are unchanged. */
+  /**
+   * Arms the provider-limit scrape on first agent-bearing chunk and feeds it.
+   * Lazy rather than built with the tracker because `foregroundAgent` is
+   * detected after the pane exists — a user starting an agent by hand in a plain
+   * shell must still be watched, and arming at creation time would miss them.
+   *
+   * Deliberately NOT gated on `terminalSideEffectConsumerAvailable`: a headless
+   * fleet is the case this fact exists for (§5.3).
+   */
+  private observeProviderLimitOutput(
+    ptyId: string,
+    entry: RuntimePtyTitleTrackerEntry,
+    data: string
+  ): void {
+    const pty = this.ptysById.get(ptyId)
+    const provider = pty?.launchAgent ?? pty?.foregroundAgent ?? null
+    if (!provider) {
+      return
+    }
+    entry.providerLimitDetector ??= createProviderLimitOutputDetector({
+      onLimit: (observation) => {
+        // Re-read the agent at emit time: the pane may have changed hands
+        // between arming and the notice, and attributing a limit to the wrong
+        // provider would send R1 rotating the wrong subscription.
+        const current = this.ptysById.get(ptyId)
+        this.recordTerminalSideEffectFact(ptyId, {
+          kind: 'provider-limit',
+          provider: current?.launchAgent ?? current?.foregroundAgent ?? provider,
+          message: observation.message,
+          resetsAt: observation.resetsAt,
+          resetDescription: observation.resetDescription
+        })
+      }
+    })
+    entry.providerLimitDetector.observe(data)
+  }
+
   private recordTerminalSideEffectFact(ptyId: string, fact: TerminalSideEffectFact): void {
     const entry = this.ptyTitleTrackersByPtyId.get(ptyId)
     if (isJournalPublishableFact(fact)) {
@@ -8900,7 +8945,8 @@ export class OrcaRuntimeService {
               this.recordTerminalSideEffectFact(ptyId, { kind: 'codex-stream-error', message })
             }
           })
-        : null
+        : null,
+      providerLimitDetector: null
     }
     this.ptyTitleTrackersByPtyId.set(ptyId, entry)
     return entry
@@ -15218,7 +15264,7 @@ export class OrcaRuntimeService {
   async submitAgentPrompt(
     handle: string,
     prompt: string,
-    options: { settleBudgetMs?: number; signal?: AbortSignal } = {}
+    options: { settleBudgetMs?: number; signal?: AbortSignal; grant?: string | null } = {}
   ): Promise<AgentPromptSubmissionResult> {
     const ptyId = this.resolveWritableTerminalPtyId(handle)
     await this.assertTerminalLivenessWritable(ptyId)
@@ -15243,15 +15289,54 @@ export class OrcaRuntimeService {
       {
         target,
         prompt,
-        // R0 has no grant issuer (§6.6), so every RPC caller is the manager slot
-        // until one exists; the unattended-dispatch gate is the live authority check.
+        // Every caller of this verb is automation — the human path is `pty:write`
+        // and mobile's is `terminal.send`, neither of which reaches here.
         writer: 'manager',
         permissionPreset: this.getAgentPermissionPreset(),
         ...(options.settleBudgetMs !== undefined ? { settleBudgetMs: options.settleBudgetMs } : {}),
         ...(options.signal ? { signal: options.signal } : {})
       },
-      this.agentPromptSubmissionPorts()
+      {
+        ...this.agentPromptSubmissionPorts(),
+        // §6.6: only TUI-agent panes are gated. Driving a plain shell is not
+        // driving somebody's agent, and requiring a grant there would gate
+        // ordinary automation on fleet machinery that has nothing to say about it.
+        ...(target.agent
+          ? { checkGrant: () => this.checkFleetGrantForPane(options.grant ?? null, handle, ptyId) }
+          : {})
+      }
     )
+  }
+
+  /** Re-evaluated per call (never cached) so the pre-Enter re-check can observe a
+   *  revocation that landed while the prompt was pasting. */
+  private checkFleetGrantForPane(
+    grant: string | null,
+    handle: string,
+    ptyId: string
+  ): { allowed: boolean; reason: string } {
+    const decision = this.fleetGrants.check(grant, {
+      op: 'write',
+      handle,
+      incarnationId: this.ptysById.get(ptyId)?.incarnationId ?? null
+    })
+    return decision.allowed
+      ? { allowed: true, reason: '' }
+      : { allowed: false, reason: describeFleetGrantDenial(decision.reason) }
+  }
+
+  /** R0's minimal mint path (§6.6). Without an issuer the R0 done-criterion —
+   *  one agent driving another — either cannot run or runs ungated. */
+  issueFleetGrant(args: IssueFleetGrantArgs): FleetGrant {
+    return this.fleetGrants.issue(args)
+  }
+
+  revokeFleetGrant(grantId: string): boolean {
+    return this.fleetGrants.revoke(grantId)
+  }
+
+  revokeFleetGrantsForRun(runId: string): number {
+    return this.fleetGrants.revokeRun(runId)
   }
 
   /** `terminal.key`: press ONE key on a pane, encoded by the engine that will

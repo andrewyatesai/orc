@@ -34,6 +34,10 @@ export type AgentPromptSubmissionRefusalCode =
   | 'unattended-dispatch'
   | 'paste-failed'
   | 'submit-key-refused'
+  /** §6.6: the caller presented no fleet grant, or one that no longer authorizes
+   *  this pane. Re-checked immediately before Enter, so this can also mean the
+   *  grant was revoked while the prompt was being pasted. */
+  | 'grant-required'
   /** A person is driving this pane from a phone — §5.4's human floor outranks
    *  every automated writer, and this verb is one of them. */
   | 'mobile-driver-active'
