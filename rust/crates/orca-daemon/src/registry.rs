@@ -282,21 +282,49 @@ impl Registry {
         }
     }
 
-    /// Force-kill (SIGKILL) `session_id` iff it still maps to a live session with
-    /// `expected_pid`. The graceful-kill escalation: a child that ignored SIGHUP
-    /// within the kill timeout is force-killed, but the pid guard avoids killing a
-    /// different session recreated on the same id in the meantime.
-    pub fn force_kill_if_still_pid(&self, session_id: &str, expected_pid: Option<u32>) {
-        let mut inner = self.inner.lock().unwrap();
-        if let Some(entry) = inner.sessions.get_mut(session_id) {
-            // `terminating` guards against killing a fresh session recreated on this
-            // id (reattach is fenced, but the dying entry can be reaped + a new one
-            // spawned within the 5s window); `pid == expected_pid` (and pid present)
-            // guards the recycled-pid case. Both required.
-            if entry.terminating && entry.pid.is_some() && entry.pid == expected_pid {
-                let _ = entry.pty.kill();
+    /// Complete a dispatched `kill` WITHOUT waiting for PTY master EOF — the
+    /// "intent" teardown seam (authority model D4.4), twin of the "exit" seam
+    /// `reap_and_mark_exited`. They answer different questions: EOF means *the last
+    /// holder of the slave closed it*, which a backgrounded descendant defers
+    /// indefinitely. Measured with a HUP-immune holder in its own process group —
+    /// Linux keeps the master open forever (`disassociate_ctty` skips the hangup for
+    /// PTYs), macOS/XNU revokes the ctty on session-leader exit and EOFs at once —
+    /// so on Linux a closed pane stayed in the map, listed as running, still
+    /// writable, and (because `terminating` is set) fenced from reattach for good.
+    ///
+    /// Force-kills, removes, reaps for the real exit code, and delivers `exit` to
+    /// the owner + every subscriber. Every blocking step runs OFF the registry
+    /// lock: portable_pty's `kill` SIGHUPs and polls up to 250ms before SIGKILL,
+    /// which under the lock froze all other sessions' routing (measured 215ms).
+    /// Idempotent with the exit seam — whichever removes the entry first wins — so
+    /// both may fire for one pane. No Windows variant needed: `kill` there is
+    /// TerminateProcess through the same removal/emit path.
+    pub fn finalize_kill(&self, session_id: &str, expected_pid: Option<u32>) {
+        let (mut entry, txs) = {
+            let mut guard = self.inner.lock().unwrap();
+            let inner = &mut *guard;
+            // `terminating` is the load-bearing guard: a session freshly recreated
+            // on this id has it clear, so a late finalize can't tear down a live
+            // pane. The pid comparison additionally fences a recycled pid — but
+            // only as equality, never `is_some()`: a platform that reports no pid
+            // must still be finalizable, or such an entry is unreapable.
+            let finalizable = inner
+                .sessions
+                .get(session_id)
+                .is_some_and(|e| e.terminating && e.pid == expected_pid);
+            if !finalizable {
+                return;
             }
-        }
+            let Some(entry) = inner.sessions.remove(session_id) else {
+                return;
+            };
+            let txs = take_exit_targets(inner, session_id, &entry.client_id);
+            (entry, txs)
+        };
+        let _ = entry.pty.kill();
+        let code = exit_code_from_wait(entry.pty.wait());
+        self.emit_exit_unless_superseded(session_id, &txs, code);
+        // `entry` (PTY + headless engine) is dropped here, off the lock.
     }
 
     /// The session's (cols, rows) for `getSize`.
@@ -419,20 +447,7 @@ impl Registry {
             let Some(entry) = inner.sessions.remove(session_id) else {
                 return;
             };
-            // Subscribers get the exit too (their mirror must close with the
-            // session), and the session's fan-out set dies with its entry.
-            let mut targets: Vec<String> = vec![entry.client_id.clone()];
-            if let Some(subs) = inner.subscribers.remove(session_id) {
-                for c in subs {
-                    if !targets.contains(&c) {
-                        targets.push(c);
-                    }
-                }
-            }
-            let txs: Vec<StreamSender> = targets
-                .iter()
-                .filter_map(|c| inner.streams.get(c).cloned())
-                .collect();
+            let txs = take_exit_targets(inner, session_id, &entry.client_id);
             (entry, txs)
         };
         let code = exit_code_from_wait(entry.pty.wait());
@@ -490,6 +505,24 @@ impl Registry {
             .collect();
         json!({ "sessions": sessions })
     }
+}
+
+/// The `exit` recipients of a session just removed from the map: its owner plus
+/// every subscriber (their mirrors must close with it). Takes the fan-out set
+/// with the entry, so both teardown seams retire it exactly once.
+fn take_exit_targets(inner: &mut Inner, session_id: &str, owner: &str) -> Vec<StreamSender> {
+    let mut targets: Vec<String> = vec![owner.to_string()];
+    if let Some(subs) = inner.subscribers.remove(session_id) {
+        for c in subs {
+            if !targets.contains(&c) {
+                targets.push(c);
+            }
+        }
+    }
+    targets
+        .iter()
+        .filter_map(|c| inner.streams.get(c).cloned())
+        .collect()
 }
 
 /// Map a PTY `wait()` result to the exit code sent on the `exit` event. A
@@ -622,39 +655,85 @@ mod tests {
         ));
     }
 
-    /// Finding #2: the 5s escalation is a NO-OP on a non-terminating session even
+    /// Finding #2: the escalation is a NO-OP on a non-terminating session even
     /// with a matching pid — so a fresh session recreated on this id is protected.
-    /// The child runs to natural completion (exit 0), not signal-killed.
+    /// The entry survives and the child runs to natural completion (exit 0).
     #[cfg(unix)]
     #[test]
-    fn force_kill_is_a_noop_without_terminating() {
+    fn finalize_kill_is_a_noop_without_terminating() {
         let reg = Registry::new();
+        let (tx, rx) = crate::bounded_stream_channel::stream_channel();
+        reg.register_stream("c".to_string(), tx);
         let entry = make_entry("c", "sleep 0.4");
         let pid = entry.pid;
         reg.insert_session("s".to_string(), entry);
-        reg.force_kill_if_still_pid("s", pid); // not terminating → no-op
+        reg.finalize_kill("s", pid); // not terminating → no-op
         let code = reg
             .with_session("s", |e| e.pty.wait().unwrap_or(0))
-            .expect("session present");
+            .expect("a live pane must NOT be torn down by a late finalize");
         assert_eq!(code, 0, "an un-force-killed child exits cleanly, not by signal");
+        assert!(rx.try_recv().is_err(), "no exit event for a live pane");
         reg.remove_session("s");
     }
 
-    /// Finding #2: a STILL-terminating session with the matching pid IS force-killed.
+    /// Same fence against a RECYCLED pid: terminating, but the entry's pid is not
+    /// the one the kill was dispatched against.
     #[cfg(unix)]
     #[test]
-    fn force_kill_signals_a_terminating_session() {
+    fn finalize_kill_is_a_noop_on_a_pid_mismatch() {
         let reg = Registry::new();
+        let mut entry = make_entry("c", "sleep 30");
+        entry.terminating = true;
+        let pid = entry.pid.expect("spawned child reports a pid");
+        reg.insert_session("s".to_string(), entry);
+        reg.finalize_kill("s", Some(pid.wrapping_add(1)));
+        assert!(reg.session_pid("s").is_some(), "the entry survives a pid mismatch");
+        reg.kill_all_sessions();
+        reg.remove_session("s");
+    }
+
+    /// The intent seam: a terminating session is force-killed AND removed AND
+    /// reported as exited — with no EOF anywhere (this entry has no pump, which
+    /// is exactly the state a slave-holding descendant leaves on Linux).
+    #[cfg(unix)]
+    #[test]
+    fn finalize_kill_removes_a_terminating_session_without_any_eof() {
+        let reg = Registry::new();
+        let (tx, rx) = crate::bounded_stream_channel::stream_channel();
+        reg.register_stream("c".to_string(), tx);
+        let mut entry = make_entry("c", "trap '' HUP; while :; do sleep 1; done");
+        entry.terminating = true;
+        let pid = entry.pid;
+        reg.insert_session("s".to_string(), entry);
+        reg.finalize_kill("s", pid);
+        assert!(
+            reg.session_pid("s").is_none(),
+            "a finalized pane must be OUT of the map, not left listed as running"
+        );
+        match rx.try_recv() {
+            Ok(StreamItem::Event { json }) => {
+                assert!(json.contains("\"exit\""), "the client is told it exited: {json}")
+            }
+            _ => panic!("finalize must deliver the exit the EOF reap never will"),
+        }
+    }
+
+    /// Both seams may fire for one pane: after the intent seam finalized it, the
+    /// pump's late EOF reap is a no-op — no panic, and no second exit event.
+    #[cfg(unix)]
+    #[test]
+    fn the_exit_seam_is_a_noop_after_the_intent_seam_finalized() {
+        let reg = Registry::new();
+        let (tx, rx) = crate::bounded_stream_channel::stream_channel();
+        reg.register_stream("c".to_string(), tx);
         let mut entry = make_entry("c", "sleep 30");
         entry.terminating = true;
         let pid = entry.pid;
         reg.insert_session("s".to_string(), entry);
-        reg.force_kill_if_still_pid("s", pid); // terminating + pid match → SIGKILL
-        let code = reg
-            .with_session("s", |e| e.pty.wait().unwrap_or(0))
-            .expect("session present");
-        assert_ne!(code, 0, "a force-killed child reports a non-zero (signal) code");
-        reg.remove_session("s");
+        reg.finalize_kill("s", pid);
+        assert!(rx.try_recv().is_ok(), "the finalize emitted one exit");
+        reg.reap_and_mark_exited("s");
+        assert!(rx.try_recv().is_err(), "the late EOF reap must not double-emit");
     }
 
     /// Finding #4: an exit for a reaped session must be SUPPRESSED when the id was

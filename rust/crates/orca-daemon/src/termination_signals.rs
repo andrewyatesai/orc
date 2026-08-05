@@ -7,6 +7,10 @@
 //! No `unsafe` handler installation: the signals are blocked via the safe
 //! `SigSet::thread_block` / `SigSet::wait` wrappers, keeping this crate under
 //! `unsafe_code = "forbid"`.
+//!
+//! This mask must not reach panes: it survives fork AND execve, so a child that
+//! inherited it would ignore `kill`. `orca_pty::PtySession::spawn` clears it for
+//! the fork — the two halves are a pair, neither is removable alone.
 
 use crate::registry::Registry;
 use nix::sys::signal::{SigSet, Signal};

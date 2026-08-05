@@ -248,6 +248,15 @@ vi.mock('electron', () => ({
 
 vi.mock('fs', () => ({
   mkdirSync: vi.fn(),
+  // The runtime dir's owned-and-unshared gate: report a private dir we own so
+  // getRuntimeDir resolves. Refusal cases live in
+  // daemon-init-runtime-dir-and-spawn-env.test.ts.
+  chmodSync: vi.fn(),
+  lstatSync: vi.fn(() => ({
+    isDirectory: () => true,
+    uid: process.getuid?.() ?? 0,
+    mode: 0o40700
+  })),
   // Why: the FAKE_RUST_DAEMON_BIN arm lets getRustDaemonBinPath's existsSync
   // check recognize the stubbed Rust daemon binary (the fork's mac/Linux path).
   // unlinkSync/readFileSync bind the hoisted mocks the legacy-pid cleanup tests

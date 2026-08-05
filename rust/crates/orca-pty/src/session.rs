@@ -1,7 +1,7 @@
 //! A spawned PTY session wrapping `portable_pty`.
 
 #[cfg(unix)]
-use nix::sys::signal::{kill, Signal};
+use nix::sys::signal::{kill, SigSet, SigmaskHow, Signal};
 #[cfg(unix)]
 use nix::unistd::Pid;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize as PortablePtySize};
@@ -18,6 +18,59 @@ pub type PtyWriter = Arc<Mutex<Box<dyn Write + Send>>>;
 
 fn to_io(error: impl std::fmt::Display) -> io::Error {
     io::Error::other(error.to_string())
+}
+
+/// Puts the calling thread's signal mask back on drop, so a failed spawn cannot
+/// leave a daemon thread running unmasked.
+#[cfg(unix)]
+struct RestoreThreadSignalMask(SigSet);
+
+#[cfg(unix)]
+impl Drop for RestoreThreadSignalMask {
+    fn drop(&mut self) {
+        let _ = self.0.thread_set_mask();
+    }
+}
+
+/// Spawn into the pty's slave with an EMPTY signal mask for the child.
+///
+/// The daemon blocks SIGTERM/SIGHUP on every thread so only its `sigwait` teardown
+/// thread reaps them (#7936). fork(2) copies the FORKING thread's mask and execve
+/// preserves it, so without this a pane's shell — and everything the user runs in
+/// it — starts with those signals blocked: `kill <pid>` does nothing, `timeout`
+/// cannot stop its child, a server never sees a graceful SIGTERM. portable-pty 0.8
+/// resets the child's signal *dispositions* in its own `pre_exec` but not the mask,
+/// and offers no `pre_exec` hook of its own, so the forking thread is the only
+/// seam: clear its mask across the fork and put it straight back. Every other
+/// daemon thread — including the `sigwait` reaper — keeps the mask throughout.
+///
+/// The cost is that for the length of one fork this thread alone is unmasked, so a
+/// SIGTERM landing exactly there would take the default action instead of running
+/// teardown. That is the narrowest exposure reachable without a child-side hook;
+/// widening the daemon's mask back over the fork would restore the pane bug.
+#[cfg(unix)]
+fn spawn_with_default_child_signal_mask(
+    slave: &(dyn portable_pty::SlavePty + Send),
+    builder: CommandBuilder,
+) -> io::Result<Box<dyn portable_pty::Child + Send + Sync>> {
+    // A failed swap leaves the mask as it was: spawn anyway rather than fail the pane.
+    let restore = SigSet::empty()
+        .thread_swap_mask(SigmaskHow::SIG_SETMASK)
+        .ok()
+        .map(RestoreThreadSignalMask);
+    let child = slave.spawn_command(builder).map_err(to_io);
+    drop(restore);
+    child
+}
+
+/// Windows has no POSIX signal mask to inherit, so the conpty child needs no
+/// bracketing — spawn straight through.
+#[cfg(not(unix))]
+fn spawn_with_default_child_signal_mask(
+    slave: &(dyn portable_pty::SlavePty + Send),
+    builder: CommandBuilder,
+) -> io::Result<Box<dyn portable_pty::Child + Send + Sync>> {
+    slave.spawn_command(builder).map_err(to_io)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -70,7 +123,7 @@ impl PtySession {
             builder.env_remove(key);
         }
 
-        let child = pair.slave.spawn_command(builder).map_err(to_io)?;
+        let child = spawn_with_default_child_signal_mask(&*pair.slave, builder)?;
         // Drop the slave so the master observes EOF once the child exits.
         drop(pair.slave);
         let writer = Arc::new(Mutex::new(pair.master.take_writer().map_err(to_io)?));
@@ -170,6 +223,65 @@ impl PtySession {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Duration;
+
+    /// Blocks SIGTERM/SIGHUP on the calling thread for the duration of a test —
+    /// the daemon's process-wide `sigwait` mask (#7936) as a PTY spawn sees it.
+    /// Restores on drop so a panicking test cannot leak the mask into a reused
+    /// libtest thread.
+    struct DaemonSignalMask(SigSet);
+
+    impl DaemonSignalMask {
+        fn install() -> Self {
+            let mut blocked = SigSet::empty();
+            blocked.add(Signal::SIGTERM);
+            blocked.add(Signal::SIGHUP);
+            Self(blocked.thread_swap_mask(SigmaskHow::SIG_BLOCK).expect("block signals"))
+        }
+    }
+
+    impl Drop for DaemonSignalMask {
+        fn drop(&mut self) {
+            let _ = self.0.thread_set_mask();
+        }
+    }
+
+    /// A command that makes the CHILD report its own blocked-signal mask: `/proc`
+    /// on Linux, python3 elsewhere (macOS has no `/proc`). `None` when neither
+    /// probe exists — the behavioural `kill` test below still covers the bug.
+    fn blocked_mask_probe() -> Option<PtyCommand> {
+        if std::path::Path::new("/proc/self/status").exists() {
+            return Some(PtyCommand {
+                program: "/bin/sh".to_string(),
+                args: vec!["-c".to_string(), "grep '^SigBlk' /proc/self/status".to_string()],
+                ..PtyCommand::default()
+            });
+        }
+        let python = ["/usr/bin/python3", "/usr/local/bin/python3", "/opt/homebrew/bin/python3"]
+            .into_iter()
+            .find(|p| std::path::Path::new(p).exists())?;
+        Some(PtyCommand {
+            program: python.to_string(),
+            args: vec![
+                "-c".to_string(),
+                "import signal; print('SIGBLK', sorted(s.name for s in signal.pthread_sigmask(signal.SIG_BLOCK, [])))"
+                    .to_string(),
+            ],
+            ..PtyCommand::default()
+        })
+    }
+
+    /// True when `report` (either probe's output) shows `signo` blocked.
+    fn probe_reports_blocked(report: &str, signo: u32, name: &str) -> bool {
+        if let Some(hex) = report.split("SigBlk:").nth(1) {
+            let field = hex.split_whitespace().next().unwrap_or("0");
+            let mask = u64::from_str_radix(field, 16).unwrap_or(0);
+            return mask & (1 << (signo - 1)) != 0;
+        }
+        report.contains(name)
+    }
 
     /// Read the master end to EOF, tolerating the EIO some platforms raise once
     /// the slave closes.
@@ -236,6 +348,68 @@ mod tests {
         .expect("spawn");
         assert!(session.signal("NOT_A_SIGNAL").is_err());
         let _ = session.wait();
+    }
+
+    /// Regression: the daemon blocks SIGTERM/SIGHUP on every thread, and the mask
+    /// survives both fork and execve — a pane inheriting it makes `kill` a no-op.
+    #[test]
+    fn a_child_starts_with_an_empty_signal_mask() {
+        let Some(command) = blocked_mask_probe() else {
+            eprintln!("no /proc or python3 mask probe on this host; skipped");
+            return;
+        };
+        let _daemon_mask = DaemonSignalMask::install();
+
+        let mut session = PtySession::spawn(&command, PtySize { rows: 24, cols: 80 }).expect("spawn");
+        let report = drain(&session);
+        let _ = session.wait();
+
+        assert!(
+            !probe_reports_blocked(&report, Signal::SIGTERM as u32, "SIGTERM"),
+            "child inherited a blocked SIGTERM: {report:?}"
+        );
+        assert!(
+            !probe_reports_blocked(&report, Signal::SIGHUP as u32, "SIGHUP"),
+            "child inherited a blocked SIGHUP: {report:?}"
+        );
+    }
+
+    /// The user-visible half of the same bug: `kill <pid>` inside a pane.
+    #[test]
+    fn sigterm_kills_a_child_spawned_under_the_daemon_mask() {
+        let _daemon_mask = DaemonSignalMask::install();
+
+        let mut session = PtySession::spawn(
+            &PtyCommand {
+                program: "/bin/sh".to_string(),
+                // `exec` so the signalled pid IS `sleep` — no shell in between to
+                // reinterpret the signal, matching a user's foreground command.
+                args: vec!["-c".to_string(), "echo ready; exec sleep 30".to_string()],
+                ..PtyCommand::default()
+            },
+            PtySize { rows: 24, cols: 80 },
+        )
+        .expect("spawn");
+
+        let mut reader = session.try_clone_reader().expect("reader");
+        let mut seen = Vec::new();
+        let mut chunk = [0u8; 256];
+        while !String::from_utf8_lossy(&seen).contains("ready") {
+            match reader.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => seen.extend_from_slice(&chunk[..n]),
+            }
+        }
+        session.signal("SIGTERM").expect("signal");
+
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = tx.send(session.wait());
+        });
+        assert!(
+            rx.recv_timeout(Duration::from_secs(10)).is_ok(),
+            "SIGTERM must terminate a child spawned while the daemon's mask is installed"
+        );
     }
 
     #[test]

@@ -42,7 +42,7 @@ fn main() {
     {
         let sock = sock.clone();
         std::thread::spawn(move || {
-            let _ = orca_daemon::serve(&sock, None);
+            let _ = orca_daemon::serve(&sock, orca_daemon::SocketAuth::Unauthenticated);
         });
     }
     let deadline = Instant::now() + std::time::Duration::from_secs(5);
