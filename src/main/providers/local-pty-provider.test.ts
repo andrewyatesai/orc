@@ -999,6 +999,41 @@ describe('LocalPtyProvider', () => {
       expect(spawnCall[2].env.HISTFILE).toContain('terminal-history-wsl/Debian')
     })
 
+    it('names the WSL HISTFILE in WSLENV so the in-distro shell imports it', async () => {
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+
+      await provider.spawn({
+        cols: 80,
+        rows: 24,
+        worktreeId: 'repo-1::\\\\wsl.localhost\\Ubuntu\\home\\jin\\repo',
+        cwd: '\\\\wsl.localhost\\Ubuntu\\home\\jin\\repo'
+      })
+
+      const spawnCall = spawnMock.mock.calls.at(-1)!
+      expect(spawnCall[0]).toBe('wsl.exe')
+      expect(spawnCall[2].env.HISTFILE).toContain('terminal-history-wsl/Ubuntu')
+      // Without the entry wsl.exe drops HISTFILE and the guest shell falls back
+      // to the distro's shared ~/.bash_history — worktree scoping goes dark.
+      expect(spawnCall[2].env.WSLENV?.split(':')).toContain('HISTFILE')
+      // The value is already a guest path; a /p flag would re-translate it.
+      expect(spawnCall[2].env.WSLENV?.split(':')).not.toContain('HISTFILE/p')
+    })
+
+    it('leaves HISTFILE out of WSLENV for a native Windows shell', async () => {
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+
+      await provider.spawn({
+        cols: 80,
+        rows: 24,
+        worktreeId: 'repo-1::C:\\userhome\\jin\\repo',
+        cwd: 'C:\\userhome\\jin\\repo',
+        shellOverride: 'powershell.exe'
+      })
+
+      const spawnCall = spawnMock.mock.calls.at(-1)!
+      expect(spawnCall[2].env.WSLENV ?? '').not.toContain('HISTFILE')
+    })
+
     it('repro: keeps explicit PowerShell 7 selection when the pwsh probe is cold-false', async () => {
       Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
       const pwshAvailable = vi.fn(() => false)

@@ -40,25 +40,35 @@ everywhere it appeared.
 is only ever applied by aterm's own spawn seam, which wraps the child in
 `/usr/bin/sandbox-exec -p <sbpl>` (`<aterm>/crates/aterm-pty/src/unix.rs:22`, `:52-55`).
 Orca does not spawn through that seam: `orca-pty` builds a bare `portable_pty::CommandBuilder`
-with no sandbox wrap (`pty/session.rs:10`). So teaching `aterm-containment` to deny the
+with no sandbox wrap (`pty/session.rs:112-126`). So teaching `aterm-containment` to deny the
 runtime dir would change nothing for an Orca pane — the profile never reaches it. Widening
 the deny list is necessary but not sufficient; Orca must first have a spawn path that
-applies a profile at all.
-
-This matters beyond bookkeeping: a future reader checking "has A landed?" against the
-original row would have seen an aterm commit widening the deny list and concluded the gate
-was met, while every Orca pane remained unsandboxed.
+applies a profile at all. Split, because a reader checking "has A landed?" against the
+original row would have accepted an aterm-side deny-list commit while every Orca pane
+remained unsandboxed.
 
 The decisions below are written to be correct *when* A and B land, and are worth
-implementing before they do — items 1-11 of §8 are hardening the daemon needs either way.
-What must wait is the binding: shared-directory registration and `graph/<sid>` publication.
+implementing before they do — §8's remaining items are hardening the daemon needs either
+way. What must wait is the binding: shared-directory registration and `graph/<sid>`
+publication.
+
+**Scope, decided in §1 (D1.0): federation publishes daemon-forked local panes only.** The
+previous revision's founding premise — "the daemon forks every PTY itself" — is false for
+WSL and SSH, and each fails a different prerequisite for an *irreversible* published
+identity: a WSL pane's shell is a guest process Orca cannot name, and an SSH pane's
+authority boundary is a uid on another machine.
 
 **Citation roots.** `daemon/` = `rust/crates/orca-daemon/src/` · `pty/` =
 `rust/crates/orca-pty/src/` · `app/` = `src/` · `gui/` = `<aterm>/crates/aterm-gui/src/` ·
 `session/` = `<aterm>/crates/aterm-session/src/` · `types/` = `<aterm>/crates/aterm-types/src/`
 · `control/` = `<aterm>/crates/aterm-control/src/` · `ctl/` = `<aterm>/crates/aterm-ctl/src/`
-· `containment/` = `<aterm>/crates/aterm-containment/src/`. Every line reference was opened
-and read.
+· `containment/` = `<aterm>/crates/aterm-containment/src/`.
+Every line reference was opened and read again for this revision — the `orca-daemon` crate
+moved underneath the previous one when §8 items 1-4 landed, so its anchors were re-verified
+rather than carried forward. **One exception:** `control/host.rs` is not re-openable here.
+`rust/aterm` is pinned at `public/v0.10.0`, which predates the Phase 1a extraction, so the
+`aterm-control` crate is absent from this checkout; that single citation is carried forward
+unverified.
 
 ---
 
@@ -85,24 +95,61 @@ and read.
 
 | element | behavior | where |
 | --- | --- | --- |
-| transport | socket `chmod 0600`; token file 0600 but written create/truncate — **no `O_EXCL`, no `O_NOFOLLOW`**; runtime dir created with **no mode** (verified `drwxr-xr-x` under a `drwx------` `Application Support` on this macOS host) | `daemon/lib.rs:57-58`, `daemon/token.rs:66-78`, `app/main/daemon/daemon-init.ts:72-76` |
-| peer gate | **none** — accept spawns a thread straight into the handshake | `daemon/lib.rs:82-91`, `daemon/connection.rs:143-198` |
-| auth | **conditional.** `serve(socket_path, token_path: Option<&str>)`; `None` ⇒ `expected_token = None` ⇒ the gate at `connection.rs:171-176` is skipped and *any* token is accepted. The daemon announces which (`auth=on`/`auth=off`) | `daemon/lib.rs:55-67`, `:69-77`, `daemon/connection.rs:171-176` |
-| who chooses that | the **launch line**, not the daemon: `--token` is optional and there is no default | `daemon/main.rs:24-27`, `:44` |
+| transport | **landed since the previous revision** (§8 items 1-4): socket bound owner-only *at creation* under a masked umask, with a mode read-back that refuses to serve otherwise; token file `create_new` + `O_NOFOLLOW` + `fchmod`; runtime dir 0700 and a pre-existing dir refused unless proven owned-and-unshared | `daemon/lib.rs:144-169`, `daemon/token.rs:69-77`, `app/main/daemon/daemon-init.ts:84-116` |
+| peer gate | **landed.** Accept refuses any peer whose uid is not ours, and an unidentifiable peer is refused rather than trusted | `daemon/lib.rs:106-127`, `:199-208` |
+| auth | **landed.** `serve(socket_path, auth: SocketAuth)` — an enum, so unauthenticated must be spelled at the call site; the binary requires an explicit `--insecure-no-token-auth`, and a packaged binary refuses even that | `daemon/lib.rs:42-53`, `:184-194`, `daemon/main.rs:28-51`, `daemon/connection.rs:171-176` |
 | identity of caller | `clientId` is a self-asserted string in the hello — a routing key, never verified | `daemon/protocol.rs:88`, `app/main/daemon/client.ts:78` |
-| authority granularity | none. Any token holder may name any `sessionId` | `daemon/rpc.rs:405-414` |
-| what a token holder can do | spawn an arbitrary program with arbitrary args/cwd/env; write; resize; kill; signal; snapshot; steal ownership of a live session | `daemon/rpc.rs:443-444`, `:597-641`, `daemon/registry.rs:121-142` |
-| the "sub-tier" | **not a read-only tier.** `is_read_only_subscriber` has exactly two call sites — `write` (`rpc.rs:115`) and `resize` (`rpc.rs:134`). `kill`, `signal`, `snapshot`, `createOrAttach` are ungated for a subscriber, and `createOrAttach` *promotes* it to owner, clearing both denials | `daemon/registry.rs:191-202`, `:121-142`, `daemon/rpc.rs:115`, `:134`, `:163` |
+| pane kinds served | local and WSL only. SSH panes route to a per-connection provider that never reaches the daemon | `app/main/ipc/pty.ts:222-225`, `:5901` |
+| authority granularity | none. Any token holder may name any `sessionId` | `daemon/rpc.rs:409-414` |
+| what a token holder can do | spawn an arbitrary program with arbitrary args/cwd/env; write; resize; kill; signal; snapshot; steal ownership of a live session | `daemon/rpc.rs:448`, `:601-647`, `daemon/registry.rs:121-142` |
+| the "sub-tier" | **not a read-only tier.** `is_read_only_subscriber` has exactly two call sites — `write` (`rpc.rs:115`) and `resize` (`rpc.rs:134`). `kill`, `signal`, `snapshot`, `createOrAttach` are ungated for a subscriber, and `createOrAttach` *promotes* it to owner, clearing both denials | `daemon/registry.rs:191-202`, `:121-142`, `daemon/rpc.rs:115`, `:134`, `:169` |
 | workspace | not a daemon concept. The app recovers `worktreeId` by parsing the sid and kills sessions whose worktree is gone | `app/main/daemon/daemon-pty-adapter.ts:1254-1280` |
 | pane sid content | `${repoId}::${absolutePath}@@${short}` — the sid *contains the absolute worktree path* | `app/main/daemon/pty-session-id.ts:21-25`, `app/shared/pty-session-id-format.ts:14-15`, `:28-40` |
 
 ---
 
-## 1. Principals
+## 1. Principals, and the three pane kinds
 
-A pane belongs to a workspace, not to a process tree: the daemon forks every PTY itself
-(`daemon/rpc.rs:444`), so there is no parent session to inherit from. Authority descends
-from the workspace, and the workspace's agent is the Orca app.
+**A pane belongs to a workspace, not to a process tree — but not because Orca forks every
+PTY. It does not.** Only a *local* pane's shell is a daemon child. A WSL pane's daemon child
+is `wsl.exe`, and the shell it fronts runs inside the WSL utility VM, which no Orca handle
+names. An SSH pane never reaches the daemon at all: it is forked by a relay daemon **on
+another machine**, deliberately re-parented away from sshd, and Orca holds only strings.
+What survives for all three — and is all the rest of this document needs — is that **Orca
+mints pane identity rather than inheriting it**: there is no parent aterm session anywhere,
+so authority descends from the workspace, whose agent is the Orca app. The rest differs:
+
+| | **local** | **WSL** | **SSH** |
+| --- | --- | --- | --- |
+| **who forks it** | orca-daemon: `PtySession::spawn` (`daemon/rpc.rs:448`, `pty/session.rs:108-131`) — **except when the daemon is degraded**, where fresh spawns fall back to the in-process node-pty provider the daemon never sees (`app/main/daemon/degraded-daemon-pty-provider.ts:10`) | the daemon forks **`wsl.exe`** (`app/main/providers/local-pty-provider.ts:621`, `:633`); its argv `exec`s the distro login shell, so exactly one guest process is bound to the pty (`app/main/providers/windows-shell-args.ts:135`, `app/shared/wsl-login-shell-command.ts:81`) | a relay daemon on the **remote host** (`app/relay/pty-handler.ts:1102`, revive `:1581`), launched `nohup … & </dev/null` so the exec channel cannot own it (`app/main/ssh/ssh-relay-deploy.ts:1353`; Windows re-parents via WMI, `:1667-1690`). Orca's main process forks nothing |
+| **what Orca holds** | master fd, pid, child handle (`pty/session.rs:108-131`) | a node-pty handle on **`wsl.exe`'s Windows pid**, plus a distro string (`local-pty-provider.ts:940`, `:942-943`). No guest pid, handle, cgroup, or namespace exists anywhere in `src/main` | strings only: `ssh:<target>@@<relayPtyId>` (`app/shared/ssh-pty-id.ts:3-4`, `:23-40`), a per-spawn `incarnationId`, and a host-persisted lease (`app/main/persistence.ts:6922-6929`) |
+| **env injection** | yes — `buildPtyHostEnv` | yes, but **only for keys named in `WSLENV`**; wsl.exe imports nothing else, so each key needs a hand-written registration with the right translation flag (`app/main/pty/wsl-orca-env.ts:64-68`: `ORCA_USER_DATA_PATH/p` path-translated, `ORCA_CLI_COMMAND/u` not) | **none, by design.** `buildPtyHostEnv`'s own doc forbids calling it for a pane with a `connectionId` (`app/main/ipc/pty.ts:1107-1108`) |
+| **revocation** | `kill` RPC → SIGHUP, SIGKILL after 5 s → EOF → reap. Route 3 of §4.4 is the hole | `taskkill /pid /T /F` after an OS identity probe (`app/main/pty-descendant-termination.ts:253-266`, `app/main/windows-process-tree-kill.ts:23-24`) kills wsl.exe's **Windows** tree; the POSIX descendant sweep is disabled on win32 (`pty-descendant-termination.ts:213-215`). **Nothing in the repo terminates anything inside a distro** — the guest is left to WSL's own HUP, and the WSL relay "has no per-pane teardown signal" (`docs/reference/agent-status-over-wsl.md:324`) | connected: **stronger than local** — `immediate:true` always (`app/main/ipc/pty.ts:5916`) → `pty.shutdown` (`app/main/providers/ssh-pty-provider.ts:231-245`) → SIGKILL of *every process group on the tty* (`app/main/pty/posix-pty-process-groups.ts:89-130`), no EOF dependency. Relay unreachable: the close tombstones host state and never reaches the remote (`ipc/pty.ts:5902-5911`), and the default grace is **unlimited** (`app/shared/ssh-types.ts:7`) |
+
+**D1.0 — Federation publishes daemon-forked local panes only.** WSL and SSH panes are out of
+scope for `graph/<sid>`, and the reason is §9: a published sid is irreversible, so a pane may
+only be published if Orca can *name* and *revoke* the process it is publishing. "Local" is
+itself conditional — a degraded-fallback pane has no daemon session and so no fabric sid to
+publish, which the publisher must treat as a fourth absent case, not an error.
+
+* **SSH fails on the boundary itself.** The pane's real authority boundary is the **remote**
+  uid; §7's "the uid is already the boundary" is machine-local and simply does not hold.
+  Publishing would advertise drive rights over another machine's process to every local
+  same-uid process. It also fails on revocation (unreachable relay never reaps; the relay's
+  `pty.shutdown` reads only `params.id` and, unlike `pty.attach`, verifies no identity —
+  `app/relay/pty-handler.ts:1275-1293` vs `:1211-1222`) and on delivery (no env channel
+  exists to hand an in-pane agent its edge triple).
+* **WSL fails on naming.** Identity and env delivery both work, but the process a published
+  sid would name is a guest process Orca cannot enumerate or signal; "revoke" degrades to
+  "kill wsl.exe and hope". It is also gated behind Windows federation, itself undecided
+  (§10 item 10).
+
+**To include them later:** WSL needs Windows federation decided and exercised on a real host,
+plus a per-pane guest teardown signal so revocation names what it claims to revoke. SSH needs
+identity verification on the relay's shutdown path (matching attach), a bounded default
+grace, a delivery channel for edge tokens, and its own review of what publishing another
+machine's process into a local namespace means. Adding a kind later is additive and cheap
+(§9); publishing one early is not.
 
 | principal | authenticates as | may do | actually separable? |
 | --- | --- | --- | --- |
@@ -110,7 +157,7 @@ from the workspace, and the workspace's agent is the Orca app.
 | **agent inside a pane** | the edge triple minted for that pane | exactly the `(sid, op)` rows minted for it; no owner-only verb | **no** — same uid, and the daemon token is 0600-readable by it (§7) |
 | **peer aterm instance** | whatever credential it presents | *nothing by virtue of being aterm.* A peer holding the daemon token is Orca-equivalent | **no** — same uid |
 | **unrelated same-uid process** | same as above | identical to the peer row | **no**, by construction |
-| **process of another uid** | nothing | nothing, once D2.1 lands | **yes** — this is the only boundary the daemon can actually hold |
+| **process of another uid** | nothing | nothing — the accept-time gate landed (`daemon/lib.rs:106-127`, `:206-208`) | **yes** — the only boundary the daemon can hold, and it is *machine-local*, which is why D1.0 excludes SSH |
 
 **D1.1 — Two tiers, exactly aterm's.** `Owner` (the daemon token) and `Edge` (per-op,
 per-target). No third "peer" tier: a unix socket authenticates a credential, not a product.
@@ -132,21 +179,17 @@ a target — so `family` tells the truth about grouping without a second mechani
 
 ## 2. Owner
 
-**D2.1 — The owner connection is any connection presenting the daemon token, and the
-token gate must stop being optional.** Three changes, in order of what they buy:
-
-| change | closes | port from |
-| --- | --- | --- |
-| peer-uid gate on accept | cross-uid reach (the *only* boundary available) | `gui/control_auth_unix.rs:186-192` → `daemon/lib.rs:82-91` |
-| runtime dir 0700 + owned-and-unshared predicate | a foreign-owned or group-writable runtime dir; today it is `0755` | `gui/control_auth_unix.rs:28-49` → `app/main/daemon/daemon-init.ts:72-76` |
-| token file `O_CREAT\|O_EXCL\|O_NOFOLLOW` + `fchmod` | a planted symlink at the token path — currently a plain create/truncate | `gui/control_auth_unix.rs:105-127` → `daemon/token.rs:66-78` |
-| **refuse to bind when `token_path` is `None`** | a federated daemon serving with `auth=off` | new; `daemon/lib.rs:60-67` |
-
-The last one is not hardening, it is a correctness bug in the design as written: the
-previous revision presented the token gate as unconditional. It is not — it is
-`Option<&str>` all the way from the CLI (`daemon/main.rs:24-27`). A daemon that will
-register in a shared directory must fail closed on a missing `--token`, and the parity
-harness must pass an explicit opt-out flag rather than inherit "no token" by omission.
+**D2.1 — The owner connection is any connection presenting the daemon token; the transport
+that carries it is now closed.** All four changes this section called for have landed since
+the previous revision: the peer-uid gate on accept (`daemon/lib.rs:106-127`, ported from
+`gui/control_auth_unix.rs:186-192`); the 0700 runtime dir that *refuses* a pre-existing one
+not proven owned-and-unshared (`app/main/daemon/daemon-init.ts:84-116` ←
+`gui/control_auth_unix.rs:28-49`); the exclusive, symlink-refusing token file
+(`daemon/token.rs:69-77` ← `:105-127`); and the end of optional auth — `SocketAuth` is an
+enum, not `Option<&str>`, so unauthenticated must be spelled at the call site, and a
+packaged binary refuses even the explicit flag (`daemon/lib.rs:42-53`,
+`daemon/main.rs:28-51`). Note what this does **not** reach: it is a *machine-local* uid
+boundary, so it says nothing about an SSH pane (D1.0).
 
 **D2.2 — There is no partial owner.** The roster spans workspaces; filtering it per caller
 would need a credential meaning "this workspace", and none exists.
@@ -171,9 +214,14 @@ exactly `s-<20 hex>` (`gui/spawn.rs:175-176`).
 
 ## 3. Identity and lifetime
 
+**Local panes (D1.0).** WSL differs in one way that matters: the daemon's child is
+`wsl.exe`, so a fabric sid minted here would name `wsl.exe`'s lifetime, not the guest
+shell's. SSH mints its own identities on the remote host (§1 table) and never enters this
+table at all.
+
 | identity | minted by | visible where | stable across | reissued on |
 | --- | --- | --- | --- | --- |
-| pty `sessionId` (`worktreeId@@short`) | the app | Orca dialect only | daemon restart, app restart, reload — the app re-creates the string, and an unknown id spawns fresh (`daemon/rpc.rs:436-439`) with cold-restore reseed (`:476-484`) | user closes and recreates the pane |
+| pty `sessionId` (`worktreeId@@short`) | the app | Orca dialect only | daemon restart, app restart, reload — the app re-creates the string, and an unknown id spawns fresh (`daemon/rpc.rs:440-443`) with cold-restore reseed (`:480-487`) | user closes and recreates the pane |
 | **fabric sid** `s-<20 hex>` | the daemon, per PTY spawn | the aterm wire, `graph/<sid>`, **and the edge-file path** | the life of one shell process | every spawn, including a cold-restore respawn under the same pty sessionId |
 | **launch nonce** (16 bytes / 32 hex) | the daemon, per PTY spawn | public, in the graph entry in the clear (`gui/proxy.rs:277-281`) | nothing — it *is* the epoch marker | with the sid, always together |
 | daemon token | the daemon | the 0600 token file | one daemon process | every daemon start (`daemon/lib.rs:62`) |
@@ -196,10 +244,9 @@ or answers `ERR no such session`, and is swept on liveness (`gui/proxy.rs:416-42
 
 ### D4.1 — Where capability lives, and what each candidate actually separates
 
-This is the section the previous revision got wrong. It claimed the mitigation for a
-same-uid adversary was "the file mode and the dir mode". File mode and directory mode do
-not separate two processes of the same uid — which is the only adversary this section
-exists for. Honestly:
+The previous revision claimed the mitigation for a same-uid adversary was "the file mode and
+the dir mode". Neither separates two processes of the same uid — the only adversary this
+section exists for. Honestly:
 
 | mechanism | separates cross-uid | separates same-uid | repeatable read (relaunch) | cost |
 | --- | --- | --- | --- | --- |
@@ -207,7 +254,7 @@ exists for. Honestly:
 | tokens in env | yes | **no** (and worse: leaks to every child, and to `ps` on some platforms) | yes | none |
 | tokens over the already-authenticated socket | yes | **no** — the connection is authenticated by the daemon token, which is itself a 0600 file the adversary can read | yes | low |
 | peer credentials of the connection | yes | **no** — `getpeereid` yields uid+gid only on macOS (`gui/control_auth_unix.rs:141-147`); Linux `SO_PEERCRED` adds a pid, but a pane's grant must cover its whole descendant subtree, and pid→pane is unsound under reparenting and pid reuse | n/a | medium, and it does not work |
-| **inherited fd from the daemon's own fork** | yes | **raises the bar to debugging another process** — the strongest option available | yes, if the fd survives exec in the shell | **high**: `PtySession::spawn` builds a `portable-pty` `CommandBuilder` exposing only program/args/cwd/env, with no `pre_exec` or extra-fd hook (`pty/session.rs:55-79`) |
+| **inherited fd from the daemon's own fork** | yes | **raises the bar to debugging another process** — the strongest option available | yes, if the fd survives exec in the shell | **high**: `PtySession::spawn` builds a `portable-pty` `CommandBuilder` exposing only program/args/cwd/env, with no `pre_exec` or extra-fd hook (`pty/session.rs:108-131`). And it is local-only by construction — an fd does not cross into a WSL distro or an SSH host |
 
 **Decision: keep the 0600 file, and stop calling it enforcement.** It is the only mechanism
 compatible with the shipped spawn path, and none of the alternatives reaches a same-uid
@@ -252,7 +299,7 @@ Two corrections.
 `types/env_sanitize.rs:111-132` — fourteen entries, and the previous revision's sentence
 ("`ATERM_CONTROL_SOCK` is not pinned, matching aterm's own deny-list") contradicted the
 very file it cited: `ATERM_CONTROL_SOCK` is *in* that list. The daemon takes the client's
-`env` verbatim today (`daemon/rpc.rs:602`, `:635-639`) — there is no strip at all — so the
+`env` verbatim today (`daemon/rpc.rs:606`, `:642-643`) — there is no strip at all — so the
 rule below is new work, not a description.
 
 | key | why a client must not set it |
@@ -265,7 +312,11 @@ rule below is new work, not a description.
 | `ATERM_PARENT_SESSION_ID` | claim a parent |
 
 **Reject the whole `ENV_DENY_VARS` set from the client payload, then inject.** Anything
-narrower is an under-strip whose gaps are exactly the escalation primitives.
+narrower is an under-strip whose gaps are exactly the escalation primitives. **On a WSL pane
+`WSLENV` joins that set**: it is the allow-list deciding which Windows variables cross into
+the guest at all (`app/main/pty/wsl-orca-env.ts:64-68`), so a client-supplied value can drag
+a denied key across or silently drop an injected one — the same escalation shape, one level
+down.
 
 **Do not inject `ATERM_SESSION_ID` + `ATERM_LAUNCH_NONCE`.** That pair is precisely what
 aterm's `adopt_injected_identity` consumes (`gui/spawn.rs:195-204`, parser at `:179-193`):
@@ -281,8 +332,13 @@ not a side effect of variable naming.
 
 ### D4.4 — Revocation: every route a pane can disappear by
 
+**These eleven routes are the local kind (D1.0).** §1's table gives the other two: a WSL
+pane adds a twelfth route that no seam here covers — the guest process that detaches from
+the pty and survives `taskkill` invisibly — and an SSH pane uses none of these routes,
+reaching a remote relay instead.
+
 The previous revision named one route. Verified, the daemon's `reap_and_mark_exited`
-(`daemon/registry.rs:415`) has exactly one production caller — `daemon/rpc.rs:982`, on PTY
+(`daemon/registry.rs:443`) has exactly one production caller — `daemon/rpc.rs:986`, on PTY
 **master EOF**. That is not "the pane closed". It is "the last holder of the PTY slave
 closed it", which a backgrounded descendant can defer indefinitely — the daemon's own
 adapter notes that detached prompt helpers survive the kill
@@ -290,26 +346,26 @@ adapter notes that detached prompt helpers survive the kill
 
 | # | route | what happens today | in-memory table | edge file on disk | revoke where |
 | --- | --- | --- | --- | --- | --- |
-| 1 | UI pane close | `adapter.shutdown` (`daemon-pty-adapter.ts:934`) → `kill` RPC (`:1013-1017`) → SIGHUP, SIGKILL after 5 s (`daemon/rpc.rs:163-194`) → child dies → EOF → reap | reaped **iff** EOF arrives | leaked | **at the `kill` RPC**, not at EOF |
-| 2 | shell exits on its own | EOF → reap (`daemon/rpc.rs:982`) | reaped | leaked | at reap |
+| 1 | UI pane close | `adapter.shutdown` (`daemon-pty-adapter.ts:935`) → `kill` RPC (`:1013-1017`) → SIGHUP, SIGKILL after 5 s (`daemon/rpc.rs:169-198`) → child dies → EOF → reap | reaped **iff** EOF arrives | leaked | **at the `kill` RPC**, not at EOF |
+| 2 | shell exits on its own | EOF → reap (`daemon/rpc.rs:986`) | reaped | leaked | at reap |
 | 3 | a descendant holds the slave open after the shell dies (route 1 or 2) | no EOF arrives, so the reap that routes 1 and 2 rely on **never fires** | **not reaped** — the entry stays live and drivable | leaked | nothing triggers until the descendant exits or the daemon restarts. This is the case that makes an intent-time seam mandatory rather than tidy |
 | 4 | workspace close | per-pane route 1 for each | as route 1 | leaked | app-driven RPC; retire the workspace `src` too |
-| 5 | app quit, normal | `disconnectDaemon()`, not `shutdownDaemon()` — the daemon and its sessions survive for warm reattach, by design (`app/main/index.ts:2838-2839`, `daemon-init.ts:354-357`) | **untouched** | **untouched** | nothing — stated, not hidden (see Q7) |
-| 6 | explicit daemon shutdown | `shutdown {killSessions:true}` → `kill_all_sessions` then `process::exit(0)` 50 ms later (`daemon/rpc.rs:352-370`, `registry.rs:278-283`, `app/main/daemon/daemon-init.ts:1111`) | dies with the process; **no reap runs** | **leaked** | unlink the edges dir in the same handler, before exit |
+| 5 | app quit, normal | `disconnectDaemon()`, not `shutdownDaemon()` — the daemon and its sessions survive for warm reattach, by design (`app/main/index.ts:2838-2839`, `daemon-init.ts:1105-1108`) | **untouched** | **untouched** | nothing — stated, not hidden (see Q7) |
+| 6 | explicit daemon shutdown | `shutdown {killSessions:true}` → `kill_all_sessions` then `process::exit(0)` 50 ms later (`daemon/rpc.rs:356-370`, `registry.rs:278-283`, `app/main/daemon/daemon-init.ts:1111`, `:1167`) | dies with the process; **no reap runs** | **leaked** | unlink the edges dir in the same handler, before exit |
 | 7 | SIGTERM / SIGHUP to the daemon | `teardown_and_exit_code` → `process::exit` (`daemon/termination_signals.rs:28-42`) | dies with the process | **leaked** | same handler |
 | 8 | daemon crash / SIGKILL | nothing runs | dies with the process | **leaked** | **sweep the edges dir at daemon start** |
 | 9 | client disconnect | `unregister_stream` + `remove_subscriber_from_all` (`daemon/connection.rs:254-257`) — ownership is *not* dropped | untouched | untouched | correct as is; a disconnect is not a close |
-| 10 | dead entry replaced | `remove_session` on the createOrAttach fall-through (`daemon/rpc.rs:439`) — bypasses reap entirely | removed | leaked | revoke here too |
+| 10 | dead entry replaced | `remove_session` on the createOrAttach fall-through (`daemon/rpc.rs:443`) — bypasses reap entirely | removed | leaked | revoke here too |
 | 11 | orphan reconcile | `kill` per orphan (`daemon-pty-adapter.ts:1273`) | as route 1 | leaked | route 1 covers it |
 
 **D4.4 — Revoke on intent, then again on exit, and sweep on start.** Three seams, not one:
 
-1. **Intent** — the `kill` RPC (`daemon/rpc.rs:163`) drops the pane's table, drops every row
+1. **Intent** — the `kill` RPC (`daemon/rpc.rs:169`) drops the pane's table, drops every row
    minted from its tokens in all other tables, and unlinks its edge file, *before* signalling
    the child. This is the seam that makes "I closed that pane" true, and it is the one the
    previous revision missed. Shaped like `remove_subscriber_from_all`
    (`daemon/registry.rs:180-186`).
-2. **Exit** — the same pass at reap (`daemon/registry.rs:415`), idempotent, for routes 2 and 3.
+2. **Exit** — the same pass at reap (`daemon/registry.rs:443`), idempotent, for routes 2 and 3.
 3. **Start** — sweep `<runtimeDir>/edges/` on daemon start, for routes 6-8. Safe precisely
    because D4.5 keys the path on a per-spawn sid: on a fresh daemon, no leftover name can
    collide with a live pane.
@@ -327,10 +383,9 @@ are inert" argument (`gui/proxy.rs:507-513`). That argument depends entirely on 
 | path key | fresh per-launch child sid (`gui/proxy.rs:495-497`) | durable `stablePaneId` |
 | what capturing the path once yields | an `(sid, nonce)` never reissued — inert | **fresh tokens on every subsequent spawn of that pane, forever** |
 
-That is automatic re-adoption, the opposite of inert. And the durable path bought nothing:
-its stated justification was that the shell's inherited `ORCA_EDGE_TOKENS` must keep
-pointing at the rewritten file, but the next spawn is a *new shell process* with a *new env*
-(`daemon/rpc.rs:439-444`), so it inherits whatever path the daemon injects at that spawn.
+That is automatic re-adoption, the opposite of inert — and the durable path bought nothing,
+since the next spawn is a *new shell process* with a *new env* (`daemon/rpc.rs:443-448`) and
+inherits whatever path the daemon injects at that spawn.
 
 **Decision: `<runtimeDir>/edges/<fabric-sid>`, minted per spawn, 0600, in a 0700 dir** —
 aterm's shape exactly. And now aterm's reason transfers verbatim: the file persists for the
@@ -357,8 +412,9 @@ cross-relaunch protection does not hold there — the nonce is a binding key, no
 guard (`types/env_sanitize.rs:44-53`).
 
 **D5.1 — Orca mints fresh, always, in the daemon, per PTY spawn, and never adopts an
-injected nonce.** The daemon forks every pane itself, and per D4.3 the pane's env carries
-no `ATERM_*` identity pair for a nested aterm to adopt.
+injected nonce.** The daemon forks the process it mints for (D1.0 keeps that true by
+excluding the two kinds where it does not), and per D4.3 the pane's env carries no `ATERM_*`
+identity pair for a nested aterm to adopt.
 
 What that does and does not buy:
 
@@ -379,9 +435,14 @@ What that does and does not buy:
 
 ## 6. Reattach
 
+**Local panes (D1.0).** Row 1 assumes a daemon restart kills the pane — which is precisely
+what an SSH pane is built to defeat: its relay ignores SIGHUP so remote shells outlive the
+connection (`app/relay/relay.ts:954-957`). A credential model whose fail-closed step is "the
+process died with us" does not transfer to a pane designed to survive.
+
 | case | presents | checked | outcome |
 | --- | --- | --- | --- |
-| in-pane agent after a **daemon restart** | nothing — it is dead. PTYs are daemon children; the master closes with the daemon | — | a fresh pane spawns with a fresh sid, nonce, and a **new** edge-file path |
+| in-pane agent after a **daemon restart** | nothing — it is dead. A local PTY is a daemon child; the master closes with the daemon | — | a fresh pane spawns with a fresh sid, nonce, and a **new** edge-file path |
 | in-pane agent **relaunched in the same shell** (the common case) | the same hex, re-read non-destructively from the pinned `ORCA_EDGE_TOKENS` path | `decide_edge(table_of_dst, token, dst, op, nonce_of_dst)` | permitted while the spawn epoch is unchanged; this is exactly why D4.5 persists the file for the spawn |
 | **out-of-pane holder** (peer, script) after a daemon restart | a stale edge hex and a cached sid | table lookup misses; the sid is absent from `graph/` | `ERR auth`; recovery is re-resolution, never re-adoption |
 
@@ -400,11 +461,16 @@ gets a missing file, which is the correct answer.
 Stated as the plan requires, without softening.
 
 **What is already true.** The daemon's socket and token are 0600, owner-readable (verified
-on this host: `srw------- daemon-v1021.sock`, `-rw------- daemon-v1021.token`, in a
-`drwxr-xr-x` dir). A same-uid process that reads that file today already holds *complete*
-control: no peer gate (`daemon/lib.rs:82-91`), no per-session gate, arbitrary program spawn
-(`daemon/rpc.rs:443-444`, `:597-641`), ownership theft by naming a sid
-(`daemon/registry.rs:121-142`). **The uid is already the boundary.**
+on this host: `srw------- daemon-v1021.sock`, `-rw------- daemon-v1021.token`, in a dir still
+`drwxr-xr-x` — the 0700 mkdir plus post-ownership chmod at `daemon-init.ts:94`, `:112-116`
+landed on 2026-08-04 and this host's dir has not been touched since 08-02, so the tightening
+is code-verified but not yet observed running here). A
+same-uid process that reads that token still holds *complete* control: the peer gate that
+landed is a **uid** gate, not a process gate, and past it there is no per-session gate,
+arbitrary program spawn (`daemon/rpc.rs:448`, `:601-647`), and ownership theft by naming a
+sid (`daemon/registry.rs:121-142`). **The uid is already the boundary — on this machine.**
+For an SSH pane the boundary is a *different* machine's uid, which is why D1.0 keeps those
+panes out of the namespace entirely.
 
 **What federation changes.** Not the boundary — the reach, the vocabulary, and the blast
 radius of one credential:
@@ -454,26 +520,30 @@ than its workspace. Never wider.
 
 ## 8. Delta required before the socket binds
 
-1. Peer-uid gate on accept — `daemon/lib.rs:82-91` (port `gui/control_auth_unix.rs:186-192`).
-2. Runtime dir 0700 + owned-and-unshared predicate — `app/main/daemon/daemon-init.ts:72-76`
-   (port `gui/control_auth_unix.rs:28-49`).
-3. Token file `O_EXCL|O_NOFOLLOW` + `fchmod` — `daemon/token.rs:66-78`.
-4. **Refuse to bind federated with `token_path: None`** — `daemon/lib.rs:60-67`.
-5. Fabric sid + nonce minted per spawn; pty sessionId kept off the aterm wire (D2.3, D3.1).
-6. `EdgeTable` per pane in the registry; edge file at `edges/<fabric-sid>` (D4.5).
-7. Revocation at all three seams, with a test per row of D4.4 — intent (`daemon/rpc.rs:163`),
-   exit (`daemon/registry.rs:415`), start-sweep.
-8. Whole-deny-list env rejection + Orca-namespaced identity injection (D4.3).
-9. Owner-only verb set enforced for the aterm dialect (D2.2), GUI-class six answering
+**Items 1-4 of the previous revision have LANDED** — peer-uid gate on accept, 0700
+owned-and-unshared runtime dir, exclusive symlink-refusing token file, and `SocketAuth`
+replacing `Option<&str>`. Citations in D2.1. What remains:
+
+1. Fabric sid + nonce minted per spawn; pty sessionId kept off the aterm wire (D2.3, D3.1).
+2. `EdgeTable` per pane in the registry; edge file at `edges/<fabric-sid>` (D4.5).
+3. Revocation at all three seams, with a test per row of D4.4 — intent (`daemon/rpc.rs:169`),
+   exit (`daemon/registry.rs:443`), start-sweep.
+4. Whole-deny-list env rejection + Orca-namespaced identity injection (D4.3), with `WSLENV`
+   in the set on Windows.
+5. **The publisher asserts D1.0**: a pane whose provider is an SSH connection, whose spawned
+   shell is `wsl.exe`, or which has no daemon session at all (degraded fallback) gets no
+   `graph/<sid>` entry — enforced at the publish call, with a test per case, not left to the
+   fact that nothing currently calls it.
+6. Owner-only verb set enforced for the aterm dialect (D2.2), GUI-class six answering
    `ERR unsupported`.
-10. `private` and `off` implemented and tested *before* federated registration is enabled —
-    with `private` verified for **non-discovery**, and its non-reachability limit documented
-    in the UI copy.
-11. Conformance for `sessions` / `resolve` / `write_input` on the Orca host — the plan
-    records these three as unproven (plan lines 106-108), and the trait documents that
-    per-session methods must fail closed on a foreign sid (`control/host.rs:116-132`).
-12. **Blocked on others:** change A (containment denies the runtime dir) and change B (an
-    edge-presenting client). Items 1-11 are worth doing regardless; federation binding is not.
+7. `private` and `off` implemented and tested *before* federated registration is enabled —
+   with `private` verified for **non-discovery**, and its non-reachability limit documented
+   in the UI copy.
+8. Conformance for `sessions` / `resolve` / `write_input` on the Orca host — the plan
+   records these three as unproven (plan lines 106-108), and the trait documents that
+   per-session methods must fail closed on a foreign sid (`control/host.rs:116-132`).
+9. **Blocked on others:** change A (containment denies the runtime dir) and change B (an
+   edge-presenting client). Items 1-8 are worth doing regardless; federation binding is not.
 
 ---
 
@@ -488,6 +558,7 @@ than its workspace. Never wider.
 | the env namespace (`ORCA_*` vs `ATERM_*`) | **yes before ship, no after** — an agent that reads `ORCA_EDGE_TOKENS` is a compatibility surface the moment one exists |
 | Owner = the socket token | **no, not by a protocol bump.** The handshake accepts a **range** — `MIN_SUPPORTED` 1018 through `PROTOCOL_VERSION` 1021 (`daemon/protocol.rs:23`, `:28`, `daemon/connection.rs:164-168`) — so raising the current version leaves every 1018-1021 client authenticating exactly as before. Retiring the socket token means raising the **floor**, which breaks old clients: a migration, not a bump |
 | **publishing sids into the shared namespace** | **no.** Once shipped, third-party scripts depend on `graph/<sid>` presence, and older installs keep publishing. Retraction breaks everyone but the publisher |
+| which pane kinds publish (D1.0) | **asymmetric** — adding WSL or SSH later is additive and cheap; publishing them now cannot be undone, per the row above. So the cheap direction is the closed one |
 | **anything a published sid disclosed** | **no.** A path that appeared in a sid cannot be unpublished. This is why D2.3 is not stylistic |
 | **the compatibility surface once agents key on a field** | **no**, in practice — including any accidental exposure of the pty sessionId |
 
@@ -500,8 +571,11 @@ than its workspace. Never wider.
 1. **Ship federation at all, given §7?** In-pane Owner escalation is unmitigated today.
    Recommendation: no, until change A lands. This is the decision; the rest are details
    under it.
-2. **Publish sids into the shared namespace?** Irreversible on day one (§9). If yes, D2.3
-   (fabric sid only, never the pty sessionId) is not optional.
+2. **Publish sids into the shared namespace, and for which pane kinds?** Irreversible on day
+   one (§9). If yes, D2.3 (fabric sid only, never the pty sessionId) is not optional, and
+   D1.0's answer to the second half is **local panes only** — a pane may be published only
+   if Orca can name and revoke the process behind the sid, which is false for WSL guests and
+   false on the wrong machine for SSH.
 3. **Does the pane env carry `ATERM_*` identity?** Choosing yes hands a nested aterm the
    pane's published identity (D4.3). Recommendation: no; Orca-namespaced.
 
@@ -516,7 +590,7 @@ than its workspace. Never wider.
    defence-in-depth, the UI must say per-pane authority does not constrain a hostile
    in-pane agent.
 6. **Buy the fd-passing upgrade?** The only mechanism that moves the same-uid answer, priced
-   in D4.1 as replacing `PtySession::spawn` (`pty/session.rs:55-79`). Not required for 1b;
+   in D4.1 as replacing `PtySession::spawn` (`pty/session.rs:108-131`). Not required for 1b;
    required before any claim stronger than "scoping".
 7. **Does the Owner tier need splitting** for the coordinator-window client
    (`app/main/coordinator-window.ts:148-152`), or is one Orca-wide owner correct?
@@ -526,15 +600,22 @@ than its workspace. Never wider.
 9. **Does the Orca dialect stay token-only?** Every existing `orca terminal` RPC is
    authorized by the socket token alone. Edge-gate it too, or keep one dialect for Orca and
    one for agents permanently?
-10. **Windows.** No peer-uid primitive; the token file gets no owner-only DACL
-    (`daemon/token.rs:80-87`); the named-pipe path is cross-compile-verified but has never
-    run on a real Windows host (`daemon/lib.rs:95-104`). Federated on Windows in 1b at all?
+10. **Windows.** No peer-uid primitive: the boundary is the named pipe's *default* DACL
+    (owner + SYSTEM, kernel-checked at the client's `CreateFile`) rather than a credential
+    check at accept — enforcement at the same boundary, by a different mechanism
+    (`daemon/lib.rs:232-240`); the token file still gets no explicit owner-only DACL
+    (`daemon/token.rs:100-107`); and the pipe path is cross-compile-verified but has never
+    run on a real Windows host. Federated on Windows in 1b at all? A "no" here also settles
+    WSL, which is a Windows pane by construction (D1.0).
 11. **The daemon outliving the app.** Normal quit keeps it for warm reattach
     (`app/main/index.ts:2838-2839`), so panes stay federated and drivable with Orca closed
     (D4.4 route 5). Intended, or should quitting narrow to `private` until Orca returns?
 
 **UNVERIFIED.** The TLS `dial` / network-listener authority mapping (read as documentation,
-not as code). Runtime-dir permissions on Linux and Windows (`0755` observed on this macOS
-host only; the code passes no mode). Whether `portable-pty` can be extended to inherit an
-extra fd without forking it. Whether any harness besides the ones already measured resolves
-a mid-session credential rewrite.
+not as code). The Windows and Linux halves of the landed transport work (read as code on a
+macOS host; only the macOS path was observed running). Whether `portable-pty` can be
+extended to inherit an extra fd without forking it. Whether any harness besides the ones
+already measured resolves a mid-session credential rewrite. **Everything in §1's WSL column
+is code-read, not observed** — this host is Darwin and has no `wsl.exe` (verified), so
+whether WSL's own relay HUP actually reaches the guest login shell when `wsl.exe` dies was
+not tested; that gap is itself an argument for D1.0.

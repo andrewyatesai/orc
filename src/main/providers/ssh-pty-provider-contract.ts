@@ -5,6 +5,8 @@ export type RemoteCliBridgeEnv = {
   relayDir: string
   nodePath: string
   sockPath: string
+  /** CLI-role relay secret; the in-pane `orca` shim presents it on the relay socket. */
+  cliAuthToken: string
   pathDelimiter?: ':' | ';'
 }
 

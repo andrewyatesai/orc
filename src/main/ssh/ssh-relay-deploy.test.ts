@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+const TEST_RELAY_SECRET = 'a'.repeat(64)
+
 vi.mock('electron', () => ({
   app: { getAppPath: () => '/mock/app' }
 }))
@@ -72,6 +74,12 @@ vi.mock('./ssh-relay-install-lock', () => ({
   RELAY_INSTALL_LOCK_NAME: '.install-lock'
 }))
 
+// Why: a fixed secret keeps the launch argv (a digest of it) assertable, and
+// keeps these tests off the real userData directory.
+vi.mock('./ssh-relay-auth-secret-store', () => ({
+  relayAuthSecretForTarget: () => TEST_RELAY_SECRET
+}))
+
 vi.mock('./ssh-relay-repair-lock', () => ({
   tryAcquireRelayRepairLock: vi.fn().mockResolvedValue('acquired')
 }))
@@ -95,6 +103,7 @@ import {
   DEFAULT_SSH_RELAY_GRACE_PERIOD_SECONDS,
   MAX_SSH_RELAY_GRACE_PERIOD_SECONDS
 } from '../../shared/ssh-types'
+import { deriveRelayCliSecret, relayAuthVerifier } from '../../shared/ssh-relay-auth-token'
 
 function makeMockConnection(): SshConnection {
   return {
@@ -102,7 +111,7 @@ function makeMockConnection(): SshConnection {
     exec: vi.fn().mockResolvedValue({
       on: vi.fn(),
       stderr: { on: vi.fn() },
-      stdin: {},
+      stdin: { write: vi.fn() },
       stdout: { on: vi.fn() },
       close: vi.fn()
     }),
@@ -722,7 +731,7 @@ describe('deployAndLaunchRelay', () => {
       const launchChannel = {
         on: vi.fn(),
         stderr: { on: vi.fn() },
-        stdin: {},
+        stdin: { write: vi.fn() },
         stdout: { on: vi.fn() },
         close: vi.fn()
       }
@@ -770,6 +779,84 @@ describe('deployAndLaunchRelay', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  describe('relay channel authentication', () => {
+    async function launchFresh(conn: SshConnection): Promise<void> {
+      const mockExecCommand = vi.mocked(execCommand)
+      mockExecCommand
+        .mockResolvedValueOnce('__ORCA_REMOTE_PLATFORM__ Linux x86_64')
+        .mockResolvedValueOnce('/home/user')
+        .mockResolvedValueOnce('ORCA-NATIVE-DEPS-OK')
+        .mockResolvedValueOnce('DEAD')
+        .mockResolvedValueOnce('READY')
+      await deployAndLaunchRelay(conn, undefined, 300, 'target-a')
+    }
+
+    function commandsIssued(conn: SshConnection): string[] {
+      return [
+        ...vi.mocked(conn.exec).mock.calls.map(([cmd]) => cmd as string),
+        ...vi.mocked(execCommand).mock.calls.map(([, cmd]) => cmd as string)
+      ]
+    }
+
+    it('launches the daemon with verifiers and hands --connect the secret over stdin', async () => {
+      const conn = makeMockConnection()
+      await launchFresh(conn)
+
+      const launchCommand = commandsIssued(conn).find((cmd) => cmd.includes('--detached'))
+      expect(launchCommand).toContain(`--auth-verifier '${relayAuthVerifier(TEST_RELAY_SECRET)}'`)
+      expect(launchCommand).toContain(
+        `--cli-auth-verifier '${relayAuthVerifier(deriveRelayCliSecret(TEST_RELAY_SECRET))}'`
+      )
+
+      const channel = await vi.mocked(conn.exec).mock.results.at(-1)!.value
+      expect(channel.stdin.write).toHaveBeenCalledWith(`${TEST_RELAY_SECRET}\n`)
+    })
+
+    // Why: argv is world-readable in `ps` on the remote box, so a secret there
+    // would be handed to the exact principal the token exists to exclude.
+    it('never puts the secret in a command line', async () => {
+      const conn = makeMockConnection()
+      await launchFresh(conn)
+
+      for (const command of commandsIssued(conn)) {
+        expect(command).not.toContain(TEST_RELAY_SECRET)
+        expect(command).not.toContain(deriveRelayCliSecret(TEST_RELAY_SECRET))
+      }
+    })
+
+    it('authenticates the reconnect to a surviving relay too', async () => {
+      const conn = makeMockConnection()
+      const mockExecCommand = vi.mocked(execCommand)
+      mockExecCommand
+        .mockResolvedValueOnce('__ORCA_REMOTE_PLATFORM__ Linux x86_64')
+        .mockResolvedValueOnce('/home/user')
+        .mockResolvedValueOnce('ORCA-NATIVE-DEPS-OK')
+        .mockResolvedValueOnce('ALIVE')
+
+      await deployAndLaunchRelay(conn, undefined, 300, 'target-a')
+
+      const connectCommand = vi.mocked(conn.exec).mock.calls.at(-1)?.[0] as string
+      expect(connectCommand).toContain('--connect')
+      const channel = await vi.mocked(conn.exec).mock.results.at(-1)!.value
+      expect(channel.stdin.write).toHaveBeenCalledWith(`${TEST_RELAY_SECRET}\n`)
+    })
+
+    it('returns the derived CLI secret for pane envs, not the control secret', async () => {
+      const conn = makeMockConnection()
+      const mockExecCommand = vi.mocked(execCommand)
+      mockExecCommand
+        .mockResolvedValueOnce('__ORCA_REMOTE_PLATFORM__ Linux x86_64')
+        .mockResolvedValueOnce('/home/user')
+        .mockResolvedValueOnce('ORCA-NATIVE-DEPS-OK')
+        .mockResolvedValueOnce('ALIVE')
+
+      const result = await deployAndLaunchRelay(conn, undefined, 300, 'target-a')
+
+      expect(result.cliAuthToken).toBe(deriveRelayCliSecret(TEST_RELAY_SECRET))
+      expect(result.cliAuthToken).not.toBe(TEST_RELAY_SECRET)
+    })
   })
 
   it('uses distinct target-specific relay socket paths', async () => {

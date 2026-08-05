@@ -4,7 +4,15 @@ export const MIN_SSH_RELAY_GRACE_PERIOD_SECONDS = 60
 export const MAX_SSH_RELAY_GRACE_PERIOD_SECONDS = 7 * 24 * 60 * 60
 export const LEGACY_DEFAULT_SSH_RELAY_GRACE_PERIOD_SECONDS = 3 * 60 * 60
 export const DEFAULT_BOUNDED_SSH_RELAY_GRACE_PERIOD_SECONDS = 24 * 60 * 60
-export const DEFAULT_SSH_RELAY_GRACE_PERIOD_SECONDS = 0
+/** Implicit default when a target has no persisted grace period. Bounded: an
+ *  unlimited implicit default let a relay — and every shell it owns — outlive
+ *  the app forever on a machine nobody is watching. 0 stays reachable as an
+ *  explicit "keep alive until reset" choice. */
+export const DEFAULT_SSH_RELAY_GRACE_PERIOD_SECONDS = DEFAULT_BOUNDED_SSH_RELAY_GRACE_PERIOD_SECONDS
+/** Grace pushed before host sleep so a sleeping laptop does not lose live remote
+ *  work. Bounded, unlike the 0 it replaced: a sleep never followed by a
+ *  reconnect would otherwise strand the relay with no expiry at all. */
+export const HOST_SLEEP_SSH_RELAY_GRACE_PERIOD_SECONDS = MAX_SSH_RELAY_GRACE_PERIOD_SECONDS
 export const SSH_RELAY_CONFIGURE_GRACE_TIME_METHOD = 'relay.configureGraceTime'
 
 export type SshTarget = {
@@ -40,7 +48,8 @@ export type SshTarget = {
    *  import. */
   source?: 'ssh-config' | 'manual'
   /** Grace period in seconds before relay shuts down after disconnect.
-   *  0 disables expiry. Default: 0 (until reset). Max: 604800 (7 days). */
+   *  0 disables expiry (explicit opt-in only). Default when unset: 86400
+   *  (24h). Max: 604800 (7 days). */
   relayGracePeriodSeconds?: number
   /** Set to true after a successful connection that triggered a credential
    *  prompt (passphrase or password). Persisted so startup reconnect can
@@ -145,6 +154,15 @@ export type SshRemotePtyLease = {
   updatedAt: number
   lastAttachedAt?: number
   lastDetachedAt?: number
+  /** Relay-issued per-spawn UUID. Relay pty ids (`pty-N`) are a per-relay
+   *  counter that a restarted relay reuses, so this is the only durable proof
+   *  that a reconnected `pty-N` is still the same remote process. */
+  incarnationId?: string
+  /** ms epoch when the pane was closed while the relay was unreachable: the
+   *  remote shell is still running and the next connect must reap it. Reaping
+   *  requires an incarnation match — killing another pane is worse than the
+   *  leak. */
+  killRequestedAt?: number
 }
 
 // ─── Port Forwarding Types ─────────────────────────────────────────

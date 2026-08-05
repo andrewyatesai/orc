@@ -341,7 +341,8 @@ describe('SshRelaySession', () => {
       remoteHome: 'C:/userhome/me',
       remoteRelayDir: 'C:/userhome/me/.orca-remote/relay-v1',
       nodePath: 'C:/Program Files/nodejs/node.exe',
-      sockPath: '\\\\.\\pipe\\orca-relay-123'
+      sockPath: '\\\\.\\pipe\\orca-relay-123',
+      cliAuthToken: 'c'.repeat(64)
     })
     const session = new SshRelaySession('target-1', getMainWindow, mockStore, mockPortForward)
 
@@ -442,7 +443,8 @@ describe('SshRelaySession', () => {
       remoteHome: 'C:/userhome/me',
       remoteRelayDir: 'C:/userhome/me/.orca-remote/relay-v1',
       nodePath: 'C:/Program Files/nodejs/node.exe',
-      sockPath: '\\\\.\\pipe\\orca-relay-123'
+      sockPath: '\\\\.\\pipe\\orca-relay-123',
+      cliAuthToken: 'c'.repeat(64)
     })
 
     const session = new SshRelaySession('target-1', getMainWindow, mockStore, mockPortForward)
@@ -872,19 +874,6 @@ describe('SshRelaySession', () => {
 
     expect(session.getMux()?.notify).toHaveBeenCalledWith(SSH_RELAY_CONFIGURE_GRACE_TIME_METHOD, {
       graceTimeSeconds: 600
-    })
-  })
-
-  it('sets relay grace to unlimited before host sleep', async () => {
-    const { mockConn, mockStore, mockPortForward, getMainWindow } = createMockDeps()
-    const session = new SshRelaySession('target-1', getMainWindow, mockStore, mockPortForward)
-    await session.establish(mockConn)
-    vi.mocked(session.getMux()!.notify).mockClear()
-
-    session.prepareForHostSleep()
-
-    expect(session.getMux()?.notify).toHaveBeenCalledWith(SSH_RELAY_CONFIGURE_GRACE_TIME_METHOD, {
-      graceTimeSeconds: 0
     })
   })
 

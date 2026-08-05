@@ -3,7 +3,10 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DEFAULT_BOUNDED_SSH_RELAY_GRACE_PERIOD_SECONDS } from '../shared/ssh-types'
+import {
+  DEFAULT_BOUNDED_SSH_RELAY_GRACE_PERIOD_SECONDS,
+  MAX_SSH_RELAY_GRACE_PERIOD_SECONDS
+} from '../shared/ssh-types'
 import * as gitBash from '../main/git-bash'
 import * as ptyShellUtils from './pty-shell-utils'
 import {
@@ -2017,13 +2020,26 @@ describe('PtyHandler', () => {
     )
   })
 
-  it('default grace timer does not expire', () => {
+  it('default grace timer expires after the bounded default period', () => {
     const onExpire = vi.fn()
 
     handler.startGraceTimer(onExpire)
 
+    expect(handler.graceTimerActive).toBe(true)
+    vi.advanceTimersByTime(DEFAULT_BOUNDED_SSH_RELAY_GRACE_PERIOD_SECONDS * 1000 - 1)
+    expect(onExpire).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(onExpire).toHaveBeenCalledTimes(1)
+  })
+
+  it('an explicit unlimited grace still never expires', () => {
+    const onExpire = vi.fn()
+    handler.setGraceTimeMs(0)
+
+    handler.startGraceTimer(onExpire)
+
     expect(handler.graceTimerActive).toBe(false)
-    vi.advanceTimersByTime(DEFAULT_BOUNDED_SSH_RELAY_GRACE_PERIOD_SECONDS * 1000)
+    vi.advanceTimersByTime(MAX_SSH_RELAY_GRACE_PERIOD_SECONDS * 1000)
     expect(onExpire).not.toHaveBeenCalled()
   })
 

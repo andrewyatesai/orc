@@ -125,7 +125,11 @@ needing binding-scope tracking with real false-positive risk.
   which `terminal show` already returns. The daemon currently sees only `sessionId`, not
   pane identity — that gap is the work.
 - Registration into the shared socket directory and `graph/<sid>`, so peers resolve and
-  relay to Orca panes with no protocol change.
+  relay to Orca panes with no protocol change — **daemon-forked local panes only**. WSL and
+  SSH panes are out of scope by decision (authority model D1.0): a published sid is
+  irreversible, and neither kind lets Orca name and revoke the process behind it. A
+  degraded-fallback pane has no daemon session and so nothing to publish. The publisher
+  asserts all three exclusions; they are not left to the fact that nothing calls it yet.
 - **Orca ships the client trio.** Orca's artifact carries no aterm binary today
   (`electron-builder.config.cjs:86`, `:172`), which would make both the exit criterion and
   the skill's instructions fail for Orca-only users. The whole agent-facing surface is
@@ -153,10 +157,10 @@ path; Orca's app connection is the owner connection, so owner-only verbs (`ls`,
 *mint-time policy* — which edges a pane receives — not a second mechanism, so broadening
 it later (cross-worktree driving) needs no protocol change.
 
-**Pre-bind design gate — WRITTEN, REVIEWED TWICE, AND IT SAYS DO NOT BIND.**
-See [`orca-daemon-authority-model.md`](./orca-daemon-authority-model.md). Two independent
-hostile reviews both returned *not safe to implement*; the second also corrected the
-first's exit condition. The blocking facts are structural and live outside that document:
+**Pre-bind design gate — WRITTEN, REVIEWED THREE TIMES, AND IT SAYS DO NOT BIND.**
+See [`orca-daemon-authority-model.md`](./orca-daemon-authority-model.md). Three independent
+hostile reviews all returned *not safe to implement*; each corrected its predecessor's
+exit condition. The blocking facts are structural and live outside that document:
 
 - **An in-pane agent can read the daemon token and become Owner**, and nothing shipped
   prevents it. The containment profile is applied only by aterm's own spawn seam
@@ -171,6 +175,11 @@ first's exit condition. The blocking facts are structural and live outside that 
   reads), and peer credentials all fail it. Edges are therefore **scoping and attribution,
   not enforcement**: they bind a cooperative, confused, or sandboxed agent, and nothing
   else.
+- **The gate's own founding premise was false**, and the third review replaced it. "The
+  daemon forks every PTY itself" holds for local panes only: a WSL pane's daemon child is
+  `wsl.exe` fronting a guest process no Orca handle names, and an SSH pane is forked by a
+  detached relay on the remote host, where the authority boundary is a *different machine's*
+  uid. The model now carries a per-kind table (§1) and scopes federation to local panes.
 
 Federating would make Orca panes reachable by any same-uid process that can read the socket
 directory. That is already aterm's stated boundary, but it is a change for Orca, where a
@@ -178,14 +187,16 @@ pane is reachable only through Orca's authenticated socket today — and the mit
 would justify it does not exist yet.
 
 **What is still worth building now:** the daemon hardening items the model lists are
-valuable either way, and the edge model is worth implementing as scoping even before it can
-enforce. What must wait is the *binding* — shared-directory registration and `graph/<sid>`
-publication.
+valuable either way — its first four (peer-uid gate on accept, 0700 owned-and-unshared
+runtime dir, exclusive token file, and the end of optional auth) have already landed — and
+the edge model is worth implementing as scoping even before it can enforce. What must wait
+is the *binding* — shared-directory registration and `graph/<sid>` publication.
 
-**Exit.** The full verb matrix — not just `text` — passes against a live Orca pane, both
-locally and *via relay from a separate aterm instance*; an in-pane agent's `aterm ctl ls`
-enumerates non-Orca sessions; GUI-class verbs return `ERR unsupported`; every existing
-`orca terminal` verb is unchanged; the threat model is reviewed and tested.
+**Exit.** The full verb matrix — not just `text` — passes against a live **local** Orca
+pane, both locally and *via relay from a separate aterm instance*; a WSL pane and an SSH
+pane are each proven absent from `graph/`; an in-pane agent's `aterm ctl ls` enumerates
+non-Orca sessions; GUI-class verbs return `ERR unsupported`; every existing `orca terminal`
+verb is unchanged; the threat model is reviewed and tested.
 
 ## Phase 1c — Isolation, made legible
 

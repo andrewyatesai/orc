@@ -718,6 +718,18 @@ function finishPtyShutdown(
   return incarnationId
 }
 
+// Why: with no provider we cannot kill the remote shell, and the tombstone below
+// stops reconnect from ever reattaching it — record the intent first so the next
+// connect reaps a shell that would otherwise run forever on the other machine.
+function finishUnreachableSshPtyShutdown(
+  id: string,
+  connectionId: string,
+  store: Store | undefined
+): string | undefined {
+  store?.recordSshRemotePtyKillIntent(connectionId, getRelayPtyId(connectionId, id))
+  return finishPtyShutdown(id, connectionId, store)
+}
+
 // ─── Host PTY env assembly ──────────────────────────────────────────
 // Why: centralize host-local env injections so both spawn paths (local + daemon) get them; implemented twice they drifted, silently breaking daemon PTYs.
 
@@ -3979,6 +3991,9 @@ export function registerPtyHandlers(
             ...(typeof args.leafId === 'string' && isTerminalLeafId(args.leafId)
               ? { leafId: args.leafId }
               : {}),
+            // Why: the only id that survives a relay restart reusing `pty-N`, so a
+            // deferred reap can prove it is killing this process and not its successor.
+            ...(result.incarnationId ? { incarnationId: result.incarnationId } : {}),
             state: 'attached',
             lastAttachedAt: Date.now()
           })
@@ -4155,7 +4170,7 @@ export function registerPtyHandlers(
             // Why: runtime/CLI close can target a detached SSH PTY after its
             // provider was unregistered. Tombstone the lease so reconnect does
             // not revive a terminal the user explicitly closed.
-            const incarnationId = finishPtyShutdown(ptyId, connectionId, store)
+            const incarnationId = finishUnreachableSshPtyShutdown(ptyId, connectionId, store)
             runtime?.onPtyExit(ptyId, -1, incarnationId)
             rememberSyntheticKillExit(ptyId)
             sendPtyExitToRenderer({ id: ptyId, code: -1 })
@@ -4261,7 +4276,7 @@ export function registerPtyHandlers(
         if (connectionId) {
           // Why: an absent SSH provider means there is no live target left to
           // await, but the relay lease must still be tombstoned.
-          const incarnationId = finishPtyShutdown(ptyId, connectionId, store)
+          const incarnationId = finishUnreachableSshPtyShutdown(ptyId, connectionId, store)
           runtime?.onPtyExit(ptyId, -1, incarnationId)
           rememberSyntheticKillExit(ptyId)
           sendPtyExitToRenderer({ id: ptyId, code: -1 })
@@ -5110,6 +5125,9 @@ export function registerPtyHandlers(
             ...(typeof args.worktreeId === 'string' ? { worktreeId: args.worktreeId } : {}),
             ...(typeof args.tabId === 'string' ? { tabId: args.tabId } : {}),
             ...(validatedLeafId ? { leafId: validatedLeafId } : {}),
+            // Why: the only id that survives a relay restart reusing `pty-N`, so a
+            // deferred reap can prove it is killing this process and not its successor.
+            ...(result.incarnationId ? { incarnationId: result.incarnationId } : {}),
             state: 'attached',
             lastAttachedAt: Date.now()
           })
@@ -5903,7 +5921,7 @@ export function registerPtyHandlers(
       // Why: detached SSH PTYs intentionally keep ownership after their
       // provider is unregistered; hydrated app-scoped ids can also arrive
       // before ownership is rebuilt. Tombstone instead of falling back local.
-      const incarnationId = finishPtyShutdown(args.id, connectionId, store)
+      const incarnationId = finishUnreachableSshPtyShutdown(args.id, connectionId, store)
       runtime?.onPtyExit(args.id, -1, incarnationId)
       rememberSyntheticKillExit(args.id)
       sendPtyExitToRenderer({ id: args.id, code: -1 })

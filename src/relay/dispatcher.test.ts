@@ -219,6 +219,32 @@ describe('RelayDispatcher', () => {
     expect(secondWritten).toHaveLength(0)
   })
 
+  // Why: the role gate is not request-only. A CLI-scoped client that may not CALL
+  // pty.* must not be FANNED pty output either, or a scraped pane credential buys a
+  // live feed of every pane on the relay.
+  it('withholds a broadcast from a client whose role cannot call that method', () => {
+    const ownerFrames: Buffer[] = []
+    const cliFrames: Buffer[] = []
+    dispatcher.attachClient((data) => {
+      ownerFrames.push(Buffer.from(data))
+    })
+    dispatcher.attachClient(
+      (data) => {
+        cliFrames.push(Buffer.from(data))
+      },
+      undefined,
+      { allowedMethods: ['orca.cli'] }
+    )
+
+    dispatcher.notify('pty.data', { id: 'pty-1', data: 'secret output' })
+    expect(ownerFrames).toHaveLength(1)
+    expect(cliFrames).toHaveLength(0)
+
+    // A method the role DOES hold still reaches it, so the gate scopes rather than mutes.
+    dispatcher.notify('orca.cli', { argv: ['status'] })
+    expect(cliFrames).toHaveLength(1)
+  })
+
   it('forwards relay-originated requests to an owning socket client instead of the caller', async () => {
     dispatcher.invalidateClient()
     const ownerWritten: Buffer[] = []

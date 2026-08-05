@@ -1,4 +1,5 @@
 import { seedPowerlevel10kWizardEnv } from '../pty/powerlevel10k-wizard-env'
+import { RELAY_AUTH_TOKEN_ENV } from '../../shared/ssh-relay-auth-token'
 import type { RemoteCliBridgeEnv } from './ssh-pty-provider-contract'
 
 export function buildSshPtySpawnEnv(args: {
@@ -22,6 +23,9 @@ export function buildSshPtySpawnEnv(args: {
     merged.ORCA_RELAY_DIR = args.remoteCliBridgeEnv.relayDir
     merged.ORCA_RELAY_NODE_PATH = args.remoteCliBridgeEnv.nodePath
     merged.ORCA_RELAY_SOCKET_PATH = args.remoteCliBridgeEnv.sockPath
+    // Why: the relay socket now authenticates every client, and a pane's `orca`
+    // shim has no other channel to receive a credential on.
+    merged[RELAY_AUTH_TOKEN_ENV] = args.remoteCliBridgeEnv.cliAuthToken
   }
   // Why: match local/daemon precedence—managed defaults cannot restore explicitly removed values.
   for (const key of args.envToDelete ?? []) {

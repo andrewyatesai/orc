@@ -35,6 +35,11 @@ export type RelayClientSinkOptions = {
   waitWriteDrain?: (cb: () => void) => void
 }
 
+export type RelayClientAuthorization = {
+  /** Methods this client may call. Omitted for a full-surface (control) client. */
+  allowedMethods?: readonly string[]
+}
+
 type RelayClient = {
   id: number
   decoder: FrameDecoder
@@ -48,6 +53,8 @@ type RelayClient = {
   highestReceivedSeq: number
   generation: number
   closed: boolean
+  /** Set by the handshake's authenticated role; undefined means the full verb surface. */
+  allowedMethods?: ReadonlySet<string>
 }
 
 type PendingRelayRequest = {
@@ -103,8 +110,15 @@ export class RelayDispatcher {
   }
 
   // Why: seq numbers and request ids are per SSH channel, so each attached client needs independent protocol state.
-  attachClient(write: RelayClientWrite, sinkOptions?: RelayClientSinkOptions): number {
+  attachClient(
+    write: RelayClientWrite,
+    sinkOptions?: RelayClientSinkOptions,
+    authorization?: RelayClientAuthorization
+  ): number {
     const client = this.createClient(write, sinkOptions)
+    if (authorization?.allowedMethods) {
+      client.allowedMethods = new Set(authorization.allowedMethods)
+    }
     this.clients.set(client.id, client)
     return client.id
   }
@@ -171,6 +185,12 @@ export class RelayDispatcher {
       ...(params !== undefined ? { params } : {})
     }
     for (const client of this.clients.values()) {
+      // Why: the role gate is not request-only. A scoped client that may not CALL
+      // pty.* must not be fanned pty output either — otherwise a scraped pane
+      // credential buys a live feed of every pane on the relay.
+      if (client.allowedMethods && !client.allowedMethods.has(method)) {
+        continue
+      }
       this.sendFrame(client, msg)
     }
   }
@@ -280,8 +300,14 @@ export class RelayDispatcher {
     params?: Record<string, unknown>,
     options?: { timeoutMs?: number; excludeClientId?: number }
   ): Promise<unknown> {
+    // Why: a reverse RPC (the CLI host-passthrough) must land on a client that
+    // speaks the whole protocol. A scoped client answers no relay-initiated
+    // request, so targeting one would silently hang until the timeout.
     const candidates = Array.from(this.clients.values()).filter(
-      (client) => !client.closed && client.id !== options?.excludeClientId
+      (client) =>
+        !client.closed &&
+        client.id !== options?.excludeClientId &&
+        client.allowedMethods === undefined
     )
     // Why: prefer a real socket client over the synthetic primary so requests don't forward to a dead stdout.
     const target = candidates.find((client) => client !== this.primaryClient) ?? candidates[0]
@@ -435,6 +461,13 @@ export class RelayDispatcher {
   }
 
   private async handleRequest(client: RelayClient, req: JsonRpcRequest): Promise<void> {
+    if (client.allowedMethods && !client.allowedMethods.has(req.method)) {
+      this.sendResponse(client, req.id, undefined, {
+        code: -32601,
+        message: `Method not available to this client: ${req.method}`
+      })
+      return
+    }
     const handler = this.requestHandlers.get(req.method)
     if (!handler) {
       this.sendResponse(client, req.id, undefined, {
@@ -479,6 +512,10 @@ export class RelayDispatcher {
       const id = Number((notif.params ?? {}).id)
       const controller = this.requestAborts.get(client.id, id)
       controller?.abort()
+      return
+    }
+    // Why: after rpc.cancel, which is always the client's own in-flight request.
+    if (client.allowedMethods && !client.allowedMethods.has(notif.method)) {
       return
     }
     const handler = this.notificationHandlers.get(notif.method)

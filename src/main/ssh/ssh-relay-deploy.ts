@@ -59,6 +59,8 @@ import {
 import { detectRemoteHostPlatform } from './ssh-remote-platform-detection'
 import { powerShellCommand, powerShellLiteral, powerShellNativeArg } from './ssh-remote-powershell'
 import { relaySocketNameForInstanceId } from './ssh-relay-instance-id'
+import { relayAuthSecretForTarget } from './ssh-relay-auth-secret-store'
+import { deriveRelayCliSecret, relayAuthVerifier } from '../../shared/ssh-relay-auth-token'
 import { isSshSessionLimitError } from './ssh-session-limit-error'
 import {
   isWindowsRelayPipePath,
@@ -78,6 +80,43 @@ function escapePosixExtendedRegex(value: string): string {
   return value.replace(/[.[\]{}()*+?^$|\\]/g, '\\$&')
 }
 
+/**
+ * Hand the relay secret to a `--connect` bridge over the exec channel's stdin.
+ *
+ * Why stdin: the channel is already SSH-authenticated and its bytes never reach
+ * the remote filesystem or process table. Passing the secret in argv would print
+ * it in `ps` for every account on the box, and in the environment would expose it
+ * through /proc/<pid>/environ to the very account the token exists to exclude.
+ */
+function sendRelayAuthToken(
+  channel: { stdin: { write: (chunk: string) => unknown } },
+  secret: string
+): void {
+  channel.stdin.write(`${secret}\n`)
+}
+
+type RelayAuthMaterial = {
+  /** Presented by `--connect`; never written to the remote. */
+  controlSecret: string
+  /** Seeded into remote pane envs for the in-pane `orca` shim. */
+  cliSecret: string
+  /** Launch-time argv for the daemon: digests only, safe to expose in `ps`. */
+  verifierArgs: { control: string; cli: string }
+}
+
+function resolveRelayAuthMaterial(relayInstanceId: string | undefined): RelayAuthMaterial {
+  const controlSecret = relayAuthSecretForTarget(relayInstanceId)
+  const cliSecret = deriveRelayCliSecret(controlSecret)
+  return {
+    controlSecret,
+    cliSecret,
+    verifierArgs: {
+      control: relayAuthVerifier(controlSecret),
+      cli: relayAuthVerifier(cliSecret)
+    }
+  }
+}
+
 export type RelayDeployResult = {
   transport: MultiplexerTransport
   platform: RelayPlatform
@@ -86,6 +125,8 @@ export type RelayDeployResult = {
   remoteRelayDir?: string
   nodePath?: string
   sockPath?: string
+  /** CLI-role secret for remote pane envs; scoped to `orca.cli`, never the control secret. */
+  cliAuthToken?: string
 }
 
 class RelayDirectoryGcConflictError extends Error {
@@ -444,7 +485,8 @@ async function deployAndLaunchRelayAttempt(
     remoteHome,
     remoteRelayDir,
     nodePath: launched.nodePath,
-    sockPath: launched.sockPath
+    sockPath: launched.sockPath,
+    cliAuthToken: launched.cliAuthToken
   }
 }
 
@@ -1051,9 +1093,7 @@ async function installNativeDepsWithoutNodePty(
     signal?.throwIfAborted()
     // Why: the watcher ships prebuilts, so a failed rebuild is usually harmless; the
     // caller's require() probe decides whether file watching is actually dead.
-    console.warn(
-      `[ssh-relay][NPTY-SKIP-REBUILD-SKIPPED] ${remoteDir}: ${(err as Error).message}`
-    )
+    console.warn(`[ssh-relay][NPTY-SKIP-REBUILD-SKIPPED] ${remoteDir}: ${(err as Error).message}`)
   }
 }
 
@@ -1232,7 +1272,13 @@ async function launchRelay(
   graceTimeSeconds?: number,
   relayInstanceId?: string,
   signal?: AbortSignal
-): Promise<{ transport: MultiplexerTransport; nodePath: string; sockPath: string }> {
+): Promise<{
+  transport: MultiplexerTransport
+  nodePath: string
+  sockPath: string
+  cliAuthToken: string
+}> {
+  const auth = resolveRelayAuthMaterial(relayInstanceId)
   // Why: graceTimeSeconds comes from user-editable SshTarget config; floor+clamp to an integer prevents shell injection if the type ever loosened.
   const requestedGraceTime = Math.floor(graceTimeSeconds ?? DEFAULT_SSH_RELAY_GRACE_PERIOD_SECONDS)
   const graceTime =
@@ -1272,6 +1318,7 @@ async function launchRelay(
         endpointDir: activeEndpoint.endpointDir,
         graceTime,
         activePipeMarkerPath,
+        auth,
         reconnectFallback: fallbackEndpoint
       },
       signal
@@ -1293,9 +1340,10 @@ async function launchRelay(
           `cd ${escapedDir} && ${escapedNode} relay.js --connect --sock-path ${shellEscape(sockFile)}`,
           { signal }
         )
+        sendRelayAuthToken(channel, auth.controlSecret)
         const transport = await waitForSentinel(channel, signal)
         console.log('[ssh-relay] Reconnected to existing relay via socket')
-        return { transport, nodePath, sockPath: sockFile }
+        return { transport, nodePath, sockPath: sockFile, cliAuthToken: auth.cliSecret }
       } catch (err) {
         signal?.throwIfAborted()
         console.warn(
@@ -1350,7 +1398,8 @@ async function launchRelay(
   // Why: execCommand would block on channel close that backgrounded children never allow; fire-and-forget via conn.exec, the socket poll detects readiness.
   const logFile = `${remoteDir}/relay.log`
   // Why: --log-file lets the relay rotate relay.log in-process; the shell redirect stays to capture pre-JS boot/crash output.
-  const launchCmd = `cd ${escapedDir} && nohup ${escapedNode} relay.js --detached --grace-time ${graceTime} --sock-path ${shellEscape(sockFile)} --log-file ${shellEscape(logFile)} > ${shellEscape(logFile)} 2>&1 </dev/null &`
+  // Why: verifiers (SHA-256 digests), not secrets, so this argv is safe in `ps`.
+  const launchCmd = `cd ${escapedDir} && nohup ${escapedNode} relay.js --detached --grace-time ${graceTime} --sock-path ${shellEscape(sockFile)} --auth-verifier ${shellEscape(auth.verifierArgs.control)} --cli-auth-verifier ${shellEscape(auth.verifierArgs.cli)} --log-file ${shellEscape(logFile)} > ${shellEscape(logFile)} 2>&1 </dev/null &`
   const launchChannel = await conn.exec(launchCmd, { signal })
   launchChannel.on('data', () => {})
   launchChannel.on('error', () => {})
@@ -1403,7 +1452,13 @@ async function launchRelay(
     `cd ${escapedDir} && ${escapedNode} relay.js --connect --sock-path ${shellEscape(sockFile)}`,
     { signal }
   )
-  return { transport: await waitForSentinel(channel, signal), nodePath, sockPath: sockFile }
+  sendRelayAuthToken(channel, auth.controlSecret)
+  return {
+    transport: await waitForSentinel(channel, signal),
+    nodePath,
+    sockPath: sockFile,
+    cliAuthToken: auth.cliSecret
+  }
 }
 
 function waitForRelayPoll(delayMs: number, signal?: AbortSignal): Promise<void> {
@@ -1498,6 +1553,7 @@ type WindowsRelayLaunchOptions = {
   nodePath: string
   graceTime: number
   activePipeMarkerPath: string
+  auth: RelayAuthMaterial
 } & WindowsRelayEndpoint & {
     reconnectFallback?: WindowsRelayEndpoint
   }
@@ -1507,7 +1563,12 @@ async function launchWindowsRelay(
   hostPlatform: RemoteHostPlatform,
   opts: WindowsRelayLaunchOptions,
   signal?: AbortSignal
-): Promise<{ transport: MultiplexerTransport; nodePath: string; sockPath: string }> {
+): Promise<{
+  transport: MultiplexerTransport
+  nodePath: string
+  sockPath: string
+  cliAuthToken: string
+}> {
   let launchOpts = opts
   if ((await probeWindowsRelayPipe(conn, hostPlatform, opts, signal)) === 'READY') {
     try {
@@ -1522,7 +1583,8 @@ async function launchWindowsRelay(
       return {
         transport,
         nodePath: opts.nodePath,
-        sockPath: opts.sockPath
+        sockPath: opts.sockPath,
+        cliAuthToken: opts.auth.cliSecret
       }
     } catch (err) {
       signal?.throwIfAborted()
@@ -1554,7 +1616,8 @@ async function launchWindowsRelay(
       return {
         transport,
         nodePath: launchOpts.nodePath,
-        sockPath: launchOpts.sockPath
+        sockPath: launchOpts.sockPath,
+        cliAuthToken: launchOpts.auth.cliSecret
       }
     } catch (err) {
       signal?.throwIfAborted()
@@ -1577,6 +1640,7 @@ async function launchWindowsRelay(
       launchOpts.sockPath,
       launchOpts.endpointDir,
       launchOpts.graceTime,
+      launchOpts.auth.verifierArgs,
       logFile,
       errFile
     ),
@@ -1606,7 +1670,8 @@ async function launchWindowsRelay(
     return {
       transport,
       nodePath: launchOpts.nodePath,
-      sockPath: launchOpts.sockPath
+      sockPath: launchOpts.sockPath,
+      cliAuthToken: launchOpts.auth.cliSecret
     }
   }
 
@@ -1629,6 +1694,7 @@ async function connectWindowsRelay(
     remoteDir: string
     nodePath: string
     sockPath: string
+    auth: RelayAuthMaterial
   },
   signal?: AbortSignal
 ): Promise<MultiplexerTransport> {
@@ -1636,6 +1702,7 @@ async function connectWindowsRelay(
     windowsRelayConnectCommand(hostPlatform, opts.nodePath, opts.remoteDir, opts.sockPath),
     { wrapCommand: false, signal }
   )
+  sendRelayAuthToken(channel, opts.auth.controlSecret)
   return waitForSentinel(channel, signal)
 }
 
@@ -1660,6 +1727,7 @@ function windowsRelayLaunchCommand(
   sockPath: string,
   endpointDir: string,
   graceTime: number,
+  verifiers: { control: string; cli: string },
   logFile: string,
   errFile: string
 ): string {
@@ -1676,6 +1744,11 @@ function windowsRelayLaunchCommand(
     quoted(sockPath),
     '--endpoint-dir',
     quoted(endpointDir),
+    // Why: digests, not secrets — safe in a Win32_Process.Create command line.
+    '--auth-verifier',
+    quoted(verifiers.control),
+    '--cli-auth-verifier',
+    quoted(verifiers.cli),
     // Why: --log-file owns rotation; shell redirects still capture pre-JS boot/crash output.
     '--log-file',
     quoted(logFile),

@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
+import { relayAuthVerifier } from '../shared/ssh-relay-auth-token'
 import {
   RELAY_SENTINEL,
   FrameDecoder,
@@ -9,6 +10,10 @@ import {
   type JsonRpcResponse,
   type JsonRpcNotification
 } from './protocol'
+
+/** Fixed credential for spawned relays; real deployments mint one per target. */
+export const TEST_RELAY_SECRET = 'f'.repeat(64)
+export const TEST_RELAY_AUTH_ARGS = ['--auth-verifier', relayAuthVerifier(TEST_RELAY_SECRET)]
 
 export type RelayProcess = {
   proc: ChildProcess
@@ -31,6 +36,12 @@ export function spawnRelay(
     stdio: ['pipe', 'pipe', 'pipe'],
     ...options
   })
+
+  // Why: mirrors the host — a --connect bridge is handed the secret as the first
+  // line of its stdin, never through argv or the environment.
+  if (args.includes('--connect')) {
+    proc.stdin!.write(`${TEST_RELAY_SECRET}\n`)
+  }
 
   const responses: (JsonRpcResponse | JsonRpcNotification)[] = []
   let nextSeq = 1

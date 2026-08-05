@@ -58,10 +58,12 @@ import { createRemoteCliInstallPlan } from './ssh-remote-cli-launcher'
 import {
   DEFAULT_SSH_RELAY_GRACE_PERIOD_SECONDS,
   type DetectedPort,
+  HOST_SLEEP_SSH_RELAY_GRACE_PERIOD_SECONDS,
   MAX_SSH_RELAY_GRACE_PERIOD_SECONDS,
   MIN_SSH_RELAY_GRACE_PERIOD_SECONDS,
   SSH_RELAY_CONFIGURE_GRACE_TIME_METHOD
 } from '../../shared/ssh-types'
+import { forceStopRelayForTarget } from './ssh-relay-reset'
 import type { Store } from '../persistence'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import { runRemoteOrcaCli } from './ssh-remote-orca-cli'
@@ -80,6 +82,7 @@ type RemoteCliBridgeEnv = {
   relayDir: string
   nodePath: string
   sockPath: string
+  cliAuthToken: string
   hostPlatform: RemoteHostPlatform
   pathDelimiter?: ':' | ';'
 }
@@ -151,6 +154,8 @@ export class SshRelaySession {
   private remoteCliBridgeEnv: RemoteCliBridgeEnv | null = null
   private forwardedReattachReplayByPty = new Map<string, ForwardedReplayFingerprint>()
   private pendingPtyReattaches = new Map<string, PendingPtyReattach>()
+  // Why: host sleep must not overwrite an explicit "keep alive until reset" (0) with a bounded window.
+  private configuredGraceSeconds = normalizeRelayGracePeriodSeconds(undefined)
 
   constructor(
     readonly targetId: string,
@@ -237,7 +242,75 @@ export class SshRelaySession {
     if (!mux || mux.isDisposed() || this.isDisposed()) {
       return
     }
-    mux.notify(SSH_RELAY_CONFIGURE_GRACE_TIME_METHOD, { graceTimeSeconds: 0 })
+    // Why: sleep widens the grace so live remote PTYs outlast it, but stays
+    // bounded — a sleep never followed by a reconnect used to leave the relay
+    // and every shell it owns with no expiry at all. An explicit 0 is the
+    // user's own choice and is left alone.
+    mux.notify(SSH_RELAY_CONFIGURE_GRACE_TIME_METHOD, {
+      graceTimeSeconds:
+        this.configuredGraceSeconds === 0 ? 0 : HOST_SLEEP_SSH_RELAY_GRACE_PERIOD_SECONDS
+    })
+  }
+
+  /** Target removal is destructive: stop every remote shell and then the relay
+   *  daemon itself. Best-effort — an unreachable host must never block removal,
+   *  and a relay we cannot reach expires on its grace period instead. */
+  async shutdownRemoteRelay(): Promise<void> {
+    await this.terminateRemotePtys()
+    const conn = this.currentConnection
+    if (!conn) {
+      return
+    }
+    const hostPlatform = this.getHostPlatform()
+    if (hostPlatform && isWindowsRemoteHost(hostPlatform)) {
+      // Why: forceStopRelayForTarget is a POSIX script; the PTY kills above already
+      // freed the user's shells, so let a Windows relay expire on its grace period.
+      return
+    }
+    try {
+      await forceStopRelayForTarget(conn, this.targetId)
+    } catch (err) {
+      console.warn(
+        `[ssh-relay-session] Failed to stop relay for removed target ${this.targetId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      )
+    }
+  }
+
+  private async terminateRemotePtys(): Promise<void> {
+    const ptyProvider = getSshPtyProvider(this.targetId) as SshPtyProvider | undefined
+    if (!ptyProvider || !this.mux || this.mux.isDisposed()) {
+      return
+    }
+    const relayPtyIds = new Set([
+      ...getPtyIdsForConnection(this.targetId).map((ptyId) =>
+        toRelaySshPtyId(this.targetId, ptyId)
+      ),
+      ...this.store
+        .getSshRemotePtyLeases(this.targetId)
+        .filter((lease) => lease.state !== 'terminated' && lease.state !== 'expired')
+        .map((lease) => lease.ptyId)
+    ])
+    const results = await Promise.allSettled(
+      [...relayPtyIds].map((relayPtyId) =>
+        // Why: immediate resolves only after physical exit, so the SIGKILL of every
+        // process group on the tty is proven before the relay itself goes away.
+        ptyProvider.shutdown(toAppSshPtyId(this.targetId, relayPtyId), {
+          immediate: true,
+          keepHistory: false
+        })
+      )
+    )
+    for (const result of results) {
+      if (result.status === 'rejected' && !isSshPtyNotFoundError(result.reason)) {
+        console.warn(
+          `[ssh-relay-session] Failed to terminate a remote PTY for ${this.targetId}: ${
+            result.reason instanceof Error ? result.reason.message : String(result.reason)
+          }`
+        )
+      }
+    }
   }
 
   // Why: single entry point for relay setup (initial connect + app-restart reconnect) so no path forgets a registration step.
@@ -249,17 +322,27 @@ export class SshRelaySession {
     this.currentConnection = conn
 
     try {
-      const { transport, remoteHome, remoteRelayDir, nodePath, sockPath, hostPlatform } =
-        await deployAndLaunchRelay(conn, undefined, graceTimeSeconds, this.targetId)
+      const {
+        transport,
+        remoteHome,
+        remoteRelayDir,
+        nodePath,
+        sockPath,
+        cliAuthToken,
+        hostPlatform
+      } = await deployAndLaunchRelay(conn, undefined, graceTimeSeconds, this.targetId)
       this.hostPlatform = hostPlatform ?? null
+      // Why: without the CLI credential a pane's `orca` shim cannot authenticate, so
+      // leave the bridge env unset rather than seeding a shim that always fails.
       this.remoteCliBridgeEnv =
-        remoteHome && remoteRelayDir && nodePath && sockPath && hostPlatform
+        remoteHome && remoteRelayDir && nodePath && sockPath && cliAuthToken && hostPlatform
           ? {
               remoteHome,
               binDir: joinRemotePath(hostPlatform, remoteHome, '.orca-relay', 'bin'),
               relayDir: remoteRelayDir,
               nodePath,
               sockPath,
+              cliAuthToken,
               hostPlatform,
               pathDelimiter: hostPlatform.pathDelimiter
             }
@@ -303,6 +386,8 @@ export class SshRelaySession {
       if (!ownsAttempt()) {
         throw new Error('Session disposed during establish')
       }
+
+      await this.reapPendingRemoteKills(ownsAttempt)
 
       this.configureRelayGraceTime(mux, graceTimeSeconds)
       this.watchMuxForRelayLoss(mux)
@@ -348,17 +433,27 @@ export class SshRelaySession {
     this.teardownProviders('connection_lost')
 
     try {
-      const { transport, remoteHome, remoteRelayDir, nodePath, sockPath, hostPlatform } =
-        await deployAndLaunchRelay(conn, undefined, graceTimeSeconds, this.targetId)
+      const {
+        transport,
+        remoteHome,
+        remoteRelayDir,
+        nodePath,
+        sockPath,
+        cliAuthToken,
+        hostPlatform
+      } = await deployAndLaunchRelay(conn, undefined, graceTimeSeconds, this.targetId)
       this.hostPlatform = hostPlatform ?? null
+      // Why: without the CLI credential a pane's `orca` shim cannot authenticate, so
+      // leave the bridge env unset rather than seeding a shim that always fails.
       this.remoteCliBridgeEnv =
-        remoteHome && remoteRelayDir && nodePath && sockPath && hostPlatform
+        remoteHome && remoteRelayDir && nodePath && sockPath && cliAuthToken && hostPlatform
           ? {
               remoteHome,
               binDir: joinRemotePath(hostPlatform, remoteHome, '.orca-relay', 'bin'),
               relayDir: remoteRelayDir,
               nodePath,
               sockPath,
+              cliAuthToken,
               hostPlatform,
               pathDelimiter: hostPlatform.pathDelimiter
             }
@@ -415,6 +510,8 @@ export class SshRelaySession {
       if (!ownsAttempt()) {
         return
       }
+
+      await this.reapPendingRemoteKills(ownsAttempt)
 
       this.configureRelayGraceTime(mux, graceTimeSeconds)
       this.watchMuxForRelayLoss(mux)
@@ -583,8 +680,9 @@ export class SshRelaySession {
     mux: SshChannelMultiplexer,
     graceTimeSeconds: number | undefined
   ): void {
+    this.configuredGraceSeconds = normalizeRelayGracePeriodSeconds(graceTimeSeconds)
     mux.notify(SSH_RELAY_CONFIGURE_GRACE_TIME_METHOD, {
-      graceTimeSeconds: normalizeRelayGracePeriodSeconds(graceTimeSeconds)
+      graceTimeSeconds: this.configuredGraceSeconds
     })
   }
 
@@ -1014,6 +1112,66 @@ export class SshRelaySession {
     }
   }
 
+  // Why: a pane closed while the relay was unreachable left its remote shell
+  // running with no UI trace; reconcile those intents now that we have a relay.
+  // Relay pty ids are a per-relay counter, so a restarted relay can hand `pty-N`
+  // to somebody else's pane — kill only when the relay reports the exact
+  // incarnation the lease recorded, and give up on the intent otherwise.
+  private async reapPendingRemoteKills(shouldContinue: () => boolean): Promise<void> {
+    const pending = this.store
+      .getSshRemotePtyLeases(this.targetId)
+      .filter((lease) => lease.killRequestedAt !== undefined)
+    if (pending.length === 0) {
+      return
+    }
+    const ptyProvider = getSshPtyProvider(this.targetId) as SshPtyProvider | undefined
+    if (!ptyProvider) {
+      return
+    }
+    let incarnationByAppPtyId: Map<string, string | undefined>
+    try {
+      const live = await ptyProvider.listProcesses()
+      incarnationByAppPtyId = new Map(live.map((session) => [session.id, session.incarnationId]))
+    } catch (err) {
+      // Why: keep every intent — an unanswered listing is not evidence the shell died.
+      console.warn(
+        `[ssh-relay-session] Could not list remote PTYs to reap closed panes for ${this.targetId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      )
+      return
+    }
+    for (const lease of pending) {
+      if (!shouldContinue()) {
+        return
+      }
+      const appPtyId = toAppSshPtyId(this.targetId, lease.ptyId)
+      const liveIncarnation = incarnationByAppPtyId.get(appPtyId)
+      if (liveIncarnation !== undefined) {
+        if (lease.incarnationId === undefined || liveIncarnation !== lease.incarnationId) {
+          console.warn(
+            `[ssh-relay-session] Not reaping ${lease.ptyId} on ${this.targetId}: the relay reports a different PTY under that id`
+          )
+        } else {
+          try {
+            await ptyProvider.shutdown(appPtyId, { immediate: true, keepHistory: false })
+          } catch (err) {
+            if (!isSshPtyNotFoundError(err)) {
+              // Why: keep the intent so the next connect retries the kill.
+              console.warn(
+                `[ssh-relay-session] Failed to reap closed pane ${lease.ptyId} on ${this.targetId}: ${
+                  err instanceof Error ? err.message : String(err)
+                }`
+              )
+              continue
+            }
+          }
+        }
+      }
+      this.store.clearSshRemotePtyKillIntent(this.targetId, lease.ptyId)
+    }
+  }
+
   private async reattachKnownPtys(shouldContinue: () => boolean): Promise<void> {
     const activeLeases = this.store
       .getSshRemotePtyLeases(this.targetId)
@@ -1111,7 +1269,12 @@ export class SshRelaySession {
             }
           }
           if (
-            this.store.markSshRemotePtyLease(this.targetId, ptyId, 'attached', { flush: false })
+            this.store.markSshRemotePtyLease(this.targetId, ptyId, 'attached', {
+              flush: false,
+              // Why: backfills leases written before incarnations were stored, so a later
+              // close-while-unreachable can still prove which process it may reap.
+              ...(attachResult.incarnationId ? { incarnationId: attachResult.incarnationId } : {})
+            })
           ) {
             leaseChanged = true
           }
