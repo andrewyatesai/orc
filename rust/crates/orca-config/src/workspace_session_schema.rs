@@ -19,6 +19,7 @@
 
 use orca_agents::is_tui_agent;
 use orca_agents::tui_agent_startup::{get_agent_resume_argv, ProviderSessionKey};
+use orca_core::execution_host::normalize_execution_host_id;
 use orca_core::terminal_tab_id::is_valid_terminal_tab_id;
 use serde_json::{json, Map, Value};
 use std::collections::HashSet;
@@ -628,6 +629,17 @@ fn p_workspace_key(value: Option<&Value>, path: &[String]) -> PResult {
     }
 }
 
+// ─── activeWorkspaceExecutionHostId (z.custom over parseExecutionHostId) ──
+
+/// `z.custom<ExecutionHostId>(v => typeof v === 'string' && Boolean(parseExecutionHostId(v)))`
+/// — validation only, so the raw (untrimmed) input is what gets stored.
+fn p_execution_host_id(value: Option<&Value>, path: &[String]) -> PResult {
+    match value {
+        Some(v @ Value::String(s)) if normalize_execution_host_id(s).is_some() => Ok(v.clone()),
+        _ => Err(at(path, MSG_INVALID_INPUT)),
+    }
+}
+
 // ─── lastVisitedAtByWorktreeId (.preprocess repair) ─────────────────
 
 /// Keep only finite, non-negative numeric timestamps so a single corrupted
@@ -900,6 +912,9 @@ fn p_session(value: Option<&Value>, path: &[String]) -> PResult {
     let mut out = Map::new();
     set_req(&mut out, obj, "activeRepoId", path, |v, p| p_nullable(v, p, p_string))?;
     set_opt(&mut out, obj, "activeWorkspaceKey", path, |v, p| p_nullable(v, p, p_workspace_key))?;
+    set_opt(&mut out, obj, "activeWorkspaceExecutionHostId", path, |v, p| {
+        p_nullable(v, p, p_execution_host_id)
+    })?;
     set_req(&mut out, obj, "activeWorktreeId", path, |v, p| p_nullable(v, p, p_string))?;
     set_req(&mut out, obj, "activeTabId", path, |v, p| p_nullable(v, p, p_string))?;
     set_req(&mut out, obj, "tabsByWorktree", path, |v, p| {
@@ -1435,6 +1450,43 @@ mod tests {
     }
 
     #[test]
+    fn carries_active_workspace_execution_host_id_through_the_allowlist() {
+        for id in ["local", "ssh:target-1", "runtime:env-1", "ssh:foo%20bar"] {
+            let session = minimal_with(&[("activeWorkspaceExecutionHostId", json!(id))]);
+            assert_eq!(
+                parse(session).value().unwrap()["activeWorkspaceExecutionHostId"],
+                json!(id)
+            );
+        }
+        let null_host = minimal_with(&[("activeWorkspaceExecutionHostId", Value::Null)]);
+        assert_eq!(
+            parse(null_host).value().unwrap()["activeWorkspaceExecutionHostId"],
+            Value::Null
+        );
+        // Absent stays absent — `.optional()` never materializes the key.
+        let parsed = parse(minimal());
+        let session = parsed.value().unwrap().as_object().unwrap();
+        assert!(!session.contains_key("activeWorkspaceExecutionHostId"));
+    }
+
+    #[test]
+    fn validates_active_workspace_execution_host_id_via_parse_execution_host_id() {
+        // z.custom validates without transforming, so the untrimmed input is stored.
+        let padded = minimal_with(&[("activeWorkspaceExecutionHostId", json!("  local  "))]);
+        assert_eq!(
+            parse(padded).value().unwrap()["activeWorkspaceExecutionHostId"],
+            json!("  local  ")
+        );
+        for bad in [json!("bogus"), json!("ssh:"), json!("runtime:"), json!("ssh:%ZZ"), json!(7)] {
+            let session = minimal_with(&[("activeWorkspaceExecutionHostId", bad)]);
+            assert_eq!(
+                parse(session).error(),
+                Some("activeWorkspaceExecutionHostId: Invalid input")
+            );
+        }
+    }
+
+    #[test]
     fn repairs_unknown_view_mode_to_terminal() {
         let session = minimal_with(&[(
             "unifiedTabs",
@@ -1752,9 +1804,8 @@ mod tests {
 
     // ─── Parity vector replay (same check the harness performs) ─────
 
-    const PENDING_VECTORS: &str = include_str!(
-        "../../../../tools/parity/vectors/workspace-session-schema.json"
-    );
+    const PENDING_VECTORS: &str =
+        include_str!("../../../../tests/tools/parity/vectors/workspace-session-schema.json");
 
     /// Order-insensitive object compare with f64 number equality — mirrors
     /// `orca-parity`'s `json_semantic_eq` (this crate must not depend on it).

@@ -60,47 +60,43 @@ pub fn parse_ssh_config(content: &str, home: &str) -> Vec<SshConfigHost> {
         }
 
         let value = parse_scalar_config_value(&raw_value);
+        // OpenSSH uses the FIRST obtained value for single-valued parameters (the TS `??=`);
+        // IdentityFile is excluded because it is multi-valued and keeps overwriting upstream too.
         match key.as_str() {
-            "hostname" => set_all(&mut current, |h| h.hostname = Some(value.clone())),
+            "hostname" => set_all(&mut current, |h| keep_first(&mut h.hostname, value.clone())),
             "port" => {
                 // TS: `parseInt(value, 10) || 22` — leading-digit parse (trailing
                 // junk / decimals keep the leading int), then 0 or NaN falls to 22.
                 let port = js_parse_int_base10(&value).filter(|&p| p != 0).unwrap_or(22);
-                set_all(&mut current, |h| h.port = Some(port));
+                set_all(&mut current, |h| keep_first(&mut h.port, port));
             }
-            "user" => set_all(&mut current, |h| h.user = Some(value.clone())),
+            "user" => set_all(&mut current, |h| keep_first(&mut h.user, value.clone())),
             "identityfile" => {
                 let resolved = resolve_ssh_config_home_path(&value, home);
                 set_all(&mut current, |h| h.identity_file = Some(resolved.clone()));
             }
             "identityagent" => {
                 let resolved = resolve_ssh_config_home_path(&value, home);
-                set_all(&mut current, |h| h.identity_agent = Some(resolved.clone()));
+                set_all(&mut current, |h| keep_first(&mut h.identity_agent, resolved.clone()));
             }
             "identitiesonly" => {
                 let yes = value.eq_ignore_ascii_case("yes");
-                set_all(&mut current, |h| h.identities_only = Some(yes));
+                set_all(&mut current, |h| keep_first(&mut h.identities_only, yes));
             }
             "gssapiauthentication" => {
-                // Mirrors upstream's `host.gssapiAuthentication ??= …`: OpenSSH
-                // keeps the FIRST obtained value, so only set when still unset.
                 let yes = value.eq_ignore_ascii_case("yes");
-                set_all(&mut current, |h| {
-                    if h.gssapi_authentication.is_none() {
-                        h.gssapi_authentication = Some(yes);
-                    }
-                });
+                set_all(&mut current, |h| keep_first(&mut h.gssapi_authentication, yes));
             }
             // OpenSSH preserves the rest of the line for ProxyCommand (a shell snippet).
             "proxycommand" => {
                 let command = raw_value.trim().to_string();
-                set_all(&mut current, |h| h.proxy_command = Some(command.clone()));
+                set_all(&mut current, |h| keep_first(&mut h.proxy_command, command.clone()));
             }
             "proxyusefdpass" => {
                 let yes = value.eq_ignore_ascii_case("yes");
-                set_all(&mut current, |h| h.proxy_use_fdpass = Some(yes));
+                set_all(&mut current, |h| keep_first(&mut h.proxy_use_fdpass, yes));
             }
-            "proxyjump" => set_all(&mut current, |h| h.proxy_jump = Some(value.clone())),
+            "proxyjump" => set_all(&mut current, |h| keep_first(&mut h.proxy_jump, value.clone())),
             _ => {}
         }
     }
@@ -114,6 +110,13 @@ pub fn parse_ssh_config(content: &str, home: &str) -> Vec<SshConfigHost> {
 fn set_all(hosts: &mut [SshConfigHost], mut apply: impl FnMut(&mut SshConfigHost)) {
     for host in hosts {
         apply(host);
+    }
+}
+
+/// `slot ??= value` — a later repeat of a single-valued option must not win.
+fn keep_first<T>(slot: &mut Option<T>, value: T) {
+    if slot.is_none() {
+        *slot = Some(value);
     }
 }
 
@@ -271,6 +274,43 @@ mod tests {
         // Absent key stays None (JSON.stringify drops undefined).
         let absent = parse_ssh_config("Host plain\n  User deploy\n", HOME);
         assert_eq!(absent[0].gssapi_authentication, None);
+    }
+
+    #[test]
+    fn repeated_single_valued_options_keep_the_first_value() {
+        let config = "Host repeated\n  HostName first.example.com\n  HostName second.example.com\n  User first-user\n  User second-user\n  Port 2201\n  Port 2202\n  IdentityAgent ~/.ssh/first-agent.sock\n  IdentityAgent ~/.ssh/second-agent.sock\n  IdentitiesOnly yes\n  IdentitiesOnly no\n  ProxyCommand ssh -W %h:%p first-bastion\n  ProxyCommand ssh -W %h:%p second-bastion\n  ProxyUseFdpass yes\n  ProxyUseFdpass no\n  ProxyJump first-jump\n  ProxyJump second-jump\n";
+        assert_eq!(
+            parse_ssh_config(config, HOME),
+            vec![SshConfigHost {
+                host: "repeated".into(),
+                hostname: Some("first.example.com".into()),
+                user: Some("first-user".into()),
+                port: Some(2201),
+                identity_agent: Some("/home/testuser/.ssh/first-agent.sock".into()),
+                identities_only: Some(true),
+                proxy_command: Some("ssh -W %h:%p first-bastion".into()),
+                proxy_use_fdpass: Some(true),
+                proxy_jump: Some("first-jump".into()),
+                ..Default::default()
+            }]
+        );
+        // A first `no` must stick too — the guard is on presence, not truthiness.
+        let disabled = parse_ssh_config(
+            "Host off\n  IdentitiesOnly no\n  IdentitiesOnly yes\n  ProxyUseFdpass no\n  ProxyUseFdpass yes\n",
+            HOME,
+        );
+        assert_eq!(disabled[0].identities_only, Some(false));
+        assert_eq!(disabled[0].proxy_use_fdpass, Some(false));
+    }
+
+    #[test]
+    fn identity_file_is_multi_valued_and_keeps_the_last_value() {
+        // IdentityFile is deliberately NOT first-wins (OpenSSH accumulates keys); the port keeps the last one.
+        let hosts = parse_ssh_config(
+            "Host multi\n  IdentityFile ~/.ssh/first\n  IdentityFile ~/.ssh/second\n",
+            HOME,
+        );
+        assert_eq!(hosts[0].identity_file.as_deref(), Some("/home/testuser/.ssh/second"));
     }
 
     #[test]

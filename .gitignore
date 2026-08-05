@@ -84,9 +84,15 @@ package-lock.json
 *~
 
 # OS
+# Keep these in step with isOsMetadataSkillEntryName (skill-package-identity.ts): both disk
+# walkers skip a plain file with one of these names, the git-tree producer does not, and
+# ignoring them here is what keeps `git add -A` from committing a stray one.
 *.stackdump
 .DS_Store
+._*
 Thumbs.db
+ehthumbs.db
+desktop.ini
 
 # Lint/cache
 .oxlintcache
@@ -101,7 +107,7 @@ pnpm-debug.log*
 coverage/
 
 # Benchmark run output
-/tools/benchmarks/results/*.json
+/tests/tools/benchmarks/results/*.json
 
 # Temp
 tmp/
@@ -133,7 +139,8 @@ docs/reference/react-performance-audit.md
 !docs/rust-migration/
 !docs/rust-migration/**
 # Upstream's per-file reference allowlist (git-compatibility, headless-linux-server,
-# linux-glibc-compatibility) is subsumed by the `!docs/reference/**` rule above.
+# linux-glibc-compatibility, relay-grace-time-reconfiguration) is subsumed by the
+# `!docs/reference/**` rule above.
 
 # Stably CLI (only docs/ are tracked)
 .stably/*
@@ -202,9 +209,9 @@ prod-release-scan-*.md
 /.bench-fixtures/
 
 # Bench result JSONs are working artifacts
-tools/benchmarks/results/terminal-pipeline-*.json
-tools/orc-electron/coi-killcheck/killcheck-result.json
-tools/autoformalize-candidates.json
+tests/tools/benchmarks/results/terminal-pipeline-*.json
+tests/tools/orc-electron/coi-killcheck/killcheck-result.json
+tests/tools/autoformalize-candidates.json
 
 # Publication-engine stage artifacts (attestation, inventories)
 /publish/.out/

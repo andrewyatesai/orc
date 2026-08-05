@@ -1,10 +1,11 @@
 //! Branch-cleanup safety checks, ported from `src/shared/git-branch-cleanup.ts`.
 //!
 //! Decides whether a local branch is safe to delete on worktree removal:
-//! gathers candidate base refs, refreshes the relevant remotes (non-fatal), and
-//! checks whether the branch has any *unmerged* changes against those bases
-//! (tree-equal merge, merge-only commits, or patch-equivalent commits). All
-//! over the `GitRunner` boundary, so it's testable against a mock.
+//! gathers candidate base refs, then checks whether the branch has any *unmerged*
+//! changes against those bases (tree-equal merge, merge-only commits, or
+//! patch-equivalent commits) — local refs first, refreshing the relevant remotes
+//! (non-fatal) only when they can't settle it. All over the `GitRunner` boundary,
+//! so it's testable against a mock.
 
 use crate::runner::{AsyncGitRunner, GitRunner};
 use std::collections::HashSet;
@@ -54,6 +55,18 @@ pub fn get_branch_cleanup_target_refs<R: GitRunner>(runner: &R, branch_name: &st
     );
     add_candidate(&mut candidates, Some("HEAD".to_string()));
     candidates
+}
+
+/// True for refs that no fetch can change — only remote-tracking refs go stale.
+fn is_local_target_ref(target_ref: &str) -> bool {
+    target_ref == "HEAD"
+        || target_ref.starts_with("refs/heads/")
+        || target_ref.starts_with("refs/tags/")
+}
+
+/// Split candidate targets into `(local, refresh-dependent)`, preserving order.
+fn split_local_target_refs<'a>(target_refs: &[&'a str]) -> (Vec<&'a str>, Vec<&'a str>) {
+    target_refs.iter().copied().partition(|target_ref| is_local_target_ref(target_ref))
 }
 
 /// Fetch each remote referenced by the target refs once (longest remote name
@@ -226,6 +239,32 @@ pub fn branch_has_no_unmerged_changes_on_any_target<R: GitRunner>(
         }
     }
     false
+}
+
+/// Same decision, but the remote is only refreshed once the local refs come back
+/// inconclusive — an unrefreshed remote-tracking ref may no longer represent the
+/// remote's branch contents, so it must not be trusted before the fetch.
+pub fn branch_has_no_unmerged_changes_with_lazy_target_refresh<R: GitRunner>(
+    runner: &R,
+    branch_name: &str,
+    target_refs: &[&str],
+) -> bool {
+    let (local_target_refs, refresh_dependent_target_refs) = split_local_target_refs(target_refs);
+    if branch_has_no_unmerged_changes_on_any_target(runner, branch_name, &local_target_refs) {
+        return true;
+    }
+    refresh_branch_cleanup_target_refs(runner, target_refs);
+    branch_has_no_unmerged_changes_on_any_target(runner, branch_name, &refresh_dependent_target_refs)
+}
+
+/// The full main-process decision (the napi bridge's `branch_is_safe_to_delete`
+/// task): gather candidate base refs, then decide with a lazy remote refresh
+/// (`fetch --prune`, the one mutation, and only when local refs can't settle it).
+/// Only ever moves toward *preserve*, so it can't over-delete.
+pub fn branch_is_safe_to_delete<R: GitRunner>(runner: &R, branch_name: &str) -> bool {
+    let refs = get_branch_cleanup_target_refs(runner, branch_name);
+    let refs_as_str: Vec<&str> = refs.iter().map(String::as_str).collect();
+    branch_has_no_unmerged_changes_with_lazy_target_refresh(runner, branch_name, &refs_as_str)
 }
 
 // --- async twins for the wasm relay -----------------------------------------
@@ -444,18 +483,40 @@ pub async fn branch_has_no_unmerged_changes_on_any_target_async<R: AsyncGitRunne
     false
 }
 
+/// Async twin of [`branch_has_no_unmerged_changes_with_lazy_target_refresh`].
+pub async fn branch_has_no_unmerged_changes_with_lazy_target_refresh_async<R: AsyncGitRunner>(
+    runner: &R,
+    branch_name: &str,
+    target_refs: &[&str],
+) -> bool {
+    let (local_target_refs, refresh_dependent_target_refs) = split_local_target_refs(target_refs);
+    if branch_has_no_unmerged_changes_on_any_target_async(runner, branch_name, &local_target_refs)
+        .await
+    {
+        return true;
+    }
+    refresh_branch_cleanup_target_refs_async(runner, target_refs).await;
+    branch_has_no_unmerged_changes_on_any_target_async(
+        runner,
+        branch_name,
+        &refresh_dependent_target_refs,
+    )
+    .await
+}
+
 /// The full relay-side decision (the napi bridge's `branch_is_safe_to_delete`
-/// task, async): gather candidate base refs, refresh the relevant remotes
-/// (`fetch --prune`, the one mutation), then decide whether the branch has any
-/// unmerged changes. Only ever moves toward *preserve*, so it can't over-delete.
+/// task, async): gather candidate base refs, then decide whether the branch has
+/// any unmerged changes, refreshing the relevant remotes (`fetch --prune`, the one
+/// mutation) only when the local refs are inconclusive. Only ever moves toward
+/// *preserve*, so it can't over-delete.
 pub async fn branch_is_safe_to_delete_async<R: AsyncGitRunner>(
     runner: &R,
     branch_name: &str,
 ) -> bool {
     let refs = get_branch_cleanup_target_refs_async(runner, branch_name).await;
     let refs_as_str: Vec<&str> = refs.iter().map(String::as_str).collect();
-    refresh_branch_cleanup_target_refs_async(runner, &refs_as_str).await;
-    branch_has_no_unmerged_changes_on_any_target_async(runner, branch_name, &refs_as_str).await
+    branch_has_no_unmerged_changes_with_lazy_target_refresh_async(runner, branch_name, &refs_as_str)
+        .await
 }
 
 #[cfg(test)]
@@ -586,19 +647,16 @@ mod tests {
     }
 
     #[test]
-    fn async_branch_is_safe_to_delete_gathers_refreshes_then_decides() {
-        // End-to-end async decision (gather refs → fetch --prune → tree-equal merge),
-        // asserting the whole call order the napi bridge's task runs.
+    fn async_branch_is_safe_to_delete_gathers_then_decides_without_touching_the_remote() {
+        // End-to-end async decision when local HEAD already proves the branch's
+        // changes are retained: gather refs → tree-equal merge, no network at all.
         let calls: RefCell<Vec<Vec<String>>> = RefCell::new(Vec::new());
         let respond = |args: &[&str], _stdin: Option<&str>| {
             calls.borrow_mut().push(args.iter().map(|s| s.to_string()).collect());
             match args {
                 ["config", "--get", "branch.feature.base"] => ok("refs/remotes/origin/main"),
                 ["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"] => Err(GitError::from_message("none")),
-                ["remote"] => ok("origin\n"),
-                ["fetch", "--prune", "origin"] => ok(""),
-                // First target ref (refs/remotes/origin/main) is tree-equal → safe.
-                ["rev-parse", "--verify", "--quiet", r] if r.ends_with("^{commit}") => ok("TOID"),
+                ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"] => ok("TOID"),
                 ["merge-tree", "--write-tree", "TOID", "refs/heads/feature"] => ok("SAME\n"),
                 ["rev-parse", "--verify", "--quiet", "TOID^{tree}"] => ok("SAME"),
                 _ => ok(""),
@@ -609,8 +667,104 @@ mod tests {
         let recorded = calls.borrow();
         assert_eq!(recorded[0], vec!["config", "--get", "branch.feature.base"]);
         assert_eq!(recorded[1], vec!["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"]);
-        assert_eq!(recorded[2], vec!["remote"]);
-        assert_eq!(recorded[3], vec!["fetch", "--prune", "origin"]);
+        assert_eq!(recorded[2], vec!["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]);
+        assert!(!recorded.iter().any(|args| args[0] == "remote" || args[0] == "fetch"));
+    }
+
+    #[test]
+    fn async_branch_is_safe_to_delete_refreshes_once_when_local_refs_are_inconclusive() {
+        // No local ref settles it, so the saved remote base is fetched (exactly once)
+        // before it is trusted — the full gather → local → fetch --prune → decide order.
+        let calls: RefCell<Vec<Vec<String>>> = RefCell::new(Vec::new());
+        let respond = |args: &[&str], _stdin: Option<&str>| {
+            calls.borrow_mut().push(args.iter().map(|s| s.to_string()).collect());
+            match args {
+                ["config", "--get", "branch.feature.base"] => ok("refs/remotes/origin/main"),
+                ["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"] => Err(GitError::from_message("none")),
+                // HEAD resolves to nothing → the local pass can't decide.
+                ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"] => ok(""),
+                ["remote"] => ok("origin\n"),
+                ["fetch", "--prune", "origin"] => ok(""),
+                ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/main^{commit}"] => ok("TOID"),
+                ["merge-tree", "--write-tree", "TOID", "refs/heads/feature"] => ok("SAME\n"),
+                ["rev-parse", "--verify", "--quiet", "TOID^{tree}"] => ok("SAME"),
+                _ => ok(""),
+            }
+        };
+        let runner = StdinAwareRunner { stdin_calls: RefCell::new(Vec::new()), respond };
+        assert!(block_on_ready(branch_is_safe_to_delete_async(&runner, "feature")));
+        let recorded = calls.borrow();
+        assert_eq!(
+            *recorded,
+            vec![
+                vec!["config", "--get", "branch.feature.base"],
+                vec!["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"],
+                vec!["rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
+                vec!["remote"],
+                vec!["fetch", "--prune", "origin"],
+                vec!["rev-parse", "--verify", "--quiet", "refs/remotes/origin/main^{commit}"],
+                vec!["merge-tree", "--write-tree", "TOID", "refs/heads/feature"],
+                vec!["rev-parse", "--verify", "--quiet", "TOID^{tree}"],
+            ]
+        );
+    }
+
+    #[test]
+    fn lazy_refresh_is_skipped_when_local_refs_are_conclusive() {
+        // A conclusive local ref must decide before any network call — an eager
+        // `git remote`/fetch on a merged branch is exactly what upstream removed.
+        let calls: RefCell<Vec<Vec<String>>> = RefCell::new(Vec::new());
+        let runner = |args: &[&str]| {
+            calls.borrow_mut().push(args.iter().map(|s| s.to_string()).collect());
+            match args {
+                ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"] => ok("TOID"),
+                ["merge-tree", "--write-tree", "TOID", "refs/heads/feature"] => ok("SAME\n"),
+                ["rev-parse", "--verify", "--quiet", "TOID^{tree}"] => ok("SAME"),
+                _ => ok(""),
+            }
+        };
+        assert!(branch_has_no_unmerged_changes_with_lazy_target_refresh(
+            &runner,
+            "feature",
+            &["refs/remotes/origin/main", "HEAD"]
+        ));
+        let recorded = calls.borrow();
+        assert!(!recorded.iter().any(|args| args[0] == "remote" || args[0] == "fetch"));
+        // The stale remote-tracking ref was never consulted pre-fetch.
+        assert!(!recorded.iter().any(|args| args.iter().any(|arg| arg.contains("origin/main"))));
+    }
+
+    #[test]
+    fn lazy_refresh_runs_once_then_re_reads_only_refresh_dependent_refs() {
+        // Local refs are inconclusive → fetch, then re-read only the remote-tracking
+        // refs (the local ones can't have changed, so they are not re-run).
+        let calls: RefCell<Vec<Vec<String>>> = RefCell::new(Vec::new());
+        let runner = |args: &[&str]| {
+            calls.borrow_mut().push(args.iter().map(|s| s.to_string()).collect());
+            match args {
+                ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"] => ok(""),
+                ["remote"] => ok("origin\n"),
+                ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/main^{commit}"] => ok("TOID"),
+                ["merge-tree", "--write-tree", "TOID", "refs/heads/feature"] => ok("SAME\n"),
+                ["rev-parse", "--verify", "--quiet", "TOID^{tree}"] => ok("SAME"),
+                _ => ok(""),
+            }
+        };
+        assert!(branch_has_no_unmerged_changes_with_lazy_target_refresh(
+            &runner,
+            "feature",
+            &["refs/remotes/origin/main", "HEAD"]
+        ));
+        let recorded = calls.borrow();
+        assert_eq!(recorded.iter().filter(|args| args[0] == "remote").count(), 1);
+        assert_eq!(
+            recorded.iter().filter(|args| *args == &vec!["fetch", "--prune", "origin"]).count(),
+            1
+        );
+        assert_eq!(
+            recorded.iter().filter(|args| args.iter().any(|arg| arg == "HEAD^{commit}")).count(),
+            1
+        );
     }
 
     #[test]

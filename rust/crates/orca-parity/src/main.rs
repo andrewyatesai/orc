@@ -21,8 +21,8 @@ use std::process::ExitCode;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
-    let vectors_dir = args.get(1).map(String::as_str).unwrap_or("tools/parity/vectors");
-    let out_path = args.get(2).map(String::as_str).unwrap_or("tools/parity/rust_outputs.json");
+    let vectors_dir = args.get(1).map(String::as_str).unwrap_or("tests/tools/parity/vectors");
+    let out_path = args.get(2).map(String::as_str).unwrap_or("tests/tools/parity/rust_outputs.json");
 
     let mut files = match fs::read_dir(vectors_dir) {
         Ok(entries) => entries
