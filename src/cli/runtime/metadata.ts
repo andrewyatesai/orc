@@ -1,11 +1,11 @@
 import { homedir } from 'node:os'
-import { join } from 'node:path'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import {
   findTransport,
   getRuntimeMetadataPath,
   type RuntimeMetadata
 } from '../../shared/runtime-bootstrap'
+import { userDataProfileCandidates } from '../../shared/user-data-profile'
 import { RuntimeClientError } from './types'
 
 export function readMetadata(userDataPath: string): RuntimeMetadata {
@@ -50,21 +50,21 @@ export function getDefaultUserDataPath(
   if (process.env.ORCA_USER_DATA_PATH) {
     return process.env.ORCA_USER_DATA_PATH
   }
-  if (platform === 'darwin') {
-    return join(homeDir, 'Library', 'Application Support', 'orca')
-  }
-  if (platform === 'win32') {
-    const appData = process.env.APPDATA
-    if (!appData) {
-      throw new RuntimeClientError(
-        'runtime_unavailable',
-        'APPDATA is not set, so the Orca runtime metadata path cannot be resolved.'
-      )
-    }
-    return join(appData, 'orca')
-  }
   // Why: the CLI must find the same metadata file Electron writes in packaged
   // runs, so this mirrors Electron's default userData base instead of inventing
-  // a CLI-specific config path.
-  return join(process.env.XDG_CONFIG_HOME || join(homeDir, '.config'), 'orca')
+  // a CLI-specific config path. Fork builds inject productName, which moves that
+  // base to 'Orca ALab Edition' — resolving only the public 'orca' name made
+  // every CLI command report a not_running runtime against a packaged ALab app.
+  const candidates = userDataProfileCandidates(platform, homeDir, process.env)
+  if (candidates.length === 0) {
+    throw new RuntimeClientError(
+      'runtime_unavailable',
+      'APPDATA is not set, so the Orca runtime metadata path cannot be resolved.'
+    )
+  }
+  // Why: prefer whichever installed edition actually left runtime metadata behind,
+  // so a machine carrying both editions targets the one that has run.
+  return (
+    candidates.find((candidate) => existsSync(getRuntimeMetadataPath(candidate))) ?? candidates[0]
+  )
 }

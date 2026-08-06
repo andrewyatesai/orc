@@ -9,6 +9,7 @@ import {
   writeFileSync
 } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
+import { ALAB_PROFILE_DIR_NAME } from '../../shared/user-data-profile'
 
 /**
  * One-time adoption of the pre-rename 'Orca Staging' profile.
@@ -22,7 +23,9 @@ import { basename, dirname, join } from 'node:path'
  */
 
 export const OLD_PROFILE_DIR_NAME = 'Orca Staging'
-export const NEW_PROFILE_DIR_NAME = 'Orca ALab Edition'
+// Why: shared with the CLI's userData resolution — when these two drifted, every
+// CLI command reported a not_running runtime against a live packaged ALab app.
+export const NEW_PROFILE_DIR_NAME = ALAB_PROFILE_DIR_NAME
 export const KEYCHAIN_COPY_MARKER_FILE = 'staging-keychain-copy.json'
 
 const OLD_SAFE_STORAGE_SERVICE = 'Orca Staging Safe Storage'

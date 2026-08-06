@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import os from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ALAB_PROFILE_DIR_NAME } from '../../shared/user-data-profile'
 import {
   KEYCHAIN_COPY_MARKER_FILE,
   MAX_KEYCHAIN_COPY_ATTEMPTS,
@@ -17,6 +18,13 @@ import {
 } from './staging-profile-migration'
 
 describe('staging-profile-migration', () => {
+  // Why: the CLI resolves a running app's userData from ALAB_PROFILE_DIR_NAME. When
+  // that drifted from the name Electron actually derives, every CLI command reported
+  // a not_running runtime against a live packaged app. Pin them to one constant.
+  it('adopts the same profile directory the CLI resolves', () => {
+    expect(NEW_PROFILE_DIR_NAME).toBe(ALAB_PROFILE_DIR_NAME)
+  })
+
   let appDataPath: string
   let newProfilePath: string
   let oldProfilePath: string
