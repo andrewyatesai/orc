@@ -3,8 +3,8 @@
 /**
  * Prepared Quick Open index for the RENDERER: the worktree file list crosses
  * the wasm boundary ONCE (NUL-joined — file names cannot contain NUL), then
- * each keystroke sends only the query and gets the top-N `{path, score}`
- * JSON back. Preparation (slash-normalize, lowercase, UTF-16 encode) happens
+ * each keystroke sends only the query and gets back a flat index/score pair
+ * array. Preparation (slash-normalize, lowercase, UTF-16 encode) happens
  * at construction, so the per-keystroke cost is only the subsequence scans.
  */
 export class QuickOpenIndex {
@@ -62,28 +62,28 @@ export class QuickOpenIndex {
         return this;
     }
     /**
-     * Rank against the prepared list; returns `[{path, score}, …]` JSON,
-     * best (lowest score) first, ties by original input order.
+     * Rank against the prepared list; returns a flat `[inputIndex, score, …]`
+     * Int32Array, best (lowest score) first, ties by original input order.
+     * Why indices, not paths: the caller already owns the file list, so
+     * returning JSON made every keystroke re-cross and re-parse up to `limit`
+     * path strings that JS could look up for free.
      * @param {string} query
      * @param {number} limit
-     * @returns {string}
+     * @returns {Int32Array}
      */
-    rank(query, limit) {
-        let deferred2_0;
-        let deferred2_1;
+    rankIndices(query, limit) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
             const ptr0 = passStringToWasm0(query, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len0 = WASM_VECTOR_LEN;
-            wasm.quickopenindex_rank(retptr, this.__wbg_ptr, ptr0, len0, limit);
+            wasm.quickopenindex_rankIndices(retptr, this.__wbg_ptr, ptr0, len0, limit);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            deferred2_0 = r0;
-            deferred2_1 = r1;
-            return getStringFromWasm0(r0, r1);
+            var v2 = getArrayI32FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export4(r0, r1 * 4, 4);
+            return v2;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export4(deferred2_0, deferred2_1, 1);
         }
     }
 }
@@ -987,7 +987,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return __wasm_bindgen_func_elem_1715(a, state0.b, arg0, arg1);
+                        return __wasm_bindgen_func_elem_1721(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -1043,7 +1043,7 @@ function __wbg_get_imports() {
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
             // Cast intrinsic for `Closure(Closure { dtor_idx: 71, function: Function { arguments: [Externref], shim_idx: 72, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1626, __wasm_bindgen_func_elem_1640);
+            const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1632, __wasm_bindgen_func_elem_1646);
             return addHeapObject(ret);
         },
         __wbindgen_cast_0000000000000002: function(arg0, arg1) {
@@ -1065,12 +1065,12 @@ function __wbg_get_imports() {
     };
 }
 
-function __wasm_bindgen_func_elem_1640(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_1640(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_1646(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_1646(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_1715(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_1715(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_1721(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_1721(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const QuickOpenIndexFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -1161,12 +1161,25 @@ function dropObject(idx) {
     heap_next = idx;
 }
 
+function getArrayI32FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getInt32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
+}
+
 let cachedDataViewMemory0 = null;
 function getDataViewMemory0() {
     if (cachedDataViewMemory0 === null || cachedDataViewMemory0.buffer.detached === true || (cachedDataViewMemory0.buffer.detached === undefined && cachedDataViewMemory0.buffer !== wasm.memory.buffer)) {
         cachedDataViewMemory0 = new DataView(wasm.memory.buffer);
     }
     return cachedDataViewMemory0;
+}
+
+let cachedInt32ArrayMemory0 = null;
+function getInt32ArrayMemory0() {
+    if (cachedInt32ArrayMemory0 === null || cachedInt32ArrayMemory0.byteLength === 0) {
+        cachedInt32ArrayMemory0 = new Int32Array(wasm.memory.buffer);
+    }
+    return cachedInt32ArrayMemory0;
 }
 
 function getStringFromWasm0(ptr, len) {
@@ -1313,6 +1326,7 @@ function __wbg_finalize_init(instance, module) {
     wasm = instance.exports;
     wasmModule = module;
     cachedDataViewMemory0 = null;
+    cachedInt32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
     return wasm;
 }

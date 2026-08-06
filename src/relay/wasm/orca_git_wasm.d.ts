@@ -4,8 +4,8 @@
 /**
  * Prepared Quick Open index for the RENDERER: the worktree file list crosses
  * the wasm boundary ONCE (NUL-joined — file names cannot contain NUL), then
- * each keystroke sends only the query and gets the top-N `{path, score}`
- * JSON back. Preparation (slash-normalize, lowercase, UTF-16 encode) happens
+ * each keystroke sends only the query and gets back a flat index/score pair
+ * array. Preparation (slash-normalize, lowercase, UTF-16 encode) happens
  * at construction, so the per-keystroke cost is only the subsequence scans.
  */
 export class QuickOpenIndex {
@@ -20,10 +20,13 @@ export class QuickOpenIndex {
     fileCount(): number;
     constructor(nul_joined_paths: string);
     /**
-     * Rank against the prepared list; returns `[{path, score}, …]` JSON,
-     * best (lowest score) first, ties by original input order.
+     * Rank against the prepared list; returns a flat `[inputIndex, score, …]`
+     * Int32Array, best (lowest score) first, ties by original input order.
+     * Why indices, not paths: the caller already owns the file list, so
+     * returning JSON made every keystroke re-cross and re-parse up to `limit`
+     * path strings that JS could look up for free.
      */
-    rank(query: string, limit: number): string;
+    rankIndices(query: string, limit: number): Int32Array;
 }
 
 /**
@@ -295,16 +298,16 @@ export interface InitOutput {
     readonly quickopenindex_exactMatches: (a: number, b: number, c: number, d: number) => void;
     readonly quickopenindex_fileCount: (a: number) => number;
     readonly quickopenindex_new: (a: number, b: number) => number;
-    readonly quickopenindex_rank: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly quickopenindex_rankIndices: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly slugifyForWorkspaceName: (a: number, b: number, c: number) => void;
     readonly stripCredentialsFromMessage: (a: number, b: number, c: number) => void;
     readonly terminalQuickCommandOp: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly tuiAgentStartupOp: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly upstreamOnlyCommitsArePatchEquivalent: (a: number, b: number) => number;
     readonly validateGitPushTargetRules: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
-    readonly __wasm_bindgen_func_elem_1626: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_1715: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_1640: (a: number, b: number, c: number) => void;
+    readonly __wasm_bindgen_func_elem_1632: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_1721: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_1646: (a: number, b: number, c: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_export3: (a: number) => void;

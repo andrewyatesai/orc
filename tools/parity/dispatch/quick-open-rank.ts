@@ -17,10 +17,17 @@ export function dispatch(fn: string, input: unknown): unknown {
         limit?: number
       }
       const index = new (gitWasmOracle().QuickOpenIndex)(paths.join('\0'))
-      return JSON.parse(index.rank(query, limit ?? QUICK_OPEN_RESULT_LIMIT)) as {
-        path: string
-        score: number
-      }[]
+      // Flat [inputIndex, score, …]; the vector owns the path list, so the
+      // goldens are reconstructed here exactly as the renderer does.
+      const ranked = index.rankIndices(query, limit ?? QUICK_OPEN_RESULT_LIMIT)
+      const results: { path: string; score: number }[] = []
+      for (let i = 0; i + 1 < ranked.length; i += 2) {
+        const path = paths[ranked[i]!]
+        if (path !== undefined) {
+          results.push({ path, score: ranked[i + 1]! })
+        }
+      }
+      return results
     }
     default:
       throw new Error(`unknown function ${fn}`)

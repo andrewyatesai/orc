@@ -70,7 +70,17 @@ function buildQuickOpenIndex(files: readonly string[]): QuickOpenRankIndex {
       if (!index) {
         return []
       }
-      return JSON.parse(index.rank(query, limit)) as QuickOpenSearchResult[]
+      // Flat [inputIndex, score, …]; paths are looked up locally rather than
+      // re-crossing the boundary as JSON on every keystroke.
+      const ranked = index.rankIndices(query, limit)
+      const results: QuickOpenSearchResult[] = []
+      for (let i = 0; i + 1 < ranked.length; i += 2) {
+        const path = files[ranked[i]!]
+        if (path !== undefined) {
+          results.push({ path, score: ranked[i + 1]! })
+        }
+      }
+      return results
     },
     exactMatches(lowerQuery: string): QuickOpenExactMatches {
       const index = getInner()

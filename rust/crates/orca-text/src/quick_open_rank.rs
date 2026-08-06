@@ -67,6 +67,21 @@ impl QuickOpenIndex {
     /// `{ path, score }` out, best (lowest) first, ties by original input order.
     #[must_use]
     pub fn rank(&self, query: &str, limit: usize) -> Vec<QuickOpenResult> {
+        self.rank_indices(query, limit)
+            .into_iter()
+            .map(|(input_index, score)| QuickOpenResult {
+                path: self.entries[input_index].path.clone(),
+                score,
+            })
+            .collect()
+    }
+
+    /// [`Self::rank`] as `(input_index, score)` pairs — the wasm-boundary form.
+    /// The caller already owns the path array it built the index from, so
+    /// nothing but a fixed-size number pair crosses back per keystroke and no
+    /// path `String` is cloned only to be discarded after mapping.
+    #[must_use]
+    pub fn rank_indices(&self, query: &str, limit: usize) -> Vec<(usize, i32)> {
         if limit == 0 {
             return Vec::new();
         }
@@ -81,12 +96,7 @@ impl QuickOpenIndex {
         let normalized_query =
             query.trim_matches(is_js_trim_whitespace).replace('\\', "/").to_lowercase();
         if normalized_query.is_empty() {
-            return self
-                .entries
-                .iter()
-                .take(limit)
-                .map(|entry| QuickOpenResult { path: entry.path.clone(), score: 0 })
-                .collect();
+            return (0..self.entries.len().min(limit)).map(|index| (index, 0)).collect();
         }
         let query_units: Vec<u16> = normalized_query.encode_utf16().collect();
 
@@ -97,13 +107,9 @@ impl QuickOpenIndex {
             if score == -1 {
                 continue;
             }
-            insert_top(
-                &mut ranked,
-                Ranked { path: entry.path.clone(), score, input_index },
-                limit,
-            );
+            insert_top(&mut ranked, Ranked { score, input_index }, limit);
         }
-        ranked.into_iter().map(|r| QuickOpenResult { path: r.path, score: r.score }).collect()
+        ranked.into_iter().map(|r| (r.input_index, r.score)).collect()
     }
 
     /// Original paths whose prepared (slash-normalized, lowercased) full path
@@ -181,7 +187,6 @@ fn prepare(path: &str) -> Prepared {
 }
 
 struct Ranked {
-    path: String,
     score: i32,
     input_index: usize,
 }
@@ -368,6 +373,33 @@ mod tests {
         let out = rank_quick_open_files("\u{FEFF}", &["a.ts", "b.ts"], 5);
         assert_eq!(paths_of(&out), ["a.ts", "b.ts"]);
         assert!(out.iter().all(|r| r.score == 0));
+    }
+
+    #[test]
+    fn rank_indices_matches_rank() {
+        // The index form is what the wasm boundary ships; it must stay a pure
+        // re-projection of `rank` across the behavior space — boundary bonuses,
+        // filename substring, ties, empty query, caps, no-match.
+        let files = [
+            "src/app.ts",
+            "src/a/p/p/other.ts",
+            "docs/readme.md",
+            "src\\win\\path.rs",
+            "x1/x.ts",
+            "x2/x.ts",
+            "café/menu.txt",
+        ];
+        let index = QuickOpenIndex::new(files.iter().copied());
+        for query in ["app", "x", "", " ", "café", "src\\p", "zzz-none"] {
+            for limit in [0usize, 1, 3, 50] {
+                let projected: Vec<QuickOpenResult> = index
+                    .rank_indices(query, limit)
+                    .into_iter()
+                    .map(|(i, score)| QuickOpenResult { path: files[i].to_string(), score })
+                    .collect();
+                assert_eq!(projected, index.rank(query, limit), "query={query:?} limit={limit}");
+            }
+        }
     }
 
     #[test]

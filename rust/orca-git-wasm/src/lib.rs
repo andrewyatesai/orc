@@ -141,8 +141,8 @@ pub fn format_submodule_push_failure_detail(message: &str) -> Option<String> {
 
 /// Prepared Quick Open index for the RENDERER: the worktree file list crosses
 /// the wasm boundary ONCE (NUL-joined — file names cannot contain NUL), then
-/// each keystroke sends only the query and gets the top-N `{path, score}`
-/// JSON back. Preparation (slash-normalize, lowercase, UTF-16 encode) happens
+/// each keystroke sends only the query and gets back a flat index/score pair
+/// array. Preparation (slash-normalize, lowercase, UTF-16 encode) happens
 /// at construction, so the per-keystroke cost is only the subsequence scans.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub struct QuickOpenIndex {
@@ -161,18 +161,20 @@ impl QuickOpenIndex {
         QuickOpenIndex { inner: orca_text::quick_open_rank::QuickOpenIndex::new(paths) }
     }
 
-    /// Rank against the prepared list; returns `[{path, score}, …]` JSON,
-    /// best (lowest score) first, ties by original input order.
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-    pub fn rank(&self, query: &str, limit: usize) -> String {
-        let results = self.inner.rank(query, limit);
-        serde_json::Value::Array(
-            results
-                .into_iter()
-                .map(|r| serde_json::json!({ "path": r.path, "score": r.score }))
-                .collect(),
-        )
-        .to_string()
+    /// Rank against the prepared list; returns a flat `[inputIndex, score, …]`
+    /// Int32Array, best (lowest score) first, ties by original input order.
+    /// Why indices, not paths: the caller already owns the file list, so
+    /// returning JSON made every keystroke re-cross and re-parse up to `limit`
+    /// path strings that JS could look up for free.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = "rankIndices"))]
+    pub fn rank_indices(&self, query: &str, limit: usize) -> Vec<i32> {
+        let ranked = self.inner.rank_indices(query, limit);
+        let mut flat = Vec::with_capacity(ranked.len() * 2);
+        for (input_index, score) in ranked {
+            flat.push(i32::try_from(input_index).unwrap_or(i32::MAX));
+            flat.push(score);
+        }
+        flat
     }
 
     /// Exact-path and exact-basename matches for an already-lowercased query
