@@ -14,13 +14,11 @@ export type TaskStatus = 'pending' | 'ready' | 'dispatched' | 'completed' | 'fai
 
 /** `waiting_gate` (schema v9) parks a dispatch on an open gate instead of
  *  completing it, so the worker keeps its lease across the gate (design §6.2). */
-export type DispatchStatus =
-  | 'pending'
-  | 'dispatched'
-  | 'waiting_gate'
-  | 'completed'
-  | 'failed'
-  | 'circuit_broken'
+// Why: the renderer's hibernation planner gates on this, so the union lives in
+// shared and is re-exported here rather than declared twice.
+import type { DispatchStatus } from '../../../shared/agent-status-types'
+
+export type { DispatchStatus }
 
 export type GateStatus = 'pending' | 'resolved' | 'timeout'
 

@@ -1,4 +1,5 @@
 import type { AgentStatusEntry } from '../../../shared/agent-status-types'
+import { hasUnsettledOrUnknownDispatch } from '../../../shared/agent-status-types'
 import {
   getAgentResumeArgv,
   isResumableTuiAgent,
@@ -140,6 +141,10 @@ function getEligiblePane(args: {
   if (
     entry.state !== 'done' ||
     entry.interrupted === true ||
+    // Why: a live subagent is work in flight the parent's 'done' does not cover;
+    // sleeping the pane kills it silently.
+    Boolean(entry.subagents?.length) ||
+    hasUnsettledOrUnknownDispatch(entry) ||
     (sleepingRecord && !hasOnlyLivePiCompatibleRecoveryIdentity)
   ) {
     return null

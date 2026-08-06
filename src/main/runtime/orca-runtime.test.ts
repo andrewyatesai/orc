@@ -33384,7 +33384,10 @@ describe('OrcaRuntimeService', () => {
 
     expect(result.agentOrchestrationByPaneKey?.[workerPaneKey]).toEqual({
       taskId: 'task-done',
-      dispatchId: 'ctx-done'
+      dispatchId: 'ctx-done',
+      // Why: the renderer's hibernation planner refuses to sleep a pane whose
+      // dispatch has not settled, so the runtime's own status has to reach it.
+      dispatchStatus: 'completed'
     })
   })
 

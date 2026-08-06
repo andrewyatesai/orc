@@ -57,9 +57,47 @@ export type AgentStateHistoryEntry = {
 /** Maximum number of history entries kept per agent to bound memory. */
 export const AGENT_STATE_HISTORY_MAX = 20
 
+/**
+ * Dispatch lifecycle, owned here because the renderer's hibernation planner gates
+ * on it. `waiting_gate` is a fork state (decision gates) with no upstream twin.
+ * src/main/runtime/orchestration/types.ts re-exports this so the two cannot drift.
+ */
+export type DispatchStatus =
+  | 'pending'
+  | 'dispatched'
+  | 'waiting_gate'
+  | 'completed'
+  | 'failed'
+  | 'circuit_broken'
+
+/** Dispatch states that mean the work is finished and the pane is safe to sleep. */
+export const SETTLED_DISPATCH_STATUSES: readonly DispatchStatus[] = [
+  'completed',
+  'failed',
+  'circuit_broken'
+]
+
+/**
+ * Why: provider done hooks can fire mid-Dispatch, so only runtime-confirmed
+ * settlement makes sleeping a pane safe. An absent status counts as unsettled on
+ * purpose — a hook-only context proves nothing about the dispatch.
+ */
+export function hasUnsettledOrUnknownDispatch(entry: {
+  orchestration?: AgentStatusOrchestrationContext
+}): boolean {
+  if (!entry.orchestration) {
+    return false
+  }
+  return !SETTLED_DISPATCH_STATUSES.some(
+    (settled) => settled === entry.orchestration?.dispatchStatus
+  )
+}
+
 export type AgentStatusOrchestrationContext = {
   taskId: string
   dispatchId: string
+  /** Runtime-authoritative lifecycle state. Hook-only contexts may omit it. */
+  dispatchStatus?: DispatchStatus
   taskTitle?: string
   displayName?: string
   parentTerminalHandle?: string

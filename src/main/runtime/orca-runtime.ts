@@ -28580,6 +28580,10 @@ export class OrcaRuntimeService {
     return {
       taskId: dispatch.task_id,
       dispatchId: dispatch.id,
+      // Why: hibernation refuses to sleep a pane whose dispatch has not settled,
+      // so the runtime's own status has to reach the renderer — a provider done
+      // hook can fire mid-Dispatch and is not proof the work finished.
+      dispatchStatus: dispatch.status,
       ...(display.taskTitle ? { taskTitle: display.taskTitle } : {}),
       ...(display.displayName ? { displayName: display.displayName } : {}),
       ...(parentTerminalHandle ? { parentTerminalHandle } : {}),
