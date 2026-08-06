@@ -5,16 +5,20 @@ import {
   openMobileNativeChatSendBudget
 } from './mobile-native-chat-send'
 import { isTerminalSendRpcAccepted } from '../terminal/terminal-send-rpc-response'
+import { AGENT_TUI_CLEAR_INPUT_MAX } from '../../../src/shared/agent-tui-input-clear'
 
 // Give the agent TUI a beat to register each bracketed image paste before the
 // message text + Enter arrive, so the image attaches instead of being treated as
 // part of the prompt body (mirrors desktop's NATIVE_CHAT_IMAGE_ATTACHMENT_SETTLE_MS).
 export const MOBILE_NATIVE_CHAT_IMAGE_SETTLE_MS = 300
 
-// Ctrl+U kills the agent's unsubmitted input line. Sent before pasting so a retry
-// after a rejected body/Enter can't leave a stale image paste that then rides along
-// with (and duplicates) the next attempt — matches desktop clearUnsubmittedAgentInput.
-const MOBILE_NATIVE_CHAT_CLEAR_UNSUBMITTED_INPUT = '\x15'
+// Clears the agent's unsubmitted input. Sent before pasting so a retry after a
+// rejected body/Enter can't leave a stale image paste that then rides along with
+// (and duplicates) the next attempt — matches desktop clearUnsubmittedAgentInput.
+// Why the shared burst: a lone Ctrl+U only kills the current line, so a multi-line
+// draft survived it here exactly as it did on desktop. Same module both sides so
+// the two clients cannot drift apart again.
+const MOBILE_NATIVE_CHAT_CLEAR_UNSUBMITTED_INPUT = AGENT_TUI_CLEAR_INPUT_MAX
 
 type MobileTerminalClient = { id: string; type: 'mobile' }
 

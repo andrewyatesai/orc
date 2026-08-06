@@ -6,6 +6,7 @@ import {
   sendRuntimePtyInput,
   sendRuntimePtyInputVerified
 } from '@/runtime/runtime-terminal-inspection'
+import { AGENT_TUI_CLEAR_INPUT_MAX } from '../../../../shared/agent-tui-input-clear'
 import type { getSettingsForAgentTabRuntimeOwner } from '@/lib/agent-paste-draft'
 import type { AskAnswerKeyGroup } from './native-chat-interactive-prompt'
 import {
@@ -34,7 +35,11 @@ export const NATIVE_CHAT_IMAGE_ATTACHMENT_SETTLE_MS = 300
 // start from an empty line so a prior cancelled paste cannot glue onto the next
 // prompt. Not used on verified option commands — model-switch confirmation
 // observes the PTY and Ctrl+U can miss confirmation markers.
-export const NATIVE_CHAT_CLEAR_UNSUBMITTED_INPUT = '\x15'
+// Why the widest burst: this clear runs against a buffer Orca does not track, so
+// a lone Ctrl+U left every line above the cursor of a multi-line draft behind to
+// glue onto the next message. Overshoot costs one small PTY write; undershoot is
+// the bug.
+export const NATIVE_CHAT_CLEAR_UNSUBMITTED_INPUT = AGENT_TUI_CLEAR_INPUT_MAX
 
 /** Cancels an in-flight send's pending pty writes (the delayed Enter, and any
  *  later question bodies/Enters). Safe to call after the send completes. */
