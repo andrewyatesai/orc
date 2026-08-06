@@ -22,10 +22,11 @@ offline = true
 # the verifier pass that never checks the 120s function budget; tracked as a
 # Trust verifier-termination bug. This opt-out is the correct config for an
 # app workspace regardless.)
-# Spelling: Trust's flag consolidation DELETED `-Zno-trust-verify=yes`; the one
-# current spelling is `-Ztrust-verify=off` (rust/aterm/.cargo/config.toml moved
-# already, this file had not). The stale spelling fails flag-parse on EVERY unit
-# — build scripts and proc macros included — so nothing under rust/ compiles at
-# all against a current stage2. Probe before changing: `rustc +trust -Z help`.
+# Spelling: every Trust rustc installed here (the rustup-linked stage2 and both
+# ~/trust/build stage2s, all 1.99.0-dev 4c9dc90f4) accepts ONLY
+# `-Zno-trust-verify`; none knows `-Ztrust-verify`. The 2026-08-01 flip to the
+# consolidated spelling made flag-parse fail on EVERY unit — build scripts and
+# proc macros included — so nothing under rust/ compiled at all. Probe before
+# changing: `rustup run trust rustc -Z help | grep trust-verify`.
 [target.aarch64-apple-darwin]
-rustflags = ["-Ztrust-verify=off"]
+rustflags = ["-Zno-trust-verify=yes"]
