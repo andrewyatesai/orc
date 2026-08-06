@@ -177,6 +177,23 @@ module.exports = {
     '!skill-guides{,/**/*}',
     '!skill-stubs{,/**/*}',
     '!tests{,/**/*}',
+    // Why: out/ is an allowlist of compiled runtime output, but `pnpm dev` also
+    // writes two dev-only trees there — a full stable-named Electron.app per
+    // config hash (dev-electron-app.mjs) and the web build's stash dir. Both are
+    // gitignored, so packaging from any checkout that has ever run `pnpm dev`
+    // swept ~605MB of dev runtime into app.asar (748MB vs upstream's 120MB).
+    '!out/electron-dev{,/**/*}',
+    '!out/.orca-dev-web-stash-*{,/**/*}',
+    // Why: build-time tooling with no runtime consumer. tools/terminal-bench
+    // alone is ~102MB of benchmark corpus.
+    '!tools{,/**/*}',
+    '!build-plugins{,/**/*}',
+    '!test-results{,/**/*}',
+    // Why: publish/config.sh names the private dev org in STAGING_REMOTE_DEFAULT.
+    // app.asar ships in the PUBLIC download, and CLAUDE.md forbids naming the dev
+    // org in anything published — so the release tooling must never be packaged.
+    '!publish{,/**/*}',
+    '!{.gitleaks.toml,.gitmodules,.lintstagedrc.mjs,FEATURE_WALKTHROUGH.md}',
     // Why: pr-evidence/ is a local e2e screenshot output (ORCA_CAPTURE_EVIDENCE);
     // it is gitignored, but exclude it defensively so a stray local capture at
     // package time never bloats app.asar.
