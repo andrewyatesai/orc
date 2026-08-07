@@ -275,14 +275,14 @@ After the broader architecture review and fresh-agent review, the manifest was e
 The manifest checker now enforces the review lessons that were easy to miss manually:
 
 - declared `testFiles` must exist;
-- every declared executable `testFiles` entry must be referenced by at least one gate command, so a manifest cannot borrow credibility from a file the registered command does not run;
+- every declared executable `testFiles` entry must appear as a substring of at least one gate command. This is a spelling check, not an execution check: the command is never run, and `--exclude <file> <file>` or `echo <file>` both satisfy it. It does not establish that the command runs the file;
 - command-backed gates cannot use title selectors such as `-t`, `--grep`, or `--testNamePattern`, because title drift silently changes coverage;
 - every gate must declare `protection: none | partial | active`;
 - commandless gates must declare `protection: "none"`, while command-backed gates must declare at least `protection: "partial"`;
 - `protection: "active"` is reserved for blocking gates with stable flake history and complete red/green evidence;
 - `partial` and `active` gates must include at least one passed structured `evidenceRuns` entry whose command exactly matches the gate command;
 - `none` gates must have no evidence runs, so planning gaps cannot look like tested coverage;
-- `partial` and `active` gates must include `assertionRefs` that point to declared test files and name the invariant assertions inside those files;
+- `partial` and `active` gates must include `assertionRefs` whose `file` is one of the gate's declared `testFiles` and whose `assertions` is a non-empty array of strings. The checker never opens the test file, so those strings are free text: they are not compared to any test, and the cited file need not contain a test by that name. Whether an assertion really covers the invariant is human review;
 - `none` gates must have no assertion refs, so planning gaps cannot borrow credibility from unrelated tests;
 - every gate must split risk scope from covered scope with `coveredPlatforms`, `coveredProviders`, and `coverageNotes`;
 - `coveredPlatforms` and `coveredProviders` must be inside the declared risk scope, and passed evidence-run platforms must appear in `coveredPlatforms`;
