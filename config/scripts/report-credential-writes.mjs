@@ -196,7 +196,7 @@ function printReport(scan, rows, notesProblem, staleNotes, verbose) {
   )
 
   console.log(
-    `\n${TAG} report only — nothing here passed or failed. ${unfixed.length} unfixed, ${unreviewed.length} unreviewed, ${rows.length} total.`
+    `\n${TAG} report only — nothing here passed or failed. ${unguarded.length} unguarded (${leadCount} reviewed as a real defect or unreviewed), ${rows.length} total.`
   )
 }
 
