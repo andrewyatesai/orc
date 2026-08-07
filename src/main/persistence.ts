@@ -247,6 +247,14 @@ import { normalizeUiLanguage } from '../shared/ui-language'
 import { normalizeBrowserPageZoomLevel } from '../shared/browser-page-zoom'
 import { persistedUIValuesEqual } from '../shared/persisted-ui-equality'
 import { ActiveViewPreference } from './active-view-preference'
+import { AppModePreference } from './app-mode/app-mode-preference'
+import type { AppModeSidecarRead } from './app-mode/app-mode-sidecar-file'
+import { normalizeAppModeId, type AppModeId } from '../shared/app-mode/app-mode-id'
+import {
+  APP_MODE_ENV_VAR,
+  resolveAppMode,
+  type AppModeResolution
+} from '../shared/app-mode/resolve-app-mode'
 import {
   normalizeFolderWorkspaceName,
   normalizeFolderWorkspaces
@@ -2843,6 +2851,13 @@ export class Store {
   private state: PersistedState
   private readonly dataFile: string
   private readonly activeViewPreference: ActiveViewPreference
+  private readonly appModePreference: AppModePreference
+  /** Memoized `getSettings()` projection — a NEW requirement, not an inherited
+   *  one. `getSettings()` returns `state.settings` by reference across ~177 call
+   *  sites, so allocating a fresh object per call would break every identity
+   *  comparison and `useMemo` dep that relies on it. Invalidated on both inputs:
+   *  a settings write and a sidecar change. */
+  private settingsProjection: GlobalSettings | null = null
   private readonly terminalScrollbackSnapshotStorage: TerminalScrollbackSnapshotStorage
   private writeTimer: ReturnType<typeof setTimeout> | null = null
   private pendingWrite: Promise<void> | null = null
@@ -2882,6 +2897,9 @@ export class Store {
     // Why: activeView is a frequent, tiny preference; keeping it beside the
     // profile avoids serializing the multi-MB recovery store on navigation.
     this.activeViewPreference = new ActiveViewPreference(this.dataFile, this.state.ui?.activeView)
+    // Same profile directory, resolved from the data file so it never re-reads
+    // app.getPath('userData') late (the ordering hazard above).
+    this.appModePreference = new AppModePreference(this.dataFile, () => !this.writesFrozen)
     const adaptedProjectGroups = this.adaptFlatFolderScanProjectGroups()
     for (const entry of normalized.migrationUnsupportedEntries) {
       setMigrationUnsupportedPty(entry)
@@ -5646,8 +5664,75 @@ export class Store {
 
   // ── Settings ───────────────────────────────────────────────────────
 
+  /**
+   * `state.settings` with the sidecar-owned `appMode` projected on
+   * (`docs/reference/app-modes.md` §3.2).
+   *
+   * Memoized so the return value stays reference-stable, which ~177 call sites
+   * and their `useMemo` deps depend on. The memo must invalidate on BOTH inputs —
+   * a settings write and a sidecar change — or a mode switch would be invisible
+   * until the next unrelated settings write.
+   */
   getSettings(): GlobalSettings {
-    return this.state.settings
+    if (this.settingsProjection === null) {
+      const resolved = resolveAppMode({
+        envMode: process.env[APP_MODE_ENV_VAR],
+        pinned: this.appModePreference.getPin()
+      })
+      this.settingsProjection = { ...this.state.settings, appMode: resolved.mode }
+    }
+    return this.settingsProjection
+  }
+
+  private invalidateSettingsProjection(): void {
+    this.settingsProjection = null
+  }
+
+  /** How the mode was decided, for the read-only-selector rule (§2.8 rung 1/2). */
+  getAppModeResolution(): AppModeResolution {
+    return resolveAppMode({
+      envMode: process.env[APP_MODE_ENV_VAR],
+      pinned: this.appModePreference.getPin()
+    })
+  }
+
+  getUnrecognizedAppMode(): string | null {
+    return this.appModePreference.getUnrecognizedMode()
+  }
+
+  /**
+   * The single writer behind all three selection surfaces. `appMode` can never
+   * enter `state.settings` from any writer, so `orca-data.json` stays
+   * byte-unchanged.
+   */
+  setAppMode(value: unknown, options: { originWebContentsId?: number; lock?: boolean } = {}): AppModeId {
+    const next = normalizeAppModeId(value)
+    const previous = this.getSettings().appMode
+    const changed = this.appModePreference.set(
+      next,
+      options.lock === undefined ? {} : { lock: options.lock }
+    )
+    this.invalidateSettingsProjection()
+    if (!changed && this.getSettings().appMode === previous) {
+      return next
+    }
+    this.notifySettingsChanged(
+      { appMode: this.getSettings().appMode },
+      options.originWebContentsId
+    )
+    return next
+  }
+
+  /** Adopts an external edit to `app-mode.json` seen by the file watcher. */
+  adoptExternalAppModePin(read: AppModeSidecarRead): AppModeId {
+    const previous = this.getSettings().appMode
+    this.appModePreference.adoptExternalPin(read.pin, read.unrecognizedMode)
+    this.invalidateSettingsProjection()
+    const next = this.getSettings().appMode
+    if (next !== previous) {
+      this.notifySettingsChanged({ appMode: next })
+    }
+    return normalizeAppModeId(next)
   }
 
   onSettingsChanged(
@@ -5695,6 +5780,24 @@ export class Store {
     options: { notifyListeners?: boolean; originWebContentsId?: number } = {}
   ): GlobalSettings {
     const sanitizedUpdates = stripLegacyTerminalScrollbackBytes(updates)
+    // Why stripped here and not at the IPC edge: this covers EVERY write path
+    // (renderer, CLI, main, mobile) in one place, mirroring what updateUI already
+    // does for activeView. `'appMode' in sanitizedArgs` stays true inside the
+    // settings:set handler, so its side-effect branch still fires.
+    const requestedAppMode = sanitizedUpdates.appMode
+    delete sanitizedUpdates.appMode
+    const appModeBeforeUpdate = this.getSettings().appMode
+    if (requestedAppMode !== undefined) {
+      // setAppMode broadcasts on its own; passing the origin keeps the
+      // originating renderer from being told what it already applied.
+      this.setAppMode(
+        requestedAppMode,
+        options.originWebContentsId !== undefined
+          ? { originWebContentsId: options.originWebContentsId }
+          : {}
+      )
+    }
+    const appModeChanged = this.getSettings().appMode !== appModeBeforeUpdate
     // Why: coerce to boolean here (not the IPC edge) so every write path is covered and a truthy non-bool can't persist as "tray-minimize on".
     if ('minimizeToTrayOnClose' in updates) {
       sanitizedUpdates.minimizeToTrayOnClose = updates.minimizeToTrayOnClose === true
@@ -5828,10 +5931,19 @@ export class Store {
         changedUpdates[String(key)] = this.state.settings[key]
       }
     }
+    // Any settings write invalidates the projection — it wraps state.settings.
+    this.invalidateSettingsProjection()
+    if (appModeChanged) {
+      changedUpdates.appMode = this.getSettings().appMode
+    }
     if (options.notifyListeners === true && Object.keys(changedUpdates).length > 0) {
       this.notifySettingsChanged(changedUpdates, options.originWebContentsId)
     }
-    return this.state.settings
+    // MUST be the projection, not raw state.settings: the renderer's settings
+    // slice replaces its entire settings object with this return value, so
+    // returning the raw object would wipe appMode on EVERY settings write —
+    // invisible in Classic, and therefore guaranteed to ship undetected.
+    return this.getSettings()
   }
 
   // ── UI State ───────────────────────────────────────────────────────

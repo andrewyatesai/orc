@@ -7,6 +7,9 @@ import {
 } from '../../shared/keybindings'
 import type { UpdateCheckOptions } from '../../shared/types'
 import { translateMain } from '../i18n/main-i18n'
+import { buildAppModeSubmenu } from './app-mode-menu-section'
+import type { AppModeId } from '../../shared/app-mode/app-mode-id'
+import type { AppModeSource } from '../../shared/app-mode/resolve-app-mode'
 import { openCoordinatorWindow } from '../coordinator-window'
 
 export type AppearanceMenuState = {
@@ -38,6 +41,10 @@ type RegisterAppMenuOptions = {
   onToggleAppearance: (key: AppearanceMenuKey) => void
   getAppearanceState: () => AppearanceMenuState
   getKeybindings?: () => KeybindingOverrides | undefined
+  /** §3.3's View > Mode radio group. Optional so every existing caller and test
+   *  keeps compiling; the submenu is simply absent when not supplied. */
+  getAppModeState?: () => { current: AppModeId; source: AppModeSource }
+  onSelectAppMode?: (mode: AppModeId) => void
   // Why: the macOS app-menu title. Passed the per-branch dev label since
   // app.name is now pinned to a stable value for Keychain-key stability.
   appMenuLabel?: string
@@ -195,6 +202,18 @@ function buildAndApplyMenu(options: RegisterAppMenuOptions): void {
   // called after every settings update — each build reads current
   // appearance state through getAppearanceState() and produces a fresh
   // template with accurate `checked` values.
+  const appModeState = options.getAppModeState?.()
+  const onSelectAppMode = options.onSelectAppMode
+  const appModeSubmenu =
+    appModeState && onSelectAppMode
+      ? buildAppModeSubmenu({
+          current: appModeState.current,
+          source: appModeState.source,
+          onSelect: onSelectAppMode,
+          translate: translateMain
+        })
+      : null
+
   const appearanceSubmenu: Electron.MenuItemConstructorOptions = {
     label: translateMain('menu.appearance', 'Appearance'),
     submenu: [
@@ -284,7 +303,11 @@ function buildAndApplyMenu(options: RegisterAppMenuOptions): void {
       { type: 'separator' },
       { role: 'togglefullscreen' },
       { type: 'separator' },
-      appearanceSubmenu
+      appearanceSubmenu,
+      // Below Appearance, after a separator (§3.3): a stray click in a checkbox
+      // group costs one toggle, a misclick into the mode radios reconfigures the
+      // product.
+      ...(appModeSubmenu ? [{ type: 'separator' as const }, appModeSubmenu] : [])
     ]
   }
 

@@ -6,6 +6,7 @@
  */
 
 import type { TerminalGitHubPRLink } from './terminal-github-pr-link-detector'
+import type { TuiAgent } from './types'
 
 /** Why tagged: stale-clear facts come from main's unthrottled 3s timer, not
  *  observed bytes. Renderer policy clears title/cache state from them but
@@ -40,6 +41,17 @@ export type TerminalSideEffectFact =
    *  these bytes, so without this fact their subscription registry goes stale
    *  and a later theme flip pushes CSI 997 at a shell that already withdrew. */
   | { kind: '2031-unsubscribe' }
+  /** The provider told this pane its subscription is spent (§12 R0 of
+   *  docs/reference/alab-auto-mode-design.md). Evidence, not a decision: it
+   *  reports what the pane printed, and `resetsAt` is null whenever the notice
+   *  carried no parseable reset — R1's health service decides what to do. */
+  | {
+      kind: 'provider-limit'
+      provider: TuiAgent
+      message: string
+      resetsAt: number | null
+      resetDescription: string | null
+    }
 
 export type TerminalSideEffectBatch = {
   ptyId: string

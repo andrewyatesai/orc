@@ -9,6 +9,10 @@
  *  • `consumer` — minted by per-chunk scanners main builds only while a renderer
  *    side-effect consumer is attached (the deliberate headless-perf skip). Under
  *    `orca serve` nothing emits these at all.
+ *  • `health` — also a per-chunk scanner, but armed per health-relevant PTY
+ *    rather than per renderer, which §5.3 sanctions explicitly. A fleet running
+ *    headlessly is exactly where these matter, so gating them on a window would
+ *    make them unreachable in their own use case.
  *  • `withheld` — never journalled: spinner repaints churn titles ~12.5x/sec and
  *    would evict every real transition from the bounded journal.
  *
@@ -17,6 +21,8 @@
  */
 
 import type { TerminalSideEffectFact } from '../../shared/terminal-side-effect-facts'
+
+export type TerminalAwaitFactProducer = 'always' | 'consumer' | 'health' | 'withheld'
 
 /** The `satisfies` is the drift guard: a new fact kind will not compile until
  *  it is classified here. */
@@ -32,10 +38,11 @@ const TERMINAL_AWAIT_FACT_KIND_PRODUCERS = {
   'command-code-done': 'consumer',
   'codex-stream-error': 'consumer',
   '2031-subscribe': 'consumer',
-  '2031-unsubscribe': 'consumer'
-} satisfies Record<TerminalSideEffectFact['kind'], 'always' | 'consumer' | 'withheld'>
+  '2031-unsubscribe': 'consumer',
+  'provider-limit': 'health'
+} satisfies Record<TerminalSideEffectFact['kind'], TerminalAwaitFactProducer>
 
-function factKindsProducedBy(producer: 'always' | 'consumer' | 'withheld'): ReadonlySet<string> {
+function factKindsProducedBy(producer: TerminalAwaitFactProducer): ReadonlySet<string> {
   return new Set(
     Object.entries(TERMINAL_AWAIT_FACT_KIND_PRODUCERS)
       .filter(([, kindProducer]) => kindProducer === producer)
@@ -46,7 +53,8 @@ function factKindsProducedBy(producer: 'always' | 'consumer' | 'withheld'): Read
 /** Kinds `terminal.await` accepts at the wire — everything the journal carries. */
 export const TERMINAL_AWAIT_AWAITABLE_FACT_KINDS: ReadonlySet<string> = new Set([
   ...factKindsProducedBy('always'),
-  ...factKindsProducedBy('consumer')
+  ...factKindsProducedBy('consumer'),
+  ...factKindsProducedBy('health')
 ])
 
 /** Kinds that stop being producible when the renderer side-effect consumer goes

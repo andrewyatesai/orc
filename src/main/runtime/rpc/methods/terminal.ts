@@ -7,6 +7,19 @@ import {
   type RpcAnyMethod
 } from '../core'
 import { OptionalFiniteNumber, OptionalString, requiredString } from '../schemas'
+import { stripFleetGrantEnv } from '../../../../shared/fleet-grant'
+
+/**
+ * Every caller-supplied environment bag on this surface, with the fleet grant
+ * force-deleted (§6.6). Stripped at PARSE time rather than at each spawn call so
+ * no downstream path — local, WSL, SSH/relay or remote — can be reached with the
+ * variable intact, and adding a new spawn path cannot forget it.
+ *
+ * A worker inheriting the manager's grant would hold authority to drive its own
+ * siblings, and `launchConfig.agentEnv` is durable, so a resumed pane would come
+ * back holding it.
+ */
+const GrantFreeEnvRecord = z.record(z.string(), z.string()).transform(stripFleetGrantEnv)
 import type { DriverState, OrcaRuntimeService } from '../../orca-runtime'
 import {
   TerminalStreamOpcode,
@@ -931,13 +944,13 @@ const TerminalCreateParams = z.object({
   reconcileExisting: z.boolean().optional(),
   command: OptionalString,
   startupCommandDelivery: z.enum(['fast', 'shell-ready']).optional(),
-  env: z.record(z.string(), z.string()).optional(),
+  env: GrantFreeEnvRecord.optional(),
   envToDelete: z.array(z.string().min(1).max(256)).max(32).optional(),
   launchConfig: z
     .object({
       agentCommand: z.string().optional(),
       agentArgs: z.string(),
-      agentEnv: z.record(z.string(), z.string()),
+      agentEnv: GrantFreeEnvRecord,
       ompResumeFilePath: z
         .string()
         .min(1)
@@ -976,7 +989,7 @@ const TerminalSplit = TerminalHandle.extend({
     .pipe(z.union([z.enum(['vertical', 'horizontal']), z.undefined()]))
     .optional(),
   command: OptionalString,
-  env: z.record(z.string(), z.string()).optional(),
+  env: GrantFreeEnvRecord.optional(),
   telemetrySource: z.enum(TERMINAL_PANE_SPLIT_SOURCES).optional()
 })
 
@@ -1002,7 +1015,7 @@ const AgentTeamsTmuxCompat = z.object({
 
 const AgentTeamsPrepareLaunch = z.object({
   paneKey: requiredString('Missing pane key'),
-  env: z.record(z.string(), z.string()).optional()
+  env: GrantFreeEnvRecord.optional()
 })
 
 const TerminalResizeForClient = z.discriminatedUnion('mode', [

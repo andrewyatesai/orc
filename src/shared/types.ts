@@ -24,6 +24,8 @@ import type { GitBranchChangeStatus } from './git-status-types'
 import type { KeybindingOverrides, TerminalShortcutPolicy } from './keybindings'
 import type { RepoIcon } from './repo-icon'
 import type { AppIconId } from './app-icon'
+import type { AppModeId } from './app-mode/app-mode-id'
+import type { AppModeSettings } from './app-mode/app-mode-settings'
 import type {
   RepoSourceControlAiOverrides,
   SourceControlAiSettings
@@ -2717,6 +2719,21 @@ export type GlobalSettings = {
   leftSidebarTintOpacity?: number
   uiLanguage: UiLanguage
   appIcon: AppIconId
+  /**
+   * The active app mode (`docs/reference/app-modes.md` §2.7).
+   *
+   * **Optional, and deliberately absent from `getDefaultSettings()`.** Any key
+   * present in the defaults is spread into the payload by `buildStateToSave`, so
+   * it lands in `orca-data.json` on the first save — which would destroy the
+   * byte-unchanged guarantee the whole Classic north star rests on.
+   * `normalizeAppModeId(undefined)` already yields `classic`, so no default is
+   * needed. The authority lives in the `app-mode.json` sidecar; this key is a
+   * read-only projection onto the settings object for renderer consumers.
+   */
+  appMode?: AppModeId
+  /** Mode-private settings, namespaced under one key rather than adding ~22
+   *  members to an already-flat type. */
+  appModeSettings?: AppModeSettings
   appFontFamily: string
   editorAutoSave: boolean
   editorAutoSaveDelayMs: number
@@ -3053,6 +3070,15 @@ export type GlobalSettings = {
   /** Whether macOS terminal input maps the physical JIS Yen (¥) key to backslash, per common terminal expectation. */
   terminalJISYenToBackslash: boolean
   experimentalMobile: boolean
+  /**
+   * Gates the R0 fleet verbs — `terminal.submitAgentPrompt`, `terminal.await`
+   * and `fleet.grant*` (§12 of docs/reference/alab-auto-mode-design.md).
+   *
+   * Off by default because these let one agent type into another agent's
+   * terminal. §13.5 graduates it to a real setting in R1; until then it is the
+   * switch that keeps an unfinished capability from being reachable by accident.
+   */
+  experimentalOrchestration?: boolean
   /** Why: iOS Simulator is default-on for capable macOS hosts; this is the durable off switch (hides UI, blocks CLI attach). */
   mobileEmulatorEnabled?: boolean
   /** Preferred iOS Simulator UDID for UI auto-attach and agent CLI attach. */

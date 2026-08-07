@@ -9,7 +9,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createConnection } from 'node:net'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrcaRuntimeService } from './orca-runtime'
 import { readRuntimeMetadata } from './runtime-metadata'
 import { OrcaRuntimeRpcServer } from './runtime-rpc'
@@ -62,6 +62,13 @@ async function waitFor(predicate: () => boolean): Promise<void> {
   }
   throw new Error('condition not reached')
 }
+
+// terminal.await sits behind §12's experimental gate. Opted in through the env
+// override rather than a store stub: this suite drives the real RPC server, and a
+// partial store stub would break the other verbs it calls on the way in.
+beforeEach(() => {
+  vi.stubEnv('ORCA_EXPERIMENTAL_ORCHESTRATION', '1')
+})
 
 function runtimeWithLivePane(): OrcaRuntimeService {
   const runtime = new OrcaRuntimeService()
