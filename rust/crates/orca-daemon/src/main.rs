@@ -180,11 +180,14 @@ mod tests {
 
     #[test]
     fn dev_and_harness_builds_are_not_packaged() {
+        // Why not a home-directory literal: these are shapes, not real locations —
+        // only the parent segment decides the verdict — and the publication guard
+        // rejects `/Users/...` anywhere in the exported tree.
         assert!(!is_packaged_app_binary(Path::new(
-            "/Users/dev/orca/rust/target/release/orca-daemon"
+            "/checkout/orca/rust/target/release/orca-daemon"
         )));
         assert!(!is_packaged_app_binary(Path::new(
-            "/Users/dev/orca/rust/target/debug/orca-daemon"
+            "/checkout/orca/rust/target/debug/orca-daemon"
         )));
         assert!(!is_packaged_app_binary(Path::new("orca-daemon")));
     }
