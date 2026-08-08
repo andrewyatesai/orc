@@ -22,8 +22,12 @@
 
 import { useMemo } from 'react'
 import { translate } from '@/i18n/i18n'
-import { collapseExceptionsByTask, type FleetException } from './fleet-exceptions'
-import { useFleetOrchestrationPoll } from './use-fleet-orchestration-poll'
+import {
+  collapseExceptionsByTask,
+  unwiredExceptionSources,
+  type FleetException
+} from './fleet-exceptions'
+import { useFleetSnapshot } from './use-fleet-orchestration-poll'
 
 function ExceptionRow({ exception }: { exception: FleetException }): React.JSX.Element {
   return (
@@ -45,31 +49,29 @@ function ExceptionRow({ exception }: { exception: FleetException }): React.JSX.E
 }
 
 export function ExceptionsQueue(): React.JSX.Element {
-  const { runs, loadedAt } = useFleetOrchestrationPoll()
+  const { gates, loadedAt, error } = useFleetSnapshot()
 
-  // Today's only wired source is the per-run pending-gate count. The remaining
-  // five sources land in the reducer, not here — see fleet-exceptions.ts, which
-  // states honestly which are connected.
+  // One row per TASK, from real gate rows. The earlier version derived rows from
+  // runList's per-run `pendingGates` COUNT, which collapsed three gates on three
+  // different tasks into one anonymous row with attempts:1 — a count cannot be
+  // decomposed back into the tasks it counted.
   const exceptions = useMemo(
     () =>
       collapseExceptionsByTask(
-        runs.flatMap((run) =>
-          run.pendingGates > 0
-            ? [
-                {
-                  taskId: `run:${run.id}`,
-                  kind: 'gate' as const,
-                  summary: translate('alab.exceptions.gateWaiting', 'A worker is waiting on you.'),
-                  workerHandle: run.coordinator_handle,
-                  attempts: 1,
-                  at: run.created_at ?? ''
-                }
-              ]
-            : []
-        )
+        gates.map((gate) => ({
+          taskId: gate.task_id ?? `gate:${gate.id}`,
+          kind: 'gate' as const,
+          summary:
+            gate.question ?? translate('alab.exceptions.gateWaiting', 'A worker is waiting on you.'),
+          workerHandle: null,
+          attempts: 1,
+          at: gate.created_at ?? ''
+        }))
       ),
-    [runs]
+    [gates]
   )
+
+  const unwired = unwiredExceptionSources()
 
   return (
     <div className="flex h-full flex-col gap-1.5 overflow-hidden" data-testid="alab-exceptions">
@@ -87,11 +89,30 @@ export function ExceptionsQueue(): React.JSX.Element {
           <ExceptionRow key={exception.taskId} exception={exception} />
         ))}
       </ul>
-      {loadedAt !== null && exceptions.length === 0 ? (
+
+      {error ? (
+        <p className="shrink-0 text-[11px] text-destructive" role="status">
+          {/* NEVER the reassuring empty state on a failed poll: "nothing is
+              waiting on you" while the request is failing is the single most
+              dangerous sentence this console can print. */}
+          {translate('alab.exceptions.unknown', 'Cannot reach the runtime, so this may be out of date.')}
+        </p>
+      ) : loadedAt !== null && exceptions.length === 0 ? (
         <p className="shrink-0 text-[11px] text-muted-foreground">
-          {/* Only truthful because `ask --task` opens real gates now; before
-              that this line was a lie whenever a worker was blocked. */}
-          {translate('alab.exceptions.empty', 'Nothing is waiting on you.')}
+          {/* Truthful only because `ask --task` opens real gates now — and only
+              about GATES, which is why the caveat below is not optional. */}
+          {translate('alab.exceptions.empty', 'No gates are waiting on you.')}
+        </p>
+      ) : null}
+
+      {unwired.length > 0 ? (
+        <p className="shrink-0 text-[11px] text-muted-foreground">
+          {/* Says what it cannot see. A supervisor who believes this queue covers
+              all six sources reads an empty queue as "all clear". */}
+          {translate(
+            'alab.exceptions.partial',
+            'Only gates are shown here yet. Retries, escalations and stalled agents are not.'
+          )}
         </p>
       ) : null}
     </div>

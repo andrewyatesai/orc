@@ -16,12 +16,19 @@
 import { useMemo } from 'react'
 import { translate } from '@/i18n/i18n'
 import { cn } from '@/lib/utils'
-import { useFleetOrchestrationPoll, type FleetRun } from './use-fleet-orchestration-poll'
+import { useFleetSnapshot, type FleetRun } from './use-fleet-orchestration-poll'
 
-/** Amber on ANY failure, and on a blocked task, because both mean the run will
- *  not finish on its own. Neutral otherwise. */
+/**
+ * Amber on anything that means the run will not finish on its own.
+ *
+ * `stranded` is the one that is easy to miss and the most important: a row whose
+ * status still says `running` with no loop behind it cannot progress at all, yet
+ * it shows no failures and no gates. Without it here, a restart-stranded run
+ * sorts BELOW newer healthy runs — the one run that needs a human, ranked last.
+ */
 function runNeedsAttention(run: FleetRun): boolean {
-  return run.tasks.failed > 0 || run.tasks.blocked > 0 || run.pendingGates > 0
+  const stranded = !run.live && run.status === 'running'
+  return stranded || run.tasks.failed > 0 || run.tasks.blocked > 0 || run.pendingGates > 0
 }
 
 function CounterPill({
@@ -113,7 +120,7 @@ function MissionRow({ run }: { run: FleetRun }): React.JSX.Element {
 }
 
 export default function MissionStrip(): React.JSX.Element {
-  const { runs, loadedAt, error } = useFleetOrchestrationPoll()
+  const { runs, loadedAt, error } = useFleetSnapshot()
   // Attention first, then newest. A supervisor scans top-down.
   const ordered = useMemo(
     () =>

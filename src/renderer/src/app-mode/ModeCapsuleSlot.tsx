@@ -19,6 +19,7 @@
  */
 
 import { Suspense, lazy, type ComponentType } from 'react'
+import { translate } from '@/i18n/i18n'
 import { RecoverableRenderErrorBoundary } from '@/components/error-boundaries/RecoverableRenderErrorBoundary'
 import {
   resolveModeCapsule,
@@ -48,6 +49,19 @@ export function ModeCapsuleSlot({ mode, slot }: ModeCapsuleSlotProps): React.JSX
   if (!capsuleId) {
     return null
   }
+  const manifest = resolveModeManifest(mode)
+  // Declared by the manifest, not inferred and not a mode-name comparison —
+  // §2.4's containment rule forbids `mode === 'story-world'` outside
+  // src/shared/app-mode/.
+  const childSafeFallback = manifest.childFacing
+    ? {
+        title: translate('storyWorld.stage.stuckTitle', 'Your game got stuck.'),
+        description: translate(
+          'storyWorld.stage.stuckBody',
+          'Nothing is broken. Try again, or show a grown-up.'
+        )
+      }
+    : null
   const Capsule = CAPSULES[capsuleId]
   if (!Capsule) {
     // A manifest naming a capsule this build does not have. Silent by design —
@@ -57,7 +71,12 @@ export function ModeCapsuleSlot({ mode, slot }: ModeCapsuleSlotProps): React.JSX
   return (
     <RecoverableRenderErrorBoundary
       boundaryId={`app-mode:${slot}`}
-      surface={resolveModeManifest(mode).errorBoundarySurface}
+      surface={manifest.errorBoundarySurface}
+      // §7.8: the generic boundary says "This part of Orca hit an error." A mode
+      // whose user cannot read that — and must never be shown the word "error" —
+      // supplies its own copy. Without this the crash path was the one
+      // child-facing surface the copy rules did not reach.
+      {...(childSafeFallback ?? {})}
     >
       {/* No fallback content: a flash of "Loading…" where the workspace should
           be reads as breakage. The outgoing tree stays painted instead. */}

@@ -36,6 +36,7 @@ import {
 } from '../../../../shared/execution-host'
 import { GeneralPane } from './GeneralPane'
 import { BrowserPane } from './BrowserPane'
+import { AppModeSettingsSection } from './AppModeSettingsSection'
 import { AppearancePane } from './AppearancePane'
 import { InputPane } from './InputPane'
 import { ShortcutsPane } from './ShortcutsPane'
@@ -1522,6 +1523,18 @@ function Settings(): React.JSX.Element {
                   {isSectionMounted('floating-workspace') ? (
                     <FloatingWorkspacePane settings={settings} updateSettings={updateSettings} />
                   ) : null}
+                </SettingsSection>
+
+                <SettingsSection
+                  id="app-mode"
+                  title={translate('appMode.settings.title', 'Mode')}
+                  description={translate(
+                    'appMode.settings.description',
+                    'Choose how much of Orca is on screen. Switching is instant and changes nothing about your work.'
+                  )}
+                  searchEntries={getSectionSearchEntries('app-mode')}
+                >
+                  {isSectionMounted('app-mode') ? <AppModeSettingsSection /> : null}
                 </SettingsSection>
 
                 <SettingsSection
