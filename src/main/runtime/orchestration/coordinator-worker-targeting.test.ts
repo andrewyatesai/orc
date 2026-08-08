@@ -195,3 +195,122 @@ describe('Coordinator worker targeting', () => {
     })
   })
 })
+
+describe('Coordinator ownership authority (§6.6)', () => {
+  let db: OrchestrationDb
+
+  afterEach(() => {
+    db?.close()
+  })
+
+  async function runBriefly(coordinator: Coordinator): Promise<void> {
+    const runPromise = coordinator.run()
+    await new Promise((r) => {
+      setTimeout(r, 80)
+    })
+    coordinator.stop()
+    await runPromise
+  }
+
+  it("will not hijack the human's own agent pane", async () => {
+    db = new OrchestrationDb(':memory:')
+    const runtime = createMockRuntime()
+    // The exact shape the old fallback accepted: a pane the fleet never created,
+    // running a real agent, in the worktree the human is working in.
+    runtime.terminals = [
+      { handle: 'term_humans_claude', worktreeId: 'wt1', connected: true, writable: true }
+    ]
+    runtime.launchProfiles.term_humans_claude = {
+      agent: 'claude',
+      agentArgs: null,
+      agentEnv: null
+    }
+    // No grant for this run names it, so it is the human's.
+    runtime.fleetGrantCoversTargets = false
+
+    db.createTask({ spec: 'work' })
+    await runBriefly(
+      new Coordinator(db, runtime, { spec: 'go', coordinatorHandle: 'coord', pollIntervalMs: 20 })
+    )
+
+    expect(runtime.sentMessages.filter((m) => m.handle === 'term_humans_claude')).toHaveLength(0)
+    // It creates its own worker rather than borrowing one it was never given.
+    expect(runtime.createdTerminals.length).toBe(1)
+  })
+
+  it('adopts an un-owned agent pane once a live grant for the run names it', async () => {
+    db = new OrchestrationDb(':memory:')
+    const runtime = createMockRuntime()
+    runtime.terminals = [
+      { handle: 'term_prepared', worktreeId: 'wt1', connected: true, writable: true }
+    ]
+    runtime.launchProfiles.term_prepared = { agent: 'claude', agentArgs: null, agentEnv: null }
+    // The documented workflow: a human pre-creates a worker and grants it.
+    runtime.fleetGrantCoversTargets = true
+
+    db.createTask({ spec: 'work' })
+    await runBriefly(
+      new Coordinator(db, runtime, { spec: 'go', coordinatorHandle: 'coord', pollIntervalMs: 20 })
+    )
+
+    expect(runtime.sentMessages.filter((m) => m.handle === 'term_prepared').length).toBeGreaterThan(
+      0
+    )
+    // No need to spawn its own when a granted pane was available.
+    expect(runtime.createdTerminals.length).toBe(0)
+  })
+
+  it('a granted pane still must be running an agent — a bare shell is never adopted', async () => {
+    db = new OrchestrationDb(':memory:')
+    const runtime = createMockRuntime()
+    runtime.terminals = [
+      { handle: 'term_shell', worktreeId: 'wt1', connected: true, writable: true }
+    ]
+    runtime.launchProfiles.term_shell = { agent: null, agentArgs: null, agentEnv: null }
+    runtime.fleetGrantCoversTargets = true
+
+    db.createTask({ spec: 'work' })
+    await runBriefly(
+      new Coordinator(db, runtime, { spec: 'go', coordinatorHandle: 'coord', pollIntervalMs: 20 })
+    )
+
+    expect(runtime.sentMessages.filter((m) => m.handle === 'term_shell')).toHaveLength(0)
+  })
+
+  it('restores its own workers across a restart, keyed by handle not run id', async () => {
+    db = new OrchestrationDb(':memory:')
+    const runtime = createMockRuntime()
+    runtime.fleetGrantCoversTargets = false
+
+    const first = db.createTask({ spec: 'first' })
+    await runBriefly(
+      new Coordinator(db, runtime, { spec: 'go', coordinatorHandle: 'coord', pollIntervalMs: 20 })
+    )
+    const created = runtime.createdTerminals[0]
+    expect(created).toBeDefined()
+    // Free the worker, or it stays busy and would be skipped for reasons that
+    // have nothing to do with ownership.
+    insertWorkerDone(db, { taskId: first.id, from: created })
+
+    // Baseline BEFORE the restart, or run 1's own messages make this pass no
+    // matter what run 2 does.
+    const beforeRestart = runtime.sentMessages.filter((m) => m.handle === created).length
+
+    // A restart: `orchestration.run` mints a NEW run row every time, so ownership
+    // keyed on run id would restore nothing and the fleet would re-adopt its own
+    // worker through the same weak path as a stranger's pane.
+    db.createTask({ spec: 'second' })
+    await runBriefly(
+      new Coordinator(db, runtime, { spec: 'go', coordinatorHandle: 'coord', pollIntervalMs: 20 })
+    )
+
+    // THE claim: with no grant covering anything, the only way this handle can be
+    // dispatched to is if ownership survived the restart. Before the handle-keyed
+    // ledger this was silently empty — the new run id matched zero events.
+    expect(runtime.sentMessages.filter((m) => m.handle === created).length).toBeGreaterThan(
+      beforeRestart
+    )
+    // Deliberately not asserting the terminal count: the first worker is still
+    // holding the incomplete first task, so spawning a second one is correct.
+  })
+})

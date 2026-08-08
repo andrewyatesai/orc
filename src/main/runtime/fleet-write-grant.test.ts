@@ -18,7 +18,7 @@ type RuntimeInternals = {
     ptyId: string,
     worktreeId: string,
     state?: { connected?: boolean }
-  ) => { launchAgent: string | null }
+  ) => { launchAgent: string | null; incarnationId?: string }
   handleByPtyId: Map<string, string>
 }
 
@@ -28,6 +28,9 @@ function runtimeWithPane(agent: string | null): OrcaRuntimeService {
   const internals = runtime as unknown as RuntimeInternals
   const pty = internals.recordPtyWorktree(PTY_ID, 'wt-1', { connected: true })
   pty.launchAgent = agent
+  // A real process incarnation: fleet grants pin to this field and FAIL CLOSED
+  // without it, because an unknown incarnation cannot prove a respawn.
+  pty.incarnationId = 'inc_1'
   internals.handleByPtyId.set(PTY_ID, HANDLE)
   runtime.onPtySpawned(PTY_ID, undefined, { awaitsRegistration: false })
   return runtime

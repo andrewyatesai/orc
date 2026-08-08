@@ -15387,8 +15387,11 @@ export class OrcaRuntimeService {
     const decision = this.fleetGrants.check(grant, {
       op: 'write',
       handle,
-      // Same source the issuer pinned against, or a grant would never match.
-      incarnationId: this.ptyEventSourceFor(ptyId).ptyIncarnationId
+      // The same REAL field the issuer pinned against (see
+      // resolveTerminalIncarnationId). `null` here means "unknown", and a grant
+      // target pinned to a real id can never match null — so an unknowable
+      // incarnation fails closed rather than matching everything.
+      incarnationId: this.ptysById.get(ptyId)?.incarnationId ?? null
     })
     return decision.allowed
       ? { allowed: true, reason: '' }
@@ -15426,16 +15429,31 @@ export class OrcaRuntimeService {
   }
 
   /**
-   * The pinned journal incarnation, not `pty.incarnationId` — the raw field is
-   * filled in late on plenty of live records (SSH reconnect, exit-proof backfill,
-   * state restore), so pinning to it would make those panes un-grantable and,
-   * worse, disagree with what the grant check later reads.
+   * The pane's REAL process incarnation — deliberately NOT the journal pin.
    *
-   * Never falls back to null: null is the WILDCARD in a grant target, so a
-   * fallback would widen authority to every future incarnation of the handle.
+   * An earlier version used `ptyEventSourceFor(...).ptyIncarnationId` because it
+   * is always defined and both sides of the check agreed on it. That was wrong:
+   * the journal pin is *designed* to be sticky. `beginPtyJournalIncarnation`
+   * treats "previous pin was provisional" as an unconditional no-op, so that it
+   * never wipes retention when a pane merely learns its real name or an SSH
+   * relay reattaches. A grant pinned to it therefore survives a genuine respawn
+   * and keeps authorizing a process no human ever approved.
+   *
+   * So authority reads the real field and FAILS CLOSED when it is absent: while
+   * the incarnation is unknown Orca cannot tell a respawn from a reattach, and
+   * an unprovable respawn guard is worse than a refused mint.
    */
   private resolveTerminalIncarnationId(handle: string): string {
-    return this.ptyEventSourceFor(this.resolveWritableTerminalPtyId(handle)).ptyIncarnationId
+    const incarnationId = this.ptysById.get(
+      this.resolveWritableTerminalPtyId(handle)
+    )?.incarnationId
+    if (!incarnationId) {
+      throw new Error(
+        `cannot pin a fleet grant to ${handle}: its process incarnation is not yet known, ` +
+          'so a respawn could not be detected'
+      )
+    }
+    return incarnationId
   }
 
   revokeFleetGrant(grantId: string): boolean {
@@ -15444,6 +15462,38 @@ export class OrcaRuntimeService {
 
   revokeFleetGrantsForRun(runId: string): number {
     return this.fleetGrants.revokeRun(runId)
+  }
+
+  /**
+   * Scope question, not a bearer check: "does a live write grant for this run
+   * name this pane?" — §6.6's "target set = the run's terminals".
+   *
+   * The coordinator asks this instead of presenting a secret to itself, because
+   * a grant it minted for the handles it was about to drive would derive its
+   * authority from the very decision it is meant to constrain. Adoption of a
+   * pane the fleet did not create has to be an explicit human act.
+   */
+  hasFleetWriteGrantForRun(runId: string, handle: string): boolean {
+    if (!runId) {
+      return false
+    }
+    const incarnationId = this.ptysById.get(
+      (() => {
+        try {
+          return this.resolveWritableTerminalPtyId(handle)
+        } catch {
+          return ''
+        }
+      })()
+    )?.incarnationId
+    if (!incarnationId) {
+      return false
+    }
+    return this.fleetGrants.runCovers(runId, {
+      op: 'write',
+      handle,
+      incarnationId
+    })
   }
 
   /** `terminal.key`: press ONE key on a pane, encoded by the engine that will
