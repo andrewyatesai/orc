@@ -105,10 +105,14 @@ export const EXCEPTION_SOURCE_STATUS: Record<FleetExceptionKind, 'wired' | 'not-
   // Real per-task rows from orchestration.gateList — NOT runList's per-run
   // count, which cannot be decomposed back into the tasks it counted.
   gate: 'wired',
-  escalation: 'not-yet',
-  'circuit-broken': 'not-yet',
+  escalation: 'wired',
+  'circuit-broken': 'wired',
+  // Stale-heartbeat detection: the only thing that can tell a wedged worker from
+  // a finished one, since agent-hook status decays a non-done entry to idle.
+  attention: 'wired',
+  // MessageType has no `lifecycle_rejected` or `question` member, so there is
+  // nothing to classify. Wiring these would mean inventing a signal.
   'lifecycle-rejected': 'not-yet',
-  attention: 'not-yet',
   'unanswered-ask': 'not-yet'
 }
 

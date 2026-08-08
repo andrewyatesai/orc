@@ -42,19 +42,42 @@ export type FleetRun = {
   pendingGates: number
 }
 
-/** One pending gate, as the queue needs it: keyed by TASK, not by run. */
-export type FleetGate = {
+/** One §8.3 exception, already classified and task-keyed by the runtime. */
+export type FleetException = {
+  taskId: string
+  kind: string
+  summary: string
+  workerHandle: string | null
+  attempts: number
+  at: string
+}
+
+export type FleetDispatch = {
   id: string
-  task_id: string | null
-  run_id: string | null
-  question: string | null
+  task_id: string
+  assignee_handle: string | null
   status: string
-  created_at: string | null
+  failure_count: number
+  last_failure: string | null
+  last_heartbeat_at: string | null
+  dispatched_at: string | null
+}
+
+export type FleetTask = {
+  id: string
+  task_title: string | null
+  display_name: string | null
+  spec: string
+  status: string
+  result: string | null
+  run_id: string | null
 }
 
 export type FleetSnapshot = {
   runs: FleetRun[]
-  gates: FleetGate[]
+  exceptions: FleetException[]
+  dispatches: FleetDispatch[]
+  tasks: FleetTask[]
   /** null until the first SUCCESSFUL response. An error must never present as
    *  "loaded and empty", which reads as "all clear". */
   loadedAt: number | null
@@ -63,7 +86,14 @@ export type FleetSnapshot = {
 
 const POLL_INTERVAL_MS = 2_000
 
-let snapshot: FleetSnapshot = { runs: [], gates: [], loadedAt: null, error: null }
+let snapshot: FleetSnapshot = {
+  runs: [],
+  exceptions: [],
+  dispatches: [],
+  tasks: [],
+  loadedAt: null,
+  error: null
+}
 const subscribers = new Set<() => void>()
 let timer: ReturnType<typeof setInterval> | null = null
 let inFlight = false
@@ -90,15 +120,21 @@ async function poll(): Promise<void> {
   }
   inFlight = true
   try {
-    // Gates come from gateList, not from runList's per-run COUNT: the queue is
-    // one row per TASK, and a count cannot be decomposed back into tasks.
-    const [runList, gateList] = await Promise.all([
-      callRuntime<{ runs: FleetRun[] }>('orchestration.runList', { limit: 50 }),
-      callRuntime<{ gates: FleetGate[] }>('orchestration.gateList', { status: 'pending' })
-    ])
+    // ONE call. The six exception sources are classified server-side, where the
+    // rows actually live — six renderer queries per tick would multiply the
+    // console's share of a long-poll budget the fleet's own workers need, and
+    // would let the panels render six snapshots taken at six different instants.
+    const result = await callRuntime<{
+      runs: FleetRun[]
+      exceptions: FleetException[]
+      dispatches: FleetDispatch[]
+      tasks: FleetTask[]
+    }>('alab.consoleSnapshot', { limit: 50 })
     emit({
-      runs: runList?.runs ?? [],
-      gates: gateList?.gates ?? [],
+      runs: result?.runs ?? [],
+      exceptions: result?.exceptions ?? [],
+      dispatches: result?.dispatches ?? [],
+      tasks: result?.tasks ?? [],
       loadedAt: Date.now(),
       error: null
     })
@@ -165,5 +201,5 @@ export function __resetFleetPollForTests(): void {
   stop()
   subscribers.clear()
   inFlight = false
-  snapshot = { runs: [], gates: [], loadedAt: null, error: null }
+  snapshot = { runs: [], exceptions: [], dispatches: [], tasks: [], loadedAt: null, error: null }
 }

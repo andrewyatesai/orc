@@ -49,27 +49,23 @@ function ExceptionRow({ exception }: { exception: FleetException }): React.JSX.E
 }
 
 export function ExceptionsQueue(): React.JSX.Element {
-  const { gates, loadedAt, error } = useFleetSnapshot()
+  const { exceptions: raw, loadedAt, error } = useFleetSnapshot()
 
-  // One row per TASK, from real gate rows. The earlier version derived rows from
-  // runList's per-run `pendingGates` COUNT, which collapsed three gates on three
-  // different tasks into one anonymous row with attempts:1 — a count cannot be
-  // decomposed back into the tasks it counted.
+  // Already classified and task-keyed by the runtime; the renderer only applies
+  // §8.3's collapse rule, which is where a retry storm becomes one readable row.
   const exceptions = useMemo(
     () =>
       collapseExceptionsByTask(
-        gates.map((gate) => ({
-          taskId: gate.task_id ?? `gate:${gate.id}`,
-          kind: 'gate' as const,
-          summary:
-            gate.question ??
-            translate('alab.exceptions.gateWaiting', 'A worker is waiting on you.'),
-          workerHandle: null,
-          attempts: 1,
-          at: gate.created_at ?? ''
+        raw.map((entry) => ({
+          taskId: entry.taskId,
+          kind: entry.kind as FleetException['kind'],
+          summary: entry.summary,
+          workerHandle: entry.workerHandle,
+          attempts: entry.attempts,
+          at: entry.at
         }))
       ),
-    [gates]
+    [raw]
   )
 
   const unwired = unwiredExceptionSources()
@@ -105,7 +101,7 @@ export function ExceptionsQueue(): React.JSX.Element {
         <p className="shrink-0 text-[11px] text-muted-foreground">
           {/* Truthful only because `ask --task` opens real gates now — and only
               about GATES, which is why the caveat below is not optional. */}
-          {translate('alab.exceptions.empty', 'No gates are waiting on you.')}
+          {translate('alab.exceptions.empty', 'Nothing is waiting on you.')}
         </p>
       ) : null}
 
@@ -115,7 +111,7 @@ export function ExceptionsQueue(): React.JSX.Element {
               all six sources reads an empty queue as "all clear". */}
           {translate(
             'alab.exceptions.partial',
-            'Only gates are shown here yet. Retries, escalations and stalled agents are not.'
+            'Rejected handoffs and unanswered questions are not shown here yet.'
           )}
         </p>
       ) : null}

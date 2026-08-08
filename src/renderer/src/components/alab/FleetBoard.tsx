@@ -66,6 +66,53 @@ function MissionGroup({ mission, runs }: { mission: string; runs: FleetRun[] }):
   )
 }
 
+/**
+ * Per-worker liveness, from `last_heartbeat_at` directly.
+ *
+ * This is the §8.3 requirement the first version could not meet: agent-hook
+ * status alone cannot distinguish wedged from finished, because
+ * `AGENT_STATUS_STALE_AFTER_MS` decays a non-`done` entry to `idle` at thirty
+ * minutes — so a hung worker and a cleanly-finished one look identical. The
+ * heartbeat is the only signal that separates them, so it is rendered as an age,
+ * not as a status word.
+ */
+function WorkerHeartbeats(): React.JSX.Element | null {
+  const { dispatches, loadedAt } = useFleetSnapshot()
+  const active = dispatches.filter((dispatch) => dispatch.status === 'dispatched')
+  if (loadedAt === null || active.length === 0) {
+    return null
+  }
+  const now = Date.now()
+  return (
+    <section className="mt-2 flex flex-col gap-1" data-testid="alab-heartbeats">
+      <h3 className="text-[11px] font-medium text-muted-foreground">
+        {translate('alab.fleet.workers', 'Workers')}
+      </h3>
+      <ul className="flex flex-col gap-1">
+        {active.map((dispatch) => {
+          const beat = dispatch.last_heartbeat_at ?? dispatch.dispatched_at
+          const ageMs = beat ? now - Date.parse(beat) : null
+          const silentMinutes = ageMs === null ? null : Math.floor(ageMs / 60_000)
+          return (
+            <li
+              key={dispatch.id}
+              className="flex items-center gap-2 rounded border px-2 py-1 text-[11px]"
+              data-testid="alab-worker-row"
+            >
+              <span className="truncate">{dispatch.assignee_handle ?? '—'}</span>
+              <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">
+                {silentMinutes === null
+                  ? translate('alab.fleet.neverHeard', 'never heard from')
+                  : `${silentMinutes}m ${translate('alab.fleet.silent', 'silent')}`}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
 export function FleetBoard(): React.JSX.Element {
   const { runs, loadedAt, error } = useFleetSnapshot()
 
@@ -106,14 +153,7 @@ export function FleetBoard(): React.JSX.Element {
           {translate('alab.fleet.none', 'No coordinator runs.')}
         </p>
       ) : null}
-      <p className="mt-auto pt-2 text-[11px] text-muted-foreground">
-        {/* Named rather than implied. A board that silently omits per-worker
-            liveness would let a supervisor read "no news" as "healthy". */}
-        {translate(
-          'alab.fleet.noHeartbeats',
-          'Per-agent heartbeats are not shown yet, so this cannot tell a stuck worker from a finished one.'
-        )}
-      </p>
+      <WorkerHeartbeats />
     </div>
   )
 }
