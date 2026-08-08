@@ -968,8 +968,11 @@ impl Seq {
                 continue;
             }
             for otherlit in lits2.iter() {
+                // saturating: a Vec's len is <= isize::MAX so the sum cannot
+                // actually wrap, but the checked form discharges the obligation
+                // statically instead of leaving a runtime overflow check.
                 let mut newlit = Literal::exact(Vec::with_capacity(
-                    selflit.len() + otherlit.len(),
+                    selflit.len().saturating_add(otherlit.len()),
                 ));
                 newlit.extend(&selflit);
                 newlit.extend(&otherlit);
@@ -1119,8 +1122,9 @@ impl Seq {
                     }
                     continue;
                 }
+                // saturating: see the note in `cross_forward`.
                 let mut newlit = Literal::exact(Vec::with_capacity(
-                    otherlit.len() + selflit.len(),
+                    otherlit.len().saturating_add(selflit.len()),
                 ));
                 newlit.extend(&otherlit);
                 newlit.extend(&selflit);

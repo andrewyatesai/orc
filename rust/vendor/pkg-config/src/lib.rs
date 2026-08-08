@@ -907,10 +907,13 @@ impl Library {
         let words = split_flags(output);
 
         // Handle single-character arguments like `-I/usr/include`
+        // LOCAL PATCH: `&arg[0..2]` panics when byte 2 is not a UTF-8 char boundary
+        // (e.g. a bare `/日本/lib` token); split_at_checked drops those like any other
+        // unrecognized flag instead. Keeps the len > 2 guard in the same closure so the
+        // bound is locally evident.
         let parts = words
             .iter()
-            .filter(|l| l.len() > 2)
-            .map(|arg| (&arg[0..2], &arg[2..]));
+            .filter_map(|arg| if arg.len() > 2 { arg.split_at_checked(2) } else { None });
         for (flag, val) in parts {
             match flag {
                 "-L" => {

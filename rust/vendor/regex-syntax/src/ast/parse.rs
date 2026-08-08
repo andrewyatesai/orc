@@ -511,7 +511,13 @@ impl<'s, P: Borrow<Parser>> ParserI<'s, P> {
     /// following the prefix and return true. Otherwise, don't bump the parser
     /// and return false.
     fn bump_if(&self, prefix: &str) -> bool {
-        if self.pattern()[self.offset()..].starts_with(prefix) {
+        // ORCA/TRUST: `get` rather than `[..]`. The offset is always a char
+        // boundary <= len, but that is a Cell invariant the verifier cannot
+        // reconstruct, so the panicking slice reads as a Level 0 refutation.
+        let Some(rest) = self.pattern().get(self.offset()..) else {
+            return false;
+        };
+        if rest.starts_with(prefix) {
             for _ in 0..prefix.chars().count() {
                 self.bump();
             }
