@@ -15347,7 +15347,10 @@
       "none": "No agents are running.",
       "noHeartbeats": "Per-agent heartbeats are not shown yet, so this cannot tell a stuck worker from a finished one.",
       "stranded": "stranded",
-      "unknown": "Cannot reach the runtime, so this may be out of date."
+      "unknown": "Cannot reach the runtime, so this may be out of date.",
+      "workers": "Workers",
+      "neverHeard": "never heard from",
+      "silent": "silent"
     },
     "console": {
       "heading": "Fleet",
@@ -15383,6 +15386,11 @@
     "strip": {
       "untitled": "My world",
       "grownUp": "Show a grown-up"
+    },
+    "composer": {
+      "placeholder": "Tell Claude what you want",
+      "label": "Tell Claude what you want",
+      "send": "Send"
     }
   }
 }

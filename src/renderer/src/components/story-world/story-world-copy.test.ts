@@ -16,6 +16,7 @@ import {
   type StoryAgentState
 } from './story-world-copy'
 import { SEEDED_STARTER_PARTS, seededLabelsObeyCopyRules } from './WorldPartsStrip'
+import { STORY_COMPOSER_SEND_LABEL, composerLabelObeysCopyRules } from './StoryComposer'
 import { resolveModeManifest } from '../../../../shared/app-mode/app-mode-capability'
 
 /** Every AgentDotState member (§7.8 rule 4 names all eight). */
@@ -92,6 +93,11 @@ describe('button labels', () => {
     }
   })
 
+  it('the composer send label obeys the rules', () => {
+    expect(composerLabelObeysCopyRules()).toBe(true)
+    expect(isChildSafeCopy(STORY_COMPOSER_SEND_LABEL)).toBe(true)
+  })
+
   it('rejects a six-word label', () => {
     expect(isButtonLabelShortEnough('one two three four five six')).toBe(false)
   })
@@ -107,7 +113,7 @@ describe('the child-facing components themselves', () => {
   // WorldPartsStrip is deliberately absent: its labels are not inline fallbacks
   // but the exported SEEDED_STARTER_PARTS data, which the suite above sweeps
   // directly. Listing it here would assert on strings that do not exist.
-  const files = ['StoryStage.tsx', 'MyWorldsList.tsx']
+  const files = ['StoryStage.tsx', 'MyWorldsList.tsx', 'StoryComposer.tsx', 'StoryStripHeader.tsx']
 
   it.each(files)('%s contains no banned word in a user-visible string', (file) => {
     const source = readFileSync(join(__dirname, file), 'utf8')
