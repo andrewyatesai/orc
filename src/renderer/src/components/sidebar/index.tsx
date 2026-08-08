@@ -18,6 +18,8 @@ import { createSingleFlightCoalescer, type SingleFlightCoalescer } from './singl
 import { resolveLeftSidebarStyleVariables } from '@/lib/left-sidebar-appearance'
 import { useSystemPrefersDark } from '@/components/terminal-pane/use-system-prefers-dark'
 import { lazyWithRetry } from '@/lib/lazy-with-retry'
+import { ModeCapsuleSlot } from '@/app-mode/ModeCapsuleSlot'
+import { resolveModeCapsule } from '../../../../shared/app-mode/app-mode-capability'
 
 const WorktreeMetaDialog = lazyWithRetry(() => import('./WorktreeMetaDialog'))
 const RemoveFolderDialog = lazyWithRetry(() => import('./RemoveFolderDialog'))
@@ -44,6 +46,11 @@ function Sidebar({
   worktreeScrollAnchorRef
 }: SidebarProps): React.JSX.Element {
   const sidebarOpen = useAppStore((s) => s.sidebarOpen)
+  const appMode = useAppStore((s) => s.settings?.appMode)
+  // null in Classic, so the Classic branch below is reached unchanged.
+  const modeSlotBody = resolveModeCapsule(appMode, 'left-sidebar-body') ? (
+    <ModeCapsuleSlot mode={appMode} slot="left-sidebar-body" />
+  ) : null
   const sidebarWidth = useAppStore((s) => s.sidebarWidth)
   const setSidebarWidth = useAppStore((s) => s.setSidebarWidth)
   const repos = useAppStore((s) => s.repos)
@@ -174,7 +181,13 @@ function Sidebar({
         style={leftSidebarStyle}
         {...dropHandlers}
       >
-        {sidebarOpen && (
+        {/* §5.2's left-sidebar-body slot. The container, useSidebarResize, the
+            drop affordance, the drawers and the persisted width all stay shared —
+            a mode replaces the BODY, never the sidebar itself, so resizing and
+            collapsing keep working identically in every mode. */}
+        {sidebarOpen && modeSlotBody ? modeSlotBody : null}
+
+        {sidebarOpen && !modeSlotBody && (
           <>
             {/* Fixed controls */}
             <SidebarNav />
