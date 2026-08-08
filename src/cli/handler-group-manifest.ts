@@ -14,7 +14,7 @@ export type HandlerGroup = {
 export const HANDLER_GROUPS: readonly HandlerGroup[] = [
   {
     name: 'core',
-    keys: ['claude-teams', 'open', 'serve', 'status'],
+    keys: ['claude-teams', 'open', 'serve', 'status', 'mode show', 'mode set'],
     load: async () => (await import('./handlers/core.js')).CORE_HANDLERS
   },
   {
@@ -76,6 +76,7 @@ export const HANDLER_GROUPS: readonly HandlerGroup[] = [
       'terminal wait',
       'terminal key',
       'terminal submit',
+      'terminal await',
       'terminal stop',
       'terminal rename',
       'terminal create',

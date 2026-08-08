@@ -133,6 +133,35 @@ export const CORE_HANDLERS: Record<string, CommandHandler> = {
     })
     process.exitCode = exitCode
   },
+  'mode show': async ({ client, json }) => {
+    const result = await client.call<{ mode: { mode: string; source: string; locked: boolean } }>(
+      'appMode.get',
+      {}
+    )
+    printResult(result, json, (value) =>
+      [
+        `Mode: ${value.mode.mode}`,
+        `Decided by: ${value.mode.source}`,
+        value.mode.locked ? 'Selection is read-only while this rung owns it.' : ''
+      ]
+        .filter(Boolean)
+        .join('\n')
+    )
+  },
+  'mode set': async ({ flags, client, json }) => {
+    const requested = flags.get('mode')
+    if (typeof requested !== 'string' || requested.length === 0) {
+      throw new RuntimeClientError(
+        'invalid_argument',
+        'Missing --mode: classic, alab or story-world'
+      )
+    }
+    const result = await client.call<{ mode: { mode: string; source: string; locked: boolean } }>(
+      'appMode.set',
+      { mode: requested }
+    )
+    printResult(result, json, (value) => `Mode: ${value.mode.mode} (${value.mode.source})`)
+  },
   status: async ({ client, json }) => {
     const result = await client.getCliStatus()
     // Why: an unreachable runtime must exit nonzero in --json mode too, so scripts

@@ -127,6 +127,7 @@ function harness(
     launchToken?: string
     allowsSubmitRepress?: boolean
     humanDriver?: boolean
+    checkGrant?: () => { allowed: boolean; reason: string }
   } = {}
 ): Harness {
   const clock = fakeClock()
@@ -190,7 +191,8 @@ function harness(
       return { read: () => observer.since(cursor) }
     },
     clock,
-    ...(options.allowsSubmitRepress ? { allowsSubmitRepress: () => true } : {})
+    ...(options.allowsSubmitRepress ? { allowsSubmitRepress: () => true } : {}),
+    ...(options.checkGrant ? { checkGrant: options.checkGrant } : {})
   }
 
   const target: AgentPromptSubmissionTarget = {
@@ -688,5 +690,51 @@ describe('submitAgentPrompt — pressing Enter twice', () => {
     expect(result.attempts).toBe(2)
     expect(result.submitted).toBe('unknown')
     expect(result.evidence).toBe('content-change')
+  })
+})
+
+describe('fleet grant enforcement (§6.6)', () => {
+  const denied = { allowed: false, reason: 'no fleet grant presented' }
+
+  it('refuses an ungranted caller before a single byte is written', async () => {
+    const test = harness({ checkGrant: () => denied })
+
+    const result = await test.run()
+
+    expect(result.phase).toBe('refused')
+    expect(result.refusal?.code).toBe('grant-required')
+    expect(result.submitted).toBe('no')
+    // The whole point of checking before the paste: nothing reached the pane, so
+    // the draft is clean and the human's terminal is untouched.
+    expect(test.writes).toEqual([])
+    expect(result.draftState).toBe('clean')
+  })
+
+  it('does not press Enter when the grant is revoked mid-paste', async () => {
+    let allowed = true
+    const test = harness({
+      checkGrant: () => (allowed ? { allowed: true, reason: '' } : denied)
+    })
+    // Revoked after the prompt is on screen but before the arm — the window the
+    // start-of-operation check alone cannot see.
+    test.onPasteChunk = () => {
+      allowed = false
+    }
+
+    const result = await test.run()
+
+    expect(result.refusal?.code).toBe('grant-required')
+    expect(test.writes).not.toContain(AGENT_PROMPT_SUBMIT)
+    // Bytes did land, and Orca cannot un-type them.
+    expect(result.draftState).toBe('contaminated')
+  })
+
+  it('lets a granted caller through unchanged', async () => {
+    const test = harness({ checkGrant: () => ({ allowed: true, reason: '' }) })
+
+    const result = await test.run()
+
+    expect(result.refusal).toBeUndefined()
+    expect(test.writes).toContain(AGENT_PROMPT_SUBMIT)
   })
 })

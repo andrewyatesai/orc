@@ -123,6 +123,16 @@ export type AgentPromptSubmissionPorts = {
   createOperationId?: () => string
   /** §5.2's "only when the provider adapter declares it safe". Default: never. */
   allowsSubmitRepress?: (agent: TuiAgent | null) => boolean
+  /**
+   * §6.6's grant check, already bound to the caller's presented grant and this
+   * target. Absent means no enforcement — that is the renderer/human path, which
+   * §6.6 excepts explicitly because a person at the keyboard needs no grant to
+   * type into their own terminal.
+   *
+   * Called twice: once before any bytes are written, and again immediately
+   * before Enter, because a grant revoked mid-paste must stop the Enter.
+   */
+  checkGrant?: () => { allowed: boolean; reason: string }
 }
 
 /** Enter presses per operation once an adapter certifies re-pressing; today none does. */
@@ -213,7 +223,7 @@ async function runLeasedSubmission(
   }
   const stopped = (
     phase: 'refused' | 'paste' | 'arm',
-    code: 'unattended-dispatch' | 'paste-failed' | 'submit-key-refused',
+    code: 'unattended-dispatch' | 'paste-failed' | 'submit-key-refused' | 'grant-required',
     reason: string,
     draftState: 'clean' | 'contaminated'
   ): AgentPromptSubmissionResult =>
@@ -247,6 +257,14 @@ async function runLeasedSubmission(
           { code: outcome.code, reason: outcome.reason },
           { operationId, leasePhase: lease.phase(), decidedAt: ports.clock.now() }
         )
+
+  // Authority before posture: an ungranted caller is refused before Orca even
+  // considers whether the target's launch is safe to drive, so a missing grant
+  // never reads as a permission-preset problem.
+  const granted = ports.checkGrant?.()
+  if (granted && !granted.allowed) {
+    return stopped('refused', 'grant-required', granted.reason, 'clean')
+  }
 
   const dispatch = decideUnattendedAgentDispatch({
     preset: request.permissionPreset,
@@ -312,6 +330,14 @@ async function runLeasedSubmission(
   const armed = await transitionUnderHeldAuthority(lease, wait, () => lease.armSubmit())
   if (armed.kind !== 'held') {
     return interrupted('arm', armed)
+  }
+  // §6.6: re-checked here, not only at the start. A grant revoked while the
+  // prompt was pasting must stop the Enter — the draft is contaminated either
+  // way, but an un-pressed Enter is the difference between a stranded draft and
+  // a turn the human never authorized.
+  const stillGranted = ports.checkGrant?.()
+  if (stillGranted && !stillGranted.allowed) {
+    return stopped('arm', 'grant-required', stillGranted.reason, 'contaminated')
   }
   const armedAt = ports.clock.now()
   if (!ports.pressSubmitKey(target.ptyId)) {

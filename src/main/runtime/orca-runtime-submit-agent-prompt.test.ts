@@ -4,7 +4,7 @@
  * The state machine's own phase ordering is covered by
  * agent-prompt-submission.test.ts; these pin the wiring it runs on.
  */
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrcaRuntimeService } from './orca-runtime'
 import { HEADLESS_RUNTIME_WINDOW_ID } from '../../shared/runtime-types'
 import { makePaneKey } from '../../shared/stable-pane-id'
@@ -75,12 +75,20 @@ class FakeHookSource implements AgentHookEvidenceSource {
 
 function headlessRuntime(settings?: { agentStatusHooksEnabled: boolean }): OrcaRuntimeService {
   // Only `getSettings` is reached on the submit path (permission preset, §5.3's hook
-  // gate), so a store stub that answers it is the whole dependency.
+  // gate), so a store stub that answers it is the whole dependency. §12's
+  // experimental gate is opted into via the env override in beforeEach.
   const runtime = new OrcaRuntimeService(
     settings ? ({ getSettings: () => settings } as never) : null
   )
   runtime.syncWindowGraph(HEADLESS_RUNTIME_WINDOW_ID, { tabs: [], leaves: [] })
   return runtime
+}
+
+/** §6.6: a TUI-agent pane refuses a caller presenting no grant, so every case
+ *  that drives one mints a grant exactly as the RPC caller must. Also exercises
+ *  R0's issuer, which is the only thing that makes the gate testable at all. */
+function writeGrant(runtime: OrcaRuntimeService, handle = HANDLE): string {
+  return runtime.issueFleetGrant({ runId: 'run-test', ops: ['write'], terminals: [handle] }).secret
 }
 
 function livePane(
@@ -126,6 +134,12 @@ function recordingController(
   return { writes }
 }
 
+// §12's experimental gate. Opted in via the env override rather than the store
+// stub, because most cases here construct the runtime with no store at all.
+beforeEach(() => {
+  vi.stubEnv('ORCA_EXPERIMENTAL_ORCHESTRATION', '1')
+})
+
 describe('OrcaRuntimeService.submitAgentPrompt', () => {
   it('writes the bracketed paste, then exactly one Enter', async () => {
     const runtime = headlessRuntime()
@@ -133,6 +147,7 @@ describe('OrcaRuntimeService.submitAgentPrompt', () => {
     const { writes } = recordingController(runtime)
 
     const result = await runtime.submitAgentPrompt(HANDLE, 'run the tests', {
+      grant: writeGrant(runtime),
       settleBudgetMs: SETTLE_BUDGET_MS
     })
 
@@ -153,6 +168,7 @@ describe('OrcaRuntimeService.submitAgentPrompt', () => {
     })
 
     const result = await runtime.submitAgentPrompt(HANDLE, 'run the tests', {
+      grant: writeGrant(runtime),
       settleBudgetMs: SETTLE_BUDGET_MS
     })
 
@@ -167,6 +183,7 @@ describe('OrcaRuntimeService.submitAgentPrompt', () => {
     recordingController(runtime)
 
     const result = await runtime.submitAgentPrompt(HANDLE, 'run the tests', {
+      grant: writeGrant(runtime),
       settleBudgetMs: SETTLE_BUDGET_MS
     })
 
@@ -197,6 +214,7 @@ describe('OrcaRuntimeService.submitAgentPrompt', () => {
     })
 
     const result = await runtime.submitAgentPrompt(HANDLE, 'run the tests', {
+      grant: writeGrant(runtime),
       settleBudgetMs: SETTLE_BUDGET_MS
     })
 
@@ -212,6 +230,7 @@ describe('OrcaRuntimeService.submitAgentPrompt', () => {
     runtime.markMobileActor(PTY_ID, MOBILE_CLIENT)
 
     const result = await runtime.submitAgentPrompt(HANDLE, 'run the tests', {
+      grant: writeGrant(runtime),
       settleBudgetMs: SETTLE_BUDGET_MS
     })
 
@@ -231,6 +250,7 @@ describe('OrcaRuntimeService.submitAgentPrompt', () => {
     })
 
     const result = await runtime.submitAgentPrompt(HANDLE, 'run the tests', {
+      grant: writeGrant(runtime),
       settleBudgetMs: SETTLE_BUDGET_MS
     })
 
@@ -250,6 +270,7 @@ describe('OrcaRuntimeService.submitAgentPrompt', () => {
     })
 
     const result = await runtime.submitAgentPrompt(HANDLE, 'run the tests', {
+      grant: writeGrant(runtime),
       settleBudgetMs: SETTLE_BUDGET_MS
     })
 
@@ -271,6 +292,7 @@ describe('OrcaRuntimeService.submitAgentPrompt', () => {
     })
 
     const result = await runtime.submitAgentPrompt(HANDLE, 'run the tests', {
+      grant: writeGrant(runtime),
       settleBudgetMs: SETTLE_BUDGET_MS
     })
 
@@ -289,6 +311,7 @@ describe('OrcaRuntimeService.submitAgentPrompt', () => {
     recordingController(runtime)
 
     const result = await runtime.submitAgentPrompt(HANDLE, 'run the tests', {
+      grant: writeGrant(runtime),
       settleBudgetMs: SETTLE_BUDGET_MS
     })
 
@@ -303,8 +326,9 @@ describe('OrcaRuntimeService.submitAgentPrompt', () => {
     livePane(runtime, null)
     recordingController(runtime)
 
-    await runtime.submitAgentPrompt(HANDLE, 'run the tests', { settleBudgetMs: SETTLE_BUDGET_MS })
+    await runtime.submitAgentPrompt(HANDLE, 'run the tests', { grant: writeGrant(runtime), settleBudgetMs: SETTLE_BUDGET_MS })
     const second = await runtime.submitAgentPrompt(HANDLE, 'again', {
+      grant: writeGrant(runtime),
       settleBudgetMs: SETTLE_BUDGET_MS
     })
 
