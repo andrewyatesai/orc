@@ -20,16 +20,37 @@
  */
 
 import { translate } from '@/i18n/i18n'
+import { useCallback, useState } from 'react'
 import { storyStatusWord, type StoryAgentState } from './story-world-copy'
+import { StoryComposer } from './StoryComposer'
 import { WorldPartsStrip } from './WorldPartsStrip'
 
 export type StoryStageProps = {
   /** Null while nothing has reported yet — which is a new world, not a fault. */
   agentState?: StoryAgentState | null
+  /** Sends the child's sentence to the agent. Absent until the pane portal is
+   *  wired, in which case the composer still shows her words but cannot send. */
+  onSend?: (text: string) => void
 }
 
-export default function StoryStage({ agentState = null }: StoryStageProps): React.JSX.Element {
+export default function StoryStage({
+  agentState = null,
+  onSend
+}: StoryStageProps): React.JSX.Element {
   const status = storyStatusWord(agentState)
+  // Real state, not a bare cache: the parts strip writes here and the child
+  // watches the words appear (§7.2).
+  const [draft, setDraft] = useState('')
+  const compose = useCallback((sentence: string) => {
+    setDraft((current) => (current.trim().length > 0 ? `${current.trim()} ${sentence}` : sentence))
+  }, [])
+  const send = useCallback(
+    (text: string) => {
+      onSend?.(text)
+      setDraft('')
+    },
+    [onSend]
+  )
 
   return (
     <div
@@ -68,7 +89,16 @@ export default function StoryStage({ agentState = null }: StoryStageProps): Reac
         </p>
       </div>
 
-      <WorldPartsStrip />
+      <WorldPartsStrip onCompose={compose} />
+
+      <StoryComposer
+        draft={draft}
+        onDraftChange={setDraft}
+        onSend={send}
+        // Never send on top of a turn in flight: a second prompt is how a child
+        // ends up with two half-built games.
+        canSend={Boolean(onSend) && status !== 'Working'}
+      />
     </div>
   )
 }
