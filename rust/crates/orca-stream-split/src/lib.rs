@@ -37,13 +37,16 @@ pub fn clamp_to_safe_split_index(units: &[u16], start: usize, end: usize) -> usi
     if end <= start || end >= units.len() {
         return end;
     }
-    let prev = units[end - 1];
-    let next = units[end];
-    if is_high_surrogate(prev) && is_low_surrogate(next) {
-        end - 1
-    } else {
-        end
+    // The guard above gives `end > start >= 0`, so `end >= 1` and `wrapping_sub` is
+    // exact — but it carries no overflow obligation, and `get` states the in-bounds
+    // fact the guard already establishes.
+    let before = end.wrapping_sub(1);
+    if let (Some(&prev), Some(&next)) = (units.get(before), units.get(end)) {
+        if is_high_surrogate(prev) && is_low_surrogate(next) {
+            return before;
+        }
     }
+    end
 }
 
 /// The next split index at least one past `start`, advanced past a surrogate pair
@@ -52,12 +55,19 @@ pub fn clamp_to_safe_split_index(units: &[u16], start: usize, end: usize) -> usi
 /// forward progress even when a single astral code point exceeds the byte budget.
 #[must_use]
 pub fn next_safe_split_index(units: &[u16], start: usize) -> usize {
-    let next = units.len().min(start + 1);
-    if next < units.len()
-        && is_high_surrogate(units[start])
-        && is_low_surrogate(units[next])
-    {
-        return next + 1;
+    // Explicit compare, not `len().min(start + 1)`: `Ord::min` is opaque to Trust and
+    // `start + 1` overflows at `usize::MAX`. The branch is the same clamp, and the
+    // `start < len` guard makes both indices provably in bounds.
+    let len = units.len();
+    let next = if start < len { start + 1 } else { len };
+    if next < len {
+        // `next < len` implies `start + 1 < len`, so `start` is in bounds too; `get`
+        // states that to the verifier instead of leaving it to be inferred.
+        if let (Some(&prev), Some(&following)) = (units.get(start), units.get(next)) {
+            if is_high_surrogate(prev) && is_low_surrogate(following) {
+                return next + 1;
+            }
+        }
     }
     next
 }

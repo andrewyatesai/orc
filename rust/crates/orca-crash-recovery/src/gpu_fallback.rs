@@ -45,7 +45,9 @@ impl GpuCrashFallbackTracker {
                 crashes_in_window: self.crashes_in_window,
             };
         }
-        self.crashes_in_window += 1;
+        // Saturating, not `+= 1`: `threshold` is a caller value, so nothing in this
+        // type bounds the counter, and Trust refutes the plain add.
+        self.crashes_in_window = self.crashes_in_window.saturating_add(1);
         if self.crashes_in_window >= self.threshold {
             self.engaged = true;
             return GpuCrashDecision {

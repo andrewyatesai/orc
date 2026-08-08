@@ -62,7 +62,9 @@ impl RendererRecoveryCircuitBreaker {
     /// means a timestamp exactly at the cutoff has aged out — the edge the ay
     /// `rr3_prune_boundary` proof pins.
     fn prune_expired(&mut self, now: i64) {
-        let cutoff = now - self.window_ms;
+        // Saturating, not `-`: `now` and `window_ms` are both caller-supplied i64,
+        // so the plain subtraction is a reachable overflow (Trust refutes it).
+        let cutoff = now.saturating_sub(self.window_ms);
         self.attempts.retain(|&timestamp| timestamp > cutoff);
     }
 }
@@ -99,6 +101,21 @@ mod tests {
         b.register_recovery_attempt(200);
         // now=224 -> cutoff=124; timestamp 124 is NOT > 124 so it prunes, 200 stays.
         assert_eq!(b.recent_recovery_count(224), 1);
+    }
+
+    /// Extreme clocks must not panic: `now - window_ms` overflowed i64 here before
+    /// the cutoff was made saturating, and a saturated cutoff still prunes nothing
+    /// it should have kept.
+    #[test]
+    fn extreme_clocks_do_not_overflow_the_cutoff() {
+        let mut b = RendererRecoveryCircuitBreaker::new(i64::MAX, 3);
+        b.register_recovery_attempt(0);
+        // cutoff saturates to i64::MIN, so nothing ages out of an infinite window.
+        assert_eq!(b.recent_recovery_count(i64::MIN), 1);
+        // cutoff saturates to i64::MAX, so every attempt ages out.
+        let mut b2 = RendererRecoveryCircuitBreaker::new(i64::MIN, 3);
+        b2.register_recovery_attempt(0);
+        assert_eq!(b2.recent_recovery_count(i64::MAX), 0);
     }
 
     #[test]

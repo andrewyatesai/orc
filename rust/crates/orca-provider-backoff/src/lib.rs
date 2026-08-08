@@ -28,7 +28,7 @@ pub const MAX_ACTIVE_FAILURE_STREAK: u32 = 8;
 /// MAX_ACTIVE_FAILURE_REFETCH_MS)`:
 /// - `streak.saturating_sub(1)` is exactly `max(0, streak - 1)` for a `u32` count
 ///   (streak 0 and 1 both give exponent 0);
-/// - the shift is made **overflow-safe for every streak**: `checked_shl` past the
+/// - the shift is made **overflow-safe for every streak**: an exponent past the
 ///   `u64` width yields the saturating `u64::MAX`, and `saturating_mul`/`min` then
 ///   clamp to the ceiling — so a huge streak can never panic and always returns the
 ///   ceiling, matching the TS (where the analogous `2 ** big` overflows to a value
@@ -36,7 +36,11 @@ pub const MAX_ACTIVE_FAILURE_STREAK: u32 = 8;
 #[must_use]
 pub fn active_failure_refetch_throttle_ms(streak: u32) -> u64 {
     let exp = streak.saturating_sub(1);
-    let multiplier = 1u64.checked_shl(exp).unwrap_or(u64::MAX);
+    // TRUST: the width test is spelled out rather than routed through
+    // `checked_shl(exp).unwrap_or(u64::MAX)` — same value for every `exp`, but
+    // `Option::unwrap_or` is absent from Trust's lowered bundle, so the shift's
+    // panic-freedom could only be discharged at runtime.
+    let multiplier = if exp < u64::BITS { 1u64 << exp } else { u64::MAX };
     ACTIVE_FAILURE_REFETCH_MS
         .saturating_mul(multiplier)
         .min(MAX_ACTIVE_FAILURE_REFETCH_MS)
@@ -71,6 +75,25 @@ mod tests {
         // streak 6: 30_000 * 32 = 960_000 -> capped to 900_000.
         assert_eq!(active_failure_refetch_throttle_ms(6), 900_000);
         assert_eq!(active_failure_refetch_throttle_ms(8), 900_000); // caller's cap
+    }
+
+    /// The width test must agree with the `checked_shl` oracle it replaced on
+    /// every exponent, including the two on either side of the `u64` width.
+    #[test]
+    fn shift_matches_the_checked_shl_oracle() {
+        for streak in 0..=200u32 {
+            let exp = streak.saturating_sub(1);
+            let oracle = 1u64.checked_shl(exp).unwrap_or(u64::MAX);
+            let ours = if exp < u64::BITS { 1u64 << exp } else { u64::MAX };
+            assert_eq!(ours, oracle, "multiplier mismatch at streak={streak}");
+        }
+        for streak in [u32::MAX, u32::MAX - 1, 64, 65] {
+            let exp = streak.saturating_sub(1);
+            assert_eq!(
+                if exp < u64::BITS { 1u64 << exp } else { u64::MAX },
+                1u64.checked_shl(exp).unwrap_or(u64::MAX)
+            );
+        }
     }
 
     #[test]

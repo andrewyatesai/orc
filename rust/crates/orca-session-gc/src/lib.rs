@@ -89,14 +89,24 @@ pub fn plan_session_history_gc(
     let mut eviction_candidates: Vec<&SessionGcPlannerDir> = Vec::new();
     let mut survivor_bytes: u64 = 0;
     for dir in dirs {
-        let is_live = live_dir_names.is_some_and(|s| s.contains(&dir.name));
-        let age_ms = now - dir.last_activity_ms;
+        // `match`, not `is_some_and`: identical, but the closure is a separate
+        // verification unit that inherits the same unlowerable `HashSet::contains`,
+        // so it doubles the diagnostics for no gain.
+        let is_live = match live_dir_names {
+            Some(live) => live.contains(&dir.name),
+            None => false,
+        };
+        // Saturating throughout this loop: `now`, the mtimes and the byte counts all
+        // arrive from the scanner, so every plain `+`/`-` here is a reachable
+        // overflow (Trust refutes all three). Saturation preserves the ordering the
+        // decisions read, so no plan changes for a well-formed scan.
+        let age_ms = now.saturating_sub(dir.last_activity_ms);
         let exempt = is_live || age_ms < thresholds.min_dir_age_ms;
         if should_expire_session_dir(is_live, age_ms, dir.is_ended, liveness_unknown, thresholds) {
             expire.push(dir.name.clone());
             continue;
         }
-        survivor_bytes += dir.total_bytes;
+        survivor_bytes = survivor_bytes.saturating_add(dir.total_bytes);
         // Only non-exempt survivors are size-eviction candidates; live/recent dirs
         // are counted toward the total but never evicted.
         if !exempt && (dir.is_ended || !liveness_unknown) {
@@ -114,7 +124,7 @@ pub fn plan_session_history_gc(
             if remaining_bytes <= max_total_bytes {
                 break;
             }
-            remaining_bytes -= dir.total_bytes;
+            remaining_bytes = remaining_bytes.saturating_sub(dir.total_bytes);
             evict_for_size.push(dir.name.clone());
         }
     }
@@ -164,6 +174,31 @@ mod tests {
         // oldest-first: a(905) then b(915); L spared.
         assert_eq!(plan.evict_for_size, vec!["a".to_string(), "b".to_string()]);
         assert_eq!(plan.remaining_bytes, 200); // only L remains
+    }
+
+    /// A scan whose numbers span the whole i64/u64 range must still produce a plan
+    /// instead of panicking — the age subtraction, the survivor-byte sum and the
+    /// eviction decrement all overflowed here before they were made saturating.
+    #[test]
+    fn extreme_scan_values_do_not_overflow() {
+        let dirs = [
+            d("huge1", u64::MAX, i64::MIN, true),
+            d("huge2", u64::MAX, i64::MIN + 1, true),
+        ];
+        let plan = plan_session_history_gc(&dirs, i64::MAX, 0, false, None, TH);
+        // Both are ancient and ended, so both age-expire and nothing survives.
+        assert_eq!(plan.expire, vec!["huge1".to_string(), "huge2".to_string()]);
+        assert!(plan.evict_for_size.is_empty());
+        assert_eq!(plan.remaining_bytes, 0);
+
+        // Same magnitudes, but inside the ended retention so they survive expiry and
+        // become eviction candidates: the survivor sum saturates instead of wrapping.
+        let dirs = [d("a", u64::MAX, 950, true), d("b", u64::MAX, 940, true)];
+        let plan = plan_session_history_gc(&dirs, 1_000, 0, false, None, TH);
+        assert!(plan.expire.is_empty());
+        // Oldest-first, and the first eviction already reaches the budget.
+        assert_eq!(plan.evict_for_size, vec!["b".to_string()]);
+        assert_eq!(plan.remaining_bytes, 0);
     }
 
     /// Shared corpus (`parity-corpus.txt`) — the same cases the TS planner runs.
