@@ -2020,7 +2020,7 @@ app.whenReady().then(async () => {
     }
     const before = store.getSettings().appMode ?? 'classic'
     const after = store.adoptExternalAppModePin(read)
-    applyAppModeChange(before, after)
+    applyAppModeChange(before, after, store.getSettings().appIcon)
   })
   // Why: GitHub Projects gh calls pin --hostname from workspace remotes (#1715).
   registerProjectsHostRemoteInventory(() =>
@@ -2327,7 +2327,7 @@ app.whenReady().then(async () => {
   // §3.6: a CLI-originated switch must rebuild the menu and icon too, or the
   // radio check state lies until the next unrelated rebuild.
   runtimeService.onAppModeChanged = (before, after) => {
-    applyAppModeChange(before, after)
+    applyAppModeChange(before, after, store?.getSettings().appIcon)
   }
   // Why: §5.2's submit verifier certifies on the agent's own submit hook, and this
   // is the only place the hook server and the runtime meet. Unwired, tier-1 evidence
@@ -2604,7 +2604,11 @@ app.whenReady().then(async () => {
       store.setAppMode(mode)
       // Menu-originated writes pass NO originWebContentsId, or the window that
       // needs the update most would be the one excluded from the broadcast.
-      applyAppModeChange(before, store.getSettings().appMode ?? 'classic')
+      applyAppModeChange(
+        before,
+        store.getSettings().appMode ?? 'classic',
+        store.getSettings().appIcon
+      )
     }
   })
   // Why: parallel E2E Electron instances would race the fixed port (EADDRINUSE); port 0 gives each a random OS-assigned port.

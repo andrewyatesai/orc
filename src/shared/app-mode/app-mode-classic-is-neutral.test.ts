@@ -28,7 +28,8 @@ const NEUTRAL_MANIFEST: AppModeManifest = {
   copyKeyRemap: null,
   appIcon: DEFAULT_APP_ICON_ID,
   appMenuLabelSuffix: null,
-  errorBoundarySurface: 'app-root'
+  errorBoundarySurface: 'app-root',
+  childFacing: false
 }
 
 describe('Classic is neutral', () => {

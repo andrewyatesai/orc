@@ -23,7 +23,9 @@ export type AppModePaneProps = {
    *  never overwritten, so the user keeps whatever they typed. */
   unrecognizedMode: string | null
   onSelect: (mode: AppModeId) => void
-  onRevealSettingsFile: () => void
+  /** null hides the control. A button that silently does nothing is worse than
+   *  an absent one — §7.5's "never present-and-failing" applied to an adult. */
+  onRevealSettingsFile: (() => void) | null
 }
 
 const MODE_SUMMARY: Record<AppModeId, { key: string; fallback: string }> = {
@@ -103,13 +105,15 @@ export default function AppModePane(props: AppModePaneProps): React.JSX.Element 
         )}
       </details>
 
-      <button
-        type="button"
-        className="self-start text-xs underline"
-        onClick={props.onRevealSettingsFile}
-      >
-        {translate('appMode.revealFile', 'Reveal settings file')}
-      </button>
+      {props.onRevealSettingsFile ? (
+        <button
+          type="button"
+          className="self-start text-xs underline"
+          onClick={props.onRevealSettingsFile}
+        >
+          {translate('appMode.revealFile', 'Reveal settings file')}
+        </button>
+      ) : null}
     </div>
   )
 }

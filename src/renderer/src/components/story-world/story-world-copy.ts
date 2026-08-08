@@ -23,14 +23,35 @@ export const BANNED_CHILD_FACING_WORDS: readonly string[] = [
   'stack',
   'traceback',
   'exit code',
-  'stderr'
+  'stderr',
+  // §7.8 bans GIT TERMS too, which the first version of this list omitted.
+  'git',
+  'commit',
+  'branch',
+  'merge',
+  'repository',
+  'repo',
+  'worktree',
+  'crash',
+  'invalid',
+  'timeout'
 ]
 
 /** Paths, hashes and ports are banned as SHAPES rather than words. */
 const BANNED_SHAPES: readonly RegExp[] = [
-  /(?:^|\s)[~/][\w./-]{2,}/, // a filesystem path
+  // A POSIX path anywhere in the string, not only after whitespace — the first
+  // version missed `("/Users/kid/game.js")` because of the leading paren.
+  /[~/][\w.-]+\/[\w./-]*/,
+  // A Windows path: C:\Users\kid\game.js
+  /\b[A-Za-z]:\\[^\s]*/,
+  // A relative source path: src/game.js — no leading slash, so the rules above
+  // never saw it.
+  /\b[\w-]+\/[\w-]+\.[A-Za-z]{1,5}\b/,
+  // A bare filename with a code-ish extension.
+  /\b[\w-]+\.(?:js|ts|tsx|json|html|css|log|sh)\b/i,
   /\b[0-9a-f]{7,40}\b/i, // a git hash
-  /\blocalhost:\d+|\b:\d{2,5}\b/ // a port
+  /\blocalhost:\d+|\b:\d{2,5}\b/, // a port
+  /\bhttps?:\/\//i // a URL
 ]
 
 /**
