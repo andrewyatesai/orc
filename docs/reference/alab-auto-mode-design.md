@@ -23,8 +23,17 @@ because Orca cannot prove such a store is drained.
 
 **The R0 repairs in §11 are landed** (this tree, 2026-07-30) — CLI `ask --task`
 forwarding, the `run-log` handler, orphaned-dispatch reconciliation, agent-verified
-dispatch targeting, and the settle-before-dispatch wait, with tests. Everything else
-here is unbuilt.
+dispatch targeting, and the settle-before-dispatch wait, with tests.
+
+**R0 itself is now complete (2026-08-05).** ~~Everything else here is unbuilt.~~ That
+sentence was true when written and stopped being true four days later. What landed, in
+order: the event journal + input coordinator + cursor-based multi-pane await
+(`d9ebd7635`), `submitAgentPrompt` (`aba8f7134`), Rust schema v9 with run ownership,
+gate policy, `waiting_gate` and the audit ledger (`8492bc171`), v9 wired end to end plus
+`orchestration.runList` (`9492e2f07`), and then the closing set (`2026-08-05`): the §3a
+identity types, the `provider-limit` fact, §6.6's grants with their R0 issuer, the §12
+experimental gate, and the `terminal await` CLI face. §12 carries the per-item detail.
+R1 (§8) is the next unbuilt phase.
 
 ---
 
@@ -266,11 +275,28 @@ enough of it to change this section. What survived:
 | opencode | ✗ (no submit event) | **✓ `promptInteractionKey`** | ✗ | certify; plugin has a documented drop path |
 | gemini | ✗ (`BeforeAgent`, prompt-less) | ✗ | ✓ | **`unknown` only** |
 
-Only claude (2.1.220) and codex (0.146.0) are installed on this machine, so **five rows
-rest on Orca-authored fixtures** — which prove Orca's *parser* accepts a prompt, not
-that the vendor CLI emits one. That is the same standard the spike used to withhold
-certification from gemini, so those five are provisional until a live probe; §10's
+Only claude (2.1.220) and codex (0.146.0) were installed when the spike ran, so **five
+rows rested on Orca-authored fixtures** — which prove Orca's *parser* accepts a prompt,
+not that the vendor CLI emits one. That is the same standard the spike used to withhold
+certification from gemini, so those five were provisional until a live probe; §10's
 matrix reads accordingly.
+
+**Probe update, 2026-08-05.** gemini (0.44.0) and grok (0.1.212) are now installed and
+were checked against the shipped CLI rather than a fixture:
+
+- **gemini — confirmed, and the row stands.** The bundle's hook vocabulary is exactly
+  `BeforeAgent`, `AfterAgent`, `BeforeTool`, `AfterTool`, `BeforeToolSelection`. There
+  is no submit-prompt event at all, so `unknown` is not caution about gemini — it is the
+  only honest verdict available, and no future tier can rescue it without a vendor change.
+- **grok — corroborated.** Orca's installed `~/.grok/hooks/orca-status.json` registers
+  `UserPromptSubmit`, and `normalizeHookEventName` folds that to `user_prompt_submit`,
+  which is what `isGrokEvent` matches. The wiring is real, not fixture-shaped.
+
+**What this is not.** Both were verified from the CLI's own hook vocabulary and
+registration, not from a live turn producing an Orca-observed hook POST. That is
+stronger than an Orca-authored fixture and weaker than a live probe, and the two rows
+are marked accordingly rather than promoted to certified. **cursor, droid and opencode
+are still not installed and stay provisional** — three rows, not five.
 
 **The decisive finding: nothing in the payload distinguishes two submissions to the
 same pane seconds apart.** `promptInteractionKey` exists only for
@@ -1224,25 +1250,42 @@ Phase-2 entry gains a pointer that R3 (§9) supersedes it.
 
 ## 12. Build order
 
-**R0 — Ownership, senses, hands, repairs.** *Landed already:* the §11 repair table.
-*Remaining:* the §3a identity types as real shared types; schema v9 (§4, incl. the run
-adoption story, the `waiting_gate` rebuild + downgrade fence, and reservation
-atomicity) + audit ledger; doc reconciliation; continuous provider-session capture
-(local + SSH envelope); **the main-owned event bus + bounded per-PTY journal** (§5.3 —
-the load-bearing item: no facts exist headlessly today) and the `provider-limit` fact
-on it; input coordinator + `submitAgentPrompt` + `await` with `{runtimeId,
-ptyIncarnationId, eventSeq}` cursors + CLI faces, behind the experimental flag; the
-grant check *and its R0 issuer* (§6.6). ~~First task: measure the submit-evidence
-ladder per agent.~~ **Done — §5.2a.** It changed three things: attribution comes from
-the input lease rather than the payload (no per-turn key exists for five of seven
-agents), the sensing item is publication not production (so smaller), and the
-closed-tab hook drop (`server.ts:1823`) must be made detectable. Remaining spike work:
-a live probe of cursor/droid/grok/opencode/gemini, whose rows rest on Orca-authored
-fixtures rather than observed vendor behavior. *Done when:* an agent
-in one terminal drives a verified turn against a sibling TUI agent via the CLI alone —
-local and SSH — with honest `submitted` evidence (`yes` only where certified,
-`unknown` otherwise); kill-tests at each submit phase produce truthful phase results;
-an await across N panes loses no transition across a return/re-arm cycle.
+**R0 — Ownership, senses, hands, repairs. COMPLETE (2026-08-05).** Every item below is
+landed; the list is kept as the record of what R0 meant rather than rewritten into a
+summary.
+
+| Item | Where it landed |
+| --- | --- |
+| The §11 repair table | `1bef9915a` |
+| Main-owned event bus + bounded per-PTY journal (§5.3 — *the* load-bearing item) | `d9ebd7635` — `terminal-event-journal.ts` |
+| Input coordinator + `submitAgentPrompt` + cursor-based `await` | `d9ebd7635`, `aba8f7134` |
+| Schema v9 (§4): run ownership, gate policy, `waiting_gate` rebuild + downgrade fence, reservation atomicity, audit ledger | `8492bc171`, `9492e2f07` |
+| `orchestration.runList` + split counters (`run-progress.ts`) | `9492e2f07` |
+| §3a identity types as real shared types | `src/shared/fleet-identity/` — RouteKey, StoreKey, PtyBinding. `EventCursor` already existed in `terminal-event-journal-record.ts`, so three types, not four |
+| The `provider-limit` fact | `provider-limit-output-detector.ts` + a new `health` producer tier: armed per agent pane rather than per renderer, since a headless fleet is the case it exists for |
+| Grant check **and its R0 issuer** (§6.6) | `shared/fleet-grant.ts`, `fleet-grant-registry.ts`, `fleet.grantIssue`/`grantRevoke`; enforced in `submitAgentPrompt` before any bytes **and again immediately before Enter** |
+| Fleet-ownership marker made durable | `coordinator.ts` — was an in-memory `Set`, so after a restart the coordinator could drive the human's own agent panes; now recorded in the audit ledger and restored per run |
+| Grant stripping at spawn boundaries | Enforced at *parse* time on every caller-supplied env bag in `rpc/methods/terminal.ts`, plus the durable sleeping-agent config copy — so no spawn path can be reached with the variable intact, and a new one cannot forget it |
+| R0 verbs behind the experimental flag | `experimentalOrchestration` (new; §12 assumed a flag that did not exist) + `ORCA_EXPERIMENTAL_ORCHESTRATION` for headless runtimes |
+| CLI faces | `orca terminal submit` (`aba8f7134`) and `orca terminal await` (new — the spec had no handler); the grant is read from `ORCA_FLEET_GRANT`, never a flag, because a flag lands in shell history and `ps` |
+| Continuous provider-session capture (local + SSH envelope) | Already present: per-entry retention plus `getProviderSessionIdentities`/`onProviderSessionChange` in `agent-hooks/server.ts`, and the relay envelope carries and re-normalizes it on ingest |
+| Doc reconciliation | This pass |
+
+~~First task: measure the submit-evidence ladder per agent.~~ **Done — §5.2a.** It changed
+three things: attribution comes from the input lease rather than the payload (no per-turn
+key exists for five of seven agents), the sensing item is publication not production (so
+smaller), and the closed-tab hook drop must be made detectable — which
+`ClosedPaneHookSuppressionLog` now does.
+
+*Spike follow-up (2026-08-05):* gemini and grok became installable on this machine and
+were probed; see §5.2a. cursor/droid/opencode remain uninstalled and provisional.
+
+*Done when:* an agent in one terminal drives a verified turn against a sibling TUI agent
+via the CLI alone — local and SSH — with honest `submitted` evidence (`yes` only where
+certified, `unknown` otherwise); kill-tests at each submit phase produce truthful phase
+results; an await across N panes loses no transition across a return/re-arm cycle.
+**The machinery for all three is in place and unit-proven; the end-to-end run against two
+live agent panes is the acceptance test to run before calling R1 started.**
 
 **R1 — Router.** The **RateLimitService per-RouteKey refactor** (§8.2 — per-source
 observations, per-route backoff, probe floor; Codex too, not Claude-only); the
