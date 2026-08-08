@@ -7,6 +7,10 @@ import { TERMINAL_METHODS } from './methods/terminal'
 function stubRuntime(overrides: Partial<OrcaRuntimeService>): OrcaRuntimeService {
   return {
     getRuntimeId: () => 'test-runtime',
+    // The fleet write gate (§6.6) runs on every send/key; a double that omits
+    // it would make these suites test a path production does not take.
+    assertFleetWriteGrant: vi.fn(),
+
     ...overrides
   } as OrcaRuntimeService
 }
