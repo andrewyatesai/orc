@@ -92,10 +92,25 @@ describe('source honesty', () => {
     )
   })
 
-  it('reports which sources are not wired, so an empty queue is never mistaken for "all clear"', () => {
-    // A supervisor who believes the queue covers all six will read an empty one
-    // as "nothing is wrong" — the exact failure the queue exists to prevent.
-    expect(unwiredExceptionSources().length).toBeGreaterThan(0)
-    expect(EXCEPTION_SOURCE_STATUS.gate).toBe('wired')
+  it('all six sources are wired, so an empty queue really does mean all clear', () => {
+    // This assertion inverted once the last two landed. It previously required
+    // something to be MISSING, because a supervisor who believes the queue
+    // covers all six would read an empty one as "nothing is wrong". Now that it
+    // does cover all six, that reading is correct — and the caveat line in the
+    // UI disappears with it, driven by this same data.
+    expect(unwiredExceptionSources()).toEqual([])
+    for (const status of Object.values(EXCEPTION_SOURCE_STATUS)) {
+      expect(status).toBe('wired')
+    }
+  })
+
+  it('still reports honestly if a source is ever un-wired again', () => {
+    // The mechanism, not the current state: a future source added as `not-yet`
+    // must reappear in the caveat rather than silently implying coverage.
+    const hypothetical = { ...EXCEPTION_SOURCE_STATUS, attention: 'not-yet' as const }
+    const unwired = Object.keys(hypothetical).filter(
+      (kind) => hypothetical[kind as keyof typeof hypothetical] === 'not-yet'
+    )
+    expect(unwired).toEqual(['attention'])
   })
 })

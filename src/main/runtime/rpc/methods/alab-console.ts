@@ -15,11 +15,13 @@
 import { z } from 'zod'
 import { defineMethod, type RpcAnyMethod } from '../core'
 import { countRunTasks } from '../../orchestration/run-progress'
+import { getStatus } from '../../../git/status'
+import { splitWorktreeIdForFilesystem } from '../../../../shared/worktree-id'
 import {
   describeReconciliation,
   reconcileTaskClaim
 } from '../../orchestration/task-claim-reconciliation'
-import { isCoordinatorRunLive } from './orchestration-gates'
+import { getCoordinatorRunWorktreeId, isCoordinatorRunLive } from './orchestration-gates'
 import type { DispatchContextRow, MessageRow, TaskRow } from '../../orchestration/types'
 
 /** §8.3's six sources, as one row shape. */
@@ -55,7 +57,7 @@ export const ALAB_CONSOLE_METHODS: RpcAnyMethod[] = [
   defineMethod({
     name: 'alab.consoleSnapshot',
     params: ConsoleSnapshotParams,
-    handler: (params, { runtime }) => {
+    handler: async (params, { runtime }) => {
       runtime.assertFleetVerbEnabled('alab.consoleSnapshot')
       const db = runtime.getOrchestrationDb()
       const limit = params.limit ?? 50
@@ -77,6 +79,34 @@ export const ALAB_CONSOLE_METHODS: RpcAnyMethod[] = [
           dispatchByTask.set(task.id, dispatch)
         }
       }
+
+      // Status is read ONCE per worktree, not once per task: a run with fifty
+      // tasks would otherwise spawn fifty git subprocesses every poll tick.
+      const changedByWorktree = new Map<string, string[] | null>()
+      for (const run of runs) {
+        const worktreeId = getCoordinatorRunWorktreeId(run.id) ?? null
+        const worktreePath = worktreeId
+          ? (splitWorktreeIdForFilesystem(worktreeId)?.worktreePath ?? null)
+          : null
+        if (!worktreePath) {
+          // No worktree we can resolve: honestly unknown, not a mismatch.
+          changedByWorktree.set(run.id, null)
+          continue
+        }
+        try {
+          const status = await getStatus(worktreePath)
+          changedByWorktree.set(
+            run.id,
+            status.entries.map((entry) => entry.path)
+          )
+        } catch {
+          // A folder workspace with no git, or an unreadable repo. Both mean
+          // "cannot check", which must never present as a discrepancy.
+          changedByWorktree.set(run.id, null)
+        }
+      }
+      const changedFilesForRun = (runId: string | null): string[] | null =>
+        runId ? (changedByWorktree.get(runId) ?? null) : null
 
       const exceptions: ConsoleException[] = []
 
@@ -126,22 +156,42 @@ export const ALAB_CONSOLE_METHODS: RpcAnyMethod[] = [
         }
       }
 
-      // 4. Escalations. NOT lifecycle rejections or unanswered asks: MessageType
-      // has no member for either (`lifecycle_rejected` and `question` do not
-      // exist), so wiring them would mean inventing a classification the data
-      // cannot support. They stay marked not-yet in EXCEPTION_SOURCE_STATUS, and
-      // the console says so rather than implying six-source coverage.
-      const inbox: MessageRow[] = db.getInbox(limit * 4)
+      // 4, 5 & 6. Escalations, lifecycle rejections and unanswered asks.
+      //
+      // MessageType has no `lifecycle_rejected` or `question` member, so an
+      // earlier version left both unwired. That was wrong about the data rather
+      // than about the design: a rejection is a `worker_done`/`heartbeat` whose
+      // payload the Rust store stamped with `_orcaLifecycleRejection`, and an
+      // unanswered ask is an unread `decision_gate` message that has no reply on
+      // its thread. Both are detectable without inventing a classification.
+      const inbox: MessageRow[] = db.getInbox(limit * 8)
+      const repliedThreads = new Set(
+        inbox
+          .filter((message) => message.type !== 'decision_gate' && message.thread_id)
+          .map((message) => message.thread_id as string)
+      )
       for (const message of inbox) {
-        if (message.type !== 'escalation') {
+        const rejection = lifecycleRejectionReason(message)
+        const kind: ConsoleException['kind'] | null = rejection
+          ? 'lifecycle-rejected'
+          : message.type === 'escalation'
+            ? 'escalation'
+            : // An ask is only an EXCEPTION while nobody has answered it. A read
+              // message, or one whose thread carries a reply, is not waiting.
+              message.type === 'decision_gate' &&
+                message.read === 0 &&
+                !(message.thread_id && repliedThreads.has(message.thread_id))
+              ? 'unanswered-ask'
+              : null
+        if (!kind) {
           continue
         }
         exceptions.push({
           // A message may not name a task; keying on its own id keeps it visible
           // instead of collapsing unrelated messages into one row.
           taskId: extractTaskId(message) ?? `message:${message.id}`,
-          kind: 'escalation',
-          summary: message.subject || message.body.slice(0, 120),
+          kind,
+          summary: rejection ?? message.subject ?? message.body.slice(0, 120),
           workerHandle: message.from_handle,
           attempts: 1,
           at: message.created_at
@@ -154,16 +204,16 @@ export const ALAB_CONSOLE_METHODS: RpcAnyMethod[] = [
         // Dispatch detail for TaskDetail and the fleet board's liveness column.
         dispatches: [...dispatchByTask.values()],
         tasks,
-        // §8.4's claim check. `changedFiles: null` because this runtime has no
-        // worktree bound to a task row — so every verdict is honestly `unknown`
-        // rather than a fabricated match. Wiring real git status per task's
-        // worktree is the remaining half, and it must keep degrading to unknown
-        // on folder workspaces.
+        // §8.4's claim check, against REAL git status. `changedFiles` is null
+        // only when there is genuinely no git to ask — a folder workspace, or a
+        // worktree whose status read failed — and null degrades to `unknown`,
+        // never to `mismatch`. That distinction is the whole reason a supervisor
+        // can trust this row.
         reconciliations: tasks.map((task) => {
           const verdict = reconcileTaskClaim({
             taskStatus: task.status,
             result: task.result,
-            changedFiles: null
+            changedFiles: changedFilesForRun(task.run_id)
           })
           return {
             taskId: task.id,
@@ -176,6 +226,28 @@ export const ALAB_CONSOLE_METHODS: RpcAnyMethod[] = [
     }
   })
 ]
+
+/**
+ * The marker `convert_lifecycle_message_to_rejection` stamps into the payload
+ * (`orchestration.rs`). Its presence — not the message TYPE — is what makes a
+ * `worker_done` a rejection, which is why type-only classification missed it.
+ */
+function lifecycleRejectionReason(message: MessageRow): string | null {
+  if (!message.payload) {
+    return null
+  }
+  try {
+    const parsed: unknown = JSON.parse(message.payload)
+    const marker = (parsed as { _orcaLifecycleRejection?: unknown })?._orcaLifecycleRejection
+    if (typeof marker !== 'object' || marker === null) {
+      return null
+    }
+    const reason = (marker as { reason?: unknown }).reason
+    return typeof reason === 'string' && reason.length > 0 ? reason : 'Rejected by Orca'
+  } catch {
+    return null
+  }
+}
 
 /** Payloads carry a taskId when the sender knew one; there is no column for it. */
 function extractTaskId(message: MessageRow): string | null {
