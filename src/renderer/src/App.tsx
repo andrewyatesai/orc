@@ -314,6 +314,7 @@ function App(): React.JSX.Element {
                 pageContent={
                   <AppPageRouter
                     activeView={activeView}
+                    appMode={vm.appMode}
                     activeWorktreeId={vm.activeWorktreeId}
                     activePendingCreationId={vm.activePendingCreationId}
                     creationLayoutActive={creationLayoutActive}

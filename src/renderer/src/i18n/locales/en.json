@@ -15328,5 +15328,51 @@
       "title": "Mode",
       "description": "Choose how much of Orca is on screen. Switching is instant and changes nothing about your work."
     }
+  },
+  "alab": {
+    "exceptions": {
+      "noWorker": "no worker",
+      "attempts": "attempts",
+      "gateWaiting": "A worker is waiting on you.",
+      "heading": "Needs you",
+      "empty": "Nothing is waiting on you."
+    },
+    "fleet": {
+      "unassigned": "Not part of a mission",
+      "live": "live",
+      "working": "working",
+      "heading": "Fleet",
+      "none": "No agents are running.",
+      "noHeartbeats": "Per-agent heartbeats are not shown yet, so this cannot tell a stuck worker from a finished one."
+    },
+    "console": {
+      "heading": "Fleet",
+      "subheading": "Your files and diffs are hidden here, not closed. Nothing has been stopped."
+    },
+    "mission": {
+      "live": "live",
+      "notLive": "no loop",
+      "done": "done",
+      "failed": "failed",
+      "blocked": "blocked",
+      "dispatched": "dispatched",
+      "waiting": "waiting",
+      "waitingOnYou": "waiting on you",
+      "heading": "Missions",
+      "disconnected": "Lost contact with the runtime.",
+      "none": "No missions yet."
+    }
+  },
+  "storyWorld": {
+    "worlds": {
+      "heading": "My worlds",
+      "create": "Make a new world"
+    },
+    "stage": {
+      "talkTo": "Talk to Claude",
+      "statusLabel": "What is happening",
+      "hint": "Tell Claude what you want. It will build it for you.",
+      "windowComing": "The window that shows your game is not ready yet. Your words still reach Claude."
+    }
   }
 }
