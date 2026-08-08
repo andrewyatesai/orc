@@ -8,6 +8,8 @@ import {
 } from './AppTitlebarControls'
 import type { AppShellViewModel } from './use-app-shell-view-model'
 import type { AppStoreActions } from './use-app-store-actions'
+import { ModeCapsuleSlot } from '../app-mode/ModeCapsuleSlot'
+import { resolveModeCapsule } from '../../../shared/app-mode/app-mode-capability'
 
 type AppTitlebarSlots = {
   titlebarLeftControls: React.ReactNode
@@ -56,7 +58,12 @@ export function useAppTitlebarSlots(params: {
         }}
       />
     ),
-    titlebarMainStrip: (
+    // §5.2's titlebar-strip slot. A mode that claims it OWNS the strip — Story
+    // World puts its only in-window escape here — otherwise Classic's strip
+    // renders unchanged.
+    titlebarMainStrip: resolveModeCapsule(vm.appMode, 'titlebar-strip') ? (
+      <ModeCapsuleSlot mode={vm.appMode} slot="titlebar-strip" />
+    ) : (
       <AppTitlebarMainStrip
         activeView={vm.activeView}
         creationLayoutActive={vm.creationLayoutActive}
