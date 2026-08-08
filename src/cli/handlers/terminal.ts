@@ -111,6 +111,7 @@ export const TERMINAL_HANDLERS: Record<string, CommandHandler> = {
   'terminal send': async ({ flags, client, cwd, json }) => {
     const result = await client.call<{ send: RuntimeTerminalSend }>('terminal.send', {
       terminal: await getTerminalHandle(flags, cwd, client),
+      ...(process.env[FLEET_GRANT_ENV_VAR] ? { grant: process.env[FLEET_GRANT_ENV_VAR] } : {}),
       text: getOptionalStringFlag(flags, 'text'),
       enter: flags.get('enter') === true,
       interrupt: flags.get('interrupt') === true,
@@ -141,6 +142,7 @@ export const TERMINAL_HANDLERS: Record<string, CommandHandler> = {
   'terminal key': async ({ flags, client, cwd, json }) => {
     const result = await client.call<{ key: TerminalKeyResult }>('terminal.key', {
       terminal: await getTerminalHandle(flags, cwd, client),
+      ...(process.env[FLEET_GRANT_ENV_VAR] ? { grant: process.env[FLEET_GRANT_ENV_VAR] } : {}),
       // Sent whole: the chord is parsed server-side by the same module the RPC
       // uses, so `--key ctrl+r` and a structured `modifiers` object cannot drift.
       key: getRequiredStringFlag(flags, 'key')
