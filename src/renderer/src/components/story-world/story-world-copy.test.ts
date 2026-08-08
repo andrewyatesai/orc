@@ -16,6 +16,7 @@ import {
   type StoryAgentState
 } from './story-world-copy'
 import { SEEDED_STARTER_PARTS, seededLabelsObeyCopyRules } from './WorldPartsStrip'
+import { resolveModeManifest } from '../../../../shared/app-mode/app-mode-capability'
 
 /** Every AgentDotState member (§7.8 rule 4 names all eight). */
 const ALL_AGENT_STATES: StoryAgentState[] = [
@@ -121,5 +122,45 @@ describe('the child-facing components themselves', () => {
         safe: true
       })
     }
+  })
+})
+
+describe('the crash path (§7.8 reaches it too)', () => {
+  it('the child-facing crash copy is itself child-safe', () => {
+    // The generic boundary says "This part of Orca hit an error." — the one
+    // child-facing surface the copy rules did not originally reach.
+    for (const text of [
+      'Your game got stuck.',
+      'Nothing is broken. Try again, or show a grown-up.'
+    ]) {
+      expect(isChildSafeCopy(text)).toBe(true)
+    }
+  })
+
+  it('the generic boundary copy would NOT be child-safe, which is why it is overridden', () => {
+    expect(isChildSafeCopy('This part of Orca hit an error.')).toBe(false)
+  })
+
+  it('only the child-facing mode gets child copy', () => {
+    // Keyed off an explicit manifest field. Inferring it from a style variable
+    // would have handed child copy to any future mode that set a font scale.
+    // Through the sanctioned reader, not a raw registry index — the containment
+    // rule applies to tests too, and it caught this exact line.
+    expect(resolveModeManifest('story-world').childFacing).toBe(true)
+    expect(resolveModeManifest('alab').childFacing).toBe(false)
+    expect(resolveModeManifest('classic').childFacing).toBe(false)
+  })
+})
+
+describe('paths and git terms the first predicate missed', () => {
+  it.each([
+    ['a parenthesised POSIX path', 'open ("/Users/kid/game.js")'],
+    ['a Windows path', 'C:\\Users\\kid\\game.js'],
+    ['a relative source path', 'check src/game.js'],
+    ['a bare filename', 'game.js is broken'],
+    ['a git term', 'I will commit that for you'],
+    ['a URL', 'see https://example.com']
+  ])('rejects %s', (_label, text) => {
+    expect(isChildSafeCopy(text)).toBe(false)
   })
 })

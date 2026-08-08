@@ -18,12 +18,15 @@
 
 import { useMemo } from 'react'
 import { translate } from '@/i18n/i18n'
-import { useFleetOrchestrationPoll, type FleetRun } from './use-fleet-orchestration-poll'
+import { useFleetSnapshot, type FleetRun } from './use-fleet-orchestration-poll'
 
 const UNASSIGNED = '__unassigned__'
 
+/** A run with no coordinator handle is not part of a named mission. Falling back
+ *  to `run.id` (which is always present) made UNASSIGNED unreachable and gave
+ *  every such run its own single-row group. */
 function missionKey(run: FleetRun): string {
-  return run.coordinator_handle ?? run.id ?? UNASSIGNED
+  return run.coordinator_handle ?? UNASSIGNED
 }
 
 function MissionGroup({ mission, runs }: { mission: string; runs: FleetRun[] }): React.JSX.Element {
@@ -49,7 +52,12 @@ function MissionGroup({ mission, runs }: { mission: string; runs: FleetRun[] }):
           >
             <span className="truncate">{run.spec || run.id}</span>
             <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">
-              {run.tasks.dispatched} {translate('alab.fleet.working', 'working')}
+              {/* "dispatched" is not "working" when nothing is driving the run:
+                  a stranded row's tasks were handed out and then abandoned. */}
+              {run.tasks.dispatched}{' '}
+              {run.live
+                ? translate('alab.fleet.working', 'working')
+                : translate('alab.fleet.stranded', 'stranded')}
             </span>
           </li>
         ))}
@@ -59,7 +67,7 @@ function MissionGroup({ mission, runs }: { mission: string; runs: FleetRun[] }):
 }
 
 export function FleetBoard(): React.JSX.Element {
-  const { runs, loadedAt } = useFleetOrchestrationPoll()
+  const { runs, loadedAt, error } = useFleetSnapshot()
 
   const groups = useMemo(() => {
     const byMission = new Map<string, FleetRun[]>()
@@ -87,9 +95,15 @@ export function FleetBoard(): React.JSX.Element {
       {groups.map(([mission, missionRuns]) => (
         <MissionGroup key={mission} mission={mission} runs={missionRuns} />
       ))}
-      {loadedAt !== null && groups.length === 0 ? (
+      {error ? (
+        <p className="text-[11px] text-destructive" role="status">
+          {/* Never "no agents are running" on a failed poll — that is a claim
+              about the fleet made from a request that never arrived. */}
+          {translate('alab.fleet.unknown', 'Cannot reach the runtime, so this may be out of date.')}
+        </p>
+      ) : loadedAt !== null && groups.length === 0 ? (
         <p className="text-[11px] text-muted-foreground">
-          {translate('alab.fleet.none', 'No agents are running.')}
+          {translate('alab.fleet.none', 'No coordinator runs.')}
         </p>
       ) : null}
       <p className="mt-auto pt-2 text-[11px] text-muted-foreground">

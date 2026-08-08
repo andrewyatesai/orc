@@ -47,4 +47,11 @@ export type AppModeManifest = {
    *  derives the Keychain item and the userData directory (§2.1). */
   readonly appMenuLabelSuffix: string | null
   readonly errorBoundarySurface: ReactErrorBoundarySurface
+  /**
+   * True when every surface of this mode is read by someone the §7.8 copy rules
+   * protect. Declared rather than inferred: the crash path needed to know, and
+   * keying it off an unrelated style variable would have silently given child
+   * copy to any future mode that happened to set a font scale.
+   */
+  readonly childFacing: boolean
 }

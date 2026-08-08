@@ -48,6 +48,12 @@ function violations(pattern: RegExp, isAllowed: (file: string) => boolean): stri
       continue
     }
     contents.split('\n').forEach((line, index) => {
+      // Comment lines are not executable, and prose explaining this very rule
+      // legitimately quotes the pattern it forbids. Skipping them keeps the
+      // guard about code; a commented-out violation is not a violation.
+      if (/^\s*(?:\/\/|\*|\/\*)/.test(line)) {
+        return
+      }
       if (pattern.test(line)) {
         found.push(`${file}:${index + 1}: ${line.trim()}`)
       }
@@ -92,5 +98,9 @@ describe('app mode containment', () => {
     expect(CLASSIC_MODE_COMPARISON.test("  if (iconId === 'classic') {")).toBe(false)
     expect(UNAMBIGUOUS_MODE_COMPARISON.test("  labelKey: 'appMode.alab',")).toBe(false)
     expect(badIndex.test('  resolveModeManifest(mode)')).toBe(false)
+    // And the comment-skip must not swallow a real violation on a code line.
+    const isComment = /^\s*(?:\/\/|\*|\/\*)/
+    expect(isComment.test("  // mode === 'alab' is forbidden")).toBe(true)
+    expect(isComment.test("  if (mode === 'alab') {")).toBe(false)
   })
 })
