@@ -1,5 +1,9 @@
 import { DEFAULT_APP_MODE_ID, parseAppModeId, type AppModeId } from './app-mode-id'
 
+/** Rung 1 of the ladder: session only, never persisted. For testing, kiosk
+ *  provisioning, and a parent scripting a launcher. */
+export const APP_MODE_ENV_VAR = 'ORCA_APP_MODE'
+
 export type AppModeSource = 'env' | 'lock' | 'project' | 'default' | 'built-in'
 
 export type AppModeResolution = {

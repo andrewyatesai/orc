@@ -60,6 +60,8 @@ import {
   registerAppMenu,
   rebuildAppMenu
 } from './menu/register-app-menu'
+import { applyAppModeChange } from './ipc/app-mode-side-effects'
+import { watchAppModeSidecar } from './app-mode/app-mode-sidecar-file'
 import {
   checkForRemoteServerUpdate,
   checkForUpdatesFromMenu,
@@ -2009,6 +2011,17 @@ app.whenReady().then(async () => {
   const activeOrcaProfile = ensureActiveOrcaProfile()
   store = new Store({ dataFile: activeOrcaProfile.dataFile })
   logStartupMilestone('store-loaded')
+  // §3.5: a hand-edited app-mode.json takes effect on save. The watcher is
+  // unref'd inside watchAppModeSidecar so it never keeps a headless `orca serve`
+  // alive, and it degrades to a no-op where fs.watch is unsupported.
+  watchAppModeSidecar(activeOrcaProfile.dataFile, (read) => {
+    if (!store) {
+      return
+    }
+    const before = store.getSettings().appMode ?? 'classic'
+    const after = store.adoptExternalAppModePin(read)
+    applyAppModeChange(before, after)
+  })
   // Why: GitHub Projects gh calls pin --hostname from workspace remotes (#1715).
   registerProjectsHostRemoteInventory(() =>
     (store?.getRepos() ?? []).flatMap((repo) =>
@@ -2311,6 +2324,11 @@ app.whenReady().then(async () => {
       isAgentStatusHooksEnabled(store?.getSettings()) ? agentHookServer.buildPtyEnv() : {}
   })
   runtime = runtimeService
+  // §3.6: a CLI-originated switch must rebuild the menu and icon too, or the
+  // radio check state lies until the next unrelated rebuild.
+  runtimeService.onAppModeChanged = (before, after) => {
+    applyAppModeChange(before, after)
+  }
   // Why: §5.2's submit verifier certifies on the agent's own submit hook, and this
   // is the only place the hook server and the runtime meet. Unwired, tier-1 evidence
   // never exists and every certified agent can only ever report 'unknown'.
@@ -2571,7 +2589,23 @@ app.whenReady().then(async () => {
         statusBarVisible: ui?.statusBarVisible !== false
       }
     },
-    getKeybindings: () => keybindings?.getOverrides()
+    getKeybindings: () => keybindings?.getOverrides(),
+    // Read live, never captured: registerAppMenu caches its options object, so a
+    // snapshot taken here would go stale on the first switch.
+    getAppModeState: () => {
+      const resolution = store?.getAppModeResolution()
+      return { current: resolution?.mode ?? 'classic', source: resolution?.source ?? 'built-in' }
+    },
+    onSelectAppMode: (mode) => {
+      if (!store) {
+        return
+      }
+      const before = store.getSettings().appMode ?? 'classic'
+      store.setAppMode(mode)
+      // Menu-originated writes pass NO originWebContentsId, or the window that
+      // needs the update most would be the one excluded from the broadcast.
+      applyAppModeChange(before, store.getSettings().appMode ?? 'classic')
+    }
   })
   // Why: parallel E2E Electron instances would race the fixed port (EADDRINUSE); port 0 gives each a random OS-assigned port.
   const isE2E = Boolean(process.env.ORCA_E2E_USER_DATA_DIR)

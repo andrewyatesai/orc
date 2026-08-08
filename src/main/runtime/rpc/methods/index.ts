@@ -9,6 +9,8 @@ import { TERMINAL_AWAIT_METHODS } from './terminal-await'
 import { TERMINAL_CONTEXT_METHODS } from './terminal-context'
 import { TERMINAL_RECORDING_METHODS } from './terminal-recording'
 import { TERMINAL_SUBMIT_METHODS } from './terminal-submit'
+import { FLEET_GRANT_METHODS } from './fleet-grant'
+import { APP_MODE_METHODS } from './app-mode'
 import { TERMINAL_KEY_METHODS } from './terminal-key'
 import { TERMINAL_ORPHAN_METHODS } from './terminal-orphan'
 import { BROWSER_CORE_METHODS } from './browser-core'
@@ -59,6 +61,8 @@ export const ALL_RPC_METHODS: readonly RpcAnyMethod[] = [
   ...TERMINAL_CONTEXT_METHODS,
   ...TERMINAL_RECORDING_METHODS,
   ...TERMINAL_SUBMIT_METHODS,
+  ...FLEET_GRANT_METHODS,
+  ...APP_MODE_METHODS,
   ...TERMINAL_KEY_METHODS,
   ...TERMINAL_ORPHAN_METHODS,
   ...BROWSER_CORE_METHODS,
