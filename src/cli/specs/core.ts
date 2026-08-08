@@ -23,6 +23,29 @@ export const CORE_COMMAND_SPECS: CommandSpec[] = [
     examples: ['orca status', 'orca status --json']
   },
   {
+    path: ['mode', 'show'],
+    summary: 'Show the active app mode and where it was decided',
+    usage: 'orca mode show [--json]',
+    allowedFlags: [...GLOBAL_FLAGS],
+    notes: [
+      'source reports which rung decided it: env, lock, project, default (the settings file) or built-in.',
+      'A locked or env-pinned mode cannot be changed by `orca mode set`; the menu and Settings control are read-only too.'
+    ],
+    examples: ['orca mode show', 'orca mode show --json']
+  },
+  {
+    path: ['mode', 'set'],
+    summary: 'Switch the app mode',
+    usage: 'orca mode set --mode <classic|alab|story-world> [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'mode'],
+    notes: [
+      'Applies live to every open window; no relaunch.',
+      'Writes the app-mode.json settings file, which is hand-editable and is the same rung the menu and Settings pane write.',
+      'Refused when a higher rung (ORCA_APP_MODE, or lock:true in the file) owns the choice.'
+    ],
+    examples: ['orca mode set --mode alab', 'orca mode set --mode classic --json']
+  },
+  {
     path: ['claude-teams'],
     argumentMode: 'passthrough',
     summary: 'Start Claude Code Agent Teams in the current Orca terminal',

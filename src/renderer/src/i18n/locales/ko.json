@@ -75,7 +75,8 @@
     "window": "창",
     "help": "도움말",
     "paste": "붙여넣기",
-    "coordinator": "Coordinator"
+    "coordinator": "Coordinator",
+    "mode": "Mode"
   },
   "tray": {
     "openOrca": "Orca 열기",
@@ -15316,6 +15317,16 @@
       "certificateChallengeChanged": "The certificate request changed. Retry the page and review the new warning.",
       "certificateChallengeUnavailable": "This certificate request is no longer available. Retry the page to request a new one.",
       "certificateProceedFailed": "Orca could not approve this certificate request. Retry the page and try again."
+    }
+  },
+  "appMode": {
+    "unrecognized": "Your settings file names a mode Orca does not recognize. Orca is running in Classic.",
+    "whatChanges": "What this mode changes",
+    "noChanges": "Nothing is hidden. This is the full app.",
+    "revealFile": "Reveal settings file",
+    "settings": {
+      "title": "Mode",
+      "description": "Choose how much of Orca is on screen. Switching is instant and changes nothing about your work."
     }
   }
 }

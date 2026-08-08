@@ -18,6 +18,7 @@ import { selectActiveTerminalChromeState } from '../store/active-terminal-chrome
 import { selectFloatingVisibleTabCount } from '../store/selectors'
 import { useAppStore } from '../store'
 import { shouldMountUpdateCardForStatus } from './remote-workspace-patch-status'
+import { isSurfaceEnabled } from '../../../shared/app-mode/app-mode-capability'
 
 // Every store read and layout derivation the app shell renders from, in one subscription set.
 export function useAppShellViewModel() {
@@ -71,6 +72,7 @@ export function useAppShellViewModel() {
   const rightSidebarExplorerView = useAppStore((s) => s.rightSidebarExplorerView)
   const isFullScreen = useAppStore((s) => s.isFullScreen)
   const settings = useAppStore((s) => s.settings)
+  const appMode = useAppStore((s) => s.settings?.appMode)
   const dictationState = useAppStore((s) => s.dictationState)
   const hasSshCredentialRequest = useAppStore((s) => s.sshCredentialQueue.length > 0)
   const petEnabled = useAppStore((s) => s.settings?.experimentalPet === true)
@@ -122,7 +124,11 @@ export function useAppShellViewModel() {
     hydrationSucceeded,
     keybindings,
     settings,
-    statusBarVisible,
+    appMode,
+    // §5.3 step 1: mode gating composed onto the user's own preference, at the
+    // READ site. `statusBarVisible` below is still the raw persisted value —
+    // nothing here writes it, which is what keeps a round trip lossless.
+    statusBarVisible: statusBarVisible && isSurfaceEnabled(appMode, 'statusBar'),
     sidebarWidth,
     sidebarOpen,
     groupBy,
