@@ -17,8 +17,13 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const REPO_ROOT = join(__dirname, '..', '..', '..')
-/** The one directory allowed to know mode names. */
-const SANCTIONED_DIR = 'src/shared/app-mode/'
+/**
+ * The directories allowed to know mode names. `main/app-mode/` is included
+ * because it owns the sidecar, and "did the user actually choose Classic, or
+ * have they never chosen?" is the question that decides whether the file exists
+ * at all — that is mode-module work, not a leak into unrelated code.
+ */
+const SANCTIONED_DIRS = ['src/shared/app-mode/', 'src/main/app-mode/']
 
 function trackedSourceFiles(): string[] {
   return execFileSync('git', ['ls-files', '*.ts', '*.tsx'], {
@@ -51,7 +56,8 @@ function violations(pattern: RegExp, isAllowed: (file: string) => boolean): stri
   return found
 }
 
-const inSanctionedDir = (file: string): boolean => file.startsWith(SANCTIONED_DIR)
+const inSanctionedDir = (file: string): boolean =>
+  SANCTIONED_DIRS.some((dir) => file.startsWith(dir))
 
 /** `alab` and `story-world` name nothing else in this tree, so any equality
  *  against them is a mode comparison. */
@@ -61,12 +67,12 @@ const UNAMBIGUOUS_MODE_COMPARISON = /[!=]==\s*['"](?:alab|story-world)['"]/
 const CLASSIC_MODE_COMPARISON = /\b\w*[mM]ode\b[^\n]{0,24}?[!=]==\s*['"]classic['"]/
 
 describe('app mode containment', () => {
-  it('no mode-name equality comparison outside src/shared/app-mode/', () => {
+  it('no mode-name equality comparison outside the mode modules', () => {
     expect(violations(UNAMBIGUOUS_MODE_COMPARISON, inSanctionedDir)).toEqual([])
     expect(violations(CLASSIC_MODE_COMPARISON, inSanctionedDir)).toEqual([])
   })
 
-  it('no raw APP_MODE_REGISTRY indexing outside src/shared/app-mode/', () => {
+  it('no raw APP_MODE_REGISTRY indexing outside the mode modules', () => {
     // Indexing with a caller-supplied value is exactly what turns an unknown
     // mode from a silent Classic into a crash. Use the capability reader.
     expect(violations(/APP_MODE_REGISTRY\s*\[/, inSanctionedDir)).toEqual([])

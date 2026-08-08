@@ -27,7 +27,10 @@ import {
   type ProviderLimitOutputDetector
 } from './provider-limit-output-detector'
 import { FleetGrantRegistry } from './fleet-grant-registry'
-import { assertOrchestrationExperimentEnabled } from './rpc/methods/fleet-experimental-gate'
+import {
+  assertOrchestrationExperimentEnabled,
+  isOrchestrationExperimentEnabled
+} from './rpc/methods/fleet-experimental-gate'
 import { DEFAULT_APP_MODE_ID, type AppModeId } from '../../shared/app-mode/app-mode-id'
 import type { AppModeResolution } from '../../shared/app-mode/resolve-app-mode'
 import {
@@ -15346,6 +15349,50 @@ export class OrcaRuntimeService {
         checkGrant: () => this.checkFleetGrantForPane(options.grant ?? null, handle, ptyId)
       }
     )
+  }
+
+  /**
+   * §6.6's grant check for the OTHER two write verbs, `terminal.send` and
+   * `terminal.key`. Without it the grant is decorative: `send --enter` and
+   * `key Enter` are equivalent to a submit, so any caller holding the shared
+   * runtime token could drive an agent pane around both submit checks.
+   *
+   * Three deliberate exemptions, in order:
+   * - The experiment being off means there is no fleet and no manager, so
+   *   behaviour is exactly as shipped. Turning it on is what makes automation
+   *   possible and therefore what makes the gate meaningful.
+   * - Mobile is a HUMAN (§5.1), and §6.6 excepts the human path explicitly. A
+   *   person grabbing a runaway agent from their phone must never need a grant.
+   * - A pane running no agent is not somebody's agent to protect.
+   *
+   * Throws rather than returning a verdict: these verbs have no field to carry
+   * a refusal, and silently dropping the write would look like success.
+   */
+  assertFleetWriteGrant(
+    handle: string,
+    options: { grant?: string | null; clientType?: string | undefined } = {}
+  ): void {
+    if (!isOrchestrationExperimentEnabled(this.store?.getSettings?.() ?? null)) {
+      return
+    }
+    if (options.clientType === 'mobile') {
+      return
+    }
+    let ptyId: string
+    try {
+      ptyId = this.resolveWritableTerminalPtyId(handle)
+    } catch {
+      // Let the verb's own resolution report an unknown handle.
+      return
+    }
+    const pty = this.ptysById.get(ptyId)
+    if (!(pty?.launchAgent ?? pty?.foregroundAgent)) {
+      return
+    }
+    const decision = this.checkFleetGrantForPane(options.grant ?? null, handle, ptyId)
+    if (!decision.allowed) {
+      throw new Error(decision.reason)
+    }
   }
 
   /** Re-evaluated per call (never cached) so the pre-Enter re-check can observe a
