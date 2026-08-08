@@ -34,7 +34,8 @@ const CAPSULES: Partial<Record<AppModeCapsuleId, ComponentType>> = {
   'alab.mission-control': lazy(() => import('@/components/alab/MissionControl')),
   'alab.mission-strip': lazy(() => import('@/components/alab/MissionStrip')),
   'story-world.stage': lazy(() => import('@/components/story-world/StoryStage')),
-  'story-world.worlds-list': lazy(() => import('@/components/story-world/MyWorldsList'))
+  'story-world.worlds-list': lazy(() => import('@/components/story-world/MyWorldsList')),
+  'story-world.strip-header': lazy(() => import('@/components/story-world/StoryStripHeader'))
 }
 
 export type ModeCapsuleSlotProps = {

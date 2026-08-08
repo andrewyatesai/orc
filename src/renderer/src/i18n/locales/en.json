@@ -15373,6 +15373,10 @@
       "statusLabel": "What is happening",
       "hint": "Tell Claude what you want. It will build it for you.",
       "windowComing": "The window that shows your game is not ready yet. Your words still reach Claude."
+    },
+    "strip": {
+      "untitled": "My world",
+      "grownUp": "Show a grown-up"
     }
   }
 }
