@@ -30,6 +30,9 @@ const SENT: TerminalKeyResult = {
 function dispatcherWith(overrides: Partial<OrcaRuntimeService>) {
   const runtime = {
     getRuntimeId: () => 'test-runtime',
+    // The fleet write gate (§6.6) runs on every key press; a double that omits
+    // it would make this suite test a path production does not take.
+    assertFleetWriteGrant: vi.fn(),
     ...overrides
   } as unknown as OrcaRuntimeService
   return new RpcDispatcher({ runtime, methods: TERMINAL_KEY_METHODS })

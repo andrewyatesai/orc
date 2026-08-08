@@ -904,6 +904,9 @@ const TerminalRename = TerminalHandle.extend({
 })
 
 const TerminalSend = TerminalHandle.extend({
+  /** §6.6's bearer grant. Required for agent panes once the fleet experiment is
+   *  on, because `send --enter` is a submit by another name. */
+  grant: z.string().min(1).optional(),
   text: OptionalString,
   enter: z.unknown().optional(),
   interrupt: z.unknown().optional(),
@@ -1296,6 +1299,12 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
     name: 'terminal.send',
     params: TerminalSend,
     handler: async (params, { runtime, clientId }) => {
+      // §6.6: `send --enter` is a submit by another name, so it carries the same
+      // authority requirement once the fleet experiment is on.
+      runtime.assertFleetWriteGrant(params.terminal, {
+        ...(params.grant ? { grant: params.grant } : {}),
+        ...(params.client?.type ? { clientType: params.client.type } : {})
+      })
       await assertTerminalSendTextWithinLimit(params.text)
       const queryReplyClientId = clientId ?? params.client?.id
       if (

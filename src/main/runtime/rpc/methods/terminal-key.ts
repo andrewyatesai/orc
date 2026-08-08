@@ -33,7 +33,11 @@ const TerminalKeyParams = z.object({
   // A key name (`Enter`, `ArrowUp`, `esc`, `f5`, `a`) or a chord (`ctrl+r`).
   // Chord modifiers union with the `modifiers` object rather than override it.
   key: requiredString('Missing key'),
-  modifiers: TerminalKeyModifiers.optional()
+  modifiers: TerminalKeyModifiers.optional(),
+  /** §6.6's bearer grant, required for agent panes once the fleet experiment is on. */
+  grant: z.string().min(1).optional(),
+  /** Mobile is a human (§5.1) and is exempt; the field mirrors terminal.send's. */
+  client: z.object({ id: z.string().optional(), type: z.string().optional() }).optional()
 })
 
 function suppliedModifiers(
@@ -51,6 +55,11 @@ export const TERMINAL_KEY_METHODS: RpcAnyMethod[] = [
     name: 'terminal.key',
     params: TerminalKeyParams,
     handler: async (params, { runtime, signal }) => {
+      // §6.6: `key Enter` submits just as surely as terminal.submit does.
+      runtime.assertFleetWriteGrant(params.terminal, {
+        ...(params.grant ? { grant: params.grant } : {}),
+        ...(params.client?.type ? { clientType: params.client.type } : {})
+      })
       const chord = parseTerminalKeyChord(params.key, suppliedModifiers(params.modifiers))
       return {
         key: await runtime.pressTerminalKey(params.terminal, chord.key, {
