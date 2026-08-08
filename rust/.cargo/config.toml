@@ -11,31 +11,60 @@ directory = "vendor"
 [net]
 offline = true
 
-# COMPILE WITH TRUST. The Trust toolchain (repo-root rust-toolchain, or the
-# machine default) compiles this workspace. In-compilation verification is
-# fail-closed by default; until the Trust-Std campaign turns orc's vendored
-# dependency surface green it is switched off HERE and nowhere else — mirroring
-# ~/aterm/.cargo/config.toml. `targo trust check` is the strict driver meanwhile.
+# COMPILE WITH TRUST, WITH VERIFICATION ON. The Trust toolchain (repo-root
+# rust-toolchain, or the machine default) compiles this workspace, and the
+# batteries-on typed verification pipeline runs during compilation.
 #
-# (2026-07-18: verification-during-compile hung trustc for 4h+ on vendored
-# `memchr` built with feature="std" — a non-cooperative pre-dispatch loop in
-# the verifier pass that never checks the 120s function budget; tracked as a
-# Trust verifier-termination bug. This opt-out is the correct config for an
-# app workspace regardless.)
-# Spelling: `-Ztrust-verify=off` is the consolidated control. `-Zno-trust-verify`
-# was DELETED and fails flag-parse on EVERY unit — build scripts and proc macros
-# included — so nothing under rust/ compiles at all when it is set against a
-# toolchain that lacks it.
+# The 2026-07-18 blanket opt-out is retired; nothing under rust/ turns the
+# verifier off on a build lane any more.
 #
-# This has now flipped twice on toolchain swaps alone, so do not edit it from
-# memory of which spelling "is" right — the answer is a property of the installed
-# stage2, not of the calendar. Run the probe, then match it:
+# WHAT IS VERIFIED / WHAT IS ASSUMED. Every unit is lowered and every obligation
+# is checked, but `advisory` reports verdicts instead of failing on them — so the
+# build is verified-and-reported, NOT verified-clean. The residue is one gap, not
+# many bugs: ~69% of all obligations fail as "absent callee (a std/extern function
+# whose body is not in the lowered bundle)", which no source change reaches. That
+# is the Trust-Std campaign, and until it lands every std call is an assumption.
+#
+# WHY NOT `strict`: `-Ztrust-policy` is a rustflag, and cargo has no per-package
+# rustflags (`[profile.*.package]` takes profile keys only, and Trust's own
+# `-Ztrust-verify-crate-role` says outright it "never changes verifier scope").
+# One policy therefore covers first-party AND vendor. Vendored code holds nothing
+# above advisory; picking strict to gate our crates would only make the workspace
+# refuse to build, and picking advisory is the price of that being workspace-wide.
+# The strict gate survives per crate, as a ratchet — see the probe below.
+#
+# MEMCHR HANG: `memchr` verification did not terminate on stage2 51bf8a270 under
+# any policy (2026-07-18 bug, still live). The step budget below is the fix — a
+# monotone-decreasing preprocessing bound that terminates with the clock disabled,
+# measured verdict-identical from 1e4 to 1e9. Never use the `-ms` wall-clock twin:
+# it silently drops the slowest functions and breaks build reproducibility.
+#
+# PROBE before editing either flag — both spellings are a property of the
+# INSTALLED stage2, not of the calendar, and this has flipped twice on toolchain
+# swaps alone (`-Zno-trust-verify` was DELETED and fails flag-parse on EVERY unit,
+# build scripts included, so nothing under rust/ compiles when it is set):
 #
 #     rustup run trust rustc -Z help | grep trust-verify
 #
-# 2026-08-07: the linked toolchain moved 4c9dc90f4 -> 51bf8a270, which carries
-# the consolidation, so the 4c9dc90f4-era revert to `-Zno-trust-verify=yes` now
-# breaks the build. rust/aterm/.cargo/config.toml has been on the consolidated
-# spelling since 2026-07-28 and kept building — keep these two in step.
+# RATCHET a single crate back to a real gate (advisory is not a gate). RUSTFLAGS
+# overrides this table wholesale, so `-Ztrust-verify=on` must be repeated:
+#
+#     CARGO_TARGET_DIR=target/pol RUSTFLAGS="-Ztrust-verify=on \
+#       -Ztrust-verify-function-budget-steps=100000 -Ztrust-policy=strict" \
+#       cargo build -p orca-stream-split
+#
+# Crates that hold a real policy today: orca-stream-split and orca-provider-backoff
+# at `certify`, aterm-hash at `strict`. Everything else needs the Trust-Std bundle.
 [target.aarch64-apple-darwin]
-rustflags = ["-Ztrust-verify=off"]
+rustflags = [
+  "-Ztrust-verify=on",
+  "-Ztrust-verify-function-budget-steps=100000",
+  "-Ztrust-policy=advisory",
+]
+# Cargo does not forward target rustflags to trustdoc, so doctests would silently
+# fall back to the default — state it rather than inherit it by accident.
+rustdocflags = [
+  "-Ztrust-verify=on",
+  "-Ztrust-verify-function-budget-steps=100000",
+  "-Ztrust-policy=advisory",
+]
