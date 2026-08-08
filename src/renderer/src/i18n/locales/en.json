@@ -15368,6 +15368,21 @@
       "heading": "Missions",
       "disconnected": "Lost contact with the runtime.",
       "none": "No missions yet."
+    },
+    "landing": {
+      "heading": "Ready to look at"
+    },
+    "log": {
+      "heading": "What happened",
+      "unavailable": "Cannot read the log for this run.",
+      "empty": "No log for this run. A restart clears it."
+    },
+    "task": {
+      "status": "Status",
+      "worker": "Worker",
+      "attempts": "Attempts",
+      "lastFailure": "Last failure",
+      "claimedFiles": "Files it says it changed"
     }
   },
   "storyWorld": {

@@ -73,11 +73,18 @@ export type FleetTask = {
   run_id: string | null
 }
 
+export type FleetReconciliation = {
+  taskId: string
+  verdict: string
+  summary: string
+}
+
 export type FleetSnapshot = {
   runs: FleetRun[]
   exceptions: FleetException[]
   dispatches: FleetDispatch[]
   tasks: FleetTask[]
+  reconciliations: FleetReconciliation[]
   /** null until the first SUCCESSFUL response. An error must never present as
    *  "loaded and empty", which reads as "all clear". */
   loadedAt: number | null
@@ -91,6 +98,7 @@ let snapshot: FleetSnapshot = {
   exceptions: [],
   dispatches: [],
   tasks: [],
+  reconciliations: [],
   loadedAt: null,
   error: null
 }
@@ -129,12 +137,14 @@ async function poll(): Promise<void> {
       exceptions: FleetException[]
       dispatches: FleetDispatch[]
       tasks: FleetTask[]
+      reconciliations: FleetReconciliation[]
     }>('alab.consoleSnapshot', { limit: 50 })
     emit({
       runs: result?.runs ?? [],
       exceptions: result?.exceptions ?? [],
       dispatches: result?.dispatches ?? [],
       tasks: result?.tasks ?? [],
+      reconciliations: result?.reconciliations ?? [],
       loadedAt: Date.now(),
       error: null
     })
@@ -201,5 +211,13 @@ export function __resetFleetPollForTests(): void {
   stop()
   subscribers.clear()
   inFlight = false
-  snapshot = { runs: [], exceptions: [], dispatches: [], tasks: [], loadedAt: null, error: null }
+  snapshot = {
+    runs: [],
+    exceptions: [],
+    dispatches: [],
+    tasks: [],
+    reconciliations: [],
+    loadedAt: null,
+    error: null
+  }
 }
