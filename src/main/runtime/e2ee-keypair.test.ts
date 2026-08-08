@@ -1,8 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { E2EE_KEYPAIR_FILENAME } from './mobile-pairing-files'
+import {
+  allowsPlaintextE2EEIdentity,
+  REQUIRE_SEALED_E2EE_IDENTITY_ENV
+} from './e2ee-identity-plaintext-fallback'
 import type { E2EESecretHelperResult } from './e2ee-secret-unseal-host'
 import type { E2EESecretHelperRequest } from './e2ee-secret-unseal-protocol'
 
@@ -59,13 +63,26 @@ async function loadModule() {
   return import('./e2ee-keypair')
 }
 
+/** The headless Linux host this fork targets: no keyring, so the child can never seal. */
+function keychainlessHost(): E2EESecretHelperResult {
+  return { ok: false, reason: 'encryption_unavailable', message: 'no OS encryption' }
+}
+
 let dir = ''
+let warn: MockInstance<typeof console.warn>
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'e2ee-keypair-'))
   helperControl.answer = workingKeychain
   runHelper.mockClear()
+  warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 })
-afterEach(() => rmSync(dir, { recursive: true, force: true }))
+afterEach(() => {
+  rmSync(dir, { recursive: true, force: true })
+  delete process.env[REQUIRE_SEALED_E2EE_IDENTITY_ENV]
+  warn.mockRestore()
+})
+
+const warnedText = () => warn.mock.calls.map((call) => String(call[0])).join('\n')
 
 const filePath = () => join(dir, E2EE_KEYPAIR_FILENAME)
 const readFile = () => JSON.parse(readFileSync(filePath(), 'utf-8'))
@@ -200,6 +217,96 @@ describe('headless keychain context', () => {
     const upgraded = await requireKeypair(dir, 'interactive')
 
     expect(upgraded.publicKeyB64).toBe(minted.publicKeyB64)
+    expect(readFile().secretKeyFormat).toBe('electron-safe-storage-v1')
+  })
+})
+
+/**
+ * The reviewed exception. Persisting this key in cleartext is permitted because refusing does not
+ * cost a re-auth — it mints a different identity next launch and orphans every paired device — but
+ * it must be a decision someone can see, switch off, and read in the logs.
+ */
+describe('cleartext identity fallback policy', () => {
+  it('defaults to allowing the fallback and is switched off by the named env flag', () => {
+    expect(allowsPlaintextE2EEIdentity({})).toBe(true)
+    expect(allowsPlaintextE2EEIdentity({ [REQUIRE_SEALED_E2EE_IDENTITY_ENV]: '1' })).toBe(false)
+    // Only an exact '1' opts out; a stray value must not silently disable mobile pairing.
+    expect(allowsPlaintextE2EEIdentity({ [REQUIRE_SEALED_E2EE_IDENTITY_ENV]: 'true' })).toBe(true)
+  })
+
+  it('warns loudly when a headless mint leaves the private key cleartext at rest', async () => {
+    await requireKeypair(dir, 'headless')
+
+    expect(readFile().secretKeyFormat).toBe('plaintext')
+    expect(warnedText()).toContain('CLEARTEXT')
+    expect(warnedText()).toContain(REQUIRE_SEALED_E2EE_IDENTITY_ENV)
+  })
+
+  it('warns again on every load that leaves the key cleartext, because headless never upgrades', async () => {
+    await requireKeypair(dir, 'headless')
+    warn.mockClear()
+    await requireKeypair(dir, 'headless')
+
+    expect(warnedText()).toContain('CLEARTEXT')
+  })
+
+  it('refuses the whole identity, writing nothing, when the operator requires a sealed one', async () => {
+    process.env[REQUIRE_SEALED_E2EE_IDENTITY_ENV] = '1'
+    helperControl.answer = keychainlessHost
+    const { resolveE2EEIdentity } = await loadModule()
+
+    const resolution = await resolveE2EEIdentity(dir, { keychainContext: 'headless' })
+
+    // Not "mint it and keep it in memory": that pairs devices the next launch silently orphans.
+    expect(resolution).toMatchObject({ ok: false, reason: 'identity_unavailable' })
+    expect(existsSync(filePath())).toBe(false)
+  })
+
+  it('refuses on an interactive host too when the keychain cannot seal', async () => {
+    process.env[REQUIRE_SEALED_E2EE_IDENTITY_ENV] = '1'
+    helperControl.answer = keychainlessHost
+    const { resolveE2EEIdentity } = await loadModule()
+
+    const resolution = await resolveE2EEIdentity(dir, { keychainContext: 'interactive' })
+
+    expect(resolution).toMatchObject({ ok: false, reason: 'identity_unavailable' })
+    expect(existsSync(filePath())).toBe(false)
+  })
+
+  it('spends the keychain budget on a headless mint once the fallback is forbidden', async () => {
+    process.env[REQUIRE_SEALED_E2EE_IDENTITY_ENV] = '1'
+
+    const minted = await requireKeypair(dir, 'headless')
+
+    // The headless skip exists only because plaintext is a lossless alternative; without it, the
+    // bounded helper is the only way the flag can mean "seal" rather than "never pair".
+    expect(runHelper).toHaveBeenCalledWith(expect.objectContaining({ op: 'seal' }))
+    expect(readFile().secretKeyFormat).toBe('electron-safe-storage-v1')
+    expect(minted.secretKey.length).toBe(32)
+  })
+
+  it('leaves an already-paired cleartext install working when the flag is turned on later', async () => {
+    const paired = await requireKeypair(dir, 'headless')
+    const onDiskBefore = readFileSync(filePath(), 'utf-8')
+
+    process.env[REQUIRE_SEALED_E2EE_IDENTITY_ENV] = '1'
+    helperControl.answer = keychainlessHost
+    const reloaded = await requireKeypair(dir, 'headless')
+
+    // The flag governs new cleartext writes; revoking a key already on disk would strand every
+    // paired device for no gain, since the bytes are already there.
+    expect(reloaded.publicKeyB64).toBe(paired.publicKeyB64)
+    expect(readFileSync(filePath(), 'utf-8')).toBe(onDiskBefore)
+    expect(warnedText()).toContain('CLEARTEXT')
+  })
+
+  it('upgrades an existing cleartext identity on a headless launch once sealing is required', async () => {
+    const paired = await requireKeypair(dir, 'headless')
+
+    process.env[REQUIRE_SEALED_E2EE_IDENTITY_ENV] = '1'
+    const reloaded = await requireKeypair(dir, 'headless')
+
+    expect(reloaded.publicKeyB64).toBe(paired.publicKeyB64)
     expect(readFile().secretKeyFormat).toBe('electron-safe-storage-v1')
   })
 })

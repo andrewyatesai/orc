@@ -11,11 +11,11 @@
 //              A call in a dead branch, a sibling `if`, a loop body or another
 //              function satisfies neither half.
 //
-// The registry is (module, name) pairs resolved to declarations. Two of the
-// three predicates are file-local functions, so they can only guard writes in
-// their own file; that is a property of the codebase, not of this resolver, and it
-// is reported as `fileLocal: true` so a reviewer can see why a cross-file write
-// cannot currently be gated.
+// The registry is (module, name) pairs resolved to declarations. A predicate
+// that is only a file-local function can guard writes in its own file alone;
+// that is a property of the codebase, not of this resolver, and it is reported
+// as `fileLocal: true` so a reviewer can see why a cross-file write cannot
+// currently be gated.
 
 import path from 'node:path'
 
@@ -28,8 +28,9 @@ import { declarationKey, resolveReference } from './typescript-symbol-identity.m
 /** The reviewed opt-in predicates. Adding one is a security decision: it must
  *  refuse in packaged/production builds and require an explicit env opt-in. */
 export const SANCTIONED_POLICY_PREDICATES = [
-  { module: 'src/main/persistence.ts', name: 'allowsPlaintextPersistedSecret' },
-  { module: 'src/main/speech/openai-api-key-store.ts', name: 'allowsPlaintextSpeechKey' },
+  // Exported from one module so every store shares one opt-in decision; a per-file copy would be a
+  // different declaration and would have to be sanctioned separately.
+  { module: 'src/main/plaintext-secret-policy.ts', name: 'allowsPlaintextPersistedSecret' },
   {
     module: 'src/main/orca-profiles/profile-cloud-auth-config.ts',
     name: 'allowsPlaintextOrcaCloudSession'

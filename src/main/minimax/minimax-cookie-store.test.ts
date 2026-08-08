@@ -7,8 +7,11 @@ const safeStorageMock = vi.hoisted(() => ({
   decryptString: vi.fn((value: Buffer) => value.toString('utf8'))
 }))
 
+const appMock = vi.hoisted(() => ({ isPackaged: false }))
+
 const electronMock = vi.hoisted(() => ({
-  safeStorage: safeStorageMock
+  safeStorage: safeStorageMock,
+  app: appMock
 }))
 
 vi.mock('electron', () => electronMock)
@@ -39,8 +42,9 @@ vi.mock('../../shared/secure-file', () => ({
   writeSecureFile: writeSecureFileMock
 }))
 
+const PLAINTEXT_OPT_IN_ENV = 'ORCA_ALLOW_PLAINTEXT_PERSISTED_SECRETS'
 const storePath = '/home/test/.orca/minimax-session-cookie.enc'
-const envelope = (kind: 'encrypted' | 'plaintext', value: string): string =>
+const envelope = (kind: 'encrypted' | 'plaintext' | 'dev-plaintext', value: string): string =>
   `orca-minimax-cookie:v1:${kind}:${Buffer.from(value, 'utf8').toString('base64')}`
 
 async function loadStore(): Promise<typeof MiniMaxCookieStore> {
@@ -60,9 +64,12 @@ describe('minimax-cookie-store', () => {
     safeStorageMock.isEncryptionAvailable.mockReturnValue(true)
     safeStorageMock.encryptString.mockImplementation((value: string) => Buffer.from(value))
     safeStorageMock.decryptString.mockImplementation((value: Buffer) => value.toString('utf8'))
+    appMock.isPackaged = false
+    delete process.env[PLAINTEXT_OPT_IN_ENV]
   })
 
   afterEach(() => {
+    delete process.env[PLAINTEXT_OPT_IN_ENV]
     vi.resetModules()
   })
 
@@ -106,15 +113,90 @@ describe('minimax-cookie-store', () => {
     )
   })
 
-  it('warns and writes plaintext when safeStorage is unavailable', async () => {
+  it('refuses to write anything when safeStorage is unavailable and the opt-in is unset', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     safeStorageMock.isEncryptionAvailable.mockReturnValue(false)
     existsSyncMock.mockReturnValue(false)
     const store = await loadStore()
-    store.saveMiniMaxSessionCookie('_token=abc')
-    expect(writeSecureFileMock).toHaveBeenCalledWith(storePath, envelope('plaintext', '_token=abc'))
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('safeStorage encryption unavailable'))
+    expect(() => store.saveMiniMaxSessionCookie('_token=abc')).toThrow(/cannot be stored securely/)
+    expect(writeSecureFileMock).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('kept in memory only'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(PLAINTEXT_OPT_IN_ENV))
     warn.mockRestore()
+  })
+
+  it('keeps a refused cookie usable in memory so this session still reports usage', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    safeStorageMock.isEncryptionAvailable.mockReturnValue(false)
+    existsSyncMock.mockReturnValue(false)
+    const store = await loadStore()
+    expect(() => store.saveMiniMaxSessionCookie('_token=abc')).toThrow()
+    expect(store.readMiniMaxSessionCookie()).toBe('_token=abc')
+    expect(store.hasMiniMaxSessionCookie()).toBe(true)
+    warn.mockRestore()
+  })
+
+  it('writes a dev-plaintext envelope when safeStorage is unavailable and the opt-in is set', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    process.env[PLAINTEXT_OPT_IN_ENV] = '1'
+    safeStorageMock.isEncryptionAvailable.mockReturnValue(false)
+    existsSyncMock.mockReturnValue(false)
+    const store = await loadStore()
+    store.saveMiniMaxSessionCookie('_token=abc')
+    expect(writeSecureFileMock).toHaveBeenCalledWith(
+      storePath,
+      envelope('dev-plaintext', '_token=abc')
+    )
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(PLAINTEXT_OPT_IN_ENV))
+    warn.mockRestore()
+  })
+
+  it('ignores the opt-in in a packaged build so shipped apps can never persist cleartext', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    process.env[PLAINTEXT_OPT_IN_ENV] = '1'
+    appMock.isPackaged = true
+    safeStorageMock.isEncryptionAvailable.mockReturnValue(false)
+    existsSyncMock.mockReturnValue(false)
+    const store = await loadStore()
+    expect(() => store.saveMiniMaxSessionCookie('_token=abc')).toThrow(/cannot be stored securely/)
+    expect(writeSecureFileMock).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('does not fall back to cleartext when encryptString throws', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    safeStorageMock.encryptString.mockImplementation(() => {
+      throw new Error('keychain boom')
+    })
+    existsSyncMock.mockReturnValue(false)
+    const store = await loadStore()
+    expect(() => store.saveMiniMaxSessionCookie('_token=abc')).toThrow(/cannot be stored securely/)
+    expect(writeSecureFileMock).not.toHaveBeenCalled()
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to encrypt'),
+      expect.any(Error)
+    )
+    warn.mockRestore()
+    error.mockRestore()
+  })
+
+  it('writes dev-plaintext when encryptString throws and the opt-in is set', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    process.env[PLAINTEXT_OPT_IN_ENV] = '1'
+    safeStorageMock.encryptString.mockImplementation(() => {
+      throw new Error('keychain boom')
+    })
+    existsSyncMock.mockReturnValue(false)
+    const store = await loadStore()
+    store.saveMiniMaxSessionCookie('_token=abc')
+    expect(writeSecureFileMock).toHaveBeenCalledWith(
+      storePath,
+      envelope('dev-plaintext', '_token=abc')
+    )
+    warn.mockRestore()
+    error.mockRestore()
   })
 
   it('refuses empty cookies', async () => {
@@ -135,6 +217,7 @@ describe('minimax-cookie-store', () => {
     expect(hardenExistingSecureFileMock).toHaveBeenCalledWith(storePath)
     expect(safeStorageMock.decryptString).toHaveBeenCalledTimes(1)
     expect(safeStorageMock.decryptString).toHaveBeenCalledWith(Buffer.from('encrypted-payload'))
+    expect(writeSecureFileMock).not.toHaveBeenCalled()
   })
 
   it('returns null when no file exists', async () => {
@@ -144,22 +227,64 @@ describe('minimax-cookie-store', () => {
   })
 
   it('returns enveloped plaintext when safeStorage is unavailable and reads succeed', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     safeStorageMock.isEncryptionAvailable.mockReturnValue(false)
     existsSyncMock.mockReturnValue(true)
     readFileSyncMock.mockReturnValue(Buffer.from(envelope('plaintext', '_token=plaintext')))
     const store = await loadStore()
     expect(store.readMiniMaxSessionCookie()).toBe('_token=plaintext')
+    expect(writeSecureFileMock).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('stored in cleartext on disk'))
+    warn.mockRestore()
+  })
+
+  it('re-encrypts a legacy plaintext envelope once safeStorage is available', async () => {
+    existsSyncMock.mockReturnValue(true)
+    readFileSyncMock.mockReturnValue(Buffer.from(envelope('plaintext', '_token=legacy-envelope')))
+    const store = await loadStore()
+    expect(store.readMiniMaxSessionCookie()).toBe('_token=legacy-envelope')
+    expect(writeSecureFileMock).toHaveBeenCalledWith(
+      storePath,
+      envelope('encrypted', '_token=legacy-envelope')
+    )
+  })
+
+  it('re-encrypts a dev-plaintext envelope once safeStorage is available', async () => {
+    existsSyncMock.mockReturnValue(true)
+    readFileSyncMock.mockReturnValue(Buffer.from(envelope('dev-plaintext', '_token=dev')))
+    const store = await loadStore()
+    expect(store.readMiniMaxSessionCookie()).toBe('_token=dev')
+    expect(writeSecureFileMock).toHaveBeenCalledWith(storePath, envelope('encrypted', '_token=dev'))
+  })
+
+  it('still returns the cookie when the re-encrypt upgrade write fails', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    existsSyncMock.mockReturnValue(true)
+    readFileSyncMock.mockReturnValue(Buffer.from(envelope('plaintext', '_token=legacy-envelope')))
+    writeSecureFileMock.mockImplementation(() => {
+      throw new Error('disk full')
+    })
+    const store = await loadStore()
+    expect(store.readMiniMaxSessionCookie()).toBe('_token=legacy-envelope')
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to re-encrypt'),
+      expect.any(Error)
+    )
+    warn.mockRestore()
   })
 
   it('reads legacy plaintext cookies when decrypting is unavailable', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     safeStorageMock.isEncryptionAvailable.mockReturnValue(false)
     existsSyncMock.mockReturnValue(true)
     readFileSyncMock.mockReturnValue(Buffer.from('_token=legacy'))
     const store = await loadStore()
     expect(store.readMiniMaxSessionCookie()).toBe('_token=legacy')
+    expect(writeSecureFileMock).not.toHaveBeenCalled()
+    warn.mockRestore()
   })
 
-  it('reads legacy plaintext cookies when decrypting fails', async () => {
+  it('reads legacy plaintext cookies when decrypting fails and re-encrypts them', async () => {
     existsSyncMock.mockReturnValue(true)
     readFileSyncMock.mockReturnValue(Buffer.from('_token=legacy'))
     safeStorageMock.decryptString.mockImplementation(() => {
@@ -167,6 +292,10 @@ describe('minimax-cookie-store', () => {
     })
     const store = await loadStore()
     expect(store.readMiniMaxSessionCookie()).toBe('_token=legacy')
+    expect(writeSecureFileMock).toHaveBeenCalledWith(
+      storePath,
+      envelope('encrypted', '_token=legacy')
+    )
   })
 
   it('does not treat encrypted legacy bytes as plaintext when safeStorage is unavailable', async () => {

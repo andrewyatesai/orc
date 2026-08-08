@@ -2,14 +2,16 @@
 request plumbing share one boundary so encrypted token lifecycle and
 multi-site selection cannot drift between task operations. */
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { net, safeStorage, session } from 'electron'
+import { net, session } from 'electron'
 import {
   CredentialDecryptionError,
-  credentialFileHasContent,
-  readStoredCredentialToken
+  readStoredCredentialTokenFile,
+  removeStoredCredentialToken,
+  storedCredentialExists,
+  writeStoredCredentialToken
 } from '../integration-credential-file'
 import { ensureElectronProxyForRequest } from '../network/proxy-settings'
 import { withSpan } from '../observability/tracer'
@@ -130,7 +132,7 @@ function emptySiteFile(): JiraSiteFile {
 }
 
 function hasStoredToken(siteId: string): boolean {
-  return cachedTokens.has(siteId) || credentialFileHasContent(getTokenPath(siteId))
+  return cachedTokens.has(siteId) || storedCredentialExists(getTokenPath(siteId))
 }
 
 function normalizeSite(input: unknown): JiraSite | null {
@@ -223,31 +225,17 @@ function writeSiteFile(file: JiraSiteFile): void {
   })
 }
 
-function writeEncryptedToken(path: string, apiToken: string): void {
-  if (safeStorage.isEncryptionAvailable()) {
-    writeFileSync(path, safeStorage.encryptString(apiToken), { mode: 0o600 })
-    return
-  }
-  console.warn('[jira] safeStorage encryption unavailable — storing token in plaintext')
-  writeFileSync(path, apiToken, { encoding: 'utf-8', mode: 0o600 })
-}
-
 function readToken(siteId: string): string | null {
   const cached = cachedTokens.get(siteId)
   if (cached !== undefined) {
     return cached
   }
-  const path = getTokenPath(siteId)
-  if (!existsSync(path)) {
-    return null
-  }
   try {
-    const raw = readFileSync(path)
-    const token = readStoredCredentialToken('Jira', raw)
+    const token = readStoredCredentialTokenFile('Jira', getTokenPath(siteId))
     if (token) {
       cachedTokens.set(siteId, token)
+      credentialErrors.delete(siteId)
     }
-    credentialErrors.delete(siteId)
     return token
   } catch (error) {
     if (error instanceof CredentialDecryptionError) {
@@ -258,10 +246,12 @@ function readToken(siteId: string): string | null {
   }
 }
 
+// Why the token stays cached even when nothing was written: without a keychain the write is refused,
+// and the in-memory copy is what keeps this session connected until the user reconnects after restart.
 function saveToken(siteId: string, apiToken: string): void {
   ensureOrcaDir()
   ensureTokenDir()
-  writeEncryptedToken(getTokenPath(siteId), apiToken)
+  writeStoredCredentialToken('Jira', getTokenPath(siteId), apiToken)
   cachedTokens.set(siteId, apiToken)
   credentialErrors.delete(siteId)
 }
@@ -269,11 +259,7 @@ function saveToken(siteId: string, apiToken: string): void {
 function deleteToken(siteId: string): void {
   cachedTokens.delete(siteId)
   credentialErrors.delete(siteId)
-  try {
-    unlinkSync(getTokenPath(siteId))
-  } catch {
-    // Token may not exist — safe to ignore.
-  }
+  removeStoredCredentialToken(getTokenPath(siteId))
 }
 
 export function normalizeJiraSiteUrl(siteUrl: string): string {

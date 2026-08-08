@@ -6,6 +6,13 @@ import { join } from 'node:path'
 import { generateKeyPair } from '../../shared/e2ee-crypto'
 import { hardenExistingSecureFile, writeSecureJsonFile } from '../../shared/secure-file'
 import {
+  allowsPlaintextE2EEIdentity,
+  SEALED_E2EE_IDENTITY_REQUIRED_MESSAGE,
+  warnPlaintextE2EEIdentityLoaded,
+  warnPlaintextE2EEIdentityMinted,
+  warnSealedE2EEIdentityRequired
+} from './e2ee-identity-plaintext-fallback'
+import {
   runE2EESecretHelper,
   type E2EESecretHelperOptions,
   type E2EESecretHelperResult
@@ -26,6 +33,13 @@ type EncryptedKeypairFile = {
   secretKeyCiphertextB64: string
 }
 
+/**
+ * The reviewed exception: a cleartext-at-rest private key, 0600, written only when the keychain
+ * cannot seal and `allowsPlaintextE2EEIdentity()` permits it. Kept because this key is a durable
+ * identity — refusing to persist it orphans every paired device on the next launch rather than
+ * costing a re-auth — and upgraded to the sealed envelope on the next interactive load. The full
+ * argument, and the operator opt-out, live in e2ee-identity-plaintext-fallback.ts.
+ */
 type PlaintextKeypairFile = {
   v: 2
   publicKeyB64: string
@@ -96,8 +110,20 @@ export async function resolveE2EEIdentity(
     if (decoded.kind === 'ok') {
       const keypair = toKeypair(raw.publicKeyB64, decoded.secretKeyB64)
       if (keypair) {
-        if (decoded.wasPlaintext && keychainContext === 'interactive') {
-          await migratePlaintextEnvelope(filePath, raw.publicKeyB64, decoded.secretKeyB64, options)
+        // Whether an upgrade is worth a keychain call is sealSecretKeyB64's decision alone, so a
+        // headless load still pays nothing while the plaintext fallback is permitted.
+        const upgraded = decoded.wasPlaintext
+          ? await migratePlaintextEnvelope(
+              filePath,
+              raw.publicKeyB64,
+              decoded.secretKeyB64,
+              options
+            )
+          : false
+        if (decoded.wasPlaintext && !upgraded) {
+          // Why warn on load too: a headless host never upgrades, so the one mint-time warning would
+          // otherwise be the only trace that a cleartext identity key is sitting on this machine.
+          warnPlaintextE2EEIdentityLoaded(keychainContext)
         }
         return { ok: true, keypair }
       }
@@ -165,7 +191,12 @@ async function sealSecretKeyB64(
 ): Promise<string | null> {
   // Why: minting/migration have a lossless fallback (0600 plaintext, upgraded on the next
   // interactive load), so a headless launch never spends the helper budget on an unanswerable prompt.
-  if ((options.keychainContext ?? 'interactive') !== 'interactive') {
+  // Once an operator forbids that fallback nothing lossless is left, so the bounded attempt (child
+  // process, hard 5s kill) is worth making even with nobody there to answer a prompt.
+  if (
+    (options.keychainContext ?? 'interactive') !== 'interactive' &&
+    allowsPlaintextE2EEIdentity()
+  ) {
     return null
   }
   const sealed: E2EESecretHelperResult = await runE2EESecretHelper(
@@ -175,12 +206,13 @@ async function sealSecretKeyB64(
   return sealed.ok && sealed.op === 'seal' ? sealed.ciphertextB64 : null
 }
 
+/** True once the on-disk envelope is sealed; false leaves the cleartext secret in place. */
 async function migratePlaintextEnvelope(
   filePath: string,
   publicKeyB64: string,
   secretKeyB64: string,
   options: E2EEKeypairResolveOptions
-): Promise<void> {
+): Promise<boolean> {
   // Why: upgrade legacy/plaintext-on-disk secrets to the encrypted envelope once the keychain
   // answers, so at-rest exposure closes. Best-effort: the loaded keypair is valid either way.
   try {
@@ -192,10 +224,12 @@ async function migratePlaintextEnvelope(
         secretKeyFormat: 'electron-safe-storage-v1',
         secretKeyCiphertextB64: ciphertextB64
       } satisfies EncryptedKeypairFile)
+      return true
     }
   } catch {
     // Migration is best-effort; the loaded keypair is still valid.
   }
+  return false
 }
 
 async function mintKeypair(
@@ -206,6 +240,15 @@ async function mintKeypair(
   const publicKeyB64 = Buffer.from(keypair.publicKey).toString('base64')
   const secretKeyB64 = Buffer.from(keypair.secretKey).toString('base64')
   const ciphertextB64 = await sealSecretKeyB64(secretKeyB64, options)
+  if (!ciphertextB64 && !allowsPlaintextE2EEIdentity()) {
+    // Why refuse the whole identity and not just the write: an unpersisted identity still pairs
+    // devices, then the next launch mints a different one and silently orphans every one of them.
+    warnSealedE2EEIdentityRequired()
+    return refuse('identity_unavailable', SEALED_E2EE_IDENTITY_REQUIRED_MESSAGE)
+  }
+  if (!ciphertextB64) {
+    warnPlaintextE2EEIdentityMinted(options.keychainContext ?? 'interactive')
+  }
   try {
     writeSecureJsonFile(
       filePath,

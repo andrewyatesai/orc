@@ -282,26 +282,12 @@ import {
 import { track } from './telemetry/client'
 import { getCohortAtEmit } from './telemetry/cohort-classifier'
 import { isStartupDiagnosticsEnabled, logStartupDiagnostic } from './startup/startup-diagnostics'
-
-// Why tag persisted secrets by how they were stored: a plaintext value must never be silently read
-// back and trusted as if it were decrypted ciphertext, and a genuine ciphertext must never be mistaken
-// for plaintext (which would double-encrypt or leak it). Untagged legacy values keep their old meaning.
-const ENCRYPTED_SECRET_PREFIX = 'orca-safestorage-v1:'
-const PLAINTEXT_SECRET_PREFIX = 'orca-plaintext-v1:'
-
-// Why: production — especially headless/SSH hosts where safeStorage is routinely unavailable — must never
-// silently persist secrets in cleartext. A dev may opt in explicitly, mirroring allowsPlaintextOrcaCloudSession.
-function allowsPlaintextPersistedSecret(env: NodeJS.ProcessEnv = process.env): boolean {
-  let packaged = false
-  try {
-    packaged = app?.isPackaged === true
-  } catch {
-    packaged = false
-  }
-  return (
-    env.ORCA_ALLOW_PLAINTEXT_PERSISTED_SECRETS === '1' && env.NODE_ENV !== 'production' && !packaged
-  )
-}
+import {
+  allowsPlaintextPersistedSecret,
+  ENCRYPTED_SECRET_PREFIX,
+  PLAINTEXT_SECRET_OPT_IN_ENV,
+  PLAINTEXT_SECRET_PREFIX
+} from './plaintext-secret-policy'
 
 // Why: `isEncryptionAvailable()` answers "does this platform support encryption", NOT "can this
 // process reach a keychain". On macOS a process without the login keychain in its security session
@@ -350,12 +336,12 @@ function encrypt(plaintext: string): string {
   }
   if (allowsPlaintextPersistedSecret()) {
     console.warn(
-      '[persistence] safeStorage unavailable — persisting secret in plaintext (dev opt-in ORCA_ALLOW_PLAINTEXT_PERSISTED_SECRETS).'
+      `[persistence] safeStorage unavailable — persisting secret in plaintext (dev opt-in ${PLAINTEXT_SECRET_OPT_IN_ENV}).`
     )
     return PLAINTEXT_SECRET_PREFIX + plaintext
   }
   console.warn(
-    '[persistence] safeStorage unavailable — secret kept in memory only, not written to disk. Set ORCA_ALLOW_PLAINTEXT_PERSISTED_SECRETS=1 (dev builds) to persist in plaintext.'
+    `[persistence] safeStorage unavailable — secret kept in memory only, not written to disk. Set ${PLAINTEXT_SECRET_OPT_IN_ENV}=1 (dev builds) to persist in plaintext.`
   )
   return ''
 }

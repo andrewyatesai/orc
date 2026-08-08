@@ -1,7 +1,11 @@
-import { app, safeStorage } from 'electron'
+import { safeStorage } from 'electron'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import {
+  allowsPlaintextPersistedSecret,
+  PLAINTEXT_SECRET_OPT_IN_ENV
+} from '../plaintext-secret-policy'
 
 type StoredOpenAiKey = {
   encryptedKeyBase64: string
@@ -36,21 +40,6 @@ function getOpenAiPlaintextKeyPath(): string {
 function envProvidedKey(): string | null {
   const value = process.env[OPENAI_SPEECH_API_KEY_ENV]?.trim()
   return value ? value : null
-}
-
-// Why: a secret must never be silently written in cleartext — the fork targets headless/SSH Linux hosts
-// where safeStorage is routinely unavailable. A dev may opt in explicitly (non-prod, unpackaged), mirroring
-// persistence.ts's allowsPlaintextPersistedSecret so the whole app shares one opt-in flag.
-function allowsPlaintextSpeechKey(env: NodeJS.ProcessEnv = process.env): boolean {
-  let packaged = false
-  try {
-    packaged = app?.isPackaged === true
-  } catch {
-    packaged = false
-  }
-  return (
-    env.ORCA_ALLOW_PLAINTEXT_PERSISTED_SECRETS === '1' && env.NODE_ENV !== 'production' && !packaged
-  )
 }
 
 function readLegacyJsonStoredOpenAiKey(): StoredOpenAiKey | null {
@@ -92,7 +81,7 @@ export function saveOpenAiSpeechApiKey(apiKey: string): void {
     return
   }
 
-  if (!allowsPlaintextSpeechKey()) {
+  if (!allowsPlaintextPersistedSecret()) {
     // Why: keep the key in memory so the running session still works, but refuse to write cleartext.
     cachedOpenAiSpeechApiKey = trimmed
     throw new Error(
@@ -102,7 +91,7 @@ export function saveOpenAiSpeechApiKey(apiKey: string): void {
   }
 
   console.warn(
-    '[speech] safeStorage unavailable and ORCA_ALLOW_PLAINTEXT_PERSISTED_SECRETS opt-in set — storing OpenAI speech key in plaintext'
+    `[speech] safeStorage unavailable and ${PLAINTEXT_SECRET_OPT_IN_ENV} opt-in set — storing OpenAI speech key in plaintext`
   )
   writeFileSync(getOpenAiPlaintextKeyPath(), trimmed, { encoding: 'utf8', mode: 0o600 })
   // Why: never leave a `.enc`-named file holding cleartext — remove any prior encrypted key.

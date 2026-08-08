@@ -1,7 +1,6 @@
 /* eslint-disable max-lines -- Why: Linear credential storage and client
    selection share one module so keychain-safe status reads and token mutation
    stay in one consistency boundary. */
-import { safeStorage } from 'electron'
 import type { LinearClient } from '@linear/sdk'
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -9,8 +8,10 @@ import { join } from 'node:path'
 import { loadLinearSdk, type LinearSdkModule } from './linear-sdk'
 import {
   CredentialDecryptionError,
-  credentialFileHasContent,
-  readStoredCredentialToken
+  readStoredCredentialTokenFile,
+  removeStoredCredentialToken,
+  storedCredentialExists,
+  writeStoredCredentialToken
 } from '../integration-credential-file'
 import type {
   LinearConnectionStatus,
@@ -332,24 +333,14 @@ function clearLegacyViewerOnDisk(): void {
   }
 }
 
-function writeEncryptedToken(path: string, apiKey: string): void {
-  if (safeStorage.isEncryptionAvailable()) {
-    const encrypted = safeStorage.encryptString(apiKey)
-    writeFileSync(path, encrypted, { mode: 0o600 })
-    return
-  }
-
-  console.warn('[linear] safeStorage encryption unavailable — storing token in plaintext')
-  writeFileSync(path, apiKey, { encoding: 'utf-8', mode: 0o600 })
-}
-
+// Why the key stays cached even when nothing was written: without a keychain the write is refused,
+// and the in-memory copy is what keeps this session connected until the user reconnects after restart.
 function saveWorkspaceToken(workspaceId: string, apiKey: string): void {
   ensureOrcaDir()
   if (workspaceId !== LEGACY_WORKSPACE_ID) {
     ensureWorkspaceTokenDir()
   }
-  const tokenPath = getWorkspaceTokenPath(workspaceId)
-  writeEncryptedToken(tokenPath, apiKey)
+  writeStoredCredentialToken('Linear', getWorkspaceTokenPath(workspaceId), apiKey)
   cachedTokens.set(workspaceId, apiKey)
   credentialErrors.delete(workspaceId)
 }
@@ -371,17 +362,12 @@ export function loadToken(options: { force?: boolean; workspaceId?: string } = {
   if (!options.force) {
     return null
   }
-  const tokenPath = getWorkspaceTokenPath(workspaceId)
-  if (!existsSync(tokenPath)) {
-    return null
-  }
   try {
-    const raw = readFileSync(tokenPath)
-    const token = readStoredCredentialToken('Linear', raw)
+    const token = readStoredCredentialTokenFile('Linear', getWorkspaceTokenPath(workspaceId))
     if (token) {
       cachedTokens.set(workspaceId, token)
+      credentialErrors.delete(workspaceId)
     }
-    credentialErrors.delete(workspaceId)
     return token
   } catch (error) {
     if (error instanceof CredentialDecryptionError) {
@@ -399,17 +385,13 @@ export function hasStoredToken(workspaceId?: string): boolean {
   if (cachedTokens.has(workspaceId)) {
     return true
   }
-  return credentialFileHasContent(getWorkspaceTokenPath(workspaceId))
+  return storedCredentialExists(getWorkspaceTokenPath(workspaceId))
 }
 
 function clearTokenFile(workspaceId: string): void {
   cachedTokens.delete(workspaceId)
   credentialErrors.delete(workspaceId)
-  try {
-    unlinkSync(getWorkspaceTokenPath(workspaceId))
-  } catch {
-    // File may not exist — safe to ignore.
-  }
+  removeStoredCredentialToken(getWorkspaceTokenPath(workspaceId))
 }
 
 export function clearToken(workspaceId?: string): void {

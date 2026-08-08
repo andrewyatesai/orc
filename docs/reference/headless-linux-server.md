@@ -145,6 +145,24 @@ in a child process with a hard timeout, so a keychain that never answers costs
 a named refusal instead of a hung server). Paired devices stay valid across
 `e2ee_key_unsealable` — do not delete the identity to "fix" it.
 
+### The pairing identity at rest
+
+A headless host usually has no usable OS keychain, so `orca serve` writes the
+E2EE identity's private key to `orca-e2ee-keypair.json` in the Orca data
+directory in cleartext, owner-only (`0600`), and logs a warning on every launch
+that leaves it that way. That is deliberate: this key is a durable identity, not
+a re-acquirable credential — the paired phone stores its public half and the
+relay derives the host id from it, so refusing to persist it would mint a
+different identity on the next restart and silently orphan every paired device.
+An interactive launch of the same install upgrades the file to a keychain-sealed
+envelope automatically.
+
+Set `ORCA_REQUIRE_SEALED_E2EE_IDENTITY=1` to refuse instead. The server then
+attempts the keychain even in headless mode, and if it cannot seal, no identity
+is created and pairing reports `e2ee_key_unavailable`. Turning the flag on later
+does not disturb an identity already on disk; existing pairings keep working and
+the file is upgraded as soon as the keychain answers.
+
 ## Systemd Service
 
 Create a dedicated service user and install directory. Run the service as this

@@ -106,8 +106,10 @@ function pairingUnavailable(
 
 const DEVICE_REGISTRY_UNAVAILABLE_GUIDANCE =
   'The pairing registry is unavailable. Verify that the Orca data directory is writable.'
+// Why both causes: an identity can also be refused on purpose (ORCA_REQUIRE_SEALED_E2EE_IDENTITY),
+// and this canned text is all the operator sees — the exact reason only reaches the desktop log.
 const E2EE_KEY_UNAVAILABLE_GUIDANCE =
-  'The E2EE identity is unavailable. Verify that the Orca data directory is writable.'
+  'The E2EE identity is unavailable. Verify that the Orca data directory is writable, and — if ORCA_REQUIRE_SEALED_E2EE_IDENTITY=1 is set — that the OS keychain can seal it. The desktop log carries the exact reason.'
 const E2EE_KEY_UNSEALABLE_GUIDANCE =
   'The stored E2EE identity could not be unsealed from the OS keychain. Launch the Orca app once on this machine and allow keychain access, then retry; paired devices remain valid.'
 
