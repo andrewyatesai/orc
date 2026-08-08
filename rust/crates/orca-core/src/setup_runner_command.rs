@@ -65,9 +65,17 @@ fn wsl_unc_to_linux_path(windows_path: &str) -> String {
     };
     // After the prefix: `<distro>(/<path>)?`. The distro is up to the first `/`;
     // the path (from that `/` to the end) is the Linux path, else `/`.
-    let after = &normalized[prefix.len()..];
-    match after.find('/') {
-        Some(slash) if slash > 0 => after[slash..].to_string(),
+    // `to_ascii_lowercase` preserves byte length, so `prefix.len()` is always a
+    // boundary here; `get`/`split_once` say so totally instead of asserting it.
+    let Some(after) = normalized.get(prefix.len()..) else {
+        return "/".to_string();
+    };
+    match after.split_once('/') {
+        Some((distro, tail)) if !distro.is_empty() => {
+            let mut linux_path = String::from("/");
+            linux_path.push_str(tail);
+            linux_path
+        }
         _ => "/".to_string(),
     }
 }

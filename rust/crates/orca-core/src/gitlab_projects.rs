@@ -24,7 +24,7 @@ pub fn compute_next_gitlab_recents(
     now_iso: &str,
     max: usize,
 ) -> Vec<GitLabRecentEntry> {
-    let mut result = Vec::with_capacity(existing.len() + 1);
+    let mut result = Vec::with_capacity(existing.len().saturating_add(1).min(crate::MAX_PREALLOC_HINT));
     result.push(GitLabRecentEntry {
         host: host.to_string(),
         path: path.to_string(),

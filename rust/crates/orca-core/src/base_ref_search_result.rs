@@ -14,8 +14,11 @@ pub struct BaseRefSearchResult {
 
 pub fn derive_legacy_local_branch_name(ref_name: &str) -> String {
     for prefix in LEGACY_REMOTE_REF_PREFIXES {
-        if ref_name.starts_with(prefix) && ref_name.len() > prefix.len() {
-            return ref_name[prefix.len()..].to_string();
+        if let Some(rest) = ref_name.strip_prefix(prefix) {
+            // A non-empty remainder ≙ the old `len > prefix.len()`.
+            if !rest.is_empty() {
+                return rest.to_string();
+            }
         }
     }
     ref_name.to_string()

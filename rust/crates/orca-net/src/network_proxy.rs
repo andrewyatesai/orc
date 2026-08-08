@@ -57,8 +57,9 @@ fn parse_proxy_url(input: &str) -> Option<ParsedProxyUrl> {
     {
         return None;
     }
-    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let authority = &rest[..authority_end];
+    // `split(..).next()` is the whole prefix before the first delimiter (or all of
+    // `rest`), same as slicing at `find`, without the unprovable index.
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
     let (userinfo, hostport) = match authority.rsplit_once('@') {
         Some((user, host)) => (user, host),
         None => ("", authority),
@@ -67,8 +68,12 @@ fn parse_proxy_url(input: &str) -> Option<ParsedProxyUrl> {
         Some((user, pass)) => (user.to_string(), pass.to_string()),
         None => (userinfo.to_string(), String::new()),
     };
+    // Built by push rather than `format!`: the `core::fmt` machinery drags inlined
+    // std unsafe into a crate that forbids it, which Trust cannot discharge.
+    let mut protocol = scheme.to_ascii_lowercase();
+    protocol.push(':');
     Some(ParsedProxyUrl {
-        protocol: format!("{}:", scheme.to_ascii_lowercase()),
+        protocol,
         username,
         password,
         hostname: hostport.split(':').next().unwrap_or(hostport).to_string(),
@@ -77,14 +82,21 @@ fn parse_proxy_url(input: &str) -> Option<ParsedProxyUrl> {
 }
 
 fn format_proxy_url(url: &ParsedProxyUrl) -> String {
-    let auth = if url.username.is_empty() && url.password.is_empty() {
-        String::new()
-    } else if url.password.is_empty() {
-        format!("{}@", url.username)
-    } else {
-        format!("{}:{}@", url.username, url.password)
-    };
-    format!("{}//{}{}", url.protocol, auth, url.host)
+    // Same `{protocol}//[{user}[:{pass}]@]{host}` shape as the `format!` this
+    // replaces; pushes keep the `core::fmt` machinery's inlined std unsafe out.
+    let mut out = String::new();
+    out.push_str(&url.protocol);
+    out.push_str("//");
+    if !url.username.is_empty() || !url.password.is_empty() {
+        out.push_str(&url.username);
+        if !url.password.is_empty() {
+            out.push(':');
+            out.push_str(&url.password);
+        }
+        out.push('@');
+    }
+    out.push_str(&url.host);
+    out
 }
 
 pub fn normalize_proxy_url(value: Option<&str>) -> ProxyUrlValidation {
@@ -114,13 +126,24 @@ pub fn normalize_proxy_bypass_rules(value: Option<&str>) -> String {
     let Some(value) = value else {
         return String::new();
     };
-    let limited: String = value.chars().take(PROXY_BYPASS_RULES_MAX_LENGTH).collect();
-    limited
-        .split([';', ',', '\n'])
-        .map(str::trim)
-        .filter(|rule| !rule.is_empty())
-        .collect::<Vec<_>>()
-        .join(";")
+    // Built by push rather than `collect`: a collect's element count is not derivable
+    // from the optimized MIR, so Trust cannot bound the bulk allocation.
+    let mut limited = String::new();
+    for ch in value.chars().take(PROXY_BYPASS_RULES_MAX_LENGTH) {
+        limited.push(ch);
+    }
+    let mut joined = String::new();
+    for rule in limited.split([';', ',', '\n']) {
+        let rule = rule.trim();
+        if rule.is_empty() {
+            continue;
+        }
+        if !joined.is_empty() {
+            joined.push(';');
+        }
+        joined.push_str(rule);
+    }
+    joined
 }
 
 fn lookup<'a>(env: &'a [(&str, &str)], key: &str) -> Option<&'a str> {
@@ -256,6 +279,35 @@ mod tests {
             }),
             BTreeMap::new()
         );
+    }
+
+    #[test]
+    fn formats_every_authority_shape_and_authority_terminator() {
+        // format_proxy_url's four auth shapes (none / user / user:pass / pass-only)
+        // and each of the three characters that ends the authority.
+        assert_eq!(normalize_proxy_url(Some("http://h:1")).value, "http://h:1");
+        assert_eq!(normalize_proxy_url(Some("http://u@h")).value, "http://u@h");
+        assert_eq!(normalize_proxy_url(Some("http://u:p@h")).value, "http://u:p@h");
+        assert_eq!(normalize_proxy_url(Some("http://:p@h")).value, "http://:p@h");
+        for terminated in ["http://h/path", "http://h?q=1", "http://h#frag"] {
+            assert_eq!(normalize_proxy_url(Some(terminated)).value, "http://h");
+        }
+        // Terminator in the very first position leaves an empty authority → no host.
+        assert!(!normalize_proxy_url(Some("http:///x")).ok);
+        // Scheme case is normalized; the host is not.
+        assert_eq!(normalize_proxy_url(Some("HTTP://Proxy.EXAMPLE")).value, "http://Proxy.EXAMPLE");
+    }
+
+    #[test]
+    fn bypass_rules_are_truncated_at_the_character_budget() {
+        // The `take(N)` cap counts characters, not bytes, and a rule cut in half by
+        // the cap is still emitted (matching the pre-rewrite collect+join).
+        let long = "é".repeat(PROXY_BYPASS_RULES_MAX_LENGTH + 10);
+        let rules = normalize_proxy_bypass_rules(Some(&long));
+        assert_eq!(rules.chars().count(), PROXY_BYPASS_RULES_MAX_LENGTH);
+        assert_eq!(normalize_proxy_bypass_rules(Some(";;, ,\n")), "");
+        assert_eq!(normalize_proxy_bypass_rules(None), "");
+        assert_eq!(normalize_proxy_bypass_rules(Some("solo")), "solo");
     }
 
     #[test]

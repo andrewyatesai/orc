@@ -9,17 +9,21 @@
 //! byte run), mirroring the TS `Uint8Array` + `TextDecoder` path. The octal
 //! arm's totality is proof-carried in `orca-git/proofs/ay/decode_total`.
 
+// Every `chars[i]` below is `chars.get(i)`: `n` is `Vec::len`, an opaque value
+// the verifier cannot relate back to the buffer, so an `i < n` guard proves
+// nothing about the index. `get` returns None exactly where the index panicked,
+// and each None arm takes the same exit the guard already took.
 pub fn decode_git_cquoted_path(value: &str) -> String {
     let chars: Vec<char> = value.chars().collect();
     let n = chars.len();
-    if n < 2 || chars[0] != '"' || chars[n - 1] != '"' {
+    if n < 2 || chars.first() != Some(&'"') || chars.last() != Some(&'"') {
         return value.to_string();
     }
 
     let mut decoded = String::new();
     let mut index = 1;
     while index < n - 1 {
-        let ch = chars[index];
+        let Some(&ch) = chars.get(index) else { break };
         if ch != '\\' {
             decoded.push(ch);
             index += 1;
@@ -27,10 +31,9 @@ pub fn decode_git_cquoted_path(value: &str) -> String {
         }
 
         index += 1;
-        if index >= n {
+        let Some(&escaped) = chars.get(index) else {
             break;
-        }
-        let escaped = chars[index];
+        };
         match escaped {
             'a' => decoded.push('\u{0007}'),
             'b' => decoded.push('\u{0008}'),
@@ -48,10 +51,15 @@ pub fn decode_git_cquoted_path(value: &str) -> String {
                 let mut bytes: Vec<u8> = Vec::new();
                 loop {
                     let mut octal = String::new();
-                    octal.push(chars[index]);
-                    while index + 1 < n - 1 && octal.len() < 3 && chars[index + 1].is_digit(8) {
+                    let Some(&first) = chars.get(index) else { break };
+                    octal.push(first);
+                    while octal.len() < 3 && index + 1 < n - 1 {
+                        let Some(&digit) = chars.get(index + 1) else { break };
+                        if !digit.is_digit(8) {
+                            break;
+                        }
                         index += 1;
-                        octal.push(chars[index]);
+                        octal.push(digit);
                     }
                     if let Ok(value) = u32::from_str_radix(&octal, 8) {
                         // `\777` (511) wraps to a u8 the same way Uint8Array does.
@@ -59,8 +67,8 @@ pub fn decode_git_cquoted_path(value: &str) -> String {
                     }
                     // Continue only if another `\NNN` escape follows immediately.
                     if index + 2 < n
-                        && chars[index + 1] == '\\'
-                        && chars[index + 2].is_digit(8)
+                        && chars.get(index + 1) == Some(&'\\')
+                        && chars.get(index + 2).is_some_and(|c| c.is_digit(8))
                     {
                         index += 2; // step onto the next byte's first octal digit
                     } else {

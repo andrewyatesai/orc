@@ -15,6 +15,13 @@
 #![cfg_attr(trust_verify, feature(register_tool))]
 #![cfg_attr(trust_verify, register_tool(trust))]
 
+/// Ceiling on a `with_capacity` hint derived from untrusted input length.
+/// Capacity is only a hint, so clamping it cannot change any result — it caps a
+/// pre-allocation an attacker-sized string would otherwise dictate, and gives
+/// Trust the dominating check its `unbounded_allocation` obligation asks for.
+/// 1 MiB is far above any path/URL/id this crate handles.
+pub(crate) const MAX_PREALLOC_HINT: usize = 1 << 20;
+
 pub mod agent_kind;
 pub mod agent_notification_id;
 pub mod agent_recognition;

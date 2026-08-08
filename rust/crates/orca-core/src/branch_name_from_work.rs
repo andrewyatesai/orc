@@ -15,10 +15,9 @@ pub const MAX_BRANCH_NAME_WORDS: usize = 4;
 
 /// Strip a single trailing `-<digits>` collision suffix (`-2`, `-17`, …).
 fn strip_collision_suffix(s: &str) -> &str {
-    if let Some(idx) = s.rfind('-') {
-        let suffix = &s[idx + 1..];
+    if let Some((head, suffix)) = s.rsplit_once('-') {
         if !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()) {
-            return &s[..idx];
+            return head;
         }
     }
     s
@@ -39,12 +38,21 @@ pub fn is_auto_generated_creature_branch_name(branch_leaf: &str) -> bool {
 /// when nothing usable remains (callers treat that as "skip the rename").
 pub fn sanitize_branch_slug(raw: &str, max_words: usize) -> String {
     let lower = raw.to_lowercase();
-    lower
+    // Join straight into the output instead of collecting first: the caller-sized
+    // `take(max_words)` makes the intermediate Vec's element count underivable
+    // (an `unbounded_allocation` obligation), and the Vec bought nothing.
+    let mut slug = String::new();
+    for word in lower
         .split(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit()))
         .filter(|s| !s.is_empty())
         .take(max_words)
-        .collect::<Vec<_>>()
-        .join("-")
+    {
+        if !slug.is_empty() {
+            slug.push('-');
+        }
+        slug.push_str(word);
+    }
+    slug
 }
 
 /// `sanitize_branch_slug` with the default word cap.

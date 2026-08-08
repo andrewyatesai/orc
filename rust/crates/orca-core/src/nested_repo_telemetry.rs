@@ -183,7 +183,7 @@ pub fn build_nested_repo_import_result_telemetry(
     let already_known_count = cap_nested_repo_telemetry_count(result.map_or(0, |r| r.already_known_count) as f64);
     let failed_count =
         cap_nested_repo_telemetry_count(result.map_or(capped_selected, |r| r.failed_count) as f64);
-    let accepted = imported_count + already_known_count;
+    let accepted = imported_count.saturating_add(already_known_count);
     let outcome = if accepted == 0 {
         "failed"
     } else if failed_count > 0 {

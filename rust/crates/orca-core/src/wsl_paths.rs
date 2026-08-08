@@ -16,19 +16,26 @@ pub fn parse_wsl_unc_path(path: &str) -> Option<WslUncPathInfo> {
     let normalized = path.replace('\\', "/");
     let rest = normalized.strip_prefix("//")?;
     let rest_lower = rest.to_lowercase();
+    // The separator is folded into the constant so the offset needs no `+ 1`
+    // (an add on an opaque `str::len` the verifier can't bound).
     let prefix_len = if rest_lower.starts_with("wsl.localhost/") {
-        "wsl.localhost".len()
+        "wsl.localhost/".len()
     } else if rest_lower.starts_with("wsl$/") {
-        "wsl$".len()
+        "wsl$/".len()
     } else {
         return None;
     };
 
-    // Skip the matched prefix and its trailing '/'.
-    let after_prefix = &rest[prefix_len + 1..];
-    let (distro, remainder) = match after_prefix.find('/') {
-        Some(i) => (&after_prefix[..i], &after_prefix[i..]),
-        None => (after_prefix, ""),
+    let after_prefix = rest.get(prefix_len..)?;
+    // `split_once` drops the `/`; the Linux path keeps it, and no `/` at all
+    // means the distro root — both as before.
+    let (distro, linux_path) = match after_prefix.split_once('/') {
+        Some((distro, tail)) => {
+            let mut linux_path = String::from("/");
+            linux_path.push_str(tail);
+            (distro, linux_path)
+        }
+        None => (after_prefix, "/".to_string()),
     };
     if distro.is_empty() {
         return None;
@@ -36,11 +43,7 @@ pub fn parse_wsl_unc_path(path: &str) -> Option<WslUncPathInfo> {
 
     Some(WslUncPathInfo {
         distro: distro.to_string(),
-        linux_path: if remainder.is_empty() {
-            "/".to_string()
-        } else {
-            remainder.to_string()
-        },
+        linux_path,
     })
 }
 

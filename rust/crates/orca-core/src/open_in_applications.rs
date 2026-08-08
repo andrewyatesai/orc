@@ -37,7 +37,7 @@ fn trim_token(value: &Option<String>) -> String {
 }
 
 fn make_fallback_id(index: usize) -> String {
-    format!("open-in-{}", index + 1)
+    format!("open-in-{}", index.saturating_add(1))
 }
 
 /// `value` is `None` when the persisted field is absent (not an array);

@@ -42,10 +42,17 @@ fn provider_for_host(host: &str) -> Option<(&'static str, HostedRemoteProvider)>
 }
 
 fn trim_git_suffix(path: &str) -> &str {
-    if path.len() >= 4 && path[path.len() - 4..].eq_ignore_ascii_case(".git") {
-        &path[..path.len() - 4]
-    } else {
-        path
+    // `path[path.len() - 4..]` PANICKED whenever byte len-4 fell inside a
+    // codepoint (`trim_git_suffix("éabc")`), and a remote URL is user data.
+    // `split_at_checked` returns None there, which lands in the no-trim arm the
+    // comparison would have taken anyway (".git" is 4 ASCII bytes, so a real
+    // match always sits on a boundary).
+    let Some(cut) = path.len().checked_sub(4) else {
+        return path;
+    };
+    match path.split_at_checked(cut) {
+        Some((head, tail)) if tail.eq_ignore_ascii_case(".git") => head,
+        _ => path,
     }
 }
 
@@ -60,15 +67,15 @@ fn clean_remote_path(path: &str) -> Option<String> {
 
 /// `^([a-z]+):([^/].+)$` — a `host:path` shorthand (e.g. `github:o/r`).
 fn match_shorthand(s: &str) -> Option<(&str, &str)> {
-    let colon = s.find(':')?;
-    if colon == 0 {
+    // `split_once` over `find` + index arithmetic: the pair is total, so no
+    // slice-bounds obligation is generated at all.
+    let (scheme, rest) = s.split_once(':')?;
+    if scheme.is_empty() {
         return None;
     }
-    let scheme = &s[..colon];
     if !scheme.chars().all(|c| c.is_ascii_alphabetic()) {
         return None;
     }
-    let rest = &s[colon + 1..];
     if rest.is_empty() || rest.starts_with('/') {
         return None;
     }
@@ -76,9 +83,8 @@ fn match_shorthand(s: &str) -> Option<(&str, &str)> {
 }
 
 fn is_scheme_url(s: &str) -> bool {
-    match s.find("://") {
-        Some(idx) if idx > 0 => {
-            let scheme = &s[..idx];
+    match s.split_once("://") {
+        Some((scheme, _)) if !scheme.is_empty() => {
             scheme.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
                 && scheme.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
         }
@@ -88,16 +94,14 @@ fn is_scheme_url(s: &str) -> bool {
 
 /// `^(?:[^@/:]+@)?([^:\s/]+):([^\s]+)$` — scp-like `[user@]host:path`.
 fn match_scp_like(s: &str) -> Option<(&str, &str)> {
-    let after_user = match s.find('@') {
-        Some(at) if !s[..at].is_empty() && !s[..at].contains(['/', ':']) => &s[at + 1..],
+    let after_user = match s.split_once('@') {
+        Some((user, rest)) if !user.is_empty() && !user.contains(['/', ':']) => rest,
         _ => s,
     };
-    let colon = after_user.find(':')?;
-    let host = &after_user[..colon];
+    let (host, path) = after_user.split_once(':')?;
     if host.is_empty() || host.contains('/') || host.chars().any(char::is_whitespace) {
         return None;
     }
-    let path = &after_user[colon + 1..];
     if path.is_empty() || path.chars().any(char::is_whitespace) {
         return None;
     }
@@ -106,15 +110,21 @@ fn match_scp_like(s: &str) -> Option<(&str, &str)> {
 
 /// Extract `(scheme, host, pathname)` from `scheme://[user@]host[:port]/path`.
 fn parse_scheme_url(s: &str) -> Option<(String, String, String)> {
-    let idx = s.find("://")?;
-    let scheme = s[..idx].to_ascii_lowercase();
-    let rest = &s[idx + 3..];
-    let path_start = rest.find('/').unwrap_or(rest.len());
-    let authority = &rest[..path_start];
-    let pathname = &rest[path_start..];
+    let (raw_scheme, rest) = s.split_once("://")?;
+    let scheme = raw_scheme.to_ascii_lowercase();
+    // `split_once` drops the separator, so the pathname's leading `/` is put back
+    // explicitly; no `/` at all means an empty pathname, as before.
+    let (authority, pathname) = match rest.split_once('/') {
+        Some((authority, tail)) => {
+            let mut pathname = String::from("/");
+            pathname.push_str(tail);
+            (authority, pathname)
+        }
+        None => (rest, String::new()),
+    };
     let host_port = authority.rsplit('@').next().unwrap_or(authority);
     let host = host_port.split(':').next().unwrap_or(host_port);
-    Some((scheme, host.to_string(), pathname.to_string()))
+    Some((scheme, host.to_string(), pathname))
 }
 
 pub fn parse_hosted_remote(remote_url: &str) -> Option<HostedRemote> {
@@ -262,5 +272,67 @@ mod tests {
         .unwrap();
         assert!(url.contains("/blob/feature%2Fx%20y/"), "{url}");
         assert!(url.contains("/src/a%20file.rs#L7"), "{url}");
+    }
+
+    /// The pre-fix `trim_git_suffix` did `path[path.len() - 4..]`, which panics
+    /// when byte `len - 4` lands inside a codepoint. Reached from the PUBLIC
+    /// entry point with a remote URL git itself accepts, so the panic was live.
+    #[test]
+    fn parses_multibyte_repo_paths_where_the_git_suffix_cut_is_mid_codepoint() {
+        // "éabc" is 5 bytes; len - 4 = 1 is the middle of 'é'.
+        assert_eq!(
+            parse_hosted_remote("https://github.com/owner/éabc"),
+            Some(HostedRemote {
+                host: "github.com".to_string(),
+                path: "owner/éabc".to_string(),
+                provider: HostedRemoteProvider::GitHub,
+            })
+        );
+        // Same cut position reached through the scp-like and shorthand forms.
+        assert_eq!(
+            parse_hosted_remote("git@gitlab.com:owner/日本語x").map(|r| r.path),
+            Some("owner/日本語x".to_string())
+        );
+        assert_eq!(
+            parse_hosted_remote("github:owner/😀abc").map(|r| r.path),
+            Some("owner/😀abc".to_string())
+        );
+        // The trim itself still fires for a real `.git`, in any case.
+        assert_eq!(
+            parse_hosted_remote("https://github.com/owner/éabc.git").map(|r| r.path),
+            Some("owner/éabc".to_string())
+        );
+        assert_eq!(
+            parse_hosted_remote("https://github.com/owner/repo.GIT").map(|r| r.path),
+            Some("owner/repo".to_string())
+        );
+    }
+
+    /// Sweep the cut position across a multibyte alphabet: every input must
+    /// return, and trimming must agree with a byte-exact `.git` suffix test.
+    #[test]
+    fn git_suffix_trim_is_total_over_multibyte_paths() {
+        let alphabet = [".", "g", "i", "t", "é", "日", "😀"];
+        let mut path = String::new();
+        for a in alphabet {
+            for b in alphabet {
+                for c in alphabet {
+                    for d in alphabet {
+                        path.clear();
+                        for part in [a, b, c, d] {
+                            path.push_str(part);
+                        }
+                        let trimmed = trim_git_suffix(&path);
+                        let expected = path
+                            .len()
+                            .checked_sub(4)
+                            .and_then(|cut| path.split_at_checked(cut))
+                            .filter(|(_, tail)| tail.eq_ignore_ascii_case(".git"))
+                            .map_or(path.as_str(), |(head, _)| head);
+                        assert_eq!(trimmed, expected, "{path:?}");
+                    }
+                }
+            }
+        }
     }
 }

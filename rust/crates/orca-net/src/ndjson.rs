@@ -44,7 +44,8 @@ impl NdjsonSplitter {
         Self {
             buffer: String::new(),
             discarding_oversized: false,
-            max_line_bytes: max_line_bytes.max(1),
+            // Explicit compare, not `.max(1)`: Trust cannot model `Ord::max`'s body.
+            max_line_bytes: if max_line_bytes == 0 { 1 } else { max_line_bytes },
         }
     }
 
@@ -64,9 +65,10 @@ impl NdjsonSplitter {
     pub fn feed(&mut self, chunk: &str, out: &mut Vec<NdjsonEvent>) {
         let mut remaining = chunk;
         while !remaining.is_empty() {
-            // '\n' is ASCII, so its byte index is a valid char boundary for slicing.
-            let (segment, rest, has_newline) = match remaining.find('\n') {
-                Some(i) => (&remaining[..i], &remaining[i + 1..], true),
+            // `split_once` rather than `find` + index: it yields both halves without a
+            // slice-bounds obligation on an index Trust models as unconstrained.
+            let (segment, rest, has_newline) = match remaining.split_once('\n') {
+                Some((segment, rest)) => (segment, rest, true),
                 None => (remaining, "", false),
             };
             remaining = rest;
@@ -81,7 +83,9 @@ impl NdjsonSplitter {
             }
 
             // UTF-8 byte lengths (String::len / str::len), matching Buffer.byteLength utf8.
-            let next_line_bytes = self.buffer.len() + segment.len();
+            // Two live allocation lengths can never sum past usize::MAX, but `len()` is
+            // opaque to Trust, so spell the non-overflow out.
+            let next_line_bytes = self.buffer.len().saturating_add(segment.len());
             if next_line_bytes > self.max_line_bytes {
                 out.push(NdjsonEvent::Oversized { observed_bytes: next_line_bytes });
                 self.buffer.clear();
@@ -122,7 +126,12 @@ impl NdjsonSplitter {
 /// Encode a JSON string as one NDJSON record (`{json}\n`), mirroring `encodeNdjson`.
 #[must_use]
 pub fn encode_ndjson_line(json: &str) -> String {
-    let mut s = String::with_capacity(json.len() + 1);
+    // Capacity is only a reservation, so capping the hint at the line budget leaves
+    // the result identical while giving the up-front allocation a constant bound
+    // (an unbounded `json.len()` reservation is an unprovable bulk allocation).
+    let exact = json.len().saturating_add(1);
+    let hint = if exact > NDJSON_MAX_LINE_BYTES { NDJSON_MAX_LINE_BYTES } else { exact };
+    let mut s = String::with_capacity(hint);
     s.push_str(json);
     s.push('\n');
     s

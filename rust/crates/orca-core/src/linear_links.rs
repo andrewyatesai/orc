@@ -55,10 +55,9 @@ pub struct ParsedLinearIssueInput {
 /// class excludes `-` and the suffix is all digits, a valid match has exactly one
 /// `-` — the first one splits prefix from the digit run.
 fn matches_linear_identifier_pattern(value: &str) -> bool {
-    let Some(dash) = value.find('-') else {
+    let Some((prefix, suffix)) = value.split_once('-') else {
         return false;
     };
-    let (prefix, suffix) = (&value[..dash], &value[dash + 1..]);
     if suffix.is_empty() || !suffix.bytes().all(|b| b.is_ascii_digit()) {
         return false;
     }
@@ -91,13 +90,15 @@ fn parse_absolute_url(input: &str) -> Option<(String, Vec<String>)> {
         std::borrow::Cow::Borrowed(rest)
     };
     let rest: &str = normalized.as_ref();
+    // `split_at_checked` is total, so the two cuts generate no bounds obligation;
+    // both offsets come from `find`/`len` and are always boundaries.
     let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let authority = &rest[..authority_end];
+    let (authority, after_authority) = rest.split_at_checked(authority_end)?;
     let host = authority.rsplit('@').next().unwrap_or(authority);
     let hostname = host.split(':').next().unwrap_or(host);
-    let after_authority = &rest[authority_end..];
     let path_end = after_authority.find(['?', '#']).unwrap_or(after_authority.len());
-    let segments = after_authority[..path_end]
+    let (path, _) = after_authority.split_at_checked(path_end)?;
+    let segments = path
         .split('/')
         .filter(|segment| !segment.is_empty())
         .map(str::to_string)
@@ -127,7 +128,7 @@ pub fn parse_linear_issue_input(input: &str) -> Option<ParsedLinearIssueInput> {
     let raw_identifier = segments
         .iter()
         .position(|segment| segment.as_str() == "issue")
-        .and_then(|issue_index| segments.get(issue_index + 1))?;
+        .and_then(|issue_index| segments.get(issue_index.saturating_add(1)))?;
     // Decode then take up to the first `/ ? #`, matching `split(/[/?#]/)[0]`. Both
     // decodes fail CLOSED (`?` -> None) to mirror the TS `decodeURIComponent` throw
     // being caught by the surrounding try/catch (-> null on a malformed %-escape).

@@ -100,23 +100,24 @@ fn normalize_segments(rest: &str) -> Vec<&str> {
 fn posix_relative(from: &str, to: &str) -> String {
     let f = normalize_segments(from);
     let t = normalize_segments(to);
-    let mut i = 0;
-    while i < f.len() && i < t.len() && f[i] == t[i] {
-        i += 1;
-    }
-    let mut parts: Vec<&str> = vec![".."; f.len() - i];
-    parts.extend_from_slice(&t[i..]);
+    // zip/take_while + skip carry the `common <= len` bound structurally; the
+    // hand-rolled index loop leaves it as an underivable relation on `Vec::len`.
+    let common = f.iter().zip(t.iter()).take_while(|(a, b)| a == b).count();
+    let mut parts: Vec<&str> = vec![".."; f.len().saturating_sub(common)];
+    parts.extend(t.iter().skip(common).copied());
     parts.join("/")
 }
 
 fn split_drive(p: &str) -> (String, String) {
     let fp = p.replace('\\', "/");
-    let b = fp.as_bytes();
-    if b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
-        (fp[0..2].to_lowercase(), fp[2..].to_string())
-    } else {
-        (String::new(), fp)
+    let has_drive = matches!(fp.as_bytes(), [drive, b':', ..] if drive.is_ascii_alphabetic());
+    if has_drive {
+        // Two leading ASCII bytes, so byte 2 is always a char boundary.
+        if let Some((drive, rest)) = fp.split_at_checked(2) {
+            return (drive.to_lowercase(), rest.to_string());
+        }
     }
+    (String::new(), fp)
 }
 
 fn win32_relative(from: &str, to: &str) -> String {
@@ -128,12 +129,13 @@ fn win32_relative(from: &str, to: &str) -> String {
     }
     let f = normalize_segments(&rest_from);
     let t = normalize_segments(&rest_to);
-    let mut i = 0;
-    while i < f.len() && i < t.len() && f[i].eq_ignore_ascii_case(t[i]) {
-        i += 1;
-    }
-    let mut parts: Vec<String> = vec!["..".to_string(); f.len() - i];
-    parts.extend(t[i..].iter().map(|s| s.to_string()));
+    let common = f
+        .iter()
+        .zip(t.iter())
+        .take_while(|(a, b)| a.eq_ignore_ascii_case(b))
+        .count();
+    let mut parts: Vec<String> = vec!["..".to_string(); f.len().saturating_sub(common)];
+    parts.extend(t.iter().skip(common).map(|s| s.to_string()));
     parts.join("/")
 }
 
@@ -153,8 +155,11 @@ pub fn build_exclude_path_prefixes(root_path: &str, exclude_paths: Option<&[Opti
     };
     let flavor = path_flavor(root_path);
     let trimmed_root = root_path.trim_end_matches(['\\', '/']);
-    let normalized_root = format!("{}/", trimmed_root.replace('\\', "/"));
-    let root_equal = &normalized_root[..normalized_root.len() - 1];
+    // Build the slash-suffixed form FROM the unsuffixed one rather than slicing
+    // the suffix back off — same two strings, no bounds obligation.
+    let root_equal = trimmed_root.replace('\\', "/");
+    let mut normalized_root = root_equal.clone();
+    normalized_root.push('/');
 
     let mut out: Vec<String> = Vec::new();
     for raw_opt in paths {
@@ -166,10 +171,9 @@ pub fn build_exclude_path_prefixes(root_path: &str, exclude_paths: Option<&[Opti
         if raw_fwd == root_equal {
             continue;
         }
-        let rel = if raw_fwd.starts_with(&normalized_root) {
-            raw_fwd[normalized_root.len()..].to_string()
-        } else {
-            flavor_relative(flavor, trimmed_root, raw).replace('\\', "/")
+        let rel = match raw_fwd.strip_prefix(normalized_root.as_str()) {
+            Some(tail) => tail.to_string(),
+            None => flavor_relative(flavor, trimmed_root, raw).replace('\\', "/"),
         };
         if rel.is_empty() || is_parent_relative_path(&rel) || rel.starts_with('/') {
             continue;
@@ -199,7 +203,7 @@ pub fn should_exclude_quick_open_rel_path(rel_path: &str, exclude_path_prefixes:
 const GLOB_META: &[char] = &['*', '?', '[', ']', '{', '}', '\\'];
 
 fn escape_glob(segment: &str) -> String {
-    let mut out = String::with_capacity(segment.len());
+    let mut out = String::with_capacity(segment.len().min(crate::MAX_PREALLOC_HINT));
     for ch in segment.chars() {
         if GLOB_META.contains(&ch) {
             out.push('\\');

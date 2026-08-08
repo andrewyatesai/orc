@@ -36,13 +36,15 @@ pub fn parse_ssh_g_output(stdout: &str, home: &str) -> SshResolvedConfig {
     let mut identity_files: Vec<String> = Vec::new();
 
     for line in stdout.split('\n') {
-        let Some(space_idx) = line.find(' ') else {
+        // `split_once` rather than `find` + two slices: `find`'s index is opaque to
+        // Trust, so neither slice bound was provable.
+        let Some((raw_key, raw_value)) = line.split_once(' ') else {
             continue;
         };
-        let key = line[..space_idx].to_lowercase();
+        let key = raw_key.to_lowercase();
         // ssh -G values are ASCII (hosts/users/paths/numbers), so str::trim
         // matches JS `.trim()` for every reachable value.
-        let value = line[space_idx + 1..].trim();
+        let value = raw_value.trim();
         if key == "identityfile" {
             identity_files.push(resolve_ssh_config_home_path(value, home));
         } else {

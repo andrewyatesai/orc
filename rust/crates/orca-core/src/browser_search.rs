@@ -45,17 +45,13 @@ fn looks_like_url(input: &str) -> bool {
     if input.is_empty() || input.chars().any(char::is_whitespace) {
         return false;
     }
-    let host = match input.find('/') {
-        Some(i) => &input[..i],
-        None => input,
-    };
-    let Some(dot) = host.rfind('.') else {
+    let host = input.split('/').next().unwrap_or(input);
+    let Some((label, tld)) = host.rsplit_once('.') else {
         return false;
     };
-    if dot == 0 {
+    if label.is_empty() {
         return false; // need a non-empty label before the dot
     }
-    let tld = &host[dot + 1..];
     tld.len() >= 2 && tld.chars().all(|c| c.is_ascii_alphabetic())
 }
 

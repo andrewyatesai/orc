@@ -5,7 +5,7 @@
 
 /// `encodeURIComponent`: keep unreserved `A-Za-z0-9-_.!~*'()`, percent-escape the rest.
 pub fn encode_uri_component(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
+    let mut out = String::with_capacity(s.len().min(crate::MAX_PREALLOC_HINT));
     for byte in s.bytes() {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')') {
             out.push(byte as char);
@@ -20,7 +20,7 @@ pub fn encode_uri_component(s: &str) -> String {
 /// `%`-escape (mirroring the TS try/catch).
 pub fn decode_uri_component(s: &str) -> String {
     let bytes = s.as_bytes();
-    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len().min(crate::MAX_PREALLOC_HINT));
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' {
@@ -28,7 +28,9 @@ pub fn decode_uri_component(s: &str) -> String {
                 let hi = (bytes[i + 1] as char).to_digit(16);
                 let lo = (bytes[i + 2] as char).to_digit(16);
                 if let (Some(hi), Some(lo)) = (hi, lo) {
-                    out.push((hi * 16 + lo) as u8);
+                    // hi/lo are `to_digit(16)` results (<= 15), so shift-or is
+                    // the same byte as `hi * 16 + lo` with no overflow obligation.
+                    out.push(((hi << 4) | lo) as u8);
                     i += 3;
                     continue;
                 }
@@ -46,7 +48,7 @@ pub fn decode_uri_component(s: &str) -> String {
 /// turns the throw into a rejection, rather than the lenient passthrough above).
 pub fn try_decode_uri_component(s: &str) -> Option<String> {
     let bytes = s.as_bytes();
-    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len().min(crate::MAX_PREALLOC_HINT));
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' {
@@ -54,7 +56,9 @@ pub fn try_decode_uri_component(s: &str) -> Option<String> {
                 let hi = (bytes[i + 1] as char).to_digit(16);
                 let lo = (bytes[i + 2] as char).to_digit(16);
                 if let (Some(hi), Some(lo)) = (hi, lo) {
-                    out.push((hi * 16 + lo) as u8);
+                    // hi/lo are `to_digit(16)` results (<= 15), so shift-or is
+                    // the same byte as `hi * 16 + lo` with no overflow obligation.
+                    out.push(((hi << 4) | lo) as u8);
                     i += 3;
                     continue;
                 }

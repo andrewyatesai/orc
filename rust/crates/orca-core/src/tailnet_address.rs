@@ -17,8 +17,16 @@ pub fn is_tailnet_ipv4_address(address: &str) -> bool {
             part.parse::<u32>().ok().filter(|&value| value <= 255)
         })
         .collect();
+    // Read the two octets off the iterator: `octets[0]` needs a length relation
+    // that does not survive `collect`, and a slice pattern's length is havoc'd too.
     match octets {
-        Some(octets) => octets[0] == 100 && (64..=127).contains(&octets[1]),
+        Some(octets) => {
+            let mut octets = octets.into_iter();
+            let (Some(first), Some(second)) = (octets.next(), octets.next()) else {
+                return false;
+            };
+            first == 100 && (64..=127).contains(&second)
+        }
         None => false,
     }
 }

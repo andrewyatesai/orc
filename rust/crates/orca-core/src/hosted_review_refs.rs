@@ -10,8 +10,8 @@ fn strip_refs_remotes(reference: &str) -> &str {
     let Some(rest) = reference.strip_prefix("refs/remotes/") else {
         return reference;
     };
-    match rest.find('/') {
-        Some(slash) if slash > 0 => &rest[slash + 1..],
+    match rest.split_once('/') {
+        Some((remote, tail)) if !remote.is_empty() => tail,
         _ => reference,
     }
 }

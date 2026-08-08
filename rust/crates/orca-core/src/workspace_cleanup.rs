@@ -149,10 +149,14 @@ pub fn get_workspace_cleanup_inactivity_reasons(
     scanned_at: i64,
 ) -> Vec<WorkspaceCleanupReason> {
     let mut reasons = Vec::new();
-    if workspace.is_archived && scanned_at - workspace.last_activity_at >= WORKSPACE_CLEANUP_ARCHIVED_IDLE_MS {
+    // Timestamps are unconstrained i64 to the verifier; saturating keeps the
+    // comparison's meaning at the extremes instead of trapping.
+    if workspace.is_archived
+        && scanned_at.saturating_sub(workspace.last_activity_at) >= WORKSPACE_CLEANUP_ARCHIVED_IDLE_MS
+    {
         reasons.push(WorkspaceCleanupReason::Archived);
     }
-    if scanned_at - workspace.last_activity_at >= WORKSPACE_CLEANUP_IDLE_MS {
+    if scanned_at.saturating_sub(workspace.last_activity_at) >= WORKSPACE_CLEANUP_IDLE_MS {
         reasons.push(WorkspaceCleanupReason::IdleClean);
     }
     reasons

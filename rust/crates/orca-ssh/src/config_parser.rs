@@ -123,11 +123,14 @@ fn keep_first<T>(slot: &mut Option<T>, value: T) {
 /// `^([^=\s]+)(?:\s*=\s*|\s+)(.*)$` — key (lowercased) + value (trimmed).
 fn parse_config_directive(line: &str) -> Option<(String, String)> {
     let key_end = line.find(|c: char| c == '=' || c.is_whitespace())?;
-    if key_end == 0 {
+    // `split_at_checked` rather than two `[..]` slices: `find`'s result is opaque to
+    // Trust, so the slice bounds are unprovable even though `find` guarantees them.
+    let (raw_key, after) = line.split_at_checked(key_end)?;
+    if raw_key.is_empty() {
         return None;
     }
-    let key = line[..key_end].to_lowercase();
-    let after_key = line[key_end..].trim_start();
+    let key = raw_key.to_lowercase();
+    let after_key = after.trim_start();
     let value = after_key.strip_prefix('=').map(str::trim_start).unwrap_or(after_key);
     Some((key, value.trim().to_string()))
 }
@@ -179,30 +182,33 @@ fn split_openssh_arguments(input: &str) -> Vec<String> {
 /// fractional part are ignored). `None` models `NaN` (no digits).
 pub(crate) fn js_parse_int_base10(s: &str) -> Option<i64> {
     let s = s.trim_start();
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    let negative = match bytes.first() {
-        Some(b'-') => {
-            i = 1;
-            true
-        }
-        Some(b'+') => {
-            i = 1;
-            false
-        }
-        _ => false,
+    // `strip_prefix` + a byte fold instead of index arithmetic + `s[a..b].parse()`:
+    // the indices were derived from `len()`, which Trust models as unconstrained, so
+    // the slice could not be proved in bounds.
+    let (negative, digits) = match s.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, s.strip_prefix('+').unwrap_or(s)),
     };
-    let digits_start = i;
-    while i < bytes.len() && bytes[i].is_ascii_digit() {
-        i += 1;
+    let mut magnitude: i64 = 0;
+    let mut saw_digit = false;
+    for byte in digits.bytes() {
+        if !byte.is_ascii_digit() {
+            break;
+        }
+        saw_digit = true;
+        // Absurdly long digit runs saturate — parseInt would return a lossy f64
+        // there anyway, and no real Port line reaches i64::MAX. Once pinned at
+        // i64::MAX every later digit re-saturates, matching the old parse failure.
+        magnitude = magnitude
+            .checked_mul(10)
+            .and_then(|m| m.checked_add(i64::from(byte.wrapping_sub(b'0'))))
+            .unwrap_or(i64::MAX);
     }
-    if i == digits_start {
+    if !saw_digit {
         return None;
     }
-    // Absurdly long digit runs saturate — parseInt would return a lossy f64
-    // there anyway, and no real Port line reaches i64::MAX.
-    let magnitude = s[digits_start..i].parse::<i64>().unwrap_or(i64::MAX);
-    Some(if negative { -magnitude } else { magnitude })
+    // `wrapping_neg` is exact for the non-negative magnitude this loop can produce.
+    Some(if negative { magnitude.wrapping_neg() } else { magnitude })
 }
 
 /// Expand a leading `~` (with `/` or `\` separators) against `home`; other
@@ -212,15 +218,23 @@ pub(crate) fn js_parse_int_base10(s: &str) -> Option<i64> {
 /// accepts them on every platform, matching the prior Rust behaviour + the
 /// posix-generated goldens).
 pub(crate) fn resolve_ssh_config_home_path(value: &str, home: &str) -> String {
-    let bytes = value.as_bytes();
-    let tilde_path =
-        bytes.first() == Some(&b'~') && (value.len() == 1 || matches!(bytes[1], b'/' | b'\\'));
+    // Prefix tests rather than `as_bytes()[1]`: `len()` is opaque to Trust, so the
+    // short-circuit that keeps index 1 in bounds was not provable.
+    let tilde_path = value == "~" || value.starts_with("~/") || value.starts_with("~\\");
     if !tilde_path {
         return value.to_string();
     }
     // `~` alone → homedir; otherwise join the non-empty segments after `~/`.
-    let mut parts: Vec<&str> = home.split(['/', '\\']).filter(|s| !s.is_empty()).collect();
-    for segment in value[1..].split(['/', '\\']).filter(|s| !s.is_empty()) {
+    // Pushed in a loop, not collected: a collect's element count is not derivable
+    // from the optimized MIR, so Trust cannot bound the bulk allocation.
+    let mut parts: Vec<&str> = Vec::new();
+    for segment in home.split(['/', '\\']) {
+        if !segment.is_empty() {
+            parts.push(segment);
+        }
+    }
+    let after_tilde = value.strip_prefix('~').unwrap_or_default();
+    for segment in after_tilde.split(['/', '\\']).filter(|s| !s.is_empty()) {
         match segment {
             "." => {}
             // `..` cannot climb above root (path.join clamps at the filesystem root).
@@ -231,10 +245,16 @@ pub(crate) fn resolve_ssh_config_home_path(value: &str, home: &str) -> String {
         }
     }
     if parts.is_empty() {
-        "/".to_string()
-    } else {
-        format!("/{}", parts.join("/"))
+        return "/".to_string();
     }
+    // `/` + join, built by push: `format!`/`join` drag inlined std unsafe into a
+    // crate that forbids it, which Trust cannot discharge.
+    let mut out = String::new();
+    for part in parts {
+        out.push('/');
+        out.push_str(part);
+    }
+    out
 }
 
 #[cfg(test)]
@@ -408,6 +428,87 @@ mod tests {
         let config = "HostName orphan.example.com\nHost real\n  HostName real.example.com\n";
         let hosts = parse_ssh_config(config, HOME);
         assert_eq!(hosts, vec![host("real").with_hostname("real.example.com")]);
+    }
+
+    /// The index-arithmetic implementation `js_parse_int_base10` replaced, kept as a
+    /// behavioural oracle for the Trust rewrite.
+    fn js_parse_int_base10_index_oracle(s: &str) -> Option<i64> {
+        let s = s.trim_start();
+        let bytes = s.as_bytes();
+        let mut i = 0;
+        let negative = match bytes.first() {
+            Some(b'-') => {
+                i = 1;
+                true
+            }
+            Some(b'+') => {
+                i = 1;
+                false
+            }
+            _ => false,
+        };
+        let digits_start = i;
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == digits_start {
+            return None;
+        }
+        let magnitude = s[digits_start..i].parse::<i64>().unwrap_or(i64::MAX);
+        Some(if negative { -magnitude } else { magnitude })
+    }
+
+    #[test]
+    fn parse_int_matches_the_index_arithmetic_oracle() {
+        let fixed = [
+            "", " ", "+", "-", "-+1", "22", " 2222 ", "2222x", "22.9", "0", "-0", "+0", "007",
+            "-0007", "9223372036854775807", "9223372036854775808", "-9223372036854775807",
+            "-9223372036854775808", "99999999999999999999999999", "-99999999999999999999999999",
+            "\t\n -42abc", "é22", "22é", "+-22", "--22",
+        ];
+        for case in fixed {
+            assert_eq!(
+                js_parse_int_base10(case),
+                js_parse_int_base10_index_oracle(case),
+                "case {case:?}"
+            );
+        }
+        // Exhaustive over every string of length <= 4 from a sign/digit/junk/multibyte
+        // alphabet — the shapes the old index arithmetic could have mis-sliced.
+        let alphabet = ["", "-", "+", "0", "9", ".", " ", "é"];
+        let mut checked = 0;
+        for a in alphabet {
+            for b in alphabet {
+                for c in alphabet {
+                    for d in alphabet {
+                        let s = format!("{a}{b}{c}{d}");
+                        assert_eq!(
+                            js_parse_int_base10(&s),
+                            js_parse_int_base10_index_oracle(&s),
+                            "case {s:?}"
+                        );
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, 8 * 8 * 8 * 8);
+    }
+
+    #[test]
+    fn tilde_expansion_covers_the_byte_indexed_edge_cases() {
+        // `~` alone, both separators, and the near-misses the old `as_bytes()[1]`
+        // guard had to exclude (a multibyte second char must not expand).
+        assert_eq!(resolve_ssh_config_home_path("~", HOME), HOME);
+        assert_eq!(resolve_ssh_config_home_path("~/", HOME), HOME);
+        assert_eq!(resolve_ssh_config_home_path("~\\", HOME), HOME);
+        assert_eq!(resolve_ssh_config_home_path("~ésc", HOME), "~ésc");
+        assert_eq!(resolve_ssh_config_home_path("~user/x", HOME), "~user/x");
+        assert_eq!(resolve_ssh_config_home_path("", HOME), "");
+        assert_eq!(resolve_ssh_config_home_path("/abs/path", HOME), "/abs/path");
+        // `..` clamps at the root rather than climbing past it.
+        assert_eq!(resolve_ssh_config_home_path("~/../../../..", HOME), "/");
+        assert_eq!(resolve_ssh_config_home_path("~//a///b/./c", HOME), "/home/testuser/a/b/c");
     }
 
     impl SshConfigHost {

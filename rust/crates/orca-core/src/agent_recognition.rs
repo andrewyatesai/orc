@@ -56,26 +56,36 @@ pub fn title_has_token(title: &str, name: &str, allow_exe_suffix: bool) -> bool 
         Vec::new()
     };
 
-    for start in 0..=(haystack.len() - needle.len()) {
-        if haystack[start..start + needle.len()] != needle[..] {
+    // Every index goes through `get`, whose absent case is exactly "past the end"
+    // — the boundary the old `haystack[i]` guards asserted against an opaque
+    // `Vec::len`. (`windows()` would read better but carries a non-zero-width
+    // precondition the verifier reports as a division-by-zero refutation.)
+    let last_start = haystack.len().saturating_sub(needle.len());
+    for start in 0..=last_start {
+        let Some(window) = haystack.get(start..start.saturating_add(needle.len())) else {
+            continue;
+        };
+        if window != needle.as_slice() {
             continue;
         }
         // Left boundary: start of string, or a non-boundary char before.
-        if start != 0 && is_boundary_char(haystack[start - 1]) {
+        if start
+            .checked_sub(1)
+            .and_then(|prev| haystack.get(prev))
+            .is_some_and(|&c| is_boundary_char(c))
+        {
             continue;
         }
         // Optionally consume an exe-like suffix, then require a right boundary.
-        let after = start + needle.len();
+        let after = start.saturating_add(needle.len());
         let mut end = after;
         for suffix in &suffixes {
-            if after + suffix.len() <= haystack.len()
-                && haystack[after..after + suffix.len()] == suffix[..]
-            {
-                end = after + suffix.len();
+            if haystack.get(after..).is_some_and(|tail| tail.starts_with(suffix)) {
+                end = after.saturating_add(suffix.len());
                 break;
             }
         }
-        if end == haystack.len() || !is_boundary_char(haystack[end]) {
+        if !haystack.get(end).is_some_and(|&c| is_boundary_char(c)) {
             return true;
         }
     }
@@ -123,11 +133,11 @@ pub fn normalize_process_name(process_name: Option<&str>) -> String {
     }
     // Strip one leading and one trailing quote.
     let mut unquoted = raw;
-    if unquoted.starts_with('"') || unquoted.starts_with('\'') {
-        unquoted = &unquoted[1..];
+    if let Some(rest) = unquoted.strip_prefix(['"', '\'']) {
+        unquoted = rest;
     }
-    if unquoted.ends_with('"') || unquoted.ends_with('\'') {
-        unquoted = &unquoted[..unquoted.len() - 1];
+    if let Some(rest) = unquoted.strip_suffix(['"', '\'']) {
+        unquoted = rest;
     }
     let basename = unquoted.rsplit(['/', '\\']).next().unwrap_or(unquoted);
     let lower = basename.to_lowercase();
@@ -228,5 +238,90 @@ mod tests {
         assert!(is_expected_agent_process(Some("\u{FEFF}claude"), "claude"));
         // NEL is not in the JS trim set, so it is retained (matching JS).
         assert_eq!(normalize_process_name(Some("\u{85}claude")), "\u{85}claude");
+    }
+
+    /// `title_has_token`'s scan moved from raw `haystack[..]` indexing to `get`.
+    /// The pre-rewrite body is the oracle: token boundaries decide whether a
+    /// title is attributed to an agent, so a silent widening here mislabels panes.
+    fn title_has_token_by_index(title: &str, name: &str, allow_exe_suffix: bool) -> bool {
+        let haystack: Vec<char> = title.to_ascii_lowercase().chars().collect();
+        let needle: Vec<char> = name.to_ascii_lowercase().chars().collect();
+        if needle.is_empty() || needle.len() > haystack.len() {
+            return false;
+        }
+        let suffixes: Vec<Vec<char>> = if allow_exe_suffix {
+            WINDOWS_EXE_SUFFIXES.iter().map(|s| s.chars().collect()).collect()
+        } else {
+            Vec::new()
+        };
+        for start in 0..=(haystack.len() - needle.len()) {
+            if haystack[start..start + needle.len()] != needle[..] {
+                continue;
+            }
+            if start != 0 && is_boundary_char(haystack[start - 1]) {
+                continue;
+            }
+            let after = start + needle.len();
+            let mut end = after;
+            for suffix in &suffixes {
+                if after + suffix.len() <= haystack.len()
+                    && haystack[after..after + suffix.len()] == suffix[..]
+                {
+                    end = after + suffix.len();
+                    break;
+                }
+            }
+            if end == haystack.len() || !is_boundary_char(haystack[end]) {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn get_based_token_scan_agrees_with_the_index_based_scan() {
+        let titles = [
+            "",
+            "claude",
+            "CLAUDE.exe",
+            "claude.exe",
+            "claude.cmd extra",
+            "claude.zip",
+            "openclaude",
+            "openclaw",
+            "~/hermes/working",
+            "android",
+            "a claude b",
+            "-claude-",
+            ".claude",
+            "claude/",
+            "claudeclaude",
+            "claude claude.exe",
+            "é claude é",
+            "日本claude",
+            "claude😀",
+            "claude.exe.exe",
+            "xclaude.exe",
+            "claude.ps1x",
+            "  claude  ",
+        ];
+        let names = ["claude", "droid", "hermes", "agy", "", "c", "claude.exe"];
+        let mut saw_true = false;
+        let mut saw_false = false;
+        for title in titles {
+            for name in names {
+                for allow_exe_suffix in [true, false] {
+                    let expected = title_has_token_by_index(title, name, allow_exe_suffix);
+                    assert_eq!(
+                        title_has_token(title, name, allow_exe_suffix),
+                        expected,
+                        "{title:?} / {name:?} / {allow_exe_suffix}"
+                    );
+                    saw_true |= expected;
+                    saw_false |= !expected;
+                }
+            }
+        }
+        assert!(saw_true && saw_false, "oracle must discriminate");
     }
 }

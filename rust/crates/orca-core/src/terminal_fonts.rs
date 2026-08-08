@@ -30,7 +30,8 @@ pub fn resolve_terminal_font_weights(font_weight: Option<f64>) -> TerminalFontWe
     TerminalFontWeights {
         font_weight: normalized,
         // min(MAX, max(BOLD, norm+200)) — BOLD <= MAX, so clamp is equivalent.
-        font_weight_bold: (normalized + 200)
+        font_weight_bold: normalized
+            .saturating_add(200)
             .clamp(DEFAULT_TERMINAL_FONT_WEIGHT_BOLD, TERMINAL_FONT_WEIGHT_MAX),
     }
 }

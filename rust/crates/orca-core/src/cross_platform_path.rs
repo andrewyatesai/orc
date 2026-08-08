@@ -33,7 +33,7 @@ pub fn is_windows_absolute_path_like(value: &str) -> bool {
 
 /// Collapse runs of `/` into a single `/`.
 fn collapse_slashes(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
+    let mut out = String::with_capacity(value.len().min(crate::MAX_PREALLOC_HINT));
     let mut prev_slash = false;
     for ch in value.chars() {
         if ch == '/' {
@@ -70,10 +70,11 @@ fn trim_runtime_path_trailing_slash(value: &str) -> String {
 /// byte can never match an ASCII prefix byte), and only slices at `prefix.len()`
 /// once the ASCII bytes matched — which guarantees a UTF-8 char boundary there.
 fn strip_prefix_ci<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
-    let vb = value.as_bytes();
-    let pb = prefix.as_bytes();
-    if vb.len() >= pb.len() && vb[..pb.len()].eq_ignore_ascii_case(pb) {
-        Some(&value[pb.len()..])
+    // `split_at_checked` folds the length and char-boundary guards into one total
+    // call. It can only return None where the byte comparison would also fail.
+    let (head, rest) = value.split_at_checked(prefix.len())?;
+    if head.as_bytes().eq_ignore_ascii_case(prefix.as_bytes()) {
+        Some(rest)
     } else {
         None
     }
@@ -93,7 +94,7 @@ fn split_wsl_unc_comparison(normalized: &str) -> Option<(&str, &str)> {
     if distro_len == 0 {
         return None;
     }
-    Some((&after_server[..distro_len], &after_server[distro_len..]))
+    after_server.split_at_checked(distro_len)
 }
 
 pub fn normalize_runtime_path_for_comparison(value: &str) -> String {
@@ -243,23 +244,37 @@ fn normalize_runtime_path_dots(value: &str, flavor: PathFlavor) -> String {
     }
 }
 
+/// `X` -> `"X:/"`, without a `format!` (whose `Arguments::new` is an unmodeled
+/// unsafe call for the verifier).
+fn drive_root(drive: u8) -> String {
+    let mut root = String::with_capacity(3);
+    root.push(drive as char);
+    root.push_str(":/");
+    root
+}
+
 fn split_runtime_path_root(value: &str, flavor: PathFlavor) -> (String, String) {
     if flavor == PathFlavor::Windows {
-        let b = value.as_bytes();
-        // `^([A-Za-z]:)(?:\/|$)`
-        if b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
-            if b.len() == 2 {
-                return (format!("{}:/", &value[0..1]), String::new());
+        // `^([A-Za-z]:)(?:\/|$)` — slice patterns carry the length each arm needs,
+        // which `b.len() >= 2` plus `b[0]`/`b[1]` indexing does not.
+        match value.as_bytes() {
+            [drive, b':'] if drive.is_ascii_alphabetic() => {
+                return (drive_root(*drive), String::new());
             }
-            if b[2] == b'/' {
-                return (format!("{}:/", &value[0..1]), value[3..].to_string());
+            [drive, b':', b'/', ..] if drive.is_ascii_alphabetic() => {
+                // Byte 2 is `/`, so byte 3 is always a char boundary.
+                let tail = value.get(3..).unwrap_or("");
+                return (drive_root(*drive), tail.to_string());
             }
+            _ => {}
         }
         if let Some(stripped) = value.strip_prefix("//") {
             let parts: Vec<&str> = stripped.split('/').collect();
-            if parts.len() >= 2 && !parts[0].is_empty() && !parts[1].is_empty() {
-                let root = format!("//{}/{}/", parts[0], parts[1]);
-                return (root, parts[2..].join("/"));
+            if let [server, share, rest @ ..] = parts.as_slice() {
+                if !server.is_empty() && !share.is_empty() {
+                    let root = format!("//{server}/{share}/");
+                    return (root, rest.join("/"));
+                }
             }
             return ("//".to_string(), stripped.to_string());
         }
