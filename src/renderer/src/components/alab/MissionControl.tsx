@@ -21,6 +21,7 @@
 import { translate } from '@/i18n/i18n'
 import { ExceptionsQueue } from './ExceptionsQueue'
 import { FleetBoard } from './FleetBoard'
+import { LandingBand } from './LandingBand'
 
 export default function MissionControl(): React.JSX.Element {
   return (
@@ -36,6 +37,10 @@ export default function MissionControl(): React.JSX.Element {
           )}
         </p>
       </header>
+
+      {/* Collapsed when empty — it returns null rather than rendering a
+          permanent "nothing to review" header. */}
+      <LandingBand />
 
       {/* ~34% of the height, two-row minimum, always mounted (§8.3). */}
       <section className="min-h-[8rem] shrink-0 basis-[34%] overflow-hidden">

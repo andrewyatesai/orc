@@ -15,6 +15,10 @@
 import { z } from 'zod'
 import { defineMethod, type RpcAnyMethod } from '../core'
 import { countRunTasks } from '../../orchestration/run-progress'
+import {
+  describeReconciliation,
+  reconcileTaskClaim
+} from '../../orchestration/task-claim-reconciliation'
 import { isCoordinatorRunLive } from './orchestration-gates'
 import type { DispatchContextRow, MessageRow, TaskRow } from '../../orchestration/types'
 
@@ -150,6 +154,23 @@ export const ALAB_CONSOLE_METHODS: RpcAnyMethod[] = [
         // Dispatch detail for TaskDetail and the fleet board's liveness column.
         dispatches: [...dispatchByTask.values()],
         tasks,
+        // §8.4's claim check. `changedFiles: null` because this runtime has no
+        // worktree bound to a task row — so every verdict is honestly `unknown`
+        // rather than a fabricated match. Wiring real git status per task's
+        // worktree is the remaining half, and it must keep degrading to unknown
+        // on folder workspaces.
+        reconciliations: tasks.map((task) => {
+          const verdict = reconcileTaskClaim({
+            taskStatus: task.status,
+            result: task.result,
+            changedFiles: null
+          })
+          return {
+            taskId: task.id,
+            verdict: verdict.verdict,
+            summary: describeReconciliation(verdict)
+          }
+        }),
         takenAt: now
       }
     }
