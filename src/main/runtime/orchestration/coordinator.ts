@@ -8,6 +8,10 @@ import { parsePaneKey } from '../../../shared/stable-pane-id'
 import type { TuiAgent } from '../../../shared/types'
 
 export type CoordinatorRuntime = {
+  /** §6.6 scope query — "does a live write grant for this run name this pane?".
+   *  Optional so existing test fixtures keep compiling; absent means no
+   *  adoption, which is the safe direction. */
+  hasFleetWriteGrantForRun?: (runId: string, handle: string) => boolean
   sendTerminalAgentPrompt(handle: string, prompt: string): Promise<unknown>
   listTerminals(
     worktreeSelector?: string,
@@ -161,7 +165,7 @@ export class Coordinator {
     this.opts.onLog(`Coordinator run ${runId} started`)
     // Before the first dispatch tick: a resumed run must know which panes it
     // owns before it decides which panes it may drive.
-    this.restoreOwnedWorkers(runId)
+    this.restoreOwnedWorkers()
 
     try {
       await this.decompose()
@@ -599,6 +603,12 @@ export class Coordinator {
         runId: this.state.runId || null,
         actor: 'service:coordinator',
         action: FLEET_WORKER_CREATED_ACTION,
+        // Keyed by coordinator HANDLE, not run id: `orchestration.run` mints a
+        // fresh run row on every start, so a restart would read an empty ledger
+        // and restore nothing. A handle outlives its runs, which is what makes
+        // the marker durable at all (design §13 Q9's grouping question, decided
+        // here by necessity rather than taste).
+        targetPaneKey: this.opts.coordinatorHandle,
         targetHandle: handle
       })
     } catch (err) {
@@ -610,22 +620,50 @@ export class Coordinator {
 
   /** Rebuilds ownership after a restart so the marker outlives the process that
    *  minted it. Called once per run, before the first dispatch tick. */
-  private restoreOwnedWorkers(runId: string): void {
+  private restoreOwnedWorkers(): void {
+    // Unfiltered by run on purpose — see rememberOwnedWorker. The ledger read is
+    // bounded and the handle match is what scopes it to THIS coordinator.
     try {
-      for (const event of this.db.audit.list({ runId, limit: MAX_RESTORED_OWNED_WORKERS })) {
-        if (event.action === FLEET_WORKER_CREATED_ACTION && event.target_handle) {
+      for (const event of this.db.audit.list({ limit: MAX_RESTORED_OWNED_WORKERS })) {
+        if (
+          event.action === FLEET_WORKER_CREATED_ACTION &&
+          event.target_pane_key === this.opts.coordinatorHandle &&
+          event.target_handle
+        ) {
           this.ownedWorkerHandles.add(event.target_handle)
         }
       }
     } catch (err) {
-      this.opts.onLog(`Could not restore fleet ownership for run ${runId}: ${String(err)}`)
+      this.opts.onLog(`Could not restore fleet ownership: ${String(err)}`)
     }
   }
 
+  /**
+   * §6.6: "the human's own terminals are in no grant by default".
+   *
+   * The previous fallback — any pane the runtime reports as running an agent —
+   * did not implement that. It let a run started in the worktree a human is
+   * working in select that human's OWN claude/codex pane, paste a task preamble
+   * into it and press Enter. The bare-shell guard added in 1bef9915a stopped the
+   * fleet typing into a plain shell; it never stopped it hijacking a real agent.
+   *
+   * Ownership is now the authority, with one deliberate door: a pane the fleet
+   * did not create is adoptable only while a live `write` grant for THIS run
+   * names it. That keeps the documented workflow where a human pre-creates
+   * worker panes (already authenticated, right cwd, right agent) without
+   * guessing consent from agent-presence — adoption becomes an explicit act,
+   * revocable with `fleet.grantRevoke --run`. Re-asked every tick, so a revoke
+   * stops the next dispatch rather than only the next run.
+   */
   private isDispatchableTarget(handle: string): boolean {
     if (this.ownedWorkerHandles.has(handle)) {
       return true
     }
+    if (this.runtime.hasFleetWriteGrantForRun?.(this.state.runId, handle) !== true) {
+      return false
+    }
+    // An adopted pane must still be running an agent: a preamble pasted into a
+    // bare shell is just noise on somebody's prompt.
     return this.runtime.getTerminalAgentLaunchProfile?.(handle)?.agent != null
   }
 

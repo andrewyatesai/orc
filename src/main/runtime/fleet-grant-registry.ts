@@ -130,6 +130,31 @@ export class FleetGrantRegistry {
     })
   }
 
+  /**
+   * Scope query for a caller that IS the run (the coordinator), rather than a
+   * bearer presenting a secret. Answers only "is there a live, unrevoked,
+   * unexpired, current-generation grant for this run that covers this pane".
+   */
+  runCovers(
+    runId: string,
+    request: Omit<FleetGrantCheckRequest, 'now' | 'generation'>
+  ): boolean {
+    for (const grant of this.byId.values()) {
+      if (grant.runId !== runId) {
+        continue
+      }
+      const decision = decideFleetGrant(grant, {
+        ...request,
+        generation: this.currentGeneration(runId),
+        now: this.now()
+      })
+      if (decision.allowed) {
+        return true
+      }
+    }
+    return false
+  }
+
   revoke(grantId: string): boolean {
     const grant = this.byId.get(grantId)
     if (!grant || grant.revokedAt !== null) {

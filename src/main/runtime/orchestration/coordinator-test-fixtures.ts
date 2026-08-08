@@ -19,6 +19,8 @@ export function createMockRuntime(): CoordinatorRuntime & {
   setProbeDrift(result: DriftResult): void
   throwProbeDrift: Error | null
   agentPermissionPreset: unknown
+  /** Whether un-owned panes count as adopted by the run (§6.6). */
+  fleetGrantCoversTargets: boolean
   launchProfiles: Record<
     string,
     { agent: TuiAgent | null; agentArgs: string | null; agentEnv: Record<string, string> | null }
@@ -48,6 +50,11 @@ export function createMockRuntime(): CoordinatorRuntime & {
     async listTerminals() {
       return { terminals: mock.terminals }
     },
+    // §6.6: an un-owned pane is adoptable only under a live write grant for the
+    // run. These fixtures model a fleet whose terminals were granted, so the
+    // suites below can test DISPATCH mechanics rather than authority. Flip
+    // `fleetGrantCoversTargets` to false to exercise the refusal.
+    hasFleetWriteGrantForRun: (_runId: string, _handle: string) => mock.fleetGrantCoversTargets,
     async createTerminal(_worktree?: string, opts?: { title?: string }) {
       const handle = `term_worker_${mock.createdTerminals.length}`
       mock.createdTerminals.push(handle)
@@ -69,6 +76,7 @@ export function createMockRuntime(): CoordinatorRuntime & {
       return mock.cliCommand
     },
     agentPermissionPreset: undefined as unknown,
+    fleetGrantCoversTargets: true,
     launchProfiles: {} as Record<
       string,
       { agent: TuiAgent | null; agentArgs: string | null; agentEnv: Record<string, string> | null }
