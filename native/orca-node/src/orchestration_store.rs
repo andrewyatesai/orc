@@ -18,7 +18,8 @@
 use napi_derive::napi;
 
 use orca_runtime::orchestration::{
-    NewAuditEvent, NewGatePolicy, NewMessage, NewRotationReservation, OrchestrationDb,
+    DispatchIdentity, MintCapabilityParams, NewAuditEvent, NewGatePolicy, NewMessage,
+    NewRotationReservation, OrchestrationDb,
 };
 
 fn napi_err<E: std::fmt::Display>(err: E) -> napi::Error {
@@ -135,11 +136,13 @@ impl JsOrchestrationStore {
         self.store()?.mark_as_read_and_delivered(&refs).map_err(napi_err)
     }
 
+    /// `code` (trailing, optional so existing callers are unchanged) selects the
+    /// persisted marker code; absent keeps the historic `sender_not_assignee`.
     #[napi(catch_unwind)]
-    pub fn convert_lifecycle_message_to_rejection(&self, message_id: String, reason: String) -> napi::Result<Option<String>> {
+    pub fn convert_lifecycle_message_to_rejection(&self, message_id: String, reason: String, code: Option<String>) -> napi::Result<Option<String>> {
         Ok(self
             .store()?
-            .convert_lifecycle_message_to_rejection(&message_id, &reason)
+            .convert_lifecycle_message_to_rejection(&message_id, &reason, code.as_deref())
             .map_err(napi_err)?
             .map(|m| row_json(&m)))
     }
@@ -268,6 +271,64 @@ impl JsOrchestrationStore {
             .set_dispatch_timestamps(&id, dispatched_at.as_deref(), last_heartbeat_at.as_deref())
             .map(|_| ())
             .map_err(napi_err)
+    }
+
+    // ---- dispatch capabilities (v10) ----
+
+    /// Mints the `dcap_` token INSIDE the store (OS CSPRNG), persists only its
+    /// SHA-256 + the pane/incarnation binding, and returns the plaintext ONCE.
+    #[napi(catch_unwind)]
+    pub fn mint_dispatch_capability(
+        &self,
+        dispatch_id: String,
+        pane_key: String,
+        process_incarnation: String,
+    ) -> napi::Result<String> {
+        let params = MintCapabilityParams { dispatch_id, pane_key, process_incarnation };
+        self.store()?.mint_dispatch_capability(&params).map_err(napi_err)
+    }
+
+    /// Verdict JSON: `{"valid":true}` or `{"valid":false,"reason":…}` — absence
+    /// of any presented field is a verdict, never a throw.
+    #[napi(catch_unwind)]
+    pub fn verify_dispatch_capability(
+        &self,
+        dispatch_id: String,
+        capability: Option<String>,
+        pane_key: Option<String>,
+        process_incarnation: Option<String>,
+    ) -> napi::Result<String> {
+        let identity = DispatchIdentity { dispatch_id, capability, pane_key, process_incarnation };
+        self.store()?.verify_dispatch_capability(&identity).map(|v| row_json(&v)).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn revoke_dispatch_capability(&self, dispatch_id: String) -> napi::Result<()> {
+        self.store()?.revoke_dispatch_capability(&dispatch_id).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn commit_dispatch_launch_token_hash(
+        &self,
+        dispatch_id: String,
+        launch_token_hash: String,
+    ) -> napi::Result<String> {
+        self.store()?
+            .commit_dispatch_launch_token_hash(&dispatch_id, &launch_token_hash)
+            .map(|d| row_json(&d))
+            .map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn is_dispatch_process_current(
+        &self,
+        dispatch_id: String,
+        pane_key: Option<String>,
+        process_incarnation: Option<String>,
+    ) -> napi::Result<bool> {
+        let identity =
+            DispatchIdentity { dispatch_id, capability: None, pane_key, process_incarnation };
+        self.store()?.is_dispatch_process_current(&identity).map_err(napi_err)
     }
 
     // ---- decision gates ----

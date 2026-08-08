@@ -250,6 +250,176 @@ describe('orchestration RPC methods', () => {
       expect(notify).toHaveBeenCalledWith('term_coord', 'heartbeat', undefined)
     })
 
+    // v10: once a dispatch is MINTED a capability, knowing its id no longer
+    // grants lifecycle authority — the sender must present the dcap_ secret.
+    it('enforces the dispatch capability on a minted dispatch', async () => {
+      setup()
+      const paneKey = 'tab1:22222222-2222-4222-8222-222222222222'
+      const task = db.createTask({ spec: 'work' })
+      const dispatch = db.createDispatchContext(task.id, 'term_worker', paneKey)
+      const token = db.capabilities.mint({
+        dispatchId: dispatch.id,
+        paneKey,
+        processIncarnation: 'pty_1:inc_1'
+      })
+      vi.spyOn(runtime, 'getTerminalPaneKey').mockReturnValue(paneKey)
+      vi.spyOn(runtime, 'getTerminalProcessIncarnation').mockReturnValue('pty_1:inc_1')
+      vi.spyOn(runtime, 'deliverPendingMessagesForHandle').mockImplementation(() => {})
+      vi.spyOn(runtime, 'notifyMessageArrived').mockImplementation(() => {})
+
+      // Without the secret: rejected, persisted as a rejection, task untouched.
+      const rejected = (await call('orchestration.send', {
+        from: 'term_worker',
+        to: 'term_coord',
+        subject: 'done',
+        type: 'worker_done',
+        payload: JSON.stringify({ taskId: task.id, dispatchId: dispatch.id })
+      })) as { message: { id: string }; lifecycle?: { action: string; code: string } }
+      expect(rejected.lifecycle).toMatchObject({
+        action: 'rejected',
+        code: 'dispatch_capability_invalid'
+      })
+      expect(db.getTask(task.id)?.status).toBe('dispatched')
+      expect(db.getMessageById(rejected.message.id)?.subject).toContain('Rejected worker_done')
+
+      // With the preamble-delivered token, the same send completes the task.
+      await call('orchestration.send', {
+        from: 'term_worker',
+        to: 'term_coord',
+        subject: 'done',
+        type: 'worker_done',
+        dispatchCapability: token,
+        payload: JSON.stringify({ taskId: task.id, dispatchId: dispatch.id })
+      })
+      expect(db.getTask(task.id)?.status).toBe('completed')
+    })
+
+    // Completion revokes the capability, so a legitimate straggler (late
+    // heartbeat, duplicate worker_done) presents a token that no longer
+    // verifies — that must reconcile quietly like pre-v10, not become a
+    // persisted high-priority rejection.
+    it('quietly reconciles a post-completion straggler holding the revoked token', async () => {
+      setup()
+      const paneKey = 'tab1:33333333-3333-4333-8333-333333333333'
+      const task = db.createTask({ spec: 'work' })
+      const dispatch = db.createDispatchContext(task.id, 'term_worker', paneKey)
+      const token = db.capabilities.mint({
+        dispatchId: dispatch.id,
+        paneKey,
+        processIncarnation: 'pty_1:inc_1'
+      })
+      vi.spyOn(runtime, 'getTerminalPaneKey').mockReturnValue(paneKey)
+      vi.spyOn(runtime, 'getTerminalProcessIncarnation').mockReturnValue('pty_1:inc_1')
+      vi.spyOn(runtime, 'deliverPendingMessagesForHandle').mockImplementation(() => {})
+      const notify = vi.spyOn(runtime, 'notifyMessageArrived').mockImplementation(() => {})
+
+      // The real completion path settles the dispatch AND revokes the token.
+      await call('orchestration.send', {
+        from: 'term_worker',
+        to: 'term_coord',
+        subject: 'done',
+        type: 'worker_done',
+        dispatchCapability: token,
+        payload: JSON.stringify({ taskId: task.id, dispatchId: dispatch.id })
+      })
+      expect(db.getTask(task.id)?.status).toBe('completed')
+      expect(db.getDispatchContextById(dispatch.id)?.status).toBe('completed')
+      expect(db.getDispatchContextById(dispatch.id)?.capability_revoked_at).not.toBeNull()
+      notify.mockClear()
+
+      // Straggler heartbeat: suppressed (consumed, no waiter wake), never rewritten.
+      const straggler = (await call('orchestration.send', {
+        from: 'term_worker',
+        to: 'term_coord',
+        subject: 'alive',
+        type: 'heartbeat',
+        dispatchCapability: token,
+        payload: JSON.stringify({ dispatchId: dispatch.id })
+      })) as { message: { id: string }; lifecycle?: unknown }
+      expect(straggler.lifecycle).toBeUndefined()
+      const heartbeatRow = db.getMessageById(straggler.message.id)!
+      expect(heartbeatRow.subject).toBe('alive')
+      expect(heartbeatRow.read).toBe(1)
+      expect(notify).not.toHaveBeenCalled()
+
+      // Duplicate worker_done: reconciled as already-completed, never rewritten.
+      const duplicate = (await call('orchestration.send', {
+        from: 'term_worker',
+        to: 'term_coord',
+        subject: 'done again',
+        type: 'worker_done',
+        dispatchCapability: token,
+        payload: JSON.stringify({ taskId: task.id, dispatchId: dispatch.id })
+      })) as { message: { id: string }; lifecycle?: unknown }
+      expect(duplicate.lifecycle).toBeUndefined()
+      expect(db.getMessageById(duplicate.message.id)?.subject).toBe('done again')
+    })
+
+    it('still hard-rejects a wrong token on an active dispatch, and a revoked-but-active one', async () => {
+      setup()
+      const paneKey = 'tab1:44444444-4444-4444-8444-444444444444'
+      const task = db.createTask({ spec: 'work' })
+      const dispatch = db.createDispatchContext(task.id, 'term_worker', paneKey)
+      const token = db.capabilities.mint({
+        dispatchId: dispatch.id,
+        paneKey,
+        processIncarnation: 'pty_1:inc_1'
+      })
+      vi.spyOn(runtime, 'getTerminalPaneKey').mockReturnValue(paneKey)
+      vi.spyOn(runtime, 'getTerminalProcessIncarnation').mockReturnValue('pty_1:inc_1')
+      vi.spyOn(runtime, 'deliverPendingMessagesForHandle').mockImplementation(() => {})
+      vi.spyOn(runtime, 'notifyMessageArrived').mockImplementation(() => {})
+
+      const wrongToken = (await call('orchestration.send', {
+        from: 'term_worker',
+        to: 'term_coord',
+        subject: 'done',
+        type: 'worker_done',
+        dispatchCapability: 'dcap_wrong',
+        payload: JSON.stringify({ taskId: task.id, dispatchId: dispatch.id })
+      })) as { message: { id: string }; lifecycle?: { action: string; code: string } }
+      expect(wrongToken.lifecycle).toMatchObject({
+        action: 'rejected',
+        code: 'dispatch_capability_invalid'
+      })
+      expect(db.getMessageById(wrongToken.message.id)?.subject).toContain('Rejected worker_done')
+      expect(db.getTask(task.id)?.status).toBe('dispatched')
+
+      // Revoked while the dispatch is still ACTIVE: attacker-shaped, so even
+      // the once-correct token stays a hard rejection (no straggler carve-out).
+      db.capabilities.revoke(dispatch.id)
+      const revokedActive = (await call('orchestration.send', {
+        from: 'term_worker',
+        to: 'term_coord',
+        subject: 'alive',
+        type: 'heartbeat',
+        dispatchCapability: token,
+        payload: JSON.stringify({ dispatchId: dispatch.id })
+      })) as { message: { id: string }; lifecycle?: { action: string; code: string } }
+      expect(revokedActive.lifecycle).toMatchObject({
+        action: 'rejected',
+        code: 'dispatch_capability_invalid'
+      })
+      expect(db.getMessageById(revokedActive.message.id)?.subject).toContain('Rejected heartbeat')
+    })
+
+    it('keeps legacy (never-minted) dispatch sends on pane-key authority alone', async () => {
+      setup()
+      const task = db.createTask({ spec: 'work' })
+      const dispatch = db.createDispatchContext(task.id, 'term_worker')
+      vi.spyOn(runtime, 'deliverPendingMessagesForHandle').mockImplementation(() => {})
+      vi.spyOn(runtime, 'notifyMessageArrived').mockImplementation(() => {})
+
+      await call('orchestration.send', {
+        from: 'term_worker',
+        to: 'term_coord',
+        subject: 'done',
+        type: 'worker_done',
+        payload: JSON.stringify({ taskId: task.id, dispatchId: dispatch.id })
+      })
+      expect(db.getTask(task.id)?.status).toBe('completed')
+    })
+
     // RD-9163 delivery-follows-identity: pane keys survive handle remints.
     const REMINT_LEAF_ID = '11111111-1111-4111-8111-111111111111'
     const REMINT_PANE_KEY = `tab-1:${REMINT_LEAF_ID}`
@@ -1726,6 +1896,95 @@ describe('orchestration RPC methods', () => {
       await expect(
         call('orchestration.dispatchShow', { task: 'task_fake', preamble: true })
       ).rejects.toThrow('Task not found')
+    })
+
+    // v10: the dcap_ plaintext died at mint, so re-delivery must re-mint —
+    // this is the injection-failed recovery path, and the lost token strands nothing.
+    it('--preamble re-mints a verifiable capability for a minted dispatch', async () => {
+      setup()
+      const paneKey = 'tab1:55555555-5555-4555-8555-555555555555'
+      const task = db.createTask({ spec: 'redo auth' })
+      const dispatch = db.createDispatchContext(task.id, 'term_a', paneKey)
+      const original = db.capabilities.mint({
+        dispatchId: dispatch.id,
+        paneKey,
+        processIncarnation: 'pty_9:inc_1'
+      })
+      vi.spyOn(runtime, 'getTerminalPaneKey').mockReturnValue(paneKey)
+      vi.spyOn(runtime, 'getTerminalProcessIncarnation').mockReturnValue('pty_9:inc_1')
+
+      const result = (await call('orchestration.dispatchShow', {
+        task: task.id,
+        preamble: true,
+        from: 'term_coord'
+      })) as { preamble: string; capabilityCaveat?: string }
+
+      const token = /--dispatch-capability (dcap_[A-Za-z0-9_-]{43})/.exec(result.preamble)?.[1]
+      expect(token).toBeDefined()
+      expect(result.capabilityCaveat).toBeUndefined()
+      expect(
+        db.capabilities.verify({
+          dispatchId: dispatch.id,
+          capability: token,
+          paneKey,
+          processIncarnation: 'pty_9:inc_1'
+        })
+      ).toEqual({ valid: true })
+      // Rotation: the never-delivered original is superseded, not still live.
+      expect(
+        db.capabilities.verify({
+          dispatchId: dispatch.id,
+          capability: original,
+          paneKey,
+          processIncarnation: 'pty_9:inc_1'
+        })
+      ).toEqual({ valid: false, reason: 'The Dispatch capability is invalid.' })
+    })
+
+    it('--preamble falls back with a caveat when the worker identity cannot be resolved', async () => {
+      setup()
+      const paneKey = 'tab1:66666666-6666-4666-8666-666666666666'
+      const task = db.createTask({ spec: 'redo auth' })
+      const dispatch = db.createDispatchContext(task.id, 'term_a', paneKey)
+      db.capabilities.mint({
+        dispatchId: dispatch.id,
+        paneKey,
+        processIncarnation: 'pty_9:inc_1'
+      })
+      vi.spyOn(runtime, 'getTerminalPaneKey').mockReturnValue(null)
+
+      const result = (await call('orchestration.dispatchShow', {
+        task: task.id,
+        preamble: true,
+        from: 'term_coord'
+      })) as { preamble: string; capabilityCaveat?: string }
+
+      expect(result.preamble).not.toContain('--dispatch-capability')
+      expect(result.capabilityCaveat).toContain('without --dispatch-capability')
+    })
+
+    it('--preamble keeps a settled minted dispatch flag-less with a caveat', async () => {
+      setup()
+      const paneKey = 'tab1:77777777-7777-4777-8777-777777777777'
+      const task = db.createTask({ spec: 'redo auth' })
+      const dispatch = db.createDispatchContext(task.id, 'term_a', paneKey)
+      db.capabilities.mint({
+        dispatchId: dispatch.id,
+        paneKey,
+        processIncarnation: 'pty_9:inc_1'
+      })
+      db.completeDispatch(dispatch.id)
+      vi.spyOn(runtime, 'getTerminalPaneKey').mockReturnValue(paneKey)
+      vi.spyOn(runtime, 'getTerminalProcessIncarnation').mockReturnValue('pty_9:inc_1')
+
+      const result = (await call('orchestration.dispatchShow', {
+        task: task.id,
+        preamble: true,
+        from: 'term_coord'
+      })) as { preamble: string; capabilityCaveat?: string }
+
+      expect(result.preamble).not.toContain('--dispatch-capability')
+      expect(result.capabilityCaveat).toContain('completed')
     })
   })
 

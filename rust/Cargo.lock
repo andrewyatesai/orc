@@ -803,10 +803,12 @@ version = "0.0.1"
 name = "orca-runtime"
 version = "0.0.1"
 dependencies = [
+ "getrandom 0.3.4",
  "orca-store",
  "rusqlite",
  "serde",
  "serde_json",
+ "subtle",
 ]
 
 [[package]]

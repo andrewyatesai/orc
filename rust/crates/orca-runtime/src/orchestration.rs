@@ -20,7 +20,17 @@ pub mod audit_ledger;
 pub mod gate_resolution;
 pub mod rotation_reservations;
 
+// v10: dispatch capability tokens + the coded-error envelope they ride on.
+pub mod capability;
+pub mod error;
+mod sha256;
+
 pub use audit_ledger::{AuditEvent, NewAuditEvent, AUDIT_EVENT_COLUMNS};
+pub use capability::{
+    CapabilityVerdict, DispatchIdentity, MintCapabilityParams, CURRENT_CONTRACT_VERSION,
+    LEGACY_CONTRACT_VERSION,
+};
+pub use error::{OrchestrationError, ORCHESTRATION_ERROR_MARKER};
 pub use gate_resolution::GateResolutionOutcome;
 pub use rotation_reservations::{
     NewRotationReservation, ReservationClaim, RotationSaga, ROTATION_SAGA_COLUMNS,
@@ -122,6 +132,18 @@ pub struct DispatchContext {
     pub last_heartbeat_at: Option<String>,
     /// Owning run (v9); null for legacy rows and for dispatches opened outside a run.
     pub run_id: Option<String>,
+    /// Contract this dispatch was created under (v10). NOT NULL: `0` = legacy
+    /// (pre-capability row, backfilled by the migration), `1` = current.
+    pub contract_version: i64,
+    /// SHA-256 hex of the launch token a starting worker will exchange for a
+    /// capability (v10). Null until committed; first commitment wins.
+    pub launch_token_hash: Option<String>,
+    /// SHA-256 hex of the `dcap_` token (v10); the token itself is never persisted.
+    pub capability_hash: Option<String>,
+    pub process_incarnation: Option<String>,
+    /// Set when the capability was revoked (v10); the hash is kept so a late
+    /// presentation is diagnosable rather than merely unknown.
+    pub capability_revoked_at: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -174,7 +196,7 @@ const MESSAGE_COLUMNS: &str =
 const TASK_COLUMNS: &str =
     "id, parent_id, created_by_terminal_handle, task_title, display_name, spec, status, deps, result, created_at, completed_at, run_id";
 const DISPATCH_COLUMNS: &str =
-    "id, task_id, assignee_handle, assignee_pane_key, status, failure_count, last_failure, dispatched_at, completed_at, created_at, last_heartbeat_at, run_id";
+    "id, task_id, assignee_handle, assignee_pane_key, status, failure_count, last_failure, dispatched_at, completed_at, created_at, last_heartbeat_at, run_id, contract_version, launch_token_hash, capability_hash, process_incarnation, capability_revoked_at";
 const GATE_COLUMNS: &str =
     "id, task_id, question, options, status, resolution, created_at, resolved_at, origin_message_id, run_id, category, default_option, manager_deadline_at, hard_deadline_at, policy_snapshot, resolved_by, resolution_reason, version";
 const RUN_COLUMNS: &str =
@@ -337,10 +359,14 @@ impl OrchestrationDb {
     /// `convertLifecycleMessageToRejection`): keeps the row queryable but stops it
     /// reaching later read paths as an actionable completion/liveness event. A
     /// non-lifecycle or missing message is returned unchanged.
+    /// `code` is the machine-readable marker code; `None` keeps the historic
+    /// `sender_not_assignee` so existing callers are unchanged (the capability
+    /// path rejects with `dispatch_capability_invalid`).
     pub fn convert_lifecycle_message_to_rejection(
         &self,
         message_id: &str,
         reason: &str,
+        code: Option<&str>,
     ) -> Result<Option<Message>, StoreError> {
         let Some(message) = self.get_message_by_id(message_id)? else {
             return Ok(None);
@@ -357,7 +383,11 @@ impl OrchestrationDb {
             "Orca rejected this {}: {reason}{original_body}",
             message.message_type
         );
-        let payload = add_lifecycle_rejection_marker(message.payload.as_deref(), reason);
+        let payload = add_lifecycle_rejection_marker(
+            message.payload.as_deref(),
+            code.unwrap_or("sender_not_assignee"),
+            reason,
+        );
         let subject = format!("Rejected {}: {}", message.message_type, message.subject);
         self.db.connection().execute(
             "UPDATE messages SET priority = 'high', subject = ?1, body = ?2, payload = ?3 WHERE id = ?4",
@@ -685,8 +715,14 @@ impl OrchestrationDb {
     }
 
     pub fn complete_dispatch(&self, id: &str) -> Result<usize, StoreError> {
+        // v10: completion revokes the dispatch capability in the same write
+        // (every TS termination site funnels through complete/fail), gated on
+        // capability_hash so capability-less legacy rows stay byte-identical.
         Ok(self.db.connection().execute(
-            "UPDATE dispatch_contexts SET status = 'completed', completed_at = datetime('now') WHERE id = ?1",
+            "UPDATE dispatch_contexts SET status = 'completed', completed_at = datetime('now'),
+                 capability_revoked_at = COALESCE(capability_revoked_at,
+                   CASE WHEN capability_hash IS NULL THEN NULL ELSE datetime('now') END)
+             WHERE id = ?1",
             params![id],
         )?)
     }
@@ -749,7 +785,12 @@ impl OrchestrationDb {
         let new_failure_count = failure_count + 1;
         let new_status = if new_failure_count >= 3 { "circuit_broken" } else { "failed" };
         conn.execute(
-            "UPDATE dispatch_contexts SET status = ?2, failure_count = ?3, last_failure = ?4 WHERE id = ?1",
+            // v10: a failed dispatch's capability must not outlive it — the retry
+            // mints its own on a NEW context. Same legacy gate as complete_dispatch.
+            "UPDATE dispatch_contexts SET status = ?2, failure_count = ?3, last_failure = ?4,
+                 capability_revoked_at = COALESCE(capability_revoked_at,
+                   CASE WHEN capability_hash IS NULL THEN NULL ELSE datetime('now') END)
+             WHERE id = ?1",
             params![id, new_status, new_failure_count, error],
         )?;
         let task_status = if new_status == "circuit_broken" { "failed" } else { "ready" };
@@ -1119,14 +1160,14 @@ fn placeholders(n: usize) -> String {
 /// Port of `addLifecycleRejectionMarker`: merge the audit marker into the
 /// message payload object (or a fresh object when the payload is absent or not a
 /// JSON object), mirroring `JSON.stringify({ ...parsed, _orcaLifecycleRejection })`.
-fn add_lifecycle_rejection_marker(payload: Option<&str>, reason: &str) -> String {
+fn add_lifecycle_rejection_marker(payload: Option<&str>, code: &str, reason: &str) -> String {
     let mut obj = match payload.and_then(|p| serde_json::from_str::<serde_json::Value>(p).ok()) {
         Some(serde_json::Value::Object(map)) => map,
         _ => serde_json::Map::new(),
     };
     obj.insert(
         "_orcaLifecycleRejection".to_string(),
-        serde_json::json!({ "code": "sender_not_assignee", "reason": reason }),
+        serde_json::json!({ "code": code, "reason": reason }),
     );
     serde_json::Value::Object(obj).to_string()
 }
@@ -1158,7 +1199,7 @@ fn is_stable_pane_id(v: &str) -> bool {
 }
 
 /// Port of `isEquivalentPaneKey`: identical keys, or the same stable leaf.
-fn is_equivalent_pane_key(a: &str, b: &str) -> bool {
+pub(crate) fn is_equivalent_pane_key(a: &str, b: &str) -> bool {
     a == b || matches!((pane_key_leaf(a), pane_key_leaf(b)), (Some(la), Some(lb)) if la == lb)
 }
 
@@ -1213,6 +1254,11 @@ fn row_to_dispatch(row: &SqlRow<'_>) -> rusqlite::Result<DispatchContext> {
         created_at: row.get(9)?,
         last_heartbeat_at: row.get(10)?,
         run_id: row.get(11)?,
+        contract_version: row.get(12)?,
+        launch_token_hash: row.get(13)?,
+        capability_hash: row.get(14)?,
+        process_incarnation: row.get(15)?,
+        capability_revoked_at: row.get(16)?,
     })
 }
 

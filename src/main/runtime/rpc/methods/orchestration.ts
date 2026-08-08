@@ -6,7 +6,8 @@ import type {
   MessageType,
   MessagePriority,
   TaskStatus,
-  OrchestrationDb
+  OrchestrationDb,
+  DispatchContextRow
 } from '../../orchestration/db'
 import { buildDispatchPreamble } from '../../orchestration/preamble'
 import { formatMessageBanner } from '../../orchestration/formatter'
@@ -14,6 +15,8 @@ import { isGroupAddress, resolveGroupAddress } from '../../orchestration/groups'
 import { reconcileLifecycleMessage } from '../../orchestration/lifecycle-reconciliation'
 import { abbreviateOrchestrationTasks } from '../../../../shared/orchestration-task-summary'
 import { clampOrchestrationAskTimeoutMs } from '../../../../shared/orchestration-ask-timeout'
+import { SETTLED_DISPATCH_STATUSES } from '../../../../shared/agent-status-types'
+import { OrchestrationError } from '../../orchestration/orchestration-error'
 import { ORCHESTRATION_GATE_METHODS } from './orchestration-gates'
 
 const MESSAGE_TYPES: MessageType[] = [
@@ -35,6 +38,30 @@ const TASK_STATUSES: TaskStatus[] = [
   'failed',
   'blocked'
 ]
+
+// Why (v10): capability enforcement is scoped to dispatches that were MINTED a
+// capability (capability_hash set) — legacy dispatches keep pane-key authority
+// only, so the upgrade is a ratchet, not a flag-day. The dispatch id comes from
+// the message payload because that is how workers already thread identity.
+function getMintedDispatchForLifecyclePayload(
+  db: OrchestrationDb,
+  payload: string | undefined
+): DispatchContextRow | undefined {
+  if (!payload) {
+    return undefined
+  }
+  let dispatchId: unknown
+  try {
+    dispatchId = (JSON.parse(payload) as { dispatchId?: unknown }).dispatchId
+  } catch {
+    return undefined
+  }
+  if (typeof dispatchId !== 'string' || dispatchId.length === 0) {
+    return undefined
+  }
+  const dispatch = db.getDispatchContextById(dispatchId)
+  return dispatch?.capability_hash ? dispatch : undefined
+}
 
 function getLifecycleGroupRecipientError(type: 'worker_done' | 'heartbeat'): string {
   return `${type} messages must be sent to a concrete coordinator terminal handle, not a group address.`
@@ -73,6 +100,9 @@ const SendParams = z
     payload: OptionalString,
     // Why: pane key is the remint-stable identity used to verify worker_done/heartbeat ownership; the from handle stays routing metadata.
     senderPaneKey: OptionalString,
+    // Why (v10): the dcap_ secret the dispatch preamble handed the worker.
+    // Presented per-send and never persisted; the store compares its hash.
+    dispatchCapability: OptionalString,
     devMode: OptionalBoolean
   })
   .superRefine((params, ctx) => {
@@ -239,6 +269,55 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
           senderPaneKey,
           recipientPaneKey
         })
+        // Why (v10, before reconcile): a minted dispatch requires the presented
+        // dcap_ secret to hash-match, from an equivalent pane and the SAME
+        // process incarnation (runtime-derived from the sender, so a spoofed
+        // pane key alone no longer grants lifecycle authority). Failure is
+        // persisted as a coded rejection so later re-reads stay rejected.
+        if (msg.type === 'worker_done' || msg.type === 'heartbeat') {
+          const minted = getMintedDispatchForLifecyclePayload(db, msg.payload ?? undefined)
+          if (minted) {
+            const authority = db.capabilities.verify({
+              dispatchId: minted.id,
+              capability: params.dispatchCapability,
+              // Prefer the runtime-observed pane; caller-supplied is only the
+              // SSH/CLI fallback where the runtime cannot resolve the sender.
+              paneKey: runtime.getTerminalPaneKey(from) ?? params.senderPaneKey,
+              processIncarnation: runtime.getTerminalProcessIncarnation?.(from) ?? undefined
+            })
+            // Why (revoke-on-terminate carve-out): complete/fail stamp
+            // capability_revoked_at, so a legitimate straggler (late heartbeat,
+            // duplicate worker_done) fails verify AFTER its dispatch settled.
+            // verify checks revocation before the token, so on this row (hash
+            // present per the minted predicate) revoked_at set ⟺ the revoked
+            // verdict — settled + revoked is the straggler shape, not an attack.
+            // Fall through to reconcile, which already no-ops a terminal
+            // dispatch's lifecycle mail quietly (pre-v10 behavior). Wrong or
+            // absent tokens on an ACTIVE dispatch, and revoked-but-still-active
+            // presentations, stay hard rejections.
+            const isSettledStraggler =
+              Boolean(minted.capability_revoked_at) &&
+              SETTLED_DISPATCH_STATUSES.includes(minted.status)
+            if (!authority.valid && !isSettledStraggler) {
+              const rejection =
+                db.convertLifecycleMessageToRejection(
+                  msg.id,
+                  authority.reason,
+                  'dispatch_capability_invalid'
+                ) ?? msg
+              runtime.deliverPendingMessagesForHandle(params.to, recipientPaneKey)
+              runtime.notifyMessageArrived(params.to, rejection.type, recipientPaneKey)
+              return {
+                message: rejection,
+                lifecycle: {
+                  action: 'rejected',
+                  code: 'dispatch_capability_invalid',
+                  reason: authority.reason
+                }
+              }
+            }
+          }
+        }
         // Why: reconcile releases the dispatch lock before waking recipients, else a woken coordinator re-dispatches while the lock is still held.
         if (msg.type === 'worker_done' || msg.type === 'heartbeat') {
           const reconciled = reconcileLifecycleMessage(db, msg)
@@ -522,11 +601,21 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
         }
       }
 
-      const ctx = db.createDispatchContext(
-        params.task,
-        to,
-        runtime.getTerminalPaneKey(to) ?? undefined
-      )
+      const assigneePaneKey = runtime.getTerminalPaneKey(to) ?? undefined
+      const ctx = db.createDispatchContext(params.task, to, assigneePaneKey)
+
+      // v10: same ratchet as the coordinator loop — mint only when the runtime
+      // can identify the target's pane AND process incarnation; otherwise the
+      // dispatch stays legacy (no capability_hash -> no enforcement).
+      const processIncarnation = runtime.getTerminalProcessIncarnation?.(to) ?? undefined
+      const dispatchCapability =
+        assigneePaneKey && processIncarnation
+          ? db.capabilities.mint({
+              dispatchId: ctx.id,
+              paneKey: assigneePaneKey,
+              processIncarnation
+            })
+          : undefined
 
       // Why: built after ctx so dispatchId is the real ctx.id, letting heartbeats attribute liveness to a specific dispatch context, not just a task.
       const preamble = buildDispatchPreamble({
@@ -537,7 +626,8 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
         workerHandle: to,
         devMode: params.devMode,
         personalizationPrompt: await runtime.getPersonalizationPrompt(to),
-        cliCommand: runtime.getTerminalOrchestrationCliCommand(to)
+        cliCommand: runtime.getTerminalOrchestrationCliCommand(to),
+        ...(dispatchCapability ? { dispatchCapability } : {})
       })
 
       let injected = false
@@ -576,6 +666,37 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
           throw new Error(`Task not found: ${params.task}`)
         }
         const workerHandle = ctx?.assignee_handle ?? 'worker'
+        // Why (v10): the dcap_ plaintext died at mint (hash-only persistence),
+        // so a regenerated preamble cannot replay it — re-mint instead. Safe
+        // because this is the injection-failed recovery path: the prior token
+        // never reached the worker, so rotating it strands nothing. Mint
+        // rebinds pane/incarnation and clears revocation (relaunch semantics),
+        // resolved exactly like the dispatch seam. When identity cannot be
+        // resolved (or the dispatch is no longer active), fall back to a
+        // flag-less preamble with an explicit caveat, never a silently broken one.
+        let dispatchCapability: string | undefined
+        let capabilityCaveat: string | undefined
+        if (ctx?.capability_hash) {
+          const paneKey = runtime.getTerminalPaneKey(workerHandle) ?? undefined
+          const processIncarnation =
+            runtime.getTerminalProcessIncarnation?.(workerHandle) ?? undefined
+          if (paneKey && processIncarnation) {
+            try {
+              dispatchCapability = db.capabilities.mint({
+                dispatchId: ctx.id,
+                paneKey,
+                processIncarnation
+              })
+            } catch (error) {
+              if (!(error instanceof OrchestrationError) || error.code !== 'dispatch_inactive') {
+                throw error
+              }
+              capabilityCaveat = `Dispatch ${ctx.id} is ${ctx.status}; regenerated the preamble without --dispatch-capability (re-mint needs an active dispatch).`
+            }
+          } else {
+            capabilityCaveat = `Cannot resolve the pane/process identity of ${workerHandle}; regenerated the preamble without --dispatch-capability, so its lifecycle sends will be rejected.`
+          }
+        }
         const preamble = buildDispatchPreamble({
           taskId: task.id,
           // Why: use the real ctx.id when present so the preview matches what was injected; placeholder when no dispatch has occurred yet.
@@ -587,9 +708,14 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
           personalizationPrompt: await runtime.getPersonalizationPrompt(
             ctx?.assignee_handle ?? undefined
           ),
-          ...(ctx ? { cliCommand: runtime.getTerminalOrchestrationCliCommand(workerHandle) } : {})
+          ...(ctx ? { cliCommand: runtime.getTerminalOrchestrationCliCommand(workerHandle) } : {}),
+          ...(dispatchCapability ? { dispatchCapability } : {})
         })
-        return { dispatch: ctx ?? null, preamble }
+        return {
+          dispatch: ctx ?? null,
+          preamble,
+          ...(capabilityCaveat ? { capabilityCaveat } : {})
+        }
       }
 
       return { dispatch: ctx ?? null }

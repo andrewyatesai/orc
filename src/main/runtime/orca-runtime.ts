@@ -14904,6 +14904,24 @@ export class OrcaRuntimeService {
     return this.getPaneKeyForTerminalHandle(handle)
   }
 
+  // Why (v10): the capability's process-incarnation binding. `ptyId:incarnationId`
+  // changes when the pane's process is respawned, so a token minted to a dead
+  // process stops verifying; the generation fallback keeps the restart-degraded
+  // fence for providers that omit incarnation ids. Ported from the reference
+  // branch's getTerminalProcessIncarnation.
+  getTerminalProcessIncarnation(handle: string): string | null {
+    const live = this.getLivePtyForHandle(handle)
+    const record = live?.record ?? this.handles.get(handle)
+    if (!record?.ptyId) {
+      return null
+    }
+    const incarnationId = live?.pty.incarnationId ?? this.ptysById.get(record.ptyId)?.incarnationId
+    if (incarnationId) {
+      return `${record.ptyId}:${incarnationId}`
+    }
+    return `${this.runtimeId}:${record.ptyId}:${record.ptyGeneration}`
+  }
+
   getTerminalWorktreeIdForPaneKey(paneKey: string): string | null {
     const parsed = parsePaneKey(paneKey)
     const leaf = parsed ? this.leaves.get(this.getLeafKey(parsed.tabId, parsed.leafId)) : null

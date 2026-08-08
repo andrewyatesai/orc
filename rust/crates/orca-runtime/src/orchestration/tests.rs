@@ -408,3 +408,367 @@ fn gate_round_trips_its_origin_message_id() {
         1
     );
 }
+
+// ---- dispatch capabilities (v10) ----
+
+const PANE_A: &str = "tab1:0f9a1b2c-3d4e-4f5a-8b7c-0d1e2f3a4b5c";
+const PANE_A_REMINTED: &str = "tab9:0f9a1b2c-3d4e-4f5a-8b7c-0d1e2f3a4b5c";
+const PANE_B: &str = "tab1:1a2b3c4d-5e6f-4a7b-9c8d-1e2f3a4b5c6d";
+
+fn dispatched(pane_key: Option<&str>) -> OrchestrationDb {
+    let db = OrchestrationDb::open_in_memory().unwrap();
+    new_task(&db, "t1", "do the thing", &[]);
+    db.create_dispatch_context("t1", "worker-1", "ctx1", pane_key, None).unwrap();
+    db
+}
+
+fn mint(db: &OrchestrationDb, pane_key: &str, incarnation: &str) -> String {
+    db.mint_dispatch_capability(&MintCapabilityParams {
+        dispatch_id: "ctx1".to_string(),
+        pane_key: pane_key.to_string(),
+        process_incarnation: incarnation.to_string(),
+    })
+    .unwrap()
+}
+
+fn identity(capability: &str, pane_key: &str, incarnation: &str) -> DispatchIdentity {
+    DispatchIdentity {
+        dispatch_id: "ctx1".to_string(),
+        capability: Some(capability.to_string()),
+        pane_key: Some(pane_key.to_string()),
+        process_incarnation: Some(incarnation.to_string()),
+    }
+}
+
+fn reason(verdict: &CapabilityVerdict) -> String {
+    match verdict {
+        CapabilityVerdict::Invalid { reason, .. } => reason.clone(),
+        CapabilityVerdict::Valid { .. } => panic!("expected an invalid verdict"),
+    }
+}
+
+fn coded(error: orca_store::StoreError) -> (String, String) {
+    let orca_store::StoreError::Message(text) = error else {
+        panic!("expected a coded message error")
+    };
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(parsed[ORCHESTRATION_ERROR_MARKER], serde_json::json!(true));
+    (
+        parsed["code"].as_str().unwrap().to_string(),
+        parsed["message"].as_str().unwrap().to_string(),
+    )
+}
+
+#[test]
+fn mint_persists_only_the_hash_and_binds_the_identity() {
+    let db = dispatched(None);
+    let capability = mint(&db, PANE_A, "pid-1");
+    // `dcap_` + unpadded base64url of 32 random bytes; every mint is fresh.
+    assert!(capability.starts_with("dcap_"));
+    assert_eq!(capability.len(), "dcap_".len() + 43);
+    assert_ne!(capability, mint(&db, PANE_A, "pid-1"));
+    let capability = mint(&db, PANE_A, "pid-1");
+
+    let row = db.dispatch_context_by_id("ctx1").unwrap().unwrap();
+    assert_eq!(
+        row.capability_hash.as_deref(),
+        Some(capability::hash_dispatch_capability(&capability).as_str())
+    );
+    assert_eq!(row.assignee_pane_key.as_deref(), Some(PANE_A));
+    assert_eq!(row.process_incarnation.as_deref(), Some("pid-1"));
+    assert_eq!(row.capability_revoked_at, None);
+    assert_eq!(row.contract_version, CURRENT_CONTRACT_VERSION);
+    // The token itself is never written anywhere on the row.
+    let stored = serde_json::to_string(&row).unwrap();
+    assert!(!stored.contains(&capability), "the capability must not be persisted: {stored}");
+}
+
+#[test]
+fn mint_then_verify_round_trips_across_a_pane_remint() {
+    let db = dispatched(Some(PANE_A));
+    let capability = mint(&db, PANE_A, "pid-1");
+    assert_eq!(
+        db.verify_dispatch_capability(&identity(&capability, PANE_A, "pid-1")).unwrap(),
+        CapabilityVerdict::valid()
+    );
+    // Same stable pane leaf behind a new tab id still verifies.
+    assert_eq!(
+        db.verify_dispatch_capability(&identity(&capability, PANE_A_REMINTED, "pid-1")).unwrap(),
+        CapabilityVerdict::valid()
+    );
+}
+
+#[test]
+fn verify_rejects_every_failure_mode_with_the_ported_reason() {
+    let db = dispatched(Some(PANE_A));
+
+    let unknown = DispatchIdentity { dispatch_id: "nope".to_string(), ..Default::default() };
+    assert_eq!(
+        reason(&db.verify_dispatch_capability(&unknown).unwrap()),
+        "Dispatch nope was not found."
+    );
+
+    // Never minted.
+    assert_eq!(
+        reason(&db.verify_dispatch_capability(&identity("dcap_x", PANE_A, "pid-1")).unwrap()),
+        "Dispatch ctx1 has no lifecycle capability."
+    );
+
+    let capability = mint(&db, PANE_A, "pid-1");
+
+    // Missing / empty presented capability, checked before the compare.
+    let mut missing = identity(&capability, PANE_A, "pid-1");
+    missing.capability = None;
+    assert_eq!(
+        reason(&db.verify_dispatch_capability(&missing).unwrap()),
+        "The Dispatch capability is missing."
+    );
+    missing.capability = Some(String::new());
+    assert_eq!(
+        reason(&db.verify_dispatch_capability(&missing).unwrap()),
+        "The Dispatch capability is missing."
+    );
+
+    // Wrong token.
+    assert_eq!(
+        reason(&db.verify_dispatch_capability(&identity("dcap_wrong", PANE_A, "pid-1")).unwrap()),
+        "The Dispatch capability is invalid."
+    );
+
+    // Right token, wrong pane — and a missing pane is equally a wrong pane.
+    assert_eq!(
+        reason(&db.verify_dispatch_capability(&identity(&capability, PANE_B, "pid-1")).unwrap()),
+        "The caller is not the Dispatch pane."
+    );
+    let mut no_pane = identity(&capability, PANE_A, "pid-1");
+    no_pane.pane_key = None;
+    assert_eq!(
+        reason(&db.verify_dispatch_capability(&no_pane).unwrap()),
+        "The caller is not the Dispatch pane."
+    );
+
+    // Right token and pane, restarted process.
+    assert_eq!(
+        reason(&db.verify_dispatch_capability(&identity(&capability, PANE_A, "pid-2")).unwrap()),
+        "The Dispatch process incarnation changed."
+    );
+    let mut no_incarnation = identity(&capability, PANE_A, "pid-1");
+    no_incarnation.process_incarnation = None;
+    assert_eq!(
+        reason(&db.verify_dispatch_capability(&no_incarnation).unwrap()),
+        "The Dispatch process incarnation changed."
+    );
+
+    // Revocation is checked before the token itself.
+    db.revoke_dispatch_capability("ctx1").unwrap();
+    assert_eq!(
+        reason(&db.verify_dispatch_capability(&identity(&capability, PANE_A, "pid-1")).unwrap()),
+        "Dispatch ctx1 capability is revoked."
+    );
+}
+
+#[test]
+fn remint_rebinds_the_identity_and_clears_a_prior_revocation() {
+    let db = dispatched(Some(PANE_A));
+    let first = mint(&db, PANE_A, "pid-1");
+    db.revoke_dispatch_capability("ctx1").unwrap();
+
+    let second = db
+        .mint_dispatch_capability(&MintCapabilityParams {
+            dispatch_id: "ctx1".to_string(),
+            pane_key: PANE_A_REMINTED.to_string(),
+            process_incarnation: "pid-2".to_string(),
+        })
+        .unwrap();
+
+    let row = db.dispatch_context_by_id("ctx1").unwrap().unwrap();
+    assert_eq!(row.capability_revoked_at, None);
+    assert_eq!(row.process_incarnation.as_deref(), Some("pid-2"));
+    // The superseded token no longer verifies; the new one does.
+    assert_eq!(
+        reason(&db.verify_dispatch_capability(&identity(&first, PANE_A_REMINTED, "pid-2")).unwrap()),
+        "The Dispatch capability is invalid."
+    );
+    assert_eq!(
+        db.verify_dispatch_capability(&identity(&second, PANE_A_REMINTED, "pid-2")).unwrap(),
+        CapabilityVerdict::valid()
+    );
+}
+
+#[test]
+fn mint_refuses_an_inactive_or_unknown_dispatch_with_a_coded_error() {
+    let db = dispatched(Some(PANE_A));
+    db.complete_dispatch("ctx1").unwrap();
+    let (code, message) = coded(
+        db.mint_dispatch_capability(&MintCapabilityParams {
+            dispatch_id: "ctx1".to_string(),
+            pane_key: PANE_A.to_string(),
+            process_incarnation: "pid-1".to_string(),
+        })
+        .unwrap_err(),
+    );
+    assert_eq!(code, "dispatch_inactive");
+    assert_eq!(message, "Dispatch ctx1 is not active.");
+    // A completed dispatch keeps no capability it never had.
+    assert_eq!(db.dispatch_context_by_id("ctx1").unwrap().unwrap().capability_hash, None);
+
+    let (code, message) = coded(
+        db.mint_dispatch_capability(&MintCapabilityParams {
+            dispatch_id: "nope".to_string(),
+            pane_key: PANE_A.to_string(),
+            process_incarnation: "pid-1".to_string(),
+        })
+        .unwrap_err(),
+    );
+    assert_eq!(code, "dispatch_inactive");
+    assert_eq!(message, "Dispatch nope is not active.");
+}
+
+#[test]
+fn revoke_keeps_the_hash_and_the_first_stamp_and_ignores_unknown_ids() {
+    let db = dispatched(Some(PANE_A));
+    let capability = mint(&db, PANE_A, "pid-1");
+    db.revoke_dispatch_capability("ctx1").unwrap();
+    let first = db.dispatch_context_by_id("ctx1").unwrap().unwrap();
+    assert!(first.capability_revoked_at.is_some());
+    // The hash survives so a later presentation is diagnosable.
+    assert_eq!(
+        first.capability_hash.as_deref(),
+        Some(capability::hash_dispatch_capability(&capability).as_str())
+    );
+
+    db.connection()
+        .execute(
+            "UPDATE dispatch_contexts SET capability_revoked_at = '2020-01-01 00:00:00' WHERE id = 'ctx1'",
+            [],
+        )
+        .unwrap();
+    db.revoke_dispatch_capability("ctx1").unwrap();
+    assert_eq!(
+        db.dispatch_context_by_id("ctx1").unwrap().unwrap().capability_revoked_at.as_deref(),
+        Some("2020-01-01 00:00:00")
+    );
+
+    // Unknown ids are a silent no-op, exactly like the TS UPDATE.
+    db.revoke_dispatch_capability("nope").unwrap();
+}
+
+#[test]
+fn dispatch_completion_and_failure_revoke_a_minted_capability() {
+    let db = dispatched(Some(PANE_A));
+    let capability = mint(&db, PANE_A, "pid-1");
+    db.complete_dispatch("ctx1").unwrap();
+    assert_eq!(
+        reason(&db.verify_dispatch_capability(&identity(&capability, PANE_A, "pid-1")).unwrap()),
+        "Dispatch ctx1 capability is revoked."
+    );
+
+    // Failure revokes too; a capability-less dispatch stays unstamped (legacy
+    // rows keep their exact pre-v10 bytes).
+    new_task(&db, "t2", "again", &[]);
+    db.create_dispatch_context("t2", "worker-2", "ctx2", Some(PANE_B), None).unwrap();
+    let minted = db
+        .mint_dispatch_capability(&MintCapabilityParams {
+            dispatch_id: "ctx2".to_string(),
+            pane_key: PANE_B.to_string(),
+            process_incarnation: "pid-9".to_string(),
+        })
+        .unwrap();
+    assert!(!minted.is_empty());
+    db.fail_dispatch("ctx2", "boom").unwrap();
+    assert!(db.dispatch_context_by_id("ctx2").unwrap().unwrap().capability_revoked_at.is_some());
+
+    new_task(&db, "t3", "no capability", &[]);
+    db.create_dispatch_context("t3", "worker-3", "ctx3", None, None).unwrap();
+    db.complete_dispatch("ctx3").unwrap();
+    assert_eq!(db.dispatch_context_by_id("ctx3").unwrap().unwrap().capability_revoked_at, None);
+}
+
+#[test]
+fn launch_token_commitment_is_first_write_wins() {
+    let db = dispatched(Some(PANE_A));
+    let committed = db.commit_dispatch_launch_token_hash("ctx1", "hash-1").unwrap();
+    assert_eq!(committed.launch_token_hash.as_deref(), Some("hash-1"));
+
+    // Re-committing the same hash is idempotent.
+    let again = db.commit_dispatch_launch_token_hash("ctx1", "hash-1").unwrap();
+    assert_eq!(again.launch_token_hash.as_deref(), Some("hash-1"));
+
+    let (code, message) = coded(db.commit_dispatch_launch_token_hash("ctx1", "hash-2").unwrap_err());
+    assert_eq!(code, "request_mismatch");
+    assert_eq!(message, "Dispatch ctx1 already has a different launch-token commitment.");
+    assert_eq!(
+        db.dispatch_context_by_id("ctx1").unwrap().unwrap().launch_token_hash.as_deref(),
+        Some("hash-1")
+    );
+}
+
+#[test]
+fn launch_token_commitment_rejects_unknown_and_legacy_contract_dispatches() {
+    let db = dispatched(Some(PANE_A));
+    let (code, message) = coded(db.commit_dispatch_launch_token_hash("nope", "hash-1").unwrap_err());
+    assert_eq!(code, "dispatch_not_found");
+    assert_eq!(message, "Dispatch nope was not found.");
+
+    db.connection()
+        .execute("UPDATE dispatch_contexts SET contract_version = 0 WHERE id = 'ctx1'", [])
+        .unwrap();
+    let (code, message) = coded(db.commit_dispatch_launch_token_hash("ctx1", "hash-1").unwrap_err());
+    assert_eq!(code, "request_mismatch");
+    assert_eq!(message, "Dispatch ctx1 does not use the current contract.");
+    assert_eq!(db.dispatch_context_by_id("ctx1").unwrap().unwrap().launch_token_hash, None);
+}
+
+#[test]
+fn process_currency_needs_both_an_equivalent_pane_and_the_same_incarnation() {
+    let db = dispatched(Some(PANE_A));
+    mint(&db, PANE_A, "pid-1");
+
+    assert!(db.is_dispatch_process_current(&identity("", PANE_A, "pid-1")).unwrap());
+    assert!(db.is_dispatch_process_current(&identity("", PANE_A_REMINTED, "pid-1")).unwrap());
+    assert!(!db.is_dispatch_process_current(&identity("", PANE_B, "pid-1")).unwrap());
+    assert!(!db.is_dispatch_process_current(&identity("", PANE_A, "pid-2")).unwrap());
+
+    let mut absent = identity("", PANE_A, "pid-1");
+    absent.pane_key = None;
+    assert!(!db.is_dispatch_process_current(&absent).unwrap());
+    let mut absent = identity("", PANE_A, "pid-1");
+    absent.process_incarnation = None;
+    assert!(!db.is_dispatch_process_current(&absent).unwrap());
+
+    // Unknown dispatch, and a dispatch that never bound a process.
+    let unknown = DispatchIdentity { dispatch_id: "nope".to_string(), ..Default::default() };
+    assert!(!db.is_dispatch_process_current(&unknown).unwrap());
+    new_task(&db, "t2", "second", &[]);
+    db.create_dispatch_context("t2", "worker-2", "ctx2", None, None).unwrap();
+    let unbound = DispatchIdentity {
+        dispatch_id: "ctx2".to_string(),
+        capability: None,
+        pane_key: Some(PANE_A.to_string()),
+        process_incarnation: Some("pid-1".to_string()),
+    };
+    assert!(!db.is_dispatch_process_current(&unbound).unwrap());
+}
+
+#[test]
+fn rejection_marker_carries_the_caller_supplied_code() {
+    let db = OrchestrationDb::open_in_memory().unwrap();
+    let mut done = msg("m1", "coordinator", "done");
+    done.message_type = "worker_done".to_string();
+    db.send_message(&done).unwrap();
+    let rewritten = db
+        .convert_lifecycle_message_to_rejection("m1", "bad token", Some("dispatch_capability_invalid"))
+        .unwrap()
+        .unwrap();
+    let payload: serde_json::Value = serde_json::from_str(rewritten.payload.as_deref().unwrap()).unwrap();
+    assert_eq!(payload["_orcaLifecycleRejection"]["code"], "dispatch_capability_invalid");
+    assert_eq!(payload["_orcaLifecycleRejection"]["reason"], "bad token");
+
+    // Default keeps the historic code, so existing callers are unchanged.
+    let mut hb = msg("m2", "coordinator", "alive");
+    hb.message_type = "heartbeat".to_string();
+    db.send_message(&hb).unwrap();
+    let rewritten = db.convert_lifecycle_message_to_rejection("m2", "not yours", None).unwrap().unwrap();
+    let payload: serde_json::Value = serde_json::from_str(rewritten.payload.as_deref().unwrap()).unwrap();
+    assert_eq!(payload["_orcaLifecycleRejection"]["code"], "sender_not_assignee");
+}

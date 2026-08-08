@@ -59,8 +59,9 @@ export type RustOrchestrationStoreHandle = {
     recipientPaneKey: string | null
   ): string
   getMessageById(id: string): string | null
-  /** Rewrite a superseded worker_done/heartbeat into an audit-only rejection. */
-  convertLifecycleMessageToRejection(id: string, reason: string): string | null
+  /** Rewrite a superseded worker_done/heartbeat into an audit-only rejection.
+   *  `code` selects the persisted marker code; omitted = `sender_not_assignee`. */
+  convertLifecycleMessageToRejection(id: string, reason: string, code?: string | null): string | null
   getUnreadMessages(handle: string, types: string[] | undefined): string
   getUndeliveredUnreadMessages(handle: string, types: string[] | undefined): string
   getAllMessages(handle: string, limit: number): string
@@ -119,6 +120,31 @@ export type RustOrchestrationStoreHandle = {
     dispatchedAt: string | null,
     lastHeartbeatAt: string | null
   ): void
+  // dispatch capabilities (v10). Coded failures (dispatch_inactive,
+  // dispatch_not_found, request_mismatch) cross as a JSON envelope in
+  // Error.message — restore with orchestration-error.ts.
+  /** Mints the dcap_ secret store-side; returns the plaintext ONCE (only its
+   *  SHA-256 is persisted). */
+  mintDispatchCapability(
+    dispatchId: string,
+    paneKey: string,
+    processIncarnation: string
+  ): string
+  /** Verdict JSON: `{"valid":true}` | `{"valid":false,"reason":…}`. */
+  verifyDispatchCapability(
+    dispatchId: string,
+    capability: string | null,
+    paneKey: string | null,
+    processIncarnation: string | null
+  ): string
+  revokeDispatchCapability(dispatchId: string): void
+  /** First commitment wins; returns the updated dispatch row JSON. */
+  commitDispatchLaunchTokenHash(dispatchId: string, launchTokenHash: string): string
+  isDispatchProcessCurrent(
+    dispatchId: string,
+    paneKey: string | null,
+    processIncarnation: string | null
+  ): boolean
   // decision gates
   createGate(
     id: string,

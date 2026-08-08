@@ -369,6 +369,9 @@ export const ORCHESTRATION_HANDLERS: Record<string, CommandHandler> = {
       payload: getOptionalStructuredMessagePayload(flags),
       // Why: pane key is the remint-stable sender identity the runtime verifies lifecycle ownership against; older runtimes strip it.
       senderPaneKey: process.env.ORCA_PANE_KEY || undefined,
+      // Why (v10): the dcap_ secret the dispatch preamble handed this worker.
+      // A separate param (never the payload) so it is presented, not persisted.
+      dispatchCapability: getOptionalStringFlag(flags, 'dispatch-capability'),
       devMode: isDevCliInvocation()
     })
     if ('message' in result.result && result.result.lifecycle?.action === 'rejected') {
@@ -667,12 +670,17 @@ export const ORCHESTRATION_HANDLERS: Record<string, CommandHandler> = {
     const result = await client.call<{
       dispatch: { id: string; task_id: string; status: string } | null
       preamble?: string
+      capabilityCaveat?: string
     }>('orchestration.dispatchShow', {
       task: getRequiredStringFlag(flags, 'task'),
       preamble: showPreamble,
       from,
       devMode: isDevCliInvocation()
     })
+    // Why stderr: stdout stays the raw preamble for copy/paste re-delivery.
+    if (!json && result.result.capabilityCaveat) {
+      console.error(result.result.capabilityCaveat)
+    }
     printResult(result, json, (r) => {
       if (r.preamble && showPreamble) {
         return r.preamble

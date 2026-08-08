@@ -37,9 +37,13 @@ export type LifecycleReconciliationResult =
   | { action: 'completed'; taskId: string; dispatchId: string }
   | { action: 'heartbeat_recorded'; dispatchId: string }
 
+/** `dispatch_capability_invalid` (v10) is stamped by the send-path capability
+ *  check in rpc/methods/orchestration.ts, not by this module. */
+export type LifecycleRejectionCode = 'sender_not_assignee' | 'dispatch_capability_invalid'
+
 export type LifecycleRejectionResult = {
   action: 'rejected'
-  code: 'sender_not_assignee'
+  code: LifecycleRejectionCode
   reason: string
 }
 
@@ -65,19 +69,20 @@ function getPersistedLifecycleRejection(
   payload: Record<string, unknown>
 ): LifecycleRejectionResult | undefined {
   const rejection = payload._orcaLifecycleRejection
+  // Why any string code (not just the union): the marker is reserved
+  // persistence state, so an unrecognized code must still read as a rejection —
+  // never fall through and let a converted message act as completion/liveness.
   if (
     !rejection ||
     typeof rejection !== 'object' ||
-    (rejection as { code?: unknown }).code !== 'sender_not_assignee' ||
+    typeof (rejection as { code?: unknown }).code !== 'string' ||
     typeof (rejection as { reason?: unknown }).reason !== 'string'
   ) {
     return undefined
   }
-  // Why: the marker is reserved persistence state; treating it as a rejection
-  // also prevents caller-supplied markers from turning lifecycle sends into success.
   return {
     action: 'rejected',
-    code: 'sender_not_assignee',
+    code: (rejection as { code: LifecycleRejectionCode }).code,
     reason: (rejection as { reason: string }).reason
   }
 }

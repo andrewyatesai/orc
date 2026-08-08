@@ -32,6 +32,12 @@ export type PreambleParams = {
   // Why: prompt-returning agents should idle after worker_done, while bare
   // shells have no agent prompt for Orca to reuse.
   workerKind?: 'prompt-returning-agent' | 'bare-shell'
+  // Why (v10): the dcap_ secret minted for THIS dispatch. It travels only
+  // inside the preamble pasted into the worker's PTY (the same channel that
+  // already threads taskId/dispatchId) and is echoed back on lifecycle sends,
+  // where the store verifies its hash. Absent for a legacy dispatch — no flag
+  // is emitted and no enforcement applies.
+  dispatchCapability?: string
 }
 
 // Why: 5 minutes is frequent enough that the coordinator's stale-heartbeat
@@ -54,6 +60,11 @@ export function buildDispatchPreamble(params: PreambleParams): string {
     cli,
     workerKind: params.workerKind ?? 'prompt-returning-agent'
   })
+  // Why on the lifecycle sends only: worker_done/heartbeat are the verbs the
+  // store verifies; other verbs carry no capability today.
+  const capabilityFlag = params.dispatchCapability
+    ? ` \\\n    --dispatch-capability ${params.dispatchCapability}`
+    : ''
 
   const header = `You are working inside Orca, a multi-agent IDE. You are a dispatched worker.
 Your coordinator's terminal handle is: ${params.coordinatorHandle}
@@ -81,7 +92,7 @@ Slack, GitHub comments, or any other channel to reach a human during the run.
     --body "<3-sentence summary: what you did, what you found, what's left>" \\
     --task-id ${params.taskId} --dispatch-id ${params.dispatchId} \\
     --files-modified "path/a,path/b" \\
-    --report-path "<optional: path to the full artifact>"
+    --report-path "<optional: path to the full artifact>"${capabilityFlag}
 
   # BEHAVIOR RULE: send a heartbeat every ${HEARTBEAT_INTERVAL_MIN} minutes
   # while actively working on the task. The coordinator uses this to
@@ -96,7 +107,7 @@ Slack, GitHub comments, or any other channel to reach a human during the run.
   ${cli} orchestration send --to ${params.coordinatorHandle} --from ${params.workerHandle} \\
     --type heartbeat --subject "alive" \\
     --task-id ${params.taskId} --dispatch-id ${params.dispatchId} \\
-    --phase "<short: investigating|implementing|reviewing|waiting>"
+    --phase "<short: investigating|implementing|reviewing|waiting>"${capabilityFlag}
 
   # Ask the coordinator a question and block until it answers.
   #

@@ -17,8 +17,11 @@ use rusqlite::OptionalExtension;
 // decision_gates.origin_message_id so resolving a gate can reply to the ask that
 // opened it, instead of unblocking the task while the worker hangs to timeout;
 // v8 → v9 durable run ownership + gate policy + the waiting_gate dispatch state
-// (see the ladder step, which also carries the downgrade fence).
-pub(crate) const SCHEMA_VERSION: i64 = 9;
+// (see the ladder step, which also carries the downgrade fence); v9 → v10
+// dispatch capability tokens (capability_hash + identity binding on
+// dispatch_contexts, plus the contract_version legacy/current marker) so a
+// worker must present the minted `dcap_` secret, not just know a dispatch id.
+pub(crate) const SCHEMA_VERSION: i64 = 10;
 
 /// Full-schema creation. Pre-v9 text is the db.ts `createTables` byte-copy; the
 /// v9 columns are appended at the END of each table body so a migrated DB (where
@@ -94,7 +97,12 @@ const CREATE_TABLES_SQL: &str = r#"
         completed_at        TEXT,
         created_at          TEXT NOT NULL DEFAULT (datetime('now')),
         last_heartbeat_at   TEXT,
-        run_id              TEXT
+        run_id              TEXT,
+        contract_version    INTEGER NOT NULL DEFAULT 1,
+        launch_token_hash   TEXT,
+        capability_hash     TEXT,
+        process_incarnation TEXT,
+        capability_revoked_at TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_dispatch_task ON dispatch_contexts(task_id);
@@ -318,6 +326,23 @@ const V9_ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// Columns v10 adds to `dispatch_contexts` by `ALTER TABLE`, in the fresh-DDL
+/// append order so a migrated DB has the same column ORDER as a fresh one.
+/// `contract_version` is NOT NULL with the CURRENT default for the ALTER's
+/// benefit; the ladder step then backfills pre-existing rows to LEGACY (they
+/// predate capability minting, and 1-vs-0 is how consumers tell them apart).
+const V10_ADDED_COLUMNS: &[(&str, &str, &str)] = &[
+    (
+        "dispatch_contexts",
+        "contract_version",
+        "contract_version INTEGER NOT NULL DEFAULT 1",
+    ),
+    ("dispatch_contexts", "launch_token_hash", "launch_token_hash TEXT"),
+    ("dispatch_contexts", "capability_hash", "capability_hash TEXT"),
+    ("dispatch_contexts", "process_incarnation", "process_incarnation TEXT"),
+    ("dispatch_contexts", "capability_revoked_at", "capability_revoked_at TEXT"),
+];
+
 // Why: written with \n escapes (not a raw string) because the statement has no
 // terminating `;`, so SQLite stores the trailing "\n    " into sqlite_master.sql
 // — literal trailing whitespace in source would be fragile.
@@ -434,6 +459,24 @@ fn apply_version_ladder(db: &Database, current: i64) -> Result<(), StoreError> {
             }
         }
     }
+    // v9 → v10: dispatch capability columns — a pure-ALTER step (no CHECK
+    // changes). The backfill runs AFTER the ALTERs, inside the same
+    // transaction: SQLite stamps existing rows with the ALTER default
+    // (CURRENT), but a pre-migration row was never minted a capability, so it
+    // must read as LEGACY — `capability_hash IS NULL` selects exactly the rows
+    // that predate this step (a fresh DB has no rows; a migrated one has no
+    // hashes yet).
+    if current < 10 {
+        for (table, column, declaration) in V10_ADDED_COLUMNS {
+            if !has_column(db, table, column)? {
+                db.exec(&format!("ALTER TABLE {table} ADD COLUMN {declaration}"))?;
+            }
+        }
+        db.connection().execute(
+            "UPDATE dispatch_contexts SET contract_version = ?1 WHERE capability_hash IS NULL",
+            rusqlite::params![crate::orchestration::LEGACY_CONTRACT_VERSION],
+        )?;
+    }
     create_undelivered_inbox_index_if_possible(db)?;
     create_v9_indexes_and_fence_if_possible(db)?;
     db.exec(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))
@@ -543,5 +586,91 @@ mod tests {
         // Idempotent: a second migrate is a no-op.
         migrate(&db).unwrap();
         assert_eq!(db.pragma_i64("user_version").unwrap(), SCHEMA_VERSION);
+    }
+
+    fn column_names(db: &Database, table: &str) -> Vec<String> {
+        let conn = db.connection();
+        let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})")).unwrap();
+        let mut rows = stmt.query([]).unwrap();
+        let mut names = Vec::new();
+        while let Some(row) = rows.next().unwrap() {
+            names.push(row.get::<_, String>("name").unwrap());
+        }
+        names
+    }
+
+    // The exact dispatch_contexts shape a v9 install wrote (post-rebuild), so
+    // v10 is proved against migrated rows, not fresh rows that omit the values.
+    #[test]
+    fn v9_database_migrates_to_v10_losslessly() {
+        let db = Database::open_in_memory().unwrap();
+        db.exec(
+            "CREATE TABLE dispatch_contexts (
+               id                  TEXT PRIMARY KEY,
+               task_id             TEXT NOT NULL,
+               assignee_handle     TEXT,
+               assignee_pane_key   TEXT,
+               status              TEXT NOT NULL DEFAULT 'pending'
+                 CHECK(status IN ('pending', 'dispatched', 'waiting_gate', 'completed', 'failed', 'circuit_broken')),
+               failure_count       INTEGER NOT NULL DEFAULT 0,
+               last_failure        TEXT,
+               dispatched_at       TEXT,
+               completed_at        TEXT,
+               created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+               last_heartbeat_at   TEXT,
+               run_id              TEXT
+             );
+             INSERT INTO dispatch_contexts (id, task_id, assignee_handle, status, failure_count)
+               VALUES ('ctx_v9', 'task_v9', 'term_worker', 'dispatched', 2);",
+        )
+        .unwrap();
+        db.exec("PRAGMA user_version = 9").unwrap();
+
+        create_tables(&db).unwrap();
+        migrate(&db).unwrap();
+        assert_eq!(db.pragma_i64("user_version").unwrap(), SCHEMA_VERSION);
+
+        // Lossless: the v9 row survives; the new columns read as never-minted
+        // LEGACY (contract_version backfilled to 0, everything else NULL).
+        let row = db
+            .connection()
+            .query_row(
+                "SELECT assignee_handle, failure_count, contract_version, launch_token_hash,
+                        capability_hash, process_incarnation, capability_revoked_at
+                 FROM dispatch_contexts WHERE id = 'ctx_v9'",
+                [],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, i64>(1)?,
+                        r.get::<_, i64>(2)?,
+                        r.get::<_, Option<String>>(3)?,
+                        r.get::<_, Option<String>>(4)?,
+                        r.get::<_, Option<String>>(5)?,
+                        r.get::<_, Option<String>>(6)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(row, ("term_worker".to_string(), 2, 0, None, None, None, None));
+
+        // A row inserted AFTER migration reads the CURRENT contract default.
+        db.exec("INSERT INTO dispatch_contexts (id, task_id, status) VALUES ('ctx_new', 't2', 'pending')")
+            .unwrap();
+        let contract: i64 = db
+            .connection()
+            .query_row(
+                "SELECT contract_version FROM dispatch_contexts WHERE id = 'ctx_new'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(contract, crate::orchestration::CURRENT_CONTRACT_VERSION);
+
+        // The append convention held: migrated column order == fresh column order.
+        let fresh = Database::open_in_memory().unwrap();
+        create_tables(&fresh).unwrap();
+        migrate(&fresh).unwrap();
+        assert_eq!(column_names(&db, "dispatch_contexts"), column_names(&fresh, "dispatch_contexts"));
     }
 }

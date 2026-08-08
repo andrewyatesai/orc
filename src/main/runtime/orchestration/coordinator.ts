@@ -31,6 +31,9 @@ export type CoordinatorRuntime = {
   } | null>
   // Why: optional so lightweight runtime fakes keep compiling; when present, dispatch records the assignee's remint-stable pane identity.
   getTerminalPaneKey?(handle: string): string | null
+  // Why optional (fakes again); when present ALONG WITH a pane key, dispatch
+  // mints the v10 capability bound to the target's current process incarnation.
+  getTerminalProcessIncarnation?(handle: string): string | null
   // Why optional (fakes again); when present, dispatch fail-closes under the Safe preset:
   // unattended work only drives workers whose actual launch verifies as confined + silent.
   getAgentPermissionPreset?(): unknown
@@ -516,14 +519,29 @@ export class Coordinator {
       return
     }
 
+    const assigneePaneKey = this.runtime.getTerminalPaneKey?.(targetHandle) ?? undefined
     const dispatch = this.db.createDispatchContext(
       task.id,
       targetHandle,
-      this.runtime.getTerminalPaneKey?.(targetHandle) ?? undefined,
+      assigneePaneKey,
       // Adoption runs once at run start, so a task created mid-run would stay
       // un-owned and drop out of every run-scoped count. Dispatching it claims it.
       this.state.runId || undefined
     )
+
+    // v10: bind the unforgeable worker capability when the runtime can identify
+    // the target's pane AND process incarnation; without both the dispatch
+    // stays legacy (no capability_hash -> no enforcement) rather than half-bound.
+    const processIncarnation =
+      this.runtime.getTerminalProcessIncarnation?.(targetHandle) ?? undefined
+    const dispatchCapability =
+      assigneePaneKey && processIncarnation
+        ? this.db.capabilities.mint({
+            dispatchId: dispatch.id,
+            paneKey: assigneePaneKey,
+            processIncarnation
+          })
+        : undefined
 
     // Why: dispatched agents use orca-dev in dev mode to reach the dev runtime's socket, not production (Section 6.4).
     const preamble = buildDispatchPreamble({
@@ -539,7 +557,8 @@ export class Coordinator {
         : {}),
       personalizationPrompt: await this.runtime.getPersonalizationPrompt?.(targetHandle),
       // Why (§3.2): pass baseDrift unconditionally — the preamble builder itself gates the drift section on behind > 0.
-      ...(baseDrift ? { baseDrift } : {})
+      ...(baseDrift ? { baseDrift } : {}),
+      ...(dispatchCapability ? { dispatchCapability } : {})
     })
 
     // Why: surface a since-resolved decision gate's outcome to the worker via the preamble.

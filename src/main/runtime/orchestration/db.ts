@@ -21,6 +21,7 @@ import { listFromJson, optRowFromJson, rowFromJson } from './db-row-json'
 import { OrchestrationMessageStore } from './message-store'
 import { generateId } from './row-id'
 import { AuditLedgerStore } from './audit-ledger'
+import { DispatchCapabilityStore } from './dispatch-capabilities'
 import { GatePolicyStore } from './gate-resolution'
 import { RotationReservationStore } from './rotation-reservations'
 import { RunOwnershipStore } from './run-ownership'
@@ -72,6 +73,8 @@ export class OrchestrationDb extends OrchestrationMessageStore {
   readonly audit: AuditLedgerStore
   /** Rotation-saga reservations (design §8.3). */
   readonly rotations: RotationReservationStore
+  /** Dispatch capability tokens (schema v10) — mint/verify/revoke the dcap_ secret. */
+  readonly capabilities: DispatchCapabilityStore
 
   // Why: buildAgentOrchestrationByPaneKey rebuilds context on every 16ms graph
   // publish, issuing ~2 napi dispatch lookups per terminal. The overwhelming
@@ -86,6 +89,7 @@ export class OrchestrationDb extends OrchestrationMessageStore {
     this.gatePolicy = new GatePolicyStore(this.store)
     this.audit = new AuditLedgerStore(this.store)
     this.rotations = new RotationReservationStore(this.store)
+    this.capabilities = new DispatchCapabilityStore(this.store)
   }
 
   // ── Tasks ──

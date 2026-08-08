@@ -223,7 +223,12 @@ const DISPATCH_FRESH_SQL: &str = r#"CREATE TABLE dispatch_contexts (
         completed_at        TEXT,
         created_at          TEXT NOT NULL DEFAULT (datetime('now')),
         last_heartbeat_at   TEXT,
-        run_id              TEXT
+        run_id              TEXT,
+        contract_version    INTEGER NOT NULL DEFAULT 1,
+        launch_token_hash   TEXT,
+        capability_hash     TEXT,
+        process_incarnation TEXT,
+        capability_revoked_at TEXT
       )"#;
 
 // Why: the TS index template has no terminating `;`, so SQLite stores its
@@ -282,7 +287,8 @@ const TASKS_MIGRATED_SQL: &str = r#"CREATE TABLE tasks (
 
 /// v9 REBUILDS this table (SQLite cannot widen the status CHECK in place), so unlike every
 /// other migrated table its stored text is the rebuild's — quoted name, rebuild indentation.
-/// That is the visible proof the rebuild ran rather than an ALTER.
+/// That is the visible proof the rebuild ran rather than an ALTER. The v10 capability
+/// columns then land via ALTER, appended before the closing paren.
 const DISPATCH_MIGRATED_SQL: &str = r#"CREATE TABLE "dispatch_contexts" (
               id                  TEXT PRIMARY KEY,
               task_id             TEXT NOT NULL,
@@ -297,7 +303,7 @@ const DISPATCH_MIGRATED_SQL: &str = r#"CREATE TABLE "dispatch_contexts" (
               created_at          TEXT NOT NULL DEFAULT (datetime('now')),
               last_heartbeat_at   TEXT,
               run_id              TEXT
-            )"#;
+            , contract_version INTEGER NOT NULL DEFAULT 1, launch_token_hash TEXT, capability_hash TEXT, process_incarnation TEXT, capability_revoked_at TEXT)"#;
 
 /// coordinator_runs reaches v9 by ALTER, so its two policy columns are appended.
 const RUNS_MIGRATED_SQL: &str = r#"CREATE TABLE coordinator_runs (
@@ -492,7 +498,7 @@ fn fresh_open_matches_ts_fresh_database() {
     drop(open_orchestration(&path).unwrap());
 
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(user_version(&conn), 9, "fresh DB lands on SCHEMA_VERSION");
+    assert_eq!(user_version(&conn), 10, "fresh DB lands on SCHEMA_VERSION");
     let journal: String = conn.query_row("PRAGMA journal_mode", [], |row| row.get(0)).unwrap();
     assert_eq!(journal, "wal", "journal_mode=WAL persists in the DB file");
     assert_master_matches(&dump_master(&conn), &expected_fresh_master());
@@ -514,7 +520,7 @@ fn v1_database_migrates_to_current_preserving_data() {
     drop(open_orchestration(&path).unwrap());
 
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(user_version(&conn), 9);
+    assert_eq!(user_version(&conn), 10);
     assert_master_matches(&dump_master(&conn), &expected_migrated_v1_master());
 
     // Row-level goldens from the TS-migrated fixture.
@@ -537,7 +543,8 @@ fn v1_database_migrates_to_current_preserving_data() {
         vec![
             // v9 REBUILT this table, so assignee_pane_key sits where a fresh schema puts it
             // rather than where the v6 ALTER appended it: same data, fresh column order.
-            "id=ctx_a1|task_id=task_a1|assignee_handle=worker-1|assignee_pane_key=NULL|status=completed|failure_count=1|last_failure=flaky once|dispatched_at=2025-01-02 03:10:00|completed_at=2025-01-02 04:00:00|created_at=2025-01-02 03:10:00|last_heartbeat_at=NULL|run_id=NULL",
+            // contract_version=0: the v10 backfill marks every pre-capability row LEGACY.
+            "id=ctx_a1|task_id=task_a1|assignee_handle=worker-1|assignee_pane_key=NULL|status=completed|failure_count=1|last_failure=flaky once|dispatched_at=2025-01-02 03:10:00|completed_at=2025-01-02 04:00:00|created_at=2025-01-02 03:10:00|last_heartbeat_at=NULL|run_id=NULL|contract_version=0|launch_token_hash=NULL|capability_hash=NULL|process_incarnation=NULL|capability_revoked_at=NULL",
         ]
     );
     assert_eq!(
@@ -588,7 +595,7 @@ fn already_current_open_is_a_noop() {
         let conn = Connection::open(&path).unwrap();
         (user_version(&conn), dump_master(&conn), dump_rows(&conn, "tasks", "id"))
     };
-    assert_eq!(version_before, 9);
+    assert_eq!(version_before, 10);
 
     drop(open_orchestration(&path).unwrap());
 
@@ -677,7 +684,7 @@ fn v6_database_migrates_to_v7_adding_recipient_pane_key() {
     drop(open_orchestration(&path).unwrap());
 
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(user_version(&conn), 9, "v6 ladder row advances through v9");
+    assert_eq!(user_version(&conn), 10, "v6 ladder row advances through v10");
     let messages_sql: String = conn
         .query_row(
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'messages'",

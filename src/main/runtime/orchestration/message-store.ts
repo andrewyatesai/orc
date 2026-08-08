@@ -73,9 +73,15 @@ export class OrchestrationMessageStore {
   // rejection (subject/body/payload marker) so it stays auditable but is never
   // read back as an actionable completion/liveness signal. The marker
   // construction is deterministic, so it lives in the Rust store, not here.
-  convertLifecycleMessageToRejection(messageId: string, reason: string): MessageRow | undefined {
+  // `code` picks the persisted marker code (default keeps the historic
+  // sender_not_assignee; the v10 capability path passes dispatch_capability_invalid).
+  convertLifecycleMessageToRejection(
+    messageId: string,
+    reason: string,
+    code?: string
+  ): MessageRow | undefined {
     return optionalMessageRowFromJson(
-      this.store.convertLifecycleMessageToRejection(messageId, reason)
+      this.store.convertLifecycleMessageToRejection(messageId, reason, code ?? null)
     )
   }
 

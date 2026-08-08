@@ -6,7 +6,7 @@ export const ORCHESTRATION_COMMAND_SPECS: CommandSpec[] = [
     path: ['orchestration', 'send'],
     summary: 'Send an inter-agent message',
     usage:
-      'orca orchestration send --to <handle> --subject <text> [--from <handle>] [--body <text>] [--type <type>] [--priority <level>] [--thread-id <id>] [--payload <json>] [--task-id <id>] [--dispatch-id <id>] [--files-modified <csv>] [--report-path <path>] [--phase <text>] [--json]',
+      'orca orchestration send --to <handle> --subject <text> [--from <handle>] [--body <text>] [--type <type>] [--priority <level>] [--thread-id <id>] [--payload <json>] [--task-id <id>] [--dispatch-id <id>] [--files-modified <csv>] [--report-path <path>] [--phase <text>] [--dispatch-capability <dcap>] [--json]',
     allowedFlags: [
       ...GLOBAL_FLAGS,
       'to',
@@ -21,13 +21,15 @@ export const ORCHESTRATION_COMMAND_SPECS: CommandSpec[] = [
       'dispatch-id',
       'files-modified',
       'report-path',
-      'phase'
+      'phase',
+      'dispatch-capability'
     ],
     notes: [
       'On Windows PowerShell, quote group addresses such as --to "@all" or --to "@worktree:<id>".',
       'worker_done and heartbeat must target a concrete coordinator terminal handle; use status for broadcast updates.',
       'A worker_done with the active task/dispatch IDs completes that task only from the dispatched pane. When stable pane identity is unavailable, the sender handle must exactly match the dispatch assignee; injected preambles include the correct --from value.',
-      'Prefer --task-id/--dispatch-id/etc. over raw --payload JSON in worker commands; PowerShell strips JSON quotes easily.'
+      'Prefer --task-id/--dispatch-id/etc. over raw --payload JSON in worker commands; PowerShell strips JSON quotes easily.',
+      'Pass --dispatch-capability verbatim from your dispatch preamble on worker_done/heartbeat; capability-minted dispatches reject lifecycle sends without it.'
     ]
   },
   {

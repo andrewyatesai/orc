@@ -78,6 +78,17 @@ export type DispatchContextRow = {
   last_heartbeat_at: string | null
   /** Owning run (v9); null for legacy rows and dispatches opened outside a run. */
   run_id: string | null
+  /** Contract this dispatch was created under (v10): 0 = legacy (pre-capability
+   *  row, backfilled by the migration), 1 = current. Never null. */
+  contract_version: number
+  /** SHA-256 hex of the launch token (v10); null until committed. */
+  launch_token_hash: string | null
+  /** SHA-256 hex of the dcap_ secret (v10); the secret itself is never
+   *  persisted. Null = never minted, so no capability enforcement applies. */
+  capability_hash: string | null
+  process_incarnation: string | null
+  /** Stamped on revoke and on dispatch completion/failure (v10). */
+  capability_revoked_at: string | null
 }
 
 export type DecisionGateRow = {
