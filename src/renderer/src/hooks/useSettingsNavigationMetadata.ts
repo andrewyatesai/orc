@@ -51,6 +51,9 @@ import { getCommitMessageAiPaneSearchEntries } from '@/components/settings/commi
 import { getTasksPaneSearchEntries } from '@/components/settings/tasks-search'
 import { getFloatingWorkspaceSearchEntries } from '@/components/settings/floating-workspace-search'
 import { getAppearancePaneSearchEntries } from '@/components/settings/appearance-search'
+// Required: without this import the Mode pane is invisible to Cmd+J, which is
+// the recovery route a user confused by a mode is most likely to reach for.
+import { getAppModeEntries } from '@/components/settings/app-mode-search'
 import { getInputPaneSearchEntries } from '@/components/settings/input-search'
 import { getTerminalPaneSearchEntries } from '@/components/settings/terminal-search'
 import { getTerminalEngineSearchEntries } from '@/components/settings/terminal-engine-search'
@@ -423,6 +426,17 @@ export function buildSettingsNavigationMetadata({
         showSystemTray: showDesktopOnlySettings && isWindows,
         showMenuBarIcon: showDesktopOnlySettings && isMac
       }),
+      group: 'interface'
+    },
+    {
+      id: 'app-mode',
+      title: translate('appMode.settings.title', 'Mode'),
+      description: translate(
+        'appMode.settings.description',
+        'Choose how much of Orca is on screen. Switching is instant and changes nothing about your work.'
+      ),
+      icon: Palette,
+      searchEntries: getAppModeEntries(),
       group: 'interface'
     },
     {
