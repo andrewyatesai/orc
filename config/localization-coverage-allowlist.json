@@ -30,28 +30,28 @@
   {
     "filePath": "src/renderer/src/components/settings/appearance-search.ts",
     "kind": "object-property:keywords",
-    "text": "\u8bed\u8a00",
+    "text": "语言",
     "dynamic": false,
     "count": 1
   },
   {
     "filePath": "src/renderer/src/components/settings/appearance-search.ts",
     "kind": "object-property:keywords",
-    "text": "\u8a9e\u8a00",
+    "text": "語言",
     "dynamic": false,
     "count": 1
   },
   {
     "filePath": "src/renderer/src/components/settings/appearance-search.ts",
     "kind": "object-property:keywords",
-    "text": "\uc5b8\uc5b4",
+    "text": "언어",
     "dynamic": false,
     "count": 1
   },
   {
     "filePath": "src/renderer/src/components/settings/appearance-search.ts",
     "kind": "object-property:keywords",
-    "text": "\u8a00\u8a9e",
+    "text": "言語",
     "dynamic": false,
     "count": 1
   },
@@ -87,6 +87,41 @@
     "filePath": "src/renderer/src/components/settings/terminal-pane-appearance-search.ts",
     "kind": "object-property:keywords",
     "text": "ghostty",
+    "dynamic": false,
+    "count": 1
+  },
+  {
+    "filePath": "src/renderer/src/components/story-world/WorldPartsStrip.tsx",
+    "kind": "object-property:label",
+    "text": "Make something",
+    "dynamic": false,
+    "count": 1
+  },
+  {
+    "filePath": "src/renderer/src/components/story-world/WorldPartsStrip.tsx",
+    "kind": "object-property:label",
+    "text": "Add one",
+    "dynamic": false,
+    "count": 1
+  },
+  {
+    "filePath": "src/renderer/src/components/story-world/WorldPartsStrip.tsx",
+    "kind": "object-property:label",
+    "text": "Make it bigger",
+    "dynamic": false,
+    "count": 1
+  },
+  {
+    "filePath": "src/renderer/src/components/story-world/WorldPartsStrip.tsx",
+    "kind": "object-property:label",
+    "text": "Make it move",
+    "dynamic": false,
+    "count": 1
+  },
+  {
+    "filePath": "src/renderer/src/components/story-world/WorldPartsStrip.tsx",
+    "kind": "object-property:label",
+    "text": "Change the color",
     "dynamic": false,
     "count": 1
   }

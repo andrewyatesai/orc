@@ -107,8 +107,14 @@ export const STORY_WORLD_MANIFEST: AppModeManifest = {
   },
   capsules: {
     'workspace-body': 'story-world.stage',
-    'left-sidebar-body': 'story-world.worlds-list',
-    'titlebar-strip': 'story-world.strip-header'
+    'left-sidebar-body': 'story-world.worlds-list'
+    // 'titlebar-strip' is deliberately NOT claimed yet. §7.1 puts the "Back to
+    // my worlds" control and the grown-up panel there, and until that capsule
+    // exists naming it would leave a dangling id whose only effect is a silently
+    // empty slot. The way OUT of Story World is still the menu bar and the
+    // Settings mode picker, which §2.6 makes unhideable — but the in-window
+    // escape a non-reader needs is not built, and pretending otherwise in the
+    // manifest would hide that.
   },
   styleVariables: {
     '--radius': '1rem',
