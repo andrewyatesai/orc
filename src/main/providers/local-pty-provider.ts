@@ -18,6 +18,7 @@ import { loadNodePty } from './node-pty-lazy-load'
 import { parseWslPath, isWslAvailable } from '../wsl'
 import { splitWorktreeIdForFilesystem } from '../../shared/worktree-id'
 import { resolvePtyExitCode } from '../../shared/pty-signal-exit-code'
+import { FLEET_GRANT_ENV_VAR } from '../../shared/fleet-grant'
 import {
   injectHistoryEnv,
   updateHistFileForFallback,
@@ -727,6 +728,14 @@ export class LocalPtyProvider implements IPtyProvider {
       // Why: supports-hyperlinks rejects TERM_PROGRAM=Orca, so tools drop OSC 8 links; force it since xterm.js parses them.
       FORCE_HYPERLINK: '1'
     } as Record<string, string>
+    // §6.6 of docs/reference/alab-auto-mode-design.md: the fleet grant is
+    // reserved and force-deleted at the final spawn boundary, even when a caller
+    // supplied it explicitly. Done HERE rather than per-caller because callers
+    // are the thing that keeps being forgotten: `terminal.create` strips at
+    // parse time, but `session.tabs.createTerminal`, `worktree.create` and the
+    // runtime PTY controller all reach spawn by other routes. A worker holding
+    // the manager's grant could drive its own siblings.
+    delete spawnEnv[FLEET_GRANT_ENV_VAR]
     // Why: Orca can be launched from an Orca terminal; pane identity belongs to the child PTY, not the parent shell.
     removeUnspecifiedPaneIdentityEnv(spawnEnv, args.env)
     removeAppImageRuntimeEnv(spawnEnv)

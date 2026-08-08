@@ -85,6 +85,11 @@ type CoordinatorState = {
 
 const DEFAULT_POLL_MS = 2000
 const MAX_CONCURRENT_DEFAULT = 4
+/** §6.6's durable fleet-ownership marker, written to the audit ledger. */
+const FLEET_WORKER_CREATED_ACTION = 'fleet.worker-created'
+/** A run creates at most one worker per tick, so this is far above any real run;
+ *  it only bounds a pathological ledger read at restore time. */
+const MAX_RESTORED_OWNED_WORKERS = 1000
 
 // Why: 10 min = documented heartbeat cadence (5 min) × 2, so one missed heartbeat is the earliest a dispatch can look stale.
 const HUNG_THRESHOLD_MS = 10 * 60 * 1000
@@ -157,6 +162,9 @@ export class Coordinator {
   }> {
     this.state.runId = runId
     this.opts.onLog(`Coordinator run ${runId} started`)
+    // Before the first dispatch tick: a resumed run must know which panes it
+    // owns before it decides which panes it may drive.
+    this.restoreOwnedWorkers(runId)
 
     try {
       await this.decompose()
@@ -437,7 +445,7 @@ export class Coordinator {
         const created = await this.runtime.createTerminal(this.opts.worktree, {
           title: `Worker: ${readyTasks[0].spec.slice(0, 40)}`
         })
-        this.ownedWorkerHandles.add(created.handle)
+        this.rememberOwnedWorker(created.handle)
         this.opts.onLog(`Created worker terminal ${created.handle}`)
         // Why: dispatch raced agent startup on a fresh terminal — the preamble
         // paste could land before the shell/agent was accepting input. Fail-open
@@ -593,6 +601,46 @@ export class Coordinator {
   // qualifies only if this coordinator created it, or the runtime can confirm it is
   // running an agent. Unconfirmable panes are skipped, so a runtime that cannot
   // answer degrades to coordinator-created workers rather than to the old behavior.
+  /**
+   * Fleet ownership, recorded durably (§6.6). The in-memory set alone did not
+   * survive a restart, and the fallback below treats *any* pane running an agent
+   * as dispatchable — so after a crash the coordinator would happily drive the
+   * human's own agent panes, which is precisely the hole this closes.
+   *
+   * The audit ledger is the store because ownership is exactly what §7 says it
+   * carries (actor, action, target handle, run) and it is append-only, so a
+   * marker cannot be quietly rewritten later.
+   */
+  private rememberOwnedWorker(handle: string): void {
+    this.ownedWorkerHandles.add(handle)
+    try {
+      this.db.audit.append({
+        runId: this.state.runId || null,
+        actor: 'service:coordinator',
+        action: FLEET_WORKER_CREATED_ACTION,
+        targetHandle: handle
+      })
+    } catch (err) {
+      // Never fail a dispatch tick on bookkeeping — but say so, because the cost
+      // is that this worker reverts to the weaker agent-presence test on restart.
+      this.opts.onLog(`Could not record fleet ownership of ${handle}: ${String(err)}`)
+    }
+  }
+
+  /** Rebuilds ownership after a restart so the marker outlives the process that
+   *  minted it. Called once per run, before the first dispatch tick. */
+  private restoreOwnedWorkers(runId: string): void {
+    try {
+      for (const event of this.db.audit.list({ runId, limit: MAX_RESTORED_OWNED_WORKERS })) {
+        if (event.action === FLEET_WORKER_CREATED_ACTION && event.target_handle) {
+          this.ownedWorkerHandles.add(event.target_handle)
+        }
+      }
+    } catch (err) {
+      this.opts.onLog(`Could not restore fleet ownership for run ${runId}: ${String(err)}`)
+    }
+  }
+
   private isDispatchableTarget(handle: string): boolean {
     if (this.ownedWorkerHandles.has(handle)) {
       return true
