@@ -15406,6 +15406,32 @@
       "placeholder": "Tell Claude what you want",
       "label": "Tell Claude what you want",
       "send": "Send"
+    },
+    "stuck": {
+      "title": "Your game got stuck.",
+      "tell": "Tell Claude",
+      "restore": "Go back"
+    },
+    "approval": {
+      "generic": "Claude wants to change something. Is that OK?",
+      "label": "Claude is asking you something",
+      "yes": "Yes",
+      "no": "No"
+    },
+    "firstRun": {
+      "folderTitle": "Pick a folder for your child's worlds",
+      "agentTitle": "Pick an agent",
+      "agentBody": "Only some agents can be confined by the operating system. Orca will not offer one it cannot verify, and it will not pretend an unconfinable agent is contained.",
+      "permTitle": "How should the agent ask permission?",
+      "ask": "Ask me first",
+      "yolo": "Let it work",
+      "yoloBody": "No prompts. The agent changes files without asking.",
+      "open": "Open the world",
+      "askBody": "Your child sees a two-button question before the agent changes anything.",
+      "folderTrust": "Choosing a folder marks it trusted for the agent you pick next. That trust is written outside Orca, in the agent's own configuration, and Orca cannot undo it — there is no revoke path in the app.",
+      "permBody": "The agent runs with your full filesystem and network access either way. Ask-me-first is a prompt, not a sandbox.",
+      "continue": "Continue",
+      "folderBody": "A plain folder works; it does not need to be a git repository."
     }
   }
 }
