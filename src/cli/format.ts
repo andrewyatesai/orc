@@ -48,6 +48,8 @@ export {
   TERMINAL_SUBMIT_EXIT_CODES
 } from './terminal-submit-format'
 export type { CliTerminalSubmitVerdict } from './terminal-submit-format'
+export { formatTerminalAwait } from './terminal-await-format'
+export type { CliTerminalAwaitOutcome } from './terminal-await-format'
 export {
   formatAutomationList,
   formatAutomationRemoved,

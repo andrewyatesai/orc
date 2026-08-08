@@ -24,10 +24,12 @@ import {
   formatTerminalSend,
   formatTerminalShow,
   formatTerminalSplit,
+  formatTerminalAwait,
   formatTerminalSubmit,
   formatTerminalWait,
   printResult,
   terminalSubmitExitCode,
+  type CliTerminalAwaitOutcome,
   type CliTerminalSubmitVerdict
 } from '../format'
 import {
@@ -35,7 +37,17 @@ import {
   getOptionalStringFlag,
   getRequiredStringFlag
 } from '../flags'
+
+/** `terminal await` watches a SET of panes in one long poll, so its list flags
+ *  are comma-separated. Repetition is NOT used: the repeat mechanism is keyed by
+ *  flag name across every command, so making --terminal/--cursor repeatable
+ *  would change `terminal read --cursor` and `project create --kind` too. */
+function splitListFlag(value: string | undefined): string[] {
+  return value === undefined ? [] : value.split(',').map((entry) => entry.trim()).filter(Boolean)
+}
 import { RuntimeClientError } from '../runtime-client'
+import { FLEET_GRANT_ENV_VAR } from '../../shared/fleet-grant'
+import { decodeTerminalEventCursor } from '../../shared/terminal-event-cursor-token'
 import { stopAllLocalDaemonSessions } from '../runtime/local-daemon-sessions'
 import {
   getBrowserWorktreeSelector,
@@ -142,7 +154,12 @@ export const TERMINAL_HANDLERS: Record<string, CommandHandler> = {
       {
         terminal: await getTerminalHandle(flags, cwd, client),
         prompt: getRequiredStringFlag(flags, 'prompt'),
-        settleBudgetMs
+        settleBudgetMs,
+        // §6.6: read from the environment, never a flag — a grant on a command
+        // line lands in shell history and in every ps listing on the box.
+        ...(process.env[FLEET_GRANT_ENV_VAR]
+          ? { grant: process.env[FLEET_GRANT_ENV_VAR] }
+          : {})
       },
       // Why: the verb pastes, waits out the echo, then watches for evidence, so
       // it legitimately outlives the generic transport cap.
@@ -152,6 +169,46 @@ export const TERMINAL_HANDLERS: Record<string, CommandHandler> = {
     // Why not `!== 'yes'`: 'unknown' is not failure, it is "we could not tell",
     // and a caller that retries it duplicates a live turn (§5.2).
     process.exitCode = terminalSubmitExitCode(result.result.submit)
+  },
+  'terminal await': async ({ flags, client, cwd, json }) => {
+    const handles = splitListFlag(getOptionalStringFlag(flags, 'terminal'))
+    const terminals =
+      handles.length > 0 ? handles : [await getTerminalHandle(flags, cwd, client)]
+    const cursorTokens = splitListFlag(getOptionalStringFlag(flags, 'cursor'))
+    if (cursorTokens.length > terminals.length) {
+      throw new RuntimeClientError(
+        'invalid_argument',
+        'More --cursor values than --terminal values; each cursor pairs with the terminal in the same position'
+      )
+    }
+    const kinds = splitListFlag(getOptionalStringFlag(flags, 'kind'))
+    const timeoutMs = getOptionalPositiveIntegerFlag(flags, 'timeout-ms')
+    const result = await client.call<{ await: CliTerminalAwaitOutcome }>(
+      'terminal.await',
+      {
+        terminals: terminals.map((terminal, index) => {
+          const token = cursorTokens[index]
+          if (token === undefined) {
+            return { terminal }
+          }
+          const cursor = decodeTerminalEventCursor(token)
+          if (!cursor) {
+            // Refused rather than dropped: silently arming at the pane's head
+            // would look identical to resuming, and lose everything since.
+            throw new RuntimeClientError(
+              'invalid_argument',
+              `--cursor for ${terminal} is not a cursor this runtime issued`
+            )
+          }
+          return { terminal, cursor }
+        }),
+        ...(kinds.length > 0 ? { kinds } : {}),
+        ...(timeoutMs !== undefined ? { timeoutMs } : {})
+      },
+      // It is a long poll; the transport cap must not cut it short of its own timeout.
+      { timeoutMs: (timeoutMs ?? 0) + DEFAULT_TERMINAL_SUBMIT_RPC_TIMEOUT_MS }
+    )
+    printResult(result, json, formatTerminalAwait)
   },
   'terminal stop': async ({ flags, client, cwd, json }) => {
     const stopAll = flags.get('all') === true

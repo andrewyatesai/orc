@@ -79,6 +79,7 @@ export const TERMINAL_AWAIT_METHODS: RpcAnyMethod[] = [
     name: 'terminal.await',
     params: TerminalAwaitParams,
     handler: async (params, { runtime, signal }) => {
+      runtime.assertFleetVerbEnabled('terminal.await')
       const panes = params.terminals.map((entry) =>
         runtime.resolveTerminalEventPane(entry.terminal, entry.cursor)
       )

@@ -22,7 +22,10 @@ const MAX_SETTLE_BUDGET_MS = 60_000
 const TerminalSubmitAgentPromptParams = z.object({
   terminal: requiredString('Missing terminal handle'),
   prompt: requiredString('Missing prompt'),
-  settleBudgetMs: OptionalFiniteNumber
+  settleBudgetMs: OptionalFiniteNumber,
+  /** §6.6's bearer grant. Presented per call because every RPC caller shares one
+   *  authToken, so there is no authenticated subject to bind authority to. */
+  grant: z.string().min(1).optional()
 })
 
 function resolveSettleBudgetMs(requested: number | undefined): number | undefined {
@@ -37,10 +40,12 @@ export const TERMINAL_SUBMIT_METHODS: RpcAnyMethod[] = [
     name: 'terminal.submitAgentPrompt',
     params: TerminalSubmitAgentPromptParams,
     handler: async (params, { runtime, signal }) => {
+      runtime.assertFleetVerbEnabled('terminal.submitAgentPrompt')
       const settleBudgetMs = resolveSettleBudgetMs(params.settleBudgetMs)
       return {
         submit: await runtime.submitAgentPrompt(params.terminal, params.prompt, {
           ...(settleBudgetMs !== undefined ? { settleBudgetMs } : {}),
+          ...(params.grant ? { grant: params.grant } : {}),
           // A disconnected caller stops the poll; it never converts an armed
           // submit into a failure, because Enter has already landed.
           ...(signal ? { signal } : {})

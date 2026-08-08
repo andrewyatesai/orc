@@ -91,6 +91,24 @@ export const TERMINAL_COMMAND_SPECS: CommandSpec[] = [
     ]
   },
   {
+    path: ['terminal', 'await'],
+    summary: 'Wait for the next event across one or more terminals',
+    usage:
+      'orca terminal await --terminal <handle>[,<handle>...] [--cursor <cursor>[,<cursor>...]] [--kind <kind>[,<kind>...]] [--timeout-ms <ms>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'terminal', 'cursor', 'kind', 'timeout-ms'],
+    notes: [
+      'One await covers the whole watch set, because the runtime caps concurrent long polls — do not run one per terminal.',
+      'Every outcome returns a cursor per terminal. Pass them back as --cursor on the next call or you lose whatever happened between the return and the re-arm.',
+      'Lists are comma-separated, not repeated flags. A --cursor must be paired positionally with its --terminal.',
+      'outcome gap means the cursor could not be honored (evicted, pane respawned, or out of range); resume from the cursor it returns rather than re-using yours.',
+      'outcome unsupported names the kinds this runtime posture cannot emit — headless serve produces no renderer-scanned facts — instead of parking until the timeout.'
+    ],
+    examples: [
+      'orca terminal await --terminal term_abc123 --kind agent-idle --timeout-ms 30000',
+      'orca terminal await --terminal term_a,term_b --json'
+    ]
+  },
+  {
     path: ['terminal', 'stop'],
     summary: 'Stop terminals for a worktree or all local daemon sessions',
     usage: 'orca terminal stop --worktree <selector> [--json] | orca terminal stop --all [--json]',

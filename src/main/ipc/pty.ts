@@ -16,6 +16,7 @@ import { INHERITED_ONLY_SPAWN_ENV_KEYS } from '../pty/inherited-spawn-env'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import type { Store } from '../persistence'
 import type { GlobalSettings, TuiAgent } from '../../shared/types'
+import { FLEET_GRANT_ENV_VAR, stripFleetGrantEnv } from '../../shared/fleet-grant'
 import { toSshExecutionHostId } from '../../shared/execution-host'
 import { normalizeRuntimePathForComparison } from '../../shared/cross-platform-path'
 import {
@@ -4858,6 +4859,14 @@ export function registerPtyHandlers(
       }
       deleteRequestedEnvKeys(spawnEnv, combinedEnvToDelete)
       promoteAgentTeamsShimPath(spawnEnv, requestedAgentTeamsPath)
+      // §6.6: the last gate before the provider spawns. Deleted here rather than
+      // only at the runtime RPC boundary because this path accepts renderer- and
+      // settings-supplied env (agentDefaultEnv included) and never passes through
+      // that boundary — and because Orca's OWN environment is inherited, so a
+      // grant present when Orca launched would otherwise reach every worker.
+      if (spawnEnv) {
+        delete spawnEnv[FLEET_GRANT_ENV_VAR]
+      }
       const spawnOptions: PtySpawnOptions = {
         cols: args.cols,
         rows: args.rows,
@@ -5337,8 +5346,17 @@ export function registerPtyHandlers(
         }
         const response = {
           ...result,
+          // §6.6: launchConfig is persisted by the renderer as durable sleeping-
+          // agent state, so a grant here would come back on every resume.
           ...(!result.isReattach && effectiveLaunchConfig
-            ? { launchConfig: effectiveLaunchConfig }
+            ? {
+                launchConfig: {
+                  ...effectiveLaunchConfig,
+                  ...(effectiveLaunchConfig.agentEnv
+                    ? { agentEnv: stripFleetGrantEnv({ ...effectiveLaunchConfig.agentEnv }) }
+                    : {})
+                }
+              }
             : {}),
           // Why: a daemon-retry race can surface isReattach even for a minted session id, and a reattach must never claim its cwd was remapped.
           ...(startupCwdFallback && !result.isReattach ? { startupCwdFallback } : {}),

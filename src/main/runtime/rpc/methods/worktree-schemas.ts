@@ -11,6 +11,7 @@ import {
   OptionalString,
   TriStateLinkedIssue
 } from '../schemas'
+import { stripFleetGrantEnv } from '../../../../shared/fleet-grant'
 
 const OptionalTuiAgent = z
   .unknown()
@@ -139,7 +140,8 @@ export const WorktreeCreate = z
     // first terminal pane launches the selected agent instead of an idle shell.
     // Clients that can't quote for the host shell send `startupAgent` instead.
     startupCommand: OptionalString,
-    startupEnv: z.record(z.string(), z.string()).optional(),
+    // §6.6: caller-supplied env, stripped at parse time exactly as terminal.ts does.
+    startupEnv: z.record(z.string(), z.string()).transform(stripFleetGrantEnv).optional(),
     startupLaunchConfig: sleepingAgentLaunchConfigSchema,
     startupCommandDelivery: z.enum(['fast', 'shell-ready']).optional(),
     // Why: CLI clients should not hardcode agent launch quoting because SSH
