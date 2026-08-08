@@ -697,9 +697,9 @@ Phase 0 fixes:
 | Nullable `origin_message_id` on `decision_gates`; `gateResolve` looks up the origin and inserts the thread reply, then `deliverPendingMessagesForHandle` + `notifyMessageArrived` — the same three calls `orchestration.reply` already makes. | `rust/crates/orca-runtime/src/orchestration.rs` + `GATE_COLUMNS`, `orchestration/gate-reply-coupling.ts` | `2ebbe5f8f` (schema v7→v8) |
 | `onLog` wired to a bounded per-run ring (500 entries), exposed as `orchestration.runLog`. | `orchestration/coordinator-run-log.ts`, `orchestration-gates.ts:87` | `2ebbe5f8f`; CLI reader `1bef9915a` |
 | `preamble.ts`: teach `--task-id`, correct `--timeout-ms 600000` to the 30-minute `ASK_MAX_TIMEOUT_MS` the code actually allows. | `orchestration/preamble.ts` | `2ebbe5f8f`, with one deviation (below) |
-| `mission-progress.ts` + split counters on `runList`. | new | **not landed** |
+| `mission-progress.ts` + split counters on `runList`. | new | **Landed** `9492e2f07` (2026-08-02) as `orchestration/run-progress.ts` + `orchestration.runList` |
 
-**What remains.** Only the last row — and it has no seat to sit in yet: there is no `orchestration.runList` method (`run`, `runStop`, `runLog` are the run methods), so §8.3's `MissionStrip` split counters have nothing to read. The preamble deviation: it teaches `--task` and *documents* the 30-minute clamp rather than raising the printed example, which stays `--timeout-ms 600000` — a budget a worker can afford to wait (`orchestration/preamble.ts:114-125`). `1bef9915a` also closed three defects this section never listed: restart-orphaned dispatches held `maxConcurrent` slots forever, the dispatch loop would drive the human's own shells, and dispatch raced agent startup. Those, and the follow-on engine work this mode ultimately needs — durable ownership, verified submit, transactional gates, account routing — are [`alab-auto-mode-design.md`](./alab-auto-mode-design.md) (§11 catalogues the repairs; §9 supersedes the roadmap's Phase-2 surface list).
+**Nothing remains: Phase 0's engine work is complete.** The last row landed in `9492e2f07` (2026-08-02). `orchestration.runList` exists with the split counters §8.3 specifies (never a fraction), plus two things this section did not ask for: a `live` flag — a durable row still reads `running` after a restart killed its loop, so status alone cannot separate a live coordinator from a stranded one — and per-run `pendingGates`, which says a human is what the work stopped on. `MissionStrip` has its feed. The preamble deviation: it teaches `--task` and *documents* the 30-minute clamp rather than raising the printed example, which stays `--timeout-ms 600000` — a budget a worker can afford to wait (`orchestration/preamble.ts:114-125`). `1bef9915a` also closed three defects this section never listed: restart-orphaned dispatches held `maxConcurrent` slots forever, the dispatch loop would drive the human's own shells, and dispatch raced agent startup. Those, and the follow-on engine work this mode ultimately needs — durable ownership, verified submit, transactional gates, account routing — are [`alab-auto-mode-design.md`](./alab-auto-mode-design.md) (§11 catalogues the repairs; §9 supersedes the roadmap's Phase-2 surface list).
 
 **Two of these were shared-core changes driven by one mode, and were reviewed as such, not slipped in as UI tasks:**
 
@@ -1002,7 +1002,10 @@ One spine, one numbering. **ALab is the first non-Classic mode.** It needs the l
 
 Without the pin, a Phase 0 build would read `{"appMode":"alab"}` from disk and apply it with no in-app undo — in an IDE whose purpose is orchestrating agents that write JSON files.
 
-- Delete `src/renderer/src/app-shell/` (Step 0, §5.3).
+- ~~Delete `src/renderer/src/app-shell/`~~ — **Step 0 is DONE and this line was wrong.** It
+  survived from the draft §5.3 corrects: a survey read the tree mid-extraction and took
+  `app-shell/` for a dead parallel copy. It is the live shell (`App.tsx` imports 16 modules
+  from it). Do not delete it; there is nothing to do for Step 0.
 - `src/shared/app-mode/*`: id, surfaces (frozen), manifest, all three registry records, capability reader, resolver (pinned), keybinding-action surface map.
 - `src/main/app-mode-preference.ts` + full wiring (constructor, `waitForPendingWrite`, quit flush, `writesFrozen` guard).
 - The `updateSettings` strip, the memoized `getSettings()` projection, the `updateSettings`/`settings:get`/`settings:get-sync` return fixes, and the **`getSettings()` caller identity audit**.

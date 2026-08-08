@@ -1,13 +1,25 @@
 # Orca Modes — Roadmap
 
-**Status: deferred, not in progress.** The *mode* foundation is landed and green
+**Status: active (undeferred 2026-08-05).** The *mode* foundation is landed and green
 (see [`app-modes-conclusion.md`](./app-modes-conclusion.md), `main` at `3e7e6babf`).
 The *orchestration* foundation Phase 2 stands on was not, at that commit: the CLI still
 dropped `--task` from `orchestration ask`, `orchestration run-log` had a spec and no
 handler (`registry-parity.test.ts` red), and a restart stranded dispatches that held
 `maxConcurrent` slots forever. That tail closed in `1bef9915a` (2026-07-30), so Phase 2's
 premise below is true as of HEAD and was not true when this file was written.
-This is the forward plan for whenever the build resumes. Written to be picked up cold:
+
+**What changed while this file said "deferred".** The engine kept moving: R0 of
+[`alab-auto-mode-design.md`](./alab-auto-mode-design.md) is now **complete** — event
+journal, input coordinator, `submitAgentPrompt`, schema v9 with the audit ledger,
+`orchestration.runList`, the §3a identity types, the `provider-limit` fact, §6.6 grants
+with an issuer, and the experimental gate. So Phase 2's floor below is not merely true,
+it is under-stated; read it against §12 of that document.
+
+**What has NOT moved: mode selection.** `src/shared/app-mode/` and `src/main/app-mode/`
+are still consumed by nothing, `appMode` is still absent from `GlobalSettings`, and no
+mode can be entered. Phase 1 remains the gate for every mode surface.
+
+This is the forward plan. Written to be picked up cold:
 every phase names its entry points, the machinery it consumes, and a definition of done.
 The full architecture behind each item is [`app-modes.md`](./app-modes.md); the follow-on
 engine work — durable ownership, verified submit, transactional gates, account routing —
