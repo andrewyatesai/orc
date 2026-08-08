@@ -5,6 +5,7 @@ import type { TuiAgent } from '../../../../shared/types'
 import { sleepingAgentLaunchConfigSchema } from '../../../../shared/workspace-session-sleeping-agents'
 import { RUNTIME_NAVIGATION_TARGETS } from '../../../../shared/runtime-navigation'
 import { OptionalBoolean } from '../schemas'
+import { stripFleetGrantEnv } from '../../../../shared/fleet-grant'
 
 export const WorktreeTabSelector = z.object({
   worktree: z
@@ -132,7 +133,8 @@ export const CreateTerminalTab = WorktreeTabSelector.extend({
   targetGroupId: z.string().optional(),
   command: z.string().optional(),
   cwd: z.string().min(1).optional(),
-  env: z.record(z.string(), z.string()).optional(),
+  // §6.6: caller-supplied env, stripped at parse time exactly as terminal.ts does.
+  env: z.record(z.string(), z.string()).transform(stripFleetGrantEnv).optional(),
   envToDelete: z.array(z.string().min(1).max(256)).max(32).optional(),
   startupCommandDelivery: z.enum(['fast', 'shell-ready']).optional(),
   launchConfig: sleepingAgentLaunchConfigSchema,

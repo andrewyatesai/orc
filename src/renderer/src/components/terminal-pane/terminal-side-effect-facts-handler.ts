@@ -106,6 +106,11 @@ let channelUnsubscribe: (() => void) | null = null
 
 function applyLiveFact(entry: ConsumerEntry, fact: TerminalSideEffectFact, seq: number): void {
   switch (fact.kind) {
+    case 'provider-limit':
+      // Deliberately no renderer policy. The fact exists for the event journal's
+      // automation subscribers (R1's health service), and a pane that hit its
+      // limit already says so on screen — a toast would only repeat it.
+      return
     case 'title':
       entry.lastLiveTitleSeq = seq
       entry.callbacks.onTitleChange?.(
