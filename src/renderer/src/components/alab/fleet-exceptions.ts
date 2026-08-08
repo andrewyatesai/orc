@@ -68,12 +68,23 @@ export function collapseExceptionsByTask(raw: readonly FleetException[]): FleetE
       byTask.set(exception.taskId, { ...exception })
       continue
     }
-    const winner = SEVERITY[exception.kind] > SEVERITY[existing.kind] ? exception : existing
+    // Strictly-greater would keep the FIRST of two equal-severity rows, so two
+    // escalations at 10:00 and 12:00 would leave the task showing 10:00 — and
+    // then sorting by that stale timestamp ranks it below fresher, less urgent
+    // work. On a tie the newer row wins, because it is the current state of the
+    // task and carries the current summary and worker.
+    const higher = SEVERITY[exception.kind] > SEVERITY[existing.kind]
+    const sameSeverityButNewer =
+      SEVERITY[exception.kind] === SEVERITY[existing.kind] && exception.at > existing.at
+    const winner = higher || sameSeverityButNewer ? exception : existing
     byTask.set(exception.taskId, {
       ...winner,
       // Attempts survive the merge regardless of which row won: the count is
       // about the task, not about the winning row.
-      attempts: existing.attempts + exception.attempts
+      attempts: existing.attempts + exception.attempts,
+      // And so does recency — a lower-severity but newer row still means the
+      // task moved, which is what the sort's tiebreak needs to know.
+      at: exception.at > existing.at ? exception.at : existing.at
     })
   }
   return [...byTask.values()].sort((left, right) => {
@@ -91,6 +102,8 @@ export function collapseExceptionsByTask(raw: readonly FleetException[]): FleetE
  * the queue exists to prevent.
  */
 export const EXCEPTION_SOURCE_STATUS: Record<FleetExceptionKind, 'wired' | 'not-yet'> = {
+  // Real per-task rows from orchestration.gateList — NOT runList's per-run
+  // count, which cannot be decomposed back into the tasks it counted.
   gate: 'wired',
   escalation: 'not-yet',
   'circuit-broken': 'not-yet',

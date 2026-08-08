@@ -29,7 +29,8 @@ export const CLASSIC_MANIFEST: AppModeManifest = {
   copyKeyRemap: null,
   appIcon: DEFAULT_APP_ICON_ID,
   appMenuLabelSuffix: null,
-  errorBoundarySurface: 'app-root'
+  errorBoundarySurface: 'app-root',
+  childFacing: false
 }
 
 /**
@@ -78,7 +79,9 @@ export const ALAB_MANIFEST: AppModeManifest = {
   copyKeyRemap: null,
   appIcon: DEFAULT_APP_ICON_ID,
   appMenuLabelSuffix: 'ALab',
-  errorBoundarySurface: 'workspace-shell'
+  errorBoundarySurface: 'workspace-shell',
+  // A supervisor is an adult at a desk; ALab shows real handles and real errors.
+  childFacing: false
 }
 
 /**
@@ -120,7 +123,8 @@ export const STORY_WORLD_MANIFEST: AppModeManifest = {
   copyKeyRemap: null,
   appIcon: DEFAULT_APP_ICON_ID,
   appMenuLabelSuffix: 'Story World',
-  errorBoundarySurface: 'workspace-shell'
+  errorBoundarySurface: 'workspace-shell',
+  childFacing: true
 }
 
 export const APP_MODE_REGISTRY: Readonly<Record<AppModeId, AppModeManifest>> = {

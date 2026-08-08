@@ -15335,7 +15335,9 @@
       "attempts": "attempts",
       "gateWaiting": "A worker is waiting on you.",
       "heading": "Needs you",
-      "empty": "Nothing is waiting on you."
+      "empty": "Nothing is waiting on you.",
+      "unknown": "Cannot reach the runtime, so this may be out of date.",
+      "partial": "Only gates are shown here yet. Retries, escalations and stalled agents are not."
     },
     "fleet": {
       "unassigned": "Not part of a mission",
@@ -15343,7 +15345,9 @@
       "working": "working",
       "heading": "Fleet",
       "none": "No agents are running.",
-      "noHeartbeats": "Per-agent heartbeats are not shown yet, so this cannot tell a stuck worker from a finished one."
+      "noHeartbeats": "Per-agent heartbeats are not shown yet, so this cannot tell a stuck worker from a finished one.",
+      "stranded": "stranded",
+      "unknown": "Cannot reach the runtime, so this may be out of date."
     },
     "console": {
       "heading": "Fleet",
@@ -15372,7 +15376,9 @@
       "talkTo": "Talk to Claude",
       "statusLabel": "What is happening",
       "hint": "Tell Claude what you want. It will build it for you.",
-      "windowComing": "The window that shows your game is not ready yet. Your words still reach Claude."
+      "windowComing": "The window that shows your game is not ready yet. Your words still reach Claude.",
+      "stuckTitle": "Your game got stuck.",
+      "stuckBody": "Nothing is broken. Try again, or show a grown-up."
     },
     "strip": {
       "untitled": "My world",

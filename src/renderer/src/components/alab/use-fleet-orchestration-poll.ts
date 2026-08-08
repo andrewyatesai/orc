@@ -1,20 +1,25 @@
 /**
  * ONE poll for the whole ALab console — `docs/reference/app-modes.md` §12.
  *
- * Deliberately shared rather than per-pane. The runtime caps concurrent long
- * polls (`LONG_POLL_CAP` 16, with `ask` sub-capped at 8) and refuses the excess
- * with `runtime_busy`. Six panes each polling on their own would compete with
- * the fleet's own workers for that budget — and BEHAVIOR RULE #1 forbids a
- * worker's only fallback when its question is refused. The console must never
- * be the reason a worker cannot ask.
+ * **A module singleton, not a per-component hook.** The first version of this
+ * file claimed to be "one shared poll" while being an ordinary hook: three
+ * consumers meant three intervals, three `inFlight` guards that only deduped
+ * within themselves, and three `orchestration.runList` calls every two seconds.
+ * The comment was the only thing that was shared.
  *
- * Visibility-gated for the same reason: a hidden ALab window polling at 2am is
- * spending budget nobody is reading.
+ * That matters beyond waste. The runtime caps concurrent long polls
+ * (`LONG_POLL_CAP` 16, `ask` sub-capped at 8) and refuses the excess with
+ * `runtime_busy`. A console competing with the fleet's own workers for that
+ * budget can be the reason a worker's question is refused — and BEHAVIOR RULE #1
+ * forbids that worker's only fallback.
+ *
+ * Independent pollers also let panels disagree: MissionStrip could show live
+ * missions while FleetBoard, whose own request had failed, said "no agents are
+ * running". One store means one truth and one error.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useSyncExternalStore } from 'react'
 
-/** Mirrors `orchestration.runList`'s row; see rpc/methods/orchestration-gates.ts. */
 export type FleetRunTaskCounters = {
   completed: number
   failed: number
@@ -37,81 +42,128 @@ export type FleetRun = {
   pendingGates: number
 }
 
-export type FleetPollState = {
+/** One pending gate, as the queue needs it: keyed by TASK, not by run. */
+export type FleetGate = {
+  id: string
+  task_id: string | null
+  run_id: string | null
+  question: string | null
+  status: string
+  created_at: string | null
+}
+
+export type FleetSnapshot = {
   runs: FleetRun[]
-  /** null until the first response; distinguishes "loading" from "no runs". */
+  gates: FleetGate[]
+  /** null until the first SUCCESSFUL response. An error must never present as
+   *  "loaded and empty", which reads as "all clear". */
   loadedAt: number | null
   error: string | null
-  refresh: () => void
 }
 
 const POLL_INTERVAL_MS = 2_000
 
-type RunListResponse = { runs: FleetRun[] }
+let snapshot: FleetSnapshot = { runs: [], gates: [], loadedAt: null, error: null }
+const subscribers = new Set<() => void>()
+let timer: ReturnType<typeof setInterval> | null = null
+let inFlight = false
+let visibilityBound = false
 
-export function useFleetOrchestrationPoll(): FleetPollState {
-  const [runs, setRuns] = useState<FleetRun[]>([])
-  const [loadedAt, setLoadedAt] = useState<number | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const inFlight = useRef(false)
+function emit(next: FleetSnapshot): void {
+  snapshot = next
+  for (const notify of subscribers) {
+    notify()
+  }
+}
 
-  const poll = useCallback(async (): Promise<void> => {
-    // A slow runtime must not stack requests; skipping a tick is always safer
-    // than queueing one, because the next tick carries the same information.
-    if (inFlight.current) {
-      return
-    }
-    inFlight.current = true
-    try {
-      const response = await window.api.runtime.call({
-        method: 'orchestration.runList',
-        params: { limit: 50 }
-      })
-      if (!response.ok) {
-        throw new Error(response.error?.message ?? 'orchestration.runList failed')
-      }
-      setRuns((response.result as RunListResponse | undefined)?.runs ?? [])
-      setError(null)
-      setLoadedAt(Date.now())
-    } catch (err) {
-      // Surfaced, never swallowed: a console that silently shows stale rows is
-      // worse than one that says it lost contact.
-      setError(err instanceof Error ? err.message : String(err))
-      setLoadedAt(Date.now())
-    } finally {
-      inFlight.current = false
-    }
-  }, [])
+async function callRuntime<T>(method: string, params: unknown): Promise<T> {
+  const response = await window.api.runtime.call({ method, params })
+  if (!response.ok) {
+    throw new Error(response.error?.message ?? `${method} failed`)
+  }
+  return response.result as T
+}
 
-  useEffect(() => {
-    let timer: ReturnType<typeof setInterval> | null = null
-    const start = (): void => {
-      if (timer !== null) {
-        return
-      }
-      void poll()
-      timer = setInterval(() => void poll(), POLL_INTERVAL_MS)
-    }
-    const stop = (): void => {
-      if (timer !== null) {
-        clearInterval(timer)
-        timer = null
-      }
-    }
-    const onVisibility = (): void => {
-      if (document.visibilityState === 'visible') {
-        start()
-      } else {
-        stop()
-      }
-    }
-    onVisibility()
-    document.addEventListener('visibilitychange', onVisibility)
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibility)
-      stop()
-    }
-  }, [poll])
+async function poll(): Promise<void> {
+  if (inFlight) {
+    return
+  }
+  inFlight = true
+  try {
+    // Gates come from gateList, not from runList's per-run COUNT: the queue is
+    // one row per TASK, and a count cannot be decomposed back into tasks.
+    const [runList, gateList] = await Promise.all([
+      callRuntime<{ runs: FleetRun[] }>('orchestration.runList', { limit: 50 }),
+      callRuntime<{ gates: FleetGate[] }>('orchestration.gateList', { status: 'pending' })
+    ])
+    emit({
+      runs: runList?.runs ?? [],
+      gates: gateList?.gates ?? [],
+      loadedAt: Date.now(),
+      error: null
+    })
+  } catch (err) {
+    // loadedAt is NOT advanced: a failed poll must not let a panel render its
+    // reassuring empty state.
+    emit({
+      ...snapshot,
+      error: err instanceof Error ? err.message : String(err)
+    })
+  } finally {
+    inFlight = false
+  }
+}
 
-  return { runs, loadedAt, error, refresh: () => void poll() }
+function start(): void {
+  if (timer !== null) {
+    return
+  }
+  void poll()
+  timer = setInterval(() => void poll(), POLL_INTERVAL_MS)
+}
+
+function stop(): void {
+  if (timer !== null) {
+    clearInterval(timer)
+    timer = null
+  }
+}
+
+function syncToVisibility(): void {
+  // A hidden ALab window polling at 2am spends budget nobody is reading.
+  if (subscribers.size > 0 && document.visibilityState === 'visible') {
+    start()
+  } else {
+    stop()
+  }
+}
+
+function subscribe(notify: () => void): () => void {
+  subscribers.add(notify)
+  if (!visibilityBound) {
+    document.addEventListener('visibilitychange', syncToVisibility)
+    visibilityBound = true
+  }
+  syncToVisibility()
+  return () => {
+    subscribers.delete(notify)
+    syncToVisibility()
+  }
+}
+
+/** Every ALab panel reads the same snapshot, so they can never disagree. */
+export function useFleetSnapshot(): FleetSnapshot {
+  return useSyncExternalStore(
+    subscribe,
+    () => snapshot,
+    () => snapshot
+  )
+}
+
+/** Test seam: reset module state between cases. */
+export function __resetFleetPollForTests(): void {
+  stop()
+  subscribers.clear()
+  inFlight = false
+  snapshot = { runs: [], gates: [], loadedAt: null, error: null }
 }
