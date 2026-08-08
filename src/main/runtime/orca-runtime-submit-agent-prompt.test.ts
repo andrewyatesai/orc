@@ -35,7 +35,12 @@ type RuntimeInternals = {
     ptyId: string,
     worktreeId: string,
     state?: { connected?: boolean }
-  ) => { launchAgent: string | null; paneKey?: string | null; connectionId?: string | null }
+  ) => {
+    launchAgent: string | null
+    incarnationId?: string
+    paneKey?: string | null
+    connectionId?: string | null
+  }
   handleByPtyId: Map<string, string>
   mobileSubscribers: Map<string, Map<string, unknown>>
 }
@@ -99,6 +104,9 @@ function livePane(
   const ptyId = options.ptyId ?? PTY_ID
   const pty = internals(runtime).recordPtyWorktree(ptyId, 'wt-1', { connected: true })
   pty.launchAgent = agent
+  // A real process incarnation: fleet grants pin to this field and FAIL CLOSED
+  // without it, because an unknown incarnation cannot prove a respawn.
+  pty.incarnationId = 'inc_1'
   if (options.paneKey) {
     // Hook evidence is keyed by pane; without one the submit has no hook channel.
     pty.paneKey = options.paneKey
