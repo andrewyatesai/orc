@@ -19,6 +19,15 @@ export function isCoordinatorRunLive(runId: string): boolean {
   return activeCoordinators.has(runId)
 }
 
+/** The worktree a live run is operating in — the only thing that can turn a
+ *  task's claimed files into a real git comparison (§8.4). Undefined for a run
+ *  with no loop behind it, which correctly degrades the check to `unknown`. */
+export function getCoordinatorRunWorktreeId(runId: string): string | undefined {
+  return activeCoordinatorWorktrees.get(runId)
+}
+
+const activeCoordinatorWorktrees = new Map<string, string>()
+
 // Why: Coordinator.onLog defaulted to a no-op here, discarding the stale-heartbeat
 // warning that is the codebase's only hang detector. Kept per run and reaped with it.
 const coordinatorRunLogs = new CoordinatorRunLogRegistry()
@@ -141,6 +150,9 @@ export const ORCHESTRATION_GATE_METHODS: RpcMethod[] = [
       })
 
       activeCoordinators.set(run.id, { coordinator, handle: coordinatorHandle })
+      if (params.worktree) {
+        activeCoordinatorWorktrees.set(run.id, params.worktree)
+      }
 
       // Why: fire-and-forget — the coordinator loop runs in the event loop
       // background. Results are persisted to the DB; callers query via
@@ -148,6 +160,7 @@ export const ORCHESTRATION_GATE_METHODS: RpcMethod[] = [
       coordinator.runFromExistingRun(run.id).finally(() => {
         if (activeCoordinators.get(run.id)?.coordinator === coordinator) {
           activeCoordinators.delete(run.id)
+          activeCoordinatorWorktrees.delete(run.id)
         }
       })
 
