@@ -110,10 +110,11 @@ export const EXCEPTION_SOURCE_STATUS: Record<FleetExceptionKind, 'wired' | 'not-
   // Stale-heartbeat detection: the only thing that can tell a wedged worker from
   // a finished one, since agent-hook status decays a non-done entry to idle.
   attention: 'wired',
-  // MessageType has no `lifecycle_rejected` or `question` member, so there is
-  // nothing to classify. Wiring these would mean inventing a signal.
-  'lifecycle-rejected': 'not-yet',
-  'unanswered-ask': 'not-yet'
+  // Detected by the payload marker the Rust store stamps, not by message type —
+  // a rejection is a worker_done/heartbeat that Orca refused.
+  'lifecycle-rejected': 'wired',
+  // An unread decision_gate message with no reply on its thread.
+  'unanswered-ask': 'wired'
 }
 
 export function unwiredExceptionSources(): FleetExceptionKind[] {
