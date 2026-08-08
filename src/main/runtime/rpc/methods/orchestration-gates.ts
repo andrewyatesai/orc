@@ -13,6 +13,12 @@ import { countRunTasks } from '../../orchestration/run-progress'
 // coordinate concurrently in the same workspace.
 const activeCoordinators = new Map<string, { coordinator: Coordinator; handle: string }>()
 
+/** A durable row still says `running` after a restart killed its loop, so this
+ *  registry is the only witness that a run actually has a coordinator behind it. */
+export function isCoordinatorRunLive(runId: string): boolean {
+  return activeCoordinators.has(runId)
+}
+
 // Why: Coordinator.onLog defaulted to a no-op here, discarding the stale-heartbeat
 // warning that is the codebase's only hang detector. Kept per run and reaped with it.
 const coordinatorRunLogs = new CoordinatorRunLogRegistry()
