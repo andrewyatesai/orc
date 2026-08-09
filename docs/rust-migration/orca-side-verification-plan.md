@@ -1,0 +1,243 @@
+# Getting Orca's obligations to green — the Orca-side plan
+
+Companion to `trust-goal-real-obligations.md`, which is the directive for the
+**Trust** repo. This one covers what changes in **Orca**, and it starts by
+refusing the metric it was asked for.
+
+## The target is not "100% proved, 0% failed, 0% unknown"
+
+That is the shape of the claim `trust-goal-real-obligations.md` already records
+as a failure: "orca-core: 244 proved" was 244 vacuous
+`trust_mc_default_function` placeholders, while every real obligation was
+`unknown`. A percentage is satisfiable by deleting obligations, by weakening
+code until nothing is checkable, and by counting admissions as proofs. Three of
+those routes are open in Orca today and one of them is *cheap* — see "Do not
+reach for this" below.
+
+The target is instead:
+
+> Every real obligation on an authority-bearing crate is **proved
+> non-vacuously**, or **explicitly assumed with a named reason**. No obligation
+> anywhere carries a verified counterexample. The set of assumed obligations
+> only shrinks.
+
+Note the second clause is deliberately not "`failed` is zero". `FAILED` in this
+report does not mean what it sounds like, and the next two sections are about
+why that distinction is the whole plan.
+
+## First, a warning about counting
+
+Before quoting any of these numbers, know that **the report does not reconcile
+with itself.** One advisory survey of orca-core (2026-08-08) yields four
+different answers to "how many failed":
+
+| Aggregation | Failed |
+| --- | --- |
+| Sum of `note: Trust verification: … N failed` over 400 report lines | 69 |
+| Sum of `Level 0 summary: N failed` over the same 400 | 81 |
+| Explicit `[kind] FAILED` rows | 46 |
+| `[kind] FAILED (…); counterexample: …` rows | 34 |
+
+These count different things (Level 0 vs all levels, per-function vs
+per-obligation, with and without a structured counterexample field). None is
+wrong. But "orca-core has N failed obligations" is not a sentence anyone can say
+without naming the aggregation, and any plan phrased as a percentage inherits
+that ambiguity four times over.
+
+**So state the query with the number.** Everything below does.
+
+## What the numbers actually decompose into
+
+Measured on `orca-policy` (2026-08-08), a new crate written specifically to be
+easy to verify — zero dependencies, `forbid(unsafe_code)`, no IO, no clock. It
+is the best case, which is what makes it a useful ruler.
+
+Three source changes — derives behind `cfg(test)`, `(high << 4) | low` in place
+of `high * 16 + low`, and a constant allocation bound — took it from **22
+unverified obligations across 17 functions with 3 refutations** to this:
+
+| Function | Obligations | Proved | Runtime-checked | Failed |
+| --- | --- | --- | --- | --- |
+| `hex_value` | 5 | **5** | 0 | 0 |
+| `decode_once` | 2 | **1** | 1 | 0 |
+| `decide_play_path_lexical` | 1 | 0 | 1 | 0 |
+| `is_allowed_play_host` | 1 | 0 | 1 | 0 |
+| `is_windows_device_segment` (+closure) | 2 | 0 | 2 | 0 |
+| `has_allowed_extension` (+closure) | 2 | 0 | 2 | 0 |
+| `decide_fleet_grant` (2 closures) | 2 | 0 | 2 | 0 |
+| **Total** | **15** | **6** | **9** | **0** |
+
+Note what the arithmetic rewrite actually bought: it did not merely delete two
+refutations, it made them **provable** — `hex_value` discharges 5 of 5 (3
+kernel-certified by the clean CIC kernel) and `decode_once` now proves 1 of 2.
+
+**Count obligations from the per-function report lines, not from `[kind]`
+markers.** Proved obligations emit no `[kind]` marker, so grepping markers alone
+reports 9 here and silently drops the 6 that succeeded. That mistake makes
+progress invisible.
+
+All nine survivors are `[assert] runtime-checked` raised by **absent callees** —
+`String`, `Vec`, `str`, iterator adapters. No source change reaches them; that
+is the Trust-Std campaign. `hex_value`, the one function in the crate that
+touches only `u8`, proves completely.
+
+That gives the boundary in one sentence, and it is confirmed by the tree: the
+only crate holding `certify` is `orca-provider-backoff`, which is a single
+`fn(u32) -> u64`.
+
+> **Today, Trust proves scalar functions. Anything that touches the heap or the
+> string/iterator APIs is blocked on Trust-Std, no matter how it is written.**
+
+## The single most important distinction: is there a counterexample?
+
+`FAILED` does not mean "Trust found a bug." It means the obligation was not
+established, and the report tells you which by whether the `counterexample:`
+field is populated:
+
+```sh
+grep -c "FAILED (.*); counterexample: verified_counterexample = true"  # real refutations
+grep -cE "FAILED \(.*\); counterexample: *$"                           # unestablished
+```
+
+Run against orca-core's survey, the first query returns **0**. Every structured
+failure it has is `[hardened_unsafe_operation]` from `ay-in-process` with an
+**empty** counterexample — 32 of the 34 rows that carry the field. They cluster
+in `cross_platform_path.rs` (14), `quick_open_filter.rs` (12) and
+`setup_runner_command.rs` (7): ordinary string and slice code with no `unsafe`
+in it anywhere, so what is unestablished is std's hardening, not Orca's logic.
+
+The same query against `orca-policy` as first written returned **2**
+(`[overflow:mul]`, `[overflow:add]`, both `verified_counterexample = true`).
+Those were real, and both are now fixed.
+
+That is the whole triage rule:
+
+> **A populated counterexample is a work item. An empty one is a coverage gap.**
+> Treating them alike is how a 34-row list becomes an unfixable backlog and
+> everyone stops reading it.
+
+The only orca-core rows that carry a real counterexample are 2
+`[unbounded_allocation]` in `quick_open_filter.rs` — and see step 3, because the
+orca-policy fix does **not** transfer to them unchanged.
+
+So the buckets, and who can close them:
+
+1. **Populated counterexamples — Orca closes these. Always.**
+   orca-core: 2, both `[unbounded_allocation]`. orca-policy: was 3, now 0.
+   This is a small, finite, actionable list — which is the point of separating
+   it from the 425 rows that are not.
+2. **Derived boilerplate — Orca closes these, and it is nearly free.**
+   8 of orca-policy's original 22 obligations, measured. Worth re-measuring on
+   orca-core before promising a figure; the derive-heavy types are there, but
+   the 280-of-302 number in circulation predates this survey and does not appear
+   in it.
+3. **Empty-counterexample failures and `[assert] runtime-checked` — only Trust
+   closes these.** 393 `[assert] runtime-checked` rows in orca-core, plus the 32
+   hardened rows. This is the absent-callee std gap, ~69% of obligations
+   workspace-wide per `rust/.cargo/config.toml`. Any Orca-side plan that
+   promises to zero this bucket is lying.
+
+## The work, in the order it pays
+
+**1. Zero the rows with a populated counterexample.**
+
+orca-policy is already there (3 → 0). orca-core has 2, both in step 3. The
+technique for arithmetic, from the two that were real:
+
+Prefer a form that raises **no** obligation over one that raises a provable
+obligation. `(high << 4) | low` beats `high * 16 + low`: identical for nibbles,
+but `<<` only constrains the shift amount (a constant) and `|` cannot overflow,
+whereas `*`/`+` oblige the verifier to know a range it cannot see across an
+absent callee. Where a value is genuinely unbounded, use `checked_*`/
+`saturating_*` and handle the case. Where an assertion is load-bearing, it wants
+a real precondition (`#[trust::requires]`), not a rewrite.
+
+**2. Move `derive(Debug, Clone)` behind `cfg(test)` on heap-bearing types.**
+
+Eight of `orca-policy`'s original 22 obligations — 36% — were generated code
+nobody reads. It costs nothing: the derives stay in test builds, which is the
+only place they were used. Measure orca-core's derive share before committing to
+a number for it; this is a cheap edit with a large measured effect on one crate,
+which is a reason to try it, not a reason to quote a figure from elsewhere.
+
+**3. Bound allocations by a constant — but only where the cap is semantically
+free.**
+
+`[unbounded_allocation]` was a *real* finding in `decode_once`: it allocated in
+proportion to an attacker-controlled request path. Two things generalize:
+
+- Adding `if path.len() > CAP { return None }` did **not** discharge it.
+  `len()` is an absent callee, so a length-derived capacity stays
+  uninterpretable no matter what guards it. `Vec::with_capacity(CAP)` — a
+  literal constant — discharges it immediately. Guard the input *and* allocate
+  the constant; the guard is for the semantics, the constant is for the proof.
+- **It does not always transfer.** orca-core's 2 real rows are
+  `vec![".."; f.len() - common]` in `posix_relative`/`win32_relative`
+  (`quick_open_filter.rs`), which port Node's `path.relative`. Capping the
+  segment count there would change ported behavior and break parity with the TS
+  twin. A 4 KB cap on an HTTP request path costs nothing real; a cap on path
+  depth is a semantic change. Where the cap is not free, the honest outcome is a
+  **precondition or a named assumption**, not a silent behavior change to make a
+  number move.
+
+**4. Push authority decisions down to scalar cores where it is honest to.**
+
+This is the only lever that converts `unknown` into `proved` today, and it is
+narrow. It applies where a decision can be expressed over integers and enums
+rather than strings. It does **not** apply to path containment, which is
+irreducibly string-shaped — and pretending otherwise by hand-rolling byte
+comparison to dodge `str` would be optimizing for the metric, not for safety.
+
+**5. Report by kind, per crate, with the query that produced it.**
+
+`refuted-with-counterexample` / `unestablished` / `proved` — three numbers,
+always together, each with the `grep` that yields it. A single "proved" figure is
+what made 244 vacuous placeholders look like progress, and as the table at the
+top shows, a single "failed" figure is no better defined.
+
+## Do not reach for this
+
+The cheapest way to "100% proved, 0% unknown" is to delete obligations: drop the
+`assert!`, index without bounds, stop deriving anything, replace `String` with
+fixed buffers until the verifier has nothing to say. Every one of those raises
+the percentage and lowers the safety. `trust-goal-real-obligations.md` puts it
+directly — "green checkmarks for unproven or vacuous obligations are worse than
+no verifier."
+
+The corresponding discipline on the Orca side: **an obligation may only leave
+the list by being proved or by being named as an assumption.** Never by the code
+becoming less checkable.
+
+## What is done
+
+- `orca-policy` exists: `decide_play_path_lexical` and `decide_fleet_grant`,
+  the two authority decisions from the modes work, ported from
+  `src/main/story-world/play-path-guard.ts` and `src/shared/fleet-grant.ts`.
+- Its refutation count is zero, down from three, all closed by steps 1 and 3 —
+  and 6 of its 15 obligations now PROVE, up from none.
+- `parity-corpus.txt` is run by both the Rust crate and
+  `src/main/story-world/play-path-parity.test.ts`, so the ported and shipping
+  implementations answer to one oracle. It earned its keep immediately: it
+  caught a decode-position divergence that made `/%2e%2e/secrets.js` traversal
+  on one side and an inert literal on the other.
+- The E1 gate runs that corpus. It did not before — two separate bugs
+  (`-Z` rustflags under a stable toolchain, and parity discovery filtering the
+  ay-certificate subset instead of all crates) made it report PASS without
+  executing a single corpus. Both fixed, and the fix is verified by deletion:
+  breaking one corpus row now takes the gate from PASS to FAIL.
+
+## What is next
+
+- The 2 populated-counterexample rows in `quick_open_filter.rs`, as a
+  precondition or a named assumption (step 3 explains why not a cap).
+- Re-measure orca-core's derive share, then step 2 if it is as large as
+  orca-policy's was.
+- Take the 32 `[hardened_unsafe_operation]` rows to the Trust side as a single
+  question: they are `forbid`-clean Orca code with no `unsafe` in it, so an
+  empty counterexample there is a statement about std, and it should either
+  prove or be declared.
+- The remaining decision cores named in the modes work but still TS-only:
+  `reconcileTaskClaim`, `route-key`/`store-key`/`pty-binding`,
+  `collapseExceptionsByTask`.
+- An ay certificate for `orca-policy`, so it joins the eight crates whose
+  properties are discharged rather than merely reported.
