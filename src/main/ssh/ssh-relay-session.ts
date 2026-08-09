@@ -67,6 +67,7 @@ import { forceStopRelayForTarget } from './ssh-relay-reset'
 import type { Store } from '../persistence'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import { runRemoteOrcaCli } from './ssh-remote-orca-cli'
+import { parseRemoteOrcaCliRequest } from './ssh-remote-cli-host-passthrough'
 import { toSshExecutionHostId, type ExecutionHostId } from '../../shared/execution-host'
 import { isTerminalLeafId, makePaneKey } from '../../shared/stable-pane-id'
 import { isValidTerminalTabId } from '../../shared/terminal-tab-id'
@@ -770,27 +771,7 @@ export class SshRelaySession {
       if (!this.runtime) {
         throw new Error('Orca runtime is unavailable')
       }
-      const argv = Array.isArray(params.argv)
-        ? params.argv.filter((item): item is string => typeof item === 'string')
-        : []
-      const cwd = typeof params.cwd === 'string' && params.cwd.length > 0 ? params.cwd : '/'
-      const rawEnv = params.env
-      const env =
-        rawEnv && typeof rawEnv === 'object' && !Array.isArray(rawEnv)
-          ? Object.fromEntries(
-              Object.entries(rawEnv).filter(
-                (entry): entry is [string, string] =>
-                  typeof entry[0] === 'string' && typeof entry[1] === 'string'
-              )
-            )
-          : {}
-      const stdin = typeof params.stdin === 'string' ? params.stdin : undefined
-      return await runRemoteOrcaCli(this.runtime, {
-        argv,
-        cwd,
-        env,
-        ...(stdin !== undefined ? { stdin } : {})
-      })
+      return await runRemoteOrcaCli(this.runtime, parseRemoteOrcaCliRequest(params))
     })
   }
 

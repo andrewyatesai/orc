@@ -12,6 +12,17 @@ import { getCanonicalUserDataPath } from '../persistence'
 import { parseRemoteCliArgs } from './ssh-remote-cli-args'
 import { clampOrchestrationAskTimeoutMs } from '../../shared/orchestration-ask-timeout'
 import {
+  isPathInsideOrEqual,
+  normalizeRuntimePathForComparison,
+  resolveRuntimePath
+} from '../../shared/cross-platform-path'
+import { splitWorktreeIdForFilesystem } from '../../shared/worktree-id'
+import {
+  parseRemoteCliCallerIdentity,
+  withRemoteCliIdentityEnv,
+  type RemoteCliCallerIdentity
+} from '../../shared/ssh-remote-cli-identity'
+import {
   MAX_TIMER_DELAY_MS,
   isSafeTimerDelayMs,
   parsePositiveSafeIntegerNumericText,
@@ -22,6 +33,8 @@ export type RemoteOrcaCliRequest = {
   argv: string[]
   cwd: string
   env: Record<string, string>
+  /** Pane the relay attributed the call to. Absent means "no pane identity". */
+  identity?: RemoteCliCallerIdentity
   stdin?: string
 }
 
@@ -46,16 +59,52 @@ export type HostCliPassthroughOptions = {
  * working even on broken installs. */
 export class HostCliUnavailableError extends Error {}
 
-// Why: only Orca terminal-context vars may cross from the remote shell into
-// the host CLI process. Remote PATH / ORCA_USER_DATA_PATH are paths on the
-// remote machine (meaningless or instance-hijacking on the host), and
-// NODE_OPTIONS-style vars could alter host execution.
-const REMOTE_CONTEXT_ENV_VARS = [
-  'ORCA_TERMINAL_HANDLE',
-  'ORCA_WORKTREE_ID',
-  'ORCA_PANE_KEY',
-  'ORCA_WORKSPACE_ID'
-] as const
+/**
+ * Narrows untrusted `orca.cli` params into a host CLI request.
+ *
+ * Why identity is re-imposed on `env` here rather than trusted to have been
+ * stripped upstream: the legacy in-process fallback reads pane context out of
+ * `env`, and the relay that sanitized the payload runs on the remote machine.
+ * The host decides what its own CLI sees.
+ */
+export function parseRemoteOrcaCliRequest(params: Record<string, unknown>): RemoteOrcaCliRequest {
+  const argv = Array.isArray(params.argv)
+    ? params.argv.filter((item): item is string => typeof item === 'string')
+    : []
+  const cwd = typeof params.cwd === 'string' && params.cwd.length > 0 ? params.cwd : '/'
+  const rawEnv = params.env
+  const env =
+    rawEnv && typeof rawEnv === 'object' && !Array.isArray(rawEnv)
+      ? Object.fromEntries(
+          Object.entries(rawEnv).filter(
+            (entry): entry is [string, string] =>
+              typeof entry[0] === 'string' && typeof entry[1] === 'string'
+          )
+        )
+      : {}
+  const identity = parseRemoteCliCallerIdentity(params.identity)
+  const stdin = typeof params.stdin === 'string' ? params.stdin : undefined
+  return {
+    argv,
+    cwd,
+    env: withRemoteCliIdentityEnv(env, identity),
+    identity,
+    ...(stdin !== undefined ? { stdin } : {})
+  }
+}
+
+// Why: nothing from the remote shell crosses into the host CLI process. Remote
+// PATH / ORCA_USER_DATA_PATH are paths on the remote machine (meaningless or
+// instance-hijacking on the host), NODE_OPTIONS-style vars could alter host
+// execution, and the Orca terminal-context vars are pane authority — those come
+// from the relay's attribution of the calling PTY instead.
+
+// Why: with no attributed pane there is no directory this call may speak for,
+// and `--worktree active` resolves ORCA_CLI_CWD against every worktree the host
+// knows — remote and local in one namespace. The filesystem root is contained by
+// no managed worktree, so the selector fails loudly instead of quietly landing
+// on a checkout on the user's own machine.
+const UNATTRIBUTED_CLI_CWD = '/'
 
 // Why: bound captured output so a runaway command cannot balloon the relay
 // JSON-RPC response or main-process memory.
@@ -101,26 +150,60 @@ export function resolveHostCliKillTimeoutMs(argv: string[]): number {
   return DEFAULT_KILL_TIMEOUT_MS
 }
 
+/**
+ * Caller directory the host CLI may resolve `--worktree active` against.
+ *
+ * The remote cwd is remote-chosen text, and it is compared against host worktree
+ * records that hold remote and local paths alike — so an unconstrained value can
+ * select a checkout the caller never had. Honor it only inside the attributed
+ * pane's own worktree; otherwise fall back to that worktree, which is the pane
+ * the call demonstrably belongs to.
+ */
+export function resolveHostCliCallerCwd(
+  remoteCwd: string,
+  identity: RemoteCliCallerIdentity
+): string {
+  const worktreePath = identity.worktreeId
+    ? splitWorktreeIdForFilesystem(identity.worktreeId)?.worktreePath
+    : undefined
+  if (!worktreePath) {
+    return UNATTRIBUTED_CLI_CWD
+  }
+  if (remoteCwd.length === 0) {
+    return worktreePath
+  }
+  // Why: collapse `..` before deciding — the containment check is textual while
+  // the CLI resolves the path it receives, so an uncollapsed `wt/../../elsewhere`
+  // would pass here and escape there.
+  const resolvedCwd = resolveRuntimePath(worktreePath, remoteCwd)
+  if (!isPathInsideOrEqual(worktreePath, resolvedCwd)) {
+    return worktreePath
+  }
+  // Why: keep the caller's own spelling (Windows separators) when resolving
+  // changed nothing; forward the collapsed form only when it had to.
+  return normalizeRuntimePathForComparison(remoteCwd) ===
+    normalizeRuntimePathForComparison(resolvedCwd)
+    ? remoteCwd
+    : resolvedCwd
+}
+
 export function buildHostCliEnv(args: {
   hostEnv: NodeJS.ProcessEnv
-  remoteEnv: Record<string, string>
+  identity: RemoteCliCallerIdentity
   userDataPath: string
   remoteCwd: string
 }): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...args.hostEnv }
-  for (const key of REMOTE_CONTEXT_ENV_VARS) {
-    const value = args.remoteEnv[key]
-    if (typeof value === 'string' && value.length > 0) {
-      env[key] = value
-    }
-  }
+  // Why: clears the identity vars before setting them, so a value this app
+  // process inherited (Orca launched from an Orca pane) cannot stand in for a
+  // pane the relay could not attribute.
+  const env: NodeJS.ProcessEnv = withRemoteCliIdentityEnv({ ...args.hostEnv }, args.identity)
   // Why: bind the subprocess to this app instance's runtime metadata (dev and
   // parallel instances use non-default userData dirs).
   env.ORCA_USER_DATA_PATH = args.userDataPath
   // Why: the caller's working directory lives on the remote machine, so the
   // subprocess cwd cannot be chdir'd there; ORCA_CLI_CWD carries it for
   // cwd-based selectors like `--worktree active`.
-  env.ORCA_CLI_CWD = args.remoteCwd
+  env.ORCA_CLI_CWD = resolveHostCliCallerCwd(args.remoteCwd, args.identity)
   // Why: same node-mode hygiene as the shipped CLI launchers — stash and clear
   // NODE_OPTIONS so Electron's node bootstrap does not inherit them.
   env.ORCA_NODE_OPTIONS = args.hostEnv.NODE_OPTIONS ?? ''
@@ -175,7 +258,7 @@ export async function runHostOrcaCliPassthrough(
 
   const env = buildHostCliEnv({
     hostEnv,
-    remoteEnv: request.env,
+    identity: request.identity ?? {},
     userDataPath,
     remoteCwd: request.cwd
   })

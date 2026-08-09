@@ -10,6 +10,7 @@ import {
   EXIT_CODE_AUTH_DENIED,
   EXIT_CODE_VERSION_MISMATCH
 } from './relay-handshake'
+import { PreAuthConnectionGate } from './relay-pre-auth-connection-gate'
 import { relayAuthVerifier } from '../shared/ssh-relay-auth-token'
 import {
   encodeHandshakeFrame,
@@ -105,11 +106,13 @@ describe('handshake round-trip over a real Socket pair', () => {
         return { promise, resolve: _resolve }
       })()
 
+      const preAuth = new PreAuthConnectionGate()
       server = createServer((sock) => {
         trackServerSocket(sock)
         setupDaemonHandshake(sock, {
           launchVersion: version,
           auth: { control: VERIFIER },
+          preAuth,
           onAccepted: (s, leftover) => acceptedDeferred.resolve({ sock: s, leftover })
         })
       })

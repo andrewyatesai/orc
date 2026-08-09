@@ -15,6 +15,8 @@ vi.mock('../persistence', () => ({
 import {
   HostCliUnavailableError,
   buildHostCliEnv,
+  parseRemoteOrcaCliRequest,
+  resolveHostCliCallerCwd,
   resolveHostCliEntryPath,
   resolveHostCliKillTimeoutMs,
   runHostOrcaCliPassthrough
@@ -57,21 +59,18 @@ describe('resolveHostCliEntryPath', () => {
   })
 })
 
+const ATTRIBUTED_PANE = {
+  paneKey: 'pane-9',
+  worktreeId: 'repo::/home/alice/wt',
+  terminalHandle: 'term_remote',
+  workspaceId: 'ws-1'
+}
+
 describe('buildHostCliEnv', () => {
-  it('forwards only Orca terminal-context vars from the remote env', () => {
+  it('carries the relay-attributed pane into the host CLI subprocess', () => {
     const env = buildHostCliEnv({
       hostEnv: { PATH: '/host/bin', NODE_OPTIONS: '--inspect' },
-      remoteEnv: {
-        ORCA_TERMINAL_HANDLE: 'term_remote',
-        ORCA_WORKTREE_ID: 'repo::/home/alice/wt',
-        ORCA_PANE_KEY: 'pane-9',
-        ORCA_WORKSPACE_ID: 'ws-1',
-        // Why: these are remote-machine paths and must not leak into the host
-        // subprocess (PATH would break host binary lookup; user-data would
-        // retarget the CLI at a different local instance).
-        PATH: '/remote/bin',
-        ORCA_USER_DATA_PATH: '/remote/user-data'
-      },
+      identity: ATTRIBUTED_PANE,
       userDataPath: '/host/user-data',
       remoteCwd: '/home/alice/wt/sub'
     })
@@ -86,6 +85,144 @@ describe('buildHostCliEnv', () => {
     expect(env.ELECTRON_RUN_AS_NODE).toBe('1')
     expect(env.NODE_OPTIONS).toBeUndefined()
     expect(env.ORCA_NODE_OPTIONS).toBe('--inspect')
+  })
+
+  it('clears the pane identity this app process inherited when nothing is attributed', () => {
+    // Why: Orca launched from an Orca pane inherits that pane's vars. Leaving
+    // them would hand an unattributable remote call the host pane's authority.
+    const env = buildHostCliEnv({
+      hostEnv: {
+        PATH: '/host/bin',
+        ORCA_PANE_KEY: 'host-launch-pane',
+        ORCA_WORKTREE_ID: 'repo::/Users/alice/host-wt',
+        ORCA_TERMINAL_HANDLE: 'term_host',
+        ORCA_WORKSPACE_ID: 'ws-host'
+      },
+      identity: {},
+      userDataPath: '/host/user-data',
+      remoteCwd: '/home/alice/wt/sub'
+    })
+
+    expect(env.ORCA_PANE_KEY).toBeUndefined()
+    expect(env.ORCA_WORKTREE_ID).toBeUndefined()
+    expect(env.ORCA_TERMINAL_HANDLE).toBeUndefined()
+    expect(env.ORCA_WORKSPACE_ID).toBeUndefined()
+  })
+
+  it('bounds ORCA_CLI_CWD by the attributed pane, not by what the caller sent', () => {
+    const outsidePane = buildHostCliEnv({
+      hostEnv: {},
+      identity: ATTRIBUTED_PANE,
+      userDataPath: '/host/user-data',
+      remoteCwd: '/Users/alice/orca'
+    })
+    expect(outsidePane.ORCA_CLI_CWD).toBe('/home/alice/wt')
+
+    const unattributed = buildHostCliEnv({
+      hostEnv: {},
+      identity: {},
+      userDataPath: '/host/user-data',
+      remoteCwd: '/Users/alice/orca'
+    })
+    expect(unattributed.ORCA_CLI_CWD).toBe('/')
+  })
+
+  it('replaces the inherited identity rather than merging with it', () => {
+    const env = buildHostCliEnv({
+      hostEnv: { ORCA_PANE_KEY: 'host-launch-pane', ORCA_WORKSPACE_ID: 'ws-host' },
+      identity: { paneKey: 'pane-9' },
+      userDataPath: '/host/user-data',
+      remoteCwd: '/home/alice/wt'
+    })
+
+    expect(env.ORCA_PANE_KEY).toBe('pane-9')
+    expect(env.ORCA_WORKSPACE_ID).toBeUndefined()
+  })
+})
+
+describe('parseRemoteOrcaCliRequest', () => {
+  it('takes pane identity from the relay attribution and drops the payload copy', () => {
+    const request = parseRemoteOrcaCliRequest({
+      argv: ['terminal', 'list', 42],
+      cwd: '/home/alice/wt/src',
+      env: {
+        PATH: '/remote/bin',
+        ORCA_PANE_KEY: 'pane-forged',
+        ORCA_TERMINAL_HANDLE: 'term_forged',
+        ORCA_WORKTREE_ID: 'repo::/home/alice/other',
+        ORCA_WORKSPACE_ID: 'ws-forged',
+        NOT_A_STRING: 7
+      },
+      identity: { paneKey: 'pane-9', terminalHandle: 'term_remote', bogus: 'ignored' },
+      stdin: 'payload'
+    })
+
+    expect(request).toEqual({
+      argv: ['terminal', 'list'],
+      cwd: '/home/alice/wt/src',
+      // Why: the legacy in-process fallback still reads pane context out of env,
+      // so the attributed values must be what it finds there.
+      env: { PATH: '/remote/bin', ORCA_PANE_KEY: 'pane-9', ORCA_TERMINAL_HANDLE: 'term_remote' },
+      identity: { paneKey: 'pane-9', terminalHandle: 'term_remote' },
+      stdin: 'payload'
+    })
+  })
+
+  it('leaves no pane identity in env when the relay attributed none', () => {
+    const request = parseRemoteOrcaCliRequest({
+      argv: ['status'],
+      env: { ORCA_PANE_KEY: 'pane-forged', ORCA_WORKTREE_ID: 'repo::/home/alice/other' }
+    })
+
+    expect(request.env).toEqual({})
+    expect(request.identity).toEqual({})
+    expect(request.cwd).toBe('/')
+    expect(request.stdin).toBeUndefined()
+  })
+})
+
+describe('resolveHostCliCallerCwd', () => {
+  it('keeps a remote cwd inside the calling pane worktree', () => {
+    expect(resolveHostCliCallerCwd('/home/alice/wt/src/deep', ATTRIBUTED_PANE)).toBe(
+      '/home/alice/wt/src/deep'
+    )
+  })
+
+  it('pins a cwd outside that worktree back to it', () => {
+    // Why: `--worktree active` resolves this against every worktree the host
+    // knows, remote and local alike, so an out-of-pane cwd could select a
+    // checkout on the user's own machine.
+    expect(resolveHostCliCallerCwd('/Users/alice/orca', ATTRIBUTED_PANE)).toBe('/home/alice/wt')
+    expect(resolveHostCliCallerCwd('/home/alice/wt-evil', ATTRIBUTED_PANE)).toBe('/home/alice/wt')
+    // Why: the containment check is textual and the CLI resolves what it gets,
+    // so traversal must be collapsed before the decision, not after it.
+    expect(resolveHostCliCallerCwd('/home/alice/wt/../other', ATTRIBUTED_PANE)).toBe(
+      '/home/alice/wt'
+    )
+    expect(
+      resolveHostCliCallerCwd('/home/alice/wt/../../../Users/alice/orca', ATTRIBUTED_PANE)
+    ).toBe('/home/alice/wt')
+  })
+
+  it('collapses traversal that stays inside the pane worktree', () => {
+    expect(resolveHostCliCallerCwd('/home/alice/wt/src/../lib', ATTRIBUTED_PANE)).toBe(
+      '/home/alice/wt/lib'
+    )
+  })
+
+  it('leaves an unattributed call no directory to select a worktree with', () => {
+    expect(resolveHostCliCallerCwd('/Users/alice/orca', {})).toBe('/')
+    expect(resolveHostCliCallerCwd('/Users/alice/orca', { paneKey: 'pane-9' })).toBe('/')
+  })
+
+  it('resolves a Windows remote pane against its own worktree', () => {
+    const windowsPane = { worktreeId: 'repo::C:\\Users\\alice\\wt' }
+    expect(resolveHostCliCallerCwd('C:\\Users\\alice\\wt\\src', windowsPane)).toBe(
+      'C:\\Users\\alice\\wt\\src'
+    )
+    expect(resolveHostCliCallerCwd('C:\\Users\\alice\\other', windowsPane)).toBe(
+      'C:\\Users\\alice\\wt'
+    )
   })
 })
 
@@ -178,7 +315,9 @@ describe('runHostOrcaCliPassthrough', () => {
       {
         argv: ['orchestration', 'task-create', '--spec', 'do the thing', '--json'],
         cwd: '/home/alice/wt',
-        env: { ORCA_TERMINAL_HANDLE: 'term_remote' }
+        // A remote caller can put anything here; only `identity` is authority.
+        env: { ORCA_TERMINAL_HANDLE: 'term_forged', ORCA_PANE_KEY: 'pane-forged' },
+        identity: { terminalHandle: 'term_remote', worktreeId: 'repo::/home/alice/wt' }
       },
       { ...BASE_OPTIONS, spawn: spawn as never }
     )
@@ -209,6 +348,7 @@ describe('runHostOrcaCliPassthrough', () => {
     expect(options.env.ELECTRON_RUN_AS_NODE).toBe('1')
     expect(options.env.ORCA_CLI_CWD).toBe('/home/alice/wt')
     expect(options.env.ORCA_TERMINAL_HANDLE).toBe('term_remote')
+    expect(options.env.ORCA_PANE_KEY).toBeUndefined()
     // Why: stdin must be closed even without a payload so CLI handlers that
     // stream stdin see EOF instead of hanging forever.
     expect(child.stdin.end).toHaveBeenCalledWith()

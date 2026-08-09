@@ -18,6 +18,7 @@ import {
   type RelayAuthRole
 } from '../shared/ssh-relay-auth-token'
 import { relayLogLine } from './relay-diagnostic-log'
+import type { PreAuthConnectionGate } from './relay-pre-auth-connection-gate'
 
 // Why: client maps this exit code to a non-retryable error so it skips reconnect backoff; other non-zero exits are treated as transient.
 export const EXIT_CODE_VERSION_MISMATCH = 42
@@ -70,12 +71,15 @@ export type DaemonHandshakeCallbacks = {
   onAccepted: (sock: Socket, leftover: Buffer, role: RelayAuthRole) => void
   launchVersion: string
   auth: RelayAuthVerifiers
+  // Required, not optional: a caller that forgets it hands every silent peer an unbounded socket.
+  preAuth: PreAuthConnectionGate
 }
 
 // Why: read one handshake frame before attaching the dispatcher; an unauthenticated
 // or mismatched-version peer never reaches a verb.
 export function setupDaemonHandshake(sock: Socket, cb: DaemonHandshakeCallbacks): void {
   let handshakeResolved = false
+  cb.preAuth.track(sock)
   const decoder: FrameDecoder = new FrameDecoder(
     (frame: DecodedFrame) => {
       if (handshakeResolved) {
@@ -84,6 +88,7 @@ export function setupDaemonHandshake(sock: Socket, cb: DaemonHandshakeCallbacks)
       const role = handleDaemonHandshakeFrame(sock, frame, cb.launchVersion, cb.auth)
       if (role) {
         handshakeResolved = true
+        cb.preAuth.release(sock)
         const leftover = decoder.drain()
         detachHandshakeListener(sock)
         cb.onAccepted(sock, leftover, role)
@@ -96,6 +101,9 @@ export function setupDaemonHandshake(sock: Socket, cb: DaemonHandshakeCallbacks)
   )
 
   const onHandshakeData = (chunk: Buffer): void => {
+    // Why: a peer that has sent bytes is mid-handshake; one that has sent none is
+    // the shape a flood takes. The gate sheds the silent first.
+    cb.preAuth.noteSpoke(sock)
     decoder.feed(chunk)
   }
   sock.on('data', onHandshakeData)
@@ -192,6 +200,9 @@ function handleDaemonHandshakeFrame(
     return null
   }
   process.stderr.write(`[relay] Handshake OK from version=${msg.version} role=${role}\n`)
+  // Why: `auth` proves nothing to the client (any peer can assert it), but a
+  // MISSING one is fatal there — it is how a relay build that does not
+  // authenticate gets refused. So it must be sent, and it is not a credential.
   sock.write(
     encodeHandshakeFrame({
       type: 'orca-relay-handshake-ok',
@@ -246,10 +257,12 @@ export function runConnectHandshake(
         process.exit(1)
       }
       if (msg.type === 'orca-relay-handshake-ok') {
-        // Why: fail closed on a daemon that accepted us without checking the
-        // token. Version-scoped install dirs mean a pre-auth relay is not
-        // reachable at this socket path — so something that answers here
-        // without verifying is an impostor, never a compatible old relay.
+        // Why: `auth` is the peer's own claim — a downgrade guard, not proof of
+        // identity. It refuses a relay build that does not authenticate; an
+        // impostor just asserts 'verified', and our token went out before either
+        // branch is reached. Whoever can write the remote install dir owns
+        // relay.js, the uploaded node and this socket path alike, so there is no
+        // ceremony to add here: D1.4 in docs/reference/orca-daemon-authority-model.md.
         if (msg.auth !== 'verified') {
           process.stderr.write(
             `[relay-connect] Daemon accepted the handshake without verifying our token; ` +

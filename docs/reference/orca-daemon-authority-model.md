@@ -123,7 +123,7 @@ so authority descends from the workspace, whose agent is the Orca app. The rest 
 | --- | --- | --- | --- |
 | **who forks it** | orca-daemon: `PtySession::spawn` (`daemon/rpc.rs:448`, `pty/session.rs:108-131`) — **except when the daemon is degraded**, where fresh spawns fall back to the in-process node-pty provider the daemon never sees (`app/main/daemon/degraded-daemon-pty-provider.ts:10`) | the daemon forks **`wsl.exe`** (`app/main/providers/local-pty-provider.ts:621`, `:633`); its argv `exec`s the distro login shell, so exactly one guest process is bound to the pty (`app/main/providers/windows-shell-args.ts:135`, `app/shared/wsl-login-shell-command.ts:81`) | a relay daemon on the **remote host** (`app/relay/pty-handler.ts:1102`, revive `:1581`), launched `nohup … & </dev/null` so the exec channel cannot own it (`app/main/ssh/ssh-relay-deploy.ts:1353`; Windows re-parents via WMI, `:1667-1690`). Orca's main process forks nothing |
 | **what Orca holds** | master fd, pid, child handle (`pty/session.rs:108-131`) | a node-pty handle on **`wsl.exe`'s Windows pid**, plus a distro string (`local-pty-provider.ts:940`, `:942-943`). No guest pid, handle, cgroup, or namespace exists anywhere in `src/main` | strings only: `ssh:<target>@@<relayPtyId>` (`app/shared/ssh-pty-id.ts:3-4`, `:23-40`), a per-spawn `incarnationId`, and a host-persisted lease (`app/main/persistence.ts:6922-6929`) |
-| **env injection** | yes — `buildPtyHostEnv` | yes, but **only for keys named in `WSLENV`**; wsl.exe imports nothing else, so each key needs a hand-written registration with the right translation flag (`app/main/pty/wsl-orca-env.ts:64-68`: `ORCA_USER_DATA_PATH/p` path-translated, `ORCA_CLI_COMMAND/u` not) | **none, by design.** `buildPtyHostEnv`'s own doc forbids calling it for a pane with a `connectionId` (`app/main/ipc/pty.ts:1107-1108`) |
+| **env injection** | yes — `buildPtyHostEnv` | yes, but **only for keys named in `WSLENV`**; wsl.exe imports nothing else, so each key needs a hand-written registration with the right translation flag (`app/main/pty/wsl-orca-env.ts:64-68`: `ORCA_USER_DATA_PATH/p` path-translated, `ORCA_CLI_COMMAND/u` not) | **not from the host builder** — `buildPtyHostEnv`'s doc forbids a pane with a `connectionId` (`app/main/ipc/pty.ts:1116-1121`) — but the relay-spawn path injects `ORCA_RELAY_*`, including the CLI-role secret, into the pane env (`app/main/providers/ssh-pty-spawn-env.ts:22-28`) |
 | **revocation** | `kill` RPC → SIGHUP, SIGKILL after 5 s → EOF → reap. Route 3 of §4.4 is the hole | `taskkill /pid /T /F` after an OS identity probe (`app/main/pty-descendant-termination.ts:253-266`, `app/main/windows-process-tree-kill.ts:23-24`) kills wsl.exe's **Windows** tree; the POSIX descendant sweep is disabled on win32 (`pty-descendant-termination.ts:213-215`). **Nothing in the repo terminates anything inside a distro** — the guest is left to WSL's own HUP, and the WSL relay "has no per-pane teardown signal" (`docs/reference/agent-status-over-wsl.md:324`) | connected: **stronger than local** — `immediate:true` always (`app/main/ipc/pty.ts:5916`) → `pty.shutdown` (`app/main/providers/ssh-pty-provider.ts:231-245`) → SIGKILL of *every process group on the tty* (`app/main/pty/posix-pty-process-groups.ts:89-130`), no EOF dependency. Relay unreachable: the close tombstones host state and never reaches the remote (`ipc/pty.ts:5902-5911`), and the default grace is **unlimited** (`app/shared/ssh-types.ts:7`) |
 
 **D1.0 — Federation publishes daemon-forked local panes only.** WSL and SSH panes are out of
@@ -137,8 +137,8 @@ publish, which the publisher must treat as a fourth absent case, not an error.
   Publishing would advertise drive rights over another machine's process to every local
   same-uid process. It also fails on revocation (unreachable relay never reaps; the relay's
   `pty.shutdown` reads only `params.id` and, unlike `pty.attach`, verifies no identity —
-  `app/relay/pty-handler.ts:1275-1293` vs `:1211-1222`) and on delivery (no env channel
-  exists to hand an in-pane agent its edge triple).
+  `app/relay/pty-handler.ts:1275-1293` vs `:1211-1222`). Delivery is no longer the blocker
+  it was: the relay-spawn path injects `ORCA_RELAY_*` into a remote pane (D1.4).
 * **WSL fails on naming.** Identity and env delivery both work, but the process a published
   sid would name is a guest process Orca cannot enumerate or signal; "revoke" degrades to
   "kill wsl.exe and hope". It is also gated behind Windows federation, itself undecided
@@ -147,9 +147,33 @@ publish, which the publisher must treat as a fourth absent case, not an error.
 **To include them later:** WSL needs Windows federation decided and exercised on a real host,
 plus a per-pane guest teardown signal so revocation names what it claims to revoke. SSH needs
 identity verification on the relay's shutdown path (matching attach), a bounded default
-grace, a delivery channel for edge tokens, and its own review of what publishing another
-machine's process into a local namespace means. Adding a kind later is additive and cheap
-(§9); publishing one early is not.
+grace, and its own review of what publishing another machine's process into a local namespace
+means. Adding a kind later is additive and cheap (§9); publishing one early is not.
+
+**D1.4 — Relay authentication separates remote *accounts*; it does not defend the install
+dir, and nothing within its constraint could.** The host mints a per-target secret and
+launches the relay with only its SHA-256 verifier, so the relay can check a token and never
+mint one (`app/shared/ssh-relay-auth-token.ts:1-11`, store at
+`app/main/ssh/ssh-relay-auth-secret-store.ts:99-140`). That buys the boundary that matters:
+another account on the remote cannot drive the channel, and the channel runs argv on the
+laptop (`orca.cli`, `app/main/ssh/ssh-relay-session.ts:768-794`). Against the account that
+owns `~/.orca-remote/relay-<version>/` it buys nothing, and never claimed to — that dir holds
+`relay.js`, the uploaded `node`, and the socket, so writing it means the host runs your code
+as that account. The `auth: 'verified'` field in handshake-ok is therefore a **downgrade
+guard, not proof of identity**: it refuses a relay build that does not authenticate, and an
+impostor simply asserts it. Verified locally against the real `runConnectHandshake` and a
+real `SshChannelMultiplexer` — an impostor that never checked the token was handed the
+channel and served `orca.cli` host-side, and kept the host's secret in *both* branches, since
+the client sends it first. No ceremony fixes this: the relay holds only what an install-dir
+writer holds, so it can prove nothing that writer cannot. **Write access to the remote
+install dir is full compromise of that target**, which is what the handshake now says
+(`runConnectHandshake`'s handshake-ok branch, `app/relay/relay-handshake.ts:257-262`).
+
+One caveat, Windows only: there the endpoint is a global-namespace named pipe derived from
+the dir name (`app/main/ssh/ssh-relay-endpoints.ts:19-23`), not a file *inside* the install
+dir, and that dir is created with no explicit ACL (`app/main/ssh/ssh-remote-commands.ts:24-27`)
+where POSIX does `chmod 700` (`:14-23`). "Can answer at the endpoint" may there be a wider
+set than "can write the install dir" — the equivalence this decision rests on.
 
 | principal | authenticates as | may do | actually separable? |
 | --- | --- | --- | --- |
@@ -460,11 +484,9 @@ gets a missing file, which is the correct answer.
 
 Stated as the plan requires, without softening.
 
-**What is already true.** The daemon's socket and token are 0600, owner-readable (verified
-on this host: `srw------- daemon-v1021.sock`, `-rw------- daemon-v1021.token`, in a dir still
-`drwxr-xr-x` — the 0700 mkdir plus post-ownership chmod at `daemon-init.ts:94`, `:112-116`
-landed on 2026-08-04 and this host's dir has not been touched since 08-02, so the tightening
-is code-verified but not yet observed running here). A
+**What is already true.** The daemon's socket and token are 0600, owner-readable (verified on
+this host, in a dir still `drwxr-xr-x`: the 0700 mkdir plus post-ownership chmod at
+`daemon-init.ts:94`, `:112-116` is code-verified but not yet observed running here). A
 same-uid process that reads that token still holds *complete* control: the peer gate that
 landed is a **uid** gate, not a process gate, and past it there is no per-session gate,
 arbitrary program spawn (`daemon/rpc.rs:448`, `:601-647`), and ownership theft by naming a
@@ -611,9 +633,13 @@ replacing `Option<&str>`. Citations in D2.1. What remains:
     (`app/main/index.ts:2838-2839`), so panes stay federated and drivable with Orca closed
     (D4.4 route 5). Intended, or should quitting narrow to `private` until Orca returns?
 
-**UNVERIFIED.** The TLS `dial` / network-listener authority mapping (read as documentation,
-not as code). The Windows and Linux halves of the landed transport work (read as code on a
-macOS host; only the macOS path was observed running). Whether `portable-pty` can be
+**UNVERIFIED.** Whether a Windows named pipe makes "can answer at the relay endpoint" wider
+than "can write the install dir" (D1.4) — pipe DACL and first-instance semantics were not
+run on a real Windows host, and no SSH host was reachable at all for this revision, so every
+relay claim here is local-process evidence plus code reading. The TLS `dial` /
+network-listener authority mapping (read as documentation, not as code). The Windows and
+Linux halves of the landed transport work (read as code on a macOS host; only the macOS path
+was observed running). Whether `portable-pty` can be
 extended to inherit an extra fd without forking it. Whether any harness besides the ones
 already measured resolves a mid-session credential rewrite. **Everything in §1's WSL column
 is code-read, not observed** — this host is Darwin and has no `wsl.exe` (verified), so

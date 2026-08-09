@@ -27,12 +27,19 @@ import {
   setupDaemonHandshake,
   type RelayAuthVerifiers
 } from './relay-handshake'
+import { PreAuthConnectionGate } from './relay-pre-auth-connection-gate'
 import { readConnectAuthLine } from './relay-connect-auth-stdin'
 import {
   RELAY_AUTH_TOKEN_ENV,
   isRelayAuthVerifier,
   type RelayAuthRole
 } from '../shared/ssh-relay-auth-token'
+import {
+  bindOrcaCliPaneIdentity,
+  ORCA_CLI_PANE_TOKEN_PARAM,
+  RELAY_PANE_TOKEN_ENV,
+  RelayPaneCliAttribution
+} from './orca-cli-pane-attribution'
 import { RelayDispatcher } from './dispatcher'
 import { RelayContext, expandTilde } from './context'
 import { bindRelayOrcaDispatch } from './git-wasm'
@@ -237,6 +244,10 @@ async function runOrcaCliMode(sockPath: string, argv: string[]): Promise<void> {
 
   const sendRequest = (): void => {
     const env = pickRemoteCliEnv(process.env)
+    // Why: proves which pane this invocation runs in. Absent (env stripped by a
+    // multiplexer, pane older than this relay) the call still runs — it just
+    // carries no pane identity rather than one it chose for itself.
+    const paneToken = process.env[RELAY_PANE_TOKEN_ENV]
     const frame = encodeJsonRpcFrame(
       {
         jsonrpc: '2.0',
@@ -246,6 +257,7 @@ async function runOrcaCliMode(sockPath: string, argv: string[]): Promise<void> {
           argv,
           cwd: process.cwd(),
           env,
+          ...(paneToken ? { [ORCA_CLI_PANE_TOKEN_PARAM]: paneToken } : {}),
           ...(stdin !== undefined ? { stdin } : {})
         }
       },
@@ -495,8 +507,20 @@ async function main(): Promise<void> {
   const _workspaceSessionHandler = new WorkspaceSessionHandler(dispatcher)
   void _workspaceSessionHandler
 
+  // Why: pane identity is authority on the host, and this call arrives from the
+  // remote account. Seed each PTY with a token, then let only that token — not
+  // the payload — say which pane a call may act as.
+  const paneCliAttribution = new RelayPaneCliAttribution()
+  ptyHandler.addEnvAugmenter((ctx) => paneCliAttribution.issue(ctx.id, ctx.env))
+
   dispatcher.onRequest('orca.cli', async (params, context) => {
-    return await dispatcher.requestAnyClient('orca.cli', params, {
+    const bound = bindOrcaCliPaneIdentity(params, paneCliAttribution)
+    if (bound.rejectedPaneKey) {
+      relayLogLine(
+        `[relay] orca.cli claimed pane ${bound.rejectedPaneKey} without its token; using the calling pane's own identity`
+      )
+    }
+    return await dispatcher.requestAnyClient('orca.cli', bound.params, {
       excludeClientId: context.clientId,
       timeoutMs: remoteCliRequestTimeoutMs(params)
     })
@@ -595,6 +619,8 @@ async function main(): Promise<void> {
     if (paneKey) {
       hookServer.clearPaneState(paneKey)
     }
+    // Why: a dead pane's CLI token must stop attributing anything.
+    paneCliAttribution.release(id)
     pluginOverlay.clearOverlay(paneKey ?? id)
   })
 
@@ -634,6 +660,8 @@ async function main(): Promise<void> {
   // Why: the SSH channel dies on app restart; a Unix socket lets a new --connect bridge reach the dispatcher that owns live PTYs.
 
   const socketClients = new Map<Socket, number>()
+  // Why: only peers that have proved nothing are budgeted here; accepted clients leave the count.
+  const preAuthConnections = new PreAuthConnectionGate()
   let socketServer: Server | null = null
   const launchVersion = readLaunchVersion()
   const startedAt = Date.now()
@@ -656,7 +684,11 @@ async function main(): Promise<void> {
       owned: ownsSocketPath,
       listening: socketServer?.listening ?? false,
       clients: socketClients.size,
-      acceptedConnections: acceptedSocketConnections
+      acceptedConnections: acceptedSocketConnections,
+      // Why: without these the only trace of a pin attempt is the relay log on a machine nobody is watching.
+      pendingPreAuth: preAuthConnections.pendingCount,
+      droppedPreAuth: preAuthConnections.droppedCount,
+      preAuthLimit: preAuthConnections.limit
     },
     grace: {
       active: ptyHandler.graceTimerActive,
@@ -731,7 +763,12 @@ async function main(): Promise<void> {
   async function startSocketServer(): Promise<Server> {
     const server = createServer((sock) => {
       // Why: pre-dispatcher auth + version handshake — see relay-handshake.ts.
-      setupDaemonHandshake(sock, { launchVersion, auth, onAccepted: attachAcceptedSocket })
+      setupDaemonHandshake(sock, {
+        launchVersion,
+        auth,
+        preAuth: preAuthConnections,
+        onAccepted: attachAcceptedSocket
+      })
 
       // Why: destroy on 'end' (FIN from --connect's dying channel) so the 'close' handler fires promptly and the daemon enters grace.
       sock.on('end', () => {

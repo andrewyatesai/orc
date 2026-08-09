@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { allowedMethodsForRole, setupDaemonHandshake } from './relay-handshake'
+import { PreAuthConnectionGate } from './relay-pre-auth-connection-gate'
 import { RelayDispatcher } from './dispatcher'
 import {
   FrameDecoder,
@@ -75,11 +76,13 @@ describe('relay socket authentication', () => {
 
   // A daemon shaped like relay.ts's: handshake first, dispatcher only after.
   async function startDaemon(version = '0.1.0+test'): Promise<void> {
+    const preAuth = new PreAuthConnectionGate()
     server = createServer((sock) => {
       liveSockets.push(sock)
       setupDaemonHandshake(sock, {
         launchVersion: version,
         auth: AUTH,
+        preAuth,
         onAccepted: (accepted, leftover, role) => {
           acceptedRoles.push(role)
           const dispatcher = new RelayDispatcher((data) => accepted.write(data))
@@ -229,6 +232,7 @@ describe('relay socket authentication', () => {
       setupDaemonHandshake(sock, {
         launchVersion: '0.1.0+test',
         auth: { control: '' },
+        preAuth: new PreAuthConnectionGate(),
         onAccepted: (_s, _leftover, role) => acceptedRoles.push(role)
       })
     })
