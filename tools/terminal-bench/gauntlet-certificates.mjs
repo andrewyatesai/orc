@@ -68,8 +68,15 @@ export function certificatesGate({ repo, sh, skip, rustupStable }) {
   // corpus). Needs a stable toolchain (Homebrew rustc can shadow rustup); without
   // it the parity half is unverified, so the gate degrades to REVIEW rather than
   // reading green on the certificate half alone.
-  const parityCrates = crates.filter((c) =>
-    readdirSync(join(cratesDir, c)).some((f) => f.endsWith('parity-corpus.txt'))
+  // Scanned over EVERY crate, not over `crates`. `crates` is the ay-certificate
+  // subset, so filtering it meant a decision core that ships a corpus but no
+  // certificate was silently skipped — the corpus existed, the gate read green,
+  // and nothing ran it. Discovery is by corpus, which is what the sentence above
+  // has always claimed.
+  const parityCrates = readdirSync(cratesDir).filter(
+    (c) =>
+      existsSync(join(cratesDir, c, 'Cargo.toml')) &&
+      readdirSync(join(cratesDir, c)).some((f) => f.endsWith('parity-corpus.txt'))
   )
   const metricsBase = { crates: crates.length, obligations, parityCrates: parityCrates.length }
   const cargo = rustupStable('cargo')
@@ -86,7 +93,20 @@ export function certificatesGate({ repo, sh, skip, rustupStable }) {
     try {
       sh(cargo, ['test', '-q', ...parityCrates.flatMap((c) => ['-p', c])], {
         cwd: join(repo, 'rust'),
-        env: { ...process.env, ...(rustc ? { RUSTC: rustc } : {}) }
+        env: {
+          ...process.env,
+          ...(rustc ? { RUSTC: rustc } : {}),
+          // rust/.cargo/config.toml turns Trust verification on for every unit
+          // via `-Z` rustflags, which STABLE rustc refuses to parse — so this
+          // gate's parity half exited 101 before running a single corpus. Both
+          // vars are needed: RUSTFLAGS overrides the `rustflags` table wholesale
+          // (the config file says so), but doctests read `rustdocflags`, which
+          // it does not touch. Cleared rather than switched to the Trust
+          // toolchain on purpose: parity asks whether the ported logic matches
+          // its TS twin, which is a question about the code, not the verifier.
+          RUSTFLAGS: '',
+          RUSTDOCFLAGS: ''
+        }
       })
     } catch (e) {
       parityFail = `parity: cargo test exit ${e.status ?? '?'}`

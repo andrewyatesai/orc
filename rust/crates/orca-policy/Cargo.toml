@@ -1,0 +1,13 @@
+[package]
+name = "orca-policy"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Pure security-decision cores for the fleet and Story World: play-path containment ported from src/main/story-world/play-path-guard.ts and fleet-grant authorization ported from src/shared/fleet-grant.ts. Zero deps, forbid-unsafe, panic-free — these are authority decisions, so they are Trust-verification targets rather than test-only logic."
+
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"
