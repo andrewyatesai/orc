@@ -43,6 +43,7 @@ import { dispatch as openInApplications } from './open-in-applications'
 import { dispatch as orchestrationStore } from './orchestration-store'
 import { dispatch as pairing } from './pairing'
 import { dispatch as piAgentKind } from './pi-agent-kind'
+import { dispatch as policy } from './policy'
 import { dispatch as projectGroups } from './project-groups'
 import { dispatch as protocolCompat } from './protocol-compat'
 import { dispatch as providerBackoff } from './provider-backoff'
@@ -128,6 +129,7 @@ export const DISPATCH: Record<string, Dispatcher> = {
   'orchestration-store': orchestrationStore,
   pairing: pairing,
   'pi-agent-kind': piAgentKind,
+  policy: policy,
   'project-groups': projectGroups,
   'protocol-compat': protocolCompat,
   'provider-backoff': providerBackoff,

@@ -1,0 +1,274 @@
+{
+  "module": "policy",
+  "source": "src/main/story-world/play-path-guard.ts + src/shared/fleet-grant.ts",
+  "rustCrate": "orca-policy",
+  "cases": [
+    {
+      "function": "decidePlayPathLexical",
+      "note": "ordinary asset",
+      "input": { "requestPath": "/art/hero.png" },
+      "expected": { "allowed": true, "relativePath": "art/hero.png" }
+    },
+    {
+      "function": "decidePlayPathLexical",
+      "note": "literal dot-dot segment",
+      "input": { "requestPath": "/art/../../secrets.js" },
+      "expected": { "allowed": false, "reason": "traversal" }
+    },
+    {
+      "function": "decidePlayPathLexical",
+      "note": "backslash separator: Windows traversal must not survive a posix-only split",
+      "input": { "requestPath": "\\..\\secrets.js" },
+      "expected": { "allowed": false, "reason": "traversal" }
+    },
+    {
+      "function": "decidePlayPathLexical",
+      "note": "ONE decode, so %2e%2e IS live traversal — the divergence this corpus caught",
+      "input": { "requestPath": "/%2e%2e/secrets.js" },
+      "expected": { "allowed": false, "reason": "traversal" }
+    },
+    {
+      "function": "decidePlayPathLexical",
+      "note": "and never a second decode, so %252e%252e stays an inert literal segment",
+      "input": { "requestPath": "/%252e%252e/game.js" },
+      "expected": { "allowed": true, "relativePath": "%2e%2e/game.js" }
+    },
+    {
+      "function": "decidePlayPathLexical",
+      "note": "malformed escape: decodeURIComponent throws, so fail closed",
+      "input": { "requestPath": "/%zz/game.js" },
+      "expected": { "allowed": false, "reason": "unresolvable" }
+    },
+    {
+      "function": "decidePlayPathLexical",
+      "note": "%FF is a well-formed escape for a byte that is not valid UTF-8",
+      "input": { "requestPath": "/%FF/game.js" },
+      "expected": { "allowed": false, "reason": "unresolvable" }
+    },
+    {
+      "function": "decidePlayPathLexical",
+      "note": "multi-byte escape is ONE character, not two",
+      "input": { "requestPath": "/caf%C3%A9/game.js" },
+      "expected": { "allowed": true, "relativePath": "café/game.js" }
+    },
+    {
+      "function": "decidePlayPathLexical",
+      "note": "query string is not part of the path, so a bad escape in it is harmless",
+      "input": { "requestPath": "/game.js?cachebust=%zz" },
+      "expected": { "allowed": true, "relativePath": "game.js" }
+    },
+    {
+      "function": "decidePlayPathLexical",
+      "note": "NUL byte",
+      "input": { "requestPath": "/game%00.js" },
+      "expected": { "allowed": false, "reason": "nul-byte" }
+    },
+    {
+      "function": "decidePlayPathLexical",
+      "note": "device name binds on the STEM, so NUL.js is still the null device",
+      "input": { "requestPath": "/NUL.js" },
+      "expected": { "allowed": false, "reason": "windows-device" }
+    },
+    {
+      "function": "decidePlayPathLexical",
+      "note": "NTFS alternate data stream reads hidden content",
+      "input": { "requestPath": "/game.js::$DATA" },
+      "expected": { "allowed": false, "reason": "alternate-data-stream" }
+    },
+    {
+      "function": "decidePlayPathLexical",
+      "note": "Windows strips a trailing dot, so secret.js. opens secret.js",
+      "input": { "requestPath": "/secret.js." },
+      "expected": { "allowed": false, "reason": "trailing-dot-or-space" }
+    },
+    {
+      "function": "decidePlayPathLexical",
+      "note": "a world folder legitimately holds .env; it is not part of a game",
+      "input": { "requestPath": "/.env" },
+      "expected": { "allowed": false, "reason": "extension-not-allowed" }
+    },
+    {
+      "function": "isAllowedPlayHost",
+      "note": "loopback on the minted port",
+      "input": { "host": "127.0.0.1:5123", "expectedPort": 5123 },
+      "expected": true
+    },
+    {
+      "function": "isAllowedPlayHost",
+      "note": "right host, wrong port",
+      "input": { "host": "127.0.0.1:9999", "expectedPort": 5123 },
+      "expected": false
+    },
+    {
+      "function": "isAllowedPlayHost",
+      "note": "a Host header naming anything else means the request was not routed by us",
+      "input": { "host": "evil.example.com:5123", "expectedPort": 5123 },
+      "expected": false
+    },
+    {
+      "function": "isAllowedPlayHost",
+      "note": "absent Host header",
+      "input": { "expectedPort": 5123 },
+      "expected": false
+    },
+    {
+      "function": "decideFleetGrant",
+      "note": "wildcard target: a pane the fleet created and still owns",
+      "input": {
+        "grant": {
+          "generation": 3,
+          "ops": ["write"],
+          "targets": [{ "handle": "w1", "incarnation": null }],
+          "expiresAtMs": null,
+          "revoked": false
+        },
+        "op": "write",
+        "handle": "w1",
+        "incarnation": "inc-1",
+        "currentGeneration": 3,
+        "nowMs": 100
+      },
+      "expected": { "allowed": true }
+    },
+    {
+      "function": "decideFleetGrant",
+      "note": "no grant at all",
+      "input": {
+        "grant": null,
+        "op": "write",
+        "handle": "w1",
+        "incarnation": "inc-1",
+        "currentGeneration": 3,
+        "nowMs": 100
+      },
+      "expected": { "allowed": false, "reason": "unknown-grant" }
+    },
+    {
+      "function": "decideFleetGrant",
+      "note": "revoked is reported BEFORE scope, so it never reads as 'wrong pane'",
+      "input": {
+        "grant": {
+          "generation": 3,
+          "ops": ["write"],
+          "targets": [{ "handle": "w1", "incarnation": null }],
+          "expiresAtMs": null,
+          "revoked": true
+        },
+        "op": "signal",
+        "handle": "other",
+        "currentGeneration": 99,
+        "nowMs": 100
+      },
+      "expected": { "allowed": false, "reason": "revoked" }
+    },
+    {
+      "function": "decideFleetGrant",
+      "note": "expiry is inclusive: now == expiresAt is already expired",
+      "input": {
+        "grant": {
+          "generation": 3,
+          "ops": ["write"],
+          "targets": [{ "handle": "w1", "incarnation": null }],
+          "expiresAtMs": 100,
+          "revoked": false
+        },
+        "op": "write",
+        "handle": "w1",
+        "currentGeneration": 3,
+        "nowMs": 100
+      },
+      "expected": { "allowed": false, "reason": "expired" }
+    },
+    {
+      "function": "decideFleetGrant",
+      "note": "bumping the generation is what invalidates every grant of a replaced manager",
+      "input": {
+        "grant": {
+          "generation": 3,
+          "ops": ["write"],
+          "targets": [{ "handle": "w1", "incarnation": null }],
+          "expiresAtMs": null,
+          "revoked": false
+        },
+        "op": "write",
+        "handle": "w1",
+        "currentGeneration": 4,
+        "nowMs": 100
+      },
+      "expected": { "allowed": false, "reason": "wrong-generation" }
+    },
+    {
+      "function": "decideFleetGrant",
+      "note": "a read grant does not let the caller type",
+      "input": {
+        "grant": {
+          "generation": 3,
+          "ops": ["read"],
+          "targets": [{ "handle": "w1", "incarnation": null }],
+          "expiresAtMs": null,
+          "revoked": false
+        },
+        "op": "write",
+        "handle": "w1",
+        "currentGeneration": 3,
+        "nowMs": 100
+      },
+      "expected": { "allowed": false, "reason": "op-not-granted" }
+    },
+    {
+      "function": "decideFleetGrant",
+      "note": "a grant for one pane is not a grant for the human's own pane",
+      "input": {
+        "grant": {
+          "generation": 3,
+          "ops": ["write"],
+          "targets": [{ "handle": "w1", "incarnation": null }],
+          "expiresAtMs": null,
+          "revoked": false
+        },
+        "op": "write",
+        "handle": "human-pane",
+        "currentGeneration": 3,
+        "nowMs": 100
+      },
+      "expected": { "allowed": false, "reason": "target-not-granted" }
+    },
+    {
+      "function": "decideFleetGrant",
+      "note": "pinned target, pane respawned under a new incarnation",
+      "input": {
+        "grant": {
+          "generation": 3,
+          "ops": ["write"],
+          "targets": [{ "handle": "w1", "incarnation": "inc-1" }],
+          "expiresAtMs": null,
+          "revoked": false
+        },
+        "op": "write",
+        "handle": "w1",
+        "incarnation": "inc-2",
+        "currentGeneration": 3,
+        "nowMs": 100
+      },
+      "expected": { "allowed": false, "reason": "incarnation-changed" }
+    },
+    {
+      "function": "decideFleetGrant",
+      "note": "pinned target but the pane's incarnation is UNKNOWN: fail closed, because a respawn cannot be ruled out",
+      "input": {
+        "grant": {
+          "generation": 3,
+          "ops": ["write"],
+          "targets": [{ "handle": "w1", "incarnation": "inc-1" }],
+          "expiresAtMs": null,
+          "revoked": false
+        },
+        "op": "write",
+        "handle": "w1",
+        "currentGeneration": 3,
+        "nowMs": 100
+      },
+      "expected": { "allowed": false, "reason": "incarnation-changed" }
+    }
+  ]
+}
