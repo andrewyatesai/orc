@@ -1,0 +1,45 @@
+# Shared oracle for play-path containment (§7.3).
+#
+# The SAME rows are run by the Rust crate (matches_shared_parity_corpus) and by
+# the TypeScript suite, so the two implementations cannot drift apart silently.
+# Format: <already-percent-decoded request path> => <allowed | denial-reason>
+#
+# Paths are RAW, exactly as they arrive on the wire. Both implementations decode
+# them exactly ONCE, inside the core. So %2e%2e IS traversal, and %252e%252e is
+# not: a second decode would be needed to make it live, and there isn't one.
+#
+# Decoding lives in the core because this corpus proved the alternative
+# ambiguous — with decoding at the caller, the two implementations disagreed
+# about this very row.
+
+# max-request-path-bytes: 4096
+
+/index.html => allowed
+/game.js => allowed
+/art/cat.png => allowed
+/sound/jump.mp3 => allowed
+/%252e%252e/secrets.js => allowed
+/%2e%2e/secrets.js => traversal
+/caf%C3%A9/game.js => allowed
+/%zz/game.js => unresolvable
+/game%.js => unresolvable
+/%FF/game.js => unresolvable
+/game.js?cachebust=%zz => allowed
+
+/../secrets.js => traversal
+/art/../../secrets.js => traversal
+\..\secrets.js => traversal
+
+/CON.js => windows-device
+/nul.js => windows-device
+/com1.js => windows-device
+/lpt9.js => windows-device
+
+/game.js::$DATA => alternate-data-stream
+/game.js./ => trailing-dot-or-space
+/game.js /  => trailing-dot-or-space
+
+/.env => extension-not-allowed
+/key.pem => extension-not-allowed
+/notes.txt => extension-not-allowed
+/game => extension-not-allowed

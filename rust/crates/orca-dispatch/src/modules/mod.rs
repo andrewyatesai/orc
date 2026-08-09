@@ -48,6 +48,7 @@ pub mod network_proxy;
 pub mod open_in_applications;
 pub mod pairing;
 pub mod pi_agent_kind;
+pub mod policy;
 pub mod project_groups;
 pub mod protocol_compat;
 pub mod provider_backoff;
@@ -131,6 +132,7 @@ pub fn dispatch(module: &str, function: &str, input: &Value) -> Option<Value> {
         "open-in-applications" => Some(open_in_applications::dispatch(function, input)),
         "pairing" => Some(pairing::dispatch(function, input)),
         "pi-agent-kind" => Some(pi_agent_kind::dispatch(function, input)),
+        "policy" => Some(policy::dispatch(function, input)),
         "project-groups" => Some(project_groups::dispatch(function, input)),
         "protocol-compat" => Some(protocol_compat::dispatch(function, input)),
         "provider-backoff" => Some(provider_backoff::dispatch(function, input)),
