@@ -37,7 +37,7 @@ export default function MyWorldsList({
         {translate('storyWorld.worlds.heading', 'My worlds')}
       </h2>
 
-      <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+      <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto scrollbar-sleek">
         {worlds.map((world) => (
           <li key={world.id}>
             <button

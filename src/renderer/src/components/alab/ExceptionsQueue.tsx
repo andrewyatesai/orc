@@ -80,7 +80,7 @@ export function ExceptionsQueue(): React.JSX.Element {
       <ul
         aria-live="polite"
         aria-label={translate('alab.exceptions.heading', 'Needs you')}
-        className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto"
+        className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto scrollbar-sleek"
       >
         {exceptions.map((exception) => (
           <ExceptionRow key={exception.taskId} exception={exception} />

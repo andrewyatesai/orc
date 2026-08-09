@@ -44,7 +44,7 @@ export function LandingBand(): React.JSX.Element | null {
       <h2 className="shrink-0 text-xs font-semibold text-muted-foreground">
         {translate('alab.landing.heading', 'Ready to look at')}
       </h2>
-      <ul className="flex max-h-40 flex-col gap-1 overflow-y-auto">
+      <ul className="flex max-h-40 flex-col gap-1 overflow-y-auto scrollbar-sleek">
         {landed.map((task) => (
           <li key={task.id}>
             <button
@@ -60,7 +60,7 @@ export function LandingBand(): React.JSX.Element | null {
       </ul>
 
       {openTask ? (
-        <div className="flex flex-col gap-2 overflow-y-auto">
+        <div className="flex flex-col gap-2 overflow-y-auto scrollbar-sleek">
           <TaskDetail
             task={openTask}
             dispatch={dispatchByTask.get(openTask.id)}

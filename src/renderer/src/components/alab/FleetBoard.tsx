@@ -135,7 +135,10 @@ export function FleetBoard(): React.JSX.Element {
   }, [runs])
 
   return (
-    <div className="flex h-full flex-col gap-2 overflow-y-auto" data-testid="alab-fleet-board">
+    <div
+      className="flex h-full flex-col gap-2 overflow-y-auto scrollbar-sleek"
+      data-testid="alab-fleet-board"
+    >
       <h2 className="text-xs font-semibold text-muted-foreground">
         {translate('alab.fleet.heading', 'Fleet')}
       </h2>

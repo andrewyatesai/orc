@@ -135,7 +135,7 @@ export default function MissionStrip(): React.JSX.Element {
 
   return (
     <div
-      className="flex h-full flex-col gap-2 overflow-y-auto p-2"
+      className="flex h-full flex-col gap-2 overflow-y-auto p-2 scrollbar-sleek"
       data-testid="alab-mission-strip"
     >
       <h2 className="text-xs font-semibold text-muted-foreground">
