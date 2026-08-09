@@ -215,3 +215,8 @@ tests/tools/autoformalize-candidates.json
 
 # Publication-engine stage artifacts (attestation, inventories)
 /publish/.out/
+
+# ay solver scratch. verify.sh writes one `.<goal>.smt2.alethe.tmp-<pid>-N` per
+# goal per run and does not always reap them, so a single E1 gate run leaves
+# ~170 untracked files behind.
+**/proofs/ay/**/.*.tmp-*
