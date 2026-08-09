@@ -94,7 +94,7 @@ describe('buildHostCliEnv', () => {
       hostEnv: {
         PATH: '/host/bin',
         ORCA_PANE_KEY: 'host-launch-pane',
-        ORCA_WORKTREE_ID: 'repo::/Users/alice/host-wt',
+        ORCA_WORKTREE_ID: 'repo::/home/alice/host-wt',
         ORCA_TERMINAL_HANDLE: 'term_host',
         ORCA_WORKSPACE_ID: 'ws-host'
       },
@@ -114,7 +114,7 @@ describe('buildHostCliEnv', () => {
       hostEnv: {},
       identity: ATTRIBUTED_PANE,
       userDataPath: '/host/user-data',
-      remoteCwd: '/Users/alice/orca'
+      remoteCwd: '/home/alice/orca'
     })
     expect(outsidePane.ORCA_CLI_CWD).toBe('/home/alice/wt')
 
@@ -122,7 +122,7 @@ describe('buildHostCliEnv', () => {
       hostEnv: {},
       identity: {},
       userDataPath: '/host/user-data',
-      remoteCwd: '/Users/alice/orca'
+      remoteCwd: '/home/alice/orca'
     })
     expect(unattributed.ORCA_CLI_CWD).toBe('/')
   })
@@ -192,7 +192,7 @@ describe('resolveHostCliCallerCwd', () => {
     // Why: `--worktree active` resolves this against every worktree the host
     // knows, remote and local alike, so an out-of-pane cwd could select a
     // checkout on the user's own machine.
-    expect(resolveHostCliCallerCwd('/Users/alice/orca', ATTRIBUTED_PANE)).toBe('/home/alice/wt')
+    expect(resolveHostCliCallerCwd('/home/alice/orca', ATTRIBUTED_PANE)).toBe('/home/alice/wt')
     expect(resolveHostCliCallerCwd('/home/alice/wt-evil', ATTRIBUTED_PANE)).toBe('/home/alice/wt')
     // Why: the containment check is textual and the CLI resolves what it gets,
     // so traversal must be collapsed before the decision, not after it.
@@ -200,7 +200,7 @@ describe('resolveHostCliCallerCwd', () => {
       '/home/alice/wt'
     )
     expect(
-      resolveHostCliCallerCwd('/home/alice/wt/../../../Users/alice/orca', ATTRIBUTED_PANE)
+      resolveHostCliCallerCwd('/home/alice/wt/../../../home/alice/orca', ATTRIBUTED_PANE)
     ).toBe('/home/alice/wt')
   })
 
@@ -211,8 +211,8 @@ describe('resolveHostCliCallerCwd', () => {
   })
 
   it('leaves an unattributed call no directory to select a worktree with', () => {
-    expect(resolveHostCliCallerCwd('/Users/alice/orca', {})).toBe('/')
-    expect(resolveHostCliCallerCwd('/Users/alice/orca', { paneKey: 'pane-9' })).toBe('/')
+    expect(resolveHostCliCallerCwd('/home/alice/orca', {})).toBe('/')
+    expect(resolveHostCliCallerCwd('/home/alice/orca', { paneKey: 'pane-9' })).toBe('/')
   })
 
   it('resolves a Windows remote pane against its own worktree', () => {
