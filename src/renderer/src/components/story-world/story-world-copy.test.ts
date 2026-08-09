@@ -65,7 +65,7 @@ describe('isChildSafeCopy', () => {
   })
 
   it.each([
-    ['a filesystem path', 'Look in /Users/kid/game.js'],
+    ['a filesystem path', 'Look in /home/kid/game.js'],
     ['a home path', 'saved to ~/worlds/kitty'],
     ['a git hash', 'commit a1b2c3d4e5f'],
     ['a port', 'open localhost:5173']
@@ -160,7 +160,7 @@ describe('the crash path (§7.8 reaches it too)', () => {
 
 describe('paths and git terms the first predicate missed', () => {
   it.each([
-    ['a parenthesised POSIX path', 'open ("/Users/kid/game.js")'],
+    ['a parenthesised POSIX path', 'open ("/home/kid/game.js")'],
     ['a Windows path', 'C:\\Users\\kid\\game.js'],
     ['a relative source path', 'check src/game.js'],
     ['a bare filename', 'game.js is broken'],

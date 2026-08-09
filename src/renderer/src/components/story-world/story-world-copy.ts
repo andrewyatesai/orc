@@ -40,7 +40,7 @@ export const BANNED_CHILD_FACING_WORDS: readonly string[] = [
 /** Paths, hashes and ports are banned as SHAPES rather than words. */
 const BANNED_SHAPES: readonly RegExp[] = [
   // A POSIX path anywhere in the string, not only after whitespace — the first
-  // version missed `("/Users/kid/game.js")` because of the leading paren.
+  // version missed `("/home/kid/game.js")` because of the leading paren.
   /[~/][\w.-]+\/[\w./-]*/,
   // A Windows path: C:\Users\kid\game.js
   /\b[A-Za-z]:\\[^\s]*/,
