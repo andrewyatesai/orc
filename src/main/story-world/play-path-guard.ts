@@ -53,6 +53,17 @@ const WINDOWS_DEVICE_NAMES = new Set([
   ...Array.from({ length: 9 }, (_, index) => `lpt${index + 1}`)
 ])
 
+/**
+ * The longest request path a world may ask for, in BYTES.
+ *
+ * Mirrors `orca_policy::MAX_REQUEST_PATH_BYTES`, and the two are held together
+ * by `# max-request-path-bytes:` in `rust/crates/orca-policy/parity-corpus.txt`
+ * — each side's test asserts its own constant equals the declared one, so a
+ * change on one side reddens the other. Bytes, not `.length`, because the Rust
+ * side caps `path.len()`; a multi-byte path would otherwise cap differently.
+ */
+export const MAX_REQUEST_PATH_BYTES = 4096
+
 export type PlayPathDecision =
   | { allowed: true; absolutePath: string }
   | {
@@ -146,10 +157,16 @@ export function decidePlayPath(args: {
 }
 
 function decodeSafely(requestPath: string): string | null {
+  const path = requestPath.split('?')[0] ?? ''
+  // Capped before decoding, so the work done on a hostile path is bounded too.
+  // No real game asset path is near this long.
+  if (Buffer.byteLength(path, 'utf8') > MAX_REQUEST_PATH_BYTES) {
+    return null
+  }
   try {
     // A single decode: double-encoded traversal must not be decoded twice into
     // a live `..`.
-    return decodeURIComponent(requestPath.split('?')[0] ?? '')
+    return decodeURIComponent(path)
   } catch {
     return null
   }

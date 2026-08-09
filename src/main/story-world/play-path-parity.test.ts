@@ -13,7 +13,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { decidePlayPath } from './play-path-guard'
+import { decidePlayPath, MAX_REQUEST_PATH_BYTES } from './play-path-guard'
 
 const CORPUS = join(
   __dirname,
@@ -46,6 +46,30 @@ describe('play-path parity with orca-policy', () => {
 
   it('reads a corpus big enough to mean something', () => {
     expect(rows.length).toBeGreaterThanOrEqual(12)
+  })
+
+  /**
+   * The cap cannot live in the corpus rows — a 4097-byte row would be unreadable
+   * — so it is declared in the corpus HEADER and each side asserts its own
+   * constant against it. Without this, the two implementations capped at 4096
+   * and infinity respectively and every row still passed.
+   */
+  it('caps request paths at the length the corpus declares', () => {
+    const declared = readFileSync(CORPUS, 'utf8')
+      .split('\n')
+      .map((line) => line.trim().match(/^#\s*max-request-path-bytes:\s*(\d+)$/))
+      .find((match) => match !== null)
+    expect(declared?.[1]).toBeDefined()
+    expect(MAX_REQUEST_PATH_BYTES).toBe(Number(declared?.[1]))
+  })
+
+  it('refuses a path one byte over the cap, and allows one under', () => {
+    const decide = (requestPath: string): string => {
+      const decision = decidePlayPath({ root: '/worlds/kitty', requestPath, realpath: (p) => p })
+      return decision.allowed ? 'allowed' : decision.reason
+    }
+    expect(decide(`/${'a'.repeat(MAX_REQUEST_PATH_BYTES)}.js`)).toBe('unresolvable')
+    expect(decide(`/${'a'.repeat(MAX_REQUEST_PATH_BYTES - 5)}.js`)).toBe('allowed')
   })
 
   it.each(rows.map((row): [string, string, string] => [row.input, row.input, row.expected]))(
