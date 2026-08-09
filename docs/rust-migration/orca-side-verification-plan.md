@@ -88,6 +88,28 @@ only crate holding `certify` is `orca-provider-backoff`, which is a single
 > **Today, Trust proves scalar functions. Anything that touches the heap or the
 > string/iterator APIs is blocked on Trust-Std, no matter how it is written.**
 
+## Before believing any "proved": two checks, every time
+
+`trust-goal-real-obligations.md` exists because 244 proofs turned out to be
+placeholders. So a `proved` count is a claim to be tested, not a result. Both
+checks are cheap and both must pass.
+
+**Negative — is it the known-vacuous placeholder?**
+
+```sh
+grep -c "trust_mc_default_function" survey.txt   # must be 0
+grep -cE "bool_literal|vacuous" survey.txt       # must be 0
+```
+
+**Positive — does the proof fail when the code is wrong?** Plant a real defect
+in a proved function and re-run. On `hex_value`, replacing `byte - b'0'` with
+`byte - b'a'` (which underflows for `'0'`) turns *5 proved* into *4 proved + 1
+`[overflow:sub] FAILED, verified_counterexample = true`*.
+
+The negative check alone is not enough. A proof nobody has watched fail is
+indistinguishable from a proof that cannot fail — which is precisely how the 244
+survived review.
+
 ## The single most important distinction: is there a counterexample?
 
 `FAILED` does not mean "Trust found a bug." It means the obligation was not
@@ -215,16 +237,52 @@ becoming less checkable.
   `src/main/story-world/play-path-guard.ts` and `src/shared/fleet-grant.ts`.
 - Its refutation count is zero, down from three, all closed by steps 1 and 3 —
   and 6 of its 15 obligations now PROVE, up from none.
-- `parity-corpus.txt` is run by both the Rust crate and
-  `src/main/story-world/play-path-parity.test.ts`, so the ported and shipping
-  implementations answer to one oracle. It earned its keep immediately: it
-  caught a decode-position divergence that made `/%2e%2e/secrets.js` traversal
-  on one side and an inert literal on the other.
+- Two parity mechanisms, because one was not enough:
+  - `parity-corpus.txt`, run by both the Rust crate and
+    `src/main/story-world/play-path-parity.test.ts`. It earned its keep
+    immediately, catching a decode-position divergence that made
+    `/%2e%2e/secrets.js` traversal on one side and an inert literal on the other.
+  - `tools/parity` — the differential harness, which is strictly stronger
+    because it diffs the port against the **live** TypeScript rather than
+    against a transcribed golden. 27 vectors covering every denial reason on
+    both decisions.
+
+  A port is not finished when the Rust builds and the corpus is green. It is
+  finished when something **calls** the dispatch arm. Mine had no caller and no
+  test until the audit; it was shipped dead.
 - The E1 gate runs that corpus. It did not before — two separate bugs
   (`-Z` rustflags under a stable toolchain, and parity discovery filtering the
   ay-certificate subset instead of all crates) made it report PASS without
   executing a single corpus. Both fixed, and the fix is verified by deletion:
   breaking one corpus row now takes the gate from PASS to FAIL.
+
+## A corpus cannot catch what it cannot express
+
+The cap divergence is the sharpest lesson so far, and it generalizes past this
+crate.
+
+Adding `MAX_REQUEST_PATH_BYTES` to the Rust core silently made the two sides
+disagree: a 5000-byte path was denied by Rust and allowed by TS, which had no
+cap at all. Every corpus row still passed — because no row was 5000 bytes long,
+and none could reasonably be. The comment on the constant asserted the two sides
+were held together. Nothing held them together.
+
+**A shared corpus only covers properties expressible as a row.** For everything
+else — limits, timeouts, sizes, capacities — declare the value in the corpus
+HEADER and have each side assert its own constant against the declaration:
+
+```
+# max-request-path-bytes: 4096
+```
+
+Then drifting the value on either side reddens that side, and deleting the
+enforcement reddens a separate behavioral case. Two guards, two distinct failure
+modes, both watched failing.
+
+The meta-lesson, which cost three defects this session: **a comment claiming an
+invariant is not an invariant.** Every one of the three was a case where the
+prose described a property the code did not implement. If a comment asserts two
+things agree, there must be a test that fails when they do not.
 
 ## What is next
 
@@ -241,3 +299,16 @@ becoming less checkable.
   `collapseExceptionsByTask`.
 - An ay certificate for `orca-policy`, so it joins the eight crates whose
   properties are discharged rather than merely reported.
+- Two gate repairs of the same family, found while wiring the above, both of
+  which made a green reading meaningless:
+  - `pnpm parity` aborts when the Rust leg exits non-zero, and the Rust leg has
+    two failing goldens (`feature-tips#0`, `terminal-stream-protocol#20`) — so
+    the TS↔Rust differential has not been running. Run directly it is
+    **1540/1542**, and those two are genuine divergences worth triaging.
+  - The E1 certificates gate had two bugs that made it PASS without executing a
+    single corpus (`-Z` rustflags under a stable toolchain; parity discovery
+    filtering the ay-certificate subset). Both fixed.
+
+  The pattern is worth naming: **every gate in this area was green for a reason
+  unrelated to the property it claims to check.** Before trusting any of them,
+  break something on purpose and confirm the gate notices.
