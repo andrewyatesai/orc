@@ -149,10 +149,22 @@ So the buckets, and who can close them:
    This is a small, finite, actionable list — which is the point of separating
    it from the 425 rows that are not.
 2. **Derived boilerplate — Orca closes these, and it is nearly free.**
-   8 of orca-policy's original 22 obligations, measured. Worth re-measuring on
-   orca-core before promising a figure; the derive-heavy types are there, but
-   the 280-of-302 number in circulation predates this survey and does not appear
-   in it.
+   Measured on orca-core's 2026-08-08 survey, over its 400 functions carrying
+   542 unproved obligations:
+
+   | | Functions | Unproved obligations | Share |
+   | --- | --- | --- | --- |
+   | derive-generated | 146 | 146 | **26.9%** |
+   | first-party | 254 | 396 | 73.1% |
+
+   Split by trait: `Debug::fmt` 72, `Clone::clone` 33, `PartialEq` 28,
+   `Default` 13. Exactly one unproved obligation each — they are uniform
+   boilerplate, which is why moving them behind `cfg(test)` is a single
+   mechanical edit rather than 146 decisions.
+
+   Note this is **26.9%, not the 93% ("280 of 302") that was in circulation**.
+   That figure does not appear anywhere in this survey. The available win is
+   about a quarter of the backlog — worth taking, and worth not overselling.
 3. **Empty-counterexample failures and `[assert] runtime-checked` — only Trust
    closes these.** 393 `[assert] runtime-checked` rows in orca-core, plus the 32
    hardened rows. This is the absent-callee std gap, ~69% of obligations
@@ -286,8 +298,27 @@ things agree, there must be a test that fails when they do not.
 
 ## What is next
 
-- The 2 populated-counterexample rows in `quick_open_filter.rs`, as a
-  precondition or a named assumption (step 3 explains why not a cap).
+- The 2 populated-counterexample rows, now localized precisely:
+  `orca_core::quick_open_filter::normalize_segments` (a `Vec` that grows one
+  push per path segment) and `win32_relative::{closure#0}` (a `String` per
+  segment). Both are `[unbounded_allocation]`, and both are unbounded *because
+  the input is* — they port Node's `path.relative`, which has no depth limit
+  either.
+
+  The repo already has the right machinery for the bounded case:
+  `orca-net/proofs/ay/oom_bound` discharges exactly this obligation class for
+  the NDJSON splitter, and it is worth copying for its DISCIPLINE as much as its
+  content — alongside the bound it ships `oom_catches_unguarded_sat.smt2` (the
+  proof must reject an unguarded variant) and `oom_nonvacuity_sat.smt2` (the
+  assumptions must be SAT), under the `assert_proves_and_catches` contract in
+  `rust/PROOF_CARRYING_PERFORMANCE.md`. That is the institutional form of the
+  two checks in "Before believing any proved" above.
+
+  It does not transfer here, because there is no bound to prove. `quick_open_filter`
+  therefore wants a **named assumption** — the allocation is proportional to path
+  depth, the input is a workspace file listing rather than a peer on a socket,
+  and the real bound is the filesystem's. Writing an `oom_bound`-shaped
+  certificate for it would be asserting a limit the code does not enforce.
 - Re-measure orca-core's derive share, then step 2 if it is as large as
   orca-policy's was.
 - Take the 32 `[hardened_unsafe_operation]` rows to the Trust side as a single
@@ -298,7 +329,12 @@ things agree, there must be a test that fails when they do not.
   `reconcileTaskClaim`, `route-key`/`store-key`/`pty-binding`,
   `collapseExceptionsByTask`.
 - An ay certificate for `orca-policy`, so it joins the eight crates whose
-  properties are discharged rather than merely reported.
+  properties are discharged rather than merely reported. `oom_bound` is the
+  template, and the E1 gate auto-discovers any crate with a
+  `proofs/ay/verify.sh` — so the certificate is picked up the moment it lands.
+  The obvious first goal is containment: `decide_play_path_lexical` never
+  returns `NeedsRealpathCheck` for a path containing a `..` segment, with a
+  catches-SAT twin that a guard-removed variant must violate.
 - Two gate repairs of the same family, found while wiring the above, both of
   which made a green reading meaningless:
   - `pnpm parity` aborted at the Rust leg, so the TS↔Rust differential was not
