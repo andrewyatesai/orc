@@ -11,8 +11,16 @@
 // which points at a module path rather than at the stale artifact that caused it.
 // This names the real problem and the one-line fix.
 //
-// Advisory by default (exit 0) so it can be run anywhere; `--strict` makes it a
-// gate. Usage: node config/scripts/check-build-output-consistency.mjs [--strict]
+// The missing-require check always exits 1 — "gone" is never advisory. The
+// STALENESS check is advisory by default (exit 0) so the script can be run
+// anywhere mid-build without failing; `--strict` makes it a gate.
+//
+// `pnpm run check:build-output` passes --strict. It used to not, which meant the
+// staleness finding — the entire reason this file exists, per the header above —
+// printed its diagnosis and exited 0. A `check:` script that reports a violation
+// and succeeds is not a gate. Running it bare is still the advisory mode.
+//
+// Usage: node config/scripts/check-build-output-consistency.mjs [--strict]
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'

@@ -138,7 +138,7 @@
     "check:cli-main-entries": "node config/scripts/check-cli-main-entry-coverage.mjs",
     "check:native-provenance": "node config/scripts/check-native-artifact-provenance.mjs",
     "smoke:launch": "node config/scripts/smoke-launch-app.mjs",
-    "check:build-output": "node config/scripts/check-build-output-consistency.mjs",
+    "check:build-output": "node config/scripts/check-build-output-consistency.mjs --strict",
     "check:wasm-pins": "node config/scripts/check-orca-wasm-pins.mjs",
     "build:terminal-addon": "node config/scripts/build-terminal-addon.mjs",
     "build:rust-daemon": "node config/scripts/build-rust-daemon.mjs",

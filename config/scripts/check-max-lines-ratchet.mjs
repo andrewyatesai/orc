@@ -67,7 +67,12 @@ export function collectMobileBumps(configText) {
     }
     for (const glob of override.files ?? []) {
       if (rule[1].max > defaultLimitForPath(glob)) {
-        bumps.push(`mobile-config ${glob}`)
+        // The BUDGET is part of the key, not just the glob. Keyed on the glob
+        // alone, an already-baselined entry could raise its own cap without
+        // limit and the ratchet stayed green — 407 to 99407 was verified silent.
+        // That froze WHICH files may bypass but not BY HOW MUCH, which is most
+        // of the point.
+        bumps.push(`mobile-config ${glob} max=${rule[1].max}`)
       }
     }
   }
