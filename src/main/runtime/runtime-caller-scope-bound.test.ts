@@ -19,13 +19,13 @@ const TARGET_B = 'ssh_target_b'
 // Why: a repo literally named `orca` proves the bound never consults free text —
 // `--text orca` used to trip an argv scanner that matched selector-shaped values.
 const REPOS = [
-  { id: 'repo_local', path: '/Users/me/orca', displayName: 'orca', connectionId: null },
+  { id: 'repo_local', path: '/home/me/orca', displayName: 'orca', connectionId: null },
   { id: 'repo_a', path: '/home/me/a', displayName: 'a', connectionId: TARGET_A },
   { id: 'repo_a2', path: '/home/me/a2', displayName: 'a2', connectionId: TARGET_A },
   { id: 'repo_b', path: '/home/me/b', displayName: 'b', connectionId: TARGET_B }
 ]
 
-const LOCAL_WT = 'repo_local::/Users/me/orca'
+const LOCAL_WT = 'repo_local::/home/me/orca'
 const TARGET_A_WT = 'repo_a::/home/me/a'
 const TARGET_A_PEER_WT = 'repo_a2::/home/me/a2'
 const TARGET_B_WT = 'repo_b::/home/me/b'
@@ -33,7 +33,7 @@ const UNKNOWN_REPO_WT = 'repo_never_registered::/home/me/ghost'
 
 // Why a host-pinned row: a workspace's meta can name an execution host that its
 // repo does not, and ownership has to answer with the host the work runs on.
-const HOST_PINNED_WT = 'repo_local::/Users/me/pinned'
+const HOST_PINNED_WT = 'repo_local::/home/me/pinned'
 const LOCAL_PINNED_WT = 'repo_a::/home/me/a-pinned-local'
 const WORKTREE_META: Record<string, { hostId: string }> = {
   [HOST_PINNED_WT]: { hostId: `ssh:${TARGET_A}` },
@@ -246,9 +246,9 @@ describe('remote caller bound — worktree selectors', () => {
   // go through the catalog prove the catalog is what bounds them.
   it.each([
     'branch:main',
-    'path:/Users/me/orca',
-    'name:repo_local::/Users/me/orca',
-    '/Users/me/orca'
+    'path:/home/me/orca',
+    'name:repo_local::/home/me/orca',
+    '/home/me/orca'
   ])('bounds the catalog-resolved selector %s', async (selector) => {
     const runtime = createRuntime()
     stubResolvedWorktrees(runtime, [LOCAL_WT])
@@ -644,7 +644,7 @@ describe('bound — the no-selector filesystem readers', () => {
 
   it('refuses scanNestedRepos for the same reason', async () => {
     const runtime = createRuntime()
-    await expect(asSshCaller(TARGET_A, () => runtime.scanNestedRepos('/Users/me'))).rejects.toThrow(
+    await expect(asSshCaller(TARGET_A, () => runtime.scanNestedRepos('/home/me'))).rejects.toThrow(
       CallerScopeDeniedError
     )
   })

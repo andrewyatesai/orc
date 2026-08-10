@@ -17,10 +17,10 @@ vi.mock('electron', () => ({
 
 const TARGET_A = 'ssh_target_a'
 const REPOS = [
-  { id: 'repo_local', path: '/Users/me/orca', displayName: 'orca', connectionId: null },
+  { id: 'repo_local', path: '/home/me/orca', displayName: 'orca', connectionId: null },
   { id: 'repo_a', path: '/home/me/a', displayName: 'a', connectionId: TARGET_A }
 ]
-const LOCAL_WT = 'repo_local::/Users/me/orca'
+const LOCAL_WT = 'repo_local::/home/me/orca'
 const TARGET_A_WT = 'repo_a::/home/me/a'
 
 const BROWSER_METHODS = ALL_RPC_METHODS.filter((method) => method.name.startsWith('browser.'))
@@ -105,7 +105,7 @@ describe('browser group bound at its entry, not per method', () => {
   it('refuses a remote caller that names a LOCAL workspace', async () => {
     const reached: Reached = { names: [] }
     const runtime = createRuntime(reached)
-    for (const worktree of [`id:${LOCAL_WT}`, 'path:/Users/me/orca']) {
+    for (const worktree of [`id:${LOCAL_WT}`, 'path:/home/me/orca']) {
       await expect(
         runWithCallerScope({ kind: 'ssh', connectionId: TARGET_A }, () =>
           invoke('browser.click', { worktree, element: 'a' }, runtime)
