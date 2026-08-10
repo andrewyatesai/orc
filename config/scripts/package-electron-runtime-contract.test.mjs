@@ -13,6 +13,17 @@ const require = createRequire(import.meta.url)
 const { createPackagedRuntimeNodeModuleResources } = require('../packaged-runtime-node-modules.cjs')
 const readProjectFile = (relativePath) => readFileSync(join(projectDir, relativePath), 'utf8')
 const packageJson = JSON.parse(readProjectFile('package.json'))
+// pnpm 10 ignores package.json's `pnpm` field (76f4914ac moved these settings);
+// pnpm-workspace.yaml is the only source-build allowlist pnpm still honors.
+const honoredBuiltDependencyAllowlist = () => {
+  const allowlist = parse(readProjectFile('pnpm-workspace.yaml')).onlyBuiltDependencies
+  expect(packageJson.pnpm, 'pnpm 10 ignores this field; use pnpm-workspace.yaml').toBeUndefined()
+  // Anti-vacuity: if the allowlist moves again, every `not.toContain` below would
+  // otherwise pass against an empty set while pnpm builds whatever it likes.
+  expect(allowlist).toEqual(expect.arrayContaining(['node-pty']))
+
+  return allowlist
+}
 
 describe('Electron runtime package contract', () => {
   it('publishes package metadata for the renamed development repository', () => {
@@ -28,7 +39,7 @@ describe('Electron runtime package contract', () => {
 
   it('keeps root postinstall as the single Electron binary install owner', () => {
     expect(packageJson.scripts.postinstall).toBe('node config/scripts/rebuild-native-deps.mjs')
-    expect(packageJson.pnpm.onlyBuiltDependencies).not.toContain('electron')
+    expect(honoredBuiltDependencyAllowlist()).not.toContain('electron')
   })
 
   it('keeps the native Windows registry addon optional and platform-gated', () => {
@@ -37,7 +48,7 @@ describe('Electron runtime package contract', () => {
     expect(packageJson.optionalDependencies['windows-native-registry']).toBe('3.2.2')
     // Why: pnpm installs optional target architectures on every host; the root
     // Windows-only rebuild owns this addon so macOS/Linux never run node-gyp for it.
-    expect(packageJson.pnpm.onlyBuiltDependencies).not.toContain('windows-native-registry')
+    expect(honoredBuiltDependencyAllowlist()).not.toContain('windows-native-registry')
     expect(rebuildScript).toContain(
       "rebuildPlatform === 'win32' ? ['windows-native-registry'] : []"
     )
