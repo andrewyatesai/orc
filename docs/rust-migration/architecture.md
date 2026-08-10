@@ -268,10 +268,10 @@ each output against the transcribed golden and runs with **only the Rust
 toolchain** (no Node), so it is verifiable in a headless/offline environment; the
 vitest leg (`parity.test.ts`) closes the TS side on a machine with Node.
 
-**Coverage:** 83 of the ported logic modules have parity adapters —
+**Coverage:** 82 of the ported logic modules have parity adapters —
 **1460 vectors, 1453 of 1453 golden checks green offline**
 (`cargo run -p orca-parity`), and 1543 of 1543 TS↔Rust comparisons green.
-The other 16 are honestly out of differential scope and logged: io-edge functions
+The other 17 are honestly out of differential scope and logged: io-edge functions
 that only run via injected fs/exec/clock/socket closures (`git::remote`,
 `git::status`, `git::branch_cleanup`, `relay::e2ee_channel`, …), modules sourced
 in `src/main` rather than `src/shared`, and pure helpers that TS keeps

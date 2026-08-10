@@ -13,9 +13,9 @@ failing.
 
 ## Coverage
 
-83 of the ~99 ported logic modules have adapters — **1460 vectors, 1453 of
+82 of the ~99 ported logic modules have adapters — **1460 vectors, 1453 of
 1453 golden checks green** via the Rust leg (`cargo run -p orca-parity`), and
-**1543 of 1543** TS↔Rust comparisons green via the vitest leg. The remaining 16
+**1543 of 1543** TS↔Rust comparisons green via the vitest leg. The remaining 17
 are out of differential scope (io-edge functions driven only by injected
 fs/exec/socket closures, `src/main`-sourced modules, or pure helpers TS keeps
 non-exported); see the skip list in `docs/rust-migration/architecture.md`.
