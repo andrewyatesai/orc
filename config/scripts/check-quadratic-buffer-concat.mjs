@@ -6,9 +6,19 @@ import process from 'node:process'
 // TypeScript 7 is a native CLI; AST consumers still need the legacy JavaScript API.
 import ts from 'typescript-api'
 
-const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.mts', '.cts'])
+const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.mts', '.cts'])
 const SKIP_PATH_PARTS = new Set(['node_modules', 'dist', 'out', '.git', '__snapshots__'])
-const SCAN_ROOTS = ['src', 'config/scripts', 'tools', 'tests', 'mobile']
+// `config` rather than `config/scripts`: vitest setup, oxlint plugins and workflow
+// sources are shipped code too. `rust/vendor` and `native` hold no first-party JS.
+export const SCAN_ROOTS = [
+  'src',
+  'build-plugins',
+  'config',
+  'tools',
+  'tests',
+  'mobile',
+  '.github/scripts'
+]
 
 const LOOP_KINDS = new Set([
   ts.SyntaxKind.ForStatement,
@@ -281,7 +291,7 @@ function isSkippedFile(root, filePath) {
   return relative.split('/').some((part) => SKIP_PATH_PARTS.has(part))
 }
 
-async function collectSourceFiles(root, dir) {
+async function collectSourceFiles(root, dir, { recursive = true } = {}) {
   let entries
   try {
     entries = await fs.readdir(dir, { withFileTypes: true })
@@ -293,7 +303,7 @@ async function collectSourceFiles(root, dir) {
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name)
     if (entry.isDirectory()) {
-      if (!SKIP_PATH_PARTS.has(entry.name)) {
+      if (recursive && !SKIP_PATH_PARTS.has(entry.name)) {
         files.push(...(await collectSourceFiles(root, fullPath)))
       }
     } else if (
@@ -319,12 +329,15 @@ function formatReports(root, reports) {
 
 export async function main(root = process.cwd()) {
   const reports = []
+  // Repo-root configs (electron.vite.config.ts, .lintstagedrc.mjs) sit under no root,
+  // so scan the top level itself — files only, or this walks every worktree and cache.
+  const files = await collectSourceFiles(root, root, { recursive: false })
   for (const scanRoot of SCAN_ROOTS) {
-    const files = await collectSourceFiles(root, path.join(root, scanRoot))
-    for (const filePath of files) {
-      const sourceText = await fs.readFile(filePath, 'utf8')
-      reports.push(...reportQuadraticBufferConcat(filePath, sourceText))
-    }
+    files.push(...(await collectSourceFiles(root, path.join(root, scanRoot))))
+  }
+  for (const filePath of files) {
+    const sourceText = await fs.readFile(filePath, 'utf8')
+    reports.push(...reportQuadraticBufferConcat(filePath, sourceText))
   }
   if (reports.length === 0) {
     return 0
