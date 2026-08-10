@@ -186,7 +186,21 @@ absent callee. Where a value is genuinely unbounded, use `checked_*`/
 `saturating_*` and handle the case. Where an assertion is load-bearing, it wants
 a real precondition (`#[trust::requires]`), not a rewrite.
 
-**2. Move `derive(Debug, Clone)` behind `cfg(test)` on heap-bearing types.**
+**2. Move `derive(Debug, Clone)` behind `cfg(test)` on heap-bearing types —
+per type, with the workspace build as the check.**
+
+One caveat that will bite whoever does this in bulk: **`cfg(test)` is set only
+while compiling that crate's own test target.** A dependent crate never sees the
+impl — not in its source, and not in its tests either. So this is safe for a leaf
+crate like `orca-policy` (verified: `orca-dispatch` builds against it), but on
+`orca-core` it has to be applied per type and checked, because any dependent that
+`{:?}`-prints or clones the type stops compiling. Where a dependent does need it,
+the tool is a cargo feature, not `cfg(test)`.
+
+Tested rather than assumed: gating `BaseRefSearchResult`'s `Debug` this way
+builds `orca-core`/`orca-git`/`orca-dispatch` with 0 errors and leaves
+`orca-git`'s tests and orca-core's own 294 green. That is one type of 146 — it
+establishes the edit is viable, not that it is blanket-safe.
 
 Eight of `orca-policy`'s original 22 obligations — 36% — were generated code
 nobody reads. It costs nothing: the derives stay in test builds, which is the
