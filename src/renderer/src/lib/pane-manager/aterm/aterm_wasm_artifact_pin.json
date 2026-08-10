@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "sourceCommit": "03daf85119be510e20f42fc75daaf09f3a135fd5",
+  "sourceCommit": "4fb22eda6502c1b86043c3d0999b7dd85fcbbeea",
   "sourcePatch": {
     "path": "config/patches/aterm-wasm-source-fixes.patch",
     "sha256": "e2ebdfc83aa59e55256e4d08d8af8e6ccff6ca045a3788c3610534c2aa0d2675"
@@ -15,8 +15,8 @@
       "sha256": "d5aab6697d0070e80131525480dee24968ae5d3589691754ce0b79021cf8c4ed"
     },
     "aterm_wasm_bg.wasm": {
-      "bytes": 4525370,
-      "sha256": "7d2d9d8ed6a25437db29498b9be40d6ce45a1945d83e2eeb612b5e3f80a7e6ad"
+      "bytes": 4525933,
+      "sha256": "0cd6d53688ea84411ed6517a830a3f1fbf27c9847bdb2f391d7433808499c4f7"
     },
     "aterm_wasm_bg.wasm.d.ts": {
       "bytes": 16946,
@@ -31,8 +31,8 @@
       "sha256": "ad9e5e9fc52e872f17a045b571f58a4e4e3cac4237fe998f4b39fdf481f86a11"
     },
     "aterm_gpu_web_bg.wasm": {
-      "bytes": 6979082,
-      "sha256": "7eb97cb9702fc05fd4626989b7a2956f8b5ec9cb52043425973eedce027505b0"
+      "bytes": 6979645,
+      "sha256": "26b4f62000bc65a108517171288893ee7206f8a5759c45ffb928885f32fb4c78"
     },
     "aterm_gpu_web_bg.wasm.d.ts": {
       "bytes": 17728,
