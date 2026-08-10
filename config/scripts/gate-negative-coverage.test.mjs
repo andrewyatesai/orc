@@ -32,7 +32,6 @@ export const GATES_MISSING_A_NEGATIVE_TEST = new Map([
   ['check:zustand-selector-fanout', 'no test of any kind'],
   ['check:styled-scrollbars', 'sibling test exercises the rule in-process only'],
   ['check:development-repository-identity', 'no test of any kind'],
-  ['check:quadratic-buffer-concat', 'sibling test exercises the rule in-process only'],
   ['check:reliability-gates', 'sibling test exercises the rule in-process only'],
   ['check:max-lines-ratchet', 'sibling test exercises the rule in-process only'],
   ['check:feature-wall-assets', 'no test of any kind'],
