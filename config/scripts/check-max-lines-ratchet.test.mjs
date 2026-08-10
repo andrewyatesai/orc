@@ -77,9 +77,23 @@ describe('collectMobileBumps', () => {
       ]
     })
     expect(collectMobileBumps(cfg)).toEqual([
-      'mobile-config app/h/*/tasks.tsx',
-      'mobile-config scripts/mock-server.ts'
+      'mobile-config app/h/*/tasks.tsx max=14682',
+      'mobile-config scripts/mock-server.ts max=407'
     ])
+  })
+
+  it('keys on the budget, so RAISING an already-baselined cap is a new bypass', () => {
+    // Without the max in the key this was silent: a glob already in the baseline
+    // could grant itself any cap it liked and the ratchet stayed green.
+    const at = (max) =>
+      JSON.stringify({
+        overrides: [
+          { files: ['scripts/mock-server.ts'], rules: { 'max-lines': ['error', { max }] } }
+        ]
+      })
+    const baseline = parseBaseline(collectMobileBumps(at(407)).join('\n'))
+    const { added } = diffBaseline(collectMobileBumps(at(99407)), baseline)
+    expect(added).toEqual(['mobile-config scripts/mock-server.ts max=99407'])
   })
 
   it('ignores overrides without a max-lines rule', () => {
