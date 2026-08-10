@@ -13,6 +13,24 @@ const require = createRequire(import.meta.url)
 const { createPackagedRuntimeNodeModuleResources } = require('../packaged-runtime-node-modules.cjs')
 const readProjectFile = (relativePath) => readFileSync(join(projectDir, relativePath), 'utf8')
 const packageJson = JSON.parse(readProjectFile('package.json'))
+const pnpmWorkspace = parse(readProjectFile('pnpm-workspace.yaml'))
+
+// Why: pnpm 10.24 runs a dep's build script if it is allowlisted in EITHER
+// pnpm-workspace.yaml (its home since 76f4914ac) or the still-live package.json `pnpm`
+// field, so a package kept out of the build allowlist must be absent from both.
+const declaredBuildAllowlists = [
+  ['pnpm-workspace.yaml', pnpmWorkspace?.onlyBuiltDependencies],
+  ['package.json#pnpm', packageJson.pnpm?.onlyBuiltDependencies]
+].filter(([, allowlist]) => allowlist !== undefined)
+
+const expectOutOfBuildAllowlist = (packageName) => {
+  // node-pty is the canary: if the allowlist moves homes again this fails loudly
+  // instead of passing because there was nothing left to scan.
+  expect(pnpmWorkspace.onlyBuiltDependencies, 'pnpm build allowlist moved').toContain('node-pty')
+  for (const [source, allowlist] of declaredBuildAllowlists) {
+    expect(allowlist, source).not.toContain(packageName)
+  }
+}
 
 describe('Electron runtime package contract', () => {
   it('publishes package metadata for the renamed development repository', () => {
@@ -28,7 +46,9 @@ describe('Electron runtime package contract', () => {
 
   it('keeps root postinstall as the single Electron binary install owner', () => {
     expect(packageJson.scripts.postinstall).toBe('node config/scripts/rebuild-native-deps.mjs')
-    expect(packageJson.pnpm.onlyBuiltDependencies).not.toContain('electron')
+    // Why: electron's own install.js has been seen exiting clean without writing
+    // path.txt, so rebuild-native-deps.mjs must be the only binary installer.
+    expectOutOfBuildAllowlist('electron')
   })
 
   it('keeps the native Windows registry addon optional and platform-gated', () => {
@@ -37,7 +57,7 @@ describe('Electron runtime package contract', () => {
     expect(packageJson.optionalDependencies['windows-native-registry']).toBe('3.2.2')
     // Why: pnpm installs optional target architectures on every host; the root
     // Windows-only rebuild owns this addon so macOS/Linux never run node-gyp for it.
-    expect(packageJson.pnpm.onlyBuiltDependencies).not.toContain('windows-native-registry')
+    expectOutOfBuildAllowlist('windows-native-registry')
     expect(rebuildScript).toContain(
       "rebuildPlatform === 'win32' ? ['windows-native-registry'] : []"
     )
