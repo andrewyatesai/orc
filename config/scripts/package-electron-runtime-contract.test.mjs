@@ -13,6 +13,32 @@ const require = createRequire(import.meta.url)
 const { createPackagedRuntimeNodeModuleResources } = require('../packaged-runtime-node-modules.cjs')
 const readProjectFile = (relativePath) => readFileSync(join(projectDir, relativePath), 'utf8')
 const packageJson = JSON.parse(readProjectFile('package.json'))
+const pnpmWorkspace = parse(readProjectFile('pnpm-workspace.yaml'))
+
+// pnpm 10.24 honors `onlyBuiltDependencies` from BOTH pnpm-workspace.yaml and the
+// package.json `pnpm` field (verified: a dep listed in either one gets its build
+// script run instead of "Ignored build scripts"). The settings moved to the yaml in
+// 76f4914ac, but the package.json field is still a live channel, so anything that
+// must stay out of the build allowlist has to be checked in every declared home.
+const declaredBuildAllowlists = [
+  ['pnpm-workspace.yaml', pnpmWorkspace?.onlyBuiltDependencies],
+  ['package.json#pnpm', packageJson.pnpm?.onlyBuiltDependencies]
+].filter(([, allowlist]) => allowlist !== undefined)
+
+const expectOutOfBuildAllowlist = (packageName) => {
+  // Never let this assertion scan an empty set: node-pty is the canary proving we are
+  // reading the live allowlist, so a list that moved homes again fails here instead of
+  // passing because there was nothing left to look at.
+  expect(
+    Array.isArray(pnpmWorkspace.onlyBuiltDependencies),
+    'pnpm-workspace.yaml declares no onlyBuiltDependencies — the pnpm build allowlist moved'
+  ).toBe(true)
+  expect(pnpmWorkspace.onlyBuiltDependencies, 'pnpm-workspace.yaml').toContain('node-pty')
+  for (const [source, allowlist] of declaredBuildAllowlists) {
+    expect(Array.isArray(allowlist), source).toBe(true)
+    expect(allowlist, source).not.toContain(packageName)
+  }
+}
 
 describe('Electron runtime package contract', () => {
   it('publishes package metadata for the renamed development repository', () => {
@@ -28,7 +54,10 @@ describe('Electron runtime package contract', () => {
 
   it('keeps root postinstall as the single Electron binary install owner', () => {
     expect(packageJson.scripts.postinstall).toBe('node config/scripts/rebuild-native-deps.mjs')
-    expect(packageJson.pnpm.onlyBuiltDependencies).not.toContain('electron')
+    // Why: electron's own install.js downloads and extracts the binary too, and CI has
+    // seen it exit clean without writing path.txt; rebuild-native-deps.mjs owns that
+    // install, so electron must never be allowed to run a build script.
+    expectOutOfBuildAllowlist('electron')
   })
 
   it('keeps the native Windows registry addon optional and platform-gated', () => {
@@ -37,7 +66,7 @@ describe('Electron runtime package contract', () => {
     expect(packageJson.optionalDependencies['windows-native-registry']).toBe('3.2.2')
     // Why: pnpm installs optional target architectures on every host; the root
     // Windows-only rebuild owns this addon so macOS/Linux never run node-gyp for it.
-    expect(packageJson.pnpm.onlyBuiltDependencies).not.toContain('windows-native-registry')
+    expectOutOfBuildAllowlist('windows-native-registry')
     expect(rebuildScript).toContain(
       "rebuildPlatform === 'win32' ? ['windows-native-registry'] : []"
     )
