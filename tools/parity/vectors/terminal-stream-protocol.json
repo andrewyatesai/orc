@@ -240,9 +240,22 @@
     },
     {
       "function": "decodeTerminalStreamFrame",
-      "note": "opcode 16 is the first unknown value beyond OutputSpan=15, so it decodes to null",
+      "note": "SetOutputPaused=16 is a real opcode: a host that drops it keeps flooding a client that asked to pause",
       "input": {
         "bytes": [116, 1, 16, 0, 7, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0]
+      },
+      "expected": {
+        "opcode": 16,
+        "streamId": 7,
+        "seq": 3,
+        "payload": []
+      }
+    },
+    {
+      "function": "decodeTerminalStreamFrame",
+      "note": "opcode 17 is the first unknown value beyond SetOutputPaused=16, so it decodes to null",
+      "input": {
+        "bytes": [116, 1, 17, 0, 7, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0]
       },
       "expected": null
     },
