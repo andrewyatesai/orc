@@ -36,7 +36,6 @@ export const GATES_MISSING_A_NEGATIVE_TEST = new Map([
   ['check:reliability-gates', 'sibling test exercises the rule in-process only'],
   ['check:max-lines-ratchet', 'sibling test exercises the rule in-process only'],
   ['check:feature-wall-assets', 'no test of any kind'],
-  ['verify:bundled-skill-guides', 'sibling test exercises the rule in-process only'],
   ['verify:macos-entitlements', 'no test of any kind'],
   ['verify:computer-native', 'no test of any kind'],
   ['verify:cli-bin', 'sibling test exercises the rule in-process only'],
