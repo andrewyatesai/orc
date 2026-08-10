@@ -113,10 +113,15 @@ export const ORCHESTRATION_GATE_METHODS: RpcMethod[] = [
   defineMethod({
     name: 'orchestration.run',
     params: RunParams,
-    handler: (params, { runtime }) => {
+    handler: async (params, { runtime }) => {
+      // Why: the coordinator loop creates terminals and dispatches work into
+      // them, so the workspace it runs in is the object — and a run that names
+      // no workspace lands on the machine running Orca.
+      await runtime.assertWorkspaceSelectorInCallerScope(params.worktree, 'a coordinator run')
       const db = runtime.getOrchestrationDb()
 
       const coordinatorHandle = params.from ?? 'coordinator'
+      runtime.assertTerminalHandleInCallerScope(coordinatorHandle, 'coordinator')
       const liveRunId = findLiveRunIdForHandle(coordinatorHandle)
       if (liveRunId) {
         throw new Error(`Coordinator already running: ${liveRunId}`)
@@ -203,6 +208,9 @@ export const ORCHESTRATION_GATE_METHODS: RpcMethod[] = [
         }
         run = activeRuns[0]
       }
+      // Why after resolution: --run and the untargeted single-run case name no
+      // handle, so the run row is the only thing that says whose loop this is.
+      runtime.assertTerminalHandleInCallerScope(run.coordinator_handle, 'coordinator')
 
       const live = activeCoordinators.get(run.id)
       if (live) {
@@ -246,6 +254,14 @@ export const ORCHESTRATION_GATE_METHODS: RpcMethod[] = [
     params: GateResolveParams,
     handler: (params, { runtime }) => {
       const db = runtime.getOrchestrationDb()
+      const originMessageId = db.getGate(params.id)?.origin_message_id
+      const origin = originMessageId ? db.getMessageById(originMessageId) : undefined
+      if (origin) {
+        // Why before resolving: the resolution is delivered into the pane that
+        // asked, so that pane is the object — and a gate must not be half-resolved
+        // by a caller that may not reach it.
+        runtime.assertTerminalHandleInCallerScope(origin.from_handle, 'gate asker')
+      }
       const gate = db.resolveGate(params.id, params.resolution)
       if (!gate) {
         throw new Error(`Gate not found: ${params.id}`)
@@ -267,6 +283,10 @@ export const ORCHESTRATION_GATE_METHODS: RpcMethod[] = [
       const runId = params.runId ?? findLiveRunIdForHandle(params.from ?? 'coordinator')
       if (!runId) {
         throw new Error('No active coordinator run; pass --run <run_id> or --from <handle>')
+      }
+      const logged = db.getCoordinatorRun(runId)
+      if (logged) {
+        runtime.assertTerminalHandleInCallerScope(logged.coordinator_handle, 'coordinator')
       }
       const log = coordinatorRunLogs.peek(runId)
       if (!log) {

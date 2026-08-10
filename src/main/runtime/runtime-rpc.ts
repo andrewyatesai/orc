@@ -50,6 +50,12 @@ import {
 } from '../../shared/terminal-stream-protocol'
 
 import { timingSafeTokenCompare } from '../../shared/timing-safe-token-compare'
+import {
+  LOCAL_CALLER_SCOPE,
+  resolveScopedCallerToken,
+  runWithCallerScope,
+  type RuntimeCallerScope
+} from './runtime-caller-scope'
 
 const DEFAULT_WS_PORT = 6768
 
@@ -1188,9 +1194,14 @@ export class OrcaRuntimeRpcServer {
     }
 
     try {
-      return await this.dispatcher.dispatch(request, {
-        signal: longPoll || isAbortableScanRequest(request) ? context?.signal : undefined
-      })
+      // Why: the caller's bound travels with the token it authenticated with, so
+      // every resolver reached by this request sees the same scope even though
+      // the request came from a subprocess the runtime never spawned directly.
+      return await runWithCallerScope(parsed.scope, async () =>
+        this.dispatcher.dispatch(request, {
+          signal: longPoll || isAbortableScanRequest(request) ? context?.signal : undefined
+        })
+      )
     } finally {
       this.releaseLongPoll(longPoll)
     }
@@ -1226,7 +1237,9 @@ export class OrcaRuntimeRpcServer {
     }
   }
 
-  private parseAndAuth(rawMessage: string): { request: RpcRequest } | { error: RpcResponse } {
+  private parseAndAuth(
+    rawMessage: string
+  ): { request: RpcRequest; scope: RuntimeCallerScope } | { error: RpcResponse } {
     let request: RpcRequest
     try {
       request = JSON.parse(rawMessage) as RpcRequest
@@ -1253,13 +1266,18 @@ export class OrcaRuntimeRpcServer {
     }
     // Why: constant-time compare prevents a local CLI client from inferring
     // how many leading token bytes match via response timing.
-    if (!timingSafeTokenCompare(this.authToken, request.authToken)) {
-      return {
-        error: this.buildError(request.id, 'unauthorized', 'Invalid auth token')
-      }
+    if (timingSafeTokenCompare(this.authToken, request.authToken)) {
+      return { request, scope: LOCAL_CALLER_SCOPE }
     }
-
-    return { request }
+    // Why: the SSH bridge hands its CLI subprocess a single-use token instead of
+    // the shared one, so requests it makes carry that pane's host bound.
+    const scopedCaller = resolveScopedCallerToken(request.authToken)
+    if (scopedCaller) {
+      return { request, scope: scopedCaller }
+    }
+    return {
+      error: this.buildError(request.id, 'unauthorized', 'Invalid auth token')
+    }
   }
 
   // Why: WebSocket dispatch is streaming (multiple responses) and auths via per-device tokens, not the shared token.

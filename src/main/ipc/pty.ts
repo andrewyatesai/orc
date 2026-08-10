@@ -108,7 +108,11 @@ import {
   applyTerminalAttributionEnv,
   resolveAttributionShellFamily
 } from '../attribution/terminal-attribution'
-import { ensureLinuxTerminalOrcaCliShimDir } from '../cli/linux-terminal-orca-cli-shim'
+import {
+  buildManagedPathExt,
+  ensureManagedTerminalOrcaCliBinDir,
+  resolveManagedTerminalCliCommand
+} from '../cli/managed-terminal-orca-cli-shim'
 import { registerPty, unregisterPty } from '../memory/pty-registry'
 import { advertisedUrlWatcher } from '../ports/advertised-url-watcher'
 import { track } from '../telemetry/client'
@@ -764,6 +768,16 @@ function readInheritedPath(baseEnv: Record<string, string>): string {
   return baseEnv.PATH ?? baseEnv.Path ?? process.env.PATH ?? process.env.Path ?? ''
 }
 
+function prependManagedPathEntry(baseEnv: Record<string, string>, entry: string): void {
+  const remaining = readInheritedPath(baseEnv)
+    .split(delimiter)
+    // Why: an empty PATH segment resolves as `.` in some shells (commands run from cwd); drop it rather than emit a bare delimiter.
+    .filter((existing) => existing.length > 0 && existing !== entry)
+  // Why: Windows env blocks are case-insensitive, so adding `PATH` to a pane that already carries `Path` leaves two keys and lets the wrong one win.
+  const pathKey = baseEnv.PATH !== undefined || baseEnv.Path === undefined ? 'PATH' : 'Path'
+  baseEnv[pathKey] = [entry, ...remaining].join(delimiter)
+}
+
 function firstPathEntry(pathValue: string | undefined): string | null {
   const first = pathValue?.split(delimiter).find((entry) => entry.trim().length > 0)
   return first ?? null
@@ -1262,29 +1276,41 @@ export function buildPtyHostEnv(
   // Why: WSL shells need the managed userData root for shell-ready wrappers; dev-mode terminals need the same export so `orca` targets the live dev instance.
   if (opts.isWsl) {
     baseEnv.ORCA_USER_DATA_PATH = opts.userDataPath
-    // Why: managed WSL registration uses `orca-ide`; exposing that literal scopes agent guidance to WSL without a bare-orca shim.
-    baseEnv.ORCA_CLI_COMMAND = opts.isPackaged ? 'orca-ide' : 'orca-dev'
-  } else {
-    if (!opts.isPackaged) {
-      baseEnv.ORCA_USER_DATA_PATH ??= opts.userDataPath
-    }
-    delete baseEnv.ORCA_CLI_COMMAND
+  } else if (!opts.isPackaged) {
+    baseEnv.ORCA_USER_DATA_PATH ??= opts.userDataPath
   }
-  // Why: dev mode needs the launcher PATH override so `orca` resolves to the dev build instead of the production binary at /usr/local/bin/orca.
+
+  let managedCliBinDir: string | null = null
   if (!opts.isPackaged) {
-    const devCliBin = join(opts.userDataPath, 'cli', 'bin')
-    const inheritedPath = readInheritedPath(baseEnv)
-    // Why: an empty PATH segment resolves as `.` in some shells (commands run from cwd); avoid a trailing delimiter.
-    baseEnv.PATH = inheritedPath ? `${devCliBin}${delimiter}${inheritedPath}` : devCliBin
-  } else if (process.platform === 'linux') {
-    // Why: bare-`orca` shim scoped to Orca PTYs — Linux CLI installs as `orca-ide` to avoid shadowing GNOME's /usr/bin/orca screen reader (stablyai/orca#7904).
-    const shimDir = ensureLinuxTerminalOrcaCliShimDir({ userDataPath: opts.userDataPath })
-    if (shimDir) {
-      const inheritedEntries = readInheritedPath(baseEnv)
-        .split(delimiter)
-        .filter((entry) => entry.length > 0 && entry !== shimDir)
-      baseEnv.PATH = [shimDir, ...inheritedEntries].join(delimiter)
+    // Why: dev mode needs the launcher PATH override so `orca` resolves to the dev build instead of the production binary at /usr/local/bin/orca.
+    managedCliBinDir = join(opts.userDataPath, 'cli', 'bin')
+    prependManagedPathEntry(baseEnv, managedCliBinDir)
+  } else if (!opts.isWsl) {
+    // Why: bare-`orca` shim scoped to Orca PTYs — no platform then needs the privileged /usr/local/bin symlink for an agent to reach the CLI.
+    managedCliBinDir = ensureManagedTerminalOrcaCliBinDir({ userDataPath: opts.userDataPath })
+    if (managedCliBinDir) {
+      prependManagedPathEntry(baseEnv, managedCliBinDir)
+      if (process.platform === 'win32') {
+        // Why: that dir ships orca.cmd beside orca.exe, and only the native launcher forwards orchestration bodies safely.
+        const managedPathExt = buildManagedPathExt(baseEnv.PATHEXT ?? process.env.PATHEXT)
+        if (managedPathExt) {
+          baseEnv.PATHEXT = managedPathExt
+        }
+      }
     }
+  }
+  // Why: one deterministic value per managed PTY replaces the skills' four-branch guess at the CLI's name.
+  const managedCliCommand = resolveManagedTerminalCliCommand({
+    platform: process.platform,
+    isPackaged: opts.isPackaged,
+    isWsl: opts.isWsl === true,
+    managedBinDir: managedCliBinDir
+  })
+  if (managedCliCommand) {
+    baseEnv.ORCA_CLI_COMMAND = managedCliCommand
+  } else {
+    // Why: strip rather than inherit — a nested PTY would otherwise keep a parent's word that this PATH cannot answer.
+    delete baseEnv.ORCA_CLI_COMMAND
   }
 
   // Why: PATH shims keep GitHub attribution scoped to Orca's own PTYs without rewriting user git config.

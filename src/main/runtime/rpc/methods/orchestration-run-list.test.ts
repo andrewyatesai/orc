@@ -88,7 +88,15 @@ describe('orchestration.runList', () => {
   async function call(name: string, params: Record<string, unknown>): Promise<unknown> {
     const method = findMethod(name)
     const parsed = method.params ? method.params.parse(params) : undefined
-    return method.handler(parsed, { runtime: { getOrchestrationDb: () => db } } as never)
+    // Why the caller-scope stubs are no-ops: these tests are local callers,
+    // which the real bounds return from before looking anything up.
+    return method.handler(parsed, {
+      runtime: {
+        getOrchestrationDb: () => db,
+        assertTerminalHandleInCallerScope: () => {},
+        assertWorkspaceSelectorInCallerScope: async () => {}
+      }
+    } as never)
   }
 
   const runList = (params: Record<string, unknown> = {}) =>
@@ -217,7 +225,15 @@ describe('run filters on orchestration.taskList and orchestration.gateList', () 
       throw new Error(`Method not found: ${name}`)
     }
     const parsed = method.params ? method.params.parse(params) : undefined
-    return method.handler(parsed, { runtime: { getOrchestrationDb: () => db } } as never)
+    // Why the caller-scope stubs are no-ops: these tests are local callers,
+    // which the real bounds return from before looking anything up.
+    return method.handler(parsed, {
+      runtime: {
+        getOrchestrationDb: () => db,
+        assertTerminalHandleInCallerScope: () => {},
+        assertWorkspaceSelectorInCallerScope: async () => {}
+      }
+    } as never)
   }
 
   function seedTwoRuns() {

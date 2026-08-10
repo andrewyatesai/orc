@@ -9,6 +9,11 @@ import { spawn as nodeSpawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { getCanonicalUserDataPath } from '../persistence'
+import {
+  createScopedCallerMetadataDir,
+  resolveRemoteCallerScope,
+  type ScopedCallerMetadata
+} from './ssh-remote-cli-caller-scope'
 import { parseRemoteCliArgs } from './ssh-remote-cli-args'
 import { clampOrchestrationAskTimeoutMs } from '../../shared/orchestration-ask-timeout'
 import {
@@ -36,6 +41,12 @@ export type RemoteOrcaCliRequest = {
   /** Pane the relay attributed the call to. Absent means "no pane identity". */
   identity?: RemoteCliCallerIdentity
   stdin?: string
+  /**
+   * SSH target the call arrived over — the session's own id, never anything the
+   * remote side can state. Absent means the call cannot be attributed to a host
+   * and must reach nothing.
+   */
+  connectionId?: string
 }
 
 export type RemoteOrcaCliResult = {
@@ -52,6 +63,8 @@ export type HostCliPassthroughOptions = {
   spawn?: typeof nodeSpawn
   entryExists?: (path: string) => boolean
   killTimeoutMs?: number
+  /** Test seam: mints the scoped runtime metadata the CLI subprocess authenticates with. */
+  createScopedCallerMetadata?: typeof createScopedCallerMetadataDir
 }
 
 /** Thrown when the host CLI entry cannot be launched at all; callers fall back
@@ -256,83 +269,107 @@ export async function runHostOrcaCliPassthrough(
     throw new HostCliUnavailableError(`Orca CLI entry not found at ${cliEntryPath}`)
   }
 
+  // Why: fail closed — if the subprocess cannot be given a scoped token it would
+  // authenticate with the shared one and run unbounded, so hand the caller its
+  // in-process fallback (which carries the scope directly) instead.
+  let scopedMetadata: ScopedCallerMetadata
+  try {
+    scopedMetadata = (options.createScopedCallerMetadata ?? createScopedCallerMetadataDir)(
+      resolveRemoteCallerScope(request),
+      userDataPath
+    )
+  } catch (err) {
+    throw new HostCliUnavailableError(
+      `Could not scope the Orca CLI bridge to its caller: ${err instanceof Error ? err.message : String(err)}`
+    )
+  }
+
   const env = buildHostCliEnv({
     hostEnv,
     identity: request.identity ?? {},
-    userDataPath,
+    userDataPath: scopedMetadata.userDataPath,
     remoteCwd: request.cwd
   })
 
-  return await new Promise<RemoteOrcaCliResult>((resolve, reject) => {
-    let settled = false
-    const child = spawn(execPath, [cliEntryPath, ...request.argv], {
-      env,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      windowsHide: true
-    })
+  try {
+    return await runChild()
+  } finally {
+    // Why: a single-use credential that outlives its invocation is a standing key.
+    scopedMetadata.dispose()
+  }
 
-    const stdout = new CappedOutputCollector(MAX_CAPTURED_OUTPUT_BYTES)
-    const stderr = new CappedOutputCollector(MAX_CAPTURED_OUTPUT_BYTES)
-
-    const killTimer = setTimeout(() => {
-      if (settled) {
-        return
-      }
-      settled = true
-      try {
-        child.kill('SIGKILL')
-      } catch {
-        // best effort — process may already be gone
-      }
-      resolve({
-        stdout: stdout.toString(),
-        stderr: `${stderr.toString()}Orca CLI bridge timed out after ${killTimeoutMs}ms on the host.\n`,
-        exitCode: 1
+  async function runChild(): Promise<RemoteOrcaCliResult> {
+    return await new Promise<RemoteOrcaCliResult>((resolve, reject) => {
+      let settled = false
+      const child = spawn(execPath, [cliEntryPath, ...request.argv], {
+        env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true
       })
-    }, killTimeoutMs)
-    killTimer.unref?.()
 
-    child.on('error', (err) => {
-      if (settled) {
-        return
-      }
-      settled = true
-      clearTimeout(killTimer)
-      // Why: failure to launch (ENOENT, EACCES) means the host CLI is not
-      // runnable at all — signal the caller to use the legacy fallback rather
-      // than reporting a confusing per-command failure.
-      reject(
-        new HostCliUnavailableError(`Failed to launch the Orca CLI on the host: ${err.message}`)
-      )
-    })
+      const stdout = new CappedOutputCollector(MAX_CAPTURED_OUTPUT_BYTES)
+      const stderr = new CappedOutputCollector(MAX_CAPTURED_OUTPUT_BYTES)
 
-    child.stdout?.on('data', (chunk: Buffer) => stdout.push(chunk))
-    child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk))
+      const killTimer = setTimeout(() => {
+        if (settled) {
+          return
+        }
+        settled = true
+        try {
+          child.kill('SIGKILL')
+        } catch {
+          // best effort — process may already be gone
+        }
+        resolve({
+          stdout: stdout.toString(),
+          stderr: `${stderr.toString()}Orca CLI bridge timed out after ${killTimeoutMs}ms on the host.\n`,
+          exitCode: 1
+        })
+      }, killTimeoutMs)
+      killTimer.unref?.()
 
-    child.on('close', (code) => {
-      if (settled) {
-        return
-      }
-      settled = true
-      clearTimeout(killTimer)
-      resolve({
-        stdout: stdout.toString(),
-        stderr: stderr.toString(),
-        exitCode: typeof code === 'number' ? code : 1
+      child.on('error', (err) => {
+        if (settled) {
+          return
+        }
+        settled = true
+        clearTimeout(killTimer)
+        // Why: failure to launch (ENOENT, EACCES) means the host CLI is not
+        // runnable at all — signal the caller to use the legacy fallback rather
+        // than reporting a confusing per-command failure.
+        reject(
+          new HostCliUnavailableError(`Failed to launch the Orca CLI on the host: ${err.message}`)
+        )
       })
-    })
 
-    if (child.stdin) {
-      child.stdin.on('error', () => {
-        // Why: the CLI may exit without draining stdin; EPIPE here is routine.
+      child.stdout?.on('data', (chunk: Buffer) => stdout.push(chunk))
+      child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk))
+
+      child.on('close', (code) => {
+        if (settled) {
+          return
+        }
+        settled = true
+        clearTimeout(killTimer)
+        resolve({
+          stdout: stdout.toString(),
+          stderr: stderr.toString(),
+          exitCode: typeof code === 'number' ? code : 1
+        })
       })
-      if (request.stdin !== undefined) {
-        child.stdin.end(request.stdin)
-      } else {
-        child.stdin.end()
+
+      if (child.stdin) {
+        child.stdin.on('error', () => {
+          // Why: the CLI may exit without draining stdin; EPIPE here is routine.
+        })
+        if (request.stdin !== undefined) {
+          child.stdin.end(request.stdin)
+        } else {
+          child.stdin.end()
+        }
       }
-    }
-  })
+    })
+  }
 }
 
 class CappedOutputCollector {

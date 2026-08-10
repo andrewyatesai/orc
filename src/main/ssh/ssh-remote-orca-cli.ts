@@ -10,6 +10,8 @@ import {
   type RemoteOrcaCliRequest,
   type RemoteOrcaCliResult
 } from './ssh-remote-cli-host-passthrough'
+import { runWithCallerScope } from '../runtime/runtime-caller-scope'
+import { resolveRemoteCallerScope } from './ssh-remote-cli-caller-scope'
 import { RemoteCliArgumentError, type ParsedRemoteCli } from './ssh-remote-cli-argument-error'
 import {
   optionalRemoteCliNumber,
@@ -71,7 +73,12 @@ export async function runRemoteOrcaCli(
     // bundled CLI entry cannot be launched on this install.
     passthroughFailure = err
   }
-  return await runLegacyRemoteOrcaCli(runtime, request, parsed, json, passthroughFailure)
+  // Why: the in-process fallback dispatches on this call stack, so the scope the
+  // passthrough would have handed the subprocess is carried here directly.
+  return await runWithCallerScope(
+    resolveRemoteCallerScope(request),
+    async () => await runLegacyRemoteOrcaCli(runtime, request, parsed, json, passthroughFailure)
+  )
 }
 
 async function runLegacyRemoteOrcaCli(

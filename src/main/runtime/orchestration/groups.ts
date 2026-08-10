@@ -48,13 +48,19 @@ function titleMatchesAgentNameGroup(title: string, agentName: string): boolean {
 export function resolveGroupAddress(
   to: string,
   senderHandle: string,
-  terminals: RuntimeTerminalSummary[],
-  getAgentStatus: (handle: string) => string | null
+  allTerminals: RuntimeTerminalSummary[],
+  getAgentStatus: (handle: string) => string | null,
+  // Why: required, not optional — a fan-out is the one place a caller reaches
+  // every pane at once, so a surface that forgets to bound it must not compile.
+  isReachableByCaller: (terminal: RuntimeTerminalSummary) => boolean
 ): string[] {
   if (!isGroupAddress(to)) {
     return [to]
   }
 
+  // Why: @all/@idle/@worktree name no host, so the membership itself is the
+  // bound — a remote sender's broadcast stops at its own target's panes.
+  const terminals = allTerminals.filter(isReachableByCaller)
   const group = to.toLowerCase()
 
   if (group === '@all') {

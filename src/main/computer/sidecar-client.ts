@@ -7,6 +7,7 @@ import type {
   ComputerProviderCapabilities,
   ComputerSnapshotResult
 } from '../../shared/runtime-types'
+import { assertComputerUseAllowedForCaller } from './computer-use-caller-scope'
 import { normalizeComputerActionResult } from './computer-action-verification-normalization'
 import { validateComputerSidecarPasteText } from './computer-sidecar-paste-validation'
 import { RuntimeClientError } from './runtime-client-error'
@@ -50,22 +51,26 @@ let sidecar: ComputerSidecarProcess | null = null
 function ignoreStaleChildError(): void {}
 
 export async function callComputerSidecarListApps(): Promise<ComputerListAppsResult> {
+  assertComputerUseAllowedForCaller('listApps')
   return (await getComputerSidecar().call('listApps', {})) as ComputerListAppsResult
 }
 
 export async function callComputerSidecarCapabilities(): Promise<ComputerProviderCapabilities> {
+  assertComputerUseAllowedForCaller('capabilities')
   return (await getComputerSidecar().call('capabilities', {})) as ComputerProviderCapabilities
 }
 
 export async function callComputerSidecarListWindows(
   params: unknown
 ): Promise<ComputerListWindowsResult> {
+  assertComputerUseAllowedForCaller('listWindows')
   return (await getComputerSidecar().call('listWindows', params)) as ComputerListWindowsResult
 }
 
 export async function callComputerSidecarSnapshot(
   params: unknown
 ): Promise<ComputerSnapshotResult> {
+  assertComputerUseAllowedForCaller('snapshot')
   return (await getComputerSidecar().call('getAppState', params)) as ComputerSnapshotResult
 }
 
@@ -76,6 +81,7 @@ export async function callComputerSidecarAction(
   >,
   params: unknown
 ): Promise<ComputerActionResult> {
+  assertComputerUseAllowedForCaller(method)
   const validation = validateComputerSidecarPasteText(method, params)
   if (validation) {
     await validation

@@ -1,5 +1,6 @@
 /* eslint-disable max-lines -- Why: this file is a command adapter for one external surface, Agent Browser automation. It stays separate from OrcaRuntimeService so runtime state does not grow further while browser routing remains easy to scan in one place. */
 import { randomUUID } from 'node:crypto'
+import { assertLocalCallerScope, getCallerScope } from './runtime-caller-scope'
 import { ipcMain, webContents, type BrowserWindow } from 'electron'
 import type {
   BrowserBackResult,
@@ -575,6 +576,10 @@ export class RuntimeBrowserCommands {
   async browserEval(
     params: { expression: string } & BrowserCommandTargetParams
   ): Promise<BrowserEvalResult> {
+    // Why: the target names a worktree, but the browser session it drives is the
+    // one in this app — the user's logged-in profile on their own machine. Eval
+    // is arbitrary code in that context, with no host selector to bound it.
+    assertLocalCallerScope(getCallerScope(), 'browser eval')
     const target = await this.resolveBrowserCommandTarget(params)
     return this.requireAgentBrowserBridge().evaluate(
       params.expression,
@@ -1279,6 +1284,8 @@ export class RuntimeBrowserCommands {
   // ── New: exec passthrough + tab lifecycle ──
 
   async browserExec(params: { command: string } & BrowserCommandTargetParams): Promise<unknown> {
+    // Why: same as browserEval — a raw CDP command against the laptop's browser.
+    assertLocalCallerScope(getCallerScope(), 'browser exec')
     const target = await this.resolveBrowserCommandTarget(params)
     return this.requireAgentBrowserBridge().exec(
       params.command,

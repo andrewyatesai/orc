@@ -41,6 +41,40 @@ function createFakeChild(): FakeChild {
   return child
 }
 
+const SSH_TARGET = 'ssh_target'
+const SSH_WORKTREE = 'repo_ssh::/home/alice/repo'
+
+/**
+ * A runtime whose catalog puts `handles` on SSH_TARGET, so the legacy fallback
+ * runs under a real host bound rather than the unattributed one a request
+ * without a connectionId gets.
+ */
+function createScopedRuntime(handles: string[]): OrcaRuntimeService {
+  const repos = [{ id: 'repo_ssh', path: '/home/alice/repo', connectionId: SSH_TARGET }]
+  const runtime = new OrcaRuntimeService({
+    getRepos: () => repos,
+    getRepo: (id: string) => repos.find((repo) => repo.id === id),
+    getFolderWorkspaces: () => [],
+    getWorktreeMeta: () => undefined,
+    getAllWorktreeMeta: () => ({})
+  } as never)
+  const registry = (runtime as unknown as { handles: { set: (k: string, v: unknown) => unknown } })
+    .handles
+  for (const handle of handles) {
+    registry.set(handle, {
+      handle,
+      runtimeId: runtime.getRuntimeId(),
+      rendererGraphEpoch: 0,
+      worktreeId: SSH_WORKTREE,
+      tabId: `tab_${handle}`,
+      leafId: `leaf_${handle}`,
+      ptyId: null,
+      ptyGeneration: 0
+    })
+  }
+  return runtime
+}
+
 describe('runRemoteOrcaCli', () => {
   function createRuntime() {
     const messages: {
@@ -92,6 +126,9 @@ describe('runRemoteOrcaCli', () => {
         liveLeafCount: 1
       }),
       getOrchestrationDb: () => db,
+      // Why: these cases cover argv/env forwarding through the shim; the recipient
+      // bound itself is covered against a real runtime in the caller-scope suites.
+      assertTerminalHandleInCallerScope: vi.fn(),
       getTerminalPaneKey: () => null,
       deliverPendingMessagesForHandle: vi.fn(),
       notifyMessageArrived: vi.fn(),
@@ -177,9 +214,32 @@ describe('runRemoteOrcaCli', () => {
     )
   })
 
+  it('refuses a recipient handle that is not on the calling host', async () => {
+    const db = new OrchestrationDb(':memory:')
+    const runtime = createScopedRuntime(['term_ssh'])
+    runtime.setOrchestrationDb(db)
+    try {
+      const result = await runRemoteOrcaCli(
+        runtime,
+        {
+          argv: ['orchestration', 'send', '--to', 'term_local', '--subject', 'ping', '--json'],
+          cwd: '/home/alice/repo',
+          env: { ORCA_TERMINAL_HANDLE: 'term_ssh' },
+          connectionId: SSH_TARGET
+        },
+        LEGACY_FALLBACK_OPTIONS
+      )
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr + result.stdout).toMatch(/Refused/)
+      expect(db.getUnreadMessages('term_local')).toEqual([])
+    } finally {
+      db.close()
+    }
+  })
+
   it('returns a non-zero status for lifecycle rejection through the legacy fallback', async () => {
     const db = new OrchestrationDb(':memory:')
-    const runtime = new OrcaRuntimeService()
+    const runtime = createScopedRuntime(['term_ssh', 'term_coord'])
     runtime.setOrchestrationDb(db)
     vi.spyOn(runtime, 'deliverPendingMessagesForHandle').mockImplementation(() => {})
     vi.spyOn(runtime, 'notifyMessageArrived').mockImplementation(() => {})
@@ -206,7 +266,8 @@ describe('runRemoteOrcaCli', () => {
             '--json'
           ],
           cwd: '/home/alice/repo',
-          env: { ORCA_PANE_KEY: 'tab_foreign:leaf_foreign' }
+          env: { ORCA_PANE_KEY: 'tab_foreign:leaf_foreign' },
+          connectionId: SSH_TARGET
         },
         LEGACY_FALLBACK_OPTIONS
       )
@@ -227,7 +288,7 @@ describe('runRemoteOrcaCli', () => {
 
   it('preserves structured lifecycle payload flags through the legacy fallback', async () => {
     const db = new OrchestrationDb(':memory:')
-    const runtime = new OrcaRuntimeService()
+    const runtime = createScopedRuntime(['term_ssh', 'term_coord'])
     runtime.setOrchestrationDb(db)
     vi.spyOn(runtime, 'deliverPendingMessagesForHandle').mockImplementation(() => {})
     vi.spyOn(runtime, 'notifyMessageArrived').mockImplementation(() => {})
@@ -259,7 +320,8 @@ describe('runRemoteOrcaCli', () => {
           env: {
             ORCA_TERMINAL_HANDLE: 'term_ssh',
             ORCA_PANE_KEY: 'tab_owner:leaf_owner'
-          }
+          },
+          connectionId: SSH_TARGET
         },
         LEGACY_FALLBACK_OPTIONS
       )
@@ -414,7 +476,10 @@ describe('runRemoteOrcaCli', () => {
         cliEntryPath: '/host/app/out/cli/index.js',
         userDataPath: '/host/user-data',
         entryExists: () => true,
-        spawn: spawn as never
+        spawn: spawn as never,
+        // Why: the real one plants the caller-scoped runtime metadata the
+        // subprocess authenticates with; there is no host metadata file here.
+        createScopedCallerMetadata: () => ({ userDataPath: '/host/scoped', dispose: () => {} })
       }
     )
 

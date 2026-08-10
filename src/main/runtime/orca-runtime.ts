@@ -124,6 +124,7 @@ import type {
   AutomationUpdateInput,
   AutomationWorkspaceMode
 } from '../../shared/automations-types'
+import { getAutomationRunRepoId } from '../../shared/automation-run-identity'
 import type {
   AutomationWorkspaceProvenance,
   CliWorkspaceProvenance,
@@ -194,6 +195,7 @@ import { assertWorktreeUnlockedForRemoval } from '../../shared/worktree-removal'
 import {
   LOCAL_EXECUTION_HOST_ID,
   getRepoExecutionHostId,
+  getWorktreeExecutionHostId,
   parseExecutionHostId,
   toSshExecutionHostId,
   type ExecutionHostId
@@ -818,8 +820,23 @@ import {
 import {
   DEFAULT_REPO_BADGE_COLOR,
   FLOATING_TERMINAL_WORKTREE_ID,
-  getDefaultVoiceSettings
+  getDefaultVoiceSettings,
+  ORPHAN_WORKTREE_ID
 } from '../../shared/constants'
+import {
+  assertCallerScopeReaches,
+  assertLocalCallerScope,
+  callerScopeReaches,
+  CallerScopeDeniedError,
+  getCallerScope,
+  isBoundedCallerScope,
+  type CallerScopeObjectOwner
+} from './runtime-caller-scope'
+import {
+  CallerScopedRegistry,
+  filterToCallerScope,
+  filterToCallerScopeByAnyOwner
+} from './runtime-caller-scope-catalog'
 import { listRepoWorktrees } from '../repo-worktrees'
 import {
   createWorktreeCopiedPaths,
@@ -2762,11 +2779,21 @@ export class OrcaRuntimeService {
       this.notifyMobileSessionTabsChangedNow(worktreeId)
     )
   private pendingMobileSessionPtyInventoryRefresh: Promise<Set<string> | null> | null = null
-  private leaves = new Map<string, RuntimeLeafRecord>()
+  // Why: a pane key and a terminal handle are both selectors a caller supplies,
+  // so these two registries are where a name becomes a pane. Bounding the lookup
+  // itself is what makes every resolver that reads them bounded without a line
+  // of its own — see runtime-caller-scope-catalog.
+  private leaves = new CallerScopedRegistry<RuntimeLeafRecord>(
+    (leaf) => this.resolveWorktreeOwnerConnectionId(leaf.worktreeId),
+    (key) => `terminal pane ${key}`
+  )
   // Why: PTY output is a per-keystroke hot path. Looking up affected leaves by
   // ptyId keeps active TUI redraws independent of the total open terminal count.
   private leavesByPtyId = new Map<string, RuntimeLeafRecord[]>()
-  private handles = new Map<string, TerminalHandleRecord>()
+  private handles = new CallerScopedRegistry<TerminalHandleRecord>(
+    (record) => this.resolveWorktreeOwnerConnectionId(record.worktreeId),
+    (handle) => `terminal ${handle}`
+  )
   private handleByLeafKey = new Map<string, string>()
   private handleByPtyId = new Map<string, string>()
   private controllerTerminalIdentityByPtyId = new Map<
@@ -3526,11 +3553,36 @@ export class OrcaRuntimeService {
     return this.getClientSettings()
   }
 
+  /** The automation catalog as the caller may see it — automation.list and showAutomation read this. */
   listAutomations(): Automation[] {
+    return filterToCallerScope(this.listAllAutomations(), (automation) =>
+      this.resolveAutomationOwnerConnectionId(automation)
+    )
+  }
+
+  /** Every automation on this host, whoever asked — the scheduler must fire them all. */
+  private listAllAutomations(): Automation[] {
     if (!this.store?.listAutomations) {
       throw new Error('runtime_unavailable')
     }
     return this.store.listAutomations()
+  }
+
+  /**
+   * An automation runs its agent in a workspace on one host, so that host owns
+   * it: the run context names it outright, and older rows answer through the
+   * repo they were pinned to.
+   */
+  private resolveAutomationOwnerConnectionId(automation: Automation): CallerScopeObjectOwner {
+    const hostId = automation.runContext?.hostId
+    return hostId
+      ? this.resolveExecutionHostOwner(hostId)
+      : this.resolveRepoOwnerConnectionId(getAutomationRunRepoId(automation))
+  }
+
+  private resolveRepoOwnerConnectionId(repoId: string): CallerScopeObjectOwner {
+    const repo = this.store?.getRepo?.(repoId)
+    return repo ? this.resolveExecutionHostOwner(getRepoExecutionHostId(repo)) : undefined
   }
 
   listAutomationRuns(automationId?: string): AutomationRun[] {
@@ -3543,6 +3595,18 @@ export class OrcaRuntimeService {
   showAutomation(id: string): Automation {
     const automation = this.listAutomations().find((entry) => entry.id === id)
     if (!automation) {
+      // Why: same as the repo and worktree catalogs — the bound already hid the
+      // row, so this only replaces "not found" with the reason, and only for a
+      // bounded caller.
+      if (isBoundedCallerScope(getCallerScope())) {
+        const outOfScope = this.listAllAutomations().find((entry) => entry.id === id)
+        if (outOfScope) {
+          this.assertOwnerInCallerScope(
+            () => this.resolveAutomationOwnerConnectionId(outOfScope),
+            `automation ${id}`
+          )
+        }
+      }
       throw new Error('Automation not found.')
     }
     return automation
@@ -4189,7 +4253,6 @@ export class OrcaRuntimeService {
     }
 
     const previousTabs = this.tabs
-    const previousLeaves = this.leaves
     this.tabs = new Map(graph.tabs.map((tab) => [tab.tabId, tab]))
     const lifecycleLeaves = this.reconcileMobileSessionRetirementFences(graph.leaves)
     const changedMobileWorktrees = this.syncMobileSessionTabs(graph.mobileSessionTabs)
@@ -4201,7 +4264,7 @@ export class OrcaRuntimeService {
     const preserveLivePtysDuringReload = this.graphStatus === 'reloading'
     for (const leaf of lifecycleLeaves) {
       const leafKey = this.getLeafKey(leaf.tabId, leaf.leafId)
-      const existing = this.leaves.get(leafKey)
+      const existing = this.leaves.getUnscoped(leafKey)
       const ptyId =
         preserveLivePtysDuringReload && leaf.ptyId === null && existing?.ptyId
           ? existing.ptyId
@@ -4270,7 +4333,7 @@ export class OrcaRuntimeService {
     )
     for (const oldLeafKey of this.leaves.keys()) {
       if (!nextLeaves.has(oldLeafKey)) {
-        const oldLeaf = this.leaves.get(oldLeafKey)
+        const oldLeaf = this.leaves.getUnscoped(oldLeafKey)
         if (
           preserveLivePtysDuringReload &&
           oldLeaf?.ptyId &&
@@ -4311,7 +4374,9 @@ export class OrcaRuntimeService {
       nextPtyIds.add(ptyId)
     }
 
-    this.leaves = nextLeaves
+    // Why the swap returns it: the "before" view the mobile diff below needs is
+    // the map this call just displaced — no copy of the live registry.
+    const previousLeaves = this.leaves.replaceAll(nextLeaves)
     this.rebuildLeafPtyIndex()
     // Why: the emitted client payload is a function of the stored snapshot AND
     // the tab/leaf graph (handles/titles/connected resolve from leaf state), so
@@ -4374,7 +4439,7 @@ export class OrcaRuntimeService {
   // the affected worktrees; false positives only cost a coalesced no-op emit.
   private collectMobileVisibleGraphChangedWorktrees(
     previousTabs: Map<string, RuntimeSyncedTab>,
-    previousLeaves: Map<string, RuntimeLeafRecord>
+    previousLeaves: ReadonlyMap<string, RuntimeLeafRecord>
   ): Set<string> {
     const changed = new Set<string>()
     for (const [tabId, tab] of this.tabs) {
@@ -5927,7 +5992,7 @@ export class OrcaRuntimeService {
     }
     // Why: floating PTY identity is explicit, so polling must not resolve every Git/SSH worktree.
     const isFloatingWorkspace = targetWorktreeId === FLOATING_TERMINAL_WORKTREE_ID
-    const resolvedWorktrees = isFloatingWorkspace ? [] : await this.listResolvedWorktrees()
+    const resolvedWorktrees = isFloatingWorkspace ? [] : await this.listAllResolvedWorktrees()
     return await this.refreshPtyWorktreeRecordsFromController(
       resolvedWorktrees,
       isFloatingWorkspace ? targetWorktreeId : null
@@ -7754,7 +7819,7 @@ export class OrcaRuntimeService {
         return true
       }
     }
-    const existingRecord = this.handles.get(handle)
+    const existingRecord = this.handles.getUnscoped(handle)
     if (existingRecord && existingRecord.ptyId !== ptyId) {
       return true
     }
@@ -14135,7 +14200,7 @@ export class OrcaRuntimeService {
         ? new Map([[targetWorktree.id, targetWorktree]])
         : targetWorktreeId
           ? new Map()
-          : await this.getResolvedWorktreeMap()
+          : await this.getAllResolvedWorktreeMap()
     if (graphEpoch !== null) {
       this.assertStableReadyGraph(graphEpoch)
     }
@@ -14203,9 +14268,16 @@ export class OrcaRuntimeService {
     }
 
     const requestedHandles = opts.handles ? new Set(opts.handles) : null
-    const matchingTerminals = requestedHandles
-      ? terminals.filter((terminal) => requestedHandles.has(terminal.handle))
-      : terminals
+    // Why: this roster IS the terminal catalog — the one list from which a
+    // caller learns which handles exist. Bounding it here is what keeps
+    // "no selector" from handing a remote pane the local handles to drive; the
+    // loops above stay unfiltered because dedupe and liveness need the whole set.
+    const matchingTerminals = filterToCallerScope(
+      requestedHandles
+        ? terminals.filter((terminal) => requestedHandles.has(terminal.handle))
+        : terminals,
+      (terminal) => this.resolveWorktreeOwnerConnectionId(terminal.worktreeId)
+    )
     const listedTerminals = matchingTerminals.slice(0, limit)
     const visualLayouts = this.buildTerminalVisualLayouts(
       listedTerminals,
@@ -14464,7 +14536,9 @@ export class OrcaRuntimeService {
       if (proposedPtyId && proposedPtyId !== claim.ptyId) {
         throw new Error('terminal_orphan_surface_occupied')
       }
-      const graphOwner = this.leaves.get(this.getLeafKey(claim.tabId, claim.leafId))
+      // Why: an occupancy check, not a reach — whoever owns the surface blocks
+      // the claim, so it must see a leaf the claimant could not address.
+      const graphOwner = this.leaves.getUnscoped(this.getLeafKey(claim.tabId, claim.leafId))
       if (
         graphOwner &&
         (graphOwner.ptyId !== claim.ptyId ||
@@ -14909,7 +14983,21 @@ export class OrcaRuntimeService {
 
   // Why: when --terminal is omitted, the CLI auto-resolves to the active
   // terminal in the current worktree — matching browser's implicit active tab.
+  //
+  // A call that names nothing still lands on a concrete pane, and for a remote
+  // caller the user's focused pane is very likely one on the laptop. So a
+  // bounded caller searches only panes its own host owns, and is refused —
+  // never quietly handed someone else's terminal — when it owns none.
   async resolveActiveTerminal(worktreeSelector?: string): Promise<string> {
+    const scope = getCallerScope()
+    const bounded = isBoundedCallerScope(scope)
+    const refuseUnscopedFallthrough = (): never => {
+      throw new CallerScopeDeniedError(
+        `Refused: no terminal was named, and no terminal on ${
+          scope.kind === 'ssh' ? `SSH host ${scope.connectionId}` : 'this caller'
+        } is available to fall back to. Name a terminal on your own host with --terminal <handle>.`
+      )
+    }
     if (this.graphStatus !== 'ready') {
       const targetWorktreeId = worktreeSelector
         ? (await this.resolveWorktreeSelector(worktreeSelector)).id
@@ -14918,6 +15006,9 @@ export class OrcaRuntimeService {
         ? [this.getMobileSessionTabsForWorktree(targetWorktreeId)]
         : await this.listAllMobileSessionTabs()
       for (const snapshot of snapshots) {
+        if (bounded && !this.isWorktreeReachableByCaller(snapshot.worktree)) {
+          continue
+        }
         const activeTerminal = snapshot.tabs.find(
           (tab) =>
             tab.type === 'terminal' &&
@@ -14929,10 +15020,13 @@ export class OrcaRuntimeService {
           return activeTerminal.terminal
         }
       }
-      const listed = await this.listTerminals(worktreeSelector)
-      const first = listed.terminals[0]?.handle
+      // Why: listTerminals is the bounded roster, so its first row is already ours.
+      const first = (await this.listTerminals(worktreeSelector)).terminals[0]?.handle
       if (first) {
         return first
+      }
+      if (bounded) {
+        refuseUnscopedFallthrough()
       }
       throw new Error('no_active_terminal')
     }
@@ -14947,6 +15041,9 @@ export class OrcaRuntimeService {
       if (targetWorktreeId && tab.worktreeId !== targetWorktreeId) {
         continue
       }
+      if (bounded && !this.isWorktreeReachableByCaller(tab.worktreeId)) {
+        continue
+      }
       if (!tab.activeLeafId) {
         continue
       }
@@ -14958,13 +15055,16 @@ export class OrcaRuntimeService {
     }
 
     // Fallback: any leaf in the target worktree
-    for (const leaf of this.leaves.values()) {
+    for (const leaf of this.leaves.valuesForCaller()) {
       if (targetWorktreeId && leaf.worktreeId !== targetWorktreeId) {
         continue
       }
       return this.issueHandle(leaf)
     }
 
+    if (bounded) {
+      refuseUnscopedFallthrough()
+    }
     throw new Error('no_active_terminal')
   }
 
@@ -15095,7 +15195,7 @@ export class OrcaRuntimeService {
     if (pty) {
       // Why: resolve liveness before building the summary so connected/writable reflect a daemon-reaped PTY (#9169).
       const liveness = await this.resolveTerminalLiveness(pty.pty.ptyId)
-      const worktreesById = await this.getResolvedWorktreeMap()
+      const worktreesById = await this.getAllResolvedWorktreeMap()
       const summary = this.buildPtyTerminalSummary(pty.pty, worktreesById)
       const preview = await this.visibleSnapshotPreview(pty.pty.ptyId, summary.preview)
       this.assertLiveTerminalHandleTargetsPty(handle, pty.pty.ptyId)
@@ -15112,7 +15212,7 @@ export class OrcaRuntimeService {
       }
     }
     const graphEpoch = this.captureReadyGraphEpoch()
-    const worktreesById = await this.getResolvedWorktreeMap()
+    const worktreesById = await this.getAllResolvedWorktreeMap()
     this.assertStableReadyGraph(graphEpoch)
     const { leaf } = this.getLiveLeafForHandle(handle)
     const liveness = leaf.ptyId
@@ -16308,7 +16408,7 @@ export class OrcaRuntimeService {
     if (!Number.isInteger(limit) || limit <= 0) {
       throw new Error('invalid_limit')
     }
-    const resolvedWorktreeSnapshot = await this.listResolvedWorktreeSnapshot()
+    const resolvedWorktreeSnapshot = await this.listAllResolvedWorktreeSnapshot()
     const resolvedWorktrees = resolvedWorktreeSnapshot.worktrees.filter((worktree) =>
       this.isRuntimeWorktreeVisible(worktree)
     )
@@ -16324,7 +16424,11 @@ export class OrcaRuntimeService {
     // PR info so mobile clients can group worktrees by PR state without making
     // expensive `gh` CLI calls. Falls back to meta.linkedPR if no cache entry exists.
     const ghCache = this.store?.getGitHubCache?.()
-    for (const worktree of resolvedWorktrees) {
+    // Why: the refresh above needed every workspace to attribute live PTYs; the
+    // rows that leave this method are the caller's catalog and are bounded.
+    for (const worktree of filterToCallerScope(resolvedWorktrees, (candidate) =>
+      this.resolveWorktreeOwnerConnectionId(candidate.id)
+    )) {
       const meta =
         this.store?.getWorktreeMeta?.(worktree.id) ?? this.store?.getAllWorktreeMeta()[worktree.id]
       const repo = repoById.get(worktree.repoId)
@@ -16833,7 +16937,12 @@ export class OrcaRuntimeService {
     return true
   }
 
+  /** The repo catalog as the caller may see it — repo.list and every repo resolver read this. */
   listRepos(): Repo[] {
+    return filterToCallerScope(this.listAllRepos(), (repo) => repo.connectionId ?? null)
+  }
+
+  private listAllRepos(): Repo[] {
     return this.store?.getRepos() ?? []
   }
 
@@ -16861,7 +16970,19 @@ export class OrcaRuntimeService {
     })
   }
 
+  /**
+   * The project catalog as the caller may see it. A project spans hosts — one
+   * setup per host — so it is visible to whoever reaches any of its checkouts,
+   * and a project with no reachable checkout is not the caller's to see.
+   */
   listProjects(): Project[] {
+    return filterToCallerScopeByAnyOwner(this.listAllProjects(), (project) =>
+      project.sourceRepoIds.map((repoId) => this.resolveRepoOwnerConnectionId(repoId))
+    )
+  }
+
+  /** Every project on this host — setup and migration flows reconcile across hosts. */
+  private listAllProjects(): Project[] {
     return this.store?.getProjects?.() ?? []
   }
 
@@ -16878,7 +16999,15 @@ export class OrcaRuntimeService {
     return project
   }
 
+  /** The host-setup catalog as the caller may see it: one row per host, so the row names its own owner. */
   listProjectHostSetups(): ProjectHostSetup[] {
+    return filterToCallerScope(this.listAllProjectHostSetups(), (setup) =>
+      this.resolveExecutionHostOwner(setup.executionHostId ?? setup.hostId)
+    )
+  }
+
+  /** Every host setup — repo/worktree reconciliation must see the hosts the caller cannot. */
+  private listAllProjectHostSetups(): ProjectHostSetup[] {
     return this.store?.getProjectHostSetups?.() ?? []
   }
 
@@ -16901,9 +17030,11 @@ export class OrcaRuntimeService {
     }
     assertProjectHostSetupHostIsSupported(args.hostId)
     let repo = await this.addRepo(args.path, args.kind === 'folder' ? 'folder' : 'git', args.hostId)
-    let setup = getProjectHostSetupForRepo(this.listProjectHostSetups(), repo)
+    let setup = getProjectHostSetupForRepo(this.listAllProjectHostSetups(), repo)
     if (setup.projectId !== args.projectId) {
-      const existingProject = this.listProjects().find((project) => project.id === args.projectId)
+      const existingProject = this.listAllProjects().find(
+        (project) => project.id === args.projectId
+      )
       const identityStamp = getProjectIdentityRepoStamp(existingProject)
       if (!identityStamp) {
         throw new Error('Imported folder does not match the selected project identity.')
@@ -16921,7 +17052,7 @@ export class OrcaRuntimeService {
         throw new Error(`Project setup repo disappeared before it could be linked: ${repo.id}`)
       }
       repo = updated
-      setup = getProjectHostSetupForRepo(this.listProjectHostSetups(), repo)
+      setup = getProjectHostSetupForRepo(this.listAllProjectHostSetups(), repo)
     }
     const setupMethod = args.setupMethod ?? 'imported-existing-folder'
     const updated = this.store.updateRepo(repo.id, { projectHostSetupMethod: setupMethod })
@@ -16931,8 +17062,8 @@ export class OrcaRuntimeService {
       )
     }
     repo = updated
-    setup = getProjectHostSetupForRepo(this.listProjectHostSetups(), repo)
-    const project = this.listProjects().find((entry) => entry.id === setup.projectId)
+    setup = getProjectHostSetupForRepo(this.listAllProjectHostSetups(), repo)
+    const project = this.listAllProjects().find((entry) => entry.id === setup.projectId)
     if (!project) {
       throw new Error(`Project setup was created without a project record: ${setup.projectId}`)
     }
@@ -17163,6 +17294,9 @@ export class OrcaRuntimeService {
   }
 
   async scanNestedRepos(path: string): Promise<NestedRepoScanResult> {
+    // Why: a bare absolute path, walked on the machine running Orca — the same
+    // no-selector shape as browseServerDir, so the same refusal.
+    assertLocalCallerScope(getCallerScope(), 'scanning folders on the machine running Orca')
     if (!isAbsolute(path)) {
       throw new Error('Project path must be an absolute path')
     }
@@ -17170,6 +17304,10 @@ export class OrcaRuntimeService {
   }
 
   async browseServerDir(pathValue: string): Promise<{ resolvedPath: string; entries: DirEntry[] }> {
+    // Why: the parameter is a bare path with no host selector, and it stats and
+    // reads directories on the machine running Orca — for a remote caller that
+    // is the user's own filesystem, and no worktree bounds it.
+    assertLocalCallerScope(getCallerScope(), 'browsing directories on the machine running Orca')
     const dirPath = resolveServerBrowsePath(pathValue)
     const dirStat = await stat(dirPath)
     if (!dirStat.isDirectory()) {
@@ -25614,7 +25752,7 @@ export class OrcaRuntimeService {
     if (existingSleepState?.phase === 'sleeping') {
       try {
         const resolvedWorktrees = includeTargetResolvedWorktree(
-          [...(await this.getResolvedWorktreeMap()).values()],
+          [...(await this.getAllResolvedWorktreeMap()).values()],
           worktree
         )
         const refreshedPtyLiveness = await this.refreshPtyWorktreeRecordsFromController(
@@ -25657,7 +25795,7 @@ export class OrcaRuntimeService {
     let releaseReversibleRendererStops = (): void => {}
     try {
       const resolvedWorktrees = includeTargetResolvedWorktree(
-        [...(await this.getResolvedWorktreeMap()).values()],
+        [...(await this.getAllResolvedWorktreeMap()).values()],
         worktree
       )
       const refreshedPtyLiveness = await this.refreshPtyWorktreeRecordsFromController(
@@ -25898,7 +26036,7 @@ export class OrcaRuntimeService {
     if (expected.size !== 1) {
       throw new Error('terminal_exact_stop_requires_single_pty')
     }
-    const resolvedWorktrees = [...(await this.getResolvedWorktreeMap()).values()]
+    const resolvedWorktrees = [...(await this.getAllResolvedWorktreeMap()).values()]
     const refreshedPtyLiveness =
       await this.refreshPtyWorktreeRecordsFromController(resolvedWorktrees)
     if (!refreshedPtyLiveness) {
@@ -26225,6 +26363,13 @@ export class OrcaRuntimeService {
       selector === FLOATING_TERMINAL_WORKTREE_ID ||
       selector === `id:${FLOATING_TERMINAL_WORKTREE_ID}`
     if (floatingTerminalSelector) {
+      // Why: the sentinel short-circuits resolution and spawns a PTY at homedir()
+      // on the machine running Orca — for a remote caller that is a shell on the
+      // user's laptop, so it is refused here rather than at a resolver it skips.
+      this.assertOwnerInCallerScope(
+        () => null,
+        `floating terminal workspace ${FLOATING_TERMINAL_WORKTREE_ID}`
+      )
       // Why: the floating sentinel is terminal-only — no backing repo/worktree record for other workspace APIs.
       return {
         id: FLOATING_TERMINAL_WORKTREE_ID,
@@ -26237,6 +26382,10 @@ export class OrcaRuntimeService {
 
     const folderScope = await this.resolveFolderWorkspaceLaunchScope(selector)
     if (folderScope) {
+      this.assertOwnerInCallerScope(
+        () => folderScope.connectionId,
+        `folder workspace ${folderScope.id}`
+      )
       return folderScope
     }
 
@@ -26284,6 +26433,168 @@ export class OrcaRuntimeService {
     }
   }
 
+  /**
+   * The caller-scope owner of an execution host: `null` for this machine, the
+   * SSH target id for a remote one. A `runtime:` host is a paired Orca runtime,
+   * not an SSH connection this bound can name, so it answers `undefined` and a
+   * bounded caller is refused it.
+   */
+  private resolveExecutionHostOwner(hostId: ExecutionHostId): CallerScopeObjectOwner {
+    const parsed = parseExecutionHostId(hostId)
+    if (parsed?.kind === 'local') {
+      return null
+    }
+    return parsed?.kind === 'ssh' ? parsed.targetId : undefined
+  }
+
+  /**
+   * Execution owner of a worktree-shaped id: `null` for this machine, the SSH
+   * target id for a remote one, `undefined` when no record answers for it.
+   * `undefined` is not "local" — a bounded caller is refused it.
+   *
+   * Read through getWorktreeExecutionHostId on purpose: ownership and "where
+   * does this workspace execute" are the same question, and a workspace whose
+   * meta pins a host overrides its repo. Answering from `repo.connectionId`
+   * alone would guard a machine the work does not run on.
+   */
+  private resolveWorktreeOwnerConnectionId(worktreeId: string): CallerScopeObjectOwner {
+    if (worktreeId === FLOATING_TERMINAL_WORKTREE_ID || worktreeId === ORPHAN_WORKTREE_ID) {
+      // Why: both sentinels spawn a PTY on the machine running Orca.
+      return null
+    }
+    const parsedWorkspace = parseWorkspaceKey(worktreeId)
+    if (parsedWorkspace?.type === 'folder') {
+      const workspace = this.store
+        ?.getFolderWorkspaces?.()
+        .find((candidate) => candidate.id === parsedWorkspace.folderWorkspaceId)
+      return workspace ? this.resolveFolderWorkspaceConnectionId(workspace) : undefined
+    }
+    const resolvedWorktreeId =
+      parsedWorkspace?.type === 'worktree' ? parsedWorkspace.worktreeId : worktreeId
+    const repoId = splitWorktreeIdForFilesystem(resolvedWorktreeId)?.repoId
+    if (!repoId || typeof this.store?.getRepo !== 'function') {
+      // Why: no catalog to answer with is "unknown", not "local" — a bounded
+      // caller is refused it.
+      return undefined
+    }
+    const repo = this.store.getRepo(repoId)
+    if (!repo) {
+      return undefined
+    }
+    const meta =
+      this.store.getWorktreeMeta?.(resolvedWorktreeId) ??
+      this.store.getAllWorktreeMeta?.()[resolvedWorktreeId]
+    return this.resolveExecutionHostOwner(
+      getWorktreeExecutionHostId({ hostId: meta?.hostId }, repo)
+    )
+  }
+
+  /**
+   * Why the owner is a thunk: resolving ownership walks the repo catalog (and
+   * can throw for an ambiguous folder workspace), and a local caller is never
+   * bounded — so nothing about the bound may run on the unrestricted path.
+   */
+  private assertOwnerInCallerScope(
+    resolveOwner: () => CallerScopeObjectOwner,
+    subject: string
+  ): void {
+    const scope = getCallerScope()
+    if (scope.kind === 'local') {
+      return
+    }
+    assertCallerScopeReaches(scope, resolveOwner(), subject)
+  }
+
+  private assertWorktreeIdInCallerScope(worktreeId: string, subject = 'worktree'): void {
+    this.assertOwnerInCallerScope(
+      () => this.resolveWorktreeOwnerConnectionId(worktreeId),
+      `${subject} ${worktreeId}`
+    )
+  }
+
+  isWorktreeReachableByCaller(worktreeId: string): boolean {
+    const scope = getCallerScope()
+    if (scope.kind === 'local') {
+      return true
+    }
+    return callerScopeReaches(scope, this.resolveWorktreeOwnerConnectionId(worktreeId))
+  }
+
+  /**
+   * Orchestration addresses a handle that may name a pane the handle registry no
+   * longer holds — delivery follows the pane through the message row's persisted
+   * pane key (#9163). That second path means the registry is not the only lookup
+   * for this object kind, so the mail surfaces bound the recipient explicitly. An
+   * unattributable handle is refused, never treated as local.
+   */
+  assertTerminalHandleInCallerScope(handle: string, subject = 'terminal'): void {
+    const scope = getCallerScope()
+    if (scope.kind === 'local') {
+      return
+    }
+    assertCallerScopeReaches(scope, this.resolveTerminalHandleOwner(handle), `${subject} ${handle}`)
+  }
+
+  /** Boolean twin for mailbox catalogs, which hide rows rather than refuse the call. */
+  isTerminalHandleReachableByCaller(handle: string): boolean {
+    const scope = getCallerScope()
+    if (scope.kind === 'local') {
+      return true
+    }
+    return callerScopeReaches(scope, this.resolveTerminalHandleOwner(handle))
+  }
+
+  private resolveTerminalHandleOwner(handle: string): CallerScopeObjectOwner {
+    const rememberedPane = parsePaneKey(this.paneKeyByHandleMemory.get(handle) ?? '')
+    const worktreeId =
+      this.handles.getUnscoped(handle)?.worktreeId ??
+      (rememberedPane
+        ? this.leaves.getUnscoped(this.getLeafKey(rememberedPane.tabId, rememberedPane.leafId))
+            ?.worktreeId
+        : undefined)
+    return worktreeId === undefined ? undefined : this.resolveWorktreeOwnerConnectionId(worktreeId)
+  }
+
+  /**
+   * For commands that act on a whole workspace rather than one named object: an
+   * omitted selector is not "no target", it is the machine running Orca.
+   */
+  async assertWorkspaceSelectorInCallerScope(
+    worktreeSelector: string | undefined,
+    subject: string
+  ): Promise<void> {
+    const scope = getCallerScope()
+    if (scope.kind === 'local') {
+      return
+    }
+    if (!worktreeSelector) {
+      throw new CallerScopeDeniedError(
+        `Refused: ${subject} names no workspace, so it acts on the machine running Orca. Name a workspace on your own host with --worktree.`
+      )
+    }
+    // Why: the worktree catalog is already bounded, so resolution IS the check.
+    await this.resolveWorktreeSelector(worktreeSelector)
+  }
+
+  /**
+   * Browser commands drive the session attached to a worktree, so that worktree
+   * is the object to bound — and a command that names none drives the session in
+   * the user's own app, which no remote pane owns.
+   */
+  async assertBrowserTargetInCallerScope(worktreeSelector: string | undefined): Promise<void> {
+    const scope = getCallerScope()
+    if (scope.kind === 'local') {
+      return
+    }
+    if (!worktreeSelector) {
+      throw new CallerScopeDeniedError(
+        'Refused: this browser command names no workspace, so it drives the browser session inside the Orca app on the machine running Orca. Name a workspace on your own host with --worktree.'
+      )
+    }
+    // Why: the worktree catalog is already bounded, so resolution IS the check.
+    await this.resolveWorktreeSelector(worktreeSelector)
+  }
+
   private getValidatedExplicitWorktreeIdSelector(selector: string | undefined): string | null {
     const worktreeId = getExplicitWorktreeIdSelector(selector)
     if (
@@ -26294,18 +26605,53 @@ export class OrcaRuntimeService {
       // Why: a registered repo id is a known-invalid worktree id; reject early before fast paths or Git/SSH scans hide the mistake.
       throw new WorktreeIdRequiresFullPathError()
     }
+    if (worktreeId) {
+      // Why: several call sites take this id and skip resolveWorktreeSelector
+      // entirely, so the bound has to hold here too or `id:` is a way around it.
+      this.assertWorktreeIdInCallerScope(worktreeId)
+    }
     return worktreeId
   }
 
   private async resolveWorktreeSelector(selector: string): Promise<ResolvedWorktree> {
     const explicitWorktreeId = this.getValidatedExplicitWorktreeIdSelector(selector)
-    const worktrees = await this.listResolvedWorktrees()
-    let candidates: ResolvedWorktree[]
-
     if (selector === 'active') {
       throw new Error('selector_not_found')
     }
+    const candidates = this.matchWorktreeSelector(
+      await this.listResolvedWorktrees(),
+      selector,
+      explicitWorktreeId
+    )
+    if (candidates.length === 1) {
+      return candidates[0]
+    }
+    if (candidates.length > 1) {
+      throw new Error('selector_ambiguous')
+    }
+    // Why: the catalog already hid the rows this caller may not reach, so the
+    // miss above is already safe. Naming what was hidden keeps the refusal
+    // legible instead of reading as a typo — bounded callers only, so the
+    // unrestricted path never pays for the second pass.
+    if (isBoundedCallerScope(getCallerScope())) {
+      const outOfScope = this.matchWorktreeSelector(
+        await this.listAllResolvedWorktrees(),
+        selector,
+        explicitWorktreeId
+      )[0]
+      if (outOfScope) {
+        this.assertWorktreeIdInCallerScope(outOfScope.id)
+      }
+    }
+    throw new Error('selector_not_found')
+  }
 
+  private matchWorktreeSelector(
+    worktrees: ResolvedWorktree[],
+    selector: string,
+    explicitWorktreeId: string | null
+  ): ResolvedWorktree[] {
+    let candidates: ResolvedWorktree[]
     if (selector.startsWith('id:')) {
       const worktreeId = explicitWorktreeId ?? selector.slice(3)
       candidates = worktrees.filter((worktree) => worktree.id === worktreeId)
@@ -26349,14 +26695,7 @@ export class OrcaRuntimeService {
           branchSelectorMatches(worktree.branch, selector)
       )
     }
-
-    if (candidates.length === 1) {
-      return candidates[0]
-    }
-    if (candidates.length > 1) {
-      throw new Error('selector_ambiguous')
-    }
-    throw new Error('selector_not_found')
+    return candidates
   }
 
   private async resolveWorkspaceParentSelector(selector: string): Promise<ResolvedWorkspaceParent> {
@@ -26369,6 +26708,10 @@ export class OrcaRuntimeService {
       if (!folderWorkspace) {
         throw new Error('selector_not_found')
       }
+      this.assertOwnerInCallerScope(
+        () => this.resolveFolderWorkspaceConnectionId(folderWorkspace),
+        `folder workspace ${folderWorkspace.id}`
+      )
       return {
         type: 'folder',
         workspaceKey: folderWorkspaceKey(folderWorkspace.id),
@@ -26723,7 +27066,7 @@ export class OrcaRuntimeService {
       return
     }
 
-    const worktrees = await this.listResolvedWorktrees()
+    const worktrees = await this.listAllResolvedWorktrees()
     for (const worktree of worktrees) {
       if (store.getWorktreeLineage(worktree.id) || !worktree.instanceId) {
         continue
@@ -26772,31 +27115,43 @@ export class OrcaRuntimeService {
     if (!this.store) {
       throw new Error('repo_not_found')
     }
-    const repos = this.store.getRepos()
-    let candidates: Repo[]
-
-    if (selector.startsWith('id:')) {
-      candidates = repos.filter((repo) => repo.id === selector.slice(3))
-    } else if (selector.startsWith('path:')) {
-      candidates = repos.filter((repo) => runtimePathsEqual(repo.path, selector.slice(5)))
-    } else if (selector.startsWith('name:')) {
-      candidates = repos.filter((repo) => repo.displayName === selector.slice(5))
-    } else {
-      candidates = repos.filter(
-        (repo) =>
-          repo.id === selector ||
-          runtimePathsEqual(repo.path, selector) ||
-          repo.displayName === selector
-      )
-    }
-
+    const candidates = this.matchRepoSelector(this.listRepos(), selector)
     if (candidates.length === 1) {
       return candidates[0]
     }
     if (candidates.length > 1) {
       throw new Error('selector_ambiguous')
     }
+    // Why: same as the worktree catalog — the bound already held; this only
+    // replaces "not found" with the reason, and only for a bounded caller.
+    if (isBoundedCallerScope(getCallerScope())) {
+      const outOfScope = this.matchRepoSelector(this.listAllRepos(), selector)[0]
+      if (outOfScope) {
+        this.assertOwnerInCallerScope(
+          () => outOfScope.connectionId ?? null,
+          `repo ${outOfScope.id}`
+        )
+      }
+    }
     throw new Error('repo_not_found')
+  }
+
+  private matchRepoSelector(repos: Repo[], selector: string): Repo[] {
+    if (selector.startsWith('id:')) {
+      return repos.filter((repo) => repo.id === selector.slice(3))
+    }
+    if (selector.startsWith('path:')) {
+      return repos.filter((repo) => runtimePathsEqual(repo.path, selector.slice(5)))
+    }
+    if (selector.startsWith('name:')) {
+      return repos.filter((repo) => repo.displayName === selector.slice(5))
+    }
+    return repos.filter(
+      (repo) =>
+        repo.id === selector ||
+        runtimePathsEqual(repo.path, selector) ||
+        repo.displayName === selector
+    )
   }
 
   private requireStore(): Store {
@@ -26873,11 +27228,29 @@ export class OrcaRuntimeService {
     return resolved
   }
 
+  /**
+   * The workspace catalog as the caller may see it. This is the bounded name on
+   * purpose: a resolver that reaches for "the worktrees" gets its caller's
+   * worktrees, and code that genuinely needs every workspace on the host has to
+   * ask for {@link listAllResolvedWorktrees} by name.
+   */
   private async listResolvedWorktrees(): Promise<ResolvedWorktree[]> {
-    return (await this.listResolvedWorktreeSnapshot()).worktrees
+    return filterToCallerScope(await this.listAllResolvedWorktrees(), (worktree) =>
+      this.resolveWorktreeOwnerConnectionId(worktree.id)
+    )
   }
 
-  private async listResolvedWorktreeSnapshot(): Promise<ResolvedWorktreeSnapshot> {
+  /**
+   * Every workspace on this host, whoever asked. Only host bookkeeping may use
+   * it — PTY liveness attribution and lineage hydration run inside whatever
+   * request happens to trigger them and would mis-attribute or prune the user's
+   * own terminals if they saw a caller-shaped subset.
+   */
+  private async listAllResolvedWorktrees(): Promise<ResolvedWorktree[]> {
+    return (await this.listAllResolvedWorktreeSnapshot()).worktrees
+  }
+
+  private async listAllResolvedWorktreeSnapshot(): Promise<ResolvedWorktreeSnapshot> {
     if (!this.store) {
       return { worktrees: [], platformByRepoId: new Map() }
     }
@@ -27138,8 +27511,16 @@ export class OrcaRuntimeService {
     return [...byWorktreeId.values()]
   }
 
-  private async getResolvedWorktreeMap(): Promise<Map<string, ResolvedWorktree>> {
-    return new Map((await this.listResolvedWorktrees()).map((worktree) => [worktree.id, worktree]))
+  /**
+   * Decoration + liveness-attribution map, deliberately unbounded: its consumers
+   * either feed {@link refreshPtyWorktreeRecordsFromController} — which prunes
+   * against the host's real PTY set — or label rows that a bounded caller has
+   * already been filtered down to.
+   */
+  private async getAllResolvedWorktreeMap(): Promise<Map<string, ResolvedWorktree>> {
+    return new Map(
+      (await this.listAllResolvedWorktrees()).map((worktree) => [worktree.id, worktree])
+    )
   }
 
   private invalidateResolvedWorktreeCache(): void {
@@ -27654,7 +28035,7 @@ export class OrcaRuntimeService {
       // Why: pruning can remove a PTY without onPtyExit firing; release this leader's agent team so it doesn't leak.
       this.claudeAgentTeams.removeTeamForLeaderHandle(handle)
       this.handleByPtyId.delete(ptyId)
-      const record = this.handles.get(handle)
+      const record = this.handles.getUnscoped(handle)
       if (record?.tabId.startsWith('pty:')) {
         this.handles.delete(handle)
       }
@@ -28934,7 +29315,10 @@ export class OrcaRuntimeService {
     }
     let newestMatch: RuntimePtyWorktreeRecord | null = null
     for (const pty of this.ptysById.values()) {
-      if (pty.paneKey === paneKey) {
+      // Why: a PTY record has no single caller-facing lookup — callers reach one
+      // through a handle or a leaf, both already bounded. This pane-key scan is
+      // the one exception, so it carries the bound itself.
+      if (pty.paneKey === paneKey && this.isWorktreeReachableByCaller(pty.worktreeId)) {
         if (pty.connected) {
           return pty
         }
@@ -29487,7 +29871,7 @@ export class OrcaRuntimeService {
     const leafKey = this.getLeafKey(leaf.tabId, leaf.leafId)
     const existingHandle = this.handleByLeafKey.get(leafKey)
     if (existingHandle) {
-      const existingRecord = this.handles.get(existingHandle)
+      const existingRecord = this.handles.getUnscoped(existingHandle)
       if (
         existingRecord &&
         existingRecord.rendererGraphEpoch === this.rendererGraphEpoch &&
@@ -29555,7 +29939,7 @@ export class OrcaRuntimeService {
     const existingHandle =
       this.handleByPtyId.get(pty.ptyId) ?? this.findHandleForPtyRecord(pty.ptyId)
     if (existingHandle) {
-      const existingRecord = this.handles.get(existingHandle)
+      const existingRecord = this.handles.getUnscoped(existingHandle)
       if (
         existingRecord &&
         existingRecord.runtimeId === this.runtimeId &&
@@ -29610,7 +29994,7 @@ export class OrcaRuntimeService {
     // later addressed to this now-stale handle can still recover the pane it
     // named and follow the remint (#9163 delivery-follows-identity). Without
     // this, a first message to a just-stale handle resolves no pane key.
-    const record = this.handles.get(handle)
+    const record = this.handles.getUnscoped(handle)
     if (record) {
       this.preserveHandlePaneKey(handle, record)
     }
@@ -29625,7 +30009,7 @@ export class OrcaRuntimeService {
     ptyGeneration: number
   ): boolean {
     const handle = this.handleByLeafKey.get(leafKey)
-    const record = handle ? this.handles.get(handle) : null
+    const record = handle ? this.handles.getUnscoped(handle) : null
     if (!handle || !record || record.ptyId !== null || ptyId === null) {
       return false
     }

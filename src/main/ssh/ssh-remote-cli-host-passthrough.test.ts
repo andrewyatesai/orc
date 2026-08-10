@@ -45,7 +45,10 @@ const BASE_OPTIONS = {
   execPath: '/host/electron',
   cliEntryPath: '/host/app/out/cli/index.js',
   userDataPath: '/host/user-data',
-  entryExists: () => true
+  entryExists: () => true,
+  // Why: the real one plants a scoped-token metadata file next to the host's;
+  // these tests only care that the subprocess is pointed at whatever it returns.
+  createScopedCallerMetadata: () => ({ userDataPath: '/host/scoped', dispose: () => {} })
 }
 
 describe('resolveHostCliEntryPath', () => {

@@ -67,7 +67,13 @@ describe('orchestration gate RPC lifecycle recovery', () => {
     const method = findMethod(name)
     const parsed = method.params ? method.params.parse(params) : undefined
     return method.handler(parsed, {
-      runtime: { getOrchestrationDb: () => db }
+      // Why the caller-scope stubs are no-ops: these tests are local callers,
+      // which the real bounds return from before looking anything up.
+      runtime: {
+        getOrchestrationDb: () => db,
+        assertTerminalHandleInCallerScope: () => {},
+        assertWorkspaceSelectorInCallerScope: async () => {}
+      }
     } as never)
   }
 

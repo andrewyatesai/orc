@@ -18,6 +18,7 @@ import { clampOrchestrationAskTimeoutMs } from '../../../../shared/orchestration
 import { SETTLED_DISPATCH_STATUSES } from '../../../../shared/agent-status-types'
 import { OrchestrationError } from '../../orchestration/orchestration-error'
 import { ORCHESTRATION_GATE_METHODS } from './orchestration-gates'
+import { assertLocalCallerScope, getCallerScope } from '../../runtime-caller-scope'
 
 const MESSAGE_TYPES: MessageType[] = [
   'status',
@@ -252,6 +253,10 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
       const senderPaneKey = params.senderPaneKey ?? runtime.getTerminalPaneKey(from) ?? undefined
 
       if (!isGroupAddress(params.to)) {
+        // Why: point-to-point mail is delivered by the persisted pane key when the
+        // handle registry no longer holds the recipient, so the registry's own
+        // bound is not the only path to the pane — name the recipient here.
+        runtime.assertTerminalHandleInCallerScope(params.to, 'message recipient')
         // Why: the pane key is the remint-stable recipient identity — persisted so
         // delivery can follow the pane when the addressed handle goes stale (#9163).
         const recipientPaneKey =
@@ -339,8 +344,12 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
 
       // Why: fan out one message per recipient (independent read-tracking) but share a thread_id for correlation (Section 4.5).
       const { terminals } = await runtime.listTerminals()
-      const handles = resolveGroupAddress(params.to, from, terminals, (handle: string) =>
-        runtime.getAgentStatusForHandle(handle)
+      const handles = resolveGroupAddress(
+        params.to,
+        from,
+        terminals,
+        (handle: string) => runtime.getAgentStatusForHandle(handle),
+        (terminal) => runtime.isWorktreeReachableByCaller(terminal.worktreeId)
       )
 
       if (handles.length === 0) {
@@ -384,6 +393,9 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
     handler: async (params, { runtime, signal }) => {
       const db = runtime.getOrchestrationDb()
       const handle = params.terminal ?? 'unknown'
+      // Why: reading a mailbox consumes it — the unread rows are marked read —
+      // so the mailbox is the object here, exactly as the recipient is on send.
+      runtime.assertTerminalHandleInCallerScope(handle, 'mailbox')
       const typeFilter = params.types
         ? (params.types
             .split(',')
@@ -454,6 +466,11 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
       if (!original) {
         throw new Error(`Message not found: ${params.id}`)
       }
+      // Why both: replying reads and consumes the addressed pane's mail, and then
+      // delivers into the original sender's pane. A message id names both panes
+      // without either appearing in the params.
+      runtime.assertTerminalHandleInCallerScope(original.to_handle, 'mailbox')
+      runtime.assertTerminalHandleInCallerScope(original.from_handle, 'reply recipient')
 
       db.markAsRead([original.id])
 
@@ -475,10 +492,22 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
     params: InboxParams,
     handler: (params, { runtime }) => {
       const db = runtime.getOrchestrationDb()
+      if (params.terminal) {
+        runtime.assertTerminalHandleInCallerScope(params.terminal, 'mailbox')
+      }
       // Why: stale/unknown handles return empty rather than error — historical rows survive handle deletion (design doc §3.3).
       const messages = params.terminal
         ? db.getAllMessagesForHandle(params.terminal, params.limit)
-        : db.getInbox(params.limit)
+        : // Why filtered, not refused: an unaddressed inbox IS the mail catalog —
+          // every pane's traffic in one list — so a bounded caller sees the rows
+          // between panes it reaches and never learns the rest exist.
+          db
+            .getInbox(params.limit)
+            .filter(
+              (message) =>
+                runtime.isTerminalHandleReachableByCaller(message.to_handle) &&
+                runtime.isTerminalHandleReachableByCaller(message.from_handle)
+            )
       return { messages, count: messages.length }
     }
   }),
@@ -584,6 +613,9 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
         throw new Error('Missing --to')
       }
       const to = params.to
+      // Why: --inject writes the preamble into the addressed pane's agent, so the
+      // assignee is the object being driven; same second delivery path as send.
+      runtime.assertTerminalHandleInCallerScope(to, 'dispatch assignee')
 
       if (task.status !== 'ready') {
         throw new Error(`Task ${params.task} is ${task.status}; only ready tasks can be dispatched`)
@@ -658,6 +690,11 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
         throw new Error('Missing --task')
       }
       const ctx = db.getDispatchContext(params.task)
+      if (ctx?.assignee_handle) {
+        // Why: --preamble re-mints the dispatch capability for the assignee, so
+        // this reads out a secret that authorizes acting as that pane's worker.
+        runtime.assertTerminalHandleInCallerScope(ctx.assignee_handle, 'dispatch assignee')
+      }
 
       // Why: the preamble is derived from the current task spec, so it can be regenerated deterministically even after dispatch completes.
       if (params.preamble) {
@@ -733,6 +770,7 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
         )
       }
 
+      runtime.assertTerminalHandleInCallerScope(params.to, 'question recipient')
       const db = runtime.getOrchestrationDb()
       const from = params.from ?? 'unknown'
       // Why: echoed on every return so a clamped caller reports the budget actually waited, not the one it asked for.
@@ -816,6 +854,9 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
     name: 'orchestration.reset',
     params: ResetParams,
     handler: (params, { runtime }) => {
+      // Why: reset names no mailbox and wipes every pane's mail and tasks at
+      // once, so there is nothing here to bound it to.
+      assertLocalCallerScope(getCallerScope(), 'orchestration reset')
       const db = runtime.getOrchestrationDb()
       if (params.all) {
         db.resetAll()

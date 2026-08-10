@@ -64,8 +64,10 @@ const {
   clearMigrationUnsupportedPtysForPaneKeyMock,
   clearPaneKeyAliasesForPtyMock,
   recordCodexPaneAccountMock,
-  forgetCodexPaneAccountMock
+  forgetCodexPaneAccountMock,
+  ensureManagedCliBinDirMock
 } = vi.hoisted(() => ({
+  ensureManagedCliBinDirMock: vi.fn(),
   handleMock: vi.fn(),
   onMock: vi.fn(),
   removeHandlerMock: vi.fn(),
@@ -213,11 +215,20 @@ vi.mock('../telemetry/classify-error', () => ({
   classifyError: classifyErrorMock
 }))
 
-// Why: the real ensure writes to process.resourcesPath (absent under vitest); env assembly only needs the returned dir path.
-vi.mock('../cli/linux-terminal-orca-cli-shim', () => ({
-  ensureLinuxTerminalOrcaCliShimDir: (options: { userDataPath: string }) =>
-    join(options.userDataPath, 'linux-orca-cli-shim')
+// Why: the real ensure needs process.resourcesPath (absent under vitest); env assembly only needs
+// the returned dir path. PATHEXT and CLI-name resolution stay real so this suite tests them.
+const WINDOWS_LAUNCHER_BIN_DIR = '/fake/Orca/resources/bin'
+vi.mock('../cli/managed-terminal-orca-cli-shim', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  ensureManagedTerminalOrcaCliBinDir: ensureManagedCliBinDirMock
 }))
+
+function defaultManagedCliBinDir(options: { userDataPath: string }): string {
+  // Why: the Windows launcher ships beside the app, not under userData.
+  return process.platform === 'win32'
+    ? WINDOWS_LAUNCHER_BIN_DIR
+    : join(options.userDataPath, 'orca-cli-shim')
+}
 
 vi.mock('../memory/pty-registry', () => ({
   registerPty: registerPtyMock,
@@ -364,6 +375,8 @@ describe('registerPtyHandlers', () => {
     removeHandlerMock.mockReset()
     removeAllListenersMock.mockReset()
     existsSyncMock.mockReset()
+    ensureManagedCliBinDirMock.mockReset()
+    ensureManagedCliBinDirMock.mockImplementation(defaultManagedCliBinDir)
     statSyncMock.mockReset()
     accessSyncMock.mockReset()
     mkdirSyncMock.mockReset()
@@ -3394,29 +3407,87 @@ describe('registerPtyHandlers', () => {
         expect(spawnOptions.env.CLAUDE_CODE_CHILD_SESSION).toBe('1')
       })
 
-      it('prepends the bare-orca CLI shim dir to PATH for packaged Linux spawns', async () => {
+      async function daemonSpawnEnvOnPlatform(
+        platform: NodeJS.Platform,
+        argsEnv: Record<string, string>
+      ): Promise<Record<string, string>> {
         const originalPlatform = process.platform
-        Object.defineProperty(process, 'platform', {
-          configurable: true,
-          value: 'linux'
-        })
+        Object.defineProperty(process, 'platform', { configurable: true, value: platform })
         try {
-          // Why: overriding process.platform doesn't change the loaded node:path dialect; keep this synthetic PATH consistent.
-          const env = await daemonSpawnAndGetEnv({
-            PATH: ['/usr/local/bin', '/usr/bin'].join(delimiter)
-          })
-          const entries = env.PATH.split(delimiter)
-          const shimDir = join('/tmp/orca-user-data', 'linux-orca-cli-shim')
-          // Why: bare `orca` must resolve to the Orca CLI before /usr/bin/orca (the GNOME screen reader) in Orca terminals (#7904).
-          expect(entries.indexOf(shimDir)).toBeGreaterThanOrEqual(0)
-          expect(entries.indexOf(shimDir)).toBeLessThan(entries.indexOf('/usr/bin'))
-          expect(env.ORCA_CLI_COMMAND).toBeUndefined()
+          return await daemonSpawnAndGetEnv(argsEnv)
         } finally {
           Object.defineProperty(process, 'platform', {
             configurable: true,
             value: originalPlatform
           })
         }
+      }
+
+      it('prepends the bare-orca CLI shim dir to PATH for packaged Linux spawns', async () => {
+        // Why: overriding process.platform doesn't change the loaded node:path dialect; keep this synthetic PATH consistent.
+        const env = await daemonSpawnEnvOnPlatform('linux', {
+          PATH: ['/usr/local/bin', '/usr/bin'].join(delimiter)
+        })
+        const entries = env.PATH.split(delimiter)
+        const shimDir = join('/tmp/orca-user-data', 'orca-cli-shim')
+        // Why: bare `orca` must resolve to the Orca CLI before /usr/bin/orca (the GNOME screen reader) in Orca terminals (#7904).
+        expect(entries.indexOf(shimDir)).toBeGreaterThanOrEqual(0)
+        expect(entries.indexOf(shimDir)).toBeLessThan(entries.indexOf('/usr/bin'))
+        expect(env.ORCA_CLI_COMMAND).toBe('orca')
+      })
+
+      it('prepends the bare-orca CLI shim dir to PATH for packaged macOS spawns', async () => {
+        const env = await daemonSpawnEnvOnPlatform('darwin', {
+          PATH: ['/usr/local/bin', '/usr/bin'].join(delimiter)
+        })
+        const entries = env.PATH.split(delimiter)
+        // Why: managed panes must reach the CLI without the /usr/local/bin symlink whose install prompts for authorization.
+        expect(entries[0]).toBe(join('/tmp/orca-user-data', 'orca-cli-shim'))
+        expect(env.ORCA_CLI_COMMAND).toBe('orca')
+      })
+
+      it('prepends the native launcher dir and keeps .EXE ahead of .CMD on packaged Windows spawns', async () => {
+        const env = await daemonSpawnEnvOnPlatform('win32', {
+          PATH: ['/usr/local/bin', '/usr/bin'].join(delimiter),
+          PATHEXT: '.COM;.BAT;.CMD;.EXE'
+        })
+
+        expect(env.PATH.split(delimiter)[0]).toBe('/fake/Orca/resources/bin')
+        // Why: orca.cmd ships in that dir and refuses `orchestration send`/`reply`, so bare `orca` must resolve the native launcher.
+        expect(env.PATHEXT).toBe('.COM;.EXE;.BAT;.CMD')
+        expect(env.ORCA_CLI_COMMAND).toBe('orca')
+      })
+
+      it('exports no CLI name when no managed bin dir reached PATH', async () => {
+        ensureManagedCliBinDirMock.mockReturnValue(null)
+
+        for (const platform of ['darwin', 'linux', 'win32'] as const) {
+          const env = await daemonSpawnEnvOnPlatform(platform, {
+            PATH: '/usr/bin',
+            // A parent Orca PTY's value must not survive into a pane that cannot run it.
+            ORCA_CLI_COMMAND: 'orca'
+          })
+          // Why: skills prefer ORCA_CLI_COMMAND over their own fallback, so naming a
+          // command this PATH cannot resolve is worse than naming none.
+          expect(env.ORCA_CLI_COMMAND).toBeUndefined()
+          expect(env.PATH).toBe('/usr/bin')
+        }
+      })
+
+      it('leaves PATHEXT alone when it already resolves .EXE first', async () => {
+        const env = await daemonSpawnEnvOnPlatform('win32', {
+          PATH: '/usr/bin',
+          PATHEXT: '.COM;.EXE;.BAT;.CMD'
+        })
+        expect(env.PATHEXT).toBe('.COM;.EXE;.BAT;.CMD')
+      })
+
+      it('does not add a second PATH key when the pane carries Windows-cased Path', async () => {
+        const env = await daemonSpawnEnvOnPlatform('win32', { Path: '/usr/bin' })
+
+        // Why: Windows env blocks are case-insensitive; two keys let the un-shimmed one win.
+        expect(env.PATH).toBeUndefined()
+        expect(env.Path.split(delimiter)[0]).toBe('/fake/Orca/resources/bin')
       })
 
       it('injects the agent-hook receiver env on the daemon path', async () => {
@@ -3913,9 +3984,34 @@ describe('registerPtyHandlers', () => {
         const prev = mockedApp.isPackaged
         mockedApp.isPackaged = false
         try {
+          const devCliBin = join('/tmp/orca-user-data', 'cli', 'bin')
+          existsSyncMock.mockImplementation(
+            (target: string) => target === join(devCliBin, 'orca-dev')
+          )
+
           const env = await daemonSpawnAndGetEnv({ PATH: '/usr/bin' })
           expect(env.ORCA_USER_DATA_PATH).toBe('/tmp/orca-user-data')
+          expect(env.PATH).toContain(devCliBin)
+          // Why: every managed PTY names the CLI, so agents never re-derive it from the environment.
+          expect(env.ORCA_CLI_COMMAND).toBe('orca-dev')
+        } finally {
+          mockedApp.isPackaged = prev
+        }
+      })
+
+      it('exports no CLI name in dev until the dev launcher exists on the PATH it prepends', async () => {
+        const { app } = await import('electron')
+        const mockedApp = app as unknown as { isPackaged: boolean }
+        const prev = mockedApp.isPackaged
+        mockedApp.isPackaged = false
+        try {
+          // Why: the dev launcher is written by the user-triggered CLI install, so
+          // this dir is routinely on PATH while still empty.
+          existsSyncMock.mockReturnValue(false)
+
+          const env = await daemonSpawnAndGetEnv({ PATH: '/usr/bin' })
           expect(env.PATH).toContain(join('/tmp/orca-user-data', 'cli', 'bin'))
+          expect(env.ORCA_CLI_COMMAND).toBeUndefined()
         } finally {
           mockedApp.isPackaged = prev
         }

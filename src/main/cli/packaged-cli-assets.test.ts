@@ -1,8 +1,9 @@
 import { execFile } from 'node:child_process'
-import { copyFile, mkdir, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { realpathSync } from 'node:fs'
+import { chmod, copyFile, mkdir, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join, sep } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
 import { buildAppImageCliWrapper } from './appimage-cli-wrapper'
@@ -18,6 +19,7 @@ const builderConfig = require('../../../config/electron-builder.config.cjs') as 
   win?: { extraResources?: { from?: string; to?: string }[] }
 }
 const linuxLauncherAsset = new URL('../../../resources/linux/bin/orca-ide', import.meta.url)
+const darwinLauncherAsset = new URL('../../../resources/darwin/bin/orca', import.meta.url)
 
 describe('packaged CLI assets', () => {
   it('ships embedded skill guides with the CLI instead of source Markdown', () => {
@@ -104,6 +106,52 @@ printf 'arg=%s\\n' "$@"
         const symlinked = await execFileAsync(commandPath, ['--help'], {
           env: { ...process.env, HOME: homeDir }
         })
+        expect(symlinked.stdout).toContain(`electron=${electronPath}`)
+        expect(symlinked.stdout).toContain('run_as_node=1')
+        expect(symlinked.stdout).toContain(`arg=${cliPath}`)
+        expect(symlinked.stdout).toContain('arg=--help')
+      } finally {
+        await rm(root, { recursive: true, force: true })
+      }
+    }
+  )
+
+  itRunsUnixShell(
+    'runs the macOS launcher through its /usr/local/bin symlink in a fork-named bundle',
+    async () => {
+      // realpath: the launcher resolves its bundle with `cd -P`, which reports
+      // /private/var for macOS's /var symlink and would break path equality.
+      const root = realpathSync(await mkdtemp(join(tmpdir(), 'orca darwin cli ')))
+      try {
+        // Why: electron-builder names Contents/MacOS after productName, so the
+        // fork bundle has no `MacOS/Orca` for a hardcoded launcher to find.
+        const appDir = join(root, 'Orca ALab Edition.app')
+        const resourcesDir = join(appDir, 'Contents', 'Resources')
+        const cliPath = join(resourcesDir, 'app.asar.unpacked', 'out', 'cli', 'index.js')
+        const launcherPath = join(resourcesDir, 'bin', 'orca')
+        const electronPath = join(appDir, 'Contents', 'MacOS', 'Orca ALab Edition')
+
+        await mkdir(join(resourcesDir, 'bin'), { recursive: true })
+        await mkdir(join(appDir, 'Contents', 'MacOS'), { recursive: true })
+        await mkdir(dirname(cliPath), { recursive: true })
+        await writeFile(cliPath, '', 'utf8')
+        await copyFile(darwinLauncherAsset, launcherPath)
+        await chmod(launcherPath, 0o755)
+        await writeFile(
+          electronPath,
+          `#!/usr/bin/env bash
+printf 'electron=%s\\n' "$0"
+printf 'run_as_node=%s\\n' "\${ELECTRON_RUN_AS_NODE-}"
+printf 'arg=%s\\n' "$@"
+`,
+          { encoding: 'utf8', mode: 0o755 }
+        )
+
+        const commandPath = join(root, 'usr-local-bin', 'orca')
+        await mkdir(dirname(commandPath), { recursive: true })
+        await symlink(launcherPath, commandPath)
+
+        const symlinked = await execFileAsync(commandPath, ['--help'])
         expect(symlinked.stdout).toContain(`electron=${electronPath}`)
         expect(symlinked.stdout).toContain('run_as_node=1')
         expect(symlinked.stdout).toContain(`arg=${cliPath}`)

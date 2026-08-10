@@ -771,7 +771,12 @@ export class SshRelaySession {
       if (!this.runtime) {
         throw new Error('Orca runtime is unavailable')
       }
-      return await runRemoteOrcaCli(this.runtime, parseRemoteOrcaCliRequest(params))
+      // Why: the owning target is session state, not payload — the remote account
+      // can rewrite everything it sends, but not which connection it arrived on.
+      return await runRemoteOrcaCli(this.runtime, {
+        ...parseRemoteOrcaCliRequest(params),
+        connectionId: this.targetId
+      })
     })
   }
 

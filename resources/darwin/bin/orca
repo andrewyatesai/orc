@@ -19,7 +19,23 @@ if [ -z "$APP_PATH" ]; then
 fi
 
 CONTENTS="$APP_PATH/Contents"
-ELECTRON="$CONTENTS/MacOS/Orca"
+
+# Why: electron-builder names Contents/MacOS/<executable> after productName, so a
+# fork bundle ("Orca ALab Edition.app") ships no `MacOS/Orca` and a hardcoded name
+# fails every CLI call. `-f` rejects a same-named directory that `-x` alone accepts.
+ELECTRON=""
+for candidate in "$(basename "$APP_PATH" .app)" Orca; do
+	if [ -f "$CONTENTS/MacOS/$candidate" ] && [ -x "$CONTENTS/MacOS/$candidate" ]; then
+		ELECTRON="$CONTENTS/MacOS/$candidate"
+		break
+	fi
+done
+
+if [ -z "$ELECTRON" ]; then
+	echo "Unable to locate the Orca executable in $CONTENTS/MacOS" >&2
+	exit 1
+fi
+
 # Why: Orca packages the CLI entrypoint outside app.asar so the public shell
 # command can execute it directly with ELECTRON_RUN_AS_NODE, mirroring VS Code's
 # launcher model instead of requiring a separate npm-distributed binary.
