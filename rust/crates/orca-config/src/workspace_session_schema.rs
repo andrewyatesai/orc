@@ -1805,7 +1805,7 @@ mod tests {
     // ─── Parity vector replay (same check the harness performs) ─────
 
     const PENDING_VECTORS: &str =
-        include_str!("../../../../tests/tools/parity/vectors/workspace-session-schema.json");
+        include_str!("../../../../tools/parity/vectors/workspace-session-schema.json");
 
     /// Order-insensitive object compare with f64 number equality — mirrors
     /// `orca-parity`'s `json_semantic_eq` (this crate must not depend on it).

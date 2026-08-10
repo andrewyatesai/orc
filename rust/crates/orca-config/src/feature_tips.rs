@@ -116,10 +116,13 @@ pub const FEATURE_TIPS: [FeatureTip; 3] = [
         id: FeatureTipId::VoiceDictation,
         priority: FeatureTipPriority::Unseen,
         eyebrow: "Tip",
-        title: "Dictate into any pane",
-        description: "Start voice dictation in any focused pane, then use the shortcut again to stop.",
+        // Upstream's wording for this tip differs; the fork's own copy is what
+        // ships (the renderer imports src/shared/feature-tips.ts, and this port
+        // is parity-only), so the port follows TS rather than upstream.
+        title: "Voice Dictation is here",
+        description: "Speak into any focused pane and Orca will transcribe it. Press the dictation shortcut to start and stop.",
         action: FeatureTipAction::EnableVoice,
-        cta_label: "Set up voice dictation",
+        cta_label: "Set Up Voice",
         completed_by_feature_interactions: &[FeatureInteractionId::VoiceDictation],
     },
 ];
@@ -285,7 +288,7 @@ mod tests {
 
         assert_eq!(voice_tip.eyebrow, "Tip");
         assert_eq!(voice_tip.priority, FeatureTipPriority::Unseen);
-        assert_eq!(voice_tip.title, "Dictate into any pane");
-        assert_eq!(voice_tip.cta_label, "Set up voice dictation");
+        assert_eq!(voice_tip.title, "Voice Dictation is here");
+        assert_eq!(voice_tip.cta_label, "Set Up Voice");
     }
 }
