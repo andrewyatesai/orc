@@ -10513,6 +10513,58 @@ describe('Store', () => {
     ).toThrow('belongs to SSH connection "ssh-2"')
   })
 
+  it('keeps a kill intent and its incarnation across a restart', async () => {
+    const store = await createStore()
+    store.upsertSshRemotePtyLease({
+      targetId: 'ssh-1',
+      ptyId: 'remote-pty',
+      incarnationId: 'inc-1',
+      state: 'attached'
+    })
+
+    expect(store.recordSshRemotePtyKillIntent('ssh-1', 'remote-pty', 1234)).toBe(true)
+    store.markSshRemotePtyLease('ssh-1', 'remote-pty', 'terminated')
+
+    const reloaded = await createStore()
+    expect(reloaded.getSshRemotePtyLeases('ssh-1')).toEqual([
+      expect.objectContaining({
+        ptyId: 'remote-pty',
+        state: 'terminated',
+        incarnationId: 'inc-1',
+        killRequestedAt: 1234
+      })
+    ])
+  })
+
+  it('refuses a kill intent for a PTY no lease describes', async () => {
+    const store = await createStore()
+
+    expect(store.recordSshRemotePtyKillIntent('ssh-1', 'remote-pty')).toBe(false)
+    expect(store.getSshRemotePtyLeases('ssh-1')).toEqual([])
+  })
+
+  it('clears a kill intent once the remote PTY is reconciled', async () => {
+    const store = await createStore()
+    store.upsertSshRemotePtyLease({ targetId: 'ssh-1', ptyId: 'remote-pty', state: 'attached' })
+    store.recordSshRemotePtyKillIntent('ssh-1', 'remote-pty')
+
+    store.clearSshRemotePtyKillIntent('ssh-1', 'remote-pty')
+
+    const reloaded = await createStore()
+    expect(reloaded.getSshRemotePtyLeases('ssh-1')[0]).not.toHaveProperty('killRequestedAt')
+  })
+
+  it('backfills the relay incarnation reported when a lease reattaches', async () => {
+    const store = await createStore()
+    store.upsertSshRemotePtyLease({ targetId: 'ssh-1', ptyId: 'remote-pty', state: 'attached' })
+
+    expect(
+      store.markSshRemotePtyLease('ssh-1', 'remote-pty', 'attached', { incarnationId: 'inc-9' })
+    ).toBe(true)
+
+    expect(store.getSshRemotePtyLeases('ssh-1')[0].incarnationId).toBe('inc-9')
+  })
+
   it('updates SSH remote PTY leases when callers pass scoped app ids', async () => {
     const store = await createStore()
     store.upsertSshRemotePtyLease({
@@ -10685,6 +10737,124 @@ describe('Store', () => {
     ).toEqual([expect.objectContaining({ leafId: TEST_LEAF_2, ptyId: 'pty-other' })])
     const persisted = (readDataFile() as PersistedState).sshRemotePtyLeases ?? []
     expect(persisted.filter((lease) => lease.leafId === TEST_LEAF_1)).toHaveLength(1)
+  })
+
+  it('keeps a pending remote kill when the same leaf respawns', async () => {
+    // Why: killRequestedAt is the only durable record of a shell that outlived its pane.
+    // Superseding it away on the next spawn in that leaf leaks it on the remote forever.
+    const store = await createStore()
+    const spawn = (ptyId: string, incarnationId: string): void =>
+      store.upsertSshRemotePtyLease({
+        targetId: 'ssh-1',
+        worktreeId: 'wt1',
+        tabId: 'tab1',
+        leafId: TEST_LEAF_1,
+        ptyId,
+        incarnationId,
+        state: 'attached'
+      })
+    spawn('pty-1', 'inc-1')
+    // Pane closed while the relay was unreachable: intent recorded, then tombstoned.
+    expect(store.recordSshRemotePtyKillIntent('ssh-1', 'pty-1', 1234)).toBe(true)
+    store.markSshRemotePtyLease('ssh-1', 'pty-1', 'terminated')
+
+    spawn('pty-2', 'inc-2')
+
+    const reloaded = await createStore()
+    expect(reloaded.getSshRemotePtyLeases('ssh-1')).toEqual([
+      expect.objectContaining({
+        ptyId: 'pty-1',
+        state: 'terminated',
+        incarnationId: 'inc-1',
+        killRequestedAt: 1234
+      }),
+      expect.objectContaining({ ptyId: 'pty-2', state: 'attached', incarnationId: 'inc-2' })
+    ])
+    // The live lease must not inherit the intent — the reaper would kill the new pane.
+    expect(reloaded.getSshRemotePtyLeases('ssh-1')[1]).not.toHaveProperty('killRequestedAt')
+  })
+
+  it('never lets a respawn inherit a kill intent through a reused relay pty id', async () => {
+    // Why: relay pty ids are a per-relay counter, so a restarted relay hands `pty-1` to
+    // the next pane. Inheriting the dead pane's intent would reap that live shell.
+    const store = await createStore()
+    store.upsertSshRemotePtyLease({
+      targetId: 'ssh-1',
+      worktreeId: 'wt1',
+      tabId: 'tab1',
+      leafId: TEST_LEAF_1,
+      ptyId: 'pty-1',
+      incarnationId: 'inc-1',
+      state: 'attached'
+    })
+    store.recordSshRemotePtyKillIntent('ssh-1', 'pty-1', 1234)
+    store.markSshRemotePtyLease('ssh-1', 'pty-1', 'terminated')
+
+    store.upsertSshRemotePtyLease({
+      targetId: 'ssh-1',
+      worktreeId: 'wt1',
+      tabId: 'tab1',
+      leafId: TEST_LEAF_1,
+      ptyId: 'pty-1',
+      incarnationId: 'inc-2',
+      state: 'attached'
+    })
+
+    const reloaded = await createStore()
+    expect(reloaded.getSshRemotePtyLeases('ssh-1')).toEqual([
+      expect.objectContaining({ ptyId: 'pty-1', state: 'attached', incarnationId: 'inc-2' })
+    ])
+    expect(reloaded.getSshRemotePtyLeases('ssh-1')[0]).not.toHaveProperty('killRequestedAt')
+  })
+
+  it('tombstones a retained kill-intent lease so its leaf keeps one live lease', async () => {
+    // Why: retention must not leave two attachable leases on one leaf — reconnect would
+    // reattach the closed pane's shell alongside the new one.
+    const store = await createStore()
+    const spawn = (ptyId: string): void =>
+      store.upsertSshRemotePtyLease({
+        targetId: 'ssh-1',
+        worktreeId: 'wt1',
+        tabId: 'tab1',
+        leafId: TEST_LEAF_1,
+        ptyId,
+        state: 'attached'
+      })
+    spawn('pty-1')
+    store.recordSshRemotePtyKillIntent('ssh-1', 'pty-1')
+
+    spawn('pty-2')
+
+    expect(store.getSshRemotePtyLeases('ssh-1')).toEqual([
+      expect.objectContaining({ ptyId: 'pty-1', state: 'terminated' }),
+      expect.objectContaining({ ptyId: 'pty-2', state: 'attached' })
+    ])
+  })
+
+  it('collects a reaped kill-intent tombstone on the next respawn in its leaf', async () => {
+    // Why: retention is only until the reaper resolves the intent; after that the
+    // tombstone must rejoin the #9034 one-lease-per-leaf garbage collection.
+    const store = await createStore()
+    const spawn = (ptyId: string): void =>
+      store.upsertSshRemotePtyLease({
+        targetId: 'ssh-1',
+        worktreeId: 'wt1',
+        tabId: 'tab1',
+        leafId: TEST_LEAF_1,
+        ptyId,
+        state: 'attached'
+      })
+    spawn('pty-1')
+    store.recordSshRemotePtyKillIntent('ssh-1', 'pty-1')
+    store.markSshRemotePtyLease('ssh-1', 'pty-1', 'terminated')
+    spawn('pty-2')
+
+    store.clearSshRemotePtyKillIntent('ssh-1', 'pty-1')
+    spawn('pty-3')
+
+    expect(store.getSshRemotePtyLeases('ssh-1')).toEqual([
+      expect.objectContaining({ ptyId: 'pty-3', state: 'attached' })
+    ])
   })
 
   it('removes SSH remote PTY leases when callers pass scoped app ids', async () => {

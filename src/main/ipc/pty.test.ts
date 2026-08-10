@@ -889,7 +889,8 @@ describe('registerPtyHandlers', () => {
       upsertSshRemotePtyLease: vi.fn(),
       persistPtyBinding: vi.fn(),
       removeSshRemotePtyLease: vi.fn(),
-      markSshRemotePtyLease: vi.fn()
+      markSshRemotePtyLease: vi.fn(),
+      recordSshRemotePtyKillIntent: vi.fn()
     }
     const runtime = {
       setPtyController: vi.fn(),
@@ -4363,7 +4364,8 @@ describe('registerPtyHandlers', () => {
           throw new Error('SSH_SESSION_EXPIRED: remote-pty')
         })
         const store = {
-          markSshRemotePtyLease: vi.fn()
+          markSshRemotePtyLease: vi.fn(),
+          recordSshRemotePtyKillIntent: vi.fn()
         }
         registerSshPtyProvider('ssh-1', {
           spawn: sshSpawn,
@@ -4416,7 +4418,8 @@ describe('registerPtyHandlers', () => {
           throw new Error('SSH_SESSION_EXPIRED: remote-pty')
         })
         const store = {
-          markSshRemotePtyLease: vi.fn()
+          markSshRemotePtyLease: vi.fn(),
+          recordSshRemotePtyKillIntent: vi.fn()
         }
         registerSshPtyProvider('ssh-1', {
           spawn: sshSpawn,
@@ -4479,7 +4482,8 @@ describe('registerPtyHandlers', () => {
           )
         })
         const store = {
-          markSshRemotePtyLease: vi.fn()
+          markSshRemotePtyLease: vi.fn(),
+          recordSshRemotePtyKillIntent: vi.fn()
         }
         registerSshPtyProvider('ssh-1', {
           spawn: sshSpawn,
@@ -4544,7 +4548,8 @@ describe('registerPtyHandlers', () => {
 
       it('does not tombstone an SSH lease when explicit kill shutdown fails transiently', async () => {
         const store = {
-          markSshRemotePtyLease: vi.fn()
+          markSshRemotePtyLease: vi.fn(),
+          recordSshRemotePtyKillIntent: vi.fn()
         }
         registerSshPtyProvider('ssh-1', {
           spawn: vi.fn(),
@@ -4597,7 +4602,8 @@ describe('registerPtyHandlers', () => {
       it('marks an SSH lease terminated after runtime controller kill succeeds', async () => {
         const shutdown = vi.fn(async () => undefined)
         const store = {
-          markSshRemotePtyLease: vi.fn()
+          markSshRemotePtyLease: vi.fn(),
+          recordSshRemotePtyKillIntent: vi.fn()
         }
         const runtime = {
           setPtyController: vi.fn(),
@@ -4817,7 +4823,8 @@ describe('registerPtyHandlers', () => {
         vi.useFakeTimers()
         const shutdown = vi.fn(async () => undefined)
         const store = {
-          markSshRemotePtyLease: vi.fn()
+          markSshRemotePtyLease: vi.fn(),
+          recordSshRemotePtyKillIntent: vi.fn()
         }
         const runtime = {
           setPtyController: vi.fn(),
@@ -5117,7 +5124,7 @@ describe('registerPtyHandlers', () => {
           getProfiles: vi.fn()
         } as never)
         const shutdown = vi.fn(async () => undefined)
-        const store = { markSshRemotePtyLease: vi.fn() }
+        const store = { markSshRemotePtyLease: vi.fn(), recordSshRemotePtyKillIntent: vi.fn() }
         const runtime = {
           setPtyController: vi.fn(),
           onPtyExit: vi.fn()
@@ -5163,6 +5170,8 @@ describe('registerPtyHandlers', () => {
         expect(shutdown).toHaveBeenCalledWith('ssh:ssh-1@@relay-pty', { immediate: false })
         expect(localShutdown).not.toHaveBeenCalled()
         expect(store.markSshRemotePtyLease).toHaveBeenCalledWith('ssh-1', 'relay-pty', 'terminated')
+        // Why: the provider already killed it — a reap intent would outlive the shell.
+        expect(store.recordSshRemotePtyKillIntent).not.toHaveBeenCalled()
       })
 
       it('runtime controller kill tombstones app-scoped SSH ids when ownership and provider are absent', async () => {
@@ -5189,7 +5198,7 @@ describe('registerPtyHandlers', () => {
           getDefaultShell: vi.fn(),
           getProfiles: vi.fn()
         } as never)
-        const store = { markSshRemotePtyLease: vi.fn() }
+        const store = { markSshRemotePtyLease: vi.fn(), recordSshRemotePtyKillIntent: vi.fn() }
         const runtime = {
           setPtyController: vi.fn(),
           onPtyExit: vi.fn()
@@ -5216,7 +5225,8 @@ describe('registerPtyHandlers', () => {
 
       it('marks a detached SSH lease terminated when runtime controller kill has no provider', async () => {
         const store = {
-          markSshRemotePtyLease: vi.fn()
+          markSshRemotePtyLease: vi.fn(),
+          recordSshRemotePtyKillIntent: vi.fn()
         }
         const runtime = {
           setPtyController: vi.fn(),
@@ -5243,13 +5253,48 @@ describe('registerPtyHandlers', () => {
           'remote-pty',
           'terminated'
         )
+        expect(store.recordSshRemotePtyKillIntent).toHaveBeenCalledWith('ssh-1', 'remote-pty')
         expect(runtime.onPtyExit).toHaveBeenCalledWith('remote-pty', -1, undefined)
+      })
+
+      it('records a reap intent when runtime controller stopAndWait has no SSH provider', async () => {
+        const store = {
+          markSshRemotePtyLease: vi.fn(),
+          recordSshRemotePtyKillIntent: vi.fn()
+        }
+        const runtime = {
+          setPtyController: vi.fn(),
+          onPtyExit: vi.fn()
+        }
+        setPtyOwnership('remote-pty', 'ssh-1')
+        handlers.clear()
+        registerPtyHandlers(
+          mainWindow as never,
+          runtime as never,
+          undefined,
+          undefined,
+          undefined,
+          store as never
+        )
+        const controller = runtime.setPtyController.mock.calls[0]?.[0] as {
+          stopAndWait: (ptyId: string) => Promise<boolean>
+        }
+
+        await expect(controller.stopAndWait('remote-pty')).resolves.toBe(true)
+
+        expect(store.recordSshRemotePtyKillIntent).toHaveBeenCalledWith('ssh-1', 'remote-pty')
+        expect(store.markSshRemotePtyLease).toHaveBeenCalledWith(
+          'ssh-1',
+          'remote-pty',
+          'terminated'
+        )
       })
 
       it('preserves an SSH lease when runtime controller kill shutdown fails transiently', async () => {
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
         const store = {
-          markSshRemotePtyLease: vi.fn()
+          markSshRemotePtyLease: vi.fn(),
+          recordSshRemotePtyKillIntent: vi.fn()
         }
         const runtime = {
           setPtyController: vi.fn(),
@@ -6416,7 +6461,7 @@ describe('registerPtyHandlers', () => {
       getProfiles: vi.fn()
     } as never)
     const sshShutdown = vi.fn(async () => undefined)
-    const store = { markSshRemotePtyLease: vi.fn() }
+    const store = { markSshRemotePtyLease: vi.fn(), recordSshRemotePtyKillIntent: vi.fn() }
     registerSshPtyProvider('ssh-1', {
       spawn: vi.fn(),
       write: vi.fn(),
@@ -6482,7 +6527,7 @@ describe('registerPtyHandlers', () => {
       getDefaultShell: vi.fn(),
       getProfiles: vi.fn()
     } as never)
-    const store = { markSshRemotePtyLease: vi.fn() }
+    const store = { markSshRemotePtyLease: vi.fn(), recordSshRemotePtyKillIntent: vi.fn() }
     registerPtyHandlers(
       mainWindow as never,
       undefined,
@@ -6496,13 +6541,16 @@ describe('registerPtyHandlers', () => {
 
     expect(localShutdown).not.toHaveBeenCalled()
     expect(store.markSshRemotePtyLease).toHaveBeenCalledWith('ssh-1', 'relay-pty', 'terminated')
+    // Why: nothing killed the remote shell here, so the next connect has to reap it.
+    expect(store.recordSshRemotePtyKillIntent).toHaveBeenCalledWith('ssh-1', 'relay-pty')
   })
 
   it('ignores fire-and-forget IPC for detached SSH PTYs without a provider', async () => {
     const store = {
       upsertSshRemotePtyLease: vi.fn(),
       persistPtyBinding: vi.fn(),
-      markSshRemotePtyLease: vi.fn()
+      markSshRemotePtyLease: vi.fn(),
+      recordSshRemotePtyKillIntent: vi.fn()
     }
     const provider = {
       spawn: vi.fn(async () => ({ id: 'remote-pty' })),
@@ -8022,7 +8070,8 @@ describe('registerPtyHandlers', () => {
       upsertSshRemotePtyLease: vi.fn(),
       persistPtyBinding: vi.fn(),
       removeSshRemotePtyLease: vi.fn(),
-      markSshRemotePtyLease: vi.fn()
+      markSshRemotePtyLease: vi.fn(),
+      recordSshRemotePtyKillIntent: vi.fn()
     }
     let controller: RuntimeSpawnController | null = null
     const runtime = {
@@ -8185,7 +8234,8 @@ describe('registerPtyHandlers', () => {
       upsertSshRemotePtyLease: vi.fn(),
       persistPtyBinding: vi.fn(),
       removeSshRemotePtyLease: vi.fn(),
-      markSshRemotePtyLease: vi.fn()
+      markSshRemotePtyLease: vi.fn(),
+      recordSshRemotePtyKillIntent: vi.fn()
     }
     let controller: RuntimeSpawnController | null = null
     const runtime = {
@@ -8404,7 +8454,8 @@ describe('registerPtyHandlers', () => {
         throw new Error('disk full')
       }),
       removeSshRemotePtyLease: vi.fn(),
-      markSshRemotePtyLease: vi.fn()
+      markSshRemotePtyLease: vi.fn(),
+      recordSshRemotePtyKillIntent: vi.fn()
     }
     let controller: RuntimeSpawnController | null = null
     const runtime = {
@@ -8499,7 +8550,8 @@ describe('registerPtyHandlers', () => {
       upsertSshRemotePtyLease: vi.fn(),
       persistPtyBinding: vi.fn(),
       removeSshRemotePtyLease: vi.fn(),
-      markSshRemotePtyLease: vi.fn()
+      markSshRemotePtyLease: vi.fn(),
+      recordSshRemotePtyKillIntent: vi.fn()
     }
     let controller: RuntimeSpawnController | null = null
     const runtime = {
@@ -8605,7 +8657,8 @@ describe('registerPtyHandlers', () => {
       upsertSshRemotePtyLease: vi.fn(),
       persistPtyBinding: vi.fn(),
       removeSshRemotePtyLease: vi.fn(),
-      markSshRemotePtyLease: vi.fn()
+      markSshRemotePtyLease: vi.fn(),
+      recordSshRemotePtyKillIntent: vi.fn()
     }
     let controller: RuntimeSpawnController | null = null
     const runtime = {
@@ -8712,7 +8765,8 @@ describe('registerPtyHandlers', () => {
         throw new Error('disk full')
       }),
       removeSshRemotePtyLease: vi.fn(),
-      markSshRemotePtyLease: vi.fn()
+      markSshRemotePtyLease: vi.fn(),
+      recordSshRemotePtyKillIntent: vi.fn()
     }
 
     try {

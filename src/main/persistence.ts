@@ -7067,10 +7067,23 @@ export class Store {
           entry.targetId === normalizedLease.targetId &&
           entry.leafId === normalizedLease.leafId &&
           entry.ptyId !== normalizedLease.ptyId
-        if (superseded) {
-          supersededLeases.push(entry)
+        if (!superseded) {
+          return true
         }
-        return !superseded
+        supersededLeases.push(entry)
+        // Why: a pending deferred kill is the only durable record of a remote shell
+        // that outlived its pane, and it is bound to THAT shell's ptyId+incarnation —
+        // reusing the leaf must keep the tombstone (never the field) until the reaper
+        // resolves it, or ordinary respawn silently leaks the shell.
+        if (entry.killRequestedAt === undefined) {
+          return false
+        }
+        // Defense: a retained row must never look like this leaf's live lease.
+        if (entry.state !== 'terminated' && entry.state !== 'expired') {
+          entry.state = 'terminated'
+          entry.updatedAt = now
+        }
+        return true
       })
     }
     const existingIndex = this.state.sshRemotePtyLeases.findIndex(
@@ -7084,6 +7097,10 @@ export class Store {
       createdAt: existing?.createdAt ?? normalizedLease.createdAt ?? now,
       updatedAt: normalizedLease.updatedAt ?? now
     }
+    // Why: relay pty ids are a per-relay counter a restarted relay hands out again, so
+    // an upsert can land on the dead holder's row. Inheriting its kill intent would aim
+    // the reaper at the live shell that owns the id now — leaking beats killing a pane.
+    delete next.killRequestedAt
     if (existingIndex >= 0) {
       this.state.sshRemotePtyLeases[existingIndex] = next
     } else {

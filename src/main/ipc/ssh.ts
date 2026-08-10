@@ -119,7 +119,14 @@ export async function removeRegisteredSshTarget(targetId: string): Promise<void>
     return
   }
   invalidateConnectAttempt(targetId)
-  // Why: removal is destructive — dispose() (not detach()) so the relay shuts down and remote PTY leases are terminated, not preserved for a reattach to a deleted target.
+  // Why: removal is destructive — kill the remote shells and the relay daemon
+  // itself first. dispose() alone only drops the local mux, leaving a detached
+  // relay (and every shell it owns) running on a host the user just deleted.
+  const session = activeSessions.get(targetId)
+  if (session) {
+    await session.shutdownRemoteRelay()
+  }
+  // Why: dispose() (not detach()) so remote PTY leases are terminated, not preserved for a reattach to a deleted target.
   await disposeActiveSshSession(targetId)
   try {
     await connectionManager?.disconnect(targetId)

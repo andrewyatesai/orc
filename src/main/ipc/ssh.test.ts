@@ -216,6 +216,7 @@ vi.mock('../ssh/ssh-port-scanner', () => ({
 import { getSshConnectionManager, registerSshHandlers, resetSshHandlerStateForTests } from './ssh'
 import { RelayVersionMismatchError } from '../ssh/ssh-relay-version-mismatch-error'
 import {
+  HOST_SLEEP_SSH_RELAY_GRACE_PERIOD_SECONDS,
   SSH_RELAY_CONFIGURE_GRACE_TIME_METHOD,
   type SshConnectionState,
   type SshTarget
@@ -442,26 +443,64 @@ describe('SSH IPC handlers', () => {
       port: 22,
       username: 'deploy'
     }
+    const conn = {}
     mockSshStore.getTarget.mockReturnValue(target)
-    mockConnectionManager.connect.mockResolvedValue({})
+    mockConnectionManager.connect.mockResolvedValue(conn)
     mockConnectionManager.getState.mockReturnValue({
       targetId: 'ssh-1',
       status: 'connected',
       error: null,
       reconnectAttempt: 0
     })
+    vi.mocked(getPtyIdsForConnection).mockReturnValue(['pty-3'])
+    vi.mocked(getSshPtyProvider).mockReturnValue(mockPtyProvider as never)
     await handlers.get('ssh:connect')!(null, { targetId: 'ssh-1' })
     mockPortForwardManager.removeAllForwards.mockClear()
     mockConnectionManager.disconnect.mockClear().mockResolvedValue(undefined)
 
     await handlers.get('ssh:removeTarget')!(null, { id: 'ssh-1' })
 
+    // Why: dispose() alone leaves the detached relay and its shells running on a host the user just deleted.
+    expect(mockPtyProvider.shutdown).toHaveBeenCalledWith('ssh:ssh-1@@pty-3', {
+      immediate: true,
+      keepHistory: false
+    })
+    expect(mockForceStopRelayForTarget).toHaveBeenCalledWith(conn, 'ssh-1')
     expect(mockPortForwardManager.removeAllForwards).toHaveBeenCalledWith('ssh-1')
     expect(mockMux.dispose).toHaveBeenCalledWith('shutdown')
     expect(mockStore.markSshRemotePtyLeases).toHaveBeenCalledWith('ssh-1', 'terminated')
     expect(mockConnectionManager.disconnect).toHaveBeenCalledWith('ssh-1')
     expect(mockStore.removeSshRemotePtyLeases).toHaveBeenCalledWith('ssh-1')
     expect(mockSshStore.removeTarget).toHaveBeenCalledWith('ssh-1')
+  })
+
+  it('ssh:removeTarget removes the target when the relay cannot be stopped', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const target: SshTarget = {
+        id: 'ssh-1',
+        label: 'Server',
+        host: 'example.com',
+        port: 22,
+        username: 'deploy'
+      }
+      mockSshStore.getTarget.mockReturnValue(target)
+      mockConnectionManager.connect.mockResolvedValue({})
+      mockConnectionManager.getState.mockReturnValue({
+        targetId: 'ssh-1',
+        status: 'connected',
+        error: null,
+        reconnectAttempt: 0
+      })
+      await handlers.get('ssh:connect')!(null, { targetId: 'ssh-1' })
+      mockForceStopRelayForTarget.mockRejectedValueOnce(new Error('host unreachable'))
+
+      await handlers.get('ssh:removeTarget')!(null, { id: 'ssh-1' })
+
+      expect(mockSshStore.removeTarget).toHaveBeenCalledWith('ssh-1')
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 
   it('ssh:importConfig returns imported targets', async () => {
@@ -1897,7 +1936,7 @@ describe('SSH IPC handlers', () => {
     expect(mockConnectionManager.reconnect).not.toHaveBeenCalled()
   })
 
-  it('extends active relay grace while the system is suspending', async () => {
+  it('extends active relay grace to a bounded window while the system is suspending', async () => {
     const target: SshTarget = {
       id: 'ssh-1',
       label: 'Server',
@@ -1927,7 +1966,7 @@ describe('SSH IPC handlers', () => {
     suspendListener()
 
     expect(mockMux.notify).toHaveBeenCalledWith(SSH_RELAY_CONFIGURE_GRACE_TIME_METHOD, {
-      graceTimeSeconds: 0
+      graceTimeSeconds: HOST_SLEEP_SSH_RELAY_GRACE_PERIOD_SECONDS
     })
   })
 
