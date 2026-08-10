@@ -155,3 +155,48 @@ describe('check:quadratic-buffer-concat rejects the O(n^2) accumulator it exists
     )
   })
 })
+
+/**
+ * One file per place the gate must reach, spelled out rather than derived from
+ * SCAN_ROOTS: a root deleted from the gate has to fail a case here, and a list read
+ * back out of the gate would shrink along with it.
+ */
+const COVERED_LOCATIONS = [
+  'src/main/pty-stream-carry.ts',
+  'build-plugins/renderer-chunk-budget.ts',
+  'electron.vite.config.ts',
+  'config/vitest-warning-filter.ts',
+  'config/scripts/verify-linux-glibc-floor.cjs',
+  'tools/repro-stream-carry.mjs',
+  'tests/e2e/fixtures/stream-carry-fixture.cjs',
+  'mobile/src/stream-carry.ts',
+  '.github/scripts/render-readme-downloads-badge.mjs'
+]
+
+// Line 4, column 15 holds the concat, so the reported position is part of the assertion.
+const LOCATION_VIOLATION = `function collect(chunks) {
+  let carried = Buffer.alloc(0)
+  for (const chunk of chunks) {
+    carried = Buffer.concat([carried, chunk])
+  }
+  return carried
+}
+`
+
+describe('check:quadratic-buffer-concat reaches every tree location it claims to scan', () => {
+  for (const file of COVERED_LOCATIONS) {
+    it(`rejects a loop-carried accumulator in ${file}`, async () => {
+      const sandbox = await createSandbox()
+      const target = path.join(sandbox.root, ...file.split('/'))
+      await mkdir(path.dirname(target), { recursive: true })
+      sandbox.accepts()
+
+      await sandbox.plant(path.join(...file.split('/')), LOCATION_VIOLATION)
+
+      sandbox.rejects(
+        `a quadratic accumulator in ${file}`,
+        `${file}:4:15 carried — Buffer.concat([carried, chunk])`
+      )
+    })
+  }
+})
