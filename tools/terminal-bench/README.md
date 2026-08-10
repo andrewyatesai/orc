@@ -97,9 +97,14 @@ pnpm gauntlet:perf            # MB/s medians + grid-parity
   `isProcessOutputWhitespace`, `formatRepoRefs`, …); `trimDanglingHighSurrogate`
   is REVIEW — W2-clean but W1-incomplete (the UTF-16 surrogate frontier).
 
-Exit code is the contract an agent branches on: **0** = all green/skipped, **1** =
-a real FAIL, **2** = a REVIEW to triage. The full report is written to
-`.gauntlet-report.json`.
+Exit code is the contract an agent branches on: **0** = every selected gate proved
+green, **1** = a real FAIL, **2** = a REVIEW to triage (or a run that skipped some
+axis, so it is incomplete), **3** = NOTHING PROVEN — every selected gate skipped.
+A SKIP never FAILs (the toolchain may just be absent here) but never reads as green
+either, single-gate probes included: `pnpm gauntlet:conformance` without the napi
+addon exits 3, not 0. The decision lives in `gauntlet-exit-code.mjs` and is pinned
+both ways by `gauntlet-exit-code.test.mjs`. The full report — including the `exit`
+code and its one-line `summary` — is written to `.gauntlet-report.json`.
 
 ## Files
 

@@ -26,11 +26,12 @@
 //                   may only GROW; a drop FAILs (a corpus was deleted/shrunk).
 //
 // An agent runs:  node tools/terminal-bench/gauntlet.mjs <bootstrap|conformance|perf|safety|autoformalize|census|provenance|certificates|corpus|all>
-// Exit 0 = every gate green · 1 = a real FAIL · 2 = REVIEW (divergence to triage).
-// For `all`, a SKIP is NOT a pass: any skipped gate exits 2 so an environment that
-// can't run an axis never reads as green. A single-gate invocation may exit 0 on
-// SKIP (so probing one axis stays scriptable) but says so loudly.
-// A machine-readable report is written to tools/terminal-bench/.gauntlet-report.json.
+// Exit 0 = every selected gate proved green · 1 = a real FAIL · 2 = REVIEW (a
+// divergence to triage, or a run that skipped some axis) · 3 = NOTHING PROVEN
+// (every selected gate skipped). A SKIP never FAILs — the toolchain may simply be
+// absent — but it never reads as green either, single-gate probes included; see
+// gauntlet-exit-code.mjs. A machine-readable report (with `exit`/`summary`) is
+// written to tools/terminal-bench/.gauntlet-report.json.
 
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
@@ -40,6 +41,7 @@ import { tmpdir } from 'node:os'
 import { loadCorpus, loadJsonlCorpus } from '../aterm-vs-xterm/corpus-bytes.mjs'
 import { certificatesGate } from './gauntlet-certificates.mjs'
 import { corpusGate } from './gauntlet-corpus.mjs'
+import { EXIT, gauntletExit } from './gauntlet-exit-code.mjs'
 import { rustTypeToArgspec } from './rust-type-to-argspec.mjs'
 
 const here = import.meta.dirname
@@ -658,30 +660,19 @@ async function main() {
       )
     }
   }
+  const { code, line } = gauntletExit(Object.values(results).map((r) => r.status))
   writeFileSync(
     REPORT,
-    JSON.stringify({ at: `${new Date().toISOString().slice(0, 19)}Z`, results }, null, 2)
+    JSON.stringify(
+      { at: `${new Date().toISOString().slice(0, 19)}Z`, exit: code, summary: line, results },
+      null,
+      2
+    )
   )
   console.log(`\n${C.d}report → ${REPORT}${C.x}`)
-  const statuses = Object.values(results).map((r) => r.status)
-  if (statuses.includes('FAIL')) {
-    process.exit(1)
-  }
-  if (statuses.includes('REVIEW')) {
-    process.exit(2)
-  }
-  const skips = statuses.filter((s) => s === 'SKIP').length
-  if (skips > 0) {
-    // A skipped gate proved nothing; only the full run must refuse to read green.
-    if (cmd === 'all') {
-      console.log(`${C.y}${C.b}${skips} gate(s) skipped — not a pass; exiting 2 (REVIEW)${C.x}`)
-      process.exit(2)
-    }
-    console.log(
-      `${C.y}${C.b}SKIPPED — this gate did not run and proves nothing (exit 0 only because a single gate was requested)${C.x}`
-    )
-  }
-  process.exit(0)
+  const tone = code === EXIT.pass ? C.g : code === EXIT.fail ? C.r : C.y
+  console.log(`${tone}${C.b}${line}${C.x}`)
+  process.exit(code)
 }
 
 main().catch((e) => {

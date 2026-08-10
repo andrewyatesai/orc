@@ -27,13 +27,7 @@ const TAG_CLAIM = new RegExp(`${GATE_COVERAGE_TAG}\\s+([\\w:.-]+)`, 'g')
  * list only shrinks: pairing a gate with a negative test and deleting its row is the
  * whole job, and this test fails if a row outlives the gap it describes.
  */
-export const GATES_MISSING_A_NEGATIVE_TEST = new Map([
-  ['check:code-quality:changed', 'sibling test exercises the rule in-process only'],
-  ['check:react-doctor:changed', 'no test of any kind'],
-  ['check:zustand-selector-fanout', 'no test of any kind'],
-  ['verify:computer-native', 'no test of any kind'],
-  ['verify:cli-bin', 'sibling test exercises the rule in-process only']
-])
+export const GATES_MISSING_A_NEGATIVE_TEST = new Map([])
 
 /** Gate name -> the script package.json runs, which is what a claim has to execute. */
 function gateScripts() {
