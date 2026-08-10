@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "sourceCommit": "dc7239a63f6dfca304726ebeb9e944d7e9146bde",
+  "sourceCommit": "f3bdf51697b6922b231300b76343dcc898d35115",
   "sourcePatch": {
     "path": "config/patches/aterm-wasm-source-fixes.patch",
     "sha256": "e2ebdfc83aa59e55256e4d08d8af8e6ccff6ca045a3788c3610534c2aa0d2675"
@@ -15,28 +15,28 @@
       "sha256": "d5aab6697d0070e80131525480dee24968ae5d3589691754ce0b79021cf8c4ed"
     },
     "aterm_wasm_bg.wasm": {
-      "bytes": 3883597,
-      "sha256": "43cfa3db6c99bef2bcd94e884a620b52c987542397d433f4022054068db187c0"
+      "bytes": 4525363,
+      "sha256": "8663df4db29afbfb6c408aed846013c9f75a522e0b018de32d9a2a2de087cb87"
     },
     "aterm_wasm_bg.wasm.d.ts": {
       "bytes": 16946,
       "sha256": "c01859bdc9f5cac9e3f6769c03e6bb643ea1916d0e2c0392b8662bed4a9ecfc0"
     },
     "aterm_gpu_web.js": {
-      "bytes": 171210,
-      "sha256": "70c52f6e3c981d137bc974c65414ac36e4d5d436c779d12a651631d1ecf229c3"
+      "bytes": 171717,
+      "sha256": "e9891d53b54baaa7ba732abbda3d87f97056452cd817c283ca719701297757ca"
     },
     "aterm_gpu_web.d.ts": {
-      "bytes": 81627,
-      "sha256": "6d32243764e2df43b4d82ed365d9166250aaac2e8966b0a4b3621bed6f47232b"
+      "bytes": 81868,
+      "sha256": "ad9e5e9fc52e872f17a045b571f58a4e4e3cac4237fe998f4b39fdf481f86a11"
     },
     "aterm_gpu_web_bg.wasm": {
-      "bytes": 6347649,
-      "sha256": "c6c50388034b144f5dd58af6f77f0183aaa4d8293dcebd2163ff1b1fa8880c6d"
+      "bytes": 6979106,
+      "sha256": "18b9dd9e766830a0dbd55b47a3c3448457d6d091c61aa9d0df76f55f4579ee79"
     },
     "aterm_gpu_web_bg.wasm.d.ts": {
-      "bytes": 17487,
-      "sha256": "b426770c3ace294f826df482dfb1daaa295c1592dc238a6b7a7e03ee667b9ce8"
+      "bytes": 17728,
+      "sha256": "d373344162c375b2c317ae9ab368e531ed85e5a9be83fc65d214b4216f5d9757"
     }
   }
 }
