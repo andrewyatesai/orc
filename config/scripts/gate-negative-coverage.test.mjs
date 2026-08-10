@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   GATE_COVERAGE_LEDGER_ENV,
   GATE_COVERAGE_TAG,
+  assertGateAccepts,
   assertGateRejects
 } from './assert-gate-rejects-violation.mjs'
 
@@ -30,21 +31,8 @@ export const GATES_MISSING_A_NEGATIVE_TEST = new Map([
   ['check:code-quality:changed', 'sibling test exercises the rule in-process only'],
   ['check:react-doctor:changed', 'no test of any kind'],
   ['check:zustand-selector-fanout', 'no test of any kind'],
-  ['check:styled-scrollbars', 'sibling test exercises the rule in-process only'],
-  ['check:development-repository-identity', 'no test of any kind'],
-  ['check:quadratic-buffer-concat', 'sibling test exercises the rule in-process only'],
-  ['check:reliability-gates', 'sibling test exercises the rule in-process only'],
-  ['check:max-lines-ratchet', 'sibling test exercises the rule in-process only'],
-  ['check:feature-wall-assets', 'no test of any kind'],
-  ['verify:bundled-skill-guides', 'sibling test exercises the rule in-process only'],
-  ['verify:macos-entitlements', 'no test of any kind'],
   ['verify:computer-native', 'no test of any kind'],
   ['verify:cli-bin', 'sibling test exercises the rule in-process only'],
-  ['verify:localization-catalog', 'sibling test exercises the rule in-process only'],
-  ['verify:localization-coverage', 'no test of any kind'],
-  ['check:native-provenance', 'no test of any kind'],
-  ['check:build-output', 'no test of any kind'],
-  ['check:wasm-pins', 'no test of any kind']
 ])
 
 /** Gate name -> the script package.json runs, which is what a claim has to execute. */
@@ -144,6 +132,37 @@ function proveClaims(ledgerDir) {
 
 let ledgerDir = null
 let evidence = null
+
+describe('the rejection helpers stay synchronous', () => {
+  /**
+   * Load-bearing, and not obvious: every negative test in config/scripts calls
+   * `assertGateAccepts(...)` / `assertGateRejects(...)` WITHOUT `await`, which is
+   * correct only because both are synchronous (spawnSync + throw).
+   *
+   * Make either one async and every one of those call sites becomes an unawaited
+   * promise: the throws turn into unhandled rejections, and every negative test
+   * in the repo passes unconditionally while proving nothing. That is the exact
+   * failure this whole file exists to prevent, so it is asserted rather than
+   * left as a comment for the refactor to ignore.
+   */
+  it('are not async, because every negative test calls them unawaited', () => {
+    expect(assertGateAccepts.constructor.name).toBe('Function')
+    expect(assertGateRejects.constructor.name).toBe('Function')
+  })
+
+  it('throws rather than resolving when a gate accepts a planted violation', () => {
+    // Proves the mechanism the point above depends on: the failure is a SYNCHRONOUS
+    // throw, so an unawaited call still fails its test today.
+    expect(() =>
+      assertGateRejects({
+        script: path.join(REPO_ROOT, 'config', 'scripts', 'noop-always-exits-zero.mjs'),
+        cwd: REPO_ROOT,
+        violation: 'a gate that cannot fail',
+        expectMessage: 'unreachable'
+      })
+    ).toThrow()
+  })
+})
 
 describe('every package.json gate proves it can fail', () => {
   beforeAll(() => {
