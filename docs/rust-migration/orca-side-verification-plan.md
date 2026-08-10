@@ -301,10 +301,17 @@ things agree, there must be a test that fails when they do not.
   properties are discharged rather than merely reported.
 - Two gate repairs of the same family, found while wiring the above, both of
   which made a green reading meaningless:
-  - `pnpm parity` aborts when the Rust leg exits non-zero, and the Rust leg has
-    two failing goldens (`feature-tips#0`, `terminal-stream-protocol#20`) — so
-    the TS↔Rust differential has not been running. Run directly it is
-    **1540/1542**, and those two are genuine divergences worth triaging.
+  - `pnpm parity` aborted at the Rust leg, so the TS↔Rust differential was not
+    running for anyone. Both blocking divergences are now fixed and it exits 0
+    at **1543/1543**. They needed opposite fixes, which is the point:
+    `terminal-stream-protocol` was a real regression in the TS (the v1.4.165
+    merge dropped `SetOutputPaused = 16`, so a host silently discards a client's
+    pause frame and keeps flooding it), while `feature-tips` was merely a stale
+    port and TS was already right. Parity makes the port match what SHIPS; it
+    does not split the difference.
+  - `cargo test -p orca-config` could not build — an `include_str!` still
+    pointed at `tests/tools/parity/vectors/`, which no longer exists. 123 tests
+    had not been running.
   - The E1 certificates gate had two bugs that made it PASS without executing a
     single corpus (`-Z` rustflags under a stable toolchain; parity discovery
     filtering the ay-certificate subset). Both fixed.
