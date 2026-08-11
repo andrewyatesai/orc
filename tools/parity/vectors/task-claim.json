@@ -1,0 +1,495 @@
+{
+  "module": "task-claim",
+  "source": "src/main/runtime/orchestration/task-claim-reconciliation.ts",
+  "rustCrate": "orca-policy (task_claim)",
+  "note": "The fleet's only CONTRADICTING signal. Every case below pins one distinct outcome or reason; the three `unknown` reasons are pinned separately because a supervisor acts on the REASON, and the no-git rows exist to prove the port never turns 'I could not check' into 'you lied'.",
+  "cases": [
+    {
+      "function": "reconcileTaskClaim",
+      "note": "the whole reason this exists: three files claimed, git shows none — the one alert that can contradict an agent",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"w1\",\"filesModified\":[\"src/a.ts\",\"src/b.ts\",\"src/c.ts\"],\"completedAt\":\"now\"}",
+        "changedFiles": []
+      },
+      "expected": {
+        "verdict": "mismatch",
+        "claimed": ["src/a.ts", "src/b.ts", "src/c.ts"],
+        "missing": ["src/a.ts", "src/b.ts", "src/c.ts"],
+        "unclaimed": []
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "SAME claim, git absent instead of empty: unknown/no-git, NEVER mismatch. A folder workspace has no git to ask, and an absent answer is not a discrepancy — crying mismatch here trains a supervisor to ignore the alert",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"w1\",\"filesModified\":[\"src/a.ts\",\"src/b.ts\",\"src/c.ts\"],\"completedAt\":\"now\"}",
+        "changedFiles": null
+      },
+      "expected": { "verdict": "unknown", "reason": "no-git" }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "an empty array is a REAL git answer ('nothing changed') and must not collapse into null — contrast with the row above",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"w1\",\"filesModified\":[],\"completedAt\":\"now\"}",
+        "changedFiles": []
+      },
+      "expected": { "verdict": "match", "claimed": [] }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "the claim is true",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"w1\",\"filesModified\":[\"src/a.ts\"],\"completedAt\":\"now\"}",
+        "changedFiles": ["src/a.ts"]
+      },
+      "expected": { "verdict": "match", "claimed": ["src/a.ts"] }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "missing (claimed but absent — alarming) and unclaimed (changed but unclaimed — sloppy) are DIFFERENT lists, reported at once and never merged",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"w1\",\"filesModified\":[\"src/a.ts\",\"src/b.ts\"],\"completedAt\":\"now\"}",
+        "changedFiles": ["src/b.ts", "src/c.ts"]
+      },
+      "expected": {
+        "verdict": "mismatch",
+        "claimed": ["src/a.ts", "src/b.ts"],
+        "missing": ["src/a.ts"],
+        "unclaimed": ["src/c.ts"]
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "unclaimed alone is still a mismatch: a worker that touched a file it never mentioned is sloppy, not lying, but the supervisor still needs the row",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"w1\",\"filesModified\":[\"src/a.ts\"],\"completedAt\":\"now\"}",
+        "changedFiles": ["src/a.ts", "src/surprise.ts"]
+      },
+      "expected": {
+        "verdict": "mismatch",
+        "claimed": ["src/a.ts"],
+        "missing": [],
+        "unclaimed": ["src/surprise.ts"]
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "unknown/not-completed: a running task has not said anything yet, so there is nothing to contradict",
+      "input": {
+        "taskStatus": "dispatched",
+        "result": "{\"completedBy\":\"w1\",\"filesModified\":[\"src/a.ts\"],\"completedAt\":\"now\"}",
+        "changedFiles": []
+      },
+      "expected": { "verdict": "unknown", "reason": "not-completed" }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "precedence: status is read BEFORE the result, so a running task with garbage in `result` is not-completed ('wait'), not unreadable-result ('go read the row')",
+      "input": { "taskStatus": "dispatched", "result": "not json", "changedFiles": [] },
+      "expected": { "verdict": "unknown", "reason": "not-completed" }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "unknown/unreadable-result: `result` is not JSON at all",
+      "input": { "taskStatus": "completed", "result": "not json", "changedFiles": [] },
+      "expected": { "verdict": "unknown", "reason": "unreadable-result" }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "unknown/unreadable-result: no result row at all is 'nothing was written', not 'claimed nothing'",
+      "input": { "taskStatus": "completed", "result": null, "changedFiles": [] },
+      "expected": { "verdict": "unknown", "reason": "unreadable-result" }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "unknown/unreadable-result: valid JSON of the wrong TYPE — a bare string is not an object",
+      "input": { "taskStatus": "completed", "result": "\"a string\"", "changedFiles": [] },
+      "expected": { "verdict": "unknown", "reason": "unreadable-result" }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "unknown/unreadable-result: a write cut off mid-flush (crashed worker) is unreadable, and must not read as a claim of the files it managed to emit",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"src/a.ts\"",
+        "changedFiles": []
+      },
+      "expected": { "verdict": "unknown", "reason": "unreadable-result" }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "precedence: the result is parsed BEFORE git availability is checked, so an unreadable result on a folder workspace names the row, not the workspace",
+      "input": { "taskStatus": "completed", "result": "not json", "changedFiles": null },
+      "expected": { "verdict": "unknown", "reason": "unreadable-result" }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "normalization: the two sides spell the same file differently — ./a and a are one file",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"./src/a.ts\"]}",
+        "changedFiles": ["src/a.ts"]
+      },
+      "expected": { "verdict": "match", "claimed": ["src/a.ts"] }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "normalization: leading and trailing slashes are shape, not identity",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"//src/a.ts/\"]}",
+        "changedFiles": ["src/a.ts"]
+      },
+      "expected": { "verdict": "match", "claimed": ["src/a.ts"] }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "normalization: surrounding whitespace AND a U+FEFF byte-order mark are trimmed — JS trims ZWNBSP where Rust's char::is_whitespace does not, so a naive port invents a mismatch here",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"﻿ src/a.ts \"]}",
+        "changedFiles": ["src/a.ts"]
+      },
+      "expected": { "verdict": "match", "claimed": ["src/a.ts"] }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "the other direction of the same trap: U+0085 (NEL) IS Unicode White_Space, so Rust's trim would eat it, but JS keeps it — the port must keep it too and report the mismatch TS reports",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"src/a.ts\"]}",
+        "changedFiles": ["src/a.ts"]
+      },
+      "expected": {
+        "verdict": "mismatch",
+        "claimed": ["src/a.ts"],
+        "missing": ["src/a.ts"],
+        "unclaimed": ["src/a.ts"]
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "normalization does NOT touch backslashes: a Windows-spelled claim reads as missing against git's posix answer. Pinned as the current shared behaviour of both sides, not as an endorsement",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"src\\\\a.ts\"]}",
+        "changedFiles": ["src/a.ts"]
+      },
+      "expected": {
+        "verdict": "mismatch",
+        "claimed": ["src\\a.ts"],
+        "missing": ["src\\a.ts"],
+        "unclaimed": ["src/a.ts"]
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "the CLAIM keeps its duplicates: one file named twice stays two entries, so the count stays the worker's own arithmetic and the double-naming is visible",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"src/a.ts\",\"./src/a.ts\"]}",
+        "changedFiles": ["src/a.ts"]
+      },
+      "expected": { "verdict": "match", "claimed": ["src/a.ts", "src/a.ts"] }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "git's side is a Set: de-duplicated, and `unclaimed` reports it in FIRST-occurrence order",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[]}",
+        "changedFiles": ["src/b.ts", "./src/b.ts", "src/a.ts"]
+      },
+      "expected": {
+        "verdict": "mismatch",
+        "claimed": [],
+        "missing": [],
+        "unclaimed": ["src/b.ts", "src/a.ts"]
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "non-string entries in filesModified are dropped, not coerced: a claim is only as good as the parts of it that are paths",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"src/a.ts\",42,null,{\"path\":\"src/b.ts\"}]}",
+        "changedFiles": ["src/a.ts"]
+      },
+      "expected": { "verdict": "match", "claimed": ["src/a.ts"] }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "entries that normalize to nothing are dropped rather than compared as the empty path",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"\",\"   \",\"/\",\"./\"]}",
+        "changedFiles": []
+      },
+      "expected": { "verdict": "match", "claimed": [] }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "a JSON ARRAY is `typeof 'object'` in JS, so it parses as a claim of nothing rather than as unreadable — a serde-shaped port that demanded a map would report the wrong REASON here",
+      "input": { "taskStatus": "completed", "result": "[1,2]", "changedFiles": ["src/a.ts"] },
+      "expected": {
+        "verdict": "mismatch",
+        "claimed": [],
+        "missing": [],
+        "unclaimed": ["src/a.ts"]
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "an object with no filesModified key is a claim of nothing, not an unreadable result: older result shapes omitted the field entirely",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"w1\"}",
+        "changedFiles": []
+      },
+      "expected": { "verdict": "match", "claimed": [] }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "filesModified present but the wrong TYPE degrades to 'claimed nothing' rather than to unreadable",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":\"src/a.ts\"}",
+        "changedFiles": ["src/a.ts"]
+      },
+      "expected": {
+        "verdict": "mismatch",
+        "claimed": [],
+        "missing": [],
+        "unclaimed": ["src/a.ts"]
+      }
+    },
+    {
+      "function": "parseTaskClaim",
+      "note": "drops non-string entries and reports completedBy as null when it is absent",
+      "input": { "result": "{\"filesModified\":[\"a.ts\",42,null]}" },
+      "expected": { "completedBy": null, "filesModified": ["a.ts"] }
+    },
+    {
+      "function": "parseTaskClaim",
+      "note": "extra keys the several result shapes have carried are ignored, not rejected",
+      "input": {
+        "result": "{\"completedBy\":\"w1\",\"filesModified\":[\"a.ts\"],\"completedAt\":\"now\",\"summary\":\"done\"}"
+      },
+      "expected": { "completedBy": "w1", "filesModified": ["a.ts"] }
+    },
+    {
+      "function": "parseTaskClaim",
+      "note": "a non-string completedBy is null, not a coerced number — the field names a worker or nothing",
+      "input": { "result": "{\"completedBy\":42,\"filesModified\":[\"a.ts\"]}" },
+      "expected": { "completedBy": null, "filesModified": ["a.ts"] }
+    },
+    {
+      "function": "parseTaskClaim",
+      "note": "not JSON at all",
+      "input": { "result": "nope" },
+      "expected": null
+    },
+    {
+      "function": "parseTaskClaim",
+      "note": "valid JSON, wrong type",
+      "input": { "result": "\"a string\"" },
+      "expected": null
+    },
+    {
+      "function": "parseTaskClaim",
+      "note": "JSON null is not an object — the `parsed === null` arm, which typeof alone would miss",
+      "input": { "result": "null" },
+      "expected": null
+    },
+    {
+      "function": "parseTaskClaim",
+      "note": "no result row",
+      "input": { "result": null },
+      "expected": null
+    },
+    {
+      "function": "parseTaskClaim",
+      "note": "an empty result column is the falsy arm, not a parse attempt",
+      "input": { "result": "" },
+      "expected": null
+    },
+    {
+      "function": "describeReconciliation",
+      "note": "the summary for no-git NEVER says mismatch — the sentence a supervisor reads is the whole point of degrading to unknown",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"src/a.ts\"]}",
+        "changedFiles": null
+      },
+      "expected": "cannot check on a folder workspace"
+    },
+    {
+      "function": "describeReconciliation",
+      "note": "not-completed and unreadable-result share one phrase, and it is not an accusation either",
+      "input": {
+        "taskStatus": "dispatched",
+        "result": "{\"filesModified\":[\"src/a.ts\"]}",
+        "changedFiles": []
+      },
+      "expected": "nothing to check yet"
+    },
+    {
+      "function": "describeReconciliation",
+      "note": "the same phrase for an unreadable result: the console distinguishes them by REASON, not by sentence",
+      "input": { "taskStatus": "completed", "result": "not json", "changedFiles": [] },
+      "expected": "nothing to check yet"
+    },
+    {
+      "function": "describeReconciliation",
+      "note": "when both directions are non-empty the ALARMING one wins the sentence",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"src/a.ts\",\"src/b.ts\"]}",
+        "changedFiles": ["src/c.ts"]
+      },
+      "expected": "claimed 2 file(s) git does not show as changed"
+    },
+    {
+      "function": "describeReconciliation",
+      "note": "sloppy-only reads as sloppy, not as a false claim",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"src/a.ts\"]}",
+        "changedFiles": ["src/a.ts", "src/surprise.ts"]
+      },
+      "expected": "changed 1 file(s) it did not claim"
+    },
+    {
+      "function": "describeReconciliation",
+      "note": "a match counts the CLAIM, duplicates included — the number is what the worker said, not a file count",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"src/a.ts\",\"./src/a.ts\"]}",
+        "changedFiles": ["src/a.ts"]
+      },
+      "expected": "2 file(s) claimed and changed"
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "exactly ONE leading ./ is stripped — the TS replace has no /g, so a doubled prefix survives and the claim legitimately fails to match. Uncovered before: de-globbing the port's strip_prefix was the one mutation the corpus did not kill",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"././src/a.ts\"]}",
+        "changedFiles": ["src/a.ts"]
+      },
+      "expected": {
+        "verdict": "mismatch",
+        "claimed": ["./src/a.ts"],
+        "missing": ["./src/a.ts"],
+        "unclaimed": ["src/a.ts"]
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "duplicate JSON keys: the LAST filesModified wins, as JSON.parse and serde_json both resolve it — a reconciler that rewrote the row mid-flush must not read the stale key",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"a.ts\"],\"filesModified\":[\"b.ts\"]}",
+        "changedFiles": ["b.ts"]
+      },
+      "expected": { "verdict": "match", "claimed": ["b.ts"] }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "the claim keeps duplicates on the ALARMING side too: one file named twice with git showing nothing reports missing twice, so the count stays the worker's own arithmetic",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"src/a.ts\",\"./src/a.ts\"]}",
+        "changedFiles": []
+      },
+      "expected": {
+        "verdict": "mismatch",
+        "claimed": ["src/a.ts", "src/a.ts"],
+        "missing": ["src/a.ts", "src/a.ts"],
+        "unclaimed": []
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "a BOM before the DOCUMENT is a parse failure on both sides — contrast with the BOM inside a path above, which is trimmed. JSON.parse and serde_json agree here, and the port must not 'helpfully' skip it",
+      "input": {
+        "taskStatus": "completed",
+        "result": "﻿{\"filesModified\":[\"src/a.ts\"]}",
+        "changedFiles": ["src/a.ts"]
+      },
+      "expected": { "verdict": "unknown", "reason": "unreadable-result" }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "a WELL-FORMED surrogate pair (an emoji in a filename) survives both readers intact — the contrast case for the lone-surrogate divergence below",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"src/\\ud83d\\ude00.ts\"]}",
+        "changedFiles": ["src/😀.ts"]
+      },
+      "expected": { "verdict": "match", "claimed": ["src/😀.ts"] }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "nesting well under serde_json's 128-frame recursion limit still reads on both sides — the green boundary for the depth divergence below",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"src/a.ts\"],\"trace\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}",
+        "changedFiles": ["src/a.ts"]
+      },
+      "expected": { "verdict": "match", "claimed": ["src/a.ts"] }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "NFC and NFD are DIFFERENT paths: neither side unicode-normalizes, so a macOS-decomposed git path never matches a precomposed claim. Pinned so no one 'fixes' it in one language only",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"src/caf\\u00e9.ts\"]}",
+        "changedFiles": ["src/café.ts"]
+      },
+      "expected": {
+        "verdict": "mismatch",
+        "claimed": ["src/café.ts"],
+        "missing": ["src/café.ts"],
+        "unclaimed": ["src/café.ts"]
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "allowDivergence": "PORT BUG, UNFIXED — serde_json stops at 128 nested frames and JSON.parse does not, so a result carrying a deeper trace reads as a claim in the shipping TS and as unreadable-result in the Rust port. Recorded, not blessed: the fix is a design call about the serde_json dependency, see the module note",
+      "note": "DIVERGENCE: nesting deeper than serde_json's recursion limit. TS reports match; the port reports unknown/unreadable-result",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"src/a.ts\"],\"trace\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}",
+        "changedFiles": ["src/a.ts"]
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "allowDivergence": "PORT BUG, UNFIXED — and the worst of the three, because it silences a REAL alert: TS reports mismatch on this row and the port reports unknown. serde_json rejects an unpaired surrogate escape that JSON.parse accepts (a JS string is UTF-16 and can hold one; a Rust String cannot), so one bad code unit anywhere in the result turns a contradiction into 'I could not check'",
+      "note": "DIVERGENCE: lone surrogate escape in a claimed path. TS reports mismatch; the port reports unknown/unreadable-result",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"w1\",\"filesModified\":[\"src/\\ud800a.ts\"]}",
+        "changedFiles": ["src/a.ts"]
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "allowDivergence": "PORT BUG, UNFIXED — serde_json rejects a numeric literal that overflows f64 ('number out of range') where JSON.parse yields Infinity and reads on. The number is in a field this decision never looks at, and it still costs the whole verdict",
+      "note": "DIVERGENCE: a number literal that overflows f64, in a field the claim ignores. TS reports match; the port reports unknown/unreadable-result",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"w1\",\"filesModified\":[\"src/a.ts\"],\"durationMs\":1e999}",
+        "changedFiles": ["src/a.ts"]
+      }
+    }
+  ]
+}

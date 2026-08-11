@@ -5,9 +5,16 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Pure security-decision cores for the fleet and Story World: play-path containment ported from src/main/story-world/play-path-guard.ts and fleet-grant authorization ported from src/shared/fleet-grant.ts. Zero deps, forbid-unsafe, panic-free — these are authority decisions, so they are Trust-verification targets rather than test-only logic."
+description = "Pure security-decision cores for the fleet and Story World: play-path containment ported from src/main/story-world/play-path-guard.ts, fleet-grant authorization ported from src/shared/fleet-grant.ts, and the task-claim reconciliation ported from src/main/runtime/orchestration/task-claim-reconciliation.ts. Forbid-unsafe, panic-free, IO-free — these are authority decisions, so they are Trust-verification targets rather than test-only logic."
 
 [dependencies]
+# serde_json only, and only for `task_claim`: the shape tolerance it ports
+# (an array IS an object, a non-string entry is dropped, a truncated write is
+# unreadable) is part of the DECISION and belongs in the verified core, not in
+# the dispatch adapter. Hand-rolling a reader instead would raise a page of
+# obligations about parsing rather than about the claim. Adds no crate to any
+# build graph: the only dependent, orca-dispatch, already links it.
+serde_json = { version = "1", default-features = false, features = ["std"] }
 
 [lints.rust]
 unsafe_code = "forbid"
