@@ -303,6 +303,35 @@ function allowsPlaintextPersistedSecret(env: NodeJS.ProcessEnv = process.env): b
   )
 }
 
+// Why: `isEncryptionAvailable()` answers "does this platform support encryption", NOT "can this
+// process reach a keychain". On macOS a process without the login keychain in its security session
+// (a detached/headless launch, a locked or absent default keychain) passes that check and then makes
+// `encryptString` raise a MODAL system dialog — "A keychain cannot be found to store …" — once per
+// secret, per save. Latch the first real failure so the prompt happens at most once per process
+// instead of on every write; the existing unavailable path already refuses to downgrade to cleartext.
+let safeStorageWriteFailed = false
+
+function safeStorageUsable(): boolean {
+  return !safeStorageWriteFailed && safeStorage.isEncryptionAvailable()
+}
+
+function noteSafeStorageWriteFailed(err: unknown): void {
+  if (!safeStorageWriteFailed) {
+    safeStorageWriteFailed = true
+    console.error(
+      '[persistence] safeStorage encryption failed; treating the keychain as unavailable for the rest of this process:',
+      err
+    )
+    return
+  }
+  console.error('[persistence] Encryption failed:', err)
+}
+
+/** Test seam: clears the latch so a suite can exercise both sides in one process. */
+export function _resetSafeStorageAvailabilityLatch(): void {
+  safeStorageWriteFailed = false
+}
+
 // Returns a tagged, persistable representation of `plaintext`, or '' when the secret must not touch disk
 // (encryption unavailable in production). The caller keeps the value in memory, so the running session stays
 // functional; the secret simply isn't written until a keychain exists — mirroring the cloud-session model.
@@ -310,13 +339,13 @@ function encrypt(plaintext: string): string {
   if (!plaintext) {
     return plaintext
   }
-  if (safeStorage.isEncryptionAvailable()) {
+  if (safeStorageUsable()) {
     try {
       return ENCRYPTED_SECRET_PREFIX + safeStorage.encryptString(plaintext).toString('base64')
     } catch (err) {
       // Why: an encryptString failure is NOT license to write cleartext — fall through to the same
       // unavailable handling so a transient error can't silently downgrade a secret to plaintext.
-      console.error('[persistence] Encryption failed:', err)
+      noteSafeStorageWriteFailed(err)
     }
   }
   if (allowsPlaintextPersistedSecret()) {
@@ -349,7 +378,7 @@ function decryptTracked(stored: string): {
   const isTaggedCiphertext = stored.startsWith(ENCRYPTED_SECRET_PREFIX)
   const ciphertext = isTaggedCiphertext ? stored.slice(ENCRYPTED_SECRET_PREFIX.length) : stored
 
-  if (!safeStorage.isEncryptionAvailable()) {
+  if (!safeStorageUsable()) {
     // No keychain: we cannot read ciphertext, and an untagged value may be legacy plaintext OR legacy
     // ciphertext. Return the stored blob as-is and preserve it verbatim so a transient outage can't
     // destroy a genuine secret (nor rewrite it), matching the pre-tag round-trip behavior.

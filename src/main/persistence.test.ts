@@ -108,7 +108,7 @@ const { trackMock, getCohortAtEmitMock } = vi.hoisted(() => ({
 
 // Why: default true so existing crypto tests are unaffected; individual tests flip
 // `available` to exercise the safeStorage-unavailable (headless/SSH) path.
-const safeStorageControl = vi.hoisted(() => ({ available: true }))
+const safeStorageControl = vi.hoisted(() => ({ available: true, encryptThrows: false, encryptCalls: 0 }))
 
 vi.mock('electron', () => ({
   app: {
@@ -116,7 +116,14 @@ vi.mock('electron', () => ({
   },
   safeStorage: {
     isEncryptionAvailable: () => safeStorageControl.available,
-    encryptString: (plaintext: string) => Buffer.from(`encrypted:${plaintext}`, 'utf-8'),
+    encryptString: (plaintext: string) => {
+      safeStorageControl.encryptCalls += 1
+      if (safeStorageControl.encryptThrows) {
+        // Why: macOS raises this from a MODAL dialog, once per call — the thing the latch exists to stop.
+        throw new Error('A keychain cannot be found to store "orca Key."')
+      }
+      return Buffer.from(`encrypted:${plaintext}`, 'utf-8')
+    },
     decryptString: (ciphertext: Buffer) => {
       const decoded = ciphertext.toString('utf-8')
       if (!decoded.startsWith('encrypted:')) {
@@ -7127,6 +7134,41 @@ describe('Store', () => {
       expect(store.getSettings().opencodeSessionCookie).toBe(cookie)
     } finally {
       safeStorageControl.available = true
+    }
+  })
+
+  // Why: macOS `isEncryptionAvailable()` answers "this platform supports encryption", not "this
+  // process can reach a keychain". A detached/headless launch passes that check and then raises a
+  // MODAL "A keychain cannot be found to store ..." dialog from encryptString — once per secret, per
+  // save. The latch makes the user answer it at most once per process.
+  it('stops calling safeStorage after the keychain refuses, so the modal cannot repeat', async () => {
+    delete process.env.ORCA_ALLOW_PLAINTEXT_PERSISTED_SECRETS
+    const { _resetSafeStorageAvailabilityLatch } = await import('./persistence')
+    _resetSafeStorageAvailabilityLatch()
+    safeStorageControl.encryptThrows = true
+    safeStorageControl.encryptCalls = 0
+    try {
+      const store = await createStore()
+      store.updateSettings({ opencodeSessionCookie: 'sk-one' })
+      store.flush()
+      const afterFirst = safeStorageControl.encryptCalls
+      expect(afterFirst).toBeGreaterThan(0)
+
+      // Several more secret-bearing saves: none may reach safeStorage again.
+      store.updateSettings({ opencodeSessionCookie: 'sk-two' })
+      store.flush()
+      store.updateSettings({ opencodeSessionCookie: 'sk-three' })
+      store.flush()
+      expect(safeStorageControl.encryptCalls).toBe(afterFirst)
+
+      // And the refusal still never downgrades a secret to cleartext.
+      const persisted = readDataFile() as { settings: { opencodeSessionCookie: string } }
+      expect(persisted.settings.opencodeSessionCookie).toBe('')
+      expect(JSON.stringify(persisted)).not.toContain('sk-three')
+      expect(store.getSettings().opencodeSessionCookie).toBe('sk-three')
+    } finally {
+      safeStorageControl.encryptThrows = false
+      _resetSafeStorageAvailabilityLatch()
     }
   })
 
