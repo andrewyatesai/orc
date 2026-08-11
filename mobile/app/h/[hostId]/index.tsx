@@ -64,6 +64,8 @@ import { BottomDrawer } from '../../../src/components/BottomDrawer'
 import { WorktreeFilterDrawer } from '../../../src/components/WorktreeFilterDrawer'
 import { useHostProtocolGates } from '../../../src/components/HostProtocolGate'
 import { AuthFailedBanner } from '../../../src/components/AuthFailedBanner'
+import { HostRouteNoticeBanner } from '../../../src/components/HostRouteNoticeBanner'
+import { visibleHostRouteNotice } from '../../../src/host-route-notice'
 import { MobileSearchField } from '../../../src/components/MobileSearchField'
 import { WorkspaceDetailPlaceholder } from '../../../src/components/WorkspaceDetailPlaceholder'
 import { getCachedWorktrees, setCachedWorktrees } from '../../../src/cache/worktree-cache'
@@ -125,9 +127,12 @@ export function HostScreen({
   action: actionProp,
   onHideSidebar
 }: HostScreenProps = {}) {
-  const params = useLocalSearchParams<{ hostId: string; action?: string }>()
+  const params = useLocalSearchParams<{ hostId: string; action?: string; notice?: string }>()
   const hostId = hostIdProp ?? params.hostId
   const action = actionProp ?? params.action
+  const [dismissedNotice, setDismissedNotice] = useState<string | null>(null)
+  const noticeParam = params.notice?.trim()
+  const routeNotice = visibleHostRouteNotice(embedded, noticeParam, dismissedNotice)
   const router = useRouter()
   const pathname = usePathname()
   const insets = useSafeAreaInsets()
@@ -1092,6 +1097,14 @@ export function HostScreen({
           onRetry={() => hostId && void forceReconnectHost(hostId)}
           onRepair={() => router.push('/pair-scan')}
           onRemove={() => setConfirmRemoveHost(true)}
+        />
+      )}
+
+      {/* Why a bounced route landed here (e.g. the workspace was deleted on the desktop). */}
+      {routeNotice && (
+        <HostRouteNoticeBanner
+          message={routeNotice}
+          onDismiss={() => setDismissedNotice(noticeParam ?? null)}
         />
       )}
 

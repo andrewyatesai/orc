@@ -189,7 +189,7 @@ import { MobileTerminalInputActions } from '../../../../src/session/MobileTermin
 import { resolveMobileFileTabDoc } from '../../../../src/files/mobile-file-tab-doc'
 import { captureMobileFileMutationOwnership } from '../../../../src/files/mobile-file-mutation-ownership'
 import { openMobileTerminalFileTap } from '../../../../src/session/mobile-terminal-file-tap-open'
-import { useLiveWorktreeName } from '../../../../src/session/use-live-worktree-name'
+import { useSessionWorktreeName } from '../../../../src/session/use-session-worktree-name'
 import {
   acceptSessionSnapshot,
   applyClosedTabTombstones,
@@ -840,10 +840,12 @@ export default function SessionScreen() {
   const reconnectAttempts = useReconnectAttempt(hostId)
   const lastConnectedAt = useLastConnectedAt(hostId)
   const forceReconnectHost = useForceReconnect()
-  const worktreeName = useLiveWorktreeName({
+  // Why: also bounces the route to the host index if the host proves this worktree is gone.
+  const worktreeName = useSessionWorktreeName({
     client,
     connState,
     routeName: routeWorktreeName,
+    hostId,
     worktreeId
   })
   // Master-detail state: wide layouts dock a tapped panel beside the session; narrow keeps it null and pushes full-screen routes.
