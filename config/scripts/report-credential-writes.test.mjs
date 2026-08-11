@@ -95,13 +95,17 @@ it('a notes entry matching no live site is surfaced, not silently kept', () => {
   expect2deep(unmatchedNoteKeys(fakeSites(), notes), ['ghost.ts|z|fs:fs:writeFileSync|0'])
 })
 
-it('the committed review notes parse and carry the four unfixed findings', () => {
+// Why one and not four: Jira, Linear and MiniMax now refuse to write without the dev opt-in. The
+// survivor is the mobile E2EE identity, whose flag is an opt-OUT, so a keychain-less host still
+// writes the transport private key in cleartext by default. Lowering this number is the fix; a
+// test that pinned 4 would have gone red for the right reason and been "corrected" the wrong way.
+it('the committed review notes parse and carry the remaining unfixed finding', () => {
   const { notes, problem } = loadReviewNotes()
   expect2eq(problem, null)
   const unfixed = [...notes.values()].filter(
     (note) => note.verdict === 'cleartext-fallback-unfixed'
   )
-  expect2eq(unfixed.length, 4)
+  expect2eq(unfixed.length, 1)
   for (const note of unfixed) {
     expect2ok(note.reason.length > 0, 'every real finding must carry its reason')
   }
@@ -183,7 +187,7 @@ it('prints every site it finds, and emptying the review notes changes no site, o
   )
   expect2eq(
     before.sites.filter((site) => site.review.verdict === 'cleartext-fallback-unfixed').length,
-    4
+    1
   )
 
   expect2eq(after.totalSites, before.totalSites, 'no note may remove a site')
