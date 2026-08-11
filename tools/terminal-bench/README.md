@@ -70,8 +70,20 @@ prerequisites, then runs three axes and emits a machine-readable verdict:
 pnpm gauntlet                 # all axes; or: node tools/terminal-bench/gauntlet.mjs all
 pnpm gauntlet:conformance     # visible-grid differential vs xterm (per ANSI case)
 pnpm gauntlet:perf            # MB/s medians + grid-parity
+pnpm gauntlet:bootstrap       # install the prerequisites, then verify them
+node tools/terminal-bench/gauntlet.mjs bootstrap --verify   # verify only, install nothing
+pnpm gauntlet:census          # regret-class ratchet (watched files only shrink)
 ```
 
+- **bootstrap** — installs the three prerequisites (napi addon, `@xterm/headless`
+  oracle, perf corpus) **and then proves them**: the addon is loaded and made to
+  parse, the oracle is loaded and matched against the pin in `package.json`, the
+  corpus is measured. A path that exists is not a prerequisite — an empty
+  `orca_node.node` or a corpus the generator never finished used to read as
+  "already present" and exit 0, which is exactly the silently-green failure the
+  exit contract exists to kill. Present-but-unusable is a `FAIL`; a toolchain this
+  machine simply lacks is `REVIEW`. The checks live in `gauntlet-prereqs.mjs`;
+  `--verify` reports the same verdict without installing (no surprise cargo build).
 - **conformance** — every case in `tools/aterm-vs-xterm/corpus.json` is run through
   both engines and the 24×80 grids are diffed. A match is parity; a divergence is
   `REVIEW` (not auto-fail), because aterm being *more* correct than xterm per the
@@ -96,6 +108,16 @@ pnpm gauntlet:perf            # MB/s medians + grid-parity
   functions TRUSTED** (`clampNumber`, `getUtf8ByteLengthForCodePoint`,
   `isProcessOutputWhitespace`, `formatRepoRefs`, …); `trimDanglingHighSurrogate`
   is REVIEW — W2-clean but W1-incomplete (the UTF-16 surrogate frontier).
+- **census** — `tools/repo-census.mjs` regenerates the inventory; the regret class
+  (`census-ratchet.json`: the delivery-shim manifest and the watched god objects)
+  may only shrink, and growth is `REVIEW`. Triage before you re-baseline: a stale
+  ceiling makes the axis REVIEW unconditionally, which detects *nothing* new. Record
+  why the growth was accepted in a `_`-prefixed key (notes, never ceilings) and pull
+  the ceiling in whenever a number shrank. **Measure the ceilings at the commit you
+  commit them at** — pinning them to an older HEAD lands the axis already red. A
+  ceiling cannot be retired quietly: the axis scans the census output, so a deleted
+  key, a key hidden under `_`, and a non-numeric ceiling are all `REVIEW`. All of it
+  is pinned by `gauntlet-census.test.mjs`, which plants real growth in a watched file.
 
 Exit code is the contract an agent branches on: **0** = every selected gate proved
 green, **1** = a real FAIL, **2** = a REVIEW to triage (or a run that skipped some
@@ -109,6 +131,7 @@ code and its one-line `summary` — is written to `.gauntlet-report.json`.
 ## Files
 
 - `gauntlet.mjs` — the agent gate: bootstrap + conformance + perf + safety, with exit codes.
+- `gauntlet-prereqs.mjs` — what "bootstrapped" means: the load/measure checks behind the bootstrap axis (`gauntlet-prereqs.test.mjs` plants the corruption each one catches).
 - `run.mjs` — orchestrator: medians + parity verdict.
 - `xterm-bench.mjs` — the `@xterm/headless` baseline leg.
 - `addon-bench.mjs` — loads the napi addon (`require('orca_node.node')`) and runs the same corpus.
