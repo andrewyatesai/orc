@@ -2936,6 +2936,8 @@ export type GlobalSettings = {
   combinedDiffFileTreeVisibleByDefault: boolean
   /** Bot-marked comment-author logins (stored lowercased); escape hatch for review bots on regular accounts that defeat provider metadata/heuristics. */
   prBotAuthorOverrides: string[]
+  /** Capability gate for agent-driven artifact publishing; off until granted, enforced in main, not just the UI. */
+  artifactSharingEnabled?: boolean
   notifications: NotificationSettings
   /** Countdown after a Claude agent goes idle showing time left before the prompt cache expires. */
   promptCacheTimerEnabled: boolean

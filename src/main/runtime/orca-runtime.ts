@@ -449,6 +449,18 @@ import type {
   BrowserScreencastResult
 } from '../../shared/runtime-types'
 import type { AutomationService } from '../automations/service'
+import type { ArtifactCloudService } from '../artifacts/artifact-cloud-service'
+import { isArtifactSharingEnabled } from '../../shared/artifact-sharing-gate'
+import type {
+  ArtifactCloudOperation,
+  ArtifactCloudOptions,
+  ArtifactListOptions,
+  ArtifactListPage,
+  ArtifactListItem,
+  ArtifactPublishedLink,
+  ArtifactPublishResult,
+  ArtifactWriteRequest
+} from '../../shared/artifacts'
 import { RuntimeBrowserCommands } from './orca-runtime-browser'
 import { RemoteRuntimeTerminalCreateIdempotency } from './remote-runtime-terminal-create-idempotency'
 import { deriveRemoteRuntimeTerminalCreateHandle } from './remote-runtime-terminal-create-identity'
@@ -1178,6 +1190,7 @@ type RuntimeStore = {
     minimaxGroupId?: GlobalSettings['minimaxGroupId']
     minimaxUsageModels?: GlobalSettings['minimaxUsageModels']
     prBotAuthorOverrides?: GlobalSettings['prBotAuthorOverrides']
+    artifactSharingEnabled?: GlobalSettings['artifactSharingEnabled']
     terminalQuickCommands?: GlobalSettings['terminalQuickCommands']
     gitlabProjects?: GlobalSettings['gitlabProjects']
     mobileAutoRestoreFitMs?: number | null
@@ -3254,6 +3267,7 @@ export class OrcaRuntimeService {
   private accountServices: RuntimeAccountServices | null = null
   private commitMessageAgentEnv: CommitMessageAgentEnvironmentResolvers | null = null
   private automationService: AutomationService | null = null
+  private artifactService: ArtifactCloudService | null = null
   private readonly claudeAgentTeams = new ClaudeAgentTeamsService()
   private mobileDictation: {
     id: string
@@ -3443,6 +3457,9 @@ export class OrcaRuntimeService {
     | 'minimaxGroupId'
     | 'minimaxUsageModels'
     | 'prBotAuthorOverrides'
+    // Read-only on purpose: clients preflight the publish capability here, but SettingsUpdate
+    // still omits the key so no RPC caller can grant it to itself.
+    | 'artifactSharingEnabled'
   > {
     if (!this.store?.getSettings) {
       throw new Error('runtime_unavailable')
@@ -3465,7 +3482,8 @@ export class OrcaRuntimeService {
       compactWorktreeCards: settings.compactWorktreeCards === true,
       minimaxGroupId: settings.minimaxGroupId ?? '',
       minimaxUsageModels: settings.minimaxUsageModels ?? 'general',
-      prBotAuthorOverrides: settings.prBotAuthorOverrides ?? []
+      prBotAuthorOverrides: settings.prBotAuthorOverrides ?? [],
+      artifactSharingEnabled: isArtifactSharingEnabled(settings)
     }
   }
 
@@ -3809,6 +3827,51 @@ export class OrcaRuntimeService {
 
   setAutomationService(service: AutomationService): void {
     this.automationService = service
+  }
+
+  setArtifactService(service: ArtifactCloudService): void {
+    this.artifactService = service
+  }
+
+  listArtifacts(options: ArtifactListOptions): Promise<ArtifactCloudOperation<ArtifactListPage>> {
+    return this.requireArtifactService().list(options)
+  }
+
+  getPublishedArtifactLink(
+    request: ArtifactCloudOptions & { sourceKey: string }
+  ): Promise<ArtifactCloudOperation<ArtifactPublishedLink | null>> {
+    return this.requireArtifactService().getPublishedLink(request)
+  }
+
+  shareArtifact(request: ArtifactWriteRequest): Promise<ArtifactCloudOperation<ArtifactListItem>> {
+    return this.requireArtifactService().share(request)
+  }
+
+  publishArtifact(
+    request: ArtifactWriteRequest
+  ): Promise<ArtifactCloudOperation<ArtifactPublishResult>> {
+    return this.requireArtifactService().publish(request)
+  }
+
+  updateArtifact(request: ArtifactWriteRequest): Promise<ArtifactCloudOperation<ArtifactListItem>> {
+    return this.requireArtifactService().update(request)
+  }
+
+  unshareArtifact(
+    request: ArtifactCloudOptions & { sourceKey: string }
+  ): Promise<ArtifactCloudOperation<void>> {
+    return this.requireArtifactService().unshare(request)
+  }
+
+  deleteArtifact(id: string, options: ArtifactCloudOptions): Promise<ArtifactCloudOperation<void>> {
+    return this.requireArtifactService().delete(id, options)
+  }
+
+  private requireArtifactService(): ArtifactCloudService {
+    if (!this.artifactService) {
+      throw new Error('Artifact service is unavailable.')
+    }
+    return this.artifactService
   }
 
   getRuntimeId(): string {

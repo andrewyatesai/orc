@@ -474,6 +474,9 @@ function formatCommandFlagHelp(flag: string, commandPath: string[]): string {
   if (flag === 'key' && command === 'computer press-key') {
     return '--key <key>            Single key, e.g. Return, Escape, Tab, Left, or PageUp'
   }
+  if (command === 'artifacts list' && flag === 'cursor') {
+    return '--cursor <cursor>      Opaque cursor returned by a previous artifacts page'
+  }
   return formatFlagHelp(flag)
 }
 

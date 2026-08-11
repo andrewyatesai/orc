@@ -334,6 +334,7 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     diffWordWrap: false,
     combinedDiffFileTreeVisibleByDefault: false,
     prBotAuthorOverrides: [],
+    artifactSharingEnabled: false,
     promptCacheTimerEnabled: false,
     promptCacheTtlMs: 300_000,
     codexManagedAccounts: [],
