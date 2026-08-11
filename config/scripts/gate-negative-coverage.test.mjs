@@ -11,7 +11,39 @@ import {
 } from './assert-gate-rejects-violation.mjs'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')
-const GATE_SCRIPT_NAME = /^(?:check|verify):/
+const GATE_SCRIPT_NAME = /^(?:check|verify|lint):/
+/**
+ * Gates that ARE enforcement but are raw linter invocations rather than
+ * `node config/scripts/*.mjs`, so `gateScripts()` cannot name a script for them.
+ *
+ * They were invisible to this file until now — the scope was `check:`/`verify:`
+ * only — even though `lint:switch-exhaustiveness` sits inside the `lint` chain
+ * and blocks like any other gate. Listing them here keeps them covered without
+ * weakening the rule below that a SCRIPT-backed gate must name its script.
+ *
+ * The value is the identity its negative test passes to `recordLinterRejection`,
+ * so these claims are still settled by an observed non-zero exit, not by a tag.
+ */
+const LINTER_BACKED_GATES = new Map([['lint:switch-exhaustiveness', 'oxlint:switch-exhaustiveness']])
+/**
+ * Reporting variants, not gates. Established by running them, not by their names:
+ * every rule in `config/oxlint-react-doctor.json` is severity `warn`, and oxlint
+ * exits 0 on warnings, so neither react-doctor `lint:` script can fail. That is
+ * deliberate — react-doctor's enforcement happens on ADDED LINES so pre-existing
+ * debt does not block routine work, and two gates already do it properly:
+ *   - `check:react-doctor:changed`  -> react-doctor CLI, `--scope lines --blocking error`
+ *   - `check:code-quality:changed`  -> runs the SAME oxlint react-doctor config as
+ *     one of its three scans, filtered through overlapsAddedLines()
+ * Both are covered by negative tests here.
+ *
+ * Verified the alternative is wrong before settling on this: adding
+ * `--deny-warnings` to lint-react-doctor-changed.mjs makes it reject a planted
+ * violation, but it lints whole FILES rather than added lines — touching
+ * BrowserPane.tsx with a one-line comment then fails on 3 pre-existing findings
+ * unrelated to the edit. Enforcing there would block routine work on legacy files
+ * while adding nothing the two gates above do not already catch.
+ */
+const REPORTING_VARIANTS = new Set(['lint', 'lint:react-doctor', 'lint:react-doctor:changed'])
 // Every gate is a config/scripts entry point, so its negative test belongs beside it.
 const COVERAGE_ROOT = path.join(REPO_ROOT, 'config', 'scripts')
 const VITEST_CLI = path.join(REPO_ROOT, 'node_modules', 'vitest', 'vitest.mjs')
@@ -34,8 +66,11 @@ function gateScripts() {
   const { scripts } = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'))
   return new Map(
     Object.entries(scripts ?? {})
-      .filter(([name]) => GATE_SCRIPT_NAME.test(name))
-      .map(([name, command]) => [name, GATE_COMMAND_SCRIPT.exec(command)?.[1] ?? null])
+      .filter(([name]) => GATE_SCRIPT_NAME.test(name) && !REPORTING_VARIANTS.has(name))
+      .map(([name, command]) => [
+        name,
+        LINTER_BACKED_GATES.get(name) ?? GATE_COMMAND_SCRIPT.exec(command)?.[1] ?? null
+      ])
   )
 }
 
