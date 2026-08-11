@@ -3135,14 +3135,22 @@ export class OrcaRuntimeService {
   // this window are redundant (for the restored pane) or wrong (collateral).
   private resizeSuppressedUntil = 0
 
-  // Why: delays PTY restore by 300ms after mobile unsubscribe so rapid tab
-  // switches don't cause unnecessary resize thrashing. Keyed by clientId
-  // Why: keyed by ptyId so each PTY gets its own independent restore timer.
-  // The old clientId-keyed design lost timers when two PTYs were unsubscribed
-  // back-to-back (only the last timer survived).
+  // Why: delays PTY restore after mobile unsubscribe (mobileAutoRestoreFitMs)
+  // so rapid tab switches don't cause unnecessary resize thrashing. Keyed by
+  // ptyId so each PTY gets its own independent restore timer — the old
+  // clientId-keyed design lost timers when two PTYs were unsubscribed
+  // back-to-back (only the last timer survived). Entries carry the restore
+  // dims snapshotted at unsubscribe time so a re-subscribe by the same client
+  // to another terminal can run the restore inline (cancel the timer, restore
+  // NOW) instead of waiting out the debounce; see handleMobileSubscribeInternal.
   private pendingRestoreTimers = new Map<
     string,
-    { timer: ReturnType<typeof setTimeout>; clientId: string }
+    {
+      timer: ReturnType<typeof setTimeout>
+      clientId: string
+      restoreCols: number
+      restoreRows: number
+    }
   >()
 
   // Why: inline resize events replace the unsubscribe→resubscribe pattern.
@@ -13603,6 +13611,22 @@ export class OrcaRuntimeService {
       this.pendingRestoreTimers.delete(ptyId)
     }
 
+    // Inline restore on re-subscribe: this client landing on another terminal
+    // means its tab navigation has settled, so run its other pending restores
+    // NOW instead of waiting out the debounce — rapid A→B→C switches leave
+    // each departed terminal at desktop dims the moment the next subscribe
+    // arrives, and no stale timer fires later against fresher state. Snapshot
+    // the entries first: the awaited restore yields, and the map can change
+    // underneath the iteration.
+    for (const [pendingPtyId, entry] of [...this.pendingRestoreTimers]) {
+      if (entry.clientId !== clientId || pendingPtyId === ptyId) {
+        continue
+      }
+      clearTimeout(entry.timer)
+      this.pendingRestoreTimers.delete(pendingPtyId)
+      await this.runPendingDesktopRestore(pendingPtyId, entry.restoreCols, entry.restoreRows)
+    }
+
     // Resubscribe-grace honor: same client returning within soft-leave
     // window restores prior record (preserving baseline so we don't capture
     // phone-fitted dims as the new baseline).
@@ -13876,18 +13900,7 @@ export class OrcaRuntimeService {
           subscriber.previousRows ?? fallback?.rows ?? this.getTerminalSize(ptyId)?.rows ?? 24
         const timer = setTimeout(() => {
           this.pendingRestoreTimers.delete(ptyId)
-          if (this.isMobileSubscriberActive(ptyId)) {
-            return
-          }
-          if (this.hasRemoteDesktopLayoutState(ptyId)) {
-            void this.applyRemoteDesktopLayout(ptyId)
-            return
-          }
-          void this.enqueueLayout(ptyId, {
-            kind: 'desktop',
-            cols: restoreCols,
-            rows: restoreRows
-          })
+          void this.runPendingDesktopRestore(ptyId, restoreCols, restoreRows)
         }, autoRestoreMs)
         // Why: a delayed mobile restore should not keep Electron main alive
         // after the last window/runtime transport has otherwise shut down.
@@ -13895,10 +13908,35 @@ export class OrcaRuntimeService {
           timer.unref()
         }
 
-        this.pendingRestoreTimers.set(ptyId, { timer, clientId })
+        this.pendingRestoreTimers.set(ptyId, { timer, clientId, restoreCols, restoreRows })
       }
     }
     // 'desktop' mode: was never resized, nothing to restore.
+  }
+
+  // Why: the deferred-restore body, shared by the debounce timer and the
+  // inline path (a re-subscribe by the same client to another terminal runs
+  // its pending restores immediately instead of waiting out the debounce).
+  // Guards mirror the original timer body: a subscriber that arrived in the
+  // window owns the layout now, and a remote-desktop layout claim wins over
+  // the plain desktop restore.
+  private async runPendingDesktopRestore(
+    ptyId: string,
+    restoreCols: number,
+    restoreRows: number
+  ): Promise<void> {
+    if (this.isMobileSubscriberActive(ptyId)) {
+      return
+    }
+    if (this.hasRemoteDesktopLayoutState(ptyId)) {
+      void this.applyRemoteDesktopLayout(ptyId)
+      return
+    }
+    await this.enqueueLayout(ptyId, {
+      kind: 'desktop',
+      cols: restoreCols,
+      rows: restoreRows
+    })
   }
 
   // Why: called when mode changes via terminal.setDisplayMode. Applies the
