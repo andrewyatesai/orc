@@ -13,7 +13,8 @@
 //                   to prove the orc corpus's Rust ports refine their TS (skipped if trustc absent).
 //   • census      — generated inventory ratchet (tools/repo-census.mjs): the delivery-shim
 //                   and god-object regret class may only shrink; growth is REVIEW to triage
-//                   (update census-ratchet.json knowingly), and every run snapshots the full
+//                   (update census-ratchet.json knowingly — `_`-prefixed keys there record
+//                   why a re-baseline was accepted), and every run snapshots the full
 //                   inventory into the report so drift history accrues.
 //   • provenance  — every TS→Rust ported module pinned to its source hashes
 //                   (tools/port-provenance.mjs vs port-provenance.json): upstream TS drift
@@ -507,9 +508,22 @@ function census() {
   const baseline = JSON.parse(readFileSync(CENSUS_BASELINE, 'utf8'))
   const grew = []
   const shrank = []
+  for (const k of Object.keys(current)) {
+    // The scan set is the CENSUS, not the baseline: a key dropped from the baseline
+    // would otherwise stop being watched with nothing to say so.
+    if (!(k in baseline)) {
+      grew.push(`${k}: no ceiling in census-ratchet.json — the ratchet stopped watching it`)
+    }
+  }
   for (const [k, limit] of Object.entries(baseline)) {
+    if (k.startsWith('_') && typeof limit !== 'number') {
+      continue // `_` keys are the re-baseline rationale; a NUMBER under `_` is a ceiling in hiding
+    }
     const cur = current[k]
-    if (typeof cur !== 'number') {
+    if (typeof limit !== 'number') {
+      // A ceiling that is not a number can never be exceeded — that is a silent hole, not a pass.
+      grew.push(`${k}: baseline ceiling ${JSON.stringify(limit)} is not a number`)
+    } else if (typeof cur !== 'number') {
       grew.push(`${k}: missing from census output`)
     } else if (cur > limit) {
       grew.push(`${k}: ${cur} > baseline ${limit}`)

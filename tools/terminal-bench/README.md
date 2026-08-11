@@ -70,6 +70,7 @@ prerequisites, then runs three axes and emits a machine-readable verdict:
 pnpm gauntlet                 # all axes; or: node tools/terminal-bench/gauntlet.mjs all
 pnpm gauntlet:conformance     # visible-grid differential vs xterm (per ANSI case)
 pnpm gauntlet:perf            # MB/s medians + grid-parity
+pnpm gauntlet:census          # regret-class ratchet (watched files only shrink)
 ```
 
 - **conformance** — every case in `tools/aterm-vs-xterm/corpus.json` is run through
@@ -96,6 +97,13 @@ pnpm gauntlet:perf            # MB/s medians + grid-parity
   functions TRUSTED** (`clampNumber`, `getUtf8ByteLengthForCodePoint`,
   `isProcessOutputWhitespace`, `formatRepoRefs`, …); `trimDanglingHighSurrogate`
   is REVIEW — W2-clean but W1-incomplete (the UTF-16 surrogate frontier).
+- **census** — `tools/repo-census.mjs` regenerates the inventory; the regret class
+  (`census-ratchet.json`: the delivery-shim manifest and the watched god objects)
+  may only shrink, and growth is `REVIEW`. Triage before you re-baseline: a stale
+  ceiling makes the axis REVIEW unconditionally, which detects *nothing* new. Record
+  why the growth was accepted in a `_`-prefixed key (notes, never ceilings) and pull
+  the ceiling in whenever a number shrank. Both directions are pinned by
+  `gauntlet-census.test.mjs`, which plants real growth in a watched file.
 
 Exit code is the contract an agent branches on: **0** = every selected gate proved
 green, **1** = a real FAIL, **2** = a REVIEW to triage (or a run that skipped some
