@@ -4,6 +4,10 @@
 // Proves the hand-written Rust aterm engine (shipped as `orca-terminal` via the
 // native/orca-node napi addon) is a FULL, SUPERIOR replacement for @xterm/headless
 // across the three axes from tools/aterm-vs-xterm/GOAL-B-HANDOFF.md:
+//   • bootstrap   — installs the three prerequisites (napi addon, @xterm/headless
+//                   oracle, perf corpus) and then VERIFIES them by loading/measuring
+//                   (gauntlet-prereqs.mjs). Present-but-unusable = FAIL; unavailable
+//                   toolchain = REVIEW. `bootstrap --verify` checks without installing.
 //   • conformance — visible-grid parity per ANSI case. aterm matching xterm = parity;
 //                   a divergence is REVIEW, not auto-fail, because "more correct than
 //                   xterm per the VT/ECMA-48 spec" is a WIN to be triaged, not a bug.
@@ -13,7 +17,8 @@
 //                   to prove the orc corpus's Rust ports refine their TS (skipped if trustc absent).
 //   • census      — generated inventory ratchet (tools/repo-census.mjs): the delivery-shim
 //                   and god-object regret class may only shrink; growth is REVIEW to triage
-//                   (update census-ratchet.json knowingly), and every run snapshots the full
+//                   (update census-ratchet.json knowingly — `_`-prefixed keys there record
+//                   why a re-baseline was accepted), and every run snapshots the full
 //                   inventory into the report so drift history accrues.
 //   • provenance  — every TS→Rust ported module pinned to its source hashes
 //                   (tools/port-provenance.mjs vs port-provenance.json): upstream TS drift
@@ -25,7 +30,7 @@
 //                   parity case count (tools/parity-corpus-metrics.mjs vs parity-corpus-baseline.json)
 //                   may only GROW; a drop FAILs (a corpus was deleted/shrunk).
 //
-// An agent runs:  node tools/terminal-bench/gauntlet.mjs <bootstrap|conformance|perf|safety|autoformalize|census|provenance|certificates|corpus|all>
+// An agent runs:  node tools/terminal-bench/gauntlet.mjs <bootstrap|conformance|perf|safety|autoformalize|census|provenance|certificates|corpus|all> [--verify]
 // Exit 0 = every selected gate proved green · 1 = a real FAIL · 2 = REVIEW (a
 // divergence to triage, or a run that skipped some axis) · 3 = NOTHING PROVEN
 // (every selected gate skipped). A SKIP never FAILs — the toolchain may simply be
@@ -40,8 +45,10 @@ import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { loadCorpus, loadJsonlCorpus } from '../aterm-vs-xterm/corpus-bytes.mjs'
 import { certificatesGate } from './gauntlet-certificates.mjs'
+import { censusGate } from './gauntlet-census.mjs'
 import { corpusGate } from './gauntlet-corpus.mjs'
 import { EXIT, gauntletExit } from './gauntlet-exit-code.mjs'
+import { PERF_CORPUS_MB, prereqChecks } from './gauntlet-prereqs.mjs'
 import { rustTypeToArgspec } from './rust-type-to-argspec.mjs'
 
 const here = import.meta.dirname
@@ -50,6 +57,7 @@ const require = createRequire(import.meta.url)
 
 const ADDON = join(repo, 'native', 'orca-node', 'orca_node.node')
 const XTERM = join(here, 'node_modules', '@xterm', 'headless', 'lib-headless', 'xterm-headless.js')
+const BENCH_MANIFEST = join(here, 'package.json')
 const CONF_CORPUS = join(repo, 'tools', 'aterm-vs-xterm', 'corpus.json')
 const CONF_JSONL = join(repo, 'tools', 'conformance', 'cases.jsonl')
 const BENCH_DIR = join(tmpdir(), 'orca-bench')
@@ -63,7 +71,7 @@ const sh = (cmd, args, opts = {}) =>
 const skip = (reason) => ({ status: 'SKIP', detail: reason })
 const C = { g: '\x1b[32m', r: '\x1b[31m', y: '\x1b[33m', d: '\x1b[2m', b: '\x1b[1m', x: '\x1b[0m' }
 
-// --- bootstrap: make every prerequisite present, idempotently --------------------
+// --- bootstrap: make every prerequisite present, idempotently — then PROVE it -----
 // rustup-stable pin for direct cargo invocations (perf corpus): the machine default
 // toolchain may be a nightly older than the workspace's rust-version, and a
 // Homebrew cargo shadowing rustup ignores rust-toolchain.toml.
@@ -75,69 +83,111 @@ const rustupStable = (tool) => {
   }
 }
 
+// `--verify`: report what is bootstrapped without installing anything — an agent
+// probing a cold tree should not silently kick off a multi-minute cargo build.
+const verifyOnly = process.argv.includes('--verify')
+
 function bootstrap() {
   mkdirSync(BENCH_DIR, { recursive: true })
   const did = []
+  const blocked = []
+  // An install that fails is a reported status, not a crash that aborts the whole run.
+  const install = (what, how, run) => {
+    if (verifyOnly) {
+      blocked.push(`${what} not installed (--verify)`)
+      return
+    }
+    console.log(`${C.d}  ${how}…${C.x}`)
+    try {
+      run()
+      did.push(what)
+    } catch (e) {
+      blocked.push(`${what} BLOCKED — ${String(e.message).split('\n')[0]}`)
+    }
+  }
   if (!existsSync(ADDON)) {
     // The build script owns the cdylib→orca_node.node rename, submodule init and
     // toolchain pinning — a raw `cargo build` here would leave ADDON missing.
-    console.log(`${C.d}  building napi addon (config/scripts/build-terminal-addon.mjs)…${C.x}`)
-    sh('node', [join(repo, 'config', 'scripts', 'build-terminal-addon.mjs'), '--if-missing'], {
-      stdio: 'inherit'
-    })
-    did.push('built napi addon')
+    install('napi addon', 'building napi addon (config/scripts/build-terminal-addon.mjs)', () =>
+      sh('node', [join(repo, 'config', 'scripts', 'build-terminal-addon.mjs'), '--if-missing'], {
+        stdio: 'inherit'
+      })
+    )
   }
   if (!existsSync(XTERM)) {
-    console.log(
-      `${C.d}  installing @xterm/headless baseline (pnpm install in tools/terminal-bench)…${C.x}`
+    install(
+      '@xterm/headless baseline',
+      'installing @xterm/headless baseline (pnpm install in tools/terminal-bench)',
+      () => sh('pnpm', ['-C', here, 'install'], { stdio: 'inherit' })
     )
-    sh('pnpm', ['-C', here, 'install'], { stdio: 'inherit' })
-    did.push('installed @xterm/headless')
   }
-  let blocked
   if (!existsSync(PERF_CORPUS)) {
-    console.log(`${C.d}  generating 16 MB perf corpus (orca-terminal bench example)…${C.x}`)
-    try {
-      // Invoke from the repo ROOT (cargo reads .cargo/config from the cwd, so this
-      // escapes rust/'s offline-vendor replacement and resolves online), with the
-      // rustup-stable pin — same recipe as run-parity.mjs / build-aterm-wasm.mjs.
-      const cargo = rustupStable('cargo')
-      const rustc = rustupStable('rustc')
-      sh(
-        cargo ?? 'cargo',
-        [
-          'run',
-          '-q',
-          '--release',
-          '--example',
-          'bench',
-          '-p',
-          'orca-terminal',
-          '--manifest-path',
-          'rust/Cargo.toml',
-          '--',
-          'gen',
-          PERF_CORPUS,
-          '16'
-        ],
-        {
-          cwd: repo,
-          stdio: 'inherit',
-          env: { ...process.env, CARGO_NET_OFFLINE: 'false', ...(rustc ? { RUSTC: rustc } : {}) }
-        }
-      )
-      did.push('generated perf corpus')
-    } catch {
-      // The prebuilt napi addon still runs; only the from-source rebuild is blocked.
-      blocked =
-        'perf corpus BLOCKED — cargo build failed (see output above; rust/vendor carries the full lockfile closure, so this should build offline)'
-    }
+    // The prebuilt napi addon still runs if this is blocked; only the from-source
+    // rebuild needs cargo (rust/vendor carries the full lockfile closure, so it
+    // should build offline).
+    install(
+      'perf corpus',
+      `generating ${PERF_CORPUS_MB} MB perf corpus (orca-terminal bench example)`,
+      () => {
+        // Invoke from the repo ROOT (cargo reads .cargo/config from the cwd, so this
+        // escapes rust/'s offline-vendor replacement and resolves online), with the
+        // rustup-stable pin — same recipe as run-parity.mjs / build-aterm-wasm.mjs.
+        const cargo = rustupStable('cargo')
+        const rustc = rustupStable('rustc')
+        sh(
+          cargo ?? 'cargo',
+          [
+            'run',
+            '-q',
+            '--release',
+            '--example',
+            'bench',
+            '-p',
+            'orca-terminal',
+            '--manifest-path',
+            'rust/Cargo.toml',
+            '--',
+            'gen',
+            PERF_CORPUS,
+            String(PERF_CORPUS_MB)
+          ],
+          {
+            cwd: repo,
+            stdio: 'inherit',
+            env: { ...process.env, CARGO_NET_OFFLINE: 'false', ...(rustc ? { RUSTC: rustc } : {}) }
+          }
+        )
+      }
+    )
   }
+  // existsSync proved a path, not a prerequisite — load/measure every artifact.
+  const checks = prereqChecks({
+    addon: ADDON,
+    xtermEntry: XTERM,
+    benchManifest: BENCH_MANIFEST,
+    corpus: PERF_CORPUS
+  })
+  const broken = checks.filter((c) => !c.ok && c.present)
+  const absent = checks.filter((c) => !c.ok && !c.present)
+  const summary = broken.length
+    ? `${broken.length}/${checks.length} prerequisites present but UNUSABLE`
+    : absent.length
+      ? `${absent.length}/${checks.length} prerequisites unavailable on this machine`
+      : `all ${checks.length} prerequisites verified (not just present)`
   return {
-    status: blocked ? 'REVIEW' : 'PASS',
-    detail: [did.length ? did.join('; ') : 'all prerequisites already present', blocked]
+    status: broken.length ? 'FAIL' : absent.length || blocked.length ? 'REVIEW' : 'PASS',
+    metrics: Object.fromEntries(
+      checks.map((c) => [c.name, c.ok ? c.info : c.present ? 'BROKEN' : 'MISSING'])
+    ),
+    detail: [
+      summary,
+      did.length ? `installed: ${did.join(', ')}` : null,
+      ...[...broken, ...absent].map((c) => `${c.name}: ${c.reason}`),
+      ...blocked
+    ]
       .filter(Boolean)
-      .join(' · ')
+      .join(' · '),
+    checks
   }
 }
 
@@ -481,58 +531,6 @@ function autoformalize() {
   }
 }
 
-// --- census: generated inventory ratchet — the regret class only shrinks ---------
-// Raw inventory legitimately drifts with every feature/upstream merge, so this gate
-// enforces DIRECTION, not values: the delivery-reliability shim and the watched god
-// objects must never grow. Growth is REVIEW (an upstream merge may grow them for a
-// legitimate reason) — the agent triages and updates the baseline knowingly.
-const CENSUS_BASELINE = join(here, 'census-ratchet.json')
-
-function census() {
-  mkdirSync(BENCH_DIR, { recursive: true })
-  const out = join(BENCH_DIR, 'census.json')
-  sh('node', [join(repo, 'tools', 'repo-census.mjs'), '--json', out])
-  const snap = JSON.parse(readFileSync(out, 'utf8'))
-  const current = {
-    shimWholeFileLoc: snap.deliveryReliabilityShim.wholeFileTotalLoc,
-    ...snap.watchedFiles
-  }
-  if (!existsSync(CENSUS_BASELINE)) {
-    return {
-      status: 'REVIEW',
-      metrics: current,
-      detail: `no ratchet baseline — review these numbers, then commit them as ${CENSUS_BASELINE}`
-    }
-  }
-  const baseline = JSON.parse(readFileSync(CENSUS_BASELINE, 'utf8'))
-  const grew = []
-  const shrank = []
-  for (const [k, limit] of Object.entries(baseline)) {
-    const cur = current[k]
-    if (typeof cur !== 'number') {
-      grew.push(`${k}: missing from census output`)
-    } else if (cur > limit) {
-      grew.push(`${k}: ${cur} > baseline ${limit}`)
-    } else if (cur < limit) {
-      shrank.push(`${k}: ${cur} < baseline ${limit} — ratchet can tighten`)
-    }
-  }
-  return {
-    status: grew.length ? 'REVIEW' : 'PASS',
-    metrics: { ...current, head: snap.gitHead },
-    detail:
-      [
-        grew.length
-          ? `regret class GREW (intentional? update census-ratchet.json knowingly): ${grew.join('; ')}`
-          : null,
-        shrank.length ? shrank.join('; ') : null
-      ]
-        .filter(Boolean)
-        .join(' · ') || 'regret class did not grow',
-    censusSnapshot: snap
-  }
-}
-
 // --- provenance: every TS→Rust port pinned to its source hashes -------------------
 // Drift in a ported module's TS reference (or its Rust twin) must fail loudly with
 // a structured re-port task (moonshot F1) — parity only catches it reactively.
@@ -608,7 +606,8 @@ const mark = (s) =>
   })[s] ?? s
 
 async function main() {
-  const cmd = process.argv[2] || 'all'
+  const arg = process.argv[2]
+  const cmd = !arg || arg.startsWith('-') ? 'all' : arg
   const names =
     cmd === 'all'
       ? [

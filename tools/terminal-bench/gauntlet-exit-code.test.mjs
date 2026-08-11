@@ -3,18 +3,19 @@
 // real CLI — a gate that genuinely passes still exits 0, and a selection that only
 // skipped exits 3 (NOTHING PROVEN).
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { EXIT, gauntletExit } from './gauntlet-exit-code.mjs'
+import { PERF_CORPUS_MIN_BYTES } from './gauntlet-prereqs.mjs'
 
 const GAUNTLET = path.join(import.meta.dirname, 'gauntlet.mjs')
 const REPORT = path.join(import.meta.dirname, '.gauntlet-report.json')
 let priorReport = null
 
-function runGauntlet(gate, env = {}) {
-  const r = spawnSync(process.execPath, [GAUNTLET, gate], {
+function runGauntlet(gate, env = {}, args = []) {
+  const r = spawnSync(process.execPath, [GAUNTLET, gate, ...args], {
     encoding: 'utf8',
     env: { ...process.env, ...env }
   })
@@ -96,6 +97,62 @@ describe('gauntlet CLI', () => {
       expect(report.exit).toBe(EXIT.nothingProven)
     } finally {
       rmSync(trustRepo, { recursive: true, force: true })
+    }
+  })
+
+  // bootstrap used to call three existsSync hits "all prerequisites already present"
+  // and exit 0, so an empty addon or a half-written corpus read as green. TMPDIR
+  // relocates the gate's own BENCH_DIR, so the corpus can be corrupted for real;
+  // --verify keeps the run from installing anything on the way there.
+  const benchTmp = (corpusBytes) => {
+    const root = mkdtempSync(path.join(tmpdir(), 'gauntlet-bench-'))
+    if (corpusBytes) {
+      mkdirSync(path.join(root, 'orca-bench'), { recursive: true })
+      writeFileSync(path.join(root, 'orca-bench', 'corpus.bin'), corpusBytes)
+    }
+    return { root, env: { TMPDIR: root, TEMP: root, TMP: root } }
+  }
+
+  it('FAILs bootstrap on a truncated perf corpus rather than counting the path', () => {
+    const { root, env } = benchTmp(Buffer.alloc(4096, 0x1b))
+    try {
+      const { code, out, report } = runGauntlet('bootstrap', env, ['--verify'])
+      expect(report.results.bootstrap.status).toBe('FAIL')
+      expect(report.results.bootstrap.detail).toMatch(/truncated: 4096 B/)
+      expect(code).toBe(EXIT.fail)
+      expect(out).toMatch(/UNUSABLE/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('loads the built addon and never calls a missing corpus green', () => {
+    const { root, env } = benchTmp(null)
+    try {
+      const { code, report } = runGauntlet('bootstrap', env, ['--verify'])
+      const boot = report.results.bootstrap
+      // `pnpm test` runs build:terminal-addon first, so the addon must verify here.
+      expect(boot.metrics.addon).not.toBe('MISSING')
+      expect(boot.metrics.addon).not.toBe('BROKEN')
+      expect(boot.metrics.corpus).toBe('MISSING')
+      expect(boot.status).toBe('REVIEW')
+      expect(code).toBe(EXIT.review)
+      // --verify must not kick off a multi-minute cargo build behind the caller.
+      expect(existsSync(path.join(root, 'orca-bench', 'corpus.bin'))).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('accepts a full-size ANSI corpus — a bootstrapped tree still passes', () => {
+    const { root, env } = benchTmp(Buffer.alloc(PERF_CORPUS_MIN_BYTES, 0x1b))
+    try {
+      const { report } = runGauntlet('bootstrap', env, ['--verify'])
+      const corpus = report.results.bootstrap.checks.find((c) => c.name === 'corpus')
+      expect(corpus.ok).toBe(true)
+      expect(report.results.bootstrap.status).not.toBe('FAIL')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
     }
   })
 })
