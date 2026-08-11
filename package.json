@@ -25,6 +25,7 @@
     "audit:code-quality:type-aware": "oxlint --type-aware --config config/oxlint-code-quality-type-aware.json src config tests mobile",
     "audit:react-doctor": "pnpm dlx react-doctor@0.9.1 . --yes --no-supply-chain --no-telemetry --blocking none",
     "report:credential-writes": "node --max-old-space-size=6000 config/scripts/report-credential-writes.mjs",
+    "report:credential-writes:rekey": "node --max-old-space-size=6000 config/scripts/rekey-credential-write-review-notes.mjs",
     "report:rust-orphans": "node config/scripts/report-rust-orphan-ports.mjs",
     "check:code-quality:changed": "node config/scripts/check-changed-code-quality.mjs",
     "check:react-doctor:changed": "node config/scripts/check-react-doctor-changed.mjs",
