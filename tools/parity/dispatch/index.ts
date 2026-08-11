@@ -22,6 +22,7 @@ import { dispatch as featureEducationTelemetry } from './feature-education-telem
 import { dispatch as featureInteractions } from './feature-interactions'
 import { dispatch as featureTips } from './feature-tips'
 import { dispatch as featureWallTourDepth } from './feature-wall-tour-depth'
+import { dispatch as fleetIdentity } from './fleet-identity'
 import { dispatch as gitPublishTargetStatus } from './git-publish-target-status'
 import { dispatch as gitPushTarget } from './git-push-target'
 import { dispatch as gitRemoteError } from './git-remote-error'
@@ -108,6 +109,7 @@ export const DISPATCH: Record<string, Dispatcher> = {
   'feature-interactions': featureInteractions,
   'feature-tips': featureTips,
   'feature-wall-tour-depth': featureWallTourDepth,
+  'fleet-identity': fleetIdentity,
   'git-publish-target-status': gitPublishTargetStatus,
   'git-push-target': gitPushTarget,
   'git-remote-error': gitRemoteError,
