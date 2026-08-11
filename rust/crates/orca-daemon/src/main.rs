@@ -7,9 +7,11 @@
 //!   orca-daemon --socket <path> --token <path>
 //! A bare positional socket path is also accepted: `orca-daemon <socket-path>`.
 //!
-//! An auth mode is REQUIRED. `--token <path>` is the only mode the app ever uses;
+//! An auth mode is REQUIRED. `--token <path>` is the only mode the app ever uses
+//! (and the mode tools/daemon-parity drives, so the gate covers the shipped one);
 //! `--insecure-no-token-auth` serves every local process unauthenticated and
-//! exists for the parity harness and standalone benches. Passing neither is a
+//! exists for this crate's spawn-the-binary integration tests and standalone
+//! benches. Passing neither is a
 //! usage error — the daemon brokers every terminal, so "no `--token` given" must
 //! fail loudly at startup rather than silently bind an open socket
 //! (docs/reference/orca-daemon-authority-model.md §8 item 4).
