@@ -16,6 +16,23 @@ export const GATE_COVERAGE_TAG = '@proves-gate-fires'
  */
 export const GATE_COVERAGE_LEDGER_ENV = 'ORCA_GATE_COVERAGE_LEDGER'
 
+/**
+ * Record a rejection for a gate that is NOT a `node <script>` entry point — a raw
+ * linter invocation, for instance, which `assertGateRejects` cannot spawn.
+ *
+ * Exported so those gates are held to the SAME standard as the rest: the coverage
+ * meta-test settles every claim by an exit it watched, and a gate that cannot
+ * write to this ledger could only ever be covered by a comment.
+ *
+ * `identity` must match what gate-negative-coverage.test.mjs expects for that gate.
+ */
+export function recordLinterRejection(identity, status) {
+  if (status === 0) {
+    throw new Error(`recordLinterRejection called with a passing status for ${identity}`)
+  }
+  recordRejection(identity, status)
+}
+
 function recordRejection(script, status) {
   const ledger = process.env[GATE_COVERAGE_LEDGER_ENV]
   if (!ledger) {
