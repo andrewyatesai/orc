@@ -74,6 +74,10 @@ import {
 } from './createMainWindow'
 import { ipcMain } from 'electron'
 import { shouldRecoverRendererAfterProcessGone } from '../crash-reporting/process-gone-classification'
+import {
+  resetExpectedTeardownStateForTest,
+  resolveExpectedTeardownScope
+} from '../crash-reporting/expected-teardown-state'
 
 function withPlatform<T>(platform: NodeJS.Platform, run: () => T): T {
   const original = process.platform
@@ -102,6 +106,7 @@ describe('createMainWindow', () => {
     vi.mocked(ipcMain.removeListener).mockReset()
     vi.mocked(ipcMain.handle).mockReset()
     vi.mocked(ipcMain.removeHandler).mockReset()
+    resetExpectedTeardownStateForTest()
     vi.useRealTimers()
   })
 
@@ -3829,5 +3834,42 @@ describe('createMainWindow', () => {
         isQuitting: false
       })
     })
+
+    it('marks teardown state on an irrevocable Windows session-end', () => {
+      setPlatform('win32')
+      resetExpectedTeardownStateForTest(() => 1_000)
+      const { windowHandlers } = setupCloseWindow()
+
+      createMainWindow(null)
+      windowHandlers['session-end']?.({} as never)
+
+      expect(
+        resolveExpectedTeardownScope({
+          isQuitting: false,
+          isQuittingForUpdate: false,
+          isExpectedRendererReload: false
+        })
+      ).toBe('app-shutdown')
+    })
+
+    it.each(['darwin', 'linux'] as const)(
+      'does not register or mark session teardown state on %s',
+      (platform) => {
+        setPlatform(platform)
+        resetExpectedTeardownStateForTest(() => 1_000)
+        const { windowHandlers } = setupCloseWindow()
+
+        createMainWindow(null)
+
+        expect(windowHandlers['session-end']).toBeUndefined()
+        expect(
+          resolveExpectedTeardownScope({
+            isQuitting: false,
+            isQuittingForUpdate: false,
+            isExpectedRendererReload: false
+          })
+        ).toBe('none')
+      }
+    )
   })
 })

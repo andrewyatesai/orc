@@ -19,6 +19,7 @@ import { translateMain } from '../i18n/main-i18n'
 import { normalizeBrowserNavigationUrl } from '../../shared/browser-url'
 import { ORCA_BROWSER_GUEST_WEB_PREFERENCES } from '../../shared/browser-guest-web-preferences'
 import { isCrashReportReason } from '../../shared/crash-reporting'
+import { markSystemSessionEnding } from '../crash-reporting/expected-teardown-state'
 import { trackRendererProcessGone } from '../telemetry/fork-reliability-events'
 import {
   DEFAULT_RENDERER_RECOVERY_MAX_RECOVERIES,
@@ -307,6 +308,13 @@ export function createMainWindow(
   const rendererWebContentsId = mainWindow.webContents.id
   // Why: native paste fallback is privileged IPC; only the top-level renderer may request it.
   setTrustedUIRendererWebContentsId(rendererWebContentsId)
+
+  // Why: unlike query-session-end, session-end can't be canceled, so an OS shutdown/restart
+  // that tears down the renderer is expected teardown — record it so the killed renderer that
+  // follows isn't mis-filed as a crash. Windows-only; other platforms never emit this signal.
+  if (process.platform === 'win32') {
+    mainWindow.on('session-end', markSystemSessionEnding)
+  }
 
   // Why: under E2E headless the main window stays hidden, and a hidden window
   // throttles requestAnimationFrame to near-zero on Linux/Windows — starving the
