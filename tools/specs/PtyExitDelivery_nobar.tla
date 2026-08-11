@@ -7,11 +7,15 @@ Init == ptyExited=FALSE /\ ipcFired=FALSE /\ primary=FALSE /\ buffered=FALSE /\ 
 Exit == ~ptyExited /\ ptyExited'=TRUE /\ UNCHANGED <<ipcFired,primary,buffered,recentExit,tombstone,delivered>>
 \* BUG: replay/drain on Register WITHOUT the ~tombstone guard -> re-delivers after a live delivery + remount
 Register == ~primary /\ primary'=TRUE
-  /\ IF (buffered \/ recentExit) THEN delivered'=delivered+1 /\ buffered'=FALSE ELSE UNCHANGED <<delivered,buffered>>
+  \* Parenthesised: TLA+ IF/THEN/ELSE extends as far RIGHT as it can, so without
+  \* these the ELSE arm swallows the trailing UNCHANGED and the THEN arm leaves
+  \* those variables unconstrained — ty then errors out instead of reporting the
+  \* NeverDoubled violation this control exists to produce.
+  /\ (IF (buffered \/ recentExit) THEN delivered'=delivered+1 /\ buffered'=FALSE ELSE UNCHANGED <<delivered,buffered>>)
   /\ UNCHANGED <<ptyExited,ipcFired,recentExit,tombstone>>
 Unregister == primary /\ primary'=FALSE /\ UNCHANGED <<ptyExited,ipcFired,buffered,recentExit,tombstone,delivered>>
 ExitIPC == ptyExited /\ ~ipcFired /\ ipcFired'=TRUE /\ recentExit'=TRUE
-  /\ IF primary THEN delivered'=delivered+1 /\ UNCHANGED buffered ELSE buffered'=TRUE /\ UNCHANGED delivered
+  /\ (IF primary THEN delivered'=delivered+1 /\ UNCHANGED buffered ELSE buffered'=TRUE /\ UNCHANGED delivered)
   /\ UNCHANGED <<ptyExited,primary,tombstone>>
 Next == Exit \/ Register \/ Unregister \/ ExitIPC
 Spec == Init /\ [][Next]_vars /\ WF_vars(ExitIPC) /\ WF_vars(Register)
