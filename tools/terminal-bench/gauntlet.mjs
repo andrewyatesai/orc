@@ -118,7 +118,13 @@ function bootstrap() {
     install(
       '@xterm/headless baseline',
       'installing @xterm/headless baseline (pnpm install in tools/terminal-bench)',
-      () => sh('pnpm', ['-C', here, 'install'], { stdio: 'inherit' })
+      // --ignore-workspace is load-bearing: tools/terminal-bench is NOT a member of
+      // the root pnpm-workspace.yaml, so a bare `pnpm -C <here> install` walks up,
+      // installs the ROOT workspace instead (its postinstall and husky prepare both
+      // fire), reports "Done", and leaves @xterm/headless uninstalled. That is why
+      // this leg reported MISSING no matter how often bootstrap ran, and why the
+      // conformance axis could never execute.
+      () => sh('pnpm', ['-C', here, 'install', '--ignore-workspace'], { stdio: 'inherit' })
     )
   }
   if (!existsSync(PERF_CORPUS)) {

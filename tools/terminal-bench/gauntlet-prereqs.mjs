@@ -78,7 +78,7 @@ export function checkXtermBaseline(entry, benchManifest) {
     return bad(
       'xterm',
       entry,
-      'baseline not installed — bootstrap runs `pnpm -C tools/terminal-bench install`'
+      'baseline not installed — bootstrap runs `pnpm -C tools/terminal-bench install --ignore-workspace`'
     )
   }
   let Terminal
@@ -110,7 +110,7 @@ export function checkXtermBaseline(entry, benchManifest) {
     return bad(
       'xterm',
       entry,
-      `installed ${installed ?? 'unknown'} ≠ pinned ${pinned} — stale oracle; re-run \`pnpm -C tools/terminal-bench install\``
+      `installed ${installed ?? 'unknown'} ≠ pinned ${pinned} — stale oracle; re-run \`pnpm -C tools/terminal-bench install --ignore-workspace\``
     )
   }
   return good('xterm', entry, installed ?? 'unknown')
