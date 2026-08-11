@@ -1,0 +1,5 @@
+(assume t0 revoked)
+(assume t1 allowed)
+(step t2 (cl (or revoked (and has_expiry (bvule expires_at now_ms)) (not gen_match) (not op_granted) (not target_found) (and target_pinned (or (not incarnation_known) (not incarnation_match)))) (not revoked)) :rule and_pos :args (4))
+(step t3 (cl (not revoked)) :rule th_resolution :premises (t2 t1))
+(step t4 (cl) :rule resolution :premises (t3 t0))
