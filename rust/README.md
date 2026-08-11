@@ -31,6 +31,14 @@ cargo clippy --manifest-path crates/orca-core/Cargo.toml --all-targets
 cargo build --release                                     # stripped, LTO'd
 ```
 
+On a machine without the Trust toolchain, run the workspace suite via
+`pnpm run test:rust` (config/scripts/run-rust-tests.mjs). `.cargo/config.toml`
+injects Trust-only `-Z` flags into **both** `rustflags` and `rustdocflags`, so a
+bare `cargo +stable test --workspace` is red out of the box — and clearing
+`RUSTFLAGS` alone still fails at the doc-test phase. The script pins rustup
+`stable` and clears both, keeping the stable lane green end to end (doctests
+included); the Trust lane keeps building and doc-testing verified.
+
 `orca-core` is zero-dependency, `#![forbid(unsafe_code)]`, and written
 panic-free so it can be verified with **Trust** ("trusted Rust") once a stage2
 sysroot is built:

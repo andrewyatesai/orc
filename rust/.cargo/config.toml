@@ -63,6 +63,13 @@ rustflags = [
 ]
 # Cargo does not forward target rustflags to trustdoc, so doctests would silently
 # fall back to the default — state it rather than inherit it by accident.
+#
+# STABLE LANE: stock rustdoc rejects these -Z flags, so on a machine without the
+# Trust toolchain `cargo +stable test --workspace` dies at the doc-test phase
+# even after RUSTFLAGS='' — doctests read THIS table, which RUSTFLAGS does not
+# override. The stable test entrypoint (`pnpm run test:rust`, i.e.
+# config/scripts/run-rust-tests.mjs) clears RUSTDOCFLAGS alongside RUSTFLAGS;
+# do the same in any new stable-lane script that runs doctests.
 rustdocflags = [
   "-Ztrust-verify=on",
   "-Ztrust-verify-function-budget-steps=100000",
