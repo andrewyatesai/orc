@@ -29,6 +29,7 @@ pub mod feature_education_telemetry;
 pub mod feature_interactions;
 pub mod feature_tips;
 pub mod feature_wall_tour_depth;
+pub mod fleet_identity;
 pub mod push_target;
 pub mod git_push_target;
 pub mod git_remote_error;
@@ -113,6 +114,7 @@ pub fn dispatch(module: &str, function: &str, input: &Value) -> Option<Value> {
         "feature-interactions" => Some(feature_interactions::dispatch(function, input)),
         "feature-tips" => Some(feature_tips::dispatch(function, input)),
         "feature-wall-tour-depth" => Some(feature_wall_tour_depth::dispatch(function, input)),
+        "fleet-identity" => Some(fleet_identity::dispatch(function, input)),
         "git-publish-target-status" => Some(push_target::dispatch(function, input)),
         "git-push-target" => Some(git_push_target::dispatch(function, input)),
         "git-remote-error" => Some(git_remote_error::dispatch(function, input)),
