@@ -199,3 +199,19 @@ export type ReservationClaimOutcome =
   | { outcome: 'claimed'; saga: RotationSagaRow; swept_expired: number }
   /** Carries the live holder so a caller can name WHICH saga owns the successor. */
   | { outcome: 'conflict'; holder: RotationSagaRow }
+
+export type MutationState = 'pending' | 'completed'
+
+/** One row of the durable idempotency ledger (schema v11). Keyed by
+ *  `(caller_fingerprint, request_id)`; `receipt` holds the serialized result a
+ *  retry replays once the mutation has completed. */
+export type MutationReceiptRow = {
+  caller_fingerprint: string
+  request_id: string
+  method: string
+  payload_hash: string
+  state: MutationState
+  receipt: string | null
+  created_at: string
+  updated_at: string
+}

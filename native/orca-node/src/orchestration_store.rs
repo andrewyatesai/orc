@@ -18,8 +18,8 @@
 use napi_derive::napi;
 
 use orca_runtime::orchestration::{
-    DispatchIdentity, MintCapabilityParams, NewAuditEvent, NewGatePolicy, NewMessage,
-    NewRotationReservation, OrchestrationDb,
+    DispatchIdentity, MintCapabilityParams, MutationReceiptKey, NewAuditEvent, NewGatePolicy,
+    NewMessage, NewRotationReservation, OrchestrationDb,
 };
 
 fn napi_err<E: std::fmt::Display>(err: E) -> napi::Error {
@@ -329,6 +329,65 @@ impl JsOrchestrationStore {
         let identity =
             DispatchIdentity { dispatch_id, capability: None, pane_key, process_incarnation };
         self.store()?.is_dispatch_process_current(&identity).map_err(napi_err)
+    }
+
+    // ---- mutation receipts (v11). Coded failures (request_mismatch,
+    // mutation_ledger_full) cross as a JSON envelope in Error.message — restore
+    // with orchestration-error.ts. ----
+
+    /// Claims the `(caller, request)` idempotency slot. Returns claim JSON
+    /// `{"disposition":"started"|"pending"|"completed","row":{…receipt row…}}`.
+    /// A mismatched method/payload_hash for an existing key throws request_mismatch.
+    #[napi(catch_unwind)]
+    pub fn begin_mutation_receipt(
+        &self,
+        caller_fingerprint: String,
+        request_id: String,
+        method: String,
+        payload_hash: String,
+    ) -> napi::Result<String> {
+        let key = MutationReceiptKey { caller_fingerprint, request_id, method, payload_hash };
+        self.store()?.begin_mutation_receipt(&key).map(|c| row_json(&c)).map_err(napi_err)
+    }
+
+    /// Stores the serialized result for replay; returns the completed row JSON.
+    #[napi(catch_unwind)]
+    pub fn complete_mutation_receipt(
+        &self,
+        caller_fingerprint: String,
+        request_id: String,
+        method: String,
+        payload_hash: String,
+        receipt: String,
+    ) -> napi::Result<String> {
+        let key = MutationReceiptKey { caller_fingerprint, request_id, method, payload_hash };
+        self.store()?.complete_mutation_receipt(&key, &receipt).map(|r| row_json(&r)).map_err(napi_err)
+    }
+
+    /// Releases a pending slot whose mutation threw, so the caller may retry.
+    /// A completed receipt is left intact.
+    #[napi(catch_unwind)]
+    pub fn discard_pending_mutation_receipt(
+        &self,
+        caller_fingerprint: String,
+        request_id: String,
+    ) -> napi::Result<()> {
+        self.store()?
+            .discard_pending_mutation_receipt(&caller_fingerprint, &request_id)
+            .map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn get_mutation_receipt(
+        &self,
+        caller_fingerprint: String,
+        request_id: String,
+    ) -> napi::Result<Option<String>> {
+        Ok(self
+            .store()?
+            .get_mutation_receipt(&caller_fingerprint, &request_id)
+            .map_err(napi_err)?
+            .map(|r| row_json(&r)))
     }
 
     // ---- decision gates ----

@@ -349,6 +349,22 @@ const ROTATION_SQL: &str = r#"CREATE TABLE rotation_sagas (
         updated_at              TEXT
       )"#;
 
+// v11: the stored sqlite_master text for mutation_receipts (IF NOT EXISTS
+// stripped, trailing ; removed) — identical whether created fresh or by the
+// v10 → v11 ladder rung, since both DDLs share this body.
+const MUTATION_RECEIPTS_SQL: &str = r#"CREATE TABLE mutation_receipts (
+        caller_fingerprint  TEXT NOT NULL,
+        request_id          TEXT NOT NULL,
+        method              TEXT NOT NULL,
+        payload_hash        TEXT NOT NULL,
+        state               TEXT NOT NULL DEFAULT 'pending'
+          CHECK(state IN ('pending', 'completed')),
+        receipt             TEXT,
+        created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (caller_fingerprint, request_id)
+      )"#;
+
 const ROTATION_PROVIDER_IDX_SQL: &str = "CREATE INDEX idx_rotation_provider\n        ON rotation_sagas(provider, reservation_released_at)";
 const ROTATION_ROUTE_IDX_SQL: &str = "CREATE UNIQUE INDEX idx_rotation_target_route\n        ON rotation_sagas(target_route_key) WHERE reservation_released_at IS NULL";
 const ROTATION_STORE_IDX_SQL: &str = "CREATE UNIQUE INDEX idx_rotation_target_store\n        ON rotation_sagas(target_store_key) WHERE reservation_released_at IS NULL";
@@ -398,11 +414,13 @@ fn expected_fresh_master() -> Vec<MasterEntry> {
         ("index", "idx_tasks_status", Some("CREATE INDEX idx_tasks_status ON tasks(status)")),
         ("index", "idx_thread", Some("CREATE INDEX idx_thread ON messages(thread_id)")),
         ("table", "messages", Some(MESSAGES_FRESH_SQL)),
+        ("table", "mutation_receipts", Some(MUTATION_RECEIPTS_SQL)),
         ("table", "rotation_sagas", Some(ROTATION_SQL)),
         ("index", "sqlite_autoindex_audit_events_1", None),
         ("index", "sqlite_autoindex_coordinator_runs_1", None),
         ("index", "sqlite_autoindex_decision_gates_1", None),
         ("index", "sqlite_autoindex_dispatch_contexts_1", None),
+        ("index", "sqlite_autoindex_mutation_receipts_1", None),
         ("index", "sqlite_autoindex_rotation_sagas_1", None),
         ("index", "sqlite_autoindex_tasks_1", None),
         ("table", "sqlite_sequence", Some("CREATE TABLE sqlite_sequence(name,seq)")),
@@ -498,7 +516,7 @@ fn fresh_open_matches_ts_fresh_database() {
     drop(open_orchestration(&path).unwrap());
 
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(user_version(&conn), 10, "fresh DB lands on SCHEMA_VERSION");
+    assert_eq!(user_version(&conn), 11, "fresh DB lands on SCHEMA_VERSION");
     let journal: String = conn.query_row("PRAGMA journal_mode", [], |row| row.get(0)).unwrap();
     assert_eq!(journal, "wal", "journal_mode=WAL persists in the DB file");
     assert_master_matches(&dump_master(&conn), &expected_fresh_master());
@@ -520,7 +538,7 @@ fn v1_database_migrates_to_current_preserving_data() {
     drop(open_orchestration(&path).unwrap());
 
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(user_version(&conn), 10);
+    assert_eq!(user_version(&conn), 11);
     assert_master_matches(&dump_master(&conn), &expected_migrated_v1_master());
 
     // Row-level goldens from the TS-migrated fixture.
@@ -595,7 +613,7 @@ fn already_current_open_is_a_noop() {
         let conn = Connection::open(&path).unwrap();
         (user_version(&conn), dump_master(&conn), dump_rows(&conn, "tasks", "id"))
     };
-    assert_eq!(version_before, 10);
+    assert_eq!(version_before, 11);
 
     drop(open_orchestration(&path).unwrap());
 
@@ -684,7 +702,7 @@ fn v6_database_migrates_to_v7_adding_recipient_pane_key() {
     drop(open_orchestration(&path).unwrap());
 
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(user_version(&conn), 10, "v6 ladder row advances through v10");
+    assert_eq!(user_version(&conn), 11, "v6 ladder row advances through v11");
     let messages_sql: String = conn
         .query_row(
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'messages'",

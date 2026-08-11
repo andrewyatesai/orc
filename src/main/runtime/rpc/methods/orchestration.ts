@@ -20,6 +20,11 @@ import { OrchestrationError } from '../../orchestration/orchestration-error'
 import { ORCHESTRATION_GATE_METHODS } from './orchestration-gates'
 import { createOrchestrationRowReach } from '../../orchestration/row-caller-scope'
 import { assertLocalCallerScope, getCallerScope } from '../../runtime-caller-scope'
+import {
+  orchestrationCallerFingerprint,
+  withMutationReceipt,
+  type MutationIdempotency
+} from './orchestration-idempotency'
 
 const MESSAGE_TYPES: MessageType[] = [
   'status',
@@ -167,7 +172,10 @@ const TaskCreateParams = z.object({
   displayName: OptionalString,
   deps: OptionalString,
   parent: OptionalString,
-  callerTerminalHandle: OptionalString
+  callerTerminalHandle: OptionalString,
+  // Why: a stable, client-minted key makes a reconnect retry replay the created
+  // task instead of minting a duplicate. Optional — omitting it is legacy behavior.
+  idempotencyKey: OptionalString
 })
 
 const TaskListParams = z.object({
@@ -204,7 +212,11 @@ const DispatchParams = z.object({
   inject: OptionalBoolean,
   dryRun: OptionalBoolean,
   returnPreamble: OptionalBoolean,
-  devMode: OptionalBoolean
+  devMode: OptionalBoolean,
+  // Why: a reconnect retry double-dispatches (a second ctx + a second preamble
+  // injected into the pane); a stable key makes the retry replay the first
+  // dispatch. Optional — omitting it is legacy behavior.
+  idempotencyKey: OptionalString
 })
 
 const DispatchShowParams = z.object({
@@ -524,32 +536,44 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
       // The CLI treats the handle as best-effort lineage, so it sends whatever
       // ORCA_TERMINAL_HANDLE it holds rather than pre-judging liveness — this
       // registry is what decides, and unreachable is the same as absent here.
+      // Why before the receipt: authority gates the ledger, so an unauthorized
+      // retry is refused by scope, never replayed from a stored task.
       if (params.callerTerminalHandle) {
         runtime.assertTerminalHandleInCallerScope(params.callerTerminalHandle, 'task creator')
       } else {
         assertLocalCallerScope(getCallerScope(), 'a task that names no creating terminal')
       }
-      let deps: string[] | undefined
-      if (params.deps) {
-        try {
-          const parsed = JSON.parse(params.deps)
-          if (!Array.isArray(parsed) || !parsed.every((d) => typeof d === 'string')) {
-            throw new Error('not an array of strings')
+      const idempotency: MutationIdempotency | undefined = params.idempotencyKey
+        ? {
+            callerFingerprint: orchestrationCallerFingerprint(runtime, params.callerTerminalHandle),
+            requestId: params.idempotencyKey,
+            method: 'orchestration.taskCreate',
+            payload: params
           }
-          deps = parsed
-        } catch {
-          throw new Error('Invalid --deps: must be a JSON array of task IDs')
+        : undefined
+      return withMutationReceipt(db, idempotency, () => {
+        let deps: string[] | undefined
+        if (params.deps) {
+          try {
+            const parsed = JSON.parse(params.deps)
+            if (!Array.isArray(parsed) || !parsed.every((d) => typeof d === 'string')) {
+              throw new Error('not an array of strings')
+            }
+            deps = parsed
+          } catch {
+            throw new Error('Invalid --deps: must be a JSON array of task IDs')
+          }
         }
-      }
-      const task = db.createTask({
-        spec: params.spec,
-        taskTitle: params.taskTitle,
-        displayName: params.displayName,
-        deps,
-        parentId: params.parent,
-        createdByTerminalHandle: params.callerTerminalHandle
+        const task = db.createTask({
+          spec: params.spec,
+          taskTitle: params.taskTitle,
+          displayName: params.displayName,
+          deps,
+          parentId: params.parent,
+          createdByTerminalHandle: params.callerTerminalHandle
+        })
+        return { task }
       })
-      return { task }
     }
   }),
 
@@ -623,7 +647,7 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
       }
       createOrchestrationRowReach(db, runtime).assertTask(task)
 
-      // Why: dry-run previews the preamble without mutating state, so it skips the ready-status check and uses a placeholder dispatchId.
+      // Why: dry-run previews the preamble without mutating state, so it skips the ready-status check, uses a placeholder dispatchId, and is never receipted.
       if (params.dryRun) {
         const preamble = buildDispatchPreamble({
           taskId: task.id,
@@ -640,71 +664,91 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
         return { dispatch: null, injected: false, dryRun: true, preamble }
       }
 
+      // Why before the receipt: --to presence is argument validation and the
+      // caller-scope authority above must gate the ledger, so an unauthorized or
+      // malformed retry is refused here rather than replayed from a stored dispatch.
       if (!params.to) {
         throw new Error('Missing --to')
       }
       const to = params.to
-      if (task.status !== 'ready') {
-        throw new Error(`Task ${params.task} is ${task.status}; only ready tasks can be dispatched`)
-      }
 
-      // Why: injecting the preamble into a bare shell dumps it as shell commands (gibberish), so require a detected agent first.
-      if (params.inject) {
-        const hasAgent = await runtime.isTerminalRunningAgent(to)
-        if (!hasAgent) {
+      const idempotency: MutationIdempotency | undefined = params.idempotencyKey
+        ? {
+            callerFingerprint: orchestrationCallerFingerprint(runtime, params.from),
+            requestId: params.idempotencyKey,
+            method: 'orchestration.dispatch',
+            payload: params
+          }
+        : undefined
+
+      // Why the whole mutating body is inside the receipt: a completed retry must
+      // replay the stored dispatch WITHOUT re-running the ready-status check (the
+      // task is 'dispatched' by then) or re-injecting the preamble.
+      return withMutationReceipt(db, idempotency, async () => {
+        if (task.status !== 'ready') {
           throw new Error(
-            `Cannot dispatch --inject to terminal ${to}: no recognized agent detected. ` +
-              'Start an agent CLI (e.g. claude, codex, gemini, droid, cursor) in the terminal first, ' +
-              'or dispatch without --inject and send the prompt manually.'
+            `Task ${params.task} is ${task.status}; only ready tasks can be dispatched`
           )
         }
-      }
 
-      const assigneePaneKey = runtime.getTerminalPaneKey(to) ?? undefined
-      const ctx = db.createDispatchContext(params.task, to, assigneePaneKey)
-
-      // v10: same ratchet as the coordinator loop — mint only when the runtime
-      // can identify the target's pane AND process incarnation; otherwise the
-      // dispatch stays legacy (no capability_hash -> no enforcement).
-      const processIncarnation = runtime.getTerminalProcessIncarnation?.(to) ?? undefined
-      const dispatchCapability =
-        assigneePaneKey && processIncarnation
-          ? db.capabilities.mint({
-              dispatchId: ctx.id,
-              paneKey: assigneePaneKey,
-              processIncarnation
-            })
-          : undefined
-
-      // Why: built after ctx so dispatchId is the real ctx.id, letting heartbeats attribute liveness to a specific dispatch context, not just a task.
-      const preamble = buildDispatchPreamble({
-        taskId: task.id,
-        dispatchId: ctx.id,
-        taskSpec: task.spec,
-        coordinatorHandle: params.from ?? 'coordinator',
-        workerHandle: to,
-        devMode: params.devMode,
-        personalizationPrompt: await runtime.getPersonalizationPrompt(to),
-        cliCommand: runtime.getTerminalOrchestrationCliCommand(to),
-        ...(dispatchCapability ? { dispatchCapability } : {})
-      })
-
-      let injected = false
-      if (params.inject) {
-        try {
-          await runtime.sendTerminalAgentPrompt(to, preamble)
-          injected = true
-        } catch (err) {
-          db.failDispatch(ctx.id, err instanceof Error ? err.message : String(err))
-          throw err
+        // Why: injecting the preamble into a bare shell dumps it as shell commands (gibberish), so require a detected agent first.
+        if (params.inject) {
+          const hasAgent = await runtime.isTerminalRunningAgent(to)
+          if (!hasAgent) {
+            throw new Error(
+              `Cannot dispatch --inject to terminal ${to}: no recognized agent detected. ` +
+                'Start an agent CLI (e.g. claude, codex, gemini, droid, cursor) in the terminal first, ' +
+                'or dispatch without --inject and send the prompt manually.'
+            )
+          }
         }
-      }
 
-      // Why: returnPreamble is opt-in because the preamble is several hundred bytes most callers don't need in the response.
-      if (params.returnPreamble) {
-        return { dispatch: ctx, injected, preamble }
-      }
-      return { dispatch: ctx, injected }
+        const assigneePaneKey = runtime.getTerminalPaneKey(to) ?? undefined
+        const ctx = db.createDispatchContext(params.task, to, assigneePaneKey)
+
+        // v10: same ratchet as the coordinator loop — mint only when the runtime
+        // can identify the target's pane AND process incarnation; otherwise the
+        // dispatch stays legacy (no capability_hash -> no enforcement).
+        const processIncarnation = runtime.getTerminalProcessIncarnation?.(to) ?? undefined
+        const dispatchCapability =
+          assigneePaneKey && processIncarnation
+            ? db.capabilities.mint({
+                dispatchId: ctx.id,
+                paneKey: assigneePaneKey,
+                processIncarnation
+              })
+            : undefined
+
+        // Why: built after ctx so dispatchId is the real ctx.id, letting heartbeats attribute liveness to a specific dispatch context, not just a task.
+        const preamble = buildDispatchPreamble({
+          taskId: task.id,
+          dispatchId: ctx.id,
+          taskSpec: task.spec,
+          coordinatorHandle: params.from ?? 'coordinator',
+          workerHandle: to,
+          devMode: params.devMode,
+          personalizationPrompt: await runtime.getPersonalizationPrompt(to),
+          cliCommand: runtime.getTerminalOrchestrationCliCommand(to),
+          ...(dispatchCapability ? { dispatchCapability } : {})
+        })
+
+        let injected = false
+        if (params.inject) {
+          try {
+            await runtime.sendTerminalAgentPrompt(to, preamble)
+            injected = true
+          } catch (err) {
+            db.failDispatch(ctx.id, err instanceof Error ? err.message : String(err))
+            throw err
+          }
+        }
+
+        // Why: returnPreamble is opt-in because the preamble is several hundred bytes most callers don't need in the response.
+        if (params.returnPreamble) {
+          return { dispatch: ctx, injected, preamble }
+        }
+        return { dispatch: ctx, injected }
+      })
     }
   }),
 

@@ -62,7 +62,13 @@ const COMPUTER_PASSTHROUGH_CODES: ReadonlySet<string> = new Set(Object.values(CO
 const LINEAR_PASSTHROUGH_CODES: ReadonlySet<string> = new Set(LINEAR_ERROR_CODES)
 const STRUCTURED_RUNTIME_PASSTHROUGH_CODES: ReadonlySet<string> = new Set([
   'worktree_id_requires_full_path',
-  CALLER_SCOPE_DENIED_CODE
+  CALLER_SCOPE_DENIED_CODE,
+  // Mutation-receipt idempotency (schema v11): a reused key with changed input,
+  // a concurrent duplicate, or an over-full ledger must reach the client as a
+  // machine-readable code, not a generic runtime_error.
+  'request_mismatch',
+  'mutation_in_progress',
+  'mutation_ledger_full'
 ])
 
 export function mapRuntimeError(id: string, meta: RpcEnvelopeMeta, error: unknown): RpcFailure {

@@ -25,6 +25,9 @@ pub mod capability;
 pub mod error;
 mod sha256;
 
+// v11: the durable mutation-receipt idempotency ledger.
+pub mod mutation_receipt;
+
 pub use audit_ledger::{AuditEvent, NewAuditEvent, AUDIT_EVENT_COLUMNS};
 pub use capability::{
     CapabilityVerdict, DispatchIdentity, MintCapabilityParams, CURRENT_CONTRACT_VERSION,
@@ -32,6 +35,10 @@ pub use capability::{
 };
 pub use error::{OrchestrationError, ORCHESTRATION_ERROR_MARKER};
 pub use gate_resolution::GateResolutionOutcome;
+pub use mutation_receipt::{
+    MutationReceipt, MutationReceiptClaim, MutationReceiptDisposition, MutationReceiptKey,
+    MUTATION_RECEIPT_COLUMNS,
+};
 pub use rotation_reservations::{
     NewRotationReservation, ReservationClaim, RotationSaga, ROTATION_SAGA_COLUMNS,
 };
@@ -1141,6 +1148,10 @@ impl OrchestrationDb {
             &format!("SELECT {ROTATION_SAGA_COLUMNS} FROM rotation_sagas ORDER BY rowid"),
             rotation_reservations::row_to_rotation_saga,
         )?;
+        let mutation_receipts = self.all(
+            &format!("SELECT {MUTATION_RECEIPT_COLUMNS} FROM mutation_receipts ORDER BY rowid"),
+            mutation_receipt::row_to_mutation_receipt,
+        )?;
         Ok(serde_json::json!({
             "messages": messages,
             "tasks": tasks,
@@ -1149,6 +1160,7 @@ impl OrchestrationDb {
             "coordinator_runs": coordinator_runs,
             "audit_events": audit_events,
             "rotation_sagas": rotation_sagas,
+            "mutation_receipts": mutation_receipts,
         }))
     }
 }

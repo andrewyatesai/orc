@@ -20,8 +20,10 @@ use rusqlite::OptionalExtension;
 // (see the ladder step, which also carries the downgrade fence); v9 → v10
 // dispatch capability tokens (capability_hash + identity binding on
 // dispatch_contexts, plus the contract_version legacy/current marker) so a
-// worker must present the minted `dcap_` secret, not just know a dispatch id.
-pub(crate) const SCHEMA_VERSION: i64 = 10;
+// worker must present the minted `dcap_` secret, not just know a dispatch id;
+// v10 → v11 the durable mutation-receipt idempotency ledger (mutation_receipts)
+// so a retried mutating RPC applies once and replays its recorded result.
+pub(crate) const SCHEMA_VERSION: i64 = 11;
 
 /// Full-schema creation. Pre-v9 text is the db.ts `createTables` byte-copy; the
 /// v9 columns are appended at the END of each table body so a migrated DB (where
@@ -187,6 +189,19 @@ const CREATE_TABLES_SQL: &str = r#"
         ON rotation_sagas(target_store_key) WHERE reservation_released_at IS NULL;
       CREATE INDEX IF NOT EXISTS idx_rotation_provider
         ON rotation_sagas(provider, reservation_released_at);
+
+      CREATE TABLE IF NOT EXISTS mutation_receipts (
+        caller_fingerprint  TEXT NOT NULL,
+        request_id          TEXT NOT NULL,
+        method              TEXT NOT NULL,
+        payload_hash        TEXT NOT NULL,
+        state               TEXT NOT NULL DEFAULT 'pending'
+          CHECK(state IN ('pending', 'completed')),
+        receipt             TEXT,
+        created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (caller_fingerprint, request_id)
+      );
     "#;
 
 /// Byte-copy of the db.ts v1 → v2 messages-table rebuild exec template
@@ -343,6 +358,25 @@ const V10_ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     ("dispatch_contexts", "capability_revoked_at", "capability_revoked_at TEXT"),
 ];
 
+/// v10 → v11: the durable mutation-receipt ledger. A whole new table, so the
+/// rung is a plain `CREATE TABLE IF NOT EXISTS` — no ALTER/backfill dance — and
+/// `IF NOT EXISTS` keeps it safe alongside the same DDL in `CREATE_TABLES_SQL`
+/// (a fresh DB already has the table before the ladder runs).
+const MUTATION_RECEIPTS_SQL: &str = r#"
+      CREATE TABLE IF NOT EXISTS mutation_receipts (
+        caller_fingerprint  TEXT NOT NULL,
+        request_id          TEXT NOT NULL,
+        method              TEXT NOT NULL,
+        payload_hash        TEXT NOT NULL,
+        state               TEXT NOT NULL DEFAULT 'pending'
+          CHECK(state IN ('pending', 'completed')),
+        receipt             TEXT,
+        created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (caller_fingerprint, request_id)
+      );
+    "#;
+
 // Why: written with \n escapes (not a raw string) because the statement has no
 // terminating `;`, so SQLite stores the trailing "\n    " into sqlite_master.sql
 // — literal trailing whitespace in source would be fragile.
@@ -476,6 +510,11 @@ fn apply_version_ladder(db: &Database, current: i64) -> Result<(), StoreError> {
             "UPDATE dispatch_contexts SET contract_version = ?1 WHERE capability_hash IS NULL",
             rusqlite::params![crate::orchestration::LEGACY_CONTRACT_VERSION],
         )?;
+    }
+    // v10 → v11: fresh table, no backfill. `CREATE TABLE IF NOT EXISTS` is safe
+    // against the twin DDL a fresh DB already ran in `create_tables`.
+    if current < 11 {
+        db.exec(MUTATION_RECEIPTS_SQL)?;
     }
     create_undelivered_inbox_index_if_possible(db)?;
     create_v9_indexes_and_fence_if_possible(db)?;
@@ -672,5 +711,94 @@ mod tests {
         create_tables(&fresh).unwrap();
         migrate(&fresh).unwrap();
         assert_eq!(column_names(&db, "dispatch_contexts"), column_names(&fresh, "dispatch_contexts"));
+    }
+
+    fn table_exists(db: &Database, name: &str) -> bool {
+        db.connection()
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                [name],
+                |_| Ok(()),
+            )
+            .optional()
+            .unwrap()
+            .is_some()
+    }
+
+    // Proves the `if current < 11` rung ALONE (no create_tables) adds the table,
+    // so a real v10 file on the field gains mutation_receipts on upgrade.
+    #[test]
+    fn v10_database_migrates_to_v11_adding_mutation_receipts() {
+        let db = Database::open_in_memory().unwrap();
+        db.exec(
+            "CREATE TABLE dispatch_contexts (
+               id                TEXT PRIMARY KEY,
+               task_id           TEXT NOT NULL,
+               assignee_handle   TEXT,
+               status            TEXT NOT NULL DEFAULT 'pending',
+               contract_version  INTEGER NOT NULL DEFAULT 1,
+               capability_hash   TEXT
+             );
+             INSERT INTO dispatch_contexts (id, task_id, assignee_handle, status)
+               VALUES ('ctx_v10', 'task_v10', 'term_worker', 'dispatched');",
+        )
+        .unwrap();
+        db.exec("PRAGMA user_version = 10").unwrap();
+        assert!(!table_exists(&db, "mutation_receipts"));
+
+        migrate(&db).unwrap();
+        assert_eq!(db.pragma_i64("user_version").unwrap(), SCHEMA_VERSION);
+        assert!(table_exists(&db, "mutation_receipts"));
+
+        // Lossless: the pre-existing dispatch row is untouched.
+        let handle: String = db
+            .connection()
+            .query_row(
+                "SELECT assignee_handle FROM dispatch_contexts WHERE id = 'ctx_v10'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(handle, "term_worker");
+
+        // The new table takes rows and applies its column defaults.
+        db.connection()
+            .execute(
+                "INSERT INTO mutation_receipts (caller_fingerprint, request_id, method, payload_hash)
+                 VALUES ('peer-a', 'req-1', 'startWorker', 'hash-1')",
+                [],
+            )
+            .unwrap();
+        let (state, receipt, created): (String, Option<String>, String) = db
+            .connection()
+            .query_row(
+                "SELECT state, receipt, created_at FROM mutation_receipts WHERE request_id = 'req-1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(state, "pending");
+        assert_eq!(receipt, None);
+        assert!(!created.is_empty());
+
+        // A fresh v11 DB creates an identically shaped table.
+        let fresh = Database::open_in_memory().unwrap();
+        create_tables(&fresh).unwrap();
+        migrate(&fresh).unwrap();
+        assert!(table_exists(&fresh, "mutation_receipts"));
+        assert_eq!(
+            column_names(&db, "mutation_receipts"),
+            column_names(&fresh, "mutation_receipts")
+        );
+
+        // The CHECK constraint holds: an unknown state is rejected.
+        assert!(db
+            .connection()
+            .execute(
+                "INSERT INTO mutation_receipts (caller_fingerprint, request_id, method, payload_hash, state)
+                 VALUES ('peer-a', 'req-2', 'm', 'h', 'bogus')",
+                [],
+            )
+            .is_err());
     }
 }

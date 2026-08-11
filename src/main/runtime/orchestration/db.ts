@@ -22,6 +22,7 @@ import { OrchestrationMessageStore } from './message-store'
 import { generateId } from './row-id'
 import { AuditLedgerStore } from './audit-ledger'
 import { DispatchCapabilityStore } from './dispatch-capabilities'
+import { MutationReceiptStore } from './mutation-receipts'
 import { GatePolicyStore } from './gate-resolution'
 import { RotationReservationStore } from './rotation-reservations'
 import { RunOwnershipStore } from './run-ownership'
@@ -75,6 +76,8 @@ export class OrchestrationDb extends OrchestrationMessageStore {
   readonly rotations: RotationReservationStore
   /** Dispatch capability tokens (schema v10) — mint/verify/revoke the dcap_ secret. */
   readonly capabilities: DispatchCapabilityStore
+  /** Durable RPC idempotency ledger (schema v11) — begin/complete/discard a receipt. */
+  readonly mutationReceipts: MutationReceiptStore
 
   // Why: buildAgentOrchestrationByPaneKey rebuilds context on every 16ms graph
   // publish, issuing ~2 napi dispatch lookups per terminal. The overwhelming
@@ -90,6 +93,7 @@ export class OrchestrationDb extends OrchestrationMessageStore {
     this.audit = new AuditLedgerStore(this.store)
     this.rotations = new RotationReservationStore(this.store)
     this.capabilities = new DispatchCapabilityStore(this.store)
+    this.mutationReceipts = new MutationReceiptStore(this.store)
   }
 
   // ── Tasks ──
