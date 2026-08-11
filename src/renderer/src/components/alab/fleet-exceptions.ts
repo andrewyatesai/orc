@@ -60,6 +60,38 @@ const SEVERITY: Record<FleetExceptionKind, number> = {
  * from an hour ago still outranks an escalation from a minute ago, because the
  * older one is the one that will never resolve itself.
  */
+/**
+ * Newest first, by code-unit order — the SAME comparison the merge above uses.
+ *
+ * This was `localeCompare`, which is ICU collation: a human-text comparison
+ * applied to machine timestamps. Three ways that was wrong, none of them about
+ * case, and the third is not a preference:
+ *
+ *   - It is not a total order. `localeCompare` returns 0 for strings that are not
+ *     equal — a completely-ignorable character such as U+00AD is enough — so the
+ *     stable sort silently fell back to ARRIVAL order and the queue's ordering
+ *     depended on which source happened to poll first.
+ *   - It disagrees with the merge. Lines above pick the surviving row with `>`;
+ *     the sort ranked with ICU. One module, two orders, so the row chosen as
+ *     "newest" was not always the row sorted newest.
+ *   - It ranks punctuation before digits, so `T1:00:00Z` sorted as newer than
+ *     `T10:00:00Z`.
+ *
+ * Code-unit order IS chronological here, and not by luck: RFC-3339 is designed so
+ * that fixed-width UTC timestamps sort lexicographically. An `at` that breaks that
+ * — an unpadded hour, a local offset instead of `Z` — is a bug in the producing
+ * source (§8.3 has six), and sorting cannot repair it. Comparing parsed instants
+ * instead would need `Date.parse`, whose behaviour off-spec is implementation-
+ * defined and therefore cannot be matched by the Rust twin — trading a visible
+ * divergence for an unspecifiable one.
+ */
+function compareAtDescending(left: string, right: string): number {
+  if (left === right) {
+    return 0
+  }
+  return left < right ? 1 : -1
+}
+
 export function collapseExceptionsByTask(raw: readonly FleetException[]): FleetException[] {
   const byTask = new Map<string, FleetException>()
   for (const exception of raw) {
@@ -89,7 +121,7 @@ export function collapseExceptionsByTask(raw: readonly FleetException[]): FleetE
   }
   return [...byTask.values()].sort((left, right) => {
     const bySeverity = SEVERITY[right.kind] - SEVERITY[left.kind]
-    return bySeverity !== 0 ? bySeverity : right.at.localeCompare(left.at)
+    return bySeverity !== 0 ? bySeverity : compareAtDescending(left.at, right.at)
   })
 }
 

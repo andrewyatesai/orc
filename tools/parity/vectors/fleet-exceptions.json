@@ -583,8 +583,7 @@
     },
     {
       "function": "collapseExceptionsByTask",
-      "note": "DIVERGENCE, reported not failed: the ORDERING tiebreak uses String.localeCompare, which is ICU collation — case is a tertiary difference, so 't' sorts BEFORE 'T' and TS returns [upper, lower]. The merge above uses code-unit `>`, which says the opposite, and Rust reproduces the code-unit rule. Two same-instant timestamps that differ only in the RFC-3339 designator's case therefore order one way in the merge and the other way in the sort. Worse, localeCompare is locale-sensitive: the queue's order is a function of the supervisor's machine locale. The fix belongs in the TS (use the same code-unit comparison the merge already uses), not in the port.",
-      "allowDivergence": "TS sort uses locale collation (localeCompare); the port uses code-unit order, matching the same function's own merge comparison",
+      "note": "PINNED (was a reported divergence until localeCompare was removed): the ORDERING tiebreak uses String.localeCompare, which is ICU collation — case is a tertiary difference, so 't' sorts BEFORE 'T' and TS returns [upper, lower]. The merge above uses code-unit `>`, which says the opposite, and Rust reproduces the code-unit rule. Two same-instant timestamps that differ only in the RFC-3339 designator's case therefore order one way in the merge and the other way in the sort. Worse, localeCompare is locale-sensitive: the queue's order is a function of the supervisor's machine locale. The fix belongs in the TS (use the same code-unit comparison the merge already uses), not in the port.",
       "input": {
         "exceptions": [
           {
@@ -627,7 +626,9 @@
     {
       "function": "collapseExceptionsByTask",
       "note": "No exceptions is an empty queue, not a row saying so. The 'all clear' reading of an empty queue is only sound alongside the source-status cases below.",
-      "input": { "exceptions": [] },
+      "input": {
+        "exceptions": []
+      },
       "expected": []
     },
     {
@@ -645,19 +646,39 @@
           }
         ]
       },
-      "expected": { "__parity_error__": "unknown FleetExceptionKind" }
+      "expected": {
+        "__parity_error__": "unknown FleetExceptionKind"
+      }
     },
     {
       "function": "exceptionSourceStatuses",
       "note": "All six of §8.3's sources are named and all six are wired, in declaration order. This is what makes an empty queue readable as 'nothing is wrong' — a supervisor who believes the queue covers all six when it covers one will read silence as safety, which is the exact failure the queue exists to prevent.",
       "input": {},
       "expected": [
-        { "kind": "gate", "status": "wired" },
-        { "kind": "escalation", "status": "wired" },
-        { "kind": "circuit-broken", "status": "wired" },
-        { "kind": "attention", "status": "wired" },
-        { "kind": "lifecycle-rejected", "status": "wired" },
-        { "kind": "unanswered-ask", "status": "wired" }
+        {
+          "kind": "gate",
+          "status": "wired"
+        },
+        {
+          "kind": "escalation",
+          "status": "wired"
+        },
+        {
+          "kind": "circuit-broken",
+          "status": "wired"
+        },
+        {
+          "kind": "attention",
+          "status": "wired"
+        },
+        {
+          "kind": "lifecycle-rejected",
+          "status": "wired"
+        },
+        {
+          "kind": "unanswered-ask",
+          "status": "wired"
+        }
       ]
     },
     {
@@ -938,8 +959,7 @@
     },
     {
       "function": "collapseExceptionsByTask",
-      "note": "DIVERGENCE, reported not failed — and NOT about case. An unpadded hour puts ':' (0x3A) against '0' (0x30): code units say 'T1:' is the newer timestamp, ICU collation says punctuation sorts before digits and ranks 01:00 older. TS returns [padded, unpadded]; the port returns [unpadded, padded]. No exotic character is involved — one source that forgets to zero-pad is enough, and §8.3 has six independent sources.",
-      "allowDivergence": "TS orders with localeCompare (ICU: punctuation before digits); the port uses the code-unit order its own merge uses",
+      "note": "PINNED (was a reported divergence until localeCompare was removed) — and NOT about case. An unpadded hour puts ':' (0x3A) against '0' (0x30): code units say 'T1:' is the newer timestamp, ICU collation says punctuation sorts before digits and ranks 01:00 older. TS returns [padded, unpadded]; the port returns [unpadded, padded]. No exotic character is involved — one source that forgets to zero-pad is enough, and §8.3 has six independent sources.",
       "input": {
         "exceptions": [
           {
@@ -981,8 +1001,7 @@
     },
     {
       "function": "collapseExceptionsByTask",
-      "note": "DIVERGENCE, reported not failed: two RFC-3339 spellings of the SAME instant, both valid, from two producers. '.' (0x2E) against '+' (0x2B) — code units rank the fractional-seconds form newer, ICU ranks the offset form newer. TS returns [offset, millis]; the port returns [millis, offset]. Whichever row a supervisor reads first is a function of which source formatted its timestamp, on a pair that are not even different times.",
-      "allowDivergence": "TS orders with localeCompare; the port uses code-unit order",
+      "note": "PINNED (was a reported divergence until localeCompare was removed): two RFC-3339 spellings of the SAME instant, both valid, from two producers. '.' (0x2E) against '+' (0x2B) — code units rank the fractional-seconds form newer, ICU ranks the offset form newer. TS returns [offset, millis]; the port returns [millis, offset]. Whichever row a supervisor reads first is a function of which source formatted its timestamp, on a pair that are not even different times.",
       "input": {
         "exceptions": [
           {
@@ -1024,8 +1043,7 @@
     },
     {
       "function": "collapseExceptionsByTask",
-      "note": "DIVERGENCE, reported not failed, and the sharpest form of it: a completely-ignorable character (U+00AD) makes localeCompare return 0 for two strings that are not equal, so TS decides the order by ARRIVAL and returns [plain, shy] while the port compares the code units and returns [shy, plain]. A comparator that reports 'equal' for unequal timestamps cannot be reproduced by any total order; the fix belongs in the TS, which should compare `at` the way its own merge already does.",
-      "allowDivergence": "localeCompare reports 0 for distinct strings; no total order over code units can match it",
+      "note": "PINNED (was a reported divergence until localeCompare was removed), and the sharpest form of it: a completely-ignorable character (U+00AD) makes localeCompare return 0 for two strings that are not equal, so TS decides the order by ARRIVAL and returns [plain, shy] while the port compares the code units and returns [shy, plain]. A comparator that reports 'equal' for unequal timestamps cannot be reproduced by any total order; the fix belongs in the TS, which should compare `at` the way its own merge already does.",
       "input": {
         "exceptions": [
           {
