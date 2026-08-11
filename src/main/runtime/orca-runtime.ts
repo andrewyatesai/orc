@@ -22302,6 +22302,12 @@ export class OrcaRuntimeService {
     if (!this.store) {
       throw new Error('runtime_unavailable')
     }
+    // Why up front rather than inside the loop: every id here is a meta write, and
+    // this is the one worktree write that takes ids instead of a catalog selector.
+    // A refusal partway through would leave half a reordering behind.
+    for (const worktreeId of orderedIds) {
+      this.assertWorktreeIdInCallerScope(worktreeId)
+    }
     const now = Date.now()
     let updated = 0
     for (let i = 0; i < orderedIds.length; i++) {
@@ -22332,7 +22338,13 @@ export class OrcaRuntimeService {
     let repo: Repo
     try {
       repo = await this.resolveRepoSelector(args.repoSelector)
-    } catch {
+    } catch (error) {
+      // Why rethrown: a refusal is not a missing repo. Reporting it as one sends
+      // the caller off to fix a selector that was never wrong, and hides the
+      // boundary from the people auditing it.
+      if (error instanceof CallerScopeDeniedError) {
+        throw error
+      }
       return { error: 'Repo not found' }
     }
     if (isFolderRepo(repo)) {
@@ -22477,7 +22489,13 @@ export class OrcaRuntimeService {
     let repo: Repo
     try {
       repo = await this.resolveRepoSelector(args.repoSelector)
-    } catch {
+    } catch (error) {
+      // Why rethrown: a refusal is not a missing repo. Reporting it as one sends
+      // the caller off to fix a selector that was never wrong, and hides the
+      // boundary from the people auditing it.
+      if (error instanceof CallerScopeDeniedError) {
+        throw error
+      }
       return { error: 'Repo not found' }
     }
     if (isFolderRepo(repo)) {
@@ -22766,6 +22784,9 @@ export class OrcaRuntimeService {
       // Why: delete requests can arrive after Git no longer lists the worktree.
       // Only exact IDs with persisted Orca metadata are accepted here so
       // branch/path selectors cannot resolve to an arbitrary missing path.
+      // This fallback skips the catalog by design, so it also skips the catalog's
+      // bound — restate it before a parsed id becomes a removal target.
+      this.assertWorktreeIdInCallerScope(removalTarget.id)
       return meta.pushTarget ? { ...removalTarget, pushTarget: meta.pushTarget } : removalTarget
     }
   }
@@ -22839,6 +22860,13 @@ export class OrcaRuntimeService {
       throw new Error('runtime_unavailable')
     }
     const removalTarget = parseExactWorktreeIdSelector(worktreeSelector)
+    // Why here: this selector is parsed, never looked up, so it is the one
+    // worktree path the catalog's bound does not cover — and it must land before
+    // the pending-cleanup probe below, which would otherwise answer for a
+    // branch on another host.
+    if (removalTarget) {
+      this.assertWorktreeIdInCallerScope(removalTarget.id)
+    }
     const cleanupTarget = removalTarget
       ? this.preservedBranchCleanupByWorktreeId.get(removalTarget.id)
       : undefined
@@ -25505,9 +25533,29 @@ export class OrcaRuntimeService {
     return { handle: this.issuePtyHandle(createdPty ?? pty), tabId: parentTabId, paneRuntimeId: -1 }
   }
 
+  /**
+   * Why the bound is here and not inside handleTmuxCompat: that method turns
+   * every throw into a tmux exit code, so a refusal raised in there would reach
+   * the caller as a failed tmux command. The request names no pane of its own —
+   * `%1` is a tmux fiction — so the team's leader pane is the object.
+   */
+  private assertAgentTeamInCallerScope(request: AgentTeamsTmuxCompatRequest): void {
+    if (getCallerScope().kind === 'local') {
+      return
+    }
+    const leaderHandle = this.claudeAgentTeams.getTeamLeaderHandle(request.teamId, request.token)
+    if (!leaderHandle) {
+      throw new CallerScopeDeniedError(
+        `Refused: agent team ${request.teamId} names no terminal Orca can attribute, so there is no host to bound this tmux command to.`
+      )
+    }
+    this.assertTerminalHandleInCallerScope(leaderHandle, 'agent team leader terminal')
+  }
+
   async handleAgentTeamsTmuxCompat(
     request: AgentTeamsTmuxCompatRequest
   ): Promise<AgentTeamsTmuxCompatResponse> {
+    this.assertAgentTeamInCallerScope(request)
     return await this.claudeAgentTeams.handleTmuxCompat(request, {
       splitTerminal: (handle, opts) => this.splitTerminal(handle, opts),
       readTerminal: (handle, opts) => this.readTerminal(handle, opts),
@@ -27103,12 +27151,42 @@ export class OrcaRuntimeService {
 
   async listWorktreeLineage(): Promise<Record<string, WorktreeLineage>> {
     await this.hydrateInferredWorktreeLineage()
-    return this.store?.getAllWorktreeLineage?.() ?? {}
+    return this.filterWorkspaceGraphToCallerScope(
+      this.store?.getAllWorktreeLineage?.() ?? {},
+      (lineage) => lineage.parentWorktreeId
+    )
   }
 
   async listWorkspaceLineage(): Promise<Record<WorkspaceKey, WorkspaceLineage>> {
     await this.hydrateInferredWorktreeLineage()
-    return this.store?.getAllWorkspaceLineage?.() ?? {}
+    return this.filterWorkspaceGraphToCallerScope(
+      this.store?.getAllWorkspaceLineage?.() ?? {},
+      (lineage) => lineage.parentWorkspaceKey
+    )
+  }
+
+  /**
+   * Lineage takes no selector — it is the whole parent/child graph keyed by
+   * workspace — so it is a catalog like the worktree list and is filtered rather
+   * than refused. A row whose parent is out of scope is hidden too: the parent
+   * id is itself a selector, and naming one is how every other reach starts.
+   */
+  private filterWorkspaceGraphToCallerScope<K extends string, V>(
+    rows: Record<K, V>,
+    parentOf: (row: V) => string | undefined
+  ): Record<K, V> {
+    if (!isBoundedCallerScope(getCallerScope())) {
+      return rows
+    }
+    return Object.fromEntries(
+      Object.entries<V>(rows).filter(([key, row]) => {
+        const parent = parentOf(row)
+        return (
+          this.isWorktreeReachableByCaller(key) &&
+          (!parent || this.isWorktreeReachableByCaller(parent))
+        )
+      })
+    ) as Record<K, V>
   }
 
   private async resolveRepoSelector(selector: string): Promise<Repo> {
@@ -29454,7 +29532,13 @@ export class OrcaRuntimeService {
       return await this.isRecognizedForegroundAgentProcess(leaf.ptyId, fg, {
         suppressClaude: shouldSuppressClaudeForeground
       })
-    } catch {
+    } catch (error) {
+      // Why rethrown: the catch-all is here so a probe failure reads as "no
+      // agent", and a refusal reading that way tells the caller something false
+      // about a pane it was never allowed to look at.
+      if (error instanceof CallerScopeDeniedError) {
+        throw error
+      }
       return false
     }
   }
@@ -30802,6 +30886,13 @@ export class OrcaRuntimeService {
         worktree = await this.resolveWorktreeSelector(`id:${terminal.worktreeId}`)
       } catch (error) {
         if (error instanceof LinearAgentAccessError) {
+          throw error
+        }
+        // Why rethrown: this catch exists so a stale handle falls through to the
+        // cwd path. A refusal is not staleness — swallowing it would answer "run
+        // this from inside a worktree" to a caller that named a real pane on a
+        // host it may not reach, and would hide the boundary from the audit.
+        if (error instanceof CallerScopeDeniedError) {
           throw error
         }
         if (context.remote === true || context.worktreeId) {

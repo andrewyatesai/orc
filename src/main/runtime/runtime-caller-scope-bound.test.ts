@@ -71,7 +71,7 @@ const HOST_SETUPS = [
   { id: 'setup_b', projectId: 'proj_b', hostId: `ssh:${TARGET_B}`, repoId: 'repo_b' }
 ]
 
-function createRuntime(): OrcaRuntimeService {
+function createRuntime(storeOverrides: Record<string, unknown> = {}): OrcaRuntimeService {
   const store = {
     getRepos: () => REPOS,
     getRepo: (id: string) => REPOS.find((repo) => repo.id === id),
@@ -80,7 +80,8 @@ function createRuntime(): OrcaRuntimeService {
     getAllWorktreeMeta: () => WORKTREE_META,
     listAutomations: () => AUTOMATIONS,
     getProjects: () => PROJECTS,
-    getProjectHostSetups: () => HOST_SETUPS
+    getProjectHostSetups: () => HOST_SETUPS,
+    ...storeOverrides
   }
   return new OrcaRuntimeService(store as never)
 }
@@ -91,6 +92,7 @@ type RuntimeInternals = {
   resolveWorktreeSelector: (selector: string) => Promise<{ id: string }>
   resolveRepoSelector: (selector: string) => Promise<{ id: string }>
   resolveTerminalWorkspaceLaunchScope: (selector: string) => Promise<{ id: string }>
+  resolveWorktreeRemovalTarget: (selector: string) => Promise<{ id: string }>
   getLiveLeafForHandle: (handle: string) => unknown
   listResolvedWorktrees: () => Promise<unknown[]>
   listAllResolvedWorktrees: () => Promise<unknown[]>
@@ -102,6 +104,7 @@ type RuntimeInternals = {
   }
   ptysById: Map<string, unknown>
   graphStatus: string
+  preservedBranchCleanupByWorktreeId: Map<string, unknown>
 }
 
 function internals(runtime: OrcaRuntimeService): RuntimeInternals {
@@ -244,18 +247,16 @@ describe('remote caller bound — worktree selectors', () => {
 
   // Why these shapes: `id:` has its own validator, so only selectors that must
   // go through the catalog prove the catalog is what bounds them.
-  it.each([
-    'branch:main',
-    'path:/home/me/orca',
-    'name:repo_local::/home/me/orca',
-    '/home/me/orca'
-  ])('bounds the catalog-resolved selector %s', async (selector) => {
-    const runtime = createRuntime()
-    stubResolvedWorktrees(runtime, [LOCAL_WT])
-    await expect(
-      asSshCaller(TARGET_A, () => internals(runtime).resolveWorktreeSelector(selector))
-    ).rejects.toThrow(CallerScopeDeniedError)
-  })
+  it.each(['branch:main', 'path:/home/me/orca', 'name:repo_local::/home/me/orca', '/home/me/orca'])(
+    'bounds the catalog-resolved selector %s',
+    async (selector) => {
+      const runtime = createRuntime()
+      stubResolvedWorktrees(runtime, [LOCAL_WT])
+      await expect(
+        asSshCaller(TARGET_A, () => internals(runtime).resolveWorktreeSelector(selector))
+      ).rejects.toThrow(CallerScopeDeniedError)
+    }
+  )
 })
 
 describe('remote caller bound — repo selectors', () => {
@@ -692,5 +693,91 @@ describe('the leaf registry swap stays O(1)', () => {
     const before = internals(runtime).leaves.replaceAll(new Map())
     expect([...before.keys()]).toEqual([`tab_term_graph::${leafIdFor('term_graph')}`])
     expect(internals(runtime).leaves.size).toBe(0)
+  })
+})
+
+// Why these four: the worktree group is exempt because "every selector resolves
+// through the caller-bounded worktree and repo catalogs". These are the paths
+// that do not — two take no selector at all, two parse an id instead of looking
+// one up — so each has to carry the bound itself or the exemption is false.
+describe('the worktree paths that skip the catalog carry the bound themselves', () => {
+  const LINEAGE = {
+    [TARGET_A_WT]: { worktreeId: TARGET_A_WT, parentWorktreeId: TARGET_A_PEER_WT },
+    [TARGET_A_PEER_WT]: { worktreeId: TARGET_A_PEER_WT, parentWorktreeId: LOCAL_WT },
+    [LOCAL_WT]: { worktreeId: LOCAL_WT, parentWorktreeId: undefined }
+  }
+
+  it('lineage lists only rows whose child AND parent the caller reaches', async () => {
+    const runtime = createRuntime({ getAllWorktreeLineage: () => LINEAGE })
+    // Why the peer row is hidden too: its parent is a local worktree id, and a
+    // worktree id is the selector every other reach starts from.
+    expect(Object.keys(await asSshCaller(TARGET_A, () => runtime.listWorktreeLineage()))).toEqual([
+      TARGET_A_WT
+    ])
+    expect(Object.keys(await runtime.listWorktreeLineage())).toEqual(Object.keys(LINEAGE))
+  })
+
+  it('workspace lineage is filtered by the same rule', async () => {
+    const runtime = createRuntime({
+      getAllWorkspaceLineage: () => ({
+        [`worktree:${TARGET_A_WT}`]: {
+          childWorkspaceKey: `worktree:${TARGET_A_WT}`,
+          parentWorkspaceKey: `worktree:${TARGET_A_PEER_WT}`
+        },
+        [`worktree:${LOCAL_WT}`]: {
+          childWorkspaceKey: `worktree:${LOCAL_WT}`,
+          parentWorkspaceKey: `worktree:${LOCAL_WT}`
+        }
+      })
+    })
+    expect(Object.keys(await asSshCaller(TARGET_A, () => runtime.listWorkspaceLineage()))).toEqual([
+      `worktree:${TARGET_A_WT}`
+    ])
+  })
+
+  it('persistSortOrder refuses a bulk write that names a workspace on another host', () => {
+    const written: string[] = []
+    const runtime = createRuntime({
+      setWorktreeMeta: (id: string) => {
+        written.push(id)
+      }
+    })
+    expect(() =>
+      asSshCaller(TARGET_A, () =>
+        runtime.persistManagedWorktreeSortOrder([HOST_PINNED_WT, LOCAL_PINNED_WT])
+      )
+    ).toThrow(CallerScopeDeniedError)
+    // Why the emptiness matters as much as the throw: the ids are validated up
+    // front precisely so a refusal cannot leave half a reordering behind.
+    expect(written).toEqual([])
+  })
+
+  it('forceDeleteBranch refuses before it can probe what cleanup is pending', async () => {
+    const runtime = createRuntime()
+    await expect(
+      asSshCaller(TARGET_A, () =>
+        runtime.forceDeletePreservedBranch(LOCAL_PINNED_WT, 'feature', 'abc123')
+      )
+    ).rejects.toThrow(CallerScopeDeniedError)
+    // The same call from the owning host gets the ordinary not-pending answer,
+    // which is how we know the refusal above was the bound and not the probe.
+    await expect(
+      asSshCaller(TARGET_A, () =>
+        runtime.forceDeletePreservedBranch(HOST_PINNED_WT, 'feature', 'abc123')
+      )
+    ).rejects.toThrow(/No preserved branch cleanup is pending/)
+  })
+
+  it('rm refuses the fallback target Git no longer lists', async () => {
+    const runtime = createRuntime()
+    stubResolvedWorktrees(runtime, [])
+    // Why the bare id and not `id:<id>`: the `id:` form is asserted by the
+    // selector validator, so only this form reaches the parse-only fallback.
+    await expect(
+      asSshCaller(TARGET_A, () => internals(runtime).resolveWorktreeRemovalTarget(LOCAL_PINNED_WT))
+    ).rejects.toThrow(CallerScopeDeniedError)
+    await expect(
+      asSshCaller(TARGET_A, () => internals(runtime).resolveWorktreeRemovalTarget(HOST_PINNED_WT))
+    ).resolves.toMatchObject({ id: HOST_PINNED_WT })
   })
 })

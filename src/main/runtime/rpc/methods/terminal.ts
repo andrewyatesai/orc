@@ -80,6 +80,7 @@ import {
   TERMINAL_OUTPUT_BATCH_MAX_BYTES
 } from '../../../../shared/terminal-multiplex-flow-control'
 import { drainTerminalMultiplexRoundRobin } from '../terminal-multiplex-round-robin'
+import { assertLocalCallerScope, getCallerScope } from '../../runtime-caller-scope'
 
 const REQUESTED_SNAPSHOT_BYTE_BUDGET = 2 * 1024 * 1024
 const TERMINAL_OUTPUT_FLUSH_MS = 5
@@ -1707,6 +1708,11 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
       { runtime, connectionId, sendBinary, registerBinaryStreamHandler, signal },
       emit
     ) => {
+      // Why local-only: unlike every other verb here the multiplex names no pane
+      // — it claims the connection's binary channel and routes panes by frame
+      // afterwards. Only a transport that can carry those frames (the renderer
+      // and paired clients, both local) can use it at all.
+      assertLocalCallerScope(getCallerScope(), 'the terminal multiplex transport')
       if (!sendBinary || !registerBinaryStreamHandler || !connectionId) {
         throw new Error('binary_terminal_stream_required')
       }
@@ -3560,6 +3566,13 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
     name: 'terminal.unsubscribe',
     params: TerminalUnsubscribe,
     handler: async (params, { runtime }) => {
+      // Why: the id is `<handle>` or `<handle>:<clientId>`, so the pane it
+      // streams is the host object this names — without that, any string tears
+      // down any live stream on the machine, another host's panes included.
+      runtime.assertTerminalHandleInCallerScope(
+        params.subscriptionId.split(':')[0],
+        'the pane behind subscription'
+      )
       // Why: older builds send a bare-handle subscriptionId, so also try the reconstructed `${terminal}:${clientId}` composite key.
       runtime.cleanupSubscription(params.subscriptionId)
       if (params.client && !params.subscriptionId.includes(':')) {
@@ -3571,15 +3584,19 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
   defineMethod({
     name: 'terminal.getAutoRestoreFit',
     params: z.object({}),
-    handler: async (_params, { runtime }) => ({
-      ms: runtime.getMobileAutoRestoreFitMs()
-    })
+    handler: async (_params, { runtime }) => {
+      // Why: one persisted preference of the app running Orca, not a per-terminal
+      // setting, so the group's handle/pane-key bound has nothing to hold on to.
+      assertLocalCallerScope(getCallerScope(), 'the mobile auto-restore-fit preference')
+      return { ms: runtime.getMobileAutoRestoreFitMs() }
+    }
   }),
   defineMethod({
     name: 'terminal.setAutoRestoreFit',
     params: TerminalSetAutoRestoreFit,
-    handler: async (params, { runtime }) => ({
-      ms: runtime.setMobileAutoRestoreFitMs(params.ms)
-    })
+    handler: async (params, { runtime }) => {
+      assertLocalCallerScope(getCallerScope(), 'the mobile auto-restore-fit preference')
+      return { ms: runtime.setMobileAutoRestoreFitMs(params.ms) }
+    }
   })
 ]

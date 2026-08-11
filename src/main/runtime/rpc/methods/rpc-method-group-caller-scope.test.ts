@@ -296,3 +296,152 @@ describe('registration IS the bound', () => {
     ).toThrow(/rpc_method_group_empty:newcomer/)
   })
 })
+
+function registeredMethod(name: string): {
+  handler: (params: unknown, ctx: RpcContext) => Promise<unknown>
+} {
+  const method = ALL_RPC_METHODS.find((candidate) => candidate.name === name)
+  if (!method) {
+    throw new Error(`no such method: ${name}`)
+  }
+  return method as { handler: (params: unknown, ctx: RpcContext) => Promise<unknown> }
+}
+
+// Why here: the `terminal` group is exempt because every method addresses a pane
+// by handle or pane key. These three address none — two read and write one
+// app-wide preference of the machine running Orca, and the multiplex claims the
+// connection's binary channel before any pane is named — so the group's stated
+// reason only holds while they refuse a bounded caller on their own.
+describe('the exempt terminal group and the methods that name no pane', () => {
+  const autoRestoreFit = registeredMethod
+
+  function fitRuntime(reached: string[]): OrcaRuntimeService {
+    return {
+      getMobileAutoRestoreFitMs: () => {
+        reached.push('get')
+        return 1000
+      },
+      setMobileAutoRestoreFitMs: () => {
+        reached.push('set')
+        return 2000
+      }
+    } as unknown as OrcaRuntimeService
+  }
+
+  it('refuses the app-wide fit preference for a remote caller, both ways', async () => {
+    const reached: string[] = []
+    const runtime = fitRuntime(reached)
+    for (const [name, params] of [
+      ['terminal.getAutoRestoreFit', {}],
+      ['terminal.setAutoRestoreFit', { ms: 5000 }]
+    ] as const) {
+      await expect(
+        runWithCallerScope({ kind: 'ssh', connectionId: TARGET_A }, () =>
+          autoRestoreFit(name).handler(params, { runtime } as RpcContext)
+        )
+      ).rejects.toThrow(/no host selector to bound/)
+    }
+    expect(reached).toEqual([])
+  })
+
+  it('leaves the local caller — the renderer and every paired phone — untouched', async () => {
+    const reached: string[] = []
+    const runtime = fitRuntime(reached)
+    expect(
+      await autoRestoreFit('terminal.getAutoRestoreFit').handler({}, { runtime } as RpcContext)
+    ).toEqual({ ms: 1000 })
+    expect(
+      await autoRestoreFit('terminal.setAutoRestoreFit').handler({ ms: 5000 }, {
+        runtime
+      } as RpcContext)
+    ).toEqual({ ms: 2000 })
+    expect(reached).toEqual(['get', 'set'])
+  })
+
+  it('refuses the multiplex transport, which names a pane only once frames arrive', async () => {
+    await expect(
+      runWithCallerScope({ kind: 'ssh', connectionId: TARGET_A }, () =>
+        registeredMethod('terminal.multiplex').handler({}, {} as RpcContext)
+      )
+    ).rejects.toThrow(/no host selector to bound/)
+    // A local caller still gets the transport's own complaint, not the bound.
+    await expect(
+      registeredMethod('terminal.multiplex').handler({}, {} as RpcContext)
+    ).rejects.toThrow(/binary_terminal_stream_required/)
+  })
+})
+
+// Why here: unsubscribe takes a caller-supplied string and tears down whatever
+// stream answers to it — including a pane on another host, or a browser
+// screencast. The pane is named INSIDE that string, so the bound is the handle
+// the id was built from, and a string no handle answers for is refused.
+describe('the exempt terminal group and the subscription id that names a pane', () => {
+  function unsubscribeRuntime(cleaned: string[]): OrcaRuntimeService {
+    return {
+      cleanupSubscription: (id: string) => cleaned.push(id),
+      assertTerminalHandleInCallerScope: (handle: string) => {
+        if (handle !== 'term_mine') {
+          throw new CallerScopeDeniedError(`Refused: terminal ${handle}`)
+        }
+      }
+    } as unknown as OrcaRuntimeService
+  }
+
+  it.each([
+    ['another host pane', 'term_theirs:client_1'],
+    ['a bare legacy handle', 'term_theirs'],
+    ['a screencast id no handle answers for', 'screencast_9']
+  ])('refuses %s before anything is torn down', async (_case, subscriptionId) => {
+    const cleaned: string[] = []
+    const runtime = unsubscribeRuntime(cleaned)
+    await expect(
+      runWithCallerScope({ kind: 'ssh', connectionId: TARGET_A }, () =>
+        registeredMethod('terminal.unsubscribe').handler({ subscriptionId }, {
+          runtime
+        } as RpcContext)
+      )
+    ).rejects.toThrow(CallerScopeDeniedError)
+    expect(cleaned).toEqual([])
+  })
+
+  it('still tears down a subscription on the caller own pane, legacy key included', async () => {
+    const cleaned: string[] = []
+    const runtime = unsubscribeRuntime(cleaned)
+    await runWithCallerScope({ kind: 'ssh', connectionId: TARGET_A }, () =>
+      registeredMethod('terminal.unsubscribe').handler(
+        { subscriptionId: 'term_mine', client: { id: 'client_1' } },
+        { runtime } as RpcContext
+      )
+    )
+    expect(cleaned).toEqual(['term_mine', 'term_mine:client_1'])
+  })
+})
+
+// Why here: pairing is exempt because it names no selectable host object — but
+// what it mints is a relay credential for the machine running Orca, so "no
+// selector" has to mean local-only rather than unbounded.
+describe('the exempt pairing group mints credentials for one machine only', () => {
+  const pairing = {
+    getEndpoints: async () => ({ endpoints: ['relay'] }),
+    provisionRelay: async () => ({ credential: 'installed' })
+  }
+
+  it.each([
+    ['pairing.getEndpoints', {}],
+    ['pairing.provisionRelay', { deviceName: 'phone' }]
+  ])('refuses %s for a remote caller even with a pairing context present', async (name, params) => {
+    await expect(
+      runWithCallerScope({ kind: 'ssh', connectionId: TARGET_A }, () =>
+        registeredMethod(name).handler(params, { pairing } as unknown as RpcContext)
+      )
+    ).rejects.toThrow(/no host selector to bound/)
+  })
+
+  it('leaves the paired-device socket, which is a local caller, untouched', async () => {
+    expect(
+      await registeredMethod('pairing.getEndpoints').handler({}, {
+        pairing
+      } as unknown as RpcContext)
+    ).toEqual({ endpoints: ['relay'] })
+  })
+})

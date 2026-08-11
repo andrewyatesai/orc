@@ -18,6 +18,7 @@ import { clampOrchestrationAskTimeoutMs } from '../../../../shared/orchestration
 import { SETTLED_DISPATCH_STATUSES } from '../../../../shared/agent-status-types'
 import { OrchestrationError } from '../../orchestration/orchestration-error'
 import { ORCHESTRATION_GATE_METHODS } from './orchestration-gates'
+import { createOrchestrationRowReach } from '../../orchestration/row-caller-scope'
 import { assertLocalCallerScope, getCallerScope } from '../../runtime-caller-scope'
 
 const MESSAGE_TYPES: MessageType[] = [
@@ -517,6 +518,17 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
     params: TaskCreateParams,
     handler: (params, { runtime }) => {
       const db = runtime.getOrchestrationDb()
+      // Why: a task is work a coordinator will dispatch into a pane, so the pane
+      // that asked for it is the object. A bounded caller naming none is writing
+      // into the queue of the machine running Orca with nothing to bound it to.
+      // The CLI treats the handle as best-effort lineage, so it sends whatever
+      // ORCA_TERMINAL_HANDLE it holds rather than pre-judging liveness — this
+      // registry is what decides, and unreachable is the same as absent here.
+      if (params.callerTerminalHandle) {
+        runtime.assertTerminalHandleInCallerScope(params.callerTerminalHandle, 'task creator')
+      } else {
+        assertLocalCallerScope(getCallerScope(), 'a task that names no creating terminal')
+      }
       let deps: string[] | undefined
       if (params.deps) {
         try {
@@ -555,7 +567,12 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
       // bind, and this read was already whole-workspace, so narrowing the response
       // costs nothing extra. An omitted runId stays "no filter", never "un-owned".
       const owned = params.runId ? joined.filter((row) => row.run_id === params.runId) : joined
-      const tasks = owned.map((row) => {
+      // Why filtered, not refused: this list IS the workspace task catalog —
+      // every pane's work in one response — so a bounded caller sees the tasks
+      // its own panes created, ran or coordinate and never learns the rest exist.
+      const reach = createOrchestrationRowReach(db, runtime)
+      const visible = owned.filter((row) => reach.task(row))
+      const tasks = visible.map((row) => {
         const { assignee_handle, dispatch_id, ...base } = row
         if (base.status === 'dispatched') {
           return { ...base, assignee_handle, dispatch_id }
@@ -574,6 +591,10 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
     params: TaskUpdateParams,
     handler: (params, { runtime }) => {
       const db = runtime.getOrchestrationDb()
+      // Why before the write: a status change releases dependents and unparks the
+      // coordinator loop that owns the task, so the task is the object here — the
+      // same one taskList filters the catalog by.
+      createOrchestrationRowReach(db, runtime).assertTaskId(params.id)
       const task = db.updateTaskStatus(params.id, params.status, params.result)
       if (!task) {
         throw new Error(`Task not found: ${params.id}`)
@@ -591,6 +612,16 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
       if (!task) {
         throw new Error(`Task not found: ${params.task}`)
       }
+
+      // Why above the dry-run return and not beside the side effects: a dry run
+      // still reads both objects — the preamble it returns carries the task spec
+      // verbatim, and --to is the pane it would be injected into.
+      if (params.to) {
+        // Why: --inject writes the preamble into the addressed pane's agent, so
+        // the assignee is the object being driven; same second delivery path as send.
+        runtime.assertTerminalHandleInCallerScope(params.to, 'dispatch assignee')
+      }
+      createOrchestrationRowReach(db, runtime).assertTask(task)
 
       // Why: dry-run previews the preamble without mutating state, so it skips the ready-status check and uses a placeholder dispatchId.
       if (params.dryRun) {
@@ -613,10 +644,6 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
         throw new Error('Missing --to')
       }
       const to = params.to
-      // Why: --inject writes the preamble into the addressed pane's agent, so the
-      // assignee is the object being driven; same second delivery path as send.
-      runtime.assertTerminalHandleInCallerScope(to, 'dispatch assignee')
-
       if (task.status !== 'ready') {
         throw new Error(`Task ${params.task} is ${task.status}; only ready tasks can be dispatched`)
       }
@@ -702,6 +729,9 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
         if (!task) {
           throw new Error(`Task not found: ${params.task}`)
         }
+        // Why here too: a task with no dispatch yet has no assignee to assert
+        // above, and the preamble below still reads its spec out verbatim.
+        createOrchestrationRowReach(db, runtime).assertTask(task)
         const workerHandle = ctx?.assignee_handle ?? 'worker'
         // Why (v10): the dcap_ plaintext died at mint (hash-only persistence),
         // so a regenerated preamble cannot replay it — re-mint instead. Safe
@@ -772,6 +802,11 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
 
       runtime.assertTerminalHandleInCallerScope(params.to, 'question recipient')
       const db = runtime.getOrchestrationDb()
+      if (params.task) {
+        // Why: naming a task opens a decision gate that blocks it, so the task is
+        // a second object this call acts on — bounded exactly like gateCreate.
+        createOrchestrationRowReach(db, runtime).assertTaskId(params.task)
+      }
       const from = params.from ?? 'unknown'
       // Why: echoed on every return so a clamped caller reports the budget actually waited, not the one it asked for.
       const timeoutMs = clampOrchestrationAskTimeoutMs(params.timeoutMs)

@@ -6,6 +6,12 @@ import { Coordinator } from '../../orchestration/coordinator'
 import { CoordinatorRunLogRegistry } from '../../orchestration/coordinator-run-log'
 import { deliverGateResolutionToOrigin } from '../../orchestration/gate-reply-coupling'
 import { countRunTasks } from '../../orchestration/run-progress'
+import { createOrchestrationRowReach } from '../../orchestration/row-caller-scope'
+import {
+  assertLocalCallerScope,
+  CallerScopeDeniedError,
+  getCallerScope
+} from '../../runtime-caller-scope'
 
 // Why: live coordinators are keyed by run id so orchestration.runStop can
 // target one without touching the others. Runs are keyed by coordinator
@@ -197,16 +203,30 @@ export const ORCHESTRATION_GATE_METHODS: RpcMethod[] = [
         if (activeRuns.length === 0) {
           throw new Error('No active coordinator run')
         }
+        // Why filtered only on this branch: an untargeted stop names nothing, so
+        // both the run it picks and the disambiguation it prints have to come from
+        // the coordinators this caller reaches, never from every run in the
+        // workspace — the id:handle list below is otherwise a roster of other hosts.
+        const reachable = activeRuns.filter((candidate) =>
+          runtime.isTerminalHandleReachableByCaller(candidate.coordinator_handle)
+        )
+        if (reachable.length === 0) {
+          // Same shape as an unnamed terminal falling through: refuse by boundary,
+          // and name nothing, because the caller named nothing to be told about.
+          throw new CallerScopeDeniedError(
+            'Refused: no coordinator run was named, and no run on this caller host is active to fall back to. Name your own run with --run <run_id> or --from <handle>.'
+          )
+        }
         // Why: an untargeted stop with several orchestrators live would pick one
         // arbitrarily — the mutual-kill in #4389 — so demand a target instead.
-        if (activeRuns.length > 1) {
+        if (reachable.length > 1) {
           throw new Error(
-            `Multiple active coordinator runs (${activeRuns
+            `Multiple active coordinator runs (${reachable
               .map((candidate) => `${candidate.id}:${candidate.coordinator_handle}`)
               .join(', ')}); pass --run <run_id> or --from <handle>`
           )
         }
-        run = activeRuns[0]
+        run = reachable[0]
       }
       // Why after resolution: --run and the untargeted single-run case name no
       // handle, so the run row is the only thing that says whose loop this is.
@@ -228,6 +248,9 @@ export const ORCHESTRATION_GATE_METHODS: RpcMethod[] = [
     params: GateCreateParams,
     handler: (params, { runtime }) => {
       const db = runtime.getOrchestrationDb()
+      // Why: a gate blocks its task and parks whoever is dispatched on it, so the
+      // task is the object — the same one gateList filters the catalog by.
+      createOrchestrationRowReach(db, runtime).assertTaskId(params.task)
       let options: string[] | undefined
       if (params.options) {
         try {
@@ -254,13 +277,19 @@ export const ORCHESTRATION_GATE_METHODS: RpcMethod[] = [
     params: GateResolveParams,
     handler: (params, { runtime }) => {
       const db = runtime.getOrchestrationDb()
-      const originMessageId = db.getGate(params.id)?.origin_message_id
+      const pending = db.getGate(params.id)
+      const originMessageId = pending?.origin_message_id
       const origin = originMessageId ? db.getMessageById(originMessageId) : undefined
       if (origin) {
         // Why before resolving: the resolution is delivered into the pane that
         // asked, so that pane is the object — and a gate must not be half-resolved
         // by a caller that may not reach it.
         runtime.assertTerminalHandleInCallerScope(origin.from_handle, 'gate asker')
+      } else if (pending) {
+        // Why the second bound: a gate from gateCreate — and every gate written
+        // before schema v8 — names no asker, so the task it unblocks is the only
+        // object it has.
+        createOrchestrationRowReach(db, runtime).assertGate(pending)
       }
       const gate = db.resolveGate(params.id, params.resolution)
       if (!gate) {
@@ -287,6 +316,10 @@ export const ORCHESTRATION_GATE_METHODS: RpcMethod[] = [
       const logged = db.getCoordinatorRun(runId)
       if (logged) {
         runtime.assertTerminalHandleInCallerScope(logged.coordinator_handle, 'coordinator')
+      } else {
+        // Why: with no run row there is no coordinator handle to bound the
+        // in-memory tail to, and that tail is this process's own diagnostics.
+        assertLocalCallerScope(getCallerScope(), `the log for run ${runId}`)
       }
       const log = coordinatorRunLogs.peek(runId)
       if (!log) {
@@ -308,12 +341,18 @@ export const ORCHESTRATION_GATE_METHODS: RpcMethod[] = [
     params: GateListParams,
     handler: (params, { runtime }) => {
       const db = runtime.getOrchestrationDb()
-      const gates = db.listGates({
-        taskId: params.task,
-        status: params.status as GateStatus,
-        // An omitted runId is "no run filter", so gates from before v9 still list.
-        runId: params.runId
-      })
+      const reach = createOrchestrationRowReach(db, runtime)
+      // Why filtered, not refused: this is the workspace gate catalog — every
+      // question and its options — so a bounded caller sees the gates on the
+      // tasks its panes own and never learns the rest exist.
+      const gates = db
+        .listGates({
+          taskId: params.task,
+          status: params.status as GateStatus,
+          // An omitted runId is "no run filter", so gates from before v9 still list.
+          runId: params.runId
+        })
+        .filter((gate) => reach.gate(gate))
       return { gates, count: gates.length }
     }
   }),
@@ -330,19 +369,26 @@ export const ORCHESTRATION_GATE_METHODS: RpcMethod[] = [
       const offset = clampRunListOffset(params.offset)
       // One extra row answers "is there another page?" without a COUNT(*) scan.
       const page = db.runs.list({ limit: limit + 1, offset })
-      const runs = page.slice(0, limit).map((run) => ({
-        ...run,
-        // Why: a durable row still says `running` after a restart killed its
-        // loop, so status alone cannot separate a live coordinator from a
-        // stranded one. The in-memory registry is the only witness to that.
-        live: activeCoordinators.has(run.id),
-        // Why per run: these counters were once workspace-wide and identical on
-        // every row, so a run that ended last week reported today's numbers.
-        tasks: countRunTasks(db.listTasks({ runId: run.id })),
-        // Why gates too: `blocked` says the work stopped; this says a human is
-        // what it stopped on, which is the only one the supervisor can act on.
-        pendingGates: db.listGates({ runId: run.id, status: 'pending' }).length
-      }))
+      const reach = createOrchestrationRowReach(db, runtime)
+      // Why filtered after the page and not inside it: `hasMore` answers "is there
+      // another row at this offset", which is a property of the history, not of
+      // what this caller may see. A run is the coordinator pane's own object.
+      const runs = page
+        .slice(0, limit)
+        .filter((run) => reach.run(run))
+        .map((run) => ({
+          ...run,
+          // Why: a durable row still says `running` after a restart killed its
+          // loop, so status alone cannot separate a live coordinator from a
+          // stranded one. The in-memory registry is the only witness to that.
+          live: activeCoordinators.has(run.id),
+          // Why per run: these counters were once workspace-wide and identical on
+          // every row, so a run that ended last week reported today's numbers.
+          tasks: countRunTasks(db.listTasks({ runId: run.id })),
+          // Why gates too: `blocked` says the work stopped; this says a human is
+          // what it stopped on, which is the only one the supervisor can act on.
+          pendingGates: db.listGates({ runId: run.id, status: 'pending' }).length
+        }))
       return { runs, count: runs.length, limit, offset, hasMore: page.length > limit }
     }
   })

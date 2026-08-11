@@ -176,8 +176,11 @@ async function resolveTaskCreatorTerminalHandle(
     live = await isLiveTerminalHandle(envHandle, client)
   } catch (err) {
     if (isOptionalTaskCreatorHandleError(err)) {
-      // Why: creator handles are best-effort lineage metadata; graph unavailability must not block task creation.
-      return undefined
+      // Why the handle still goes: the probe failing is not evidence it is
+      // stale, and for a caller the host has bounded, dropping it turns a
+      // graph hiccup into "this task names no creating terminal". The host
+      // owns the registry, so let it be the one to say the handle is unusable.
+      return envHandle
     }
     throw err
   }

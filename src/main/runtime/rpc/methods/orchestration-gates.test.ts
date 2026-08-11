@@ -72,6 +72,7 @@ describe('orchestration gate RPC lifecycle recovery', () => {
       runtime: {
         getOrchestrationDb: () => db,
         assertTerminalHandleInCallerScope: () => {},
+        isTerminalHandleReachableByCaller: () => true,
         assertWorkspaceSelectorInCallerScope: async () => {}
       }
     } as never)

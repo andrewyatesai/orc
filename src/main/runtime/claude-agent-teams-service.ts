@@ -85,6 +85,16 @@ export class ClaudeAgentTeamsService {
     return this.teams.size
   }
 
+  /**
+   * The pane a tmux request ultimately drives: every teammate pane is split from
+   * the leader, so the leader is the host object the whole team hangs off. Null
+   * for an unknown or unauthorized team, which is not something to act on either.
+   */
+  getTeamLeaderHandle(teamId: string, token: string): string | null {
+    const team = this.teams.get(teamId)
+    return team && team.token === token ? team.leaderHandle : null
+  }
+
   async handleTmuxCompat(
     request: AgentTeamsTmuxCompatRequest,
     api: AgentTeamsTerminalApi

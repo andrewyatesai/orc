@@ -565,7 +565,10 @@ describe('orchestration task-create caller handle', () => {
     })
   })
 
-  it('does not fail task creation when env handle validation cannot inspect the graph', async () => {
+  // Why it is sent unverified: a bounded caller must name a creating terminal or
+  // the host refuses the task outright, and an unreachable graph is not evidence
+  // the handle is stale — the host holds the registry and answers for itself.
+  it('still names the env handle when validation cannot inspect the graph', async () => {
     process.env.ORCA_TERMINAL_HANDLE = 'term_creator'
     callMock
       .mockRejectedValueOnce(new RuntimeClientError('runtime_unavailable', 'runtime_unavailable'))
@@ -581,7 +584,7 @@ describe('orchestration task-create caller handle', () => {
       displayName: undefined,
       deps: undefined,
       parent: undefined,
-      callerTerminalHandle: undefined
+      callerTerminalHandle: 'term_creator'
     })
   })
 

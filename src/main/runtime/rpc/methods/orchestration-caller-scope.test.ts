@@ -17,7 +17,10 @@ const IN_SCOPE_WT = 'id:repo_a::/home/me/a'
 // Why: `--to` is a handle, and delivery can follow a persisted pane key when the
 // handle registry no longer holds it — so these surfaces name the recipient
 // themselves. Every state-changing call below is a tripwire.
-function createRuntime(dbOverrides: Record<string, unknown> = {}): {
+function createRuntime(
+  dbOverrides: Record<string, unknown> = {},
+  runtimeOverrides: Record<string, unknown> = {}
+): {
   runtime: unknown
   asked: string[]
 } {
@@ -69,7 +72,8 @@ function createRuntime(dbOverrides: Record<string, unknown> = {}): {
     // recipient at all, and that lookup is already bounded by the handle registry.
     getTerminalPaneKey: () => null,
     isTerminalRunningAgent: reached('isTerminalRunningAgent'),
-    getPersonalizationPrompt: reached('getPersonalizationPrompt')
+    getPersonalizationPrompt: reached('getPersonalizationPrompt'),
+    ...runtimeOverrides
   }
   return { runtime, asked }
 }
@@ -233,10 +237,39 @@ describe('orchestration bounds the coordinator surface that drives panes', () =>
     const { runtime, asked } = createRuntime({
       getActiveCoordinatorRuns: () => [{ id: 'run_1', coordinator_handle: 'term_local' }]
     })
+    // Why the refusal names nothing: the caller named nothing, so the fallback it
+    // was refused is not its business — the run id and handle stay unspoken.
     await expect(
       runWithCallerScope(REMOTE, () => invoke('orchestration.runStop', {}, runtime))
     ).rejects.toThrow(CallerScopeDeniedError)
+    expect(asked).toEqual([])
+  })
+
+  it('runStop names a run it was handed, rather than hiding it as not found', async () => {
+    const { runtime, asked } = createRuntime({
+      getActiveCoordinatorRuns: () => [{ id: 'run_1', coordinator_handle: 'term_local' }]
+    })
+    await expect(
+      runWithCallerScope(REMOTE, () => invoke('orchestration.runStop', { runId: 'run_1' }, runtime))
+    ).rejects.toThrow(CallerScopeDeniedError)
     expect(asked).toEqual(['term_local'])
+  })
+
+  it('runStop still stops the caller own run when another host has one live too', async () => {
+    let stopped: string | undefined
+    const { runtime } = createRuntime({
+      getActiveCoordinatorRuns: () => [
+        { id: 'run_local', coordinator_handle: 'term_local' },
+        { id: 'run_mine', coordinator_handle: IN_SCOPE }
+      ],
+      updateCoordinatorRun: (runId: string) => {
+        stopped = runId
+      }
+    })
+    await expect(
+      runWithCallerScope(REMOTE, () => invoke('orchestration.runStop', {}, runtime))
+    ).resolves.toEqual({ runId: 'run_mine', stopped: true })
+    expect(stopped).toBe('run_mine')
   })
 
   it('runLog refuses to read another host coordinator diagnostics', async () => {
@@ -248,4 +281,215 @@ describe('orchestration bounds the coordinator surface that drives panes', () =>
     ).rejects.toThrow(CallerScopeDeniedError)
     expect(asked).toEqual(['term_local'])
   })
+
+  it('runLog refuses an in-memory tail no run row can attribute', async () => {
+    const { runtime } = createRuntime()
+    await expect(
+      runWithCallerScope(REMOTE, () => invoke('orchestration.runLog', { runId: 'run_1' }, runtime))
+    ).rejects.toThrow(/no host selector to bound/)
+  })
 })
+
+// Why these: the task, gate and run tables are workspace-wide, so a row is
+// reachable only through the panes it names — creator, assignee, coordinator.
+// A row that names none is hidden from a bounded caller, not handed over.
+const MINE = {
+  id: 'task_mine',
+  spec: 'mine',
+  status: 'ready',
+  created_by_terminal_handle: IN_SCOPE,
+  run_id: null,
+  assignee_handle: null,
+  dispatch_id: null
+}
+const THEIRS = {
+  id: 'task_theirs',
+  spec: 'theirs',
+  status: 'ready',
+  created_by_terminal_handle: 'term_local',
+  run_id: null,
+  assignee_handle: null,
+  dispatch_id: null
+}
+
+describe('orchestration filters the task, gate and run catalogs', () => {
+  it('taskList hides tasks whose panes the caller cannot reach', async () => {
+    const { runtime } = createRuntime({ listTasksWithDispatch: () => [MINE, THEIRS] })
+    const listed = (await runWithCallerScope(REMOTE, () =>
+      invoke('orchestration.taskList', {}, runtime)
+    )) as { tasks: { id: string }[]; count: number }
+    expect(listed.tasks.map((task) => task.id)).toEqual(['task_mine'])
+    expect(listed.count).toBe(1)
+  })
+
+  it('taskList reaches a task through its assignee and through its run coordinator', async () => {
+    const byAssignee = { ...THEIRS, id: 'task_a', assignee_handle: IN_SCOPE }
+    const byRun = { ...THEIRS, id: 'task_r', run_id: 'run_mine' }
+    const { runtime } = createRuntime({
+      listTasksWithDispatch: () => [byAssignee, byRun, THEIRS],
+      getCoordinatorRun: (runId: string) =>
+        runId === 'run_mine' ? { id: runId, coordinator_handle: IN_SCOPE } : undefined
+    })
+    const listed = (await runWithCallerScope(REMOTE, () =>
+      invoke('orchestration.taskList', {}, runtime)
+    )) as { tasks: { id: string }[] }
+    expect(listed.tasks.map((task) => task.id)).toEqual(['task_a', 'task_r'])
+  })
+
+  it('gateList hides gates whose task belongs to another host', async () => {
+    const { runtime } = createRuntime({
+      getTask: (id: string) => (id === MINE.id ? MINE : THEIRS),
+      listGates: () => [
+        { id: 'gate_mine', task_id: MINE.id, run_id: null, question: 'ok?' },
+        { id: 'gate_theirs', task_id: THEIRS.id, run_id: null, question: 'secret?' }
+      ]
+    })
+    const listed = (await runWithCallerScope(REMOTE, () =>
+      invoke('orchestration.gateList', {}, runtime)
+    )) as { gates: { id: string }[]; count: number }
+    expect(listed.gates.map((gate) => gate.id)).toEqual(['gate_mine'])
+    expect(listed.count).toBe(1)
+  })
+
+  it('runList hides runs coordinated from another host but keeps the page window', async () => {
+    const { runtime } = createRuntime({
+      runs: {
+        list: () => [
+          { id: 'run_mine', coordinator_handle: IN_SCOPE, spec: 'mine' },
+          { id: 'run_theirs', coordinator_handle: 'term_local', spec: 'theirs' }
+        ]
+      },
+      listTasks: () => [],
+      listGates: () => []
+    })
+    const listed = (await runWithCallerScope(REMOTE, () =>
+      invoke('orchestration.runList', {}, runtime)
+    )) as { runs: { id: string }[]; count: number; hasMore: boolean }
+    expect(listed.runs.map((run) => run.id)).toEqual(['run_mine'])
+    expect(listed.count).toBe(1)
+    expect(listed.hasMore).toBe(false)
+  })
+
+  it('a local caller still sees every row', async () => {
+    const { runtime } = createRuntime({ listTasksWithDispatch: () => [MINE, THEIRS] })
+    const listed = (await invoke('orchestration.taskList', {}, runtime)) as {
+      tasks: { id: string }[]
+    }
+    expect(listed.tasks.map((task) => task.id)).toEqual(['task_mine', 'task_theirs'])
+  })
+})
+
+describe('orchestration bounds every surface that names a task', () => {
+  it('dispatch --dry-run refuses before it reads the spec into a preamble', async () => {
+    const { runtime } = createRuntime({ getTask: () => THEIRS })
+    await expect(
+      runWithCallerScope(REMOTE, () =>
+        invoke('orchestration.dispatch', { task: THEIRS.id, dryRun: true }, runtime)
+      )
+    ).rejects.toThrow(CallerScopeDeniedError)
+  })
+
+  it('dispatch --dry-run still previews a task the caller owns', async () => {
+    const { runtime } = createRuntime(
+      { getTask: () => MINE },
+      {
+        getPersonalizationPrompt: async () => undefined,
+        getTerminalOrchestrationCliCommand: () => 'orca'
+      }
+    )
+    const preview = (await runWithCallerScope(REMOTE, () =>
+      invoke('orchestration.dispatch', { task: MINE.id, to: IN_SCOPE, dryRun: true }, runtime)
+    )) as { dryRun: boolean; preamble: string }
+    expect(preview.dryRun).toBe(true)
+    expect(preview.preamble).toContain('mine')
+  })
+
+  it('taskUpdate refuses to move a task on another host', async () => {
+    const { runtime } = createRuntime({
+      getTask: () => THEIRS,
+      updateTaskStatus: () => {
+        throw new Error('reached updateTaskStatus')
+      }
+    })
+    await expect(
+      runWithCallerScope(REMOTE, () =>
+        invoke('orchestration.taskUpdate', { id: THEIRS.id, status: 'completed' }, runtime)
+      )
+    ).rejects.toThrow(CallerScopeDeniedError)
+  })
+
+  it('taskCreate refuses a bounded caller that names no creating terminal', async () => {
+    const { runtime } = createRuntime({
+      createTask: () => {
+        throw new Error('reached createTask')
+      }
+    })
+    await expect(
+      runWithCallerScope(REMOTE, () =>
+        invoke('orchestration.taskCreate', { spec: 'work' }, runtime)
+      )
+    ).rejects.toThrow(/no host selector to bound/)
+    await expect(
+      runWithCallerScope(REMOTE, () =>
+        invoke(
+          'orchestration.taskCreate',
+          { spec: 'work', callerTerminalHandle: 'term_local' },
+          runtime
+        )
+      )
+    ).rejects.toThrow(CallerScopeDeniedError)
+  })
+
+  it('gateCreate refuses to block a task on another host', async () => {
+    const { runtime } = createRuntime({
+      getTask: () => THEIRS,
+      createGate: () => {
+        throw new Error('reached createGate')
+      }
+    })
+    await expect(
+      runWithCallerScope(REMOTE, () =>
+        invoke('orchestration.gateCreate', { task: THEIRS.id, question: 'q?' }, runtime)
+      )
+    ).rejects.toThrow(CallerScopeDeniedError)
+  })
+
+  it('gateResolve refuses a gate with no asker, which only its task can bound', async () => {
+    const { runtime } = createRuntime({
+      getTask: () => THEIRS,
+      getGate: () => ({ id: 'gate_1', task_id: THEIRS.id, run_id: null, origin_message_id: null })
+    })
+    await expect(
+      runWithCallerScope(REMOTE, () =>
+        invoke('orchestration.gateResolve', { id: 'gate_1', resolution: 'yes' }, runtime)
+      )
+    ).rejects.toThrow(CallerScopeDeniedError)
+  })
+
+  it('dispatchShow refuses to regenerate the preamble of an undispatched task', async () => {
+    const { runtime } = createRuntime({
+      getTask: () => THEIRS,
+      getDispatchContext: () => undefined
+    })
+    await expect(
+      runWithCallerScope(REMOTE, () =>
+        invoke('orchestration.dispatchShow', { task: THEIRS.id, preamble: true }, runtime)
+      )
+    ).rejects.toThrow(CallerScopeDeniedError)
+  })
+
+  it('ask refuses to open a gate on another host task even for a reachable recipient', async () => {
+    const { runtime, asked } = createRuntime({ getTask: () => THEIRS })
+    await expect(
+      runWithCallerScope(REMOTE, () =>
+        invoke('orchestration.ask', { to: IN_SCOPE, question: 'q?', task: THEIRS.id }, runtime)
+      )
+    ).rejects.toThrow(CallerScopeDeniedError)
+    expect(asked).toEqual([IN_SCOPE])
+  })
+})
+
+// Why the enumerated table moved: it now lives in caller-scope-exemption-audit,
+// which runs the same two-answer table over EVERY policied group. The narrative
+// cases above stay here — they say which object each refusal named, which a
+// pass/fail table cannot.
