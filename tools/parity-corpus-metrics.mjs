@@ -18,10 +18,18 @@
 //     line-for-line by BOTH the Rust core (matches_shared_parity_corpus) and its TS
 //     twin's vitest parity test.
 //
-// Usage:
-//   node tools/parity-corpus-metrics.mjs            human summary
+// Usage — the flagless arms REPORT (always exit 0); --check is the gate:
+//   node tools/parity-corpus-metrics.mjs            human summary (`pnpm corpus:metrics`)
 //   node tools/parity-corpus-metrics.mjs --json     machine-readable metrics
 //   node tools/parity-corpus-metrics.mjs --json out.json   also write the JSON
+//   node tools/parity-corpus-metrics.mjs --check    the GATE (`pnpm corpus:check`, and the
+//                                                   `corpus` gauntlet axis): exit 2 when a
+//                                                   guarded count fell below the baseline,
+//                                                   3 when no baseline exists yet
+//   node tools/parity-corpus-metrics.mjs --write-baseline   re-record the baseline after growth
+//                                                   (a baseline left stale is slack the ratchet
+//                                                   will not catch — see the negative test,
+//                                                   tools/parity-corpus-ratchet-gate-rejection.test.mjs)
 
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
