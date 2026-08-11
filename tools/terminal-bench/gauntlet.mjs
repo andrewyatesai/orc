@@ -4,6 +4,10 @@
 // Proves the hand-written Rust aterm engine (shipped as `orca-terminal` via the
 // native/orca-node napi addon) is a FULL, SUPERIOR replacement for @xterm/headless
 // across the three axes from tools/aterm-vs-xterm/GOAL-B-HANDOFF.md:
+//   • bootstrap   — installs the three prerequisites (napi addon, @xterm/headless
+//                   oracle, perf corpus) and then VERIFIES them by loading/measuring
+//                   (gauntlet-prereqs.mjs). Present-but-unusable = FAIL; unavailable
+//                   toolchain = REVIEW. `bootstrap --verify` checks without installing.
 //   • conformance — visible-grid parity per ANSI case. aterm matching xterm = parity;
 //                   a divergence is REVIEW, not auto-fail, because "more correct than
 //                   xterm per the VT/ECMA-48 spec" is a WIN to be triaged, not a bug.
@@ -25,7 +29,7 @@
 //                   parity case count (tools/parity-corpus-metrics.mjs vs parity-corpus-baseline.json)
 //                   may only GROW; a drop FAILs (a corpus was deleted/shrunk).
 //
-// An agent runs:  node tools/terminal-bench/gauntlet.mjs <bootstrap|conformance|perf|safety|autoformalize|census|provenance|certificates|corpus|all>
+// An agent runs:  node tools/terminal-bench/gauntlet.mjs <bootstrap|conformance|perf|safety|autoformalize|census|provenance|certificates|corpus|all> [--verify]
 // Exit 0 = every selected gate proved green · 1 = a real FAIL · 2 = REVIEW (a
 // divergence to triage, or a run that skipped some axis) · 3 = NOTHING PROVEN
 // (every selected gate skipped). A SKIP never FAILs — the toolchain may simply be
@@ -42,6 +46,7 @@ import { loadCorpus, loadJsonlCorpus } from '../aterm-vs-xterm/corpus-bytes.mjs'
 import { certificatesGate } from './gauntlet-certificates.mjs'
 import { corpusGate } from './gauntlet-corpus.mjs'
 import { EXIT, gauntletExit } from './gauntlet-exit-code.mjs'
+import { PERF_CORPUS_MB, prereqChecks } from './gauntlet-prereqs.mjs'
 import { rustTypeToArgspec } from './rust-type-to-argspec.mjs'
 
 const here = import.meta.dirname
@@ -50,6 +55,7 @@ const require = createRequire(import.meta.url)
 
 const ADDON = join(repo, 'native', 'orca-node', 'orca_node.node')
 const XTERM = join(here, 'node_modules', '@xterm', 'headless', 'lib-headless', 'xterm-headless.js')
+const BENCH_MANIFEST = join(here, 'package.json')
 const CONF_CORPUS = join(repo, 'tools', 'aterm-vs-xterm', 'corpus.json')
 const CONF_JSONL = join(repo, 'tools', 'conformance', 'cases.jsonl')
 const BENCH_DIR = join(tmpdir(), 'orca-bench')
@@ -63,7 +69,7 @@ const sh = (cmd, args, opts = {}) =>
 const skip = (reason) => ({ status: 'SKIP', detail: reason })
 const C = { g: '\x1b[32m', r: '\x1b[31m', y: '\x1b[33m', d: '\x1b[2m', b: '\x1b[1m', x: '\x1b[0m' }
 
-// --- bootstrap: make every prerequisite present, idempotently --------------------
+// --- bootstrap: make every prerequisite present, idempotently — then PROVE it -----
 // rustup-stable pin for direct cargo invocations (perf corpus): the machine default
 // toolchain may be a nightly older than the workspace's rust-version, and a
 // Homebrew cargo shadowing rustup ignores rust-toolchain.toml.
@@ -75,69 +81,111 @@ const rustupStable = (tool) => {
   }
 }
 
+// `--verify`: report what is bootstrapped without installing anything — an agent
+// probing a cold tree should not silently kick off a multi-minute cargo build.
+const verifyOnly = process.argv.includes('--verify')
+
 function bootstrap() {
   mkdirSync(BENCH_DIR, { recursive: true })
   const did = []
+  const blocked = []
+  // An install that fails is a reported status, not a crash that aborts the whole run.
+  const install = (what, how, run) => {
+    if (verifyOnly) {
+      blocked.push(`${what} not installed (--verify)`)
+      return
+    }
+    console.log(`${C.d}  ${how}…${C.x}`)
+    try {
+      run()
+      did.push(what)
+    } catch (e) {
+      blocked.push(`${what} BLOCKED — ${String(e.message).split('\n')[0]}`)
+    }
+  }
   if (!existsSync(ADDON)) {
     // The build script owns the cdylib→orca_node.node rename, submodule init and
     // toolchain pinning — a raw `cargo build` here would leave ADDON missing.
-    console.log(`${C.d}  building napi addon (config/scripts/build-terminal-addon.mjs)…${C.x}`)
-    sh('node', [join(repo, 'config', 'scripts', 'build-terminal-addon.mjs'), '--if-missing'], {
-      stdio: 'inherit'
-    })
-    did.push('built napi addon')
+    install('napi addon', 'building napi addon (config/scripts/build-terminal-addon.mjs)', () =>
+      sh('node', [join(repo, 'config', 'scripts', 'build-terminal-addon.mjs'), '--if-missing'], {
+        stdio: 'inherit'
+      })
+    )
   }
   if (!existsSync(XTERM)) {
-    console.log(
-      `${C.d}  installing @xterm/headless baseline (pnpm install in tools/terminal-bench)…${C.x}`
+    install(
+      '@xterm/headless baseline',
+      'installing @xterm/headless baseline (pnpm install in tools/terminal-bench)',
+      () => sh('pnpm', ['-C', here, 'install'], { stdio: 'inherit' })
     )
-    sh('pnpm', ['-C', here, 'install'], { stdio: 'inherit' })
-    did.push('installed @xterm/headless')
   }
-  let blocked
   if (!existsSync(PERF_CORPUS)) {
-    console.log(`${C.d}  generating 16 MB perf corpus (orca-terminal bench example)…${C.x}`)
-    try {
-      // Invoke from the repo ROOT (cargo reads .cargo/config from the cwd, so this
-      // escapes rust/'s offline-vendor replacement and resolves online), with the
-      // rustup-stable pin — same recipe as run-parity.mjs / build-aterm-wasm.mjs.
-      const cargo = rustupStable('cargo')
-      const rustc = rustupStable('rustc')
-      sh(
-        cargo ?? 'cargo',
-        [
-          'run',
-          '-q',
-          '--release',
-          '--example',
-          'bench',
-          '-p',
-          'orca-terminal',
-          '--manifest-path',
-          'rust/Cargo.toml',
-          '--',
-          'gen',
-          PERF_CORPUS,
-          '16'
-        ],
-        {
-          cwd: repo,
-          stdio: 'inherit',
-          env: { ...process.env, CARGO_NET_OFFLINE: 'false', ...(rustc ? { RUSTC: rustc } : {}) }
-        }
-      )
-      did.push('generated perf corpus')
-    } catch {
-      // The prebuilt napi addon still runs; only the from-source rebuild is blocked.
-      blocked =
-        'perf corpus BLOCKED — cargo build failed (see output above; rust/vendor carries the full lockfile closure, so this should build offline)'
-    }
+    // The prebuilt napi addon still runs if this is blocked; only the from-source
+    // rebuild needs cargo (rust/vendor carries the full lockfile closure, so it
+    // should build offline).
+    install(
+      'perf corpus',
+      `generating ${PERF_CORPUS_MB} MB perf corpus (orca-terminal bench example)`,
+      () => {
+        // Invoke from the repo ROOT (cargo reads .cargo/config from the cwd, so this
+        // escapes rust/'s offline-vendor replacement and resolves online), with the
+        // rustup-stable pin — same recipe as run-parity.mjs / build-aterm-wasm.mjs.
+        const cargo = rustupStable('cargo')
+        const rustc = rustupStable('rustc')
+        sh(
+          cargo ?? 'cargo',
+          [
+            'run',
+            '-q',
+            '--release',
+            '--example',
+            'bench',
+            '-p',
+            'orca-terminal',
+            '--manifest-path',
+            'rust/Cargo.toml',
+            '--',
+            'gen',
+            PERF_CORPUS,
+            String(PERF_CORPUS_MB)
+          ],
+          {
+            cwd: repo,
+            stdio: 'inherit',
+            env: { ...process.env, CARGO_NET_OFFLINE: 'false', ...(rustc ? { RUSTC: rustc } : {}) }
+          }
+        )
+      }
+    )
   }
+  // existsSync proved a path, not a prerequisite — load/measure every artifact.
+  const checks = prereqChecks({
+    addon: ADDON,
+    xtermEntry: XTERM,
+    benchManifest: BENCH_MANIFEST,
+    corpus: PERF_CORPUS
+  })
+  const broken = checks.filter((c) => !c.ok && c.present)
+  const absent = checks.filter((c) => !c.ok && !c.present)
+  const summary = broken.length
+    ? `${broken.length}/${checks.length} prerequisites present but UNUSABLE`
+    : absent.length
+      ? `${absent.length}/${checks.length} prerequisites unavailable on this machine`
+      : `all ${checks.length} prerequisites verified (not just present)`
   return {
-    status: blocked ? 'REVIEW' : 'PASS',
-    detail: [did.length ? did.join('; ') : 'all prerequisites already present', blocked]
+    status: broken.length ? 'FAIL' : absent.length || blocked.length ? 'REVIEW' : 'PASS',
+    metrics: Object.fromEntries(
+      checks.map((c) => [c.name, c.ok ? c.info : c.present ? 'BROKEN' : 'MISSING'])
+    ),
+    detail: [
+      summary,
+      did.length ? `installed: ${did.join(', ')}` : null,
+      ...[...broken, ...absent].map((c) => `${c.name}: ${c.reason}`),
+      ...blocked
+    ]
       .filter(Boolean)
-      .join(' · ')
+      .join(' · '),
+    checks
   }
 }
 
@@ -608,7 +656,8 @@ const mark = (s) =>
   })[s] ?? s
 
 async function main() {
-  const cmd = process.argv[2] || 'all'
+  const arg = process.argv[2]
+  const cmd = !arg || arg.startsWith('-') ? 'all' : arg
   const names =
     cmd === 'all'
       ? [
