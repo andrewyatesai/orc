@@ -26,9 +26,16 @@ Prereqs:
   PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH" \
     cargo build -p orca-daemon --manifest-path rust/Cargo.toml --offline
   ```
-- **Node leg (optional):** `out/main/daemon-entry.js` (`pnpm build:electron-vite`)
-  and the Electron binary. Spawned headless via `ELECTRON_RUN_AS_NODE=1` so
-  node-pty's native ABI matches.
+  Leg A launches it with the app's own argv — `--socket <path> --token <path>`
+  (daemon-init.ts) — so the tokened hello the shipped client uses is on the
+  covered path. An auth mode is mandatory; passing a bare socket path is a usage
+  error that exits 2 before the daemon ever binds.
+
+- **Node leg:** `out/main/daemon-entry.js` and the Electron binary. **Retired in
+  this fork** — `src/main/daemon/daemon-entry.ts` was deleted in a2916e1d8, so no
+  build emits the entry and the leg always skips loudly. Restore an entry and it
+  runs again (spawned headless via `ELECTRON_RUN_AS_NODE=1` so node-pty's native
+  ABI matches).
 
 ## Two legs
 
@@ -48,7 +55,9 @@ Prereqs:
   environment, the **same** corpus runs against it and its structural
   fingerprint is diffed against Rust's; any divergence **fails** the gate. If it
   cannot be spawned, the leg is **loudly skipped** (never silently passed) and
-  the Rust invariants remain the gate.
+  the Rust invariants remain the gate. Since a2916e1d8 removed the Node daemon's
+  entry point, "cannot be spawned" is the permanent state here: the cutover this
+  leg guarded is done, and Leg A's 25 invariants are the whole live gate.
 
 ## What is compared — and what is deliberately not
 
