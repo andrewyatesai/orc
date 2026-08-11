@@ -70,8 +70,19 @@ prerequisites, then runs three axes and emits a machine-readable verdict:
 pnpm gauntlet                 # all axes; or: node tools/terminal-bench/gauntlet.mjs all
 pnpm gauntlet:conformance     # visible-grid differential vs xterm (per ANSI case)
 pnpm gauntlet:perf            # MB/s medians + grid-parity
+pnpm gauntlet:bootstrap       # install the prerequisites, then verify them
+node tools/terminal-bench/gauntlet.mjs bootstrap --verify   # verify only, install nothing
 ```
 
+- **bootstrap** — installs the three prerequisites (napi addon, `@xterm/headless`
+  oracle, perf corpus) **and then proves them**: the addon is loaded and made to
+  parse, the oracle is loaded and matched against the pin in `package.json`, the
+  corpus is measured. A path that exists is not a prerequisite — an empty
+  `orca_node.node` or a corpus the generator never finished used to read as
+  "already present" and exit 0, which is exactly the silently-green failure the
+  exit contract exists to kill. Present-but-unusable is a `FAIL`; a toolchain this
+  machine simply lacks is `REVIEW`. The checks live in `gauntlet-prereqs.mjs`;
+  `--verify` reports the same verdict without installing (no surprise cargo build).
 - **conformance** — every case in `tools/aterm-vs-xterm/corpus.json` is run through
   both engines and the 24×80 grids are diffed. A match is parity; a divergence is
   `REVIEW` (not auto-fail), because aterm being *more* correct than xterm per the
@@ -109,6 +120,7 @@ code and its one-line `summary` — is written to `.gauntlet-report.json`.
 ## Files
 
 - `gauntlet.mjs` — the agent gate: bootstrap + conformance + perf + safety, with exit codes.
+- `gauntlet-prereqs.mjs` — what "bootstrapped" means: the load/measure checks behind the bootstrap axis (`gauntlet-prereqs.test.mjs` plants the corruption each one catches).
 - `run.mjs` — orchestrator: medians + parity verdict.
 - `xterm-bench.mjs` — the `@xterm/headless` baseline leg.
 - `addon-bench.mjs` — loads the napi addon (`require('orca_node.node')`) and runs the same corpus.
