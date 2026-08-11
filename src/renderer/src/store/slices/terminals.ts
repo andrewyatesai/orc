@@ -60,6 +60,16 @@ import { isClaudeAgent } from '@/lib/agent-status'
 import { recordTerminalInputActivity } from '@/lib/terminal-input-activity-coalescing'
 import { classifyTitleActivity } from '@/lib/pane-agent-evidence'
 import { buildOrphanTerminalCleanupPatch, getOrphanTerminalIds } from './terminal-orphan-helpers'
+import type { DirectSshAuthority } from '../../../../shared/ssh-types'
+import {
+  clearDirectSshTerminalBindings,
+  invalidateStaleDirectSshTerminalBindings,
+  type DirectSshLivePtyBinding,
+  type DirectSshPaneRetryAttempt,
+  type DirectSshPaneRetryHistory
+} from './direct-ssh-terminal-recovery'
+import { retryDirectSshTerminalPanes } from './direct-ssh-pane-retry-ledger'
+import { resolveDirectSshTargetTerminalWorkspaceKeys } from './direct-ssh-target-workspace-keys'
 import {
   dedupeTabOrder,
   ensureGroup,
@@ -163,6 +173,17 @@ function consumePendingActivationSpawn(
     return undefined
   }
   return count === 2 ? true : count - 1
+}
+
+// Why: fence ledger mutations against a superseded reconnect — only act when the authority still
+// matches the target's current connection state (set moments earlier by setSshConnectionState).
+function isCurrentDirectSshAuthority(state: AppState, authority: DirectSshAuthority): boolean {
+  const current = state.sshConnectionStates.get(authority.targetId)
+  return (
+    current != null &&
+    current.providerEpoch === authority.providerEpoch &&
+    current.connectionGeneration === authority.connectionGeneration
+  )
 }
 
 function getFallbackTabTitle(tab: TerminalTab, index?: number): string {
@@ -506,6 +527,12 @@ export type TerminalSlice = {
   pendingPtyShutdownIds: Record<string, number>
   pendingCodexPaneRestartIds: Record<string, true>
   codexRestartNoticeByPtyId: Record<string, CodexRestartNotice>
+  /** Direct-SSH reconnect ledger: the in-flight automatic retry per tab, keyed by the authority it fired under. */
+  directSshPaneRetryByTabId: Record<string, DirectSshPaneRetryAttempt>
+  /** The PTY a retry settled onto, so a re-invalidation keeps a pane that already recovered under the current authority. */
+  directSshLivePtyBindingByTabId: Record<string, DirectSshLivePtyBinding>
+  /** Per-authority attempt log; the bound resets when the authority rotates (a fresh connection incarnation). */
+  directSshPaneRetryHistoryByTabId: Record<string, DirectSshPaneRetryHistory>
   expandedPaneByTabId: Record<string, boolean>
   canExpandPaneByTabId: Record<string, boolean>
   terminalLayoutsByTabId: Record<string, TerminalLayoutSnapshot>
@@ -637,6 +664,12 @@ export type TerminalSlice = {
   setTabColor: (tabId: string, color: string | null) => void
   updateTabPtyId: (tabId: string, ptyId: string, replacedPtyId?: string) => void
   clearTabPtyId: (tabId: string, ptyId?: string) => void
+  /** Clear every direct-SSH PTY binding owned by a target's terminals (used on teardown). Returns cleared pane count. */
+  clearDirectSshTargetPtyBindings: (targetId: string) => number
+  /** Drop bindings whose authority is superseded, preserving retries still under the current one. Returns cleared count. */
+  invalidateStaleDirectSshTargetPtyBindings: (authority: DirectSshAuthority) => number
+  /** Bounded reconnect recovery: remount stranded panes under `authority`, capped per authority. Returns retried count. */
+  retryDirectSshTargetPanes: (authority: DirectSshAuthority, now?: number) => number
   shutdownWorktreeTerminals: (
     worktreeId: string,
     opts?: {
@@ -773,6 +806,9 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
   pendingPtyShutdownIds: {},
   pendingCodexPaneRestartIds: {},
   codexRestartNoticeByPtyId: {},
+  directSshPaneRetryByTabId: {},
+  directSshLivePtyBindingByTabId: {},
+  directSshPaneRetryHistoryByTabId: {},
   expandedPaneByTabId: {},
   canExpandPaneByTabId: {},
   terminalLayoutsByTabId: {},
@@ -2159,6 +2195,51 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
     ) {
       get().bumpWorktreeActivity(worktreeId)
     }
+  },
+
+  clearDirectSshTargetPtyBindings: (targetId) => {
+    const state = get()
+    const keys = resolveDirectSshTargetTerminalWorkspaceKeys(state, targetId)
+    if (keys.size === 0) {
+      return 0
+    }
+    const result = clearDirectSshTerminalBindings(state, keys)
+    if (result.patch) {
+      set(result.patch as Partial<AppState>)
+    }
+    return result.clearedCount
+  },
+
+  invalidateStaleDirectSshTargetPtyBindings: (authority) => {
+    const state = get()
+    if (!isCurrentDirectSshAuthority(state, authority)) {
+      return 0
+    }
+    const keys = resolveDirectSshTargetTerminalWorkspaceKeys(state, authority.targetId)
+    if (keys.size === 0) {
+      return 0
+    }
+    const result = invalidateStaleDirectSshTerminalBindings(state, keys, authority)
+    if (result.patch) {
+      set(result.patch as Partial<AppState>)
+    }
+    return result.clearedCount
+  },
+
+  retryDirectSshTargetPanes: (authority, now = Date.now()) => {
+    const state = get()
+    if (!isCurrentDirectSshAuthority(state, authority)) {
+      return 0
+    }
+    const keys = resolveDirectSshTargetTerminalWorkspaceKeys(state, authority.targetId)
+    if (keys.size === 0) {
+      return 0
+    }
+    const result = retryDirectSshTerminalPanes(state, keys, authority, now)
+    if (result.patch) {
+      set(result.patch as Partial<AppState>)
+    }
+    return result.retriedCount
   },
 
   shutdownCompletedAgentPaneForHibernation: async (worktreeId, opts) => {

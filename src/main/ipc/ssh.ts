@@ -39,11 +39,15 @@ import {
 } from './pty'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import {
-  advanceSshConnectionGeneration,
   getSshConnectionGeneration,
   initializeSshConnectionGenerationSession,
   resetSshConnectionGenerations
 } from '../ssh/ssh-connection-generation'
+import {
+  getSshProviderAuthority,
+  resetSshProviderAuthorities,
+  rotateSshProviderAuthority
+} from '../ssh/ssh-provider-authority'
 
 let sshStore: SshConnectionStore | null = null
 let connectionManager: SshConnectionManager | null = null
@@ -205,7 +209,9 @@ function currentConnectGeneration(targetId: string): number {
 }
 
 function invalidateConnectAttempt(targetId: string): void {
-  advanceSshConnectionGeneration(targetId)
+  // Why: rotate advances the generation (fencing staged mutations) AND mints a fresh provider epoch,
+  // so the renderer treats the next connect as a distinct authority with a fresh bounded retry budget.
+  rotateSshProviderAuthority(targetId)
   pendingTransportReconnects.delete(targetId)
   connectInFlight.delete(targetId)
   credentialRequestedForTarget.delete(targetId)
@@ -271,9 +277,13 @@ function broadcastSshState(
 
 function withSshRemotePlatform(targetId: string, state: SshConnectionState): SshConnectionState {
   const remotePlatform = activeSessions.get(targetId)?.getHostPlatform()?.os
+  // Why: stamp the full authority (epoch + generation) as one pair; renderer admission rejects a half-present pair.
+  const authority = getSshProviderAuthority(targetId)
   return {
     ...state,
-    connectionGeneration: currentConnectGeneration(targetId),
+    targetId,
+    providerEpoch: authority.providerEpoch,
+    connectionGeneration: authority.connectionGeneration,
     ...(remotePlatform ? { remotePlatform } : {})
   }
 }
@@ -542,8 +552,8 @@ function createSshConnectionCallbacks(): SshConnectionCallbacks {
       const completedTransportReconnect =
         state.status === 'connected' && pendingTransportReconnects.delete(targetId)
       if (completedTransportReconnect) {
-        // Why: staged mutations from the replaced SSH transport must fail even if its relay session disappeared before recovery completed.
-        advanceSshConnectionGeneration(targetId)
+        // Why: staged mutations from the replaced SSH transport must fail even if its relay session disappeared before recovery completed; rotating also fences the reconnect as a fresh authority.
+        rotateSshProviderAuthority(targetId)
       }
       const shouldReconnectRelay =
         session !== undefined &&
@@ -897,7 +907,7 @@ export function registerSshHandlers(
       return getPublicSshState(targetId)!
     }
 
-    const generation = advanceSshConnectionGeneration(targetId)
+    const generation = rotateSshProviderAuthority(targetId).connectionGeneration
     clearRelayStateOverride(targetId)
     let conn
     // Why: tear down any existing session first to avoid leaking its multiplexer, providers, and timers (double-connect / reconnect-after-error).
@@ -1320,6 +1330,7 @@ export async function resetSshHandlerStateForTests(): Promise<void> {
   connectInFlight.clear()
   pendingTransportReconnects.clear()
   resetSshConnectionGenerations()
+  resetSshProviderAuthorities()
   resetRelayInFlight.clear()
   testingTargets.clear()
   credentialRequestedForTarget.clear()

@@ -578,6 +578,7 @@ describe('SSH IPC handlers', () => {
       status: 'connected',
       error: null,
       reconnectAttempt: 0,
+      providerEpoch: expect.any(String),
       connectionGeneration: 1,
       remotePlatform: 'win32'
     })
@@ -588,6 +589,7 @@ describe('SSH IPC handlers', () => {
         status: 'connected',
         error: null,
         reconnectAttempt: 0,
+        providerEpoch: expect.any(String),
         connectionGeneration: 1,
         supportsFolderDownload: true,
         remotePlatform: 'win32'
@@ -630,6 +632,7 @@ describe('SSH IPC handlers', () => {
           status: 'reconnecting',
           error: 'Relay channel lost. Reconnecting...',
           reconnectAttempt: 1,
+          providerEpoch: expect.any(String),
           connectionGeneration: 1
         }
       })
@@ -638,6 +641,7 @@ describe('SSH IPC handlers', () => {
         status: 'reconnecting',
         error: 'Relay channel lost. Reconnecting...',
         reconnectAttempt: 1,
+        providerEpoch: expect.any(String),
         connectionGeneration: 1
       })
 
@@ -650,6 +654,7 @@ describe('SSH IPC handlers', () => {
           status: 'connected',
           error: null,
           reconnectAttempt: 0,
+          providerEpoch: expect.any(String),
           connectionGeneration: 1,
           supportsFolderDownload: true
         }
@@ -659,6 +664,7 @@ describe('SSH IPC handlers', () => {
         status: 'connected',
         error: null,
         reconnectAttempt: 0,
+        providerEpoch: expect.any(String),
         connectionGeneration: 1
       })
       expect(() => assertSshMutationExpectation('ssh-1', 'ssh-1', 1)).not.toThrow()
@@ -716,6 +722,7 @@ describe('SSH IPC handlers', () => {
       status: 'reconnecting',
       error: 'Relay channel reconnecting...',
       reconnectAttempt: 0,
+      providerEpoch: expect.any(String),
       connectionGeneration: 2
     })
     expect(() => assertSshMutationExpectation('ssh-1', 'ssh-1', stagedGeneration)).toThrow(
@@ -905,6 +912,7 @@ describe('SSH IPC handlers', () => {
         status: 'reconnecting',
         error: 'Relay channel lost. Reconnecting...',
         reconnectAttempt: 1,
+        providerEpoch: expect.any(String),
         connectionGeneration: 1
       })
 
@@ -916,6 +924,7 @@ describe('SSH IPC handlers', () => {
         status: 'connected',
         error: null,
         reconnectAttempt: 0,
+        providerEpoch: expect.any(String),
         connectionGeneration: 2
       })
 
@@ -926,6 +935,7 @@ describe('SSH IPC handlers', () => {
         status: 'connected',
         error: null,
         reconnectAttempt: 0,
+        providerEpoch: expect.any(String),
         connectionGeneration: 2
       })
     } finally {
@@ -966,6 +976,7 @@ describe('SSH IPC handlers', () => {
           status: 'connected',
           error: null,
           reconnectAttempt: 0,
+          providerEpoch: expect.any(String),
           connectionGeneration: 1
         })
       }
@@ -977,6 +988,7 @@ describe('SSH IPC handlers', () => {
         status: 'error',
         error: 'Relay channel kept dropping. Click Reconnect on the SSH target before retrying.',
         reconnectAttempt: 0,
+        providerEpoch: expect.any(String),
         connectionGeneration: 1
       })
     } finally {
@@ -1015,6 +1027,7 @@ describe('SSH IPC handlers', () => {
         status: 'connected',
         error: null,
         reconnectAttempt: 0,
+        providerEpoch: expect.any(String),
         connectionGeneration: 1
       })
 
@@ -1027,6 +1040,7 @@ describe('SSH IPC handlers', () => {
         status: 'connected',
         error: null,
         reconnectAttempt: 0,
+        providerEpoch: expect.any(String),
         connectionGeneration: 1
       })
       expect(mockPortForwardManager.removeAllForwards).not.toHaveBeenCalled()
@@ -1234,6 +1248,7 @@ describe('SSH IPC handlers', () => {
 
     await expect(handlers.get('ssh:connect')!(null, { targetId: 'ssh-1' })).resolves.toEqual({
       ...connectedState,
+      providerEpoch: expect.any(String),
       connectionGeneration: 1
     })
     expect(mockDeployAndLaunchRelay).not.toHaveBeenCalled()
@@ -1435,6 +1450,7 @@ describe('SSH IPC handlers', () => {
         status: 'error',
         error: 'network down',
         reconnectAttempt: 0,
+        providerEpoch: expect.any(String),
         connectionGeneration: 1
       }
     })
@@ -1864,6 +1880,7 @@ describe('SSH IPC handlers', () => {
     // Why: a failed first probe gets one retry before teardown (slow post-wake network).
     expect(mockMux.probeLiveness).toHaveBeenCalledTimes(2)
     expect(handlers.get('ssh:getState')!(null, { targetId: 'ssh-1' })).toMatchObject({
+      providerEpoch: expect.any(String),
       connectionGeneration: 2
     })
   })
@@ -2016,6 +2033,6 @@ describe('SSH IPC handlers', () => {
     mockConnectionManager.getState.mockReturnValue(state)
 
     const result = await handlers.get('ssh:getState')!(null, { targetId: 'ssh-1' })
-    expect(result).toEqual({ ...state, connectionGeneration: 0 })
+    expect(result).toEqual({ ...state, connectionGeneration: 0, providerEpoch: expect.any(String) })
   })
 })

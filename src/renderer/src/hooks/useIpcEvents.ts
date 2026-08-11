@@ -2,7 +2,6 @@
 import { useEffect } from 'react'
 import { toast } from 'sonner'
 import { useAppStore } from '../store'
-import { shouldRetryPaneSpawnOnSshReconnect } from './ssh-reconnect-pane-retry'
 import { getTabIdsAwaitingHostHydrationRemount } from '@/lib/parked-terminal-host-hydration'
 import { applyWorktreeHeadIdentities } from './worktree-head-identity-apply'
 import { getWorktreeMapFromState, getRepoMapFromState } from '@/store/selectors'
@@ -35,7 +34,7 @@ import type {
   RemoteWorkspaceSnapshot
 } from '../../../shared/remote-workspace-types'
 import type { RateLimitState } from '../../../shared/rate-limit-types'
-import type { SshConnectionState } from '../../../shared/ssh-types'
+import type { DirectSshAuthority, SshConnectionState } from '../../../shared/ssh-types'
 import { isWslHookRelayConnectionId } from '../../../shared/wsl-hook-relay-contract'
 import type {
   RuntimeBrowserDriverState,
@@ -2774,6 +2773,16 @@ export function useIpcEvents(): void {
       const store = useAppStore.getState()
       store.setSshConnectionState(targetId, state)
       const remoteRepos = store.repos.filter((r) => r.connectionId === targetId)
+      // Why: main stamps (epoch, generation) as one authority and the preload admits the pair; it fences the
+      // bounded retry ledger so a flapping relay reconnect cannot fan out unbounded remounts. Absent only on legacy states.
+      const authority: DirectSshAuthority | null =
+        state.providerEpoch != null && state.connectionGeneration != null
+          ? {
+              targetId,
+              providerEpoch: state.providerEpoch,
+              connectionGeneration: state.connectionGeneration
+            }
+          : null
 
       if (['disconnected', 'auth-failed', 'reconnection-failed', 'error'].includes(state.status)) {
         // Why: remote agent list is tied to a live relay; clear on disconnect so reconnect re-detects against the new relay.
@@ -2803,6 +2812,8 @@ export function useIpcEvents(): void {
             }
           }
         }
+        // Why: prune the reconnect ledger for this target so the next connect's bounded retry starts from a clean slate.
+        store.clearDirectSshTargetPtyBindings(targetId)
       }
 
       if (state.status === 'connected') {
@@ -2813,36 +2824,10 @@ export function useIpcEvents(): void {
         ).then(async () => {
           await useAppStore.getState().fetchWorktreeLineage()
           // Why: panes that never spawned (no PTY provider at cold start) or whose deferred reattach never ran sit inert.
-          // Bumping generation remounts TerminalPane so the deferred-connect gate reattaches or spawns fresh now that the provider exists.
-          const freshStore = useAppStore.getState()
-          const worktreeIds = Object.values(freshStore.worktreesByRepo)
-            .flat()
-            .filter((worktree) =>
-              remoteRepos.some(
-                (repo) =>
-                  repo.id === worktree.repoId && worktree.hostId === getRepoExecutionHostId(repo)
-              )
-            )
-            .map((w) => w.id)
-
-          for (const worktreeId of worktreeIds) {
-            const tabs = freshStore.tabsByWorktree[worktreeId] ?? []
-            const needsRetry = (t: { id: string; ptyId?: string | null }): boolean =>
-              shouldRetryPaneSpawnOnSshReconnect({
-                targetId,
-                tabPtyId: t.ptyId,
-                deferredSessionId: freshStore.deferredSshSessionIdsByTabId[t.id]
-              })
-            if (tabs.some(needsRetry)) {
-              useAppStore.setState((s) => ({
-                tabsByWorktree: {
-                  ...s.tabsByWorktree,
-                  [worktreeId]: (s.tabsByWorktree[worktreeId] ?? []).map((t) =>
-                    needsRetry(t) ? { ...t, generation: (t.generation ?? 0) + 1 } : t
-                  )
-                }
-              }))
-            }
+          // The retry ledger remounts them (capped per authority) so the deferred-connect gate reattaches or spawns fresh,
+          // replacing the prior unbounded per-event generation bump.
+          if (authority) {
+            useAppStore.getState().retryDirectSshTargetPanes(authority)
           }
           void syncRemoteWorkspaceAfterConnect(targetId).catch((err) => {
             useAppStore.getState().setRemoteWorkspaceSyncStatus(targetId, {

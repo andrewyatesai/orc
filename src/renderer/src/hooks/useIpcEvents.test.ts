@@ -1494,6 +1494,8 @@ describe('useIpcEvents updater integration', () => {
       clearRemoteDetectedAgents: vi.fn(),
       clearRemovedSshTargetState,
       clearTabPtyId,
+      clearDirectSshTargetPtyBindings: vi.fn(),
+      retryDirectSshTargetPanes: vi.fn(),
       repos: [{ id: 'repo-1', connectionId: 'conn-1' }],
       worktreesByRepo: {
         'repo-1': [{ id: 'wt-1', repoId: 'repo-1', hostId: 'ssh:conn-1' }]

@@ -165,6 +165,7 @@ import type {
   PortForwardEntry,
   EnrichedDetectedPort
 } from '../shared/ssh-types'
+import { admitSshConnectionStateForAuthorityReconciliation } from '../shared/ssh-retained-payload-admission'
 import type {
   AgentStatusClearIpcPayload,
   AgentStatusIpcPayload,
@@ -4383,8 +4384,10 @@ const api = {
     importConfig: (args?: { reAdopt?: boolean }): Promise<SshConfigImportResult> =>
       ipcRenderer.invoke('ssh:importConfig', args),
 
-    connect: (args: { targetId: string }): Promise<SshConnectionState | null> =>
-      ipcRenderer.invoke('ssh:connect', args),
+    connect: async (args: { targetId: string }): Promise<SshConnectionState | null> => {
+      const state: unknown = await ipcRenderer.invoke('ssh:connect', args)
+      return state ? admitSshConnectionStateForAuthorityReconciliation(state, args.targetId) : null
+    },
 
     disconnect: (args: { targetId: string }): Promise<void> =>
       ipcRenderer.invoke('ssh:disconnect', args),
@@ -4395,24 +4398,37 @@ const api = {
     resetRelay: (args: { targetId: string }): Promise<void> =>
       ipcRenderer.invoke('ssh:resetRelay', args),
 
-    getState: (args: { targetId: string }): Promise<SshConnectionState | null> =>
-      ipcRenderer.invoke('ssh:getState', args),
+    getState: async (args: { targetId: string }): Promise<SshConnectionState | null> => {
+      const state: unknown = await ipcRenderer.invoke('ssh:getState', args)
+      return state ? admitSshConnectionStateForAuthorityReconciliation(state, args.targetId) : null
+    },
 
     needsPassphrasePrompt: (args: { targetId: string }): Promise<boolean> =>
       ipcRenderer.invoke('ssh:needsPassphrasePrompt', args),
 
-    testConnection: (args: {
+    testConnection: async (args: {
       targetId: string
-    }): Promise<{ success: boolean; error?: string; state?: SshConnectionState }> =>
-      ipcRenderer.invoke('ssh:testConnection', args),
+    }): Promise<{ success: boolean; error?: string; state?: SshConnectionState }> => {
+      const result: { success: boolean; error?: string; state?: unknown } =
+        await ipcRenderer.invoke('ssh:testConnection', args)
+      const state = result.state
+        ? admitSshConnectionStateForAuthorityReconciliation(result.state, args.targetId)
+        : null
+      return { ...result, ...(state ? { state } : { state: undefined }) }
+    },
 
     onStateChanged: (
       callback: (data: { targetId: string; state: SshConnectionState }) => void
     ): (() => void) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
-        data: { targetId: string; state: SshConnectionState }
-      ) => callback(data)
+        data: { targetId: string; state: unknown }
+      ): void => {
+        const state = admitSshConnectionStateForAuthorityReconciliation(data.state, data.targetId)
+        if (state) {
+          callback({ targetId: data.targetId, state })
+        }
+      }
       ipcRenderer.on('ssh:state-changed', listener)
       return () => ipcRenderer.removeListener('ssh:state-changed', listener)
     },
