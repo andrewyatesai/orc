@@ -45,7 +45,7 @@ const LINTER_BACKED_GATES = new Map([
  * unrelated to the edit. Enforcing there would block routine work on legacy files
  * while adding nothing the two gates above do not already catch.
  */
-const REPORTING_VARIANTS = new Set(['lint', 'lint:react-doctor', 'lint:react-doctor:changed'])
+const REPORTING_VARIANTS = new Set(['lint', 'lint:react-doctor:changed'])
 // Every gate is a config/scripts entry point, so its negative test belongs beside it.
 const COVERAGE_ROOT = path.join(REPO_ROOT, 'config', 'scripts')
 const VITEST_CLI = path.join(REPO_ROOT, 'node_modules', 'vitest', 'vitest.mjs')

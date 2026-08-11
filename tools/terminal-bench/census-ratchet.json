@@ -1,5 +1,25 @@
 {
-  "shimWholeFileLoc": 2914,
-  "src/main/runtime/orca-runtime.ts": 27857,
-  "src/main/ipc/pty.ts": 5385
+  "_meaning": "Numeric entries are CEILINGS the gauntlet census axis enforces (tools/repo-census.mjs; `pnpm gauntlet:census`). A ceiling is the value observed when it was last set, never an allowance to grow into — the rebuild thesis says the regret class only shrinks. `_`-prefixed NON-NUMERIC keys are notes; a number under `_` is a ceiling in hiding and REVIEWs. Deleting a watched key does not disable it — the axis scans the census output and REVIEWs anything with no ceiling here.",
+  "_rebaselines": [
+    {
+      "date": "2026-08-10",
+      "head": "396ac0f2d",
+      "from": {
+        "shimWholeFileLoc": 2914,
+        "src/main/runtime/orca-runtime.ts": 27857,
+        "src/main/ipc/pty.ts": 5385
+      },
+      "why": [
+        "Measure the ceilings at the commit you commit them at: a first pass pinned them at 38f198454 (35430/6204) while HEAD was 396ac0f2d, so the axis was red the moment it landed. The extra +384/+26 is one named feature, 72e75171c (bind every RPC caller to the machine its credential spans).",
+        "orca-runtime.ts +7573 to 38f198454: +4980 absorbed from upstream stablyai/orca releases on the first-parent mainline (v1.4.147-rc.4 +466 at b206b3147, v1.4.150 +4169 at 38c002852, v1.4.161 +211 at cd1429992; the v1.4.165 side was rejected at 0fa8783fd and contributed 0), +2593 from named fork features (event journal, submitAgentPrompt, agent scrollback/transcript, app-mode). Every line is attributable to a merge or a feature — this is absorbed growth, not unnoticed drift.",
+        "pty.ts +819: +609 from the same three upstream merges, +210 local across 41 commits with no single local commit over 100 lines.",
+        "shimWholeFileLoc TIGHTENED 2914 -> 2813 (19 manifest files, all still present): the shim shrank and nobody pulled the ratchet in, leaving 101 lines of undetected headroom."
+      ],
+      "why_re_baseline_at_all": "The baseline sat stale for 3.5 weeks, so the axis returned REVIEW unconditionally and could no longer detect NEW growth — at ceiling 27857 a jump to 45000 reads identically. Re-baselining restores detection; it does not endorse the size.",
+      "debt": "orca-runtime.ts is 35814 lines, 8095 above the 27719 the blueprint (docs/rust-migration/orca-from-scratch-blueprint.md) cites as the god-object baseline. Decomposition is owed; the next movement of these two numbers should be down."
+    }
+  ],
+  "shimWholeFileLoc": 2813,
+  "src/main/runtime/orca-runtime.ts": 35814,
+  "src/main/ipc/pty.ts": 6230
 }
