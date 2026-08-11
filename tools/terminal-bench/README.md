@@ -96,6 +96,13 @@ pnpm gauntlet:perf            # MB/s medians + grid-parity
   functions TRUSTED** (`clampNumber`, `getUtf8ByteLengthForCodePoint`,
   `isProcessOutputWhitespace`, `formatRepoRefs`, …); `trimDanglingHighSurrogate`
   is REVIEW — W2-clean but W1-incomplete (the UTF-16 surrogate frontier).
+  Because the corpus, harness and toolchain all live **outside this repo**, an
+  empty discovery is never a pass — `autoformalize-ratchet.json` ratchets both
+  `minTrusted` and `soundnessControls`, so a vanished corpus (`FAIL`), vanished
+  negative controls (`FAIL`, the soundness check would be vacuous) and a missing
+  baseline (`REVIEW`) are all distinguished from an absent toolchain (`SKIP`).
+  The full classification table is the header of `gauntlet-autoformalize.mjs`;
+  every arm is pinned by a planted violation in `gauntlet-exit-code.test.mjs`.
 
 Exit code is the contract an agent branches on: **0** = every selected gate proved
 green, **1** = a real FAIL, **2** = a REVIEW to triage (or a run that skipped some
