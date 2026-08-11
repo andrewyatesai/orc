@@ -1,0 +1,1069 @@
+{
+  "module": "fleet-exceptions",
+  "source": "src/renderer/src/components/alab/fleet-exceptions.ts",
+  "rustCrate": "orca-core (fleet_exceptions)",
+  "cases": [
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "THE REGRESSION: three exceptions from ONE run on three different tasks must stay three rows. Collapsing per run showed a run with twelve stuck tasks as a single row, hiding eleven blocked tasks from the supervisor. Identical kind and identical timestamp leave the taskId as the only thing separating them, so a run-keyed collapse cannot hide behind a tiebreak.",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "run-7/task-a",
+            "kind": "escalation",
+            "summary": "run 7 task a stuck",
+            "workerHandle": "w-a",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          },
+          {
+            "taskId": "run-7/task-b",
+            "kind": "escalation",
+            "summary": "run 7 task b stuck",
+            "workerHandle": "w-b",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          },
+          {
+            "taskId": "run-7/task-c",
+            "kind": "escalation",
+            "summary": "run 7 task c stuck",
+            "workerHandle": "w-c",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "run-7/task-a",
+          "kind": "escalation",
+          "summary": "run 7 task a stuck",
+          "workerHandle": "w-a",
+          "attempts": 1,
+          "at": "2026-08-07T10:00:00Z"
+        },
+        {
+          "taskId": "run-7/task-b",
+          "kind": "escalation",
+          "summary": "run 7 task b stuck",
+          "workerHandle": "w-b",
+          "attempts": 1,
+          "at": "2026-08-07T10:00:00Z"
+        },
+        {
+          "taskId": "run-7/task-c",
+          "kind": "escalation",
+          "summary": "run 7 task c stuck",
+          "workerHandle": "w-c",
+          "attempts": 1,
+          "at": "2026-08-07T10:00:00Z"
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "Tied on severity AND on timestamp, so nothing in the comparator separates these three: the output order is first-seen order, which needs a STABLE sort over a first-seen-ordered map. Rust must not reach for a HashMap here.",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "z-last-seen-first",
+            "kind": "gate",
+            "summary": "z",
+            "workerHandle": "w1",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          },
+          {
+            "taskId": "a-seen-second",
+            "kind": "gate",
+            "summary": "a",
+            "workerHandle": "w2",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "z-last-seen-first",
+          "kind": "gate",
+          "summary": "z",
+          "workerHandle": "w1",
+          "attempts": 1,
+          "at": "2026-08-07T10:00:00Z"
+        },
+        {
+          "taskId": "a-seen-second",
+          "kind": "gate",
+          "summary": "a",
+          "workerHandle": "w2",
+          "attempts": 1,
+          "at": "2026-08-07T10:00:00Z"
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "The retry storm the module exists for: a deterministic failure emits escalation/retry three times then trips the breaker in ~10s. One row, attempts 4, and the row is the BREAKER — the most severe kind represents the task, not the first one seen.",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "t",
+            "kind": "escalation",
+            "summary": "attempt 1 failed",
+            "workerHandle": "w1",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          },
+          {
+            "taskId": "t",
+            "kind": "escalation",
+            "summary": "attempt 2 failed",
+            "workerHandle": "w1",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:03Z"
+          },
+          {
+            "taskId": "t",
+            "kind": "escalation",
+            "summary": "attempt 3 failed",
+            "workerHandle": "w1",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:06Z"
+          },
+          {
+            "taskId": "t",
+            "kind": "circuit-broken",
+            "summary": "breaker open",
+            "workerHandle": "w1",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:09Z"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "t",
+          "kind": "circuit-broken",
+          "summary": "breaker open",
+          "workerHandle": "w1",
+          "attempts": 4,
+          "at": "2026-08-07T10:00:09Z"
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "Collapse happens BEFORE ordering, and the merged timestamp is the running MAX rather than the winning row's own. The gate is older than the escalation it beats, yet the row reports 09:00 — because a stale `at` on the surviving row would then sort the task below fresher, less urgent work.",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "t",
+            "kind": "escalation",
+            "summary": "escalated at 09",
+            "workerHandle": "w1",
+            "attempts": 1,
+            "at": "2026-08-07T09:00:00Z"
+          },
+          {
+            "taskId": "t",
+            "kind": "gate",
+            "summary": "gate opened at 08",
+            "workerHandle": "w1",
+            "attempts": 1,
+            "at": "2026-08-07T08:00:00Z"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "t",
+          "kind": "gate",
+          "summary": "gate opened at 08",
+          "workerHandle": "w1",
+          "attempts": 2,
+          "at": "2026-08-07T09:00:00Z"
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "Equal severity, newer row arrives second: it takes over summary and worker. A strictly-greater-severity rule alone would keep the FIRST row, leaving the queue showing a two-hour-old summary for a task that just moved.",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "t",
+            "kind": "escalation",
+            "summary": "stale summary",
+            "workerHandle": "w-old",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          },
+          {
+            "taskId": "t",
+            "kind": "escalation",
+            "summary": "current summary",
+            "workerHandle": "w-new",
+            "attempts": 1,
+            "at": "2026-08-07T12:00:00Z"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "t",
+          "kind": "escalation",
+          "summary": "current summary",
+          "workerHandle": "w-new",
+          "attempts": 2,
+          "at": "2026-08-07T12:00:00Z"
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "Same pair delivered out of order: the OLDER row arrives second and must not take over. The tiebreak is strictly-newer, not last-write-wins, so a late-arriving stale event cannot roll the queue backwards.",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "t",
+            "kind": "escalation",
+            "summary": "current summary",
+            "workerHandle": "w-new",
+            "attempts": 1,
+            "at": "2026-08-07T12:00:00Z"
+          },
+          {
+            "taskId": "t",
+            "kind": "escalation",
+            "summary": "stale summary",
+            "workerHandle": "w-old",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "t",
+          "kind": "escalation",
+          "summary": "current summary",
+          "workerHandle": "w-new",
+          "attempts": 2,
+          "at": "2026-08-07T12:00:00Z"
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "The subtle one: the tiebreak compares against the RUNNING MAX timestamp, not against the winner's own. A lower-severity attention row at 12:00 advances `at`, and the later escalation at 11:00 — newer than the escalation currently holding the row — then loses. Pinning this stops a 'cleanup' that compares against the winner's timestamp and silently changes which summary a supervisor reads.",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "t",
+            "kind": "escalation",
+            "summary": "escalation A at 10:00",
+            "workerHandle": "w-a",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          },
+          {
+            "taskId": "t",
+            "kind": "attention",
+            "summary": "attention B at 12:00",
+            "workerHandle": "w-b",
+            "attempts": 1,
+            "at": "2026-08-07T12:00:00Z"
+          },
+          {
+            "taskId": "t",
+            "kind": "escalation",
+            "summary": "escalation C at 11:00",
+            "workerHandle": "w-c",
+            "attempts": 1,
+            "at": "2026-08-07T11:00:00Z"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "t",
+          "kind": "escalation",
+          "summary": "escalation A at 10:00",
+          "workerHandle": "w-a",
+          "attempts": 3,
+          "at": "2026-08-07T12:00:00Z"
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "The full severity ladder, every FleetExceptionKind once, fed in reverse and tied on timestamp so ONLY severity can order them. gate > circuit-broken > unanswered-ask > lifecycle-rejected > escalation > attention: gate first because it is the one state blocking on this specific person, circuit-broken above escalation because the breaker means the fleet has STOPPED retrying.",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "t-attention",
+            "kind": "attention",
+            "summary": "heartbeat stale",
+            "workerHandle": "w1",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          },
+          {
+            "taskId": "t-escalation",
+            "kind": "escalation",
+            "summary": "escalated",
+            "workerHandle": "w2",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          },
+          {
+            "taskId": "t-lifecycle",
+            "kind": "lifecycle-rejected",
+            "summary": "worker_done refused",
+            "workerHandle": "w3",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          },
+          {
+            "taskId": "t-ask",
+            "kind": "unanswered-ask",
+            "summary": "decision_gate unread",
+            "workerHandle": "w4",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          },
+          {
+            "taskId": "t-broken",
+            "kind": "circuit-broken",
+            "summary": "breaker open",
+            "workerHandle": "w5",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          },
+          {
+            "taskId": "t-gate",
+            "kind": "gate",
+            "summary": "waiting on you",
+            "workerHandle": "w6",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "t-gate",
+          "kind": "gate",
+          "summary": "waiting on you",
+          "workerHandle": "w6",
+          "attempts": 1,
+          "at": "2026-08-07T10:00:00Z"
+        },
+        {
+          "taskId": "t-broken",
+          "kind": "circuit-broken",
+          "summary": "breaker open",
+          "workerHandle": "w5",
+          "attempts": 1,
+          "at": "2026-08-07T10:00:00Z"
+        },
+        {
+          "taskId": "t-ask",
+          "kind": "unanswered-ask",
+          "summary": "decision_gate unread",
+          "workerHandle": "w4",
+          "attempts": 1,
+          "at": "2026-08-07T10:00:00Z"
+        },
+        {
+          "taskId": "t-lifecycle",
+          "kind": "lifecycle-rejected",
+          "summary": "worker_done refused",
+          "workerHandle": "w3",
+          "attempts": 1,
+          "at": "2026-08-07T10:00:00Z"
+        },
+        {
+          "taskId": "t-escalation",
+          "kind": "escalation",
+          "summary": "escalated",
+          "workerHandle": "w2",
+          "attempts": 1,
+          "at": "2026-08-07T10:00:00Z"
+        },
+        {
+          "taskId": "t-attention",
+          "kind": "attention",
+          "summary": "heartbeat stale",
+          "workerHandle": "w1",
+          "attempts": 1,
+          "at": "2026-08-07T10:00:00Z"
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "Severity outranks recency across tasks: a three-hour-old circuit-break sits above a one-minute-old escalation, because the older one is the one that will never resolve itself. Sorting by recency alone buries the only row that needs a human.",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "fresh",
+            "kind": "escalation",
+            "summary": "just escalated",
+            "workerHandle": "w1",
+            "attempts": 1,
+            "at": "2026-08-07T12:00:00Z"
+          },
+          {
+            "taskId": "old",
+            "kind": "circuit-broken",
+            "summary": "breaker open since 09:00",
+            "workerHandle": "w2",
+            "attempts": 1,
+            "at": "2026-08-07T09:00:00Z"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "old",
+          "kind": "circuit-broken",
+          "summary": "breaker open since 09:00",
+          "workerHandle": "w2",
+          "attempts": 1,
+          "at": "2026-08-07T09:00:00Z"
+        },
+        {
+          "taskId": "fresh",
+          "kind": "escalation",
+          "summary": "just escalated",
+          "workerHandle": "w1",
+          "attempts": 1,
+          "at": "2026-08-07T12:00:00Z"
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "Recency is the SECOND key, not the first: equal severity falls through to newest-first. Fed oldest-first so a comparator that dropped the recency tiebreak would return the input order and be caught.",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "older",
+            "kind": "escalation",
+            "summary": "escalated at 09",
+            "workerHandle": "w1",
+            "attempts": 1,
+            "at": "2026-08-07T09:00:00Z"
+          },
+          {
+            "taskId": "newer",
+            "kind": "escalation",
+            "summary": "escalated at 12",
+            "workerHandle": "w2",
+            "attempts": 1,
+            "at": "2026-08-07T12:00:00Z"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "newer",
+          "kind": "escalation",
+          "summary": "escalated at 12",
+          "workerHandle": "w2",
+          "attempts": 1,
+          "at": "2026-08-07T12:00:00Z"
+        },
+        {
+          "taskId": "older",
+          "kind": "escalation",
+          "summary": "escalated at 09",
+          "workerHandle": "w1",
+          "attempts": 1,
+          "at": "2026-08-07T09:00:00Z"
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "A lone row is copied, never renormalised: attempts stays 5. The UI prints '5 attempts' from this field, so a collapse that reset an already-counted row to 1 would under-report a repeatedly failing task as a one-off.",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "t",
+            "kind": "unanswered-ask",
+            "summary": "asked five times",
+            "workerHandle": null,
+            "attempts": 5,
+            "at": "2026-08-07T10:00:00Z"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "t",
+          "kind": "unanswered-ask",
+          "summary": "asked five times",
+          "workerHandle": null,
+          "attempts": 5,
+          "at": "2026-08-07T10:00:00Z"
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "workerHandle travels with the WINNING row, including when the winner has none. The gate wins and the row loses its worker — 'no worker' is the honest render, not the previous row's handle kept because it looked more informative.",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "t",
+            "kind": "escalation",
+            "summary": "escalated by w1",
+            "workerHandle": "w1",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          },
+          {
+            "taskId": "t",
+            "kind": "gate",
+            "summary": "unassigned gate",
+            "workerHandle": null,
+            "attempts": 1,
+            "at": "2026-08-07T11:00:00Z"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "t",
+          "kind": "gate",
+          "summary": "unassigned gate",
+          "workerHandle": null,
+          "attempts": 2,
+          "at": "2026-08-07T11:00:00Z"
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "The MERGE compares timestamps with JS `>` — code-unit order — so RFC-3339's permitted lowercase 't' (0x74) reads as strictly newer than 'T' (0x54) at the same instant. Pinned because the sort a few lines below uses localeCompare, which orders these the other way; the two halves of one function do not agree, and this case fixes which rule the merge follows.",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "t",
+            "kind": "escalation",
+            "summary": "uppercase T designator",
+            "workerHandle": "w-upper",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          },
+          {
+            "taskId": "t",
+            "kind": "escalation",
+            "summary": "lowercase t designator",
+            "workerHandle": "w-lower",
+            "attempts": 1,
+            "at": "2026-08-07t10:00:00Z"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "t",
+          "kind": "escalation",
+          "summary": "lowercase t designator",
+          "workerHandle": "w-lower",
+          "attempts": 2,
+          "at": "2026-08-07t10:00:00Z"
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "DIVERGENCE, reported not failed: the ORDERING tiebreak uses String.localeCompare, which is ICU collation — case is a tertiary difference, so 't' sorts BEFORE 'T' and TS returns [upper, lower]. The merge above uses code-unit `>`, which says the opposite, and Rust reproduces the code-unit rule. Two same-instant timestamps that differ only in the RFC-3339 designator's case therefore order one way in the merge and the other way in the sort. Worse, localeCompare is locale-sensitive: the queue's order is a function of the supervisor's machine locale. The fix belongs in the TS (use the same code-unit comparison the merge already uses), not in the port.",
+      "allowDivergence": "TS sort uses locale collation (localeCompare); the port uses code-unit order, matching the same function's own merge comparison",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "upper",
+            "kind": "escalation",
+            "summary": "uppercase T designator",
+            "workerHandle": "w-upper",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          },
+          {
+            "taskId": "lower",
+            "kind": "escalation",
+            "summary": "lowercase t designator",
+            "workerHandle": "w-lower",
+            "attempts": 1,
+            "at": "2026-08-07t10:00:00Z"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "lower",
+          "kind": "escalation",
+          "summary": "lowercase t designator",
+          "workerHandle": "w-lower",
+          "attempts": 1,
+          "at": "2026-08-07t10:00:00Z"
+        },
+        {
+          "taskId": "upper",
+          "kind": "escalation",
+          "summary": "uppercase T designator",
+          "workerHandle": "w-upper",
+          "attempts": 1,
+          "at": "2026-08-07T10:00:00Z"
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "No exceptions is an empty queue, not a row saying so. The 'all clear' reading of an empty queue is only sound alongside the source-status cases below.",
+      "input": { "exceptions": [] },
+      "expected": []
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "A kind outside §8.3's six is out of the ported domain and both adapters refuse it. TS would index SEVERITY with it, get undefined, turn every comparison false and the sort comparator NaN — a silent mis-ranking neither side should be asserted to reproduce.",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "t",
+            "kind": "quota-exhausted",
+            "summary": "invented kind",
+            "workerHandle": "w1",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          }
+        ]
+      },
+      "expected": { "__parity_error__": "unknown FleetExceptionKind" }
+    },
+    {
+      "function": "exceptionSourceStatuses",
+      "note": "All six of §8.3's sources are named and all six are wired, in declaration order. This is what makes an empty queue readable as 'nothing is wrong' — a supervisor who believes the queue covers all six when it covers one will read silence as safety, which is the exact failure the queue exists to prevent.",
+      "input": {},
+      "expected": [
+        { "kind": "gate", "status": "wired" },
+        { "kind": "escalation", "status": "wired" },
+        { "kind": "circuit-broken", "status": "wired" },
+        { "kind": "attention", "status": "wired" },
+        { "kind": "lifecycle-rejected", "status": "wired" },
+        { "kind": "unanswered-ask", "status": "wired" }
+      ]
+    },
+    {
+      "function": "unwiredExceptionSources",
+      "note": "Empty because nothing is 'not-yet' — the UI's coverage caveat is driven by this list, so an empty result is a claim of full coverage and must stay tied to the statuses above rather than hardcoded on either side.",
+      "input": {},
+      "expected": []
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "The MERGE compares with JS `>`, which is UTF-16 CODE-UNIT order — not `str`'s UTF-8 byte order. U+10000 leads with a surrogate (0xD800) in JS so it ranks BELOW U+E000, while its UTF-8 bytes (F0 90 ..) rank above (EE 80 ..). The port originally compared Rust strings directly and kept the wrong row here: same task, both fields of the losing row, and the reported timestamp all flipped.",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "t",
+            "kind": "escalation",
+            "summary": "astral marker",
+            "workerHandle": "w-astral",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00𐀀"
+          },
+          {
+            "taskId": "t",
+            "kind": "escalation",
+            "summary": "private-use marker",
+            "workerHandle": "w-bmp",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "t",
+          "kind": "escalation",
+          "summary": "private-use marker",
+          "workerHandle": "w-bmp",
+          "attempts": 2,
+          "at": "2026-08-07T10:00:00"
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "A wrong-typed field reads as absent on BOTH sides. `String(raw.taskId ?? '')` coerced 41 to \"41\" while the Rust adapter's `as_str()` gave \"\", so the corpus was silently comparing two different task ids — and two numeric ids would have collapsed into one row on one side only. Numbers are outside the ported domain; neither adapter guesses at them.",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": 41,
+            "kind": "escalation",
+            "summary": "numeric task id",
+            "workerHandle": "w-1",
+            "attempts": 1,
+            "at": 20260807
+          },
+          {
+            "taskId": "42",
+            "kind": "escalation",
+            "summary": "string task id",
+            "workerHandle": "w-2",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "42",
+          "kind": "escalation",
+          "summary": "string task id",
+          "workerHandle": "w-2",
+          "attempts": 1,
+          "at": "2026-08-07T10:00:00Z"
+        },
+        {
+          "taskId": "",
+          "kind": "escalation",
+          "summary": "numeric task id",
+          "workerHandle": "w-1",
+          "attempts": 1,
+          "at": ""
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "attempts is f64 in TS and i64 in Rust, so the corpus only carries values both sides hold exactly: a fraction reads as absent. Left unrestricted the TS kept 1.5 and the Rust read 0, and every attempts assertion above was only accidentally in agreement.",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "t",
+            "kind": "escalation",
+            "summary": "fractional",
+            "workerHandle": "w-1",
+            "attempts": 1.5,
+            "at": "2026-08-07T10:00:00Z"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "t",
+          "kind": "escalation",
+          "summary": "fractional",
+          "workerHandle": "w-1",
+          "attempts": 0,
+          "at": "2026-08-07T10:00:00Z"
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "The edges of the attempts domain. 2**53-1 survives and sums exactly; 2**53 and i64::MAX do not survive a round trip through an f64, so both adapters read them as absent rather than assert an agreement the harness manufactured. This is also where the port's saturating_add stops being observable: any input big enough to saturate i64 is outside the domain the two sides share.",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "max-safe",
+            "kind": "escalation",
+            "summary": "2**53-1 minus one, plus one",
+            "workerHandle": "w-1",
+            "attempts": 9007199254740990,
+            "at": "2026-08-07T10:00:03Z"
+          },
+          {
+            "taskId": "max-safe",
+            "kind": "escalation",
+            "summary": "the one",
+            "workerHandle": "w-2",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:02Z"
+          },
+          {
+            "taskId": "past-safe",
+            "kind": "escalation",
+            "summary": "2**53",
+            "workerHandle": "w-3",
+            "attempts": 9007199254740992,
+            "at": "2026-08-07T10:00:01Z"
+          },
+          {
+            "taskId": "i64-max",
+            "kind": "escalation",
+            "summary": "i64::MAX",
+            "workerHandle": "w-4",
+            "attempts": 9223372036854775807,
+            "at": "2026-08-07T10:00:00Z"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "max-safe",
+          "kind": "escalation",
+          "summary": "2**53-1 minus one, plus one",
+          "workerHandle": "w-1",
+          "attempts": 9007199254740991,
+          "at": "2026-08-07T10:00:03Z"
+        },
+        {
+          "taskId": "past-safe",
+          "kind": "escalation",
+          "summary": "2**53",
+          "workerHandle": "w-3",
+          "attempts": 0,
+          "at": "2026-08-07T10:00:01Z"
+        },
+        {
+          "taskId": "i64-max",
+          "kind": "escalation",
+          "summary": "i64::MAX",
+          "workerHandle": "w-4",
+          "attempts": 0,
+          "at": "2026-08-07T10:00:00Z"
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "Two spellings of the same grapheme are two tasks. NFC 'café' and NFD 'cafe\\u0301' are distinct keys on both sides — JS `===` compares code units and Rust `==` compares bytes, and neither normalises. A supervisor sees two rows, which is the honest render: nothing in the fleet knows they are the same task.",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "café",
+            "kind": "escalation",
+            "summary": "nfc",
+            "workerHandle": "w-1",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          },
+          {
+            "taskId": "café",
+            "kind": "escalation",
+            "summary": "nfd",
+            "workerHandle": "w-2",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:01Z"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "café",
+          "kind": "escalation",
+          "summary": "nfd",
+          "workerHandle": "w-2",
+          "attempts": 1,
+          "at": "2026-08-07T10:00:01Z"
+        },
+        {
+          "taskId": "café",
+          "kind": "escalation",
+          "summary": "nfc",
+          "workerHandle": "w-1",
+          "attempts": 1,
+          "at": "2026-08-07T10:00:00Z"
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "Absent, explicit null and empty string are one state on both sides: no worker, no timestamp. The row with no `at` still renders — a source that forgot the timestamp must not drop a blocked task out of the queue — and sorts last, since '' loses every recency comparison.",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "has-at",
+            "kind": "escalation",
+            "summary": "timestamped",
+            "workerHandle": null,
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          },
+          {
+            "taskId": "no-at",
+            "kind": "escalation",
+            "summary": "no timestamp",
+            "attempts": 1
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "has-at",
+          "kind": "escalation",
+          "summary": "timestamped",
+          "workerHandle": null,
+          "attempts": 1,
+          "at": "2026-08-07T10:00:00Z"
+        },
+        {
+          "taskId": "no-at",
+          "kind": "escalation",
+          "summary": "no timestamp",
+          "workerHandle": null,
+          "attempts": 1,
+          "at": ""
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "A null row carries no kind, so it is refused exactly like an unknown kind — the refusal is row-shaped, not just badge-shaped, and one malformed row refuses the whole batch rather than silently rendering a shorter queue.",
+      "input": {
+        "exceptions": [
+          null,
+          {
+            "taskId": "t",
+            "kind": "gate",
+            "summary": "real row",
+            "workerHandle": "w-1",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          }
+        ]
+      },
+      "expected": {
+        "__parity_error__": "unknown FleetExceptionKind"
+      }
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "DIVERGENCE, reported not failed — and NOT about case. An unpadded hour puts ':' (0x3A) against '0' (0x30): code units say 'T1:' is the newer timestamp, ICU collation says punctuation sorts before digits and ranks 01:00 older. TS returns [padded, unpadded]; the port returns [unpadded, padded]. No exotic character is involved — one source that forgets to zero-pad is enough, and §8.3 has six independent sources.",
+      "allowDivergence": "TS orders with localeCompare (ICU: punctuation before digits); the port uses the code-unit order its own merge uses",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "unpadded",
+            "kind": "escalation",
+            "summary": "01:00, unpadded hour",
+            "workerHandle": "w-1",
+            "attempts": 1,
+            "at": "2026-08-07T1:00:00Z"
+          },
+          {
+            "taskId": "padded",
+            "kind": "escalation",
+            "summary": "10:00",
+            "workerHandle": "w-2",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "unpadded",
+          "kind": "escalation",
+          "summary": "01:00, unpadded hour",
+          "workerHandle": "w-1",
+          "attempts": 1,
+          "at": "2026-08-07T1:00:00Z"
+        },
+        {
+          "taskId": "padded",
+          "kind": "escalation",
+          "summary": "10:00",
+          "workerHandle": "w-2",
+          "attempts": 1,
+          "at": "2026-08-07T10:00:00Z"
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "DIVERGENCE, reported not failed: two RFC-3339 spellings of the SAME instant, both valid, from two producers. '.' (0x2E) against '+' (0x2B) — code units rank the fractional-seconds form newer, ICU ranks the offset form newer. TS returns [offset, millis]; the port returns [millis, offset]. Whichever row a supervisor reads first is a function of which source formatted its timestamp, on a pair that are not even different times.",
+      "allowDivergence": "TS orders with localeCompare; the port uses code-unit order",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "millis",
+            "kind": "escalation",
+            "summary": "fractional seconds, Z",
+            "workerHandle": "w-1",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00.000Z"
+          },
+          {
+            "taskId": "offset",
+            "kind": "escalation",
+            "summary": "numeric offset",
+            "workerHandle": "w-2",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00+00:00"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "millis",
+          "kind": "escalation",
+          "summary": "fractional seconds, Z",
+          "workerHandle": "w-1",
+          "attempts": 1,
+          "at": "2026-08-07T10:00:00.000Z"
+        },
+        {
+          "taskId": "offset",
+          "kind": "escalation",
+          "summary": "numeric offset",
+          "workerHandle": "w-2",
+          "attempts": 1,
+          "at": "2026-08-07T10:00:00+00:00"
+        }
+      ]
+    },
+    {
+      "function": "collapseExceptionsByTask",
+      "note": "DIVERGENCE, reported not failed, and the sharpest form of it: a completely-ignorable character (U+00AD) makes localeCompare return 0 for two strings that are not equal, so TS decides the order by ARRIVAL and returns [plain, shy] while the port compares the code units and returns [shy, plain]. A comparator that reports 'equal' for unequal timestamps cannot be reproduced by any total order; the fix belongs in the TS, which should compare `at` the way its own merge already does.",
+      "allowDivergence": "localeCompare reports 0 for distinct strings; no total order over code units can match it",
+      "input": {
+        "exceptions": [
+          {
+            "taskId": "plain",
+            "kind": "escalation",
+            "summary": "plain",
+            "workerHandle": "w-1",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00Z"
+          },
+          {
+            "taskId": "shy",
+            "kind": "escalation",
+            "summary": "soft hyphen before the designator",
+            "workerHandle": "w-2",
+            "attempts": 1,
+            "at": "2026-08-07T10:00:00­Z"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "shy",
+          "kind": "escalation",
+          "summary": "soft hyphen before the designator",
+          "workerHandle": "w-2",
+          "attempts": 1,
+          "at": "2026-08-07T10:00:00­Z"
+        },
+        {
+          "taskId": "plain",
+          "kind": "escalation",
+          "summary": "plain",
+          "workerHandle": "w-1",
+          "attempts": 1,
+          "at": "2026-08-07T10:00:00Z"
+        }
+      ]
+    }
+  ]
+}

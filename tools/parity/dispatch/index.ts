@@ -22,6 +22,8 @@ import { dispatch as featureEducationTelemetry } from './feature-education-telem
 import { dispatch as featureInteractions } from './feature-interactions'
 import { dispatch as featureTips } from './feature-tips'
 import { dispatch as featureWallTourDepth } from './feature-wall-tour-depth'
+import { dispatch as fleetIdentity } from './fleet-identity'
+import { dispatch as fleetExceptions } from './fleet-exceptions'
 import { dispatch as gitPublishTargetStatus } from './git-publish-target-status'
 import { dispatch as gitPushTarget } from './git-push-target'
 import { dispatch as gitRemoteError } from './git-remote-error'
@@ -63,6 +65,7 @@ import { dispatch as stablePaneId } from './stable-pane-id'
 import { dispatch as syntheticAgentTitle } from './synthetic-agent-title'
 import { dispatch as tabTitleResolution } from './tab-title-resolution'
 import { dispatch as tailnetAddress } from './tailnet-address'
+import { dispatch as taskClaim } from './task-claim'
 import { dispatch as taskProviders } from './task-providers'
 import { dispatch as taskQuery } from './task-query'
 import { dispatch as terminalFonts } from './terminal-fonts'
@@ -108,6 +111,8 @@ export const DISPATCH: Record<string, Dispatcher> = {
   'feature-interactions': featureInteractions,
   'feature-tips': featureTips,
   'feature-wall-tour-depth': featureWallTourDepth,
+  'fleet-exceptions': fleetExceptions,
+  'fleet-identity': fleetIdentity,
   'git-publish-target-status': gitPublishTargetStatus,
   'git-push-target': gitPushTarget,
   'git-remote-error': gitRemoteError,
@@ -149,6 +154,7 @@ export const DISPATCH: Record<string, Dispatcher> = {
   'synthetic-agent-title': syntheticAgentTitle,
   'tab-title-resolution': tabTitleResolution,
   'tailnet-address': tailnetAddress,
+  'task-claim': taskClaim,
   'task-providers': taskProviders,
   'task-query': taskQuery,
   'terminal-fonts': terminalFonts,

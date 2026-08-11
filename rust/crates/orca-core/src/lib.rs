@@ -32,6 +32,7 @@ pub mod commit_message_host_key;
 pub mod cross_platform_path;
 pub mod execution_host;
 pub mod feature_wall_tour_depth;
+pub mod fleet_exceptions;
 pub mod git_cquoted_path;
 pub mod git_push_target;
 pub mod gitlab_pipeline_checks;
