@@ -29,6 +29,8 @@ pub mod feature_education_telemetry;
 pub mod feature_interactions;
 pub mod feature_tips;
 pub mod feature_wall_tour_depth;
+pub mod fleet_exceptions;
+pub mod fleet_identity;
 pub mod push_target;
 pub mod git_push_target;
 pub mod git_remote_error;
@@ -68,6 +70,7 @@ pub mod stable_pane_id;
 pub mod synthetic_agent_title;
 pub mod tab_title_resolution;
 pub mod tailnet_address;
+pub mod task_claim;
 pub mod task_providers;
 pub mod task_query;
 pub mod terminal_fonts;
@@ -113,6 +116,8 @@ pub fn dispatch(module: &str, function: &str, input: &Value) -> Option<Value> {
         "feature-interactions" => Some(feature_interactions::dispatch(function, input)),
         "feature-tips" => Some(feature_tips::dispatch(function, input)),
         "feature-wall-tour-depth" => Some(feature_wall_tour_depth::dispatch(function, input)),
+        "fleet-exceptions" => Some(fleet_exceptions::dispatch(function, input)),
+        "fleet-identity" => Some(fleet_identity::dispatch(function, input)),
         "git-publish-target-status" => Some(push_target::dispatch(function, input)),
         "git-push-target" => Some(git_push_target::dispatch(function, input)),
         "git-remote-error" => Some(git_remote_error::dispatch(function, input)),
@@ -152,6 +157,7 @@ pub fn dispatch(module: &str, function: &str, input: &Value) -> Option<Value> {
         "synthetic-agent-title" => Some(synthetic_agent_title::dispatch(function, input)),
         "tab-title-resolution" => Some(tab_title_resolution::dispatch(function, input)),
         "tailnet-address" => Some(tailnet_address::dispatch(function, input)),
+        "task-claim" => Some(task_claim::dispatch(function, input)),
         "task-providers" => Some(task_providers::dispatch(function, input)),
         "task-query" => Some(task_query::dispatch(function, input)),
         "terminal-fonts" => Some(terminal_fonts::dispatch(function, input)),

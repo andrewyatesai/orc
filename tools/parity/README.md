@@ -13,12 +13,16 @@ failing.
 
 ## Coverage
 
-82 of the ~99 ported logic modules have adapters — **1460 vectors, 1453 of
-1453 golden checks green** via the Rust leg (`cargo run -p orca-parity`), and
-**1543 of 1543** TS↔Rust comparisons green via the vitest leg. The remaining 17
+83 of the ~100 ported logic modules have adapters — **1556 vectors, 1549 of
+1549 golden checks green** via the Rust leg (`cargo run -p orca-parity`), and
+**1641 of 1641** TS↔Rust comparisons green via the vitest leg. The remaining 17
 are out of differential scope (io-edge functions driven only by injected
 fs/exec/socket closures, `src/main`-sourced modules, or pure helpers TS keeps
 non-exported); see the skip list in `docs/rust-migration/architecture.md`.
+
+The vitest leg needs `native/orca-node/orca_node.node` built: 10 of the modules
+reach the addon through `src/main`, and in a tree without it they fail to LOAD
+rather than diverge (199 comparisons, all one error string).
 
 ## Why this is real evidence (not "trust the port author")
 

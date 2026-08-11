@@ -1,0 +1,1994 @@
+{
+  "module": "fleet-identity",
+  "source": "src/shared/fleet-identity/route-key.ts + store-key.ts + pty-binding.ts",
+  "rustCrate": "orca-policy (fleet_identity)",
+  "cases": [
+    {
+      "function": "formatRouteKey",
+      "note": "system-default is a SPENDABLE route — the one an accountId-keyed map cannot name, which is why the account is tagged and never `accountId: string | null`",
+      "input": {
+        "route": {
+          "provider": "claude",
+          "account": {
+            "kind": "system-default"
+          },
+          "host": {
+            "kind": "local"
+          }
+        }
+      },
+      "expected": "claude/system-default@local"
+    },
+    {
+      "function": "formatRouteKey",
+      "note": "managed account on a named wsl distro — the second account arm and the second host arm",
+      "input": {
+        "route": {
+          "provider": "codex",
+          "account": {
+            "kind": "managed",
+            "accountId": "acct_1"
+          },
+          "host": {
+            "kind": "wsl",
+            "distro": "Ubuntu"
+          }
+        }
+      },
+      "expected": "codex/managed:acct_1@wsl:Ubuntu"
+    },
+    {
+      "function": "formatRouteKey",
+      "note": "wsl with no distro is bare `wsl`, not `wsl:` with an empty body — one spelling for the default distro",
+      "input": {
+        "route": {
+          "provider": "codex",
+          "account": {
+            "kind": "system-default"
+          },
+          "host": {
+            "kind": "wsl",
+            "distro": null
+          }
+        }
+      },
+      "expected": "codex/system-default@wsl"
+    },
+    {
+      "function": "formatRouteKey",
+      "note": "a BLANK distro is the default distro, not a distro named blank — otherwise one host has two keys and the reservation table splits",
+      "input": {
+        "route": {
+          "provider": "codex",
+          "account": {
+            "kind": "system-default"
+          },
+          "host": {
+            "kind": "wsl",
+            "distro": "   "
+          }
+        }
+      },
+      "expected": "codex/system-default@wsl"
+    },
+    {
+      "function": "formatRouteKey",
+      "note": "ssh host arm",
+      "input": {
+        "route": {
+          "provider": "gemini",
+          "account": {
+            "kind": "managed",
+            "accountId": "acct_1"
+          },
+          "host": {
+            "kind": "ssh",
+            "targetId": "box"
+          }
+        }
+      },
+      "expected": "gemini/managed:acct_1@ssh:box"
+    },
+    {
+      "function": "formatRouteKey",
+      "note": "runtime host arm — remote-runtime panes are a real execution host, and a host type that cannot name them forces callers to lie",
+      "input": {
+        "route": {
+          "provider": "claude",
+          "account": {
+            "kind": "system-default"
+          },
+          "host": {
+            "kind": "runtime",
+            "environmentId": "env 1"
+          }
+        }
+      },
+      "expected": "claude/system-default@runtime:env%201"
+    },
+    {
+      "function": "formatRouteKey",
+      "note": "every variable part is percent-encoded, so the only unescaped `/`, `@` and `:` are the grammar's own separators",
+      "input": {
+        "route": {
+          "provider": "claude",
+          "account": {
+            "kind": "managed",
+            "accountId": "has/slash@and:colon"
+          },
+          "host": {
+            "kind": "ssh",
+            "targetId": "also/@:"
+          }
+        }
+      },
+      "expected": "claude/managed:has%2Fslash%40and%3Acolon@ssh:also%2F%40%3A"
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "round-trips the system-default route",
+      "input": {
+        "value": "claude/system-default@local"
+      },
+      "expected": {
+        "provider": "claude",
+        "account": {
+          "kind": "system-default"
+        },
+        "host": {
+          "kind": "local"
+        }
+      }
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "round-trips managed + named distro",
+      "input": {
+        "value": "codex/managed:acct_1@wsl:Ubuntu"
+      },
+      "expected": {
+        "provider": "codex",
+        "account": {
+          "kind": "managed",
+          "accountId": "acct_1"
+        },
+        "host": {
+          "kind": "wsl",
+          "distro": "Ubuntu"
+        }
+      }
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "bare `wsl` parses to the DEFAULT distro — an explicit null, not a missing field, because absent is a named case here",
+      "input": {
+        "value": "codex/system-default@wsl"
+      },
+      "expected": {
+        "provider": "codex",
+        "account": {
+          "kind": "system-default"
+        },
+        "host": {
+          "kind": "wsl",
+          "distro": null
+        }
+      }
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "round-trips an ssh route whose account and target both contain the grammar's separators",
+      "input": {
+        "value": "gemini/managed:a%2Fb%40c@ssh:box%3A22"
+      },
+      "expected": {
+        "provider": "gemini",
+        "account": {
+          "kind": "managed",
+          "accountId": "a/b@c"
+        },
+        "host": {
+          "kind": "ssh",
+          "targetId": "box:22"
+        }
+      }
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "round-trips the runtime arm",
+      "input": {
+        "value": "claude/system-default@runtime:env%201"
+      },
+      "expected": {
+        "provider": "claude",
+        "account": {
+          "kind": "system-default"
+        },
+        "host": {
+          "kind": "runtime",
+          "environmentId": "env 1"
+        }
+      }
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "INVARIANT 2 — CANONICAL ROUND-TRIP: this parses cleanly to accountId `a@b` but is not what formatRouteKey emits, so it is REFUSED. Accept it and a unique index on target_route_key holds two rows for one subscription, and one reservation is claimed twice",
+      "input": {
+        "value": "claude/managed:a@b@local"
+      },
+      "expected": null
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "and the canonical spelling of that same route IS accepted — the rejection above is about the spelling, not the route",
+      "input": {
+        "value": "claude/managed:a%40b@local"
+      },
+      "expected": {
+        "provider": "claude",
+        "account": {
+          "kind": "managed",
+          "accountId": "a@b"
+        },
+        "host": {
+          "kind": "local"
+        }
+      }
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "canonical round-trip, lowercase-hex spelling: `%2f` decodes to `/` but re-encodes to `%2F`, so it is a second spelling of one route and is refused",
+      "input": {
+        "value": "claude/managed:a%2fb@local"
+      },
+      "expected": null
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "canonical round-trip, over-escaped spelling: `%2D` decodes to `-`, which encodeURIComponent leaves unreserved, so this too is a second spelling",
+      "input": {
+        "value": "claude/system-default@ssh:box%2Dsecure"
+      },
+      "expected": null
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "canonical round-trip, encoded-blank distro: it normalizes to the default distro, re-formats to bare `wsl`, and so cannot be a route key of its own",
+      "input": {
+        "value": "codex/system-default@wsl:%20%20"
+      },
+      "expected": null
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "canonical round-trip, BOM distro: U+FEFF is whitespace to JS `trim`, so the distro blanks out and the key re-formats to bare `wsl` — a port using Rust's `char::is_whitespace` (which excludes U+FEFF) would ACCEPT this second spelling of the default distro",
+      "input": {
+        "value": "codex/system-default@wsl:%EF%BB%BF"
+      },
+      "expected": null
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "the same trim mismatch in the other direction: U+0085 (NEL) is whitespace to Rust and NOT to JS, so this IS a distro and the route is accepted — a port trimming it would refuse a key the TS side issues",
+      "input": {
+        "value": "codex/system-default@wsl:%C2%85"
+      },
+      "expected": {
+        "provider": "codex",
+        "account": {
+          "kind": "system-default"
+        },
+        "host": {
+          "kind": "wsl",
+          "distro": ""
+        }
+      }
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "not a string — route keys arrive from SQLite and CLI flags, so a non-string is a rejection, never a coerced fallback",
+      "input": {
+        "value": 42
+      },
+      "expected": null
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "empty",
+      "input": {
+        "value": ""
+      },
+      "expected": null
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "no account segment",
+      "input": {
+        "value": "claude@local"
+      },
+      "expected": null
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "unknown account tag — `borrowed` is not an account kind, and guessing at one names someone else's subscription",
+      "input": {
+        "value": "claude/borrowed@local"
+      },
+      "expected": null
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "empty managed id — a managed route with no account is not a route",
+      "input": {
+        "value": "claude/managed:@local"
+      },
+      "expected": null
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "unknown host kind",
+      "input": {
+        "value": "claude/system-default@moon:1"
+      },
+      "expected": null
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "empty host body — `ssh:` names no target",
+      "input": {
+        "value": "claude/system-default@ssh:"
+      },
+      "expected": null
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "no host at all",
+      "input": {
+        "value": "claude/system-default"
+      },
+      "expected": null
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "malformed escape in the account — decodeURIComponent THROWS, and a throw at the caller is not a decision, so it is caught into a rejection",
+      "input": {
+        "value": "claude/managed:%zz@local"
+      },
+      "expected": null
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "truncated multi-byte escape in the host",
+      "input": {
+        "value": "claude/system-default@ssh:%E0%A4%A"
+      },
+      "expected": null
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "malformed escape in the provider",
+      "input": {
+        "value": "%/system-default@local"
+      },
+      "expected": null
+    },
+    {
+      "function": "routeKeysEqual",
+      "note": "two hosts spending ONE subscription are two routes — the host is part of the identity, not a decoration",
+      "input": {
+        "a": {
+          "provider": "claude",
+          "account": {
+            "kind": "system-default"
+          },
+          "host": {
+            "kind": "local"
+          }
+        },
+        "b": {
+          "provider": "claude",
+          "account": {
+            "kind": "system-default"
+          },
+          "host": {
+            "kind": "wsl",
+            "distro": null
+          }
+        }
+      },
+      "expected": false
+    },
+    {
+      "function": "routeKeysEqual",
+      "note": "equality is decided on the canonical form, so a blank distro and the default distro are ONE route",
+      "input": {
+        "a": {
+          "provider": "codex",
+          "account": {
+            "kind": "system-default"
+          },
+          "host": {
+            "kind": "wsl",
+            "distro": "  "
+          }
+        },
+        "b": {
+          "provider": "codex",
+          "account": {
+            "kind": "system-default"
+          },
+          "host": {
+            "kind": "wsl",
+            "distro": null
+          }
+        }
+      },
+      "expected": true
+    },
+    {
+      "function": "formatRouteAccountScope",
+      "note": "health may be account-scoped: the host is dropped so an exhausted subscription is not reported healthy merely because another host has not hit it yet",
+      "input": {
+        "route": {
+          "provider": "claude",
+          "account": {
+            "kind": "system-default"
+          },
+          "host": {
+            "kind": "local"
+          }
+        }
+      },
+      "expected": "claude/system-default"
+    },
+    {
+      "function": "formatRouteAccountScope",
+      "note": "same subscription, different host — the SAME scope string as the case above",
+      "input": {
+        "route": {
+          "provider": "claude",
+          "account": {
+            "kind": "system-default"
+          },
+          "host": {
+            "kind": "ssh",
+            "targetId": "box"
+          }
+        }
+      },
+      "expected": "claude/system-default"
+    },
+    {
+      "function": "formatRouteAccountScope",
+      "note": "but two accounts of one provider stay separate — dropping the host must not drop the account",
+      "input": {
+        "route": {
+          "provider": "claude",
+          "account": {
+            "kind": "managed",
+            "accountId": "acct_1"
+          },
+          "host": {
+            "kind": "local"
+          }
+        }
+      },
+      "expected": "claude/managed:acct_1"
+    },
+    {
+      "function": "createStoreKey",
+      "note": "order-independent and deduped, so one store has one key however a launch happens to enumerate it",
+      "input": {
+        "surfaces": [
+          {
+            "kind": "config-dir",
+            "path": "/home/u/.claude"
+          },
+          {
+            "kind": "auth-file",
+            "path": "/home/u/.claude/auth.json"
+          },
+          {
+            "kind": "config-dir",
+            "path": "/home/u/.claude"
+          }
+        ]
+      },
+      "expected": {
+        "surfaces": [
+          {
+            "kind": "auth-file",
+            "path": "/home/u/.claude/auth.json"
+          },
+          {
+            "kind": "config-dir",
+            "path": "/home/u/.claude"
+          }
+        ]
+      }
+    },
+    {
+      "function": "createStoreKey",
+      "note": "a trailing separator is the SAME directory — reporting these as disjoint would let a drain proceed while a live CLI still holds the store",
+      "input": {
+        "surfaces": [
+          {
+            "kind": "config-dir",
+            "path": "/home/u/.claude/"
+          }
+        ]
+      },
+      "expected": {
+        "surfaces": [
+          {
+            "kind": "config-dir",
+            "path": "/home/u/.claude"
+          }
+        ]
+      }
+    },
+    {
+      "function": "createStoreKey",
+      "note": "a bare root stays usable: stripping its only separator would leave a surface with no path at all",
+      "input": {
+        "surfaces": [
+          {
+            "kind": "config-dir",
+            "path": "/"
+          }
+        ]
+      },
+      "expected": {
+        "surfaces": [
+          {
+            "kind": "config-dir",
+            "path": "/"
+          }
+        ]
+      }
+    },
+    {
+      "function": "formatStoreKey",
+      "note": "the real darwin launch: config dir + auth file + BOTH the scoped and the legacy keychain item, ordered by the formatted surface so the string is a stable SQLite value",
+      "input": {
+        "surfaces": [
+          {
+            "kind": "keychain-item",
+            "service": "Claude Code",
+            "account": "legacy"
+          },
+          {
+            "kind": "config-dir",
+            "path": "/home/u/.claude"
+          },
+          {
+            "kind": "keychain-item",
+            "service": "Claude Code",
+            "account": "acct_1"
+          },
+          {
+            "kind": "auth-file",
+            "path": "/home/u/.claude/auth.json"
+          }
+        ]
+      },
+      "expected": "auth-file:%2Fhome%2Fu%2F.claude%2Fauth.json|config-dir:%2Fhome%2Fu%2F.claude|keychain-item:Claude%20Code:acct_1|keychain-item:Claude%20Code:legacy"
+    },
+    {
+      "function": "formatStoreKey",
+      "note": "a path containing the grammar's own `|` and `:` is escaped, so the joined key stays parseable",
+      "input": {
+        "surfaces": [
+          {
+            "kind": "config-dir",
+            "path": "/has|pipe:and/colon"
+          }
+        ]
+      },
+      "expected": "config-dir:%2Fhas%7Cpipe%3Aand%2Fcolon"
+    },
+    {
+      "function": "parseStoreKey",
+      "note": "round-trips the darwin launch key",
+      "input": {
+        "value": "auth-file:%2Fhome%2Fu%2F.claude%2Fauth.json|config-dir:%2Fhome%2Fu%2F.claude|keychain-item:Claude%20Code:acct_1|keychain-item:Claude%20Code:legacy"
+      },
+      "expected": {
+        "surfaces": [
+          {
+            "kind": "auth-file",
+            "path": "/home/u/.claude/auth.json"
+          },
+          {
+            "kind": "config-dir",
+            "path": "/home/u/.claude"
+          },
+          {
+            "kind": "keychain-item",
+            "service": "Claude Code",
+            "account": "acct_1"
+          },
+          {
+            "kind": "keychain-item",
+            "service": "Claude Code",
+            "account": "legacy"
+          }
+        ]
+      }
+    },
+    {
+      "function": "parseStoreKey",
+      "note": "the EMPTY string is the empty store, not a parse failure — a launch that mutates no credential surface is a real state, and it must collide with nothing",
+      "input": {
+        "value": ""
+      },
+      "expected": {
+        "surfaces": []
+      }
+    },
+    {
+      "function": "parseStoreKey",
+      "note": "not a string",
+      "input": {
+        "value": 7
+      },
+      "expected": null
+    },
+    {
+      "function": "parseStoreKey",
+      "note": "unknown surface kind — a store whose surfaces we cannot name cannot be checked for collisions, so it is refused rather than half-read",
+      "input": {
+        "value": "wallet:/x"
+      },
+      "expected": null
+    },
+    {
+      "function": "parseStoreKey",
+      "note": "a keychain item missing its account half: service alone does not name an item",
+      "input": {
+        "value": "keychain-item:svc"
+      },
+      "expected": null
+    },
+    {
+      "function": "parseStoreKey",
+      "note": "a config-dir with an extra part is not something formatStoreKey ever emitted (the path is escaped, so it cannot contain a raw `:`)",
+      "input": {
+        "value": "config-dir:a:b"
+      },
+      "expected": null
+    },
+    {
+      "function": "parseStoreKey",
+      "note": "malformed escape rejects instead of throwing at the caller — store keys come back from SQLite",
+      "input": {
+        "value": "config-dir:%"
+      },
+      "expected": null
+    },
+    {
+      "function": "storeKeysEqual",
+      "note": "INVARIANT 1 (half one): two launches with different config dirs are NOT equal...",
+      "input": {
+        "a": {
+          "surfaces": [
+            {
+              "kind": "config-dir",
+              "path": "/a"
+            },
+            {
+              "kind": "keychain-item",
+              "service": "Claude Code",
+              "account": "acct_1"
+            }
+          ]
+        },
+        "b": {
+          "surfaces": [
+            {
+              "kind": "config-dir",
+              "path": "/b"
+            },
+            {
+              "kind": "keychain-item",
+              "service": "Claude Code",
+              "account": "acct_1"
+            }
+          ]
+        }
+      },
+      "expected": false
+    },
+    {
+      "function": "storeKeysOverlap",
+      "note": "INVARIANT 1 (half two): ...yet they OVERLAP, because they fight over one keychain item. An equality-shaped port runs these concurrently and corrupts that credential",
+      "input": {
+        "a": {
+          "surfaces": [
+            {
+              "kind": "config-dir",
+              "path": "/a"
+            },
+            {
+              "kind": "keychain-item",
+              "service": "Claude Code",
+              "account": "acct_1"
+            }
+          ]
+        },
+        "b": {
+          "surfaces": [
+            {
+              "kind": "config-dir",
+              "path": "/b"
+            },
+            {
+              "kind": "keychain-item",
+              "service": "Claude Code",
+              "account": "acct_1"
+            }
+          ]
+        }
+      },
+      "expected": true
+    },
+    {
+      "function": "storeKeysOverlap",
+      "note": "genuinely disjoint stores coexist — the predicate must not be a blanket refusal either",
+      "input": {
+        "a": {
+          "surfaces": [
+            {
+              "kind": "config-dir",
+              "path": "/a"
+            },
+            {
+              "kind": "keychain-item",
+              "service": "Claude Code",
+              "account": "acct_1"
+            }
+          ]
+        },
+        "b": {
+          "surfaces": [
+            {
+              "kind": "config-dir",
+              "path": "/b"
+            },
+            {
+              "kind": "keychain-item",
+              "service": "Claude Code",
+              "account": "legacy"
+            }
+          ]
+        }
+      },
+      "expected": false
+    },
+    {
+      "function": "storeKeysOverlap",
+      "note": "the darwin LEGACY keychain item a config-dir-only key would miss: different config dirs, and the collision is only visible because the store names every surface",
+      "input": {
+        "a": {
+          "surfaces": [
+            {
+              "kind": "config-dir",
+              "path": "/home/u/.claude"
+            },
+            {
+              "kind": "keychain-item",
+              "service": "Claude Code",
+              "account": "acct_1"
+            }
+          ]
+        },
+        "b": {
+          "surfaces": [
+            {
+              "kind": "config-dir",
+              "path": "/other"
+            },
+            {
+              "kind": "keychain-item",
+              "service": "Claude Code",
+              "account": "acct_1"
+            },
+            {
+              "kind": "keychain-item",
+              "service": "Claude Code",
+              "account": "legacy"
+            }
+          ]
+        }
+      },
+      "expected": true
+    },
+    {
+      "function": "storeKeysOverlap",
+      "note": "an empty store collides with nothing — otherwise a launch that touches no credential would block every drain",
+      "input": {
+        "a": {
+          "surfaces": []
+        },
+        "b": {
+          "surfaces": [
+            {
+              "kind": "config-dir",
+              "path": "/home/u/.claude"
+            }
+          ]
+        }
+      },
+      "expected": false
+    },
+    {
+      "function": "storeKeysOverlap",
+      "note": "trailing separator: `/home/u/.claude/` and `/home/u/.claude` are one directory and therefore one collision",
+      "input": {
+        "a": {
+          "surfaces": [
+            {
+              "kind": "config-dir",
+              "path": "/home/u/.claude/"
+            }
+          ]
+        },
+        "b": {
+          "surfaces": [
+            {
+              "kind": "config-dir",
+              "path": "/home/u/.claude"
+            }
+          ]
+        }
+      },
+      "expected": true
+    },
+    {
+      "function": "storeKeysOverlap",
+      "note": "case is NOT folded: on Linux these are two stores, and over-merging would report a collision that does not exist and stall a rotation",
+      "input": {
+        "a": {
+          "surfaces": [
+            {
+              "kind": "config-dir",
+              "path": "/home/u/.claude"
+            }
+          ]
+        },
+        "b": {
+          "surfaces": [
+            {
+              "kind": "config-dir",
+              "path": "/Home/u/.claude"
+            }
+          ]
+        }
+      },
+      "expected": false
+    },
+    {
+      "function": "unionStoreKeys",
+      "note": "INVARIANT 3: a rotation is a multi-key transaction, so the saga locks the union of every store it touches. Lock only the config dir and the keychain item it also rewrites is unguarded",
+      "input": {
+        "keys": [
+          {
+            "surfaces": [
+              {
+                "kind": "config-dir",
+                "path": "/home/u/.claude"
+              }
+            ]
+          },
+          {
+            "surfaces": [
+              {
+                "kind": "keychain-item",
+                "service": "Claude Code",
+                "account": "legacy"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "surfaces": [
+          {
+            "kind": "config-dir",
+            "path": "/home/u/.claude"
+          },
+          {
+            "kind": "keychain-item",
+            "service": "Claude Code",
+            "account": "legacy"
+          }
+        ]
+      }
+    },
+    {
+      "function": "unionStoreKeys",
+      "note": "the union of two overlapping stores dedupes, so the shared surface is locked once and the key stays canonical",
+      "input": {
+        "keys": [
+          {
+            "surfaces": [
+              {
+                "kind": "config-dir",
+                "path": "/a"
+              },
+              {
+                "kind": "keychain-item",
+                "service": "Claude Code",
+                "account": "acct_1"
+              }
+            ]
+          },
+          {
+            "surfaces": [
+              {
+                "kind": "config-dir",
+                "path": "/b"
+              },
+              {
+                "kind": "keychain-item",
+                "service": "Claude Code",
+                "account": "acct_1"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "surfaces": [
+          {
+            "kind": "config-dir",
+            "path": "/a"
+          },
+          {
+            "kind": "config-dir",
+            "path": "/b"
+          },
+          {
+            "kind": "keychain-item",
+            "service": "Claude Code",
+            "account": "acct_1"
+          }
+        ]
+      }
+    },
+    {
+      "function": "unionStoreKeys",
+      "note": "the union of nothing is the EMPTY store, which collides with nothing — locking nothing must not read as locking everything",
+      "input": {
+        "keys": []
+      },
+      "expected": {
+        "surfaces": []
+      }
+    },
+    {
+      "function": "commitPtyBinding",
+      "note": "a described launch commits, and the persisted form is exactly the two keys plus the pane identity",
+      "input": {
+        "runtimeId": "rt_1",
+        "ptyIncarnationId": "inc_1",
+        "route": {
+          "provider": "claude",
+          "account": {
+            "kind": "managed",
+            "accountId": "acct_1"
+          },
+          "host": {
+            "kind": "local"
+          }
+        },
+        "store": {
+          "surfaces": [
+            {
+              "kind": "config-dir",
+              "path": "/home/u/.claude"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "runtimeId": "rt_1",
+        "ptyIncarnationId": "inc_1",
+        "routeKey": "claude/managed:acct_1@local",
+        "storeKey": "config-dir:%2Fhome%2Fu%2F.claude"
+      }
+    },
+    {
+      "function": "commitPtyBinding",
+      "note": "no runtime — an unattributed pane stays unattributed rather than acquiring a plausible-looking binding",
+      "input": {
+        "runtimeId": "",
+        "ptyIncarnationId": "inc_1",
+        "route": {
+          "provider": "claude",
+          "account": {
+            "kind": "system-default"
+          },
+          "host": {
+            "kind": "local"
+          }
+        },
+        "store": {
+          "surfaces": []
+        }
+      },
+      "expected": null
+    },
+    {
+      "function": "commitPtyBinding",
+      "note": "no incarnation — without one a respawn cannot be detected, so the binding would be an audit answer nobody can check",
+      "input": {
+        "runtimeId": "rt_1",
+        "ptyIncarnationId": "",
+        "route": {
+          "provider": "claude",
+          "account": {
+            "kind": "system-default"
+          },
+          "host": {
+            "kind": "local"
+          }
+        },
+        "store": {
+          "surfaces": []
+        }
+      },
+      "expected": null
+    },
+    {
+      "function": "commitPtyBinding",
+      "note": "the incarnation-id cap is 128 units and this is exactly 128 — both sides must agree where the boundary is",
+      "input": {
+        "runtimeId": "rt_1",
+        "ptyIncarnationId": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+        "route": {
+          "provider": "claude",
+          "account": {
+            "kind": "system-default"
+          },
+          "host": {
+            "kind": "local"
+          }
+        },
+        "store": {
+          "surfaces": []
+        }
+      },
+      "expected": {
+        "runtimeId": "rt_1",
+        "ptyIncarnationId": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+        "routeKey": "claude/system-default@local",
+        "storeKey": ""
+      }
+    },
+    {
+      "function": "commitPtyBinding",
+      "note": "one unit over the cap is refused — a cap the two sides place differently is a cap that admits a binding on one side only",
+      "input": {
+        "runtimeId": "rt_1",
+        "ptyIncarnationId": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+        "route": {
+          "provider": "claude",
+          "account": {
+            "kind": "system-default"
+          },
+          "host": {
+            "kind": "local"
+          }
+        },
+        "store": {
+          "surfaces": []
+        }
+      },
+      "expected": null
+    },
+    {
+      "function": "ptyBindingsEqual",
+      "note": "two incarnations of ONE pane are two bindings — a respawn ends one binding and commits another, it never edits in place",
+      "input": {
+        "a": {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": "inc_1",
+          "route": {
+            "provider": "claude",
+            "account": {
+              "kind": "managed",
+              "accountId": "acct_1"
+            },
+            "host": {
+              "kind": "local"
+            }
+          },
+          "store": {
+            "surfaces": [
+              {
+                "kind": "config-dir",
+                "path": "/home/u/.claude"
+              }
+            ]
+          }
+        },
+        "b": {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": "inc_2",
+          "route": {
+            "provider": "claude",
+            "account": {
+              "kind": "managed",
+              "accountId": "acct_1"
+            },
+            "host": {
+              "kind": "local"
+            }
+          },
+          "store": {
+            "surfaces": [
+              {
+                "kind": "config-dir",
+                "path": "/home/u/.claude"
+              }
+            ]
+          }
+        }
+      },
+      "expected": false
+    },
+    {
+      "function": "ptyBindingsEqual",
+      "note": "the same pane described in a different surface order is ONE binding — equality reads the canonical keys, not the caller's spelling",
+      "input": {
+        "a": {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": "inc_1",
+          "route": {
+            "provider": "claude",
+            "account": {
+              "kind": "managed",
+              "accountId": "acct_1"
+            },
+            "host": {
+              "kind": "local"
+            }
+          },
+          "store": {
+            "surfaces": [
+              {
+                "kind": "config-dir",
+                "path": "/home/u/.claude/"
+              },
+              {
+                "kind": "keychain-item",
+                "service": "Claude Code",
+                "account": "acct_1"
+              }
+            ]
+          }
+        },
+        "b": {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": "inc_1",
+          "route": {
+            "provider": "claude",
+            "account": {
+              "kind": "managed",
+              "accountId": "acct_1"
+            },
+            "host": {
+              "kind": "local"
+            }
+          },
+          "store": {
+            "surfaces": [
+              {
+                "kind": "keychain-item",
+                "service": "Claude Code",
+                "account": "acct_1"
+              },
+              {
+                "kind": "config-dir",
+                "path": "/home/u/.claude"
+              }
+            ]
+          }
+        }
+      },
+      "expected": true
+    },
+    {
+      "function": "deserializePtyBinding",
+      "note": "round-trips a persisted row",
+      "input": {
+        "value": {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": "inc_1",
+          "routeKey": "claude/managed:acct_1@local",
+          "storeKey": "config-dir:%2Fhome%2Fu%2F.claude"
+        }
+      },
+      "expected": {
+        "runtimeId": "rt_1",
+        "ptyIncarnationId": "inc_1",
+        "routeKey": "claude/managed:acct_1@local",
+        "storeKey": "config-dir:%2Fhome%2Fu%2F.claude"
+      }
+    },
+    {
+      "function": "deserializePtyBinding",
+      "note": "an EMPTY store key is the empty store, so the row still deserializes — the distinction from an absent key is the next case",
+      "input": {
+        "value": {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": "inc_1",
+          "routeKey": "claude/system-default@local",
+          "storeKey": ""
+        }
+      },
+      "expected": {
+        "runtimeId": "rt_1",
+        "ptyIncarnationId": "inc_1",
+        "routeKey": "claude/system-default@local",
+        "storeKey": ""
+      }
+    },
+    {
+      "function": "deserializePtyBinding",
+      "note": "an ABSENT store key is a rejection, not the empty store — a row that never recorded what it was touching must not read as touching nothing",
+      "input": {
+        "value": {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": "inc_1",
+          "routeKey": "claude/system-default@local"
+        }
+      },
+      "expected": null
+    },
+    {
+      "function": "deserializePtyBinding",
+      "note": "a route key that is not canonical is not a route — the same refusal parseRouteKey makes, reached through the persistence path",
+      "input": {
+        "value": {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": "inc_1",
+          "routeKey": "claude/managed:a@b@local",
+          "storeKey": ""
+        }
+      },
+      "expected": null
+    },
+    {
+      "function": "deserializePtyBinding",
+      "note": "an unreadable store key is a rejection rather than a binding with a guessed-at store",
+      "input": {
+        "value": {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": "inc_1",
+          "routeKey": "claude/system-default@local",
+          "storeKey": "wallet:/x"
+        }
+      },
+      "expected": null
+    },
+    {
+      "function": "deserializePtyBinding",
+      "note": "a row with no incarnation cannot be checked against a respawn, so it is refused",
+      "input": {
+        "value": {
+          "runtimeId": "rt_1",
+          "routeKey": "claude/system-default@local",
+          "storeKey": ""
+        }
+      },
+      "expected": null
+    },
+    {
+      "function": "deserializePtyBinding",
+      "note": "a non-string runtimeId is refused rather than coerced — persisted state is untrusted input",
+      "input": {
+        "value": {
+          "runtimeId": 1,
+          "ptyIncarnationId": "inc_1",
+          "routeKey": "claude/system-default@local",
+          "storeKey": ""
+        }
+      },
+      "expected": null
+    },
+    {
+      "function": "deserializePtyBinding",
+      "note": "null is not a binding",
+      "input": {
+        "value": null
+      },
+      "expected": null
+    },
+    {
+      "function": "bindingsBlockingStore",
+      "note": "only LIVE panes that touch the store block a drain; the live pane on another config dir does not",
+      "input": {
+        "store": {
+          "surfaces": [
+            {
+              "kind": "config-dir",
+              "path": "/home/u/.claude"
+            }
+          ]
+        },
+        "bindings": [
+          {
+            "runtimeId": "rt_1",
+            "ptyIncarnationId": "inc_1",
+            "live": true,
+            "route": {
+              "provider": "claude",
+              "account": {
+                "kind": "managed",
+                "accountId": "acct_1"
+              },
+              "host": {
+                "kind": "local"
+              }
+            },
+            "store": {
+              "surfaces": [
+                {
+                  "kind": "config-dir",
+                  "path": "/home/u/.claude"
+                }
+              ]
+            }
+          },
+          {
+            "runtimeId": "rt_1",
+            "ptyIncarnationId": "inc_2",
+            "live": true,
+            "route": {
+              "provider": "claude",
+              "account": {
+                "kind": "managed",
+                "accountId": "acct_1"
+              },
+              "host": {
+                "kind": "local"
+              }
+            },
+            "store": {
+              "surfaces": [
+                {
+                  "kind": "config-dir",
+                  "path": "/elsewhere"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": "inc_1",
+          "routeKey": "claude/managed:acct_1@local",
+          "storeKey": "config-dir:%2Fhome%2Fu%2F.claude"
+        }
+      ]
+    },
+    {
+      "function": "bindingsBlockingStore",
+      "note": "an ENDED incarnation does not block, even though its store still overlaps — liveness is the runtime's answer, and the drain waits on processes, not on history",
+      "input": {
+        "store": {
+          "surfaces": [
+            {
+              "kind": "config-dir",
+              "path": "/home/u/.claude"
+            }
+          ]
+        },
+        "bindings": [
+          {
+            "runtimeId": "rt_1",
+            "ptyIncarnationId": "inc_1",
+            "live": false,
+            "route": {
+              "provider": "claude",
+              "account": {
+                "kind": "managed",
+                "accountId": "acct_1"
+              },
+              "host": {
+                "kind": "local"
+              }
+            },
+            "store": {
+              "surfaces": [
+                {
+                  "kind": "config-dir",
+                  "path": "/home/u/.claude"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": []
+    },
+    {
+      "function": "bindingsBlockingStore",
+      "note": "INVARIANT 1 at the drain seam: a live pane whose store only PARTIALLY overlaps still blocks, because it holds the same keychain item the drain is about to rewrite",
+      "input": {
+        "store": {
+          "surfaces": [
+            {
+              "kind": "config-dir",
+              "path": "/b"
+            },
+            {
+              "kind": "keychain-item",
+              "service": "Claude Code",
+              "account": "acct_1"
+            }
+          ]
+        },
+        "bindings": [
+          {
+            "runtimeId": "rt_1",
+            "ptyIncarnationId": "inc_1",
+            "live": true,
+            "route": {
+              "provider": "claude",
+              "account": {
+                "kind": "managed",
+                "accountId": "acct_1"
+              },
+              "host": {
+                "kind": "local"
+              }
+            },
+            "store": {
+              "surfaces": [
+                {
+                  "kind": "config-dir",
+                  "path": "/a"
+                },
+                {
+                  "kind": "keychain-item",
+                  "service": "Claude Code",
+                  "account": "acct_1"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": "inc_1",
+          "routeKey": "claude/managed:acct_1@local",
+          "storeKey": "config-dir:%2Fa|keychain-item:Claude%20Code:acct_1"
+        }
+      ]
+    },
+    {
+      "function": "deserializePtyBinding",
+      "note": "DIVERGENCE FOUND: a persisted ptyIncarnationId that is a JSON NUMBER. `String(raw.ptyIncarnationId ?? '')` coerces it to \"5\" and the binding COMMITS — a port that types the field as a string rejects the row, leaves a live pane unattributed, and lets a store-scoped drain proceed while that pane still holds the store",
+      "input": {
+        "value": {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": 5,
+          "routeKey": "claude/system-default@local",
+          "storeKey": ""
+        }
+      },
+      "expected": {
+        "runtimeId": "rt_1",
+        "ptyIncarnationId": "5",
+        "routeKey": "claude/system-default@local",
+        "storeKey": ""
+      }
+    },
+    {
+      "function": "deserializePtyBinding",
+      "note": "the same coercion for a non-integer number — \"1.5\", not a rejection",
+      "input": {
+        "value": {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": 1.5,
+          "routeKey": "claude/system-default@local",
+          "storeKey": ""
+        }
+      },
+      "expected": {
+        "runtimeId": "rt_1",
+        "ptyIncarnationId": "1.5",
+        "routeKey": "claude/system-default@local",
+        "storeKey": ""
+      }
+    },
+    {
+      "function": "deserializePtyBinding",
+      "note": "a boolean coerces to \"true\", which is a legal incarnation id — the coercion is String(), not a type check",
+      "input": {
+        "value": {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": true,
+          "routeKey": "claude/system-default@local",
+          "storeKey": ""
+        }
+      },
+      "expected": {
+        "runtimeId": "rt_1",
+        "ptyIncarnationId": "true",
+        "routeKey": "claude/system-default@local",
+        "storeKey": ""
+      }
+    },
+    {
+      "function": "deserializePtyBinding",
+      "note": "an object coerces to \"[object Object]\" — absurd, but it is what the persisted path accepts, and a port must agree or the two disagree about which panes exist",
+      "input": {
+        "value": {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": {},
+          "routeKey": "claude/system-default@local",
+          "storeKey": ""
+        }
+      },
+      "expected": {
+        "runtimeId": "rt_1",
+        "ptyIncarnationId": "[object Object]",
+        "routeKey": "claude/system-default@local",
+        "storeKey": ""
+      }
+    },
+    {
+      "function": "deserializePtyBinding",
+      "note": "an empty array coerces to the EMPTY string, which is not a legal incarnation id — rejected, unlike the number above",
+      "input": {
+        "value": {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": [],
+          "routeKey": "claude/system-default@local",
+          "storeKey": ""
+        }
+      },
+      "expected": null
+    },
+    {
+      "function": "deserializePtyBinding",
+      "note": "a non-empty array joins to \"a,b\" — the array arm of String(), pinned so the seam cannot half-model the coercion",
+      "input": {
+        "value": {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": ["a", "b"],
+          "routeKey": "claude/system-default@local",
+          "storeKey": ""
+        }
+      },
+      "expected": {
+        "runtimeId": "rt_1",
+        "ptyIncarnationId": "a,b",
+        "routeKey": "claude/system-default@local",
+        "storeKey": ""
+      }
+    },
+    {
+      "function": "deserializePtyBinding",
+      "note": "explicit null hits the `?? ''` and is REJECTED — the arm that agrees, kept beside the ones that did not",
+      "input": {
+        "value": {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": null,
+          "routeKey": "claude/system-default@local",
+          "storeKey": ""
+        }
+      },
+      "expected": null
+    },
+    {
+      "function": "bindingsBlockingStore",
+      "note": "DIVERGENCE FOUND: two rows share (runtimeId, ptyIncarnationId) but differ in liveness and in store. Liveness is the caller’s answer PER BINDING; a harness that rebuilds it from that pair marks the dead row live and reports a drain as blocked that is not",
+      "input": {
+        "store": {
+          "surfaces": [
+            {
+              "kind": "config-dir",
+              "path": "/b"
+            }
+          ]
+        },
+        "bindings": [
+          {
+            "runtimeId": "rt_1",
+            "ptyIncarnationId": "inc_1",
+            "live": true,
+            "route": {
+              "provider": "claude",
+              "account": {
+                "kind": "system-default"
+              },
+              "host": {
+                "kind": "local"
+              }
+            },
+            "store": {
+              "surfaces": [
+                {
+                  "kind": "config-dir",
+                  "path": "/a"
+                }
+              ]
+            }
+          },
+          {
+            "runtimeId": "rt_1",
+            "ptyIncarnationId": "inc_1",
+            "live": false,
+            "route": {
+              "provider": "claude",
+              "account": {
+                "kind": "system-default"
+              },
+              "host": {
+                "kind": "local"
+              }
+            },
+            "store": {
+              "surfaces": [
+                {
+                  "kind": "config-dir",
+                  "path": "/b"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": []
+    },
+    {
+      "function": "bindingsBlockingStore",
+      "note": "the same collision the other way round: the row that touches the drained store is the DEAD one, so nothing blocks. A set of live pairs is a union, so it can only ever widen liveness — it answers \"blocked\" for both arrangements and is wrong in both",
+      "input": {
+        "store": {
+          "surfaces": [
+            {
+              "kind": "config-dir",
+              "path": "/a"
+            }
+          ]
+        },
+        "bindings": [
+          {
+            "runtimeId": "rt_1",
+            "ptyIncarnationId": "inc_1",
+            "live": false,
+            "route": {
+              "provider": "claude",
+              "account": {
+                "kind": "system-default"
+              },
+              "host": {
+                "kind": "local"
+              }
+            },
+            "store": {
+              "surfaces": [
+                {
+                  "kind": "config-dir",
+                  "path": "/a"
+                }
+              ]
+            }
+          },
+          {
+            "runtimeId": "rt_1",
+            "ptyIncarnationId": "inc_1",
+            "live": true,
+            "route": {
+              "provider": "claude",
+              "account": {
+                "kind": "system-default"
+              },
+              "host": {
+                "kind": "local"
+              }
+            },
+            "store": {
+              "surfaces": [
+                {
+                  "kind": "config-dir",
+                  "path": "/b"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": []
+    },
+    {
+      "function": "ptyBindingsEqual",
+      "note": "differs ONLY by store — two panes at the same incarnation cannot be spending different credential stores, and dropping this conjunct kept the old corpus green",
+      "input": {
+        "a": {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": "inc_1",
+          "route": {
+            "provider": "claude",
+            "account": {
+              "kind": "system-default"
+            },
+            "host": {
+              "kind": "local"
+            }
+          },
+          "store": {
+            "surfaces": [
+              {
+                "kind": "config-dir",
+                "path": "/a"
+              }
+            ]
+          }
+        },
+        "b": {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": "inc_1",
+          "route": {
+            "provider": "claude",
+            "account": {
+              "kind": "system-default"
+            },
+            "host": {
+              "kind": "local"
+            }
+          },
+          "store": {
+            "surfaces": [
+              {
+                "kind": "config-dir",
+                "path": "/b"
+              }
+            ]
+          }
+        }
+      },
+      "expected": false
+    },
+    {
+      "function": "ptyBindingsEqual",
+      "note": "differs ONLY by route — system-default and a managed account are different subscriptions, and this conjunct was unreached too",
+      "input": {
+        "a": {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": "inc_1",
+          "route": {
+            "provider": "claude",
+            "account": {
+              "kind": "system-default"
+            },
+            "host": {
+              "kind": "local"
+            }
+          },
+          "store": {
+            "surfaces": [
+              {
+                "kind": "config-dir",
+                "path": "/a"
+              }
+            ]
+          }
+        },
+        "b": {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": "inc_1",
+          "route": {
+            "provider": "claude",
+            "account": {
+              "kind": "managed",
+              "accountId": "acct_1"
+            },
+            "host": {
+              "kind": "local"
+            }
+          },
+          "store": {
+            "surfaces": [
+              {
+                "kind": "config-dir",
+                "path": "/a"
+              }
+            ]
+          }
+        }
+      },
+      "expected": false
+    },
+    {
+      "function": "ptyBindingsEqual",
+      "note": "differs ONLY by runtimeId — the last of the four conjuncts",
+      "input": {
+        "a": {
+          "runtimeId": "rt_1",
+          "ptyIncarnationId": "inc_1",
+          "route": {
+            "provider": "claude",
+            "account": {
+              "kind": "system-default"
+            },
+            "host": {
+              "kind": "local"
+            }
+          },
+          "store": {
+            "surfaces": [
+              {
+                "kind": "config-dir",
+                "path": "/a"
+              }
+            ]
+          }
+        },
+        "b": {
+          "runtimeId": "rt_2",
+          "ptyIncarnationId": "inc_1",
+          "route": {
+            "provider": "claude",
+            "account": {
+              "kind": "system-default"
+            },
+            "host": {
+              "kind": "local"
+            }
+          },
+          "store": {
+            "surfaces": [
+              {
+                "kind": "config-dir",
+                "path": "/a"
+              }
+            ]
+          }
+        }
+      },
+      "expected": false
+    },
+    {
+      "function": "formatRouteKey",
+      "note": "the provider is percent-encoded too. No vector had a provider needing it, so a port that emitted the provider raw stayed green — and a raw `/` there makes the grammar ambiguous",
+      "input": {
+        "route": {
+          "provider": "a/b@c:d",
+          "account": {
+            "kind": "system-default"
+          },
+          "host": {
+            "kind": "local"
+          }
+        }
+      },
+      "expected": "a%2Fb%40c%3Ad/system-default@local"
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "and it round-trips: the encoded provider is the only spelling parseRouteKey accepts",
+      "input": {
+        "value": "a%2Fb%40c%3Ad/system-default@local"
+      },
+      "expected": {
+        "provider": "a/b@c:d",
+        "account": {
+          "kind": "system-default"
+        },
+        "host": {
+          "kind": "local"
+        }
+      }
+    },
+    {
+      "function": "parseRouteKey",
+      "note": "the raw spelling of that same provider is NOT a route key — it splits at the first `/`, so it names provider \"a\"",
+      "input": {
+        "value": "a/b@c:d/system-default@local"
+      },
+      "expected": null
+    },
+    {
+      "function": "formatRouteKey",
+      "note": "encodeURIComponent leaves ~!*'()-_. unreserved. Dropping `~` from that set kept the corpus green, and it would make every tilde-bearing key re-spell itself",
+      "input": {
+        "route": {
+          "provider": "claude",
+          "account": {
+            "kind": "managed",
+            "accountId": "~!*'()-_."
+          },
+          "host": {
+            "kind": "ssh",
+            "targetId": "~x"
+          }
+        }
+      },
+      "expected": "claude/managed:~!*'()-_.@ssh:~x"
+    },
+    {
+      "function": "parseStoreKey",
+      "note": "lowercase hex escapes decode. parseStoreKey has NO canonical round-trip check (unlike parseRouteKey), so this is ACCEPTED and re-canonicalized to uppercase — a decoder that only read uppercase would reject a key SQLite happily holds",
+      "input": {
+        "value": "config-dir:%2fhome%2fu%2f.claude"
+      },
+      "expected": {
+        "surfaces": [
+          {
+            "kind": "config-dir",
+            "path": "/home/u/.claude"
+          }
+        ]
+      }
+    },
+    {
+      "function": "parseStoreKey",
+      "note": "an escape that is not valid UTF-8 is a REJECTION, not U+FFFD. decodeURIComponent throws and the module catches it into null; a lossy decoder would mint a store key naming a path nobody asked for",
+      "input": {
+        "value": "config-dir:%FF"
+      },
+      "expected": null
+    },
+    {
+      "function": "parseStoreKey",
+      "note": "a lone surrogate encoded as UTF-8 is refused for the same reason",
+      "input": {
+        "value": "config-dir:%ED%A0%80"
+      },
+      "expected": null
+    },
+    {
+      "function": "parseStoreKey",
+      "note": "a stored key that is out of order, carries a trailing separator, and duplicates a surface: parseStoreKey re-runs createStoreKey, so it comes back sorted, trimmed and deduped. Returning the parsed list as-is kept the corpus green, and it would let one store hold two keys",
+      "input": {
+        "value": "keychain-item:Claude%20Code:acct_1|config-dir:%2Fhome%2Fu%2F.claude%2F|config-dir:%2Fhome%2Fu%2F.claude"
+      },
+      "expected": {
+        "surfaces": [
+          {
+            "kind": "config-dir",
+            "path": "/home/u/.claude"
+          },
+          {
+            "kind": "keychain-item",
+            "service": "Claude Code",
+            "account": "acct_1"
+          }
+        ]
+      }
+    },
+    {
+      "function": "formatStoreKey",
+      "note": "the same normalization on the construction path, so the two paths cannot drift",
+      "input": {
+        "surfaces": [
+          {
+            "kind": "config-dir",
+            "path": "/home/u/.claude/"
+          },
+          {
+            "kind": "keychain-item",
+            "service": "Claude Code",
+            "account": "acct_1"
+          },
+          {
+            "kind": "config-dir",
+            "path": "/home/u/.claude"
+          }
+        ]
+      },
+      "expected": "config-dir:%2Fhome%2Fu%2F.claude|keychain-item:Claude%20Code:acct_1"
+    }
+  ]
+}

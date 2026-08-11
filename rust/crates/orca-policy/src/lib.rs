@@ -16,6 +16,16 @@
 
 #![forbid(unsafe_code)]
 
+/// Fleet identity keys — RouteKey / StoreKey / PtyBinding. Authority code for the
+/// same reason the two decisions above are: a store key decides which credential
+/// a caller may mutate.
+pub mod fleet_identity;
+/// The §8.4 task-claim check: what a worker SAID it changed versus what git
+/// says it changed. Kept here rather than with the formatters because it is the
+/// fleet's only CONTRADICTING signal — and, like the guards below, it must fail
+/// to `unknown` rather than to an accusation.
+pub mod task_claim;
+
 /// Extensions a world may serve. Mirrors the TS `STORY_PLAY_EXTENSIONS`, and is
 /// deliberately an allowlist: a world folder legitimately contains `.env`,
 /// `.pem` and notes, none of which are part of a game.
@@ -168,8 +178,10 @@ pub fn decode_once(request_path: &str) -> Option<String> {
 
 /// `None` for anything that is not an ASCII hex digit — the malformed-escape
 /// signal, kept as its own total function so the decoder stays branch-simple.
+/// Shared with `fleet_identity`, whose key grammar percent-encodes every
+/// variable part: one hex reader, so the two decoders cannot drift.
 #[must_use]
-fn hex_value(byte: u8) -> Option<u8> {
+pub(crate) fn hex_value(byte: u8) -> Option<u8> {
     match byte {
         b'0'..=b'9' => Some(byte - b'0'),
         b'a'..=b'f' => Some(byte - b'a' + 10),
