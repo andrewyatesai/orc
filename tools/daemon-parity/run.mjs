@@ -14,6 +14,10 @@
 //                        divergence FAILS the gate. If it cannot be spawned in
 //                        this environment, the leg is loudly SKIPPED (not
 //                        silently passed) — the Rust invariants still gate.
+//                        RETIRED IN THIS FORK: a2916e1d8 deleted
+//                        src/main/daemon/daemon-entry.ts, so no build produces
+//                        the entry and this leg always skips. Kept runnable for
+//                        a checkout that still has one.
 //
 // Usage: node tools/daemon-parity/run.mjs
 
@@ -30,10 +34,10 @@ import {
 } from './request-vectors.mjs'
 
 // The shared corpus deliberately drives the fork's MIN version (1018): the Rust
-// daemon (PROTOCOL_VERSION 1019, the additive subscriber rev) must keep a 1018
-// client fully functional — this run IS that back-compat proof. The Rust-only
-// subscriber phase connects at 1019. Must track MIN_SUPPORTED_PROTOCOL_VERSION /
-// PROTOCOL_VERSION in rust/crates/orca-daemon/src/protocol.rs.
+// daemon (PROTOCOL_VERSION 1021 and climbing) must keep a 1018 client fully
+// functional — this run IS that back-compat proof. The Rust-only subscriber
+// phase connects at 1019, the rev that added the role. Must track
+// MIN_SUPPORTED_PROTOCOL_VERSION in rust/crates/orca-daemon/src/protocol.rs.
 const MIN_PROTOCOL_VERSION = 1018
 const SUBSCRIBER_PROTOCOL_VERSION = 1019
 const repoRoot = resolve(import.meta.dirname, '..', '..')
@@ -49,6 +53,18 @@ async function waitFor(pred, { tries = 200, delayMs = 25 } = {}) {
     await sleep(delayMs)
   }
   return false
+}
+
+// The daemon's minted token, or null until the file is fully written — `serve`
+// binds the socket BEFORE it provisions the token, so present-but-empty is a
+// real intermediate state, not a missing file.
+function readToken(path) {
+  try {
+    const token = readFileSync(path, 'utf8').trim()
+    return token.length > 0 ? token : null
+  } catch {
+    return null
+  }
 }
 
 async function connectWithRetry(client, socketPath, tries = 200) {
@@ -82,11 +98,33 @@ async function runRustLeg() {
     )
   }
   const socketPath = join(scratch, 'rust.sock')
-  const child = spawn(bin, [socketPath], { stdio: ['ignore', 'ignore', 'inherit'] })
+  const tokenPath = join(scratch, 'rust.token')
+  // The argv daemon-init.ts launches with. An auth mode is REQUIRED (main.rs):
+  // a bare socket path alone is a usage error, which is how this gate stopped
+  // running. Drive the tokened mode the app actually ships, not
+  // --insecure-no-token-auth, so the hello token gate is on the covered path.
+  const args = ['--socket', socketPath, '--token', tokenPath]
+  let stderr = ''
+  const child = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'] })
   cleanup.push(() => child.kill('SIGKILL'))
-  await waitFor(() => existsSync(socketPath))
+  child.stderr.setEncoding('utf8')
+  child.stderr.on('data', (d) => {
+    stderr += d
+    process.stderr.write(d)
+  })
+  let exited = null
+  child.on('exit', (code, sig) => (exited = sig ?? code))
+  const ready = await waitFor(() => existsSync(socketPath) && readToken(tokenPath) !== null)
+  if (!ready) {
+    // Name the daemon's own exit and argv rather than time out later on a socket
+    // that was never bound — the usage error was invisible for exactly that reason.
+    throw new Error(
+      `orca-daemon never came up (exit=${exited}); argv=${args.join(' ')}\n` +
+        `stderr tail:\n${stderr.split('\n').slice(-8).join('\n')}`
+    )
+  }
 
-  const token = 'any-token-rust-accepts'
+  const token = readToken(tokenPath)
   const shared = await driveBothPhases(
     makeConnectClient(socketPath, token, MIN_PROTOCOL_VERSION),
     'parity-rust'
@@ -123,7 +161,14 @@ async function runNodeLeg() {
   const entry = join(repoRoot, 'out/main/daemon-entry.js')
   const electron = join(repoRoot, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron')
   if (!existsSync(entry)) {
-    return { skipped: `no ${entry} — run \`pnpm build:electron-vite\`` }
+    // Not a stale build: the entry source is gone (a2916e1d8), so `pnpm
+    // build:electron-vite` cannot produce it — say so instead of sending the
+    // operator after a build that will never emit the file.
+    return {
+      skipped:
+        `no ${entry} — the fork removed src/main/daemon/daemon-entry.ts (a2916e1d8), ` +
+        'so the Node daemon has no runnable entry and the differential is retired'
+    }
   }
   if (!existsSync(electron)) {
     return { skipped: `no electron binary at ${electron}` }
@@ -142,12 +187,12 @@ async function runNodeLeg() {
   child.on('exit', (code, sig) => (exited = sig ?? code))
 
   // The daemon writes its generated token to tokenPath once it is listening.
-  const ready = await waitFor(() => existsSync(tokenPath) && existsSync(socketPath))
+  const ready = await waitFor(() => existsSync(socketPath) && readToken(tokenPath) !== null)
   if (!ready) {
     const tail = stderr.split('\n').slice(-8).join('\n')
     return { skipped: `Node daemon did not come up (exit=${exited}). stderr tail:\n${tail}` }
   }
-  const token = readFileSync(tokenPath, 'utf8').trim()
+  const token = readToken(tokenPath)
   // The Node leg speaks whatever version out/main was BUILT with (types.ts at
   // build time), so negotiate: try the shared-corpus version first, then the
   // current one — a stale-or-fresh build either way keeps the differential alive.
