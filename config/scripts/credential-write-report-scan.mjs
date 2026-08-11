@@ -226,6 +226,9 @@ function siteRecords(sites) {
       line: position.line + 1,
       scope: site.scope,
       sinkId: site.sinkId,
+      // Why carried out of the scan: it is the readable half of the site id, and a reviewer
+      // reconciling a detached note needs to see what the call looked like.
+      shape: site.shape,
       projectId: site.projectId,
       guard: site.guard ? `${site.guard.module}#${site.guard.name}` : null,
       words: [...new Set(site.signals.flatMap((signal) => signal.words))].sort(),

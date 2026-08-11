@@ -5,21 +5,32 @@ import {
   type IntegrationCredentialService
 } from '../shared/integration-credential-errors'
 import {
+  isPassphraseSealedSecret,
+  openPassphraseSealedSecret,
+  sealSecretWithPassphrase,
+  SECRET_PASSPHRASE_FILE_ENV
+} from './passphrase-sealed-secret'
+import {
   allowsPlaintextPersistedSecret,
   PLAINTEXT_SECRET_OPT_IN_ENV,
   PLAINTEXT_SECRET_PREFIX
 } from './plaintext-secret-policy'
+import { warnSecretStorageUnavailableOnce } from './secret-storage-availability'
 
 /**
  * The on-disk contract for Jira/Linear token files, reader and writer together so the tag
  * a write applies is the tag a read understands.
  *
- *   <name>.enc         safeStorage ciphertext (or, from builds before this module, bare cleartext)
+ *   <name>.enc         safeStorage ciphertext, an `orca-passphrase-v1:` envelope, or (from builds
+ *                      before this module) bare cleartext
  *   <name>.plaintext   `orca-plaintext-v1:<token>`, written only under the dev opt-in
  *
- * When safeStorage cannot encrypt, the token is NOT written at all: the caller keeps it in memory
- * so the session stays connected, and the user reconnects after a restart. That is the right trade
- * for these two stores because the credential is re-enterable — the user still has the token.
+ * Both `.enc` forms are genuine ciphertext, which is why they share a file name: the reader tells
+ * them apart by tag, and neither can be mistaken for the cleartext sibling.
+ *
+ * When nothing can encrypt, the token is NOT written at all: the caller keeps it in memory so the
+ * session stays connected, and the user reconnects after a restart. That is the right trade for
+ * these two stores because the credential is re-enterable — the user still has the token.
  */
 
 // Why: connection status treats a token file as a saved credential; empty
@@ -33,13 +44,24 @@ function fileHasContent(path: string): boolean {
 }
 
 export class CredentialDecryptionError extends Error {
-  constructor(service: IntegrationCredentialService) {
-    super(credentialDecryptionMessage(service))
+  // Why the appended detail: `isIntegrationCredentialDecryptionError` matches the canonical message
+  // with `includes`, so extra text survives IPC without breaking detection — and a passphrase
+  // failure needs to say WHICH configuration is wrong, not just "could not decrypt".
+  constructor(service: IntegrationCredentialService, detail?: string) {
+    super(
+      detail
+        ? `${credentialDecryptionMessage(service)} ${detail}`
+        : credentialDecryptionMessage(service)
+    )
     this.name = 'CredentialDecryptionError'
   }
 }
 
-export type CredentialPersistOutcome = 'encrypted' | 'plaintext-opt-in' | 'memory-only'
+export type CredentialPersistOutcome =
+  | 'encrypted'
+  | 'passphrase-encrypted'
+  | 'plaintext-opt-in'
+  | 'memory-only'
 
 const ENCRYPTED_CREDENTIAL_SUFFIX = '.enc'
 const PLAINTEXT_CREDENTIAL_SUFFIX = '.plaintext'
@@ -108,6 +130,16 @@ export function writeStoredCredentialToken(
     return 'encrypted'
   }
 
+  // Why before the dev opt-in and not after: on a host with a passphrase configured this branch
+  // produces real ciphertext, so the cleartext branch must never be reached there at all.
+  const sealed = sealSecretWithPassphrase(token)
+  if (sealed) {
+    warnSecretStorageUnavailableOnce(logTag(service))
+    writeFileSync(encryptedPath, sealed, { encoding: 'utf-8', mode: 0o600 })
+    unlinkIfPresent(plaintextCredentialPath(encryptedPath))
+    return 'passphrase-encrypted'
+  }
+
   if (allowsPlaintextPersistedSecret()) {
     console.warn(
       `[${logTag(service)}] safeStorage unavailable — persisting the ${service} token in plaintext (dev opt-in ${PLAINTEXT_SECRET_OPT_IN_ENV}).`
@@ -127,11 +159,12 @@ export function writeStoredCredentialToken(
   unlinkIfPresent(plaintextCredentialPath(encryptedPath))
   const keptCiphertext = fileHasContent(encryptedPath)
   const nextStep = keptCiphertext
-    ? `A previously encrypted ${service} token is still on disk and will be used again once a keychain is available; reconnect ${service} to replace it.`
-    : `Reconnect ${service} after restarting Orca, or set ${PLAINTEXT_SECRET_OPT_IN_ENV}=1 in a dev build to persist it in plaintext.`
+    ? `A previously encrypted ${service} token is still on disk and will be used again once it can be decrypted here; reconnect ${service} to replace it.`
+    : `Reconnect ${service} after restarting Orca, set ${SECRET_PASSPHRASE_FILE_ENV} to persist it encrypted with an operator passphrase, or set ${PLAINTEXT_SECRET_OPT_IN_ENV}=1 in a dev build to persist it in plaintext.`
   console.warn(
     `[${logTag(service)}] safeStorage unavailable — the ${service} token is kept in memory for this session only and was NOT written to disk. ${nextStep}`
   )
+  warnSecretStorageUnavailableOnce(logTag(service))
   return 'memory-only'
 }
 
@@ -177,6 +210,23 @@ function readPlaintextLegacyCredential(
   return usableToken(plaintext)
 }
 
+// Returns null when these bytes are not a passphrase envelope at all; throws when they are one this
+// host cannot open, because silently falling through would hand the caller the envelope as a token.
+function passphraseSealedCredential(
+  service: IntegrationCredentialService,
+  raw: Buffer
+): string | null {
+  const decoded = decodeUtf8(raw)
+  if (decoded === null || !isPassphraseSealedSecret(decoded)) {
+    return null
+  }
+  try {
+    return openPassphraseSealedSecret(decoded)
+  } catch (error) {
+    throw new CredentialDecryptionError(service, error instanceof Error ? error.message : undefined)
+  }
+}
+
 // Why the tag is checked before decryptString: an opted-in plaintext blob is not ciphertext, and
 // letting decrypt fail first would fall through to the legacy reader and hand back the tag too.
 function taggedPlaintext(raw: Buffer): string | null {
@@ -198,6 +248,13 @@ export function readStoredCredentialToken(
 ): StoredCredentialRead {
   if (raw.length === 0) {
     return { token: null, form: 'plaintext' }
+  }
+
+  const passphraseSealed = passphraseSealedCredential(service, raw)
+  if (passphraseSealed !== null) {
+    // form 'ciphertext' on purpose: this is real ciphertext, so the caller must not try to
+    // "upgrade" it to safeStorage and must not treat it as an at-rest exposure.
+    return { token: usableToken(passphraseSealed), form: 'ciphertext' }
   }
 
   const tagged = taggedPlaintext(raw)

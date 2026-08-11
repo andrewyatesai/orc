@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { loadLinearSdk, type LinearSdkModule } from './linear-sdk'
 import {
   CredentialDecryptionError,
+  type CredentialPersistOutcome,
   readStoredCredentialTokenFile,
   removeStoredCredentialToken,
   storedCredentialExists,
@@ -335,14 +336,17 @@ function clearLegacyViewerOnDisk(): void {
 
 // Why the key stays cached even when nothing was written: without a keychain the write is refused,
 // and the in-memory copy is what keeps this session connected until the user reconnects after restart.
-function saveWorkspaceToken(workspaceId: string, apiKey: string): void {
+// Why the outcome is returned: a caller that then DELETES another copy of the credential must be able
+// to tell whether this one actually reached disk.
+function saveWorkspaceToken(workspaceId: string, apiKey: string): CredentialPersistOutcome {
   ensureOrcaDir()
   if (workspaceId !== LEGACY_WORKSPACE_ID) {
     ensureWorkspaceTokenDir()
   }
-  writeStoredCredentialToken('Linear', getWorkspaceTokenPath(workspaceId), apiKey)
+  const outcome = writeStoredCredentialToken('Linear', getWorkspaceTokenPath(workspaceId), apiKey)
   cachedTokens.set(workspaceId, apiKey)
   credentialErrors.delete(workspaceId)
+  return outcome
 }
 
 // Backward-compatible export for the legacy single-workspace storage path.
@@ -469,13 +473,25 @@ function upsertWorkspace(workspace: LinearWorkspace, options: { select?: boolean
   })
 }
 
-function replaceLegacyWorkspace(workspace: LinearWorkspace, token: string): void {
-  saveWorkspaceToken(workspace.id, token)
+/**
+ * Migrates the single legacy API key onto its real workspace, and returns the workspace actually in
+ * effect. The migration moves the SAME token from one path to another, so it is abandoned when the
+ * new copy could not be written: deleting the legacy file would then leave zero persisted copies and
+ * log the user out at the next launch with nothing to recover.
+ */
+function replaceLegacyWorkspace(workspace: LinearWorkspace, token: string): LinearWorkspace {
+  if (saveWorkspaceToken(workspace.id, token) === 'memory-only') {
+    console.warn(
+      '[linear] safeStorage unavailable — keeping the legacy Linear API key on disk instead of migrating it, so the workspace is still connected after a restart.'
+    )
+    return { ...workspace, id: LEGACY_WORKSPACE_ID, isLegacy: true }
+  }
   clearTokenFile(LEGACY_WORKSPACE_ID)
   clearLegacyViewerOnDisk()
   cachedLegacyViewer = null
   legacyViewerLoadedFromDisk = true
   upsertWorkspace(workspace, { select: true })
+  return workspace
 }
 
 function resolveWorkspaceId(workspaceId?: string | null): string | null {
@@ -589,17 +605,26 @@ export async function connect(
     const org = await me.organization
     const workspace = workspaceFromLinearData(me, org)
 
-    saveWorkspaceToken(workspace.id, apiKey)
+    const outcome = saveWorkspaceToken(workspace.id, apiKey)
     const legacyWorkspace = getLegacyWorkspace()
     if (
       legacyWorkspace &&
       legacyWorkspace.organizationName === workspace.organizationName &&
       legacyWorkspace.email === workspace.email
     ) {
-      clearTokenFile(LEGACY_WORKSPACE_ID)
-      clearLegacyViewerOnDisk()
-      cachedLegacyViewer = null
-      legacyViewerLoadedFromDisk = true
+      // Why the outcome gates the de-duplication: with no keychain the new key was not written, so
+      // dropping the legacy copy of the same account would log the user out at the next launch. The
+      // duplicate row that survives for this session is the cheaper of the two costs.
+      if (outcome === 'memory-only') {
+        console.warn(
+          '[linear] safeStorage unavailable — keeping the previously saved Linear API key for this account on disk; the new key is active for this session only.'
+        )
+      } else {
+        clearTokenFile(LEGACY_WORKSPACE_ID)
+        clearLegacyViewerOnDisk()
+        cachedLegacyViewer = null
+        legacyViewerLoadedFromDisk = true
+      }
     }
     upsertWorkspace(workspace, { select: true })
     return { ok: true, viewer: workspace, workspace }
@@ -684,13 +709,16 @@ export async function testConnection(
     const me = await client.viewer
     const org = await me.organization
     const workspace = workspaceFromLinearData(me, org)
+    // Why the returned workspace can differ: an abandoned legacy migration keeps the legacy id, and
+    // handing the renderer the un-migrated id would select a workspace that is not in the status list.
+    let effectiveWorkspace = workspace
     if (resolvedWorkspaceId === LEGACY_WORKSPACE_ID) {
-      replaceLegacyWorkspace(workspace, token)
+      effectiveWorkspace = replaceLegacyWorkspace(workspace, token)
     } else {
       saveWorkspaceToken(workspace.id, token)
       upsertWorkspace(workspace, { select: true })
     }
-    return { ok: true, viewer: workspace, workspace }
+    return { ok: true, viewer: effectiveWorkspace, workspace: effectiveWorkspace }
   } catch (error) {
     if (isAuthError(error)) {
       clearToken(resolvedWorkspaceId)

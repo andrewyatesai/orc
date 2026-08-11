@@ -34,6 +34,27 @@ function legacyPlaintextTokenPath(): string {
   return join(tempHome, '.orca', 'linear-token.plaintext')
 }
 
+function workspaceTokenPath(workspaceId: string): string {
+  return join(
+    tempHome,
+    '.orca',
+    'linear-tokens',
+    `${Buffer.from(workspaceId).toString('base64url')}.enc`
+  )
+}
+
+// Every fixture key resolves to the same Linear account, which is what makes the legacy record and
+// the workspace record two copies of one credential — the situation the migration has to get right.
+function fakeLinearClient(): unknown {
+  return class {
+    viewer = Promise.resolve({
+      displayName: 'Ada',
+      email: 'ada@example.com',
+      organization: Promise.resolve({ id: 'org-alpha', name: 'Alpha', urlKey: 'alpha' })
+    })
+  }
+}
+
 async function loadClientModule() {
   vi.resetModules()
   vi.doMock('electron', () => ({ app: appMock, safeStorage: safeStorageMock }))
@@ -44,7 +65,7 @@ async function loadClientModule() {
   vi.doMock('./linear-sdk', () => ({
     loadLinearSdk: () => ({
       AuthenticationLinearError: class extends Error {},
-      LinearClient: vi.fn()
+      LinearClient: fakeLinearClient()
     })
   }))
   return import('./client')
@@ -187,5 +208,68 @@ describe('Linear token persistence', () => {
       'lin_api_legacy_cleartext'
     )
     expect(readFileSync(legacyEncryptedTokenPath(), 'utf8')).toBe('lin_api_legacy_cleartext')
+  })
+})
+
+describe('Linear legacy migration without a keychain', () => {
+  beforeEach(() => {
+    writeLegacyViewer()
+    writeFileSync(legacyEncryptedTokenPath(), 'lin_api_legacy_cleartext')
+  })
+
+  // The migration moves ONE token from linear-token.enc to linear-tokens/<id>.enc. When the write is
+  // refused there is nothing at the destination, so clearing the source would leave zero copies.
+  it('does not delete the legacy token when the migrated copy was not written', async () => {
+    safeStorageMock.isEncryptionAvailable.mockReturnValue(false)
+    const linear = await loadClientModule()
+
+    await expect(linear.testConnection()).resolves.toMatchObject({ ok: true })
+
+    expect(readFileSync(legacyEncryptedTokenPath(), 'utf8')).toBe('lin_api_legacy_cleartext')
+    expect(existsSync(workspaceTokenPath('org-alpha'))).toBe(false)
+
+    // The user's real test: relaunch. They are still connected, not logged out with nothing to restore.
+    const restarted = await loadClientModule()
+    expect(restarted.hasStoredToken(LEGACY_WORKSPACE_ID)).toBe(true)
+    expect(restarted.getStatus().connected).toBe(true)
+    expect(restarted.loadToken({ force: true, workspaceId: LEGACY_WORKSPACE_ID })).toBe(
+      'lin_api_legacy_cleartext'
+    )
+  })
+
+  it('completes the migration once the token can be encrypted', async () => {
+    const linear = await loadClientModule()
+
+    await expect(linear.testConnection()).resolves.toMatchObject({
+      ok: true,
+      workspace: { id: 'org-alpha' }
+    })
+
+    expect(readFileSync(workspaceTokenPath('org-alpha'), 'utf8')).toBe(
+      'enc:lin_api_legacy_cleartext'
+    )
+    expect(existsSync(legacyEncryptedTokenPath())).toBe(false)
+  })
+
+  it('keeps the previously saved key for the same account when a reconnect cannot be written', async () => {
+    safeStorageMock.isEncryptionAvailable.mockReturnValue(false)
+    const linear = await loadClientModule()
+
+    await expect(linear.connect('lin_api_rotated')).resolves.toMatchObject({ ok: true })
+
+    // Why the older key survives: nothing was written for the new one, so de-duplicating the legacy
+    // record would log the user out at the next launch instead of merely leaving it stale.
+    expect(readFileSync(legacyEncryptedTokenPath(), 'utf8')).toBe('lin_api_legacy_cleartext')
+    const restarted = await loadClientModule()
+    expect(restarted.getStatus().connected).toBe(true)
+  })
+
+  it('de-duplicates the legacy record on reconnect once the new key is encrypted on disk', async () => {
+    const linear = await loadClientModule()
+
+    await expect(linear.connect('lin_api_rotated')).resolves.toMatchObject({ ok: true })
+
+    expect(readFileSync(workspaceTokenPath('org-alpha'), 'utf8')).toBe('enc:lin_api_rotated')
+    expect(existsSync(legacyEncryptedTokenPath())).toBe(false)
   })
 })

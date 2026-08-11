@@ -324,6 +324,94 @@ describe('minimax-cookie-store', () => {
     expect(() => store.readMiniMaxSessionCookie()).toThrow(/could not be decrypted/)
   })
 
+  // Why a stateful fake disk here: these cases are about what the NEXT launch reads, which a
+  // per-call mockReturnValue cannot express — the file has to actually disappear or survive.
+  describe('a refused save and the cookie already on disk', () => {
+    function mountCookieFile(initial: string | null): { contents: () => string | null } {
+      let contents = initial
+      existsSyncMock.mockImplementation(() => contents !== null)
+      readFileSyncMock.mockImplementation(() => Buffer.from(contents ?? '', 'utf8'))
+      rmSyncMock.mockImplementation(() => {
+        contents = null
+      })
+      writeSecureFileMock.mockImplementation((_path: string, data: string) => {
+        contents = data
+      })
+      return { contents: () => contents }
+    }
+
+    beforeEach(() => {
+      safeStorageMock.isEncryptionAvailable.mockReturnValue(false)
+    })
+
+    it('removes a superseded cleartext cookie so the next launch cannot use it', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      const disk = mountCookieFile(envelope('plaintext', '_token=superseded'))
+      const store = await loadStore()
+
+      expect(() => store.saveMiniMaxSessionCookie('_token=fresh')).toThrow(
+        /cannot be stored securely/
+      )
+
+      expect(disk.contents()).toBeNull()
+      // The point of the deletion: after a restart the superseded cookie is gone, not silently reused.
+      vi.resetModules()
+      const relaunched = await loadStore()
+      expect(relaunched.readMiniMaxSessionCookie()).toBeNull()
+      warn.mockRestore()
+    })
+
+    it('removes a superseded pre-envelope cleartext cookie too', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      const disk = mountCookieFile('_token=superseded; minimax_group_id_v2=1')
+      const store = await loadStore()
+
+      expect(() => store.saveMiniMaxSessionCookie('_token=fresh')).toThrow()
+
+      expect(disk.contents()).toBeNull()
+      warn.mockRestore()
+    })
+
+    // Why this one stays: without safeStorage the ciphertext cannot be read on this host, so it
+    // resurrects nothing — and it may be the user's only copy of a cookie that still works elsewhere.
+    it('keeps an encrypted cookie it cannot read on this host', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      const stored = envelope('encrypted', 'ciphertext-bytes')
+      const disk = mountCookieFile(stored)
+      const store = await loadStore()
+
+      expect(() => store.saveMiniMaxSessionCookie('_token=fresh')).toThrow()
+
+      expect(disk.contents()).toBe(stored)
+      expect(rmSyncMock).not.toHaveBeenCalled()
+      warn.mockRestore()
+    })
+
+    it('keeps the stored cookie when the refused save repeats the same value', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      const stored = envelope('dev-plaintext', '_token=unchanged')
+      const disk = mountCookieFile(stored)
+      const store = await loadStore()
+
+      expect(() => store.saveMiniMaxSessionCookie('_token=unchanged')).toThrow()
+
+      expect(disk.contents()).toBe(stored)
+      warn.mockRestore()
+    })
+
+    it('leaves the cookie usable in this session after removing the superseded file', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      mountCookieFile(envelope('plaintext', '_token=superseded'))
+      const store = await loadStore()
+
+      expect(() => store.saveMiniMaxSessionCookie('_token=fresh')).toThrow()
+
+      expect(store.readMiniMaxSessionCookie()).toBe('_token=fresh')
+      expect(store.hasMiniMaxSessionCookie()).toBe(true)
+      warn.mockRestore()
+    })
+  })
+
   it('clears the cached cookie and removes the file', async () => {
     existsSyncMock.mockReturnValueOnce(true)
     readFileSyncMock.mockReturnValueOnce(Buffer.from(envelope('encrypted', 'encrypted-payload')))

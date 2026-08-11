@@ -24,6 +24,7 @@ import {
   annotate,
   loadReviewNotes,
   reviewNotesPath,
+  revivedRetiredKeys,
   unmatchedNoteKeys
 } from './credential-write-review-notes.mjs'
 import { REPO_ROOT } from './typescript-program-cache.mjs'
@@ -94,6 +95,49 @@ it('a notes entry matching no live site is surfaced, not silently kept', () => {
   ])
   expect2deep(unmatchedNoteKeys(fakeSites(), notes), ['ghost.ts|z|fs:fs:writeFileSync|0'])
 })
+
+// Retiring a note is how a review about a write the analysis no longer reaches is KEPT rather than
+// deleted. It must stay powerless: retired knowledge that could annotate a live site would be an
+// exemption list wearing a different hat.
+it('a retired note annotates nothing, and a live site answering to its key is surfaced', () => {
+  const notesFile = path.join(REPO_ROOT, 'config', 'scripts', 'retired-notes-fixture.json')
+  fs.writeFileSync(
+    notesFile,
+    JSON.stringify({
+      sites: {},
+      retired: {
+        'a.ts|f|fs:fs:writeFileSync|0': {
+          verdict: 'fd-write-not-a-file',
+          reason: 'kept judgement',
+          retiredBecause: 'the site became an escape'
+        }
+      }
+    })
+  )
+  try {
+    const { notes, retired } = loadReviewNotes(notesFile)
+    expect2eq(notes.size, 0, 'a retired note is not part of the join')
+    expect2eq(retired.size, 1)
+    for (const row of annotate(fakeSites(), notes)) {
+      expect2eq(row.review.verdict, UNREVIEWED)
+    }
+    expect2deep(revivedRetiredKeys(fakeSites(), retired), ['a.ts|f|fs:fs:writeFileSync|0'])
+  } finally {
+    fs.rmSync(notesFile, { force: true })
+  }
+})
+
+// The committed data, not a fixture: an orphan here means a real review is not being applied.
+it('every committed note matches a site, or is retired with a reason', () => {
+  const { notes, retired } = loadReviewNotes()
+  for (const [key, note] of retired) {
+    expect2ok(note.retiredBecause, `retired note ${key} must say why it was retired`)
+    expect2eq(notes.has(key), false, `${key} cannot be both active and retired`)
+  }
+  const report = runReport()
+  expect2deep(report.staleReviewNotes, [], 'orphaned review notes must be reconciled, not carried')
+  expect2deep(report.revivedRetiredNotes, [])
+}, 120_000)
 
 // Why one and not four: Jira, Linear and MiniMax now refuse to write without the dev opt-in. The
 // survivor is the mobile E2EE identity, whose flag is an opt-OUT, so a keychain-less host still

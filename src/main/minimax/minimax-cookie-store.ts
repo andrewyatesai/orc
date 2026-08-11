@@ -4,20 +4,28 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { hardenExistingSecureFile, writeSecureFile } from '../../shared/secure-file'
 import {
+  openPassphraseSealedSecret,
+  PassphraseSealedSecretError,
+  sealSecretWithPassphrase,
+  SECRET_PASSPHRASE_FILE_ENV
+} from '../passphrase-sealed-secret'
+import {
   allowsPlaintextPersistedSecret,
   PLAINTEXT_SECRET_OPT_IN_ENV
 } from '../plaintext-secret-policy'
+import { warnSecretStorageUnavailableOnce } from '../secret-storage-availability'
 
 const MINIMAX_COOKIE_FILE = 'minimax-session-cookie.enc'
 const COOKIE_ENVELOPE_PREFIX = 'orca-minimax-cookie:v1:'
 let cachedMiniMaxCookie: string | null = null
 let warnedMiniMaxCookieStatusHardenFailure = false
 
-// Why three kinds: 'plaintext' is read-only legacy that older builds wrote unconditionally, while
+// Why four kinds: 'plaintext' is read-only legacy that older builds wrote unconditionally, while
 // 'dev-plaintext' is the only cleartext kind we still write and only under the sanctioned opt-in —
 // keeping them distinct is what lets a reader tell a leak from a deliberate dev choice.
+// 'passphrase' is the keychain-less production path: ciphertext, not cleartext.
 type MiniMaxCookieEnvelope = {
-  kind: 'encrypted' | 'plaintext' | 'dev-plaintext'
+  kind: 'encrypted' | 'passphrase' | 'plaintext' | 'dev-plaintext'
   payload: Buffer
 }
 
@@ -49,7 +57,12 @@ function decodeCookieEnvelope(raw: Buffer): MiniMaxCookieEnvelope | null {
     throw new Error('MiniMax session cookie could not be decrypted')
   }
   const kind = rest.slice(0, separator)
-  if (kind !== 'encrypted' && kind !== 'plaintext' && kind !== 'dev-plaintext') {
+  if (
+    kind !== 'encrypted' &&
+    kind !== 'passphrase' &&
+    kind !== 'plaintext' &&
+    kind !== 'dev-plaintext'
+  ) {
     throw new Error('MiniMax session cookie could not be decrypted')
   }
   return {
@@ -80,6 +93,14 @@ function looksLikeCookieHeader(value: string): boolean {
 }
 
 function readEnvelope(envelope: MiniMaxCookieEnvelope): MiniMaxCookieRead {
+  if (envelope.kind === 'passphrase') {
+    // Why let the error out: openPassphraseSealedSecret names the configuration mistake (no
+    // passphrase vs. the wrong one), which the generic decrypt message cannot.
+    return {
+      cookie: openPassphraseSealedSecret(envelope.payload.toString('utf8')),
+      storedAsCleartext: false
+    }
+  }
   if (envelope.kind !== 'encrypted') {
     return { cookie: envelope.payload.toString('utf8'), storedAsCleartext: true }
   }
@@ -112,21 +133,72 @@ function readLegacyCookie(raw: Buffer): MiniMaxCookieRead {
 // break usage tracking AND leave the cleartext file sitting there, so rewriting it as ciphertext on
 // the first read with a working keychain is the only move that actually removes the exposure.
 function upgradeCleartextCookieAtRest(cookie: string): void {
-  if (!safeStorage.isEncryptionAvailable()) {
+  const keychainAvailable = safeStorage.isEncryptionAvailable()
+  const sealed = keychainAvailable ? null : sealSecretWithPassphrase(cookie)
+  if (!keychainAvailable && !sealed) {
     console.warn(
-      `[minimax] MiniMax session cookie is stored in cleartext on disk; it is re-encrypted automatically once safeStorage is available (dev opt-in ${PLAINTEXT_SECRET_OPT_IN_ENV}).`
+      `[minimax] MiniMax session cookie is stored in cleartext on disk; it is re-encrypted automatically once safeStorage is available, or immediately if you set ${SECRET_PASSPHRASE_FILE_ENV} (dev opt-in ${PLAINTEXT_SECRET_OPT_IN_ENV}).`
     )
     return
   }
   try {
     writeSecureFile(
       getMiniMaxCookiePath(),
-      encodeCookieEnvelope('encrypted', safeStorage.encryptString(cookie))
+      // Why the passphrase form counts as an upgrade too: a keychain-less host would otherwise keep
+      // the cleartext file forever, which is exactly the exposure this function exists to close.
+      sealed
+        ? encodeCookieEnvelope('passphrase', Buffer.from(sealed, 'utf8'))
+        : encodeCookieEnvelope('encrypted', safeStorage.encryptString(cookie))
     )
   } catch (error) {
     // Why best-effort: the cookie was read successfully, so a failed upgrade must not fail the read.
     console.warn('[minimax] Failed to re-encrypt cleartext MiniMax cookie on read', error)
   }
+}
+
+// Throws when the stored cookie cannot be read on this host. Callers check existence first, so the
+// refusal path can ask "is this file readable HERE?" without touching the cache it just populated.
+function decodeCookieFile(keyPath: string): MiniMaxCookieRead {
+  const raw = readFileSync(keyPath)
+  const envelope = decodeCookieEnvelope(raw)
+  return envelope ? readEnvelope(envelope) : readLegacyCookie(raw)
+}
+
+/**
+ * Removes an on-disk cookie that a refused save has just superseded.
+ *
+ * The file is a single envelope, so "keep the ciphertext, drop the cleartext sibling" has no
+ * literal equivalent here — readability is the test instead. A cookie this host can still read is
+ * one the next launch WILL read, silently authenticating with the credential the user just
+ * replaced; a cookie this host cannot read (an `encrypted` envelope with no safeStorage) resurrects
+ * nothing and may be the user's only copy, so it stays.
+ */
+function discardSupersededCookieAtRest(replacement: string): void {
+  const keyPath = getMiniMaxCookiePath()
+  if (!existsSync(keyPath)) {
+    return
+  }
+  let stored: MiniMaxCookieRead
+  try {
+    stored = decodeCookieFile(keyPath)
+  } catch {
+    // Why: unreadable here — it cannot come back, and deleting on a guess would destroy a live cookie.
+    return
+  }
+  // Why the equality check: re-saving an unchanged cookie supersedes nothing, and dropping the file
+  // would turn a no-op save into the loss of the only persisted copy.
+  if (stored.cookie === replacement) {
+    return
+  }
+  try {
+    rmSync(keyPath, { force: true })
+  } catch (error) {
+    console.warn('[minimax] Failed to remove the superseded MiniMax cookie on disk', error)
+    return
+  }
+  console.warn(
+    '[minimax] Removed the superseded MiniMax cookie from disk: it was readable without safeStorage, so the next launch would have used it instead of the cookie you just entered.'
+  )
 }
 
 export function hasMiniMaxSessionCookie(): boolean {
@@ -171,16 +243,29 @@ export function saveMiniMaxSessionCookie(cookie: string): void {
   // session cookie is a whole-account bearer credential whose loss costs a re-paste, not a broken
   // flow — so memory-only is the cheap side of the trade in a way a long-lived API token is not.
   cachedMiniMaxCookie = trimmed
+  // Why before the cleartext opt-in: this branch writes real ciphertext, so a host with an operator
+  // passphrase must never fall through to the plaintext envelope.
+  const sealed = sealSecretWithPassphrase(trimmed)
+  if (sealed) {
+    warnSecretStorageUnavailableOnce('minimax')
+    writeSecureFile(
+      getMiniMaxCookiePath(),
+      encodeCookieEnvelope('passphrase', Buffer.from(sealed, 'utf8'))
+    )
+    return
+  }
   if (!allowsPlaintextPersistedSecret()) {
     console.warn(
-      `[minimax] safeStorage unavailable — MiniMax cookie kept in memory only, not written to disk. Set ${PLAINTEXT_SECRET_OPT_IN_ENV}=1 (dev builds) to persist in plaintext.`
+      `[minimax] safeStorage unavailable — MiniMax cookie kept in memory only, not written to disk. Set ${SECRET_PASSPHRASE_FILE_ENV} to persist it encrypted with an operator passphrase, or ${PLAINTEXT_SECRET_OPT_IN_ENV}=1 (dev builds) to persist in plaintext.`
     )
+    warnSecretStorageUnavailableOnce('minimax')
+    discardSupersededCookieAtRest(trimmed)
     // Why throw instead of reporting success: the renderer would otherwise say "saved" for a cookie
-    // that vanishes on restart. Any stale file is deliberately left alone — deleting it is a
-    // destructive side effect of a *failed* save, and on a locked keyring it is still recoverable.
+    // that vanishes on restart.
     throw new Error(
       'MiniMax session cookie cannot be stored securely: OS encryption (safeStorage) is unavailable. ' +
-        'The cookie is active for this session only — unlock your login keyring and save again to persist it.'
+        'The cookie is active for this session only — unlock your login keyring and save again to persist it, ' +
+        `or set ${SECRET_PASSPHRASE_FILE_ENV} to store it encrypted with an operator passphrase.`
     )
   }
   console.warn(
@@ -209,11 +294,14 @@ export function readMiniMaxSessionCookie(): string | null {
   }
   let read: MiniMaxCookieRead
   try {
-    const raw = readFileSync(keyPath)
-    const envelope = decodeCookieEnvelope(raw)
-    read = envelope ? readEnvelope(envelope) : readLegacyCookie(raw)
+    read = decodeCookieFile(keyPath)
   } catch (error) {
     console.error('[minimax] failed to decode/decrypt session cookie', error)
+    // Why rethrow this one verbatim: it names the misconfigured passphrase, which the generic
+    // message would replace with advice the operator cannot act on.
+    if (error instanceof PassphraseSealedSecretError) {
+      throw error
+    }
     throw new Error('MiniMax session cookie could not be decrypted')
   }
   cachedMiniMaxCookie = read.cookie

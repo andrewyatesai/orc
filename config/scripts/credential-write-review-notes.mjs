@@ -17,7 +17,9 @@
 // The worst a hostile edit to the JSON can do is print a wrong REASON next to a
 // site that is still printed, in full, with its file, line, sink and matched
 // vocabulary. Deleting the file entirely makes every site print as
-// `unreviewed`, which is louder than the truth, not quieter.
+// `unreviewed`, which is louder than the truth, not quieter. Moving a note into
+// `retired` is the same direction: nothing joins it, so its site goes back to
+// reading `unreviewed`.
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -44,14 +46,34 @@ export function reviewNotesPath() {
   return path.join(REPO_ROOT, 'config', 'scripts', 'credential-write-review-notes.json')
 }
 
-/** `{ notes: Map, problem }`. A missing or unparseable file is NOT an error —
- *  it just means nothing is annotated. `problem` is reported so the reader
- *  knows why every row says `unreviewed`. */
-export function loadReviewNotes(notesPath = reviewNotesPath()) {
+function readNoteMap(source) {
   const notes = new Map()
+  for (const [key, value] of Object.entries(source ?? {})) {
+    notes.set(key, {
+      verdict: typeof value?.verdict === 'string' && value.verdict ? value.verdict : UNREVIEWED,
+      reason: typeof value?.reason === 'string' ? value.reason : '',
+      ...(typeof value?.retiredBecause === 'string' ? { retiredBecause: value.retiredBecause } : {})
+    })
+  }
+  return notes
+}
+
+/** `{ notes: Map, retired: Map, problem }`. A missing or unparseable file is NOT
+ *  an error — it just means nothing is annotated. `problem` is reported so the
+ *  reader knows why every row says `unreviewed`.
+ *
+ *  `retired` holds judgement about writes the analysis no longer classifies as
+ *  a site (it moved into a coverage limit, or the code is gone). It is NEVER
+ *  joined, so it can annotate nothing and hide nothing; it exists so a real
+ *  review can be kept instead of deleted, and so it stops being counted as an
+ *  orphan. A retired key that matches a live site again is a mistake the report
+ *  prints — the site itself reads `unreviewed` until the note is un-retired. */
+export function loadReviewNotes(notesPath = reviewNotesPath()) {
+  const empty = new Map()
   if (!fs.existsSync(notesPath)) {
     return {
-      notes,
+      notes: empty,
+      retired: new Map(),
       problem: `no review notes at ${displayPath(notesPath)} — every site is reported as unreviewed`
     }
   }
@@ -60,17 +82,16 @@ export function loadReviewNotes(notesPath = reviewNotesPath()) {
     parsed = JSON.parse(fs.readFileSync(notesPath, 'utf8'))
   } catch (error) {
     return {
-      notes,
+      notes: empty,
+      retired: new Map(),
       problem: `${displayPath(notesPath)} is not valid JSON (${error.message}) — every site is reported as unreviewed`
     }
   }
-  for (const [key, value] of Object.entries(parsed?.sites ?? {})) {
-    notes.set(key, {
-      verdict: typeof value?.verdict === 'string' && value.verdict ? value.verdict : UNREVIEWED,
-      reason: typeof value?.reason === 'string' ? value.reason : ''
-    })
+  return {
+    notes: readNoteMap(parsed?.sites),
+    retired: readNoteMap(parsed?.retired),
+    problem: null
   }
-  return { notes, problem: null }
 }
 
 /** Left join of `sites` with the notes. One `.map` — same length, same order,
@@ -88,4 +109,11 @@ export function annotate(sites, notes) {
 export function unmatchedNoteKeys(sites, notes) {
   const live = new Set(sites.map((site) => site.idSource))
   return [...notes.keys()].filter((key) => !live.has(key)).sort()
+}
+
+/** Retired keys that a live site answers to again. Reported because a retired
+ *  note annotates nothing: the site is printing as `unreviewed` right now. */
+export function revivedRetiredKeys(sites, retired) {
+  const live = new Set(sites.map((site) => site.idSource))
+  return [...retired.keys()].filter((key) => live.has(key)).sort()
 }

@@ -147,21 +147,39 @@ a named refusal instead of a hung server). Paired devices stay valid across
 
 ### The pairing identity at rest
 
-A headless host usually has no usable OS keychain, so `orca serve` writes the
-E2EE identity's private key to `orca-e2ee-keypair.json` in the Orca data
-directory in cleartext, owner-only (`0600`), and logs a warning on every launch
-that leaves it that way. That is deliberate: this key is a durable identity, not
-a re-acquirable credential — the paired phone stores its public half and the
-relay derives the host id from it, so refusing to persist it would mint a
-different identity on the next restart and silently orphan every paired device.
-An interactive launch of the same install upgrades the file to a keychain-sealed
-envelope automatically.
+The private key lives in `orca-e2ee-keypair.json` in the Orca data directory,
+owner-only (`0600`), in one of three envelopes — best first:
+
+| `secretKeyFormat` | Used when |
+| --- | --- |
+| `electron-safe-storage-v1` | The OS keychain answered. |
+| `operator-passphrase-v1` | No keychain, but `ORCA_SECRET_PASSPHRASE_FILE` is set (option 2 below). AES-256-GCM, headless, no keyring. |
+| `plaintext` | Neither of the above. |
+
+**Set the passphrase and this key is never written in cleartext.** Without it a
+headless host falls through to `plaintext`, deliberately: this key is a durable
+identity, not a re-acquirable credential — the paired phone stores its public
+half and the relay derives the host id from it, so refusing to persist it would
+mint a different identity on the next restart and silently orphan every paired
+device. A cleartext key already on disk is re-sealed **in place** by the first
+launch that can seal it — a passphrase, or an interactive launch of the same
+install — with no re-pairing.
+
+A launch that leaves the key in cleartext prints one `SECURITY NOTICE` naming the
+file and every way out of it, once per launch rather than once per pairing
+attempt. Set `ORCA_ACKNOWLEDGE_PLAINTEXT_E2EE_IDENTITY=1` once you have accepted
+the risk to stop printing it; it changes nothing else.
 
 Set `ORCA_REQUIRE_SEALED_E2EE_IDENTITY=1` to refuse instead. The server then
-attempts the keychain even in headless mode, and if it cannot seal, no identity
-is created and pairing reports `e2ee_key_unavailable`. Turning the flag on later
-does not disturb an identity already on disk; existing pairings keep working and
-the file is upgraded as soon as the keychain answers.
+attempts the keychain even in headless mode, and if neither it nor a passphrase
+can seal, no identity is created and pairing reports `e2ee_key_unavailable`.
+Turning the flag on later does not disturb an identity already on disk; existing
+pairings keep working and the file is upgraded as soon as either can seal it.
+
+If a host that was sealing with a passphrase later loses or changes it, pairing
+reports `e2ee_key_unsealable`, not `e2ee_key_unavailable`: the identity is intact
+and every paired device is still valid. Restore the passphrase — do not delete
+the file.
 
 ## Systemd Service
 
@@ -828,6 +846,65 @@ wrote anything; read its output to confirm what changed.
 Both commands install onto the machine that runs them. In an Orca SSH workspace
 or the WSL bridge the `orca` shim forwards commands to the Orca host, so they
 refuse to run there and print the command to run on the machine you want.
+
+## Integration Credentials At Rest
+
+Orca encrypts persisted secrets — Jira and Linear tokens, the MiniMax session
+cookie, the OpenAI speech key, settings secrets — with Electron's `safeStorage`.
+On a server that usually fails, and Orca then refuses to write the secret rather
+than falling back to cleartext. You lose nothing except persistence: the secret
+stays live for the session and you re-authenticate after a restart.
+
+**Why it fails here.** `safeStorage` on Linux needs a keyring reachable over a
+D-Bus session. With no recognised desktop, Chromium selects the `basic_text`
+backend and never obtains a key, so `isEncryptionAvailable()` is false. A host
+that *does* have `gnome_libsecret` selected but locked fails the same check for a
+different reason, which is why the log names the backend it found.
+
+There are two fixes. Orca logs which one applies, once per process.
+
+### Option 1 — give the host a real keyring
+
+```sh
+sudo apt-get install -y gnome-keyring libsecret-1-0
+export $(dbus-launch)                 # a session bus
+gnome-keyring-daemon --unlock         # feed it the login password on stdin
+orca --password-store=gnome-libsecret
+```
+
+Best when the box already has a login session to attach to. `DBUS_SESSION_BUS_ADDRESS`
+must be exported into Orca's own environment, not just your shell.
+
+### Option 2 — an operator passphrase (no keyring at all)
+
+Point `ORCA_SECRET_PASSPHRASE_FILE` at a file holding a passphrase. Secrets are
+then sealed with AES-256-GCM under a scrypt-derived key, tagged
+`orca-passphrase-v1:`, with a fresh nonce per record.
+
+```sh
+install -m 600 /dev/null /etc/orca/secret-passphrase
+head -c 32 /dev/urandom | base64 > /etc/orca/secret-passphrase
+ORCA_SECRET_PASSPHRASE_FILE=/etc/orca/secret-passphrase orca
+```
+
+Under systemd prefer `LoadCredential=`, and prefer the *file* form over the
+inline `ORCA_SECRET_PASSPHRASE`: Orca's environment is inherited by every
+terminal and agent it spawns, so an inline passphrase is readable by any agent
+session. The file is read by the Orca process only.
+
+Lose the passphrase and the sealed secrets are unrecoverable — they are not
+recoverable from the machine, which is the point. Orca will not blank them: a
+value it cannot open is re-emitted verbatim, so restoring the passphrase
+restores access. Sealed secrets are not migrated into a keyring that appears
+later; `safeStorage` is preferred wherever it works.
+
+### What not to do
+
+Do not pass `--password-store=basic`. It makes `isEncryptionAvailable()` return
+true by encrypting under a hardcoded constant, so every store, the UI, and
+`pnpm report:credential-writes` would all report a cleartext secret as protected.
+It is cleartext with extra steps. `ORCA_ALLOW_PLAINTEXT_PERSISTED_SECRETS=1` is
+a *development* opt-in and is inert in packaged production builds by design.
 
 ## Troubleshooting
 

@@ -108,7 +108,11 @@ const { trackMock, getCohortAtEmitMock } = vi.hoisted(() => ({
 
 // Why: default true so existing crypto tests are unaffected; individual tests flip
 // `available` to exercise the safeStorage-unavailable (headless/SSH) path.
-const safeStorageControl = vi.hoisted(() => ({ available: true, encryptThrows: false, encryptCalls: 0 }))
+const safeStorageControl = vi.hoisted(() => ({
+  available: true,
+  encryptThrows: false,
+  encryptCalls: 0
+}))
 
 vi.mock('electron', () => ({
   app: {
@@ -7100,6 +7104,34 @@ describe('Store', () => {
     expect(persisted.settings.opencodeSessionCookie).not.toContain('encrypted:')
   })
 
+  // The other half of the same data-loss class: the secret decrypts fine at load, then the keychain
+  // disappears mid-session (laptop locks its keyring, D-Bus dies, profile moves to a headless box).
+  // encrypt() correctly refuses and returns '' — but writing that '' over the stored ciphertext would
+  // destroy a secret the returning keychain could still open. Only the NEW value may be lost.
+  it('keeps the stored ciphertext when safeStorage disappears after load, instead of blanking it', async () => {
+    const storedCiphertext = Buffer.from('encrypted:top-secret-cookie', 'utf-8').toString('base64')
+    writeDataFile({
+      schemaVersion: 1,
+      repos: [],
+      worktreeMeta: {},
+      settings: { opencodeSessionCookie: storedCiphertext },
+      ui: {},
+      githubCache: { pr: {}, issue: {} },
+      workspaceSession: {}
+    })
+
+    safeStorageControl.available = true
+    const store = await createStore()
+    safeStorageControl.available = false
+
+    store.updateUI({ browserDefaultZoomLevel: 1.25 })
+    store.flush()
+
+    const persisted = readDataFile() as { settings: { opencodeSessionCookie: string } }
+    expect(persisted.settings.opencodeSessionCookie).toBe(storedCiphertext)
+    expect(persisted.settings.opencodeSessionCookie).not.toBe('')
+  })
+
   it('keeps plaintext Kagi session links readable for migration from older builds', async () => {
     const sessionLink = 'https://kagi.com/search?token=secret'
     writeDataFile({
@@ -7189,6 +7221,81 @@ describe('Store', () => {
       expect(reloaded.getSettings().opencodeSessionCookie).toBe(cookie)
     } finally {
       delete process.env.ORCA_ALLOW_PLAINTEXT_PERSISTED_SECRETS
+      safeStorageControl.available = true
+    }
+  })
+
+  // The packaged-headless path: no keychain, the dev opt-in unreachable by construction, and an
+  // operator passphrase is the only thing that keeps settings secrets across a restart.
+  it('seals a secret with the operator passphrase when safeStorage is unavailable', async () => {
+    const cookie = 'sk-headless-session-cookie'
+    process.env.ORCA_SECRET_PASSPHRASE = 'operator passphrase for this host'
+    safeStorageControl.available = false
+    try {
+      const store = await createStore()
+      store.updateSettings({ opencodeSessionCookie: cookie })
+      store.flush()
+
+      const persisted = readDataFile() as { settings: { opencodeSessionCookie: string } }
+      expect(persisted.settings.opencodeSessionCookie.startsWith('orca-passphrase-v1:')).toBe(true)
+      expect(JSON.stringify(persisted)).not.toContain(cookie)
+
+      const reloaded = await createStore()
+      expect(reloaded.getSettings().opencodeSessionCookie).toBe(cookie)
+    } finally {
+      delete process.env.ORCA_SECRET_PASSPHRASE
+      safeStorageControl.available = true
+    }
+  })
+
+  it('prefers the passphrase over the dev cleartext opt-in when both are set', async () => {
+    const cookie = 'sk-both-configured'
+    process.env.ORCA_SECRET_PASSPHRASE = 'operator passphrase for this host'
+    process.env.ORCA_ALLOW_PLAINTEXT_PERSISTED_SECRETS = '1'
+    safeStorageControl.available = false
+    try {
+      const store = await createStore()
+      store.updateSettings({ opencodeSessionCookie: cookie })
+      store.flush()
+
+      const persisted = readDataFile() as { settings: { opencodeSessionCookie: string } }
+      expect(persisted.settings.opencodeSessionCookie.startsWith('orca-passphrase-v1:')).toBe(true)
+      expect(JSON.stringify(persisted)).not.toContain(cookie)
+    } finally {
+      delete process.env.ORCA_SECRET_PASSPHRASE
+      delete process.env.ORCA_ALLOW_PLAINTEXT_PERSISTED_SECRETS
+      safeStorageControl.available = true
+    }
+  })
+
+  // The data-loss case: a wrong passphrase must not re-encrypt (double-encrypt) or blank the value,
+  // because the operator can still fix their configuration and get the secret back.
+  it('preserves a sealed secret verbatim when the passphrase is wrong, and recovers it later', async () => {
+    const cookie = 'sk-sealed-then-locked-out'
+    const passphrase = 'the original operator passphrase'
+    process.env.ORCA_SECRET_PASSPHRASE = passphrase
+    safeStorageControl.available = false
+    try {
+      const store = await createStore()
+      store.updateSettings({ opencodeSessionCookie: cookie })
+      store.flush()
+      const sealed = (readDataFile() as { settings: { opencodeSessionCookie: string } }).settings
+        .opencodeSessionCookie
+
+      process.env.ORCA_SECRET_PASSPHRASE = 'a different operator passphrase'
+      const lockedOut = await createStore()
+      lockedOut.updateSettings({ opencodeWorkspaceId: 'an-unrelated-change' })
+      lockedOut.flush()
+      expect(
+        (readDataFile() as { settings: { opencodeSessionCookie: string } }).settings
+          .opencodeSessionCookie
+      ).toBe(sealed)
+
+      process.env.ORCA_SECRET_PASSPHRASE = passphrase
+      const recovered = await createStore()
+      expect(recovered.getSettings().opencodeSessionCookie).toBe(cookie)
+    } finally {
+      delete process.env.ORCA_SECRET_PASSPHRASE
       safeStorageControl.available = true
     }
   })

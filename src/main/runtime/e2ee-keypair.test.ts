@@ -4,9 +4,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { E2EE_KEYPAIR_FILENAME } from './mobile-pairing-files'
 import {
+  ACKNOWLEDGE_PLAINTEXT_E2EE_IDENTITY_ENV,
   allowsPlaintextE2EEIdentity,
   REQUIRE_SEALED_E2EE_IDENTITY_ENV
 } from './e2ee-identity-plaintext-fallback'
+import { SECRET_PASSPHRASE_ENV } from '../passphrase-sealed-secret'
 import type { E2EESecretHelperResult } from './e2ee-secret-unseal-host'
 import type { E2EESecretHelperRequest } from './e2ee-secret-unseal-protocol'
 
@@ -65,7 +67,11 @@ async function loadModule() {
 
 /** The headless Linux host this fork targets: no keyring, so the child can never seal. */
 function keychainlessHost(): E2EESecretHelperResult {
-  return { ok: false, reason: 'encryption_unavailable', message: 'no OS encryption' }
+  return {
+    ok: false,
+    reason: 'encryption_unavailable',
+    message: 'no OS encryption'
+  }
 }
 
 let dir = ''
@@ -79,6 +85,8 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
   delete process.env[REQUIRE_SEALED_E2EE_IDENTITY_ENV]
+  delete process.env[ACKNOWLEDGE_PLAINTEXT_E2EE_IDENTITY_ENV]
+  delete process.env[SECRET_PASSPHRASE_ENV]
   warn.mockRestore()
 })
 
@@ -222,6 +230,67 @@ describe('headless keychain context', () => {
 })
 
 /**
+ * The headless host's way out of cleartext: an operator passphrase seals the identity with real
+ * ciphertext, so the same paired devices keep working with no keyring and no re-pairing.
+ */
+describe('operator-passphrase envelope', () => {
+  it('seals a headless mint with the passphrase instead of writing cleartext', async () => {
+    process.env[SECRET_PASSPHRASE_ENV] = 'correct horse battery staple'
+
+    const minted = await requireKeypair(dir, 'headless')
+
+    expect(readFile().secretKeyFormat).toBe('operator-passphrase-v1')
+    // No prompt to answer and no child to kill: the passphrase seal costs neither.
+    expect(runHelper).not.toHaveBeenCalled()
+    expect(warnedText()).not.toContain('SECURITY NOTICE')
+    const rawSecretB64 = Buffer.from(minted.secretKey).toString('base64')
+    expect(readFileSync(filePath(), 'utf-8')).not.toContain(rawSecretB64)
+  })
+
+  it('round-trips the same identity on the next headless launch', async () => {
+    process.env[SECRET_PASSPHRASE_ENV] = 'correct horse battery staple'
+
+    const first = await requireKeypair(dir, 'headless')
+    const second = await requireKeypair(dir, 'headless')
+
+    expect(second.publicKeyB64).toBe(first.publicKeyB64)
+    expect(Buffer.from(second.secretKey).toString('base64')).toBe(
+      Buffer.from(first.secretKey).toString('base64')
+    )
+  })
+
+  it('upgrades an existing cleartext identity in place, with no re-pairing', async () => {
+    const paired = await requireKeypair(dir, 'headless')
+    expect(readFile().secretKeyFormat).toBe('plaintext')
+
+    process.env[SECRET_PASSPHRASE_ENV] = 'correct horse battery staple'
+    warn.mockClear()
+    const reloaded = await requireKeypair(dir, 'headless')
+
+    // The public half is what every paired device and the relay binding are keyed on.
+    expect(reloaded.publicKeyB64).toBe(paired.publicKeyB64)
+    expect(readFile().secretKeyFormat).toBe('operator-passphrase-v1')
+    expect(warnedText()).not.toContain('SECURITY NOTICE')
+  })
+
+  it('refuses rather than mints when the passphrase is gone, because the identity is intact', async () => {
+    process.env[SECRET_PASSPHRASE_ENV] = 'correct horse battery staple'
+    await requireKeypair(dir, 'headless')
+    const onDiskBefore = readFileSync(filePath(), 'utf-8')
+
+    delete process.env[SECRET_PASSPHRASE_ENV]
+    const { resolveE2EEIdentity } = await loadModule()
+    const resolution = await resolveE2EEIdentity(dir, {
+      keychainContext: 'headless'
+    })
+
+    // Minting here would silently orphan every paired device over a misconfigured launch.
+    expect(resolution).toMatchObject({ ok: false, reason: 'unseal_failed' })
+    expect(readFileSync(filePath(), 'utf-8')).toBe(onDiskBefore)
+  })
+})
+
+/**
  * The reviewed exception. Persisting this key in cleartext is permitted because refusing does not
  * cost a re-auth — it mints a different identity next launch and orphans every paired device — but
  * it must be a decision someone can see, switch off, and read in the logs.
@@ -231,23 +300,45 @@ describe('cleartext identity fallback policy', () => {
     expect(allowsPlaintextE2EEIdentity({})).toBe(true)
     expect(allowsPlaintextE2EEIdentity({ [REQUIRE_SEALED_E2EE_IDENTITY_ENV]: '1' })).toBe(false)
     // Only an exact '1' opts out; a stray value must not silently disable mobile pairing.
-    expect(allowsPlaintextE2EEIdentity({ [REQUIRE_SEALED_E2EE_IDENTITY_ENV]: 'true' })).toBe(true)
+    expect(
+      allowsPlaintextE2EEIdentity({
+        [REQUIRE_SEALED_E2EE_IDENTITY_ENV]: 'true'
+      })
+    ).toBe(true)
   })
 
-  it('warns loudly when a headless mint leaves the private key cleartext at rest', async () => {
+  it('tells the operator what is on disk and every way out of it', async () => {
     await requireKeypair(dir, 'headless')
 
     expect(readFile().secretKeyFormat).toBe('plaintext')
-    expect(warnedText()).toContain('CLEARTEXT')
-    expect(warnedText()).toContain(REQUIRE_SEALED_E2EE_IDENTITY_ENV)
+    const text = warnedText()
+    expect(text).toContain('CLEARTEXT')
+    // The three things an operator cannot act without: which file, how to seal it, how to refuse it.
+    expect(text).toContain(filePath())
+    expect(text).toContain(REQUIRE_SEALED_E2EE_IDENTITY_ENV)
+    expect(text).toContain(ACKNOWLEDGE_PLAINTEXT_E2EE_IDENTITY_ENV)
   })
 
-  it('warns again on every load that leaves the key cleartext, because headless never upgrades', async () => {
-    await requireKeypair(dir, 'headless')
-    warn.mockClear()
+  it('says it once per launch, not once per resolve', async () => {
+    // One module instance = one launch; mint and load are different paths describing the same file,
+    // and a relay reconnect re-enters them, so a per-call warning is noise the operator learns to skip.
+    const { resolveE2EEIdentity } = await loadModule()
+    await resolveE2EEIdentity(dir, { keychainContext: 'headless' })
+    await resolveE2EEIdentity(dir, { keychainContext: 'headless' })
+
+    expect(
+      warn.mock.calls.filter((call) => String(call[0]).includes('SECURITY NOTICE'))
+    ).toHaveLength(1)
+  })
+
+  it('goes quiet only when the operator has accepted the cleartext key on the record', async () => {
+    process.env[ACKNOWLEDGE_PLAINTEXT_E2EE_IDENTITY_ENV] = '1'
+
     await requireKeypair(dir, 'headless')
 
-    expect(warnedText()).toContain('CLEARTEXT')
+    // The acknowledgement silences the notice and changes nothing else — pairing still works.
+    expect(readFile().secretKeyFormat).toBe('plaintext')
+    expect(warnedText()).not.toContain('SECURITY NOTICE')
   })
 
   it('refuses the whole identity, writing nothing, when the operator requires a sealed one', async () => {
@@ -255,10 +346,15 @@ describe('cleartext identity fallback policy', () => {
     helperControl.answer = keychainlessHost
     const { resolveE2EEIdentity } = await loadModule()
 
-    const resolution = await resolveE2EEIdentity(dir, { keychainContext: 'headless' })
+    const resolution = await resolveE2EEIdentity(dir, {
+      keychainContext: 'headless'
+    })
 
     // Not "mint it and keep it in memory": that pairs devices the next launch silently orphans.
-    expect(resolution).toMatchObject({ ok: false, reason: 'identity_unavailable' })
+    expect(resolution).toMatchObject({
+      ok: false,
+      reason: 'identity_unavailable'
+    })
     expect(existsSync(filePath())).toBe(false)
   })
 
@@ -267,9 +363,14 @@ describe('cleartext identity fallback policy', () => {
     helperControl.answer = keychainlessHost
     const { resolveE2EEIdentity } = await loadModule()
 
-    const resolution = await resolveE2EEIdentity(dir, { keychainContext: 'interactive' })
+    const resolution = await resolveE2EEIdentity(dir, {
+      keychainContext: 'interactive'
+    })
 
-    expect(resolution).toMatchObject({ ok: false, reason: 'identity_unavailable' })
+    expect(resolution).toMatchObject({
+      ok: false,
+      reason: 'identity_unavailable'
+    })
     expect(existsSync(filePath())).toBe(false)
   })
 

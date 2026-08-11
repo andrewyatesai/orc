@@ -3,9 +3,16 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
+  isPassphraseSealedSecret,
+  openPassphraseSealedSecret,
+  sealSecretWithPassphrase,
+  SECRET_PASSPHRASE_FILE_ENV
+} from '../passphrase-sealed-secret'
+import {
   allowsPlaintextPersistedSecret,
   PLAINTEXT_SECRET_OPT_IN_ENV
 } from '../plaintext-secret-policy'
+import { warnSecretStorageUnavailableOnce } from '../secret-storage-availability'
 
 type StoredOpenAiKey = {
   encryptedKeyBase64: string
@@ -81,12 +88,25 @@ export function saveOpenAiSpeechApiKey(apiKey: string): void {
     return
   }
 
+  // Why before the cleartext opt-in: an operator passphrase produces real ciphertext, so a host that
+  // has one must never reach the plaintext branch below.
+  const sealed = sealSecretWithPassphrase(trimmed)
+  if (sealed) {
+    warnSecretStorageUnavailableOnce('speech')
+    writeFileSync(getOpenAiKeyPath(), sealed, { encoding: 'utf8', mode: 0o600 })
+    rmSync(getOpenAiPlaintextKeyPath(), { force: true })
+    cachedOpenAiSpeechApiKey = trimmed
+    return
+  }
+
   if (!allowsPlaintextPersistedSecret()) {
     // Why: keep the key in memory so the running session still works, but refuse to write cleartext.
     cachedOpenAiSpeechApiKey = trimmed
+    warnSecretStorageUnavailableOnce('speech')
     throw new Error(
       'OpenAI API key cannot be stored securely: OS encryption (safeStorage) is unavailable. ' +
-        `Unlock your login keyring, or provide the key via the ${OPENAI_SPEECH_API_KEY_ENV} environment variable.`
+        `Unlock your login keyring, set ${SECRET_PASSPHRASE_FILE_ENV} to encrypt it with an operator passphrase, ` +
+        `or provide the key via the ${OPENAI_SPEECH_API_KEY_ENV} environment variable.`
     )
   }
 
@@ -110,6 +130,13 @@ export function readOpenAiSpeechApiKey(): string {
 
   const keyPath = getOpenAiKeyPath()
   if (existsSync(keyPath)) {
+    // Why outside the try: a passphrase failure has to reach the user with its own instruction
+    // instead of being flattened into the generic "could not be decrypted".
+    const sealed = readFileSync(keyPath, 'utf8')
+    if (isPassphraseSealedSecret(sealed)) {
+      cachedOpenAiSpeechApiKey = openPassphraseSealedSecret(sealed)
+      return cachedOpenAiSpeechApiKey
+    }
     try {
       const raw = readFileSync(keyPath)
       const legacyJson = readLegacyJsonStoredOpenAiKey()

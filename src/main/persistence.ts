@@ -288,6 +288,13 @@ import {
   PLAINTEXT_SECRET_OPT_IN_ENV,
   PLAINTEXT_SECRET_PREFIX
 } from './plaintext-secret-policy'
+import {
+  isPassphraseSealedSecret,
+  openPassphraseSealedSecret,
+  sealSecretWithPassphrase,
+  SECRET_PASSPHRASE_FILE_ENV
+} from './passphrase-sealed-secret'
+import { warnSecretStorageUnavailableOnce } from './secret-storage-availability'
 
 // Why: `isEncryptionAvailable()` answers "does this platform support encryption", NOT "can this
 // process reach a keychain". On macOS a process without the login keychain in its security session
@@ -313,9 +320,25 @@ function noteSafeStorageWriteFailed(err: unknown): void {
   console.error('[persistence] Encryption failed:', err)
 }
 
-/** Test seam: clears the latch so a suite can exercise both sides in one process. */
+// Why once: settings hold many secret slots, so a single wrong passphrase would otherwise print the
+// same operator instruction once per slot on every load.
+let warnedPassphraseSealedSecretUnreadable = false
+
+/** Test seam: clears the latches so a suite can exercise both sides in one process. */
 export function _resetSafeStorageAvailabilityLatch(): void {
   safeStorageWriteFailed = false
+  warnedPassphraseSealedSecretUnreadable = false
+}
+
+function warnPassphraseSealedSecretUnreadableOnce(error: unknown): void {
+  if (warnedPassphraseSealedSecretUnreadable) {
+    return
+  }
+  warnedPassphraseSealedSecretUnreadable = true
+  console.warn(
+    '[persistence] a passphrase-sealed secret could not be opened — preserving it verbatim so the right passphrase still recovers it:',
+    error instanceof Error ? error.message : error
+  )
 }
 
 // Returns a tagged, persistable representation of `plaintext`, or '' when the secret must not touch disk
@@ -334,6 +357,13 @@ function encrypt(plaintext: string): string {
       noteSafeStorageWriteFailed(err)
     }
   }
+  // Why before the dev opt-in: on a host with an operator passphrase this returns real ciphertext,
+  // so the cleartext branch below must be unreachable there.
+  const sealed = sealSecretWithPassphrase(plaintext)
+  if (sealed) {
+    warnSecretStorageUnavailableOnce('persistence')
+    return sealed
+  }
   if (allowsPlaintextPersistedSecret()) {
     console.warn(
       `[persistence] safeStorage unavailable — persisting secret in plaintext (dev opt-in ${PLAINTEXT_SECRET_OPT_IN_ENV}).`
@@ -341,8 +371,9 @@ function encrypt(plaintext: string): string {
     return PLAINTEXT_SECRET_PREFIX + plaintext
   }
   console.warn(
-    `[persistence] safeStorage unavailable — secret kept in memory only, not written to disk. Set ${PLAINTEXT_SECRET_OPT_IN_ENV}=1 (dev builds) to persist in plaintext.`
+    `[persistence] safeStorage unavailable — secret kept in memory only, not written to disk. Set ${SECRET_PASSPHRASE_FILE_ENV} to persist it encrypted with an operator passphrase, or ${PLAINTEXT_SECRET_OPT_IN_ENV}=1 (dev builds) to persist in plaintext.`
   )
+  warnSecretStorageUnavailableOnce('persistence')
   return ''
 }
 
@@ -356,6 +387,17 @@ function decryptTracked(stored: string): {
 } {
   if (!stored) {
     return { value: stored, undecryptedCiphertext: null }
+  }
+  if (isPassphraseSealedSecret(stored)) {
+    try {
+      return { value: openPassphraseSealedSecret(stored), undecryptedCiphertext: null }
+    } catch (error) {
+      // Why preserve verbatim: an absent or changed operator passphrase is a configuration mistake,
+      // and re-encrypting these bytes on the next save would destroy a secret the right passphrase
+      // still opens. Same contract as an undecryptable safeStorage blob.
+      warnPassphraseSealedSecretUnreadableOnce(error)
+      return { value: stored, undecryptedCiphertext: stored }
+    }
   }
   if (stored.startsWith(PLAINTEXT_SECRET_PREFIX)) {
     // Explicitly tagged dev plaintext — read back as plaintext, never confused with ciphertext.
@@ -2882,6 +2924,11 @@ export class Store {
   // Why: exact ciphertext strings that failed to decrypt at load (encryption available but wrong key). buildStateToSave
   // re-emits them verbatim so a save never double-encrypts genuine ciphertext into unrecoverable garbage.
   private undecryptableSecretCiphertexts = new Set<string>()
+  // Why: plaintext -> the ciphertext it was loaded from. If safeStorage disappears mid-session,
+  // encrypt() refuses and returns '' — writing that would blank a perfectly good stored secret that
+  // a returning keychain could still open. Re-emitting the original bytes keeps "we did not persist
+  // the new value" from becoming "we destroyed the old one".
+  private loadedSecretCiphertexts = new Map<string, string>()
   // Content hash at last write, to skip no-op writes; derived from the payload with encrypted blobs normalized back to plaintext (see buildStateToSave), since encrypt() uses a random IV per call.
   private lastWrittenStateHash: string | null = null
   private firstPendingSaveAt: number | null = null
@@ -3163,25 +3210,31 @@ export class Store {
         // Track any value that failed to decrypt while encryption was available so buildStateToSave re-emits its
         // original ciphertext verbatim instead of double-encrypting it (which would destroy the secret permanently).
         if (parsed.settings?.opencodeSessionCookie) {
-          const result = decryptTracked(parsed.settings.opencodeSessionCookie)
+          const storedSecret = parsed.settings.opencodeSessionCookie
+          const result = decryptTracked(storedSecret)
           parsed.settings.opencodeSessionCookie = result.value
           if (result.undecryptedCiphertext) {
             this.undecryptableSecretCiphertexts.add(result.undecryptedCiphertext)
           }
+          this.rememberLoadedSecretCiphertext(result, storedSecret)
         }
         if (parsed.settings?.httpProxyUrl) {
-          const result = decryptTracked(parsed.settings.httpProxyUrl)
+          const storedSecret = parsed.settings.httpProxyUrl
+          const result = decryptTracked(storedSecret)
           parsed.settings.httpProxyUrl = result.value
           if (result.undecryptedCiphertext) {
             this.undecryptableSecretCiphertexts.add(result.undecryptedCiphertext)
           }
+          this.rememberLoadedSecretCiphertext(result, storedSecret)
         }
         if (parsed.ui?.browserKagiSessionLink) {
-          const result = decryptTracked(parsed.ui.browserKagiSessionLink)
+          const storedSecret = parsed.ui.browserKagiSessionLink
+          const result = decryptTracked(storedSecret)
           parsed.ui.browserKagiSessionLink = result.value
           if (result.undecryptedCiphertext) {
             this.undecryptableSecretCiphertexts.add(result.undecryptedCiphertext)
           }
+          this.rememberLoadedSecretCiphertext(result, storedSecret)
         }
 
         // Merge with defaults in case new fields were added
@@ -3985,7 +4038,26 @@ export class Store {
     if (value && this.undecryptableSecretCiphertexts.has(value)) {
       return value
     }
-    return encrypt(value)
+    const sealed = encrypt(value)
+    if (sealed === '' && value !== '') {
+      // Why: encrypt() returned '' meaning "refused to persist", not "the secret is now empty".
+      // Writing '' would erase a stored secret that a returning keychain could still open, so the
+      // previous ciphertext is re-emitted; only a genuinely new value is lost, and it is still live
+      // in memory for this session.
+      return this.loadedSecretCiphertexts.get(value) ?? ''
+    }
+    return sealed
+  }
+
+  /** Remembers the ciphertext a secret was loaded from, so a later refusal to encrypt cannot blank
+   *  it. Only decrypted values are tracked — an undecryptable one is already preserved verbatim. */
+  private rememberLoadedSecretCiphertext(
+    result: { value: string; undecryptedCiphertext: string | null },
+    storedSecret: string
+  ): void {
+    if (!result.undecryptedCiphertext && result.value && storedSecret !== result.value) {
+      this.loadedSecretCiphertexts.set(result.value, storedSecret)
+    }
   }
 
   // Why (#9381): build payload synchronously so hash and serialized bytes reflect the same state tick (no await interleave). One full-state stringify serves both the on-disk payload and the no-op-write guard hash: each secret slot is serialized as a fresh unguessable sentinel, then sentinels are substituted to ciphertext for the payload and to plaintext for the hash. The hash is thus a pure function of plaintext state (skips a byte-identical rewrite) without a second stringify.

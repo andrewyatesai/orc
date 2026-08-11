@@ -51,6 +51,7 @@ import {
   annotate,
   loadReviewNotes,
   reviewNotesPath,
+  revivedRetiredKeys,
   unmatchedNoteKeys
 } from './credential-write-review-notes.mjs'
 import { CANARY_CASES, calibrationFailures } from './credential-write-instrument-canary.mjs'
@@ -126,7 +127,7 @@ function printSection(title, lines) {
   }
 }
 
-function printReport(scan, rows, notesProblem, staleNotes, verbose) {
+function printReport(scan, rows, notes, verbose) {
   console.log(`${TAG} ${rows.length} secret-named write site(s) in ${scan.elapsedMs}ms`)
   for (const line of BOUNDARY) {
     console.log(`  ${line}`)
@@ -135,6 +136,22 @@ function printReport(scan, rows, notesProblem, staleNotes, verbose) {
   printSection(
     '  BY CLASSIFICATION',
     tally(rows).map(([verdict, count]) => `    ${String(count).padStart(4)}  ${verdict}`)
+  )
+
+  // Why this is a section of its own and not a coverage footnote: an orphaned
+  // note is a review that has come unstuck from the code it judged, and the
+  // site it judged is now printing as `unreviewed` somewhere above. Buried at
+  // the bottom, that read as housekeeping for four releases.
+  printSection(
+    `  ORPHANED REVIEW NOTES (${notes.stale.length}) — carried judgement attached to no site in this run\n` +
+      `    Each one means a real review is no longer being applied. Reconcile with:\n` +
+      `      pnpm report:credential-writes:rekey          (proposes, changes nothing)\n` +
+      `      pnpm report:credential-writes:rekey --apply  (rewrites the keys it can prove)`,
+    notes.stale.map((key) => `    ${key}`)
+  )
+  printSection(
+    `  RETIRED NOTES REVIVED (${notes.revived.length}) — a retired note's site is back and is reading unreviewed`,
+    notes.revived.map((key) => `    ${key}`)
   )
 
   // Why MEMBERSHIP is keyed on `guard` and only ORDER is keyed on the review:
@@ -159,7 +176,7 @@ function printReport(scan, rows, notesProblem, staleNotes, verbose) {
 
   const limits = [
     ...scan.caveats.map((caveat) => `    - ${caveat}`),
-    ...(notesProblem ? [`    - ${notesProblem}`] : []),
+    ...(notes.problem ? [`    - ${notes.problem}`] : []),
     ...(scan.unreadFiles.length > 0
       ? [
           `    - ${scan.unreadFiles.length} file(s) in the analysed directories are in no Program, so they were NOT read:\n        ${scan.unreadFiles.slice(0, 20).join('\n        ')}`
@@ -175,9 +192,9 @@ function printReport(scan, rows, notesProblem, staleNotes, verbose) {
           `    - ${scan.escapes.length} write sink(s) captured as a value; calls through the captured value are NOT in the list above:\n        ${scan.escapes.map((escape) => `${escape.location} ${escape.text}`).join('\n        ')}`
         ]
       : []),
-    ...(staleNotes.length > 0
+    ...(notes.stale.length > 0
       ? [
-          `    - ${staleNotes.length} carried review note(s) match no site in this run (the code moved, or the analysis no longer reaches them):\n        ${staleNotes.join('\n        ')}`
+          `    - ${notes.stale.length} carried review note(s) match no site in this run — see ORPHANED REVIEW NOTES above`
         ]
       : [])
   ]
@@ -196,7 +213,8 @@ function printReport(scan, rows, notesProblem, staleNotes, verbose) {
   )
 
   console.log(
-    `\n${TAG} report only — nothing here passed or failed. ${unguarded.length} unguarded (${leadCount} reviewed as a real defect or unreviewed), ${rows.length} total.`
+    `\n${TAG} report only — nothing here passed or failed. ${unguarded.length} unguarded (${leadCount} reviewed as a real defect or unreviewed), ${rows.length} total. ` +
+      `${notes.stale.length} orphaned review note(s), ${notes.retiredCount} retired.`
   )
 }
 
@@ -216,7 +234,7 @@ function main() {
   }
 
   const scan = scanCredentialWrites()
-  const { notes, problem: notesProblem } = loadReviewNotes()
+  const { notes, retired, problem: notesProblem } = loadReviewNotes()
   const rows = annotate(scan.sites, notes)
   // The annotation step is a left join and must stay one; this is the check
   // that the review data cannot remove a site from the report.
@@ -226,7 +244,12 @@ function main() {
     )
     return 1
   }
-  const staleNotes = unmatchedNoteKeys(scan.sites, notes)
+  const noteState = {
+    problem: notesProblem,
+    stale: unmatchedNoteKeys(scan.sites, notes),
+    revived: revivedRetiredKeys(scan.sites, retired),
+    retiredCount: retired.size
+  }
 
   if (wantsJson) {
     console.log(
@@ -239,7 +262,9 @@ function main() {
           counts: Object.fromEntries(tally(rows)),
           reviewNotes: displayPath(reviewNotesPath()),
           reviewNotesProblem: notesProblem,
-          staleReviewNotes: staleNotes,
+          staleReviewNotes: noteState.stale,
+          revivedRetiredNotes: noteState.revived,
+          retiredReviewNotes: noteState.retiredCount,
           coverageLimits: scan.caveats,
           unreadFiles: scan.unreadFiles,
           outOfScopeWriters: scan.outOfScopeWriters,
@@ -256,7 +281,7 @@ function main() {
     return 0
   }
 
-  printReport(scan, rows, notesProblem, staleNotes, verbose)
+  printReport(scan, rows, noteState, verbose)
   return 0
 }
 

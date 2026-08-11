@@ -198,7 +198,7 @@ describe('Linear client workspace storage', () => {
       email: 'ada@example.com',
       organizationName: 'Alpha'
     })
-    const linear = await loadClientModule()
+    const linear = await loadClientModule({ encryptionAvailable: true })
 
     await expect(linear.testConnection('legacy')).resolves.toMatchObject({
       ok: true,
@@ -216,6 +216,31 @@ describe('Linear client workspace storage', () => {
     expect(readFileSync(join(tempHome, '.orca', 'linear-workspaces.json'), 'utf-8')).toContain(
       'org-alpha'
     )
+  })
+
+  // Why this is the important half of the migration: the "new" token IS the legacy token, so a
+  // migration that deletes the legacy file after a refused write leaves the user with no stored
+  // credential at all — logged out at the next launch with nothing to re-enter but the API key.
+  it('abandons the legacy migration when the token cannot be persisted', async () => {
+    writeLegacyLinearFiles('token-alpha', {
+      displayName: 'Ada',
+      email: 'ada@example.com',
+      organizationName: 'Alpha'
+    })
+    const linear = await loadClientModule({ encryptionAvailable: false })
+
+    await expect(linear.testConnection('legacy')).resolves.toMatchObject({
+      ok: true,
+      workspace: { id: 'legacy', organizationName: 'Alpha', isLegacy: true }
+    })
+
+    expect(readFileSync(join(tempHome, '.orca', 'linear-token.enc'), 'utf-8')).toBe('token-alpha')
+    expect(existsSync(workspaceTokenPath('org-alpha'))).toBe(false)
+    expect(linear.getStatus()).toMatchObject({
+      connected: true,
+      selectedWorkspaceId: 'legacy',
+      workspaces: [{ id: 'legacy', organizationName: 'Alpha' }]
+    })
   })
 
   it('preserves plaintext legacy token fallback when safeStorage cannot decrypt it', async () => {
