@@ -1,3 +1,8 @@
+// Renderer localization-coverage inventory. Two arms, one scanner:
+//   bare     `pnpm audit:localization`          — REPORT: prints every candidate, always exits 0.
+//   --check  `pnpm verify:localization-coverage` — the GATE: exits 1 on any candidate the
+//            allowlist does not already cover. Run by `pnpm lint`; proven able to fail by
+//            config/scripts/verify-localization-coverage.test.mjs.
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
