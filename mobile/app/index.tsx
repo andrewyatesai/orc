@@ -28,6 +28,7 @@ import { loadHosts } from '../src/transport/host-store'
 import { useOpenMobileHostEdit } from '../src/transport/use-open-mobile-host-edit'
 import { removeHostAndCloseClient } from '../src/transport/host-removal-lifecycle'
 import { pickResumeWorktree } from '../src/worktree/resume-worktree'
+import { WORKTREE_PS_FULL_LIMIT } from '../src/worktree/worktree-catalog-snapshot-client'
 import type { RpcClient } from '../src/transport/rpc-client'
 import { sendSingleFlightRequest } from '../src/transport/request-single-flight'
 import {
@@ -64,6 +65,7 @@ import {
 } from '../src/tasks/mobile-task-providers'
 import { useResponsiveLayout } from '../src/layout/responsive-layout'
 import { useOpenMobileSession } from '../src/session/use-open-mobile-session'
+import { useOpenMobileTasks } from '../src/tasks/use-open-mobile-tasks'
 import { hostNewWorktreeRoute } from '../src/host-route-action-state'
 import { hostEndpointLabel } from '../src/transport/host-endpoint-label'
 
@@ -183,8 +185,7 @@ function fetchWorktreeInfo(
     })
   }
 
-  // Why: worktree.ps defaults to 200 and silently truncates; request all so counts are accurate.
-  sendSingleFlightRequest(client, hostId, 'worktree.ps', { limit: 10000 })
+  sendSingleFlightRequest(client, hostId, 'worktree.ps', { limit: WORKTREE_PS_FULL_LIMIT })
     .then((response) => {
       if (disposed()) {
         return
@@ -294,6 +295,7 @@ export default function HomeScreen() {
   const router = useRouter()
   const openMobileHostEdit = useOpenMobileHostEdit()
   const openMobileSession = useOpenMobileSession()
+  const openMobileTasks = useOpenMobileTasks()
   const insets = useSafeAreaInsets()
   // Why: cap/center content on wide/tablet canvases so cards don't stretch edge-to-edge on iPad.
   const { isWideLayout, contentMaxWidth } = useResponsiveLayout()
@@ -613,10 +615,9 @@ export default function HomeScreen() {
       if (!primaryConnectedHost) {
         return
       }
-      const suffix = provider ? `?taskSource=${provider}` : ''
-      router.push(`/h/${primaryConnectedHost.id}/tasks${suffix}`)
+      openMobileTasks(primaryConnectedHost.id, provider)
     },
-    [primaryConnectedHost, router]
+    [openMobileTasks, primaryConnectedHost]
   )
   const renderTaskHomeCard = () => (
     <Pressable

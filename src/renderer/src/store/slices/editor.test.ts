@@ -673,7 +673,7 @@ describe('createEditorSlice openDiff', () => {
   it('bumps fileContentReloadNonce when re-opening an existing clean file with reload requested', () => {
     const store = createEditorStore()
 
-    const openFileWithReloadRequest = (): void =>
+    const openFileWithReloadRequest = (): void => {
       store.getState().openFile(
         {
           filePath: '/repo/file.ts',
@@ -684,6 +684,7 @@ describe('createEditorSlice openDiff', () => {
         },
         { forceContentReload: true }
       )
+    }
 
     openFileWithReloadRequest()
     expect(store.getState().openFiles[0]?.fileContentReloadNonce).toBeUndefined()
@@ -879,7 +880,7 @@ describe('createEditorSlice openDiff', () => {
   it('keeps an existing preview replaceable when it is opened as preview again', () => {
     const store = createEditorTabsStore()
 
-    const openPreviewFile = (): void =>
+    const openPreviewFile = (): void => {
       store.getState().openFile(
         {
           filePath: '/repo/a.ts',
@@ -890,6 +891,7 @@ describe('createEditorSlice openDiff', () => {
         },
         { preview: true }
       )
+    }
 
     openPreviewFile()
     openPreviewFile()
@@ -4951,7 +4953,7 @@ describe('closeFile host mirroring', () => {
 describe('read-only editor tabs (AI Vault View Log)', () => {
   const LOG_PATH = '/home/user/.claude/sessions/log.jsonl'
 
-  const openReadOnlyLog = (store: StoreApi<AppState>): void =>
+  const openReadOnlyLog = (store: StoreApi<AppState>): void => {
     store.getState().openFile(
       {
         filePath: LOG_PATH,
@@ -4965,6 +4967,7 @@ describe('read-only editor tabs (AI Vault View Log)', () => {
       },
       { preview: false, forceContentReload: true, suppressActiveRuntimeFallback: true }
     )
+  }
 
   it('creates a permanent read-only edit tab', () => {
     const store = createEditorStore()

@@ -97,6 +97,7 @@ import {
 import { useWorkspaceSections } from '../../../src/worktree/use-workspace-sections'
 import { getMobileWorkspaceLineageGroupKey } from '../../../src/worktree/mobile-workspace-lineage'
 import { areWorktreeListsEqual } from '../../../src/worktree/worktree-list-snapshot'
+import { WorktreeCatalogSnapshotClient } from '../../../src/worktree/worktree-catalog-snapshot-client'
 import { reconcilePinnedIds, revertPendingPin } from '../../../src/worktree/pin-reconciliation'
 import { repoColor } from '../../../src/worktree/repo-color'
 import {
@@ -148,6 +149,9 @@ export function HostScreen({
   const lastConnectedAt = useLastConnectedAt(hostId)
   const clientRef = useRef<RpcClient | null>(null)
   const fetchWorktreesInFlightRef = useRef(false)
+  // Why: useRef, not useMemo — React may discard memoized values, which would silently
+  // reset the snapshot token this object exists to own.
+  const worktreeCatalogRef = useRef(new WorktreeCatalogSnapshotClient())
   const fetchRepoMetadataInFlightRef = useRef(new WeakSet<RpcClient>())
   const fetchRepoMetadataPendingRef = useRef(new WeakSet<RpcClient>())
   const repoMetadataFetchedAtRef = useRef(0)
@@ -433,31 +437,32 @@ export function HostScreen({
       const requestHostId = hostId
 
       try {
-        // Why: worktree.ps silently truncates at 200; use a high cap so large hosts don't drop workspaces.
-        const response = await requestClient.sendRequest('worktree.ps', { limit: 10000 })
+        const pendingCatalog = await worktreeCatalogRef.current.fetch(requestClient, requestHostId)
         if (clientRef.current !== requestClient || hostId !== requestHostId) {
           return
         }
         if (!options.allowDuringModal && newWorktreeModalVisibleRef.current) {
           return
         }
-        if (response.ok) {
-          const result = (response as RpcSuccess).result as { worktrees: Worktree[] }
+        // Why: unchanged responses still yield the confirmed rows, so every poll reasserts
+        // host truth over optimistic local edits regardless of payload size.
+        const confirmed = worktreeCatalogRef.current.admit(pendingCatalog)
+        if (confirmed) {
           // Why: reuse the existing array on identical snapshots to keep SectionList/sort rebuilds off the tap path.
           setWorktrees((current) =>
-            areWorktreeListsEqual(current, result.worktrees) ? current : result.worktrees
+            areWorktreeListsEqual(current, confirmed) ? current : confirmed
           )
           setLastKnownWorktrees((current) =>
-            areWorktreeListsEqual(current, result.worktrees) ? current : result.worktrees
+            areWorktreeListsEqual(current, confirmed) ? current : confirmed
           )
           setWorktreesLoaded(true)
           // Why (#8498): overwrite the home-written cache with the confirmed snapshot so a reconnect/remount can't serve a stale list.
           if (hostId) {
-            setCachedWorktrees(hostId, result.worktrees)
+            setCachedWorktrees(hostId, confirmed)
           }
           // Drop the optimistic active override once the host reports it active, so later desktop changes win.
           setOptimisticActiveWorktreeId((pending) =>
-            pending && result.worktrees.some((w) => w.worktreeId === pending && w.isActive)
+            pending && confirmed.some((w) => w.worktreeId === pending && w.isActive)
               ? null
               : pending
           )
@@ -469,7 +474,7 @@ export function HostScreen({
             }
             const still = new Set<string>()
             for (const id of prev) {
-              const wt = result.worktrees.find((w) => w.worktreeId === id)
+              const wt = confirmed.find((w) => w.worktreeId === id)
               if (wt && wt.liveTerminalCount > 0) {
                 still.add(id)
               }
@@ -482,7 +487,7 @@ export function HostScreen({
           // when the snapshot omits isPinned (older desktop), so we don't wipe/persist away local pins. Its
           // only side effect (pruning confirmed overrides) is idempotent under React's double-invoked updater.
           setPinnedIds((prev) => {
-            const pins = reconcilePinnedIds(result.worktrees, pendingPinRef.current)
+            const pins = reconcilePinnedIds(confirmed, pendingPinRef.current)
             if (!pins || (pins.size === prev.size && [...pins].every((id) => prev.has(id)))) {
               return prev
             }

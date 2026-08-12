@@ -1249,6 +1249,8 @@ export function connectPanePty(
     })
     startupDraftDeliveryClaimed = false
   }
+  // Why: reserve before deferred connect so the creation sidecar cannot time out during setup and strand this pane's live scanner.
+  const ownsStartupDraftPaste = claimStartupDraftPasteDelivery()
   if (paneStartup?.launchConfig) {
     useAppStore.getState().registerAgentLaunchConfig(cacheKey, paneStartup.launchConfig, {
       agentType: paneStartup.launchAgent ?? paneStartup.initialAgentStatus?.agent,
@@ -4923,7 +4925,6 @@ export function connectPanePty(
       }
       schedulePendingStartupCommandDelivery()
     }
-    const ownsStartupDraftPaste = claimStartupDraftPasteDelivery()
     const startupDraftReadyScanner = ownsStartupDraftPaste
       ? createDraftPasteReadyScanner(
           startupDraftAgentConfig?.draftPasteReadySignal ?? 'render-quiet-after-bracketed-paste'

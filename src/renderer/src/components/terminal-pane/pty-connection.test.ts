@@ -5859,7 +5859,77 @@ describe('connectPanePty', () => {
     expect(mockStoreState.recordTerminalInput).toHaveBeenCalledWith(makePaneKey('tab-1', LEAF_1))
   })
 
-  it('does not consume startup draft delivery before deferred connect starts', async () => {
+  it('keeps startup draft ownership while deferred connect waits through setup', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    // Dynamic import shares the freshly-reset module realm the production import claims on.
+    const { beginAgentStartupDeliveryAttempt: claimStartupDelivery } =
+      await import('@/lib/agent-startup-delayed-delivery')
+
+    const deferredFrames: FrameRequestCallback[] = []
+    globalThis.requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+      deferredFrames.push(callback)
+      return 1
+    })
+    const capturedDataCallback: { current: ((data: string) => void) | null } = { current: null }
+    const transport = createMockTransport('pty-codex')
+    transport.connect.mockImplementation(async ({ callbacks }: { callbacks: ConnectCallbacks }) => {
+      capturedDataCallback.current = callbacks.onData ?? null
+      return 'pty-codex'
+    })
+    transportFactoryQueue.push(transport)
+
+    mockStoreState = {
+      ...mockStoreState,
+      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: null }] },
+      repos: [{ id: 'repo1', connectionId: null }]
+    }
+
+    const pane = createPane(1)
+    const manager = createManager(1)
+    const deps = createDeps({
+      startup: {
+        command: 'wait-for-setup-then-codex',
+        launchAgent: 'codex',
+        launchConfig: { agentArgs: '', agentEnv: {} },
+        launchToken: 'launch-token-setup',
+        draftPrompt: 'Linked Linear issue: STA-905'
+      }
+    })
+
+    connectPanePty(pane as never, manager as never, deps as never)
+
+    // The claim is reserved synchronously, before any deferred frame runs, so a
+    // late creation sidecar loses the race even while setup delays the connect.
+    const sidecarClaimed = claimStartupDelivery({
+      worktreeId: 'wt-1',
+      tabId: 'tab-1',
+      launchToken: 'launch-token-setup'
+    })
+    expect(sidecarClaimed).toBe(false)
+
+    let frameCount = 0
+    while (deferredFrames.length > 0 && transport.connect.mock.calls.length === 0) {
+      if (frameCount >= 20) {
+        throw new Error('startup did not connect after the deferred setup handoff')
+      }
+      frameCount += 1
+      deferredFrames.shift()?.(frameCount * 16)
+    }
+    await flushAsyncTicks()
+    expect(capturedDataCallback.current).not.toBeNull()
+    capturedDataCallback.current?.('\x1b[?2004hWaiting for setup to finish...')
+    expect(transport.sendInputAccepted).not.toHaveBeenCalled()
+
+    capturedDataCallback.current?.('\x1b[?2004h\x1b[2K› ')
+    await flushAsyncTicks()
+
+    expect(transport.sendInputAccepted).toHaveBeenCalledTimes(1)
+    expect(transport.sendInputAccepted).toHaveBeenCalledWith(
+      '\x1b[200~Linked Linear issue: STA-905\x1b[201~'
+    )
+  })
+
+  it('releases startup draft delivery when disposed before deferred connect starts', async () => {
     const { connectPanePty } = await import('./pty-connection')
     globalThis.requestAnimationFrame = vi.fn(() => 1)
     const transport = createMockTransport('pty-codex')
