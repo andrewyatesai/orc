@@ -141,7 +141,7 @@ describe('resolveAgentResumeLaunchTarget off Windows', () => {
   it('ignores a stale Windows shell setting on a mac client', async () => {
     await expect(
       resolveWith({
-        worktreePath: '/Users/neil/repo',
+        worktreePath: '/home/neil/repo',
         terminalWindowsShell: 'cmd.exe'
       })
     ).resolves.toEqual({ platform: 'darwin', shell: undefined })
