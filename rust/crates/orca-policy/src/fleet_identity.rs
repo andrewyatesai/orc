@@ -1,9 +1,9 @@
 //! Fleet identity keys: RouteKey, StoreKey and PtyBinding.
 //!
-//! Ported from `src/shared/fleet-identity/{route-key,store-key,pty-binding}.ts`
+//! Ported from `src/shared/fleet-identity/{route-key,claude_store-key,pty-binding}.ts`
 //! (§3a of `docs/reference/alab-auto-mode-design.md`). One module because the
-//! three types are one decision surface: a binding names a route and a store,
-//! and the store answers the only question with teeth — "may this caller mutate
+//! three types are one decision surface: a binding names a route and a claude_store,
+//! and the claude_store answers the only question with teeth — "may this caller mutate
 //! this credential right now".
 //!
 //! These are authority keys, not labels. A RouteKey decides whose subscription
@@ -19,7 +19,7 @@
 //!      spellings of one route become two rows under a unique index and one
 //!      reservation is claimed twice.
 //!   3. [`union_store_keys`] exists because a rotation is a multi-key
-//!      transaction: it must lock the union of every store it touches, never one
+//!      transaction: it must lock the union of every claude_store it touches, never one
 //!      directory mutex.
 //!
 //! Panic-free like the rest of the crate: no indexing, no `unwrap`, no slicing
@@ -336,7 +336,7 @@ pub fn format_route_account_scope(key: &RouteKey) -> String {
 
 /// One mutable credential surface. A launch touches several at once — config
 /// dir, auth file, and on darwin BOTH the scoped and the legacy keychain item —
-/// which is why a store is a SET of these and not a directory path.
+/// which is why a claude_store is a SET of these and not a directory path.
 #[cfg_attr(test, derive(Debug, Clone, PartialEq, Eq))]
 pub enum CredentialSurface {
     ConfigDir { path: String },
@@ -361,8 +361,8 @@ impl StoreKey {
 }
 
 /// Trailing separators are stripped so `/home/u/.claude` and `/home/u/.claude/`
-/// are ONE surface. Treating them as disjoint would let a store-scoped drain
-/// proceed while a live CLI still holds the store.
+/// are ONE surface. Treating them as disjoint would let a claude_store-scoped drain
+/// proceed while a live CLI still holds the claude_store.
 ///
 /// Case is deliberately NOT folded: darwin and Windows are usually
 /// case-insensitive and Linux is not, so folding would merge two genuinely
@@ -498,8 +498,8 @@ pub fn format_store_key(key: &StoreKey) -> String {
     out
 }
 
-/// `None` when the value is not a store key this module issued. The empty string
-/// is the EMPTY store, not a parse failure — a launch that touches no credential
+/// `None` when the value is not a claude_store key this module issued. The empty string
+/// is the EMPTY claude_store, not a parse failure — a launch that touches no credential
 /// surface is a real state, and it must collide with nothing.
 #[must_use]
 pub fn parse_store_key(value: &str) -> Option<StoreKey> {
@@ -533,7 +533,7 @@ pub fn store_keys_overlap(a: &StoreKey, b: &StoreKey) -> bool {
 }
 
 /// A rotation is a multi-key transaction (§3a rule 2), so the saga must lock the
-/// union of every store it touches — never one directory mutex, which would
+/// union of every claude_store it touches — never one directory mutex, which would
 /// leave the keychain item it also rewrites unguarded.
 #[must_use]
 pub fn union_store_keys(keys: &[StoreKey]) -> StoreKey {
@@ -588,7 +588,7 @@ impl PtyBinding {
         &self.route
     }
     #[must_use]
-    pub fn store(&self) -> &StoreKey {
+    pub fn claude_store(&self) -> &StoreKey {
         &self.store
     }
 }
@@ -653,7 +653,7 @@ pub fn serialize_pty_binding(binding: &PtyBinding) -> SerializedPtyBinding {
 ///
 /// Each argument is `None` when the persisted field was absent or not a string —
 /// the distinction matters for `store_key`, where an ABSENT field is a rejection
-/// but an EMPTY string is the legitimate empty store.
+/// but an EMPTY string is the legitimate empty claude_store.
 #[must_use]
 pub fn deserialize_pty_binding(
     runtime_id: Option<&str>,
@@ -662,16 +662,20 @@ pub fn deserialize_pty_binding(
     store_key: Option<&str>,
 ) -> Option<PtyBinding> {
     let route = parse_route_key(route_key?)?;
-    let store = parse_store_key(store_key?)?;
+    // Named `store_key_parsed`, not `claude_store`: `claude_store` is an SMT-LIB reserved
+    // word, and Trust lowers local bindings into solver constants by their
+    // source name — `ay-dpll` panics on the collision (terms.rs `declare_const`,
+    // "symbol name 'claude_store' is reserved"), taking the whole test build down.
+    let store_key_parsed = parse_store_key(store_key?)?;
     commit_pty_binding(PtyBindingInput {
         runtime_id: runtime_id?.to_string(),
         pty_incarnation_id: pty_incarnation_id.unwrap_or_default().to_string(),
         route,
-        store,
+        store: store_key_parsed,
     })
 }
 
-/// A live pane blocks a store-scoped drain; an ended incarnation does not. The
+/// A live pane blocks a claude_store-scoped drain; an ended incarnation does not. The
 /// caller supplies liveness because only the runtime knows it.
 ///
 /// Borrowed back rather than cloned: the answer is "which of THESE bindings",
@@ -679,12 +683,13 @@ pub fn deserialize_pty_binding(
 #[must_use]
 pub fn bindings_blocking_store<'a>(
     bindings: &'a [PtyBinding],
-    store: &StoreKey,
+    // `drained_store`, not `claude_store`: see the reserved-word note above.
+    drained_store: &StoreKey,
     is_live: impl Fn(&PtyBinding) -> bool,
 ) -> Vec<&'a PtyBinding> {
     bindings
         .iter()
-        .filter(|binding| is_live(binding) && store_keys_overlap(&binding.store, store))
+        .filter(|binding| is_live(binding) && store_keys_overlap(&binding.store, drained_store))
         .collect()
 }
 
@@ -895,7 +900,7 @@ mod tests {
             &a,
             &create_store_key(&[config_dir("/b"), keychain("legacy")])
         ));
-        // And the empty store collides with nothing.
+        // And the empty claude_store collides with nothing.
         assert!(!store_keys_overlap(&create_store_key(&[]), &a));
     }
 
@@ -940,22 +945,22 @@ mod tests {
 
     #[test]
     fn refuses_to_attribute_a_pane_it_cannot_name() {
-        let store = create_store_key(&[config_dir("/home/u/.claude")]);
+        let claude_store = create_store_key(&[config_dir("/home/u/.claude")]);
         assert!(binding("", "inc_1", create_store_key(&[])).is_none());
         assert!(binding("rt_1", "", create_store_key(&[])).is_none());
         assert!(binding(
             "rt_1",
             &"i".repeat(MAX_PTY_INCARNATION_ID_UNITS),
-            store.clone()
+            claude_store.clone()
         )
         .is_some());
-        assert!(binding("rt_1", &"i".repeat(MAX_PTY_INCARNATION_ID_UNITS + 1), store).is_none());
+        assert!(binding("rt_1", &"i".repeat(MAX_PTY_INCARNATION_ID_UNITS + 1), claude_store).is_none());
     }
 
     #[test]
     fn round_trips_through_its_persisted_form() {
-        let store = create_store_key(&[config_dir("/home/u/.claude")]);
-        let committed = binding("rt_1", "inc_1", store).expect("committed");
+        let claude_store = create_store_key(&[config_dir("/home/u/.claude")]);
+        let committed = binding("rt_1", "inc_1", claude_store).expect("committed");
         let serialized = serialize_pty_binding(&committed);
         assert_eq!(
             deserialize_pty_binding(
@@ -970,7 +975,7 @@ mod tests {
 
     #[test]
     fn refuses_a_persisted_row_it_cannot_trust() {
-        // An absent store key is a rejection; the EMPTY string is the empty store.
+        // An absent claude_store key is a rejection; the EMPTY string is the empty claude_store.
         assert!(deserialize_pty_binding(
             Some("rt_1"),
             Some("i"),
@@ -1004,9 +1009,9 @@ mod tests {
 
     #[test]
     fn separates_two_incarnations_of_one_pane() {
-        let store = create_store_key(&[config_dir("/home/u/.claude")]);
-        let first = binding("rt_1", "inc_1", store.clone()).expect("committed");
-        let second = binding("rt_1", "inc_2", store).expect("committed");
+        let claude_store = create_store_key(&[config_dir("/home/u/.claude")]);
+        let first = binding("rt_1", "inc_1", claude_store.clone()).expect("committed");
+        let second = binding("rt_1", "inc_2", claude_store).expect("committed");
         assert!(!pty_bindings_equal(&first, &second));
         assert!(pty_bindings_equal(&first, &first.clone()));
     }
@@ -1016,11 +1021,11 @@ mod tests {
     /// cannot say which pane spent what.
     #[test]
     fn every_field_separates_two_bindings() {
-        let store = create_store_key(&[config_dir("/a")]);
-        let base = binding("rt_1", "inc_1", store.clone()).expect("committed");
+        let claude_store = create_store_key(&[config_dir("/a")]);
+        let base = binding("rt_1", "inc_1", claude_store.clone()).expect("committed");
         let other_store =
             binding("rt_1", "inc_1", create_store_key(&[config_dir("/b")])).expect("committed");
-        let other_runtime = binding("rt_2", "inc_1", store.clone()).expect("committed");
+        let other_runtime = binding("rt_2", "inc_1", claude_store.clone()).expect("committed");
         let other_route = commit_pty_binding(PtyBindingInput {
             runtime_id: "rt_1".to_string(),
             pty_incarnation_id: "inc_1".to_string(),
@@ -1030,7 +1035,7 @@ mod tests {
                 },
                 ..local_system_default()
             },
-            store,
+            store: claude_store,
         })
         .expect("committed");
         for differing in [&other_store, &other_runtime, &other_route] {
@@ -1040,9 +1045,9 @@ mod tests {
 
     #[test]
     fn only_live_panes_that_touch_the_store_block_a_drain() {
-        let store = create_store_key(&[config_dir("/home/u/.claude")]);
+        let claude_store = create_store_key(&[config_dir("/home/u/.claude")]);
         let bindings = vec![
-            binding("rt_1", "inc_1", store.clone()).expect("committed"),
+            binding("rt_1", "inc_1", claude_store.clone()).expect("committed"),
             binding(
                 "rt_1",
                 "inc_2",
@@ -1050,13 +1055,13 @@ mod tests {
             )
             .expect("committed"),
         ];
-        let blocking = bindings_blocking_store(&bindings, &store, |_| true);
+        let blocking = bindings_blocking_store(&bindings, &claude_store, |_| true);
         assert_eq!(blocking.len(), 1);
         assert_eq!(
             blocking.first().map(|b| b.pty_incarnation_id()),
             Some("inc_1")
         );
         // An ended incarnation does not block.
-        assert!(bindings_blocking_store(&bindings, &store, |_| false).is_empty());
+        assert!(bindings_blocking_store(&bindings, &claude_store, |_| false).is_empty());
     }
 }

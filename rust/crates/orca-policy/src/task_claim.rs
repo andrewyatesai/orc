@@ -23,7 +23,6 @@
 //!
 //! Panic-free: no indexing, no `unwrap`, no slicing by computed range.
 
-use serde_json::Value;
 
 /// `TaskRow.result` is JSON written by the lifecycle reconciler.
 pub struct TaskClaim {
@@ -71,52 +70,6 @@ pub enum ClaimReconciliation {
     },
 }
 
-/// Tolerates the several shapes `result` has carried; anything else is unknown.
-///
-/// An empty string is the TS `if (!result)` arm, not a parse failure — the
-/// column was never written.
-#[must_use]
-pub fn parse_task_claim(result: Option<&str>) -> Option<TaskClaim> {
-    let text = result.filter(|text| !text.is_empty())?;
-    let parsed: Value = serde_json::from_str(text).ok()?;
-    parse_task_claim_value(&parsed)
-}
-
-/// The shape tolerance, over an already-parsed value.
-///
-/// A JSON ARRAY passes. That is not sloppiness: the TS guard is
-/// `typeof parsed !== 'object' || parsed === null`, and in JS an array IS an
-/// object, so `[1,2]` reads as a claim with no files rather than an unreadable
-/// result. A port that rejected it would report `unreadable-result` where the
-/// shipping console reports a real (empty) claim.
-#[must_use]
-pub fn parse_task_claim_value(parsed: &Value) -> Option<TaskClaim> {
-    if !matches!(parsed, Value::Object(_) | Value::Array(_)) {
-        return None;
-    }
-    // A present-but-wrong `filesModified` degrades to "claimed nothing", and a
-    // non-string entry is dropped rather than coerced: a claim is only as good
-    // as the parts of it that are actually paths.
-    let files_modified = parsed
-        .get("filesModified")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(Value::as_str)
-                .map(ToString::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    Some(TaskClaim {
-        completed_by: parsed
-            .get("completedBy")
-            .and_then(Value::as_str)
-            .map(ToString::to_string),
-        files_modified,
-    })
-}
-
 /// JS `String.prototype.trim` — deliberately NOT `char::is_whitespace`.
 ///
 /// The two disagree in both directions on exactly two code points: JS trims
@@ -152,13 +105,19 @@ pub fn normalize_claim_path(path: &str) -> String {
 #[must_use]
 pub fn reconcile_task_claim(
     task_status: &str,
-    result: Option<&str>,
+    // `None` = the result column was absent, empty, or unparseable. Parsing
+    // lives with the caller (the orca-dispatch adapter, which already speaks
+    // JSON): serde_json ICEs the current Trust stage2, and an authority crate
+    // that cannot be VERIFIED has lost the property that justifies its
+    // existence. The precedence below is unchanged — a non-completed status
+    // still wins over an unreadable claim.
+    claim: Option<TaskClaim>,
     changed_files: Option<&[String]>,
 ) -> ClaimReconciliation {
     if task_status != "completed" {
         return ClaimReconciliation::Unknown(UnknownReason::NotCompleted);
     }
-    let claim = match parse_task_claim(result) {
+    let claim = match claim {
         Some(claim) => claim,
         None => return ClaimReconciliation::Unknown(UnknownReason::UnreadableResult),
     };
@@ -240,13 +199,11 @@ pub fn describe_reconciliation(reconciliation: &ClaimReconciliation) -> String {
 mod tests {
     use super::*;
 
-    fn completed(files: &[&str]) -> String {
-        let list = files
-            .iter()
-            .map(|file| format!("\"{file}\""))
-            .collect::<Vec<_>>()
-            .join(",");
-        format!("{{\"completedBy\":\"w1\",\"filesModified\":[{list}],\"completedAt\":\"now\"}}")
+    fn completed(list: &[&str]) -> TaskClaim {
+        TaskClaim {
+            completed_by: Some("w1".to_string()),
+            files_modified: files(list),
+        }
     }
 
     fn files(list: &[&str]) -> Vec<String> {
@@ -257,7 +214,7 @@ mod tests {
     fn is_the_alert_that_can_contradict_an_agent() {
         let claim = completed(&["src/a.ts", "src/b.ts", "src/c.ts"]);
         assert_eq!(
-            reconcile_task_claim("completed", Some(&claim), Some(&[])),
+            reconcile_task_claim("completed", Some(claim), Some(&[])),
             ClaimReconciliation::Mismatch {
                 claimed: files(&["src/a.ts", "src/b.ts", "src/c.ts"]),
                 missing: files(&["src/a.ts", "src/b.ts", "src/c.ts"]),
@@ -270,7 +227,7 @@ mod tests {
     fn degrades_to_unknown_with_no_git_never_to_mismatch() {
         // Same claim that mismatches above; a null answer must NOT convict it.
         let claim = completed(&["src/a.ts", "src/b.ts", "src/c.ts"]);
-        let verdict = reconcile_task_claim("completed", Some(&claim), None);
+        let verdict = reconcile_task_claim("completed", Some(claim), None);
         assert_eq!(verdict, ClaimReconciliation::Unknown(UnknownReason::NoGit));
         assert!(!describe_reconciliation(&verdict).contains("mismatch"));
     }
@@ -279,11 +236,11 @@ mod tests {
     fn keeps_the_three_unknown_reasons_apart() {
         let claim = completed(&["src/a.ts"]);
         assert_eq!(
-            reconcile_task_claim("dispatched", Some(&claim), Some(&[])),
+            reconcile_task_claim("dispatched", Some(claim), Some(&[])),
             ClaimReconciliation::Unknown(UnknownReason::NotCompleted)
         );
         assert_eq!(
-            reconcile_task_claim("completed", Some("not json"), Some(&[])),
+            reconcile_task_claim("completed", None, Some(&[])),
             ClaimReconciliation::Unknown(UnknownReason::UnreadableResult)
         );
         assert_eq!(
@@ -291,7 +248,7 @@ mod tests {
             ClaimReconciliation::Unknown(UnknownReason::UnreadableResult)
         );
         assert_eq!(
-            reconcile_task_claim("completed", Some(&claim), None),
+            reconcile_task_claim("completed", Some(completed(&["src/a.ts"])), None),
             ClaimReconciliation::Unknown(UnknownReason::NoGit)
         );
     }
@@ -301,11 +258,11 @@ mod tests {
         // A running task with garbage in `result` is still "not-completed": the
         // follow-up is "wait", not "go read the row".
         assert_eq!(
-            reconcile_task_claim("dispatched", Some("not json"), None),
+            reconcile_task_claim("dispatched", None, None),
             ClaimReconciliation::Unknown(UnknownReason::NotCompleted)
         );
         assert_eq!(
-            reconcile_task_claim("completed", Some("not json"), None),
+            reconcile_task_claim("completed", None, None),
             ClaimReconciliation::Unknown(UnknownReason::UnreadableResult)
         );
     }
@@ -316,7 +273,7 @@ mod tests {
         assert_eq!(
             reconcile_task_claim(
                 "completed",
-                Some(&claim),
+                Some(claim),
                 Some(&files(&["src/b.ts", "src/c.ts"]))
             ),
             ClaimReconciliation::Mismatch {
@@ -332,7 +289,7 @@ mod tests {
         for claimed in ["./src/a.ts", "/src/a.ts/", " src/a.ts ", "\u{feff}src/a.ts"] {
             let claim = completed(&[claimed]);
             assert_eq!(
-                reconcile_task_claim("completed", Some(&claim), Some(&files(&["src/a.ts"]))),
+                reconcile_task_claim("completed", Some(claim), Some(&files(&["src/a.ts"]))),
                 ClaimReconciliation::Match {
                     claimed: files(&["src/a.ts"])
                 },
@@ -347,7 +304,7 @@ mod tests {
         // the JS trim set. Eating it here would invent a match TS never sees.
         let claim = completed(&["\u{85}src/a.ts"]);
         assert!(matches!(
-            reconcile_task_claim("completed", Some(&claim), Some(&files(&["src/a.ts"]))),
+            reconcile_task_claim("completed", Some(claim), Some(&files(&["src/a.ts"]))),
             ClaimReconciliation::Mismatch { .. }
         ));
     }
@@ -355,7 +312,7 @@ mod tests {
     #[test]
     fn a_claim_of_nothing_with_nothing_changed_is_a_match() {
         assert_eq!(
-            reconcile_task_claim("completed", Some(&completed(&[])), Some(&[])),
+            reconcile_task_claim("completed", Some(completed(&[])), Some(&[])),
             ClaimReconciliation::Match {
                 claimed: files(&[])
             }
@@ -370,7 +327,7 @@ mod tests {
         assert_eq!(
             reconcile_task_claim(
                 "completed",
-                Some(&claim),
+                Some(claim),
                 Some(&files(&["src/a.ts", "/src/a.ts"]))
             ),
             ClaimReconciliation::Match {
@@ -381,39 +338,16 @@ mod tests {
 
     #[test]
     fn drops_entries_that_normalize_to_nothing() {
-        let claim = "{\"filesModified\":[\"\",\"  \",\"/\"]}";
+        let claim = TaskClaim {
+            completed_by: None,
+            files_modified: files(&["", "  ", "/"]),
+        };
         assert_eq!(
             reconcile_task_claim("completed", Some(claim), Some(&[])),
             ClaimReconciliation::Match {
                 claimed: files(&[])
             }
         );
-    }
-
-    #[test]
-    fn parse_drops_non_string_entries_rather_than_trusting_the_shape() {
-        let claim = parse_task_claim(Some("{\"filesModified\":[\"a.ts\",42,null]}"));
-        assert_eq!(
-            claim.map(|claim| claim.files_modified),
-            Some(files(&["a.ts"]))
-        );
-    }
-
-    #[test]
-    fn parse_returns_none_for_anything_unreadable() {
-        assert!(parse_task_claim(Some("nope")).is_none());
-        assert!(parse_task_claim(None).is_none());
-        assert!(parse_task_claim(Some("")).is_none());
-        assert!(parse_task_claim(Some("\"a string\"")).is_none());
-        assert!(parse_task_claim(Some("null")).is_none());
-        // A write that was cut off mid-flush is unreadable, not empty.
-        assert!(parse_task_claim(Some("{\"filesModified\":[\"a.ts\"")).is_none());
-    }
-
-    #[test]
-    fn parse_accepts_an_array_because_js_calls_it_an_object() {
-        let claim = parse_task_claim(Some("[1,2]"));
-        assert_eq!(claim.map(|claim| claim.files_modified.len()), Some(0));
     }
 
     #[test]

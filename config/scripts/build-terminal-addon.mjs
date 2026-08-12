@@ -174,6 +174,12 @@ const env = cargoEnv()
 if (stableRustc) {
   env.RUSTC = stableRustc
 }
+// The repo-root .cargo/config.toml turns Trust verification on via `-Z` rustflags,
+// which the stable toolchain selected above refuses to PARSE — the build then dies
+// probing target info, before compiling anything. An explicit RUSTFLAGS overrides
+// the config table wholesale (same idiom, same reason as build-rust-daemon.mjs);
+// a caller-supplied value still wins.
+env.RUSTFLAGS = process.env.RUSTFLAGS ?? ''
 
 async function runCargoBuild(targetTriple) {
   const args = ['build', '--release', ...(targetTriple ? ['--target', targetTriple] : [])]

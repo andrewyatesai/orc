@@ -105,7 +105,13 @@ export function certificatesGate({ repo, sh, skip, rustupStable }) {
           // toolchain on purpose: parity asks whether the ported logic matches
           // its TS twin, which is a question about the code, not the verifier.
           RUSTFLAGS: '',
-          RUSTDOCFLAGS: ''
+          RUSTDOCFLAGS: '',
+          // The repo-root rust-toolchain.toml pins the TRUST toolchain, which
+          // ships no rustdoc — and cargo resolves bare `rustdoc` through the
+          // rustup proxy, which follows the pin even though `cargo`/`rustc` here
+          // are explicit stable binaries. Doctests then fail before running.
+          // Pin rustdoc to the same stable toolchain the rest of this leg uses.
+          ...(rustupStable('rustdoc') ? { RUSTDOC: rustupStable('rustdoc') } : {})
         }
       })
     } catch (e) {
