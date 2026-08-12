@@ -40,6 +40,7 @@ import type { MobileRelayStatus } from '../shared/mobile-relay-status'
 import type { PosixTerminalShellDetection } from '../shared/posix-terminal-shell'
 import type { ShellPathValidation } from '../shared/terminal-shell-path-validation'
 import type { MobilePairingConnectionMode } from '../shared/mobile-pairing-connection-mode'
+import type { RuntimePairingReach } from '../shared/runtime-pairing-reach'
 import type { SshMutationExpectation } from '../shared/ssh-types'
 import type {
   CreateLocalOrcaProfileArgs,
@@ -3490,7 +3491,11 @@ export type PreloadApi = {
       { ok: true } | { ok: false; reason: 'cancelled' | 'failed' | 'unsupported' }
     >
     openWindowsNetworkSettings: () => Promise<boolean>
-    getRuntimePairingUrl: (args?: { address?: string; rotate?: boolean }) => Promise<
+    getRuntimePairingUrl: (args?: {
+      address?: string
+      rotate?: boolean
+      reach?: RuntimePairingReach
+    }) => Promise<
       | { available: false; reason?: 'network_exposure_failed'; guidance?: string }
       | {
           available: true

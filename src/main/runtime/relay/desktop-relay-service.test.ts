@@ -6,7 +6,8 @@ import type { OrcaCloudAuthConfig } from '../../orca-profiles/profile-cloud-auth
 import { DeviceRegistry } from '../device-registry'
 import { RelayRevokeOutbox } from './relay-revoke-outbox'
 import type { MobilePairingConnectionContext, OrcaRuntimeRpcServer } from '../runtime-rpc'
-import { DesktopRelayService, pairingAuthorizationForContext } from './desktop-relay-service'
+import { DesktopRelayService } from './desktop-relay-service'
+import { pairingAuthorizationForContext } from './relay-pairing-authorization'
 
 const relayHostId = 'AbCdEf0123_-xyZ9'
 

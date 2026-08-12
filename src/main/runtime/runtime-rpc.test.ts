@@ -4842,6 +4842,58 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
     }
   })
 
+  it('stays on loopback at startup for a connected "This computer only" grant (#12405)', async () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
+    // Why: #12405 point 1 — a this-computer grant whose local browser has connected (lastSeenAt > 0) must
+    // NOT republish the runtime on every interface at the next launch; only a network-reach reconnect does.
+    const registry = new DeviceRegistry(userDataPath)
+    const device = registry.getOrCreatePendingDevice('Local browser', 'runtime', 'this-computer')
+    registry.updateLastSeen(device.deviceId)
+
+    const server = new OrcaRuntimeRpcServer({
+      runtime: new OrcaRuntimeService(),
+      userDataPath,
+      enableWebSocket: true,
+      wsPort: 0
+    })
+
+    await server.start()
+    try {
+      expect(
+        server
+          .getDeviceRegistry()
+          ?.listDevices()
+          .some((d) => d.lastSeenAt > 0 && d.pairingReach === 'this-computer')
+      ).toBe(true)
+      expect(wsTransportOf(server)?.resolvedHost).toBe('127.0.0.1')
+    } finally {
+      await server.stop()
+    }
+  })
+
+  it('binds all interfaces at startup for a connected network-reach grant (#12405)', async () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
+    // Why: #12405 — a grant minted for off-host reach still widens on reconnect, so a phone/LAN client that
+    // has paired keeps a reachable listener across launches.
+    const registry = new DeviceRegistry(userDataPath)
+    const device = registry.getOrCreatePendingDevice('LAN client', 'runtime', 'network')
+    registry.updateLastSeen(device.deviceId)
+
+    const server = new OrcaRuntimeRpcServer({
+      runtime: new OrcaRuntimeService(),
+      userDataPath,
+      enableWebSocket: true,
+      wsPort: 0
+    })
+
+    await server.start()
+    try {
+      expect(wsTransportOf(server)?.resolvedHost).toBe('0.0.0.0')
+    } finally {
+      await server.stop()
+    }
+  })
+
   it('keeps the same MobileSocketWiring instance across a pairing widen (relay capture stays valid)', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
     const server = new OrcaRuntimeRpcServer({

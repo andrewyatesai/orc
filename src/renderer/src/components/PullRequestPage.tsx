@@ -227,6 +227,7 @@ import {
   type TaskSourceContext
 } from '../../../shared/task-source-context'
 import { translate } from '@/i18n/i18n'
+import { formatUiRelativeTimeFromDate } from '@/i18n/relative-time-format'
 import { getSettingsForRepoRuntimeOwner } from '@/lib/repo-runtime-owner'
 
 // Why: the item URL is the only host-aware repository identity present on every work item across IPC.
@@ -336,27 +337,8 @@ type PullRequestPageProps = {
   projectOrigin?: PullRequestPageProjectOrigin
 }
 
-// Module singleton: Intl formatter construction loads locale data, so building
-// one per PR comment (formatRelativeTime runs per timeline item) was wasteful.
-const RELATIVE_TIME_FORMAT = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
-
 function formatRelativeTime(input: string): string {
-  const date = new Date(input)
-  if (Number.isNaN(date.getTime())) {
-    return 'recently'
-  }
-  const diffMs = date.getTime() - Date.now()
-  const diffMinutes = Math.round(diffMs / 60_000)
-  const formatter = RELATIVE_TIME_FORMAT
-  if (Math.abs(diffMinutes) < 60) {
-    return formatter.format(diffMinutes, 'minute')
-  }
-  const diffHours = Math.round(diffMinutes / 60)
-  if (Math.abs(diffHours) < 24) {
-    return formatter.format(diffHours, 'hour')
-  }
-  const diffDays = Math.round(diffHours / 24)
-  return formatter.format(diffDays, 'day')
+  return formatUiRelativeTimeFromDate(input)
 }
 
 function findMentionQuery(value: string, caret: number): MentionQuery | null {

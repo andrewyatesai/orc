@@ -840,6 +840,9 @@ export class SshRelaySession {
         hasExplicitPrompt?: unknown
         promptInteractionKey?: unknown
         hookEventName?: unknown
+        source?: unknown
+        providerPromptId?: unknown
+        compactTrigger?: unknown
         toolUseId?: unknown
         toolAgentId?: unknown
         toolAgentType?: unknown
@@ -867,6 +870,9 @@ export class SshRelaySession {
               : undefined,
           hookEventName:
             typeof envelope.hookEventName === 'string' ? envelope.hookEventName : undefined,
+          source: envelope.source,
+          providerPromptId: envelope.providerPromptId,
+          compactTrigger: envelope.compactTrigger,
           toolUseId: typeof envelope.toolUseId === 'string' ? envelope.toolUseId : undefined,
           toolAgentId: typeof envelope.toolAgentId === 'string' ? envelope.toolAgentId : undefined,
           toolAgentType:

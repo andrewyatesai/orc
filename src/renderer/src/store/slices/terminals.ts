@@ -2961,7 +2961,8 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
             ? removeSleepingRecordsReplacedByManualWorktreeSleep(
                 s.sleepingAgentSessionsByPaneKey,
                 worktreeId,
-                opts?.sleepingPaneKeys
+                opts?.sleepingPaneKeys,
+                sleepingAgentSessionRecords
               ).records
             : s.sleepingAgentSessionsByPaneKey
         return {

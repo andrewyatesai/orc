@@ -21,6 +21,7 @@ import {
   normalizeHookPayload,
   preparePendingGrokResultDiscovery,
   readRequestBody,
+  resolveCachedClaudeCompactOwnership,
   resolveHookSource,
   writeEndpointFile,
   type AgentHookEventPayload,
@@ -278,7 +279,12 @@ export class RelayAgentHookServer {
         res.end()
         return
       }
-      const event = normalizeHookPayload(this.state, source, body, this.env)
+      // Why: the relay is the first hop and may not have cached the prior turn; let compact
+      // events through unanchored, then Orca's ingestRemote re-gates them with real identity.
+      const event = normalizeHookPayload(this.state, source, body, this.env, {
+        allowUnanchoredPreCompact: true,
+        allowUnanchoredPostCompact: true
+      })
       if (event) {
         // TODO: once normalizeHookPayload returns validated env/version, drop bodyEnv/bodyVersion and source them from the listener result.
         const env = this.bodyEnv(body)
@@ -316,6 +322,8 @@ export class RelayAgentHookServer {
       hasExplicitPrompt: event.hasExplicitPrompt,
       promptInteractionKey: event.promptInteractionKey,
       hookEventName: event.hookEventName,
+      providerPromptId: event.providerPromptId,
+      compactTrigger: event.compactTrigger,
       toolUseId: event.toolUseId,
       toolAgentId: event.toolAgentId,
       toolAgentType: event.toolAgentType,
@@ -338,9 +346,11 @@ export class RelayAgentHookServer {
     if (event.payload.state !== 'done' || event.payload.lastAssistantMessage) {
       this.clearAssistantMessageRetry(event.paneKey)
     }
+    const previous = this.state.lastStatusByPaneKey.get(event.paneKey)
+    const cachedEvent = resolveCachedClaudeCompactOwnership(previous, event)
     // Why: delete-then-set makes Map insertion order = recency, so the cap below evicts the longest-idle pane.
     this.state.lastStatusByPaneKey.delete(event.paneKey)
-    this.state.lastStatusByPaneKey.set(event.paneKey, event)
+    this.state.lastStatusByPaneKey.set(event.paneKey, cachedEvent)
     this.lastEnvelopeMetaByPaneKey.delete(event.paneKey)
     this.lastEnvelopeMetaByPaneKey.set(event.paneKey, { source, env, version })
     while (this.state.lastStatusByPaneKey.size > MAX_CACHED_PANES) {

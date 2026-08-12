@@ -21,6 +21,22 @@ const PLAIN_NODE_ENTRY_NAMES = [
   'codex/codex-app-server-grant-entry'
 ] as const
 
+// Entries executed as worker threads of the main process. Electron's module is
+// not registered on worker threads, so require("electron") throws
+// "Cannot find module 'electron'" there too (verified on Electron 43) and kills
+// the worker at startup. These carry hand-written "must stay electron-free"
+// comments, which is convention, not enforcement — and the port-scan worker in
+// particular sits one import away from a spawn helper that deliberately does
+// require electron.
+const WORKER_THREAD_ENTRY_NAMES = [
+  'stt-worker',
+  'warp-theme-parser-worker',
+  'session-scanner-opencode-sqlite-worker-entry',
+  'port-scan-command-worker-entry'
+] as const
+
+type EntryRuntime = 'plain-Node process' | 'worker thread'
+
 const ELECTRON_REQUIRE_RE = /require\(\s*["']electron["']\s*\)/
 
 function collectReachableChunks(
@@ -51,13 +67,14 @@ function collectReachableChunks(
 function assertNoElectronRequire(
   entryName: string,
   entry: OutputChunk,
-  byFileName: Map<string, OutputChunk>
+  byFileName: Map<string, OutputChunk>,
+  runtime: EntryRuntime = 'plain-Node process'
 ): void {
   for (const chunk of collectReachableChunks(entry, byFileName)) {
     if (ELECTRON_REQUIRE_RE.test(chunk.code)) {
       throw new Error(
         `[plain-node-entry-guard] "${entryName}" reaches chunk "${chunk.fileName}" that ` +
-          `requires electron. "${entryName}" runs as a plain-Node process, where ` +
+          `requires electron. "${entryName}" runs as a ${runtime}, where ` +
           `require("electron") throws MODULE_NOT_FOUND and kills it at startup (the ` +
           `v1.4.129-rc.1 daemon outage). Keep electron imports out of its module graph.`
       )
@@ -86,24 +103,30 @@ export function createPlainNodeEntryGuardPlugin(): Plugin {
         }
       }
 
-      // Why: a renamed/removed plain-Node input key would make the electron-require
+      // Why: a renamed/removed guarded input key would make the electron-require
       // check skip that entry silently, re-enabling the v1.4.129-rc.1 daemon outage;
       // hard-fail so a missing guarded entry breaks the build instead of passing vacuously.
-      const unresolved = PLAIN_NODE_ENTRY_NAMES.filter((name) => !entryByName.has(name))
+      const guardedEntryNames = [...PLAIN_NODE_ENTRY_NAMES, ...WORKER_THREAD_ENTRY_NAMES]
+      const unresolved = guardedEntryNames.filter((name) => !entryByName.has(name))
       if (unresolved.length > 0) {
         throw new Error(
           `[plain-node-entry-guard] no emitted entry chunk for ${unresolved
             .map((name) => `"${name}"`)
-            .join(', ')}. A plain-Node entry was renamed or removed without updating ` +
-            `PLAIN_NODE_ENTRY_NAMES, which would silently disable the electron-require guard ` +
-            `(the v1.4.129-rc.1 daemon outage). Update PLAIN_NODE_ENTRY_NAMES to match the ` +
-            `build's entry names.`
+            .join(', ')}. A guarded entry was renamed or removed without updating ` +
+            `PLAIN_NODE_ENTRY_NAMES / WORKER_THREAD_ENTRY_NAMES, which would silently disable ` +
+            `the electron-require guard (the v1.4.129-rc.1 daemon outage). Update the entry ` +
+            `name lists to match the build's entry names.`
         )
       }
 
       for (const entryName of PLAIN_NODE_ENTRY_NAMES) {
         const entry = entryByName.get(entryName) as OutputChunk
-        assertNoElectronRequire(entryName, entry, byFileName)
+        assertNoElectronRequire(entryName, entry, byFileName, 'plain-Node process')
+      }
+
+      for (const entryName of WORKER_THREAD_ENTRY_NAMES) {
+        const entry = entryByName.get(entryName) as OutputChunk
+        assertNoElectronRequire(entryName, entry, byFileName, 'worker thread')
       }
     }
   }

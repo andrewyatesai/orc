@@ -913,6 +913,17 @@ fn parse_sleeping_record(value: &Value) -> Option<Value> {
         }
         out.insert("origin".to_string(), origin.clone());
     }
+    // z.boolean().optional() — a finished pane an explicit sleep captured resumes only when its
+    // own tab is opened, so the flag must survive restart or the mobile-wake fan-out resurfaces.
+    if let Some(restore_on_tab_open_only) = obj.get("restoreOnTabOpenOnly") {
+        if !restore_on_tab_open_only.is_boolean() {
+            return None;
+        }
+        out.insert(
+            "restoreOnTabOpenOnly".to_string(),
+            restore_on_tab_open_only.clone(),
+        );
+    }
     Some(Value::Object(out))
 }
 
@@ -1782,6 +1793,43 @@ mod tests {
                 ["agentEnv"],
             json!({ "PATH": "/bin" })
         );
+    }
+
+    #[test]
+    fn preserves_restore_on_tab_open_only_and_drops_a_non_boolean_flag() {
+        let record = |flag: Value| {
+            json!({
+                "paneKey": "p",
+                "worktreeId": "wt",
+                "agent": "claude",
+                "providerSession": { "key": "session_id", "id": "sess-1" },
+                "prompt": "",
+                "state": "done",
+                "capturedAt": 1,
+                "updatedAt": 1,
+                "origin": "worktree-sleep",
+                "restoreOnTabOpenOnly": flag
+            })
+        };
+        let kept = minimal_with(&[(
+            "sleepingAgentSessionsByPaneKey",
+            json!({ "p": record(json!(true)) }),
+        )]);
+        assert_eq!(
+            parse(kept).value().unwrap()["sleepingAgentSessionsByPaneKey"]["p"]
+                ["restoreOnTabOpenOnly"],
+            json!(true)
+        );
+        // A non-boolean flag invalidates the whole record, so the pane is dropped.
+        let bad = minimal_with(&[(
+            "sleepingAgentSessionsByPaneKey",
+            json!({ "p": record(json!("yes")) }),
+        )]);
+        assert!(parse(bad)
+            .value()
+            .unwrap()
+            .get("sleepingAgentSessionsByPaneKey")
+            .is_none());
     }
 
     #[test]

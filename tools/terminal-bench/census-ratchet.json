@@ -67,9 +67,20 @@
         "pty.ts +31 is 866bcda46 in full: a recoverFreshSpawnProviderRouting re-probe helper wired into both spawn paths and an isMintedSessionId fresh-create branch, replacing the deleted FreshLocalFallbackProvider type-predicate.",
         "Accepted: upstream feature/port work attaching to the god object where features attach, not the delivery-reliability shim this ratchet watches — shimWholeFileLoc held flat at 2813 across the batch, which is the number that would have justified refusing. Decomposition of orca-runtime.ts remains owed; the next movement should be down."
       ]
+    },
+    {
+      "date": "2026-08-12",
+      "head": "tail-batch4",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36289
+      },
+      "why": [
+        "+11 net on orca-runtime.ts (+20/-9) from the batch-4 parity port, attributable in full to 8f29f58ab (#12222, 'keep showing your workspaces when a project is too slow to answer instead of reporting zero'): the SSH-only listStoredSshWorktreesForResolution fallback is generalised to listStoredWorktreesForResolution for any repo kind, gated on getRepoExecutionHostId so a degraded host does not republish another host's rows, and the resolution scan now distinguishes a timeout (null -> restore persisted rows) from a rejection (keeps shipped zero-row semantics). No other batch-4 change touched the file.",
+        "pty.ts held flat at 6275 and shimWholeFileLoc held flat at 2813 across the batch — the delivery-reliability shim this ratchet watches did not move, which is the number that would have justified refusing. The touch was minimal and confined to private worktree-resolution methods that operate on this.store; decomposition of orca-runtime.ts remains owed and the next movement should be down."
+      ]
     }
   ],
   "shimWholeFileLoc": 2813,
-  "src/main/runtime/orca-runtime.ts": 36289,
+  "src/main/runtime/orca-runtime.ts": 36300,
   "src/main/ipc/pty.ts": 6275
 }

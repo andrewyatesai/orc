@@ -333,7 +333,8 @@ describe('registerMobileHandlers', () => {
       address: '100.64.1.20',
       rotate: true,
       name: expect.stringMatching(/^Runtime /),
-      scope: 'runtime'
+      scope: 'runtime',
+      reach: 'network'
     })
     // Why: STA-2370 — generating a runtime offer must widen the listener BEFORE advertising its endpoint,
     // or a client could read the URL and connect before the LAN bind exists. Assert call ORDER, not just
@@ -341,6 +342,76 @@ describe('registerMobileHandlers', () => {
     expect(ensureNetworkExposure).toHaveBeenCalled()
     expect(ensureNetworkExposure.mock.invocationCallOrder[0]).toBeLessThan(
       createPairingOffer.mock.invocationCallOrder[0]
+    )
+  })
+
+  const stubRuntimePairingServer = (): {
+    createPairingOffer: ReturnType<typeof vi.fn>
+    ensureNetworkExposure: ReturnType<typeof vi.fn>
+  } => ({
+    createPairingOffer: vi.fn().mockReturnValue({
+      available: true,
+      pairingUrl: 'orca://pair#runtime',
+      webClientUrl: null,
+      endpoint: 'ws://127.0.0.1:6768',
+      deviceId: 'runtime-1'
+    }),
+    ensureNetworkExposure: vi.fn().mockResolvedValue(undefined)
+  })
+
+  // Why: #12405 — "This computer only" pairs against a loopback host precisely so nothing is reachable
+  // off-host; the widen is one-way and never narrows back, so this pick must NOT rebind to 0.0.0.0.
+  it.each(['127.0.0.1', 'localhost', '::1', '127.0.0.5', '127.0.0.1:6768'])(
+    'keeps the listener on loopback for a "this-computer" reach advertising %s',
+    async (address) => {
+      const rpcServer = stubRuntimePairingServer()
+      registerMobileHandlers(rpcServer as never)
+
+      await expect(
+        handlers.get('mobile:getRuntimePairingUrl')?.(null, {
+          address,
+          rotate: true,
+          reach: 'this-computer'
+        })
+      ).resolves.toMatchObject({ available: true })
+
+      expect(rpcServer.ensureNetworkExposure).not.toHaveBeenCalled()
+      expect(rpcServer.createPairingOffer).toHaveBeenCalledWith(
+        expect.objectContaining({ address, scope: 'runtime', reach: 'this-computer' })
+      )
+    }
+  )
+
+  // Why: #12405 — the reach is the user's declared intent, not the address shape. A this-computer reach
+  // carrying an off-host address is a mismatch: widen (and record network reach) rather than mint a link
+  // with no LAN listener behind it.
+  it('widens for a this-computer reach that advertises an off-host address', async () => {
+    const rpcServer = stubRuntimePairingServer()
+    registerMobileHandlers(rpcServer as never)
+
+    await handlers.get('mobile:getRuntimePairingUrl')?.(null, {
+      address: '100.64.1.20',
+      rotate: true,
+      reach: 'this-computer'
+    })
+
+    expect(rpcServer.ensureNetworkExposure).toHaveBeenCalled()
+    expect(rpcServer.createPairingOffer).toHaveBeenCalledWith(
+      expect.objectContaining({ address: '100.64.1.20', reach: 'network' })
+    )
+  })
+
+  // Why: #12405 point 2 — a loopback-looking address alone must never skip the widen. Only the explicit
+  // declared reach gates it, so an undeclared reach against 127.0.0.1 still widens (network default).
+  it('widens for a loopback address when no reach is declared', async () => {
+    const rpcServer = stubRuntimePairingServer()
+    registerMobileHandlers(rpcServer as never)
+
+    await handlers.get('mobile:getRuntimePairingUrl')?.(null, { address: '127.0.0.1', rotate: true })
+
+    expect(rpcServer.ensureNetworkExposure).toHaveBeenCalled()
+    expect(rpcServer.createPairingOffer).toHaveBeenCalledWith(
+      expect.objectContaining({ address: '127.0.0.1', reach: 'network' })
     )
   })
 
