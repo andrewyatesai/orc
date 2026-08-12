@@ -26,14 +26,22 @@ import { pathToFileURL } from 'node:url'
 import { scanDispatchSites } from './rust-dispatch-site-scan.mjs'
 import { DECLARED_DISPATCH_DOORS } from './rust-dispatch-keyed-doors.mjs'
 import { loadPortedModuleRoster, portedModuleEvidence } from './rust-port-vector-roster.mjs'
+import { partitionByParityCoverage } from './rust-parity-dispatch-registry.mjs'
 import { uncoveredSourceFiles } from './typescript-symbol-resolution.mjs'
 
 const PREAMBLE = `WHAT THIS REPORT SAYS
   For every module in the parity vector corpus, whether any production
   TypeScript under src/ contains a type-checker-resolved reference to a declared
   Rust dispatch door whose module-key argument is a genuine string-literal node
-  naming that module. A module with no such site is listed as an ORPHAN
-  CANDIDATE: a candidate for review, nothing more.
+  naming that module. A module with no such site is then split by whether ANY
+  differential check covers its Rust:
+    * UNVERIFIED — no production caller and no Rust parity dispatch. Nothing
+      establishes the Rust matches anything. This is the actionable list.
+    * PARITY-VERIFIED, NOT CUT OVER — "pnpm parity" checks the Rust against the
+      live TypeScript case by case; production still calls the TypeScript. This
+      is the intended SPEC pattern, not abandoned code.
+  Without that split a reader sees one long list and cannot tell a maintained,
+  proven twin from a port nothing vouches for.
 
 WHAT "NO DISPATCH RESOLVED" DOES NOT MEAN
   It does NOT mean provably dead code. A real dispatch is invisible to this
@@ -60,9 +68,14 @@ INPUTS THIS REPORT DECLARES RATHER THAN VERIFIES
     declaring one name is refused rather than silently collapsed, because that
     would drop a candidate with both files still on disk;
   * the dispatch doors are the hand-maintained list in
-    config/scripts/rust-dispatch-keyed-doors.mjs, printed in full below.
-  Both are editable in the same change as the code they describe. Deleting from
-  either HIDES an orphan; adding to either ADDS one. Nothing here detects that.
+    config/scripts/rust-dispatch-keyed-doors.mjs, printed in full below;
+  * parity coverage is read from the match arms in
+    rust/crates/orca-dispatch/src/modules/mod.rs. It means a differential check
+    EXISTS for that module, not that it passed — "pnpm parity" is what runs it.
+    Adding a bogus arm promotes a module OUT of UNVERIFIED, so that one forges
+    in the flattering direction; nothing here detects it.
+  All are editable in the same change as the code they describe. Deleting from
+  the first two HIDES an orphan; adding to them ADDS one. Nothing here detects that.
 
 EXIT CODE
   0 = the report was produced. It is not a pass and asserts nothing about the code.
@@ -228,15 +241,29 @@ function render(report, { verbose }) {
     }
     out.push('')
   }
+  const { verified, unverified } = partitionByParityCoverage(report.orphans)
   out.push(
-    `ORPHAN CANDIDATES — ${report.orphans.length} of ${report.rosterSize} candidate modules, ` +
-      'sorted by production importers of the TypeScript twin'
-  )
-  out.push(
-    '  Each is a CANDIDATE FOR REVIEW: no dispatch resolved, which is not proof none exists.'
+    `NO PRODUCTION DISPATCH — ${report.orphans.length} of ${report.rosterSize} candidate modules. ` +
+      'Split by whether ANY differential check covers the Rust.'
   )
   out.push('')
-  out.push(report.orphans.map(formatOrphan).join('\n'))
+  out.push(
+    `UNVERIFIED (${unverified.length}) — no production caller AND no Rust parity dispatch. ` +
+      'Nothing establishes this Rust matches anything; read these first.'
+  )
+  out.push('')
+  out.push(unverified.map(formatOrphan).join('\n'))
+  out.push('')
+  out.push(
+    `PARITY-VERIFIED, NOT CUT OVER (${verified.length}) — the Rust is checked case-by-case against ` +
+      'the live TypeScript by `pnpm parity`; production still calls the TypeScript.'
+  )
+  out.push(
+    '  This is the intended SPEC pattern, not abandoned code. Membership is read from the Rust ' +
+      'dispatch registry (a declared input): it means a differential check EXISTS, not that it passed.'
+  )
+  out.push('')
+  out.push(verified.map(formatOrphan).join('\n'))
   out.push('')
   out.push('MODULES EXCLUDED — a dispatch call naming this key resolved at this location')
   out.push('  Not a claim that the port is complete, correct, or ever executed at runtime.')
