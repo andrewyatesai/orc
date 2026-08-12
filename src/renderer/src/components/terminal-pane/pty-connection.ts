@@ -120,6 +120,7 @@ import {
   POST_REPLAY_LIVE_SNAPSHOT_RESET,
   POST_REPLAY_MODE_RESET,
   POST_REPLAY_REATTACH_RESET,
+  POST_REPLAY_REATTACH_RESET_KEEP_MOUSE,
   RESET_KITTY_KEYBOARD_PROTOCOL,
   RESET_TERMINAL_CURSOR_STYLE
 } from './layout-serialization'
@@ -318,6 +319,10 @@ import {
   registerTerminalSideEffectFactConsumer
 } from './terminal-side-effect-facts-handler'
 import { isRendererHiddenPtyDeliveryGateEnabled } from './terminal-hidden-delivery-gate'
+import {
+  markRendererOwnedAgentStatusWrite,
+  registerRendererOwnedAgentStatusPane
+} from './renderer-owned-agent-status-registry'
 
 const pendingSpawnByPaneKey = new Map<string, Promise<string | null>>()
 // Why: TUI repaints can re-emit an already-handled fatal line after a pane
@@ -3615,6 +3620,14 @@ export function connectPanePty(
         })
       : undefined
   const shouldOwnAgentStatusInRenderer = runtimeEnvironmentId !== null
+  // Why: the host also mirrors agent status for this pane through session.tabs.
+  // Claiming here (decided once at transport creation, like the side-effect
+  // authority below) lets the mirror keep this renderer's byte-derived status
+  // instead of overwriting/deleting it on every republication.
+  const releaseRendererOwnedAgentStatusPane =
+    runtimeEnvironmentId !== null
+      ? registerRendererOwnedAgentStatusPane(cacheKey, runtimeEnvironmentId)
+      : null
   // Why: when main holds side-effect authority for this PTY's bytes, the
   // transport must NOT register title/bell/agent byte parsers — the
   // pty:sideEffect fact consumer below is the single policy consumer.
@@ -3872,6 +3885,9 @@ export function connectPanePty(
                   agentType ?? authoritativePaneAgent
                 )
               : resolvedStatusTitle
+            // Why: proves the claim — only a pane that really produced byte-derived
+            // status may fence the host mirror out of its store key.
+            markRendererOwnedAgentStatusWrite(cacheKey)
             if (launchToken) {
               currentState.setAgentStatus(
                 cacheKey,
@@ -4084,10 +4100,17 @@ export function connectPanePty(
     }
     const storePtyId = useAppStore.getState().ptyIdsByTabId?.[deps.tabId]?.[0] ?? null
     const undeliverablePtyId = transport.getPtyId() ?? storePtyId
+    // Why the split: for a local (daemon/app-SSH) id main's registry can answer,
+    // and a `false` there means the shell really died — the dead-session
+    // reconcile owns that teardown and a remount would race it. For a `remote:`
+    // id main owns no registry entry, so `pty:hasPty` routes to the local
+    // provider and fabricates "dead"; that answer blocked every recovery this
+    // signal exists to trigger (STA-2830). The host's own rejection replaces it.
+    const hostRejectedRemoteInput = providerRejected && isRemoteRuntimePtyId(undeliverablePtyId)
     void requestTerminalPaneRecovery({
       tabId: deps.tabId,
       ptyId: undeliverablePtyId,
-      reason: 'input-undeliverable',
+      reason: hostRejectedRemoteInput ? 'input-rejected-by-host' : 'input-undeliverable',
       terminalRecoveryGeneration,
       terminalRecoveryInstanceId: terminalRecoveryInstance.id,
       // Why: pty:hasPty answers null for ids the local registry doesn't own,
@@ -5617,9 +5640,16 @@ export function connectPanePty(
       })
     }
 
-    const reattachReplayResetSequence = (payload: string): string => {
-      return shouldPreserveAgentReattachModes()
-        ? buildPostReplayLiveAgentReattachReset(payload)
+    const reattachReplayResetSequence = (payload: string, isAlternateScreen?: boolean): string => {
+      if (shouldPreserveAgentReattachModes()) {
+        return buildPostReplayLiveAgentReattachReset(payload)
+      }
+      // Why: an alt-screen pane is a live TUI Orca just does not recognise as an agent, and the
+      // replay already re-armed its mouse modes — keep them instead of wiping them (#8291). The
+      // kitty mirror was fed this same payload immediately before, so it is the authoritative
+      // fallback when the daemon did not stamp isAlternateScreen on the connect result.
+      return (isAlternateScreen ?? kittyKeyboardModes.isAlternateScreen)
+        ? POST_REPLAY_REATTACH_RESET_KEEP_MOUSE
         : POST_REPLAY_REATTACH_RESET
     }
 
@@ -8011,7 +8041,9 @@ export function connectPanePty(
           kittyKeyboardModes.scanReplay(connectResult.snapshot)
           writeReplayData(connectResult.snapshot)
           // Snapshot reattach keeps a live session, so drop only renderer-owned state instead of the broader mode reset.
-          writeReplayData(reattachReplayResetSequence(connectResult.snapshot))
+          writeReplayData(
+            reattachReplayResetSequence(connectResult.snapshot, connectResult.isAlternateScreen)
+          )
           if (connectResult.pendingEscapeTailAnsi) {
             // Why last: re-arm the dangling mid-escape after the reset (whose ESC would abort it) so the live continuation completes it (#7329).
             writeReplayData(connectResult.pendingEscapeTailAnsi)
@@ -8030,7 +8062,9 @@ export function connectPanePty(
           // Why: raw relay replay may contain the app's own kitty pushes; re-arm with set semantics so redelivery can't grow the stack.
           kittyKeyboardModes.scanReplay(connectResult.replay)
           writeReplayData(connectResult.replay)
-          writeReplayData(reattachReplayResetSequence(connectResult.replay))
+          writeReplayData(
+            reattachReplayResetSequence(connectResult.replay, connectResult.isAlternateScreen)
+          )
           sendFocusedReattachFocusInAfterReplay(ptyId, attemptGeneration)
           if (connectResult.coldRestore) {
             if (!isRemoteRuntimePtyId(ptyId)) {
@@ -8965,6 +8999,9 @@ export function connectPanePty(
     reconcileIfSessionMissing,
     dispose() {
       disposed = true
+      // Why: a detached client stops observing the pane's bytes, so it must cede
+      // agent-status authority back to the host on the next mirrored snapshot.
+      releaseRendererOwnedAgentStatusPane?.()
       // Why: a stalled xterm replay may never reach its finally; release live-frame credit when this renderer no longer owns the stream.
       for (const chunk of deferredReattachLiveData ?? []) {
         chunk.ackCredit?.()

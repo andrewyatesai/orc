@@ -7,6 +7,7 @@ import {
   POST_REPLAY_LIVE_SNAPSHOT_RESET,
   POST_REPLAY_MODE_RESET,
   POST_REPLAY_REATTACH_RESET,
+  POST_REPLAY_REATTACH_RESET_KEEP_MOUSE,
   RESET_KITTY_KEYBOARD_PROTOCOL,
   RESET_TERMINAL_CURSOR_STYLE
 } from './layout-serialization'
@@ -8482,6 +8483,49 @@ describe('connectPanePty', () => {
         expect.any(Function)
       )
     })
+  })
+
+  // Why: issue #8291 — the reattach reset wiped the mouse modes the daemon snapshot had just
+  // rehydrated, so xterm re-enabled its row-wise selection over a still-running TUI.
+  const reattachSnapshotResetFor = async (snapshot: string): Promise<string | undefined> => {
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport('tab-pty')
+    transport.connect.mockImplementation(async ({ sessionId }: { sessionId?: string }) =>
+      sessionId ? { id: sessionId, snapshot } : null
+    )
+    transportFactoryQueue.push(transport)
+    setReattachPaneTitle('zsh')
+
+    const pane = createPane(1)
+    const textarea = {} as HTMLTextAreaElement
+    configureTerminalFocusMode(pane, textarea)
+    return withMockedDocumentActiveElement(textarea, async () => {
+      const manager = createManager(1)
+      const deps = createDeps({
+        restoredLeafId: LEAF_1,
+        restoredPtyIdByLeafId: { [LEAF_1]: 'tab-pty' }
+      })
+      connectPanePty(pane as never, manager as never, deps as never)
+      await flushAsyncTicks(20)
+      return (pane.terminal.write as ReturnType<typeof vi.fn>).mock.calls
+        .map((call) => String(call[0]))
+        .find(
+          (data) =>
+            data === POST_REPLAY_REATTACH_RESET || data === POST_REPLAY_REATTACH_RESET_KEEP_MOUSE
+        )
+    })
+  }
+
+  it('keeps mouse reporting when a reattach snapshot restores a live alternate-screen TUI', async () => {
+    await expect(
+      reattachSnapshotResetFor('\x1b[?1049h\x1b[?1002h\x1b[?1006hthird-party tui session')
+    ).resolves.toBe(POST_REPLAY_REATTACH_RESET_KEEP_MOUSE)
+  })
+
+  it('still disarms mouse reporting when a reattach snapshot ends on the normal buffer', async () => {
+    await expect(reattachSnapshotResetFor('\x1b[?1003h\x1b[?1006hdead tui residue')).resolves.toBe(
+      POST_REPLAY_REATTACH_RESET
+    )
   })
 
   it('does not treat persisted tab launchAgent metadata as a live agent reattach', async () => {

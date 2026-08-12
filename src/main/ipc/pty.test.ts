@@ -806,6 +806,41 @@ describe('registerPtyHandlers', () => {
     clearProviderPtyState(ptyId)
   })
 
+  it('refuses subscriber-driven attach for SSH ids and the plain local provider (#12589)', async () => {
+    setLocalPtyProvider(new LocalPtyProvider())
+    const controller = registerAgentClaimController() as unknown as {
+      attach: (ptyId: string) => Promise<boolean>
+    }
+
+    // SSH-scoped id: refused before touching any provider (own lease machinery).
+    expect(await controller.attach('ssh:ssh-1@@remote-pty')).toBe(false)
+    // The in-process local provider streams without an attach — never attach it.
+    expect(await controller.attach('plain-local-pty')).toBe(false)
+  })
+
+  it('attaches an unowned local daemon session through the provider (#12589)', async () => {
+    const daemonProvider = createAgentClaimProvider({})
+    setLocalPtyProvider(daemonProvider as never)
+    const controller = registerAgentClaimController() as unknown as {
+      attach: (ptyId: string) => Promise<boolean>
+    }
+
+    // Owned SSH-provider ids are refused; only the local daemon provider attaches.
+    const sshProvider = createAgentClaimProvider({})
+    registerSshPtyProvider('ssh-2', sshProvider as never)
+    setPtyOwnership('owned-remote-pty', 'ssh-2')
+    expect(await controller.attach('owned-remote-pty')).toBe(false)
+    expect(sshProvider.attach).not.toHaveBeenCalled()
+
+    // Unowned local daemon session: attaches through the daemon-backed provider.
+    expect(await controller.attach('daemon-pty')).toBe(true)
+    expect(daemonProvider.attach).toHaveBeenCalledWith('daemon-pty')
+
+    unregisterSshPtyProvider('ssh-2')
+    clearPtyOwnershipForConnection('ssh-2')
+    clearProviderPtyState('daemon-pty')
+  })
+
   it('does not dispatch a runtime PTY spawn after its client disconnects', async () => {
     const provider = createAgentClaimProvider({})
     setLocalPtyProvider(provider as never)
@@ -6439,6 +6474,41 @@ describe('registerPtyHandlers', () => {
     await expect(handlers.get('pty:hasPty')!(null, { id: 'maybe-pty' })).resolves.toBe(null)
   })
 
+  it('never answers liveness for a paired-runtime handle from the local registry', async () => {
+    const hasPty = vi.fn(() => false)
+    setLocalPtyProvider({
+      spawn: vi.fn(),
+      write: vi.fn(),
+      resize: vi.fn(),
+      shutdown: vi.fn(),
+      sendSignal: vi.fn(),
+      getCwd: vi.fn(),
+      getInitialCwd: vi.fn(),
+      clearBuffer: vi.fn(),
+      acknowledgeDataEvent: vi.fn(),
+      hasChildProcesses: vi.fn(),
+      getForegroundProcess: vi.fn(),
+      serialize: vi.fn(),
+      revive: vi.fn(),
+      onData: vi.fn(() => () => {}),
+      onReplay: vi.fn(() => () => {}),
+      onExit: vi.fn(() => () => {}),
+      listProcesses: vi.fn(async () => []),
+      attach: vi.fn(),
+      hasPty,
+      getDefaultShell: vi.fn(),
+      getProfiles: vi.fn()
+    } as never)
+    registerPtyHandlers(mainWindow as never)
+
+    // The local provider would happily report `false` here — it just doesn't
+    // hold the id. Callers read that as "the shell died" (STA-2830).
+    await expect(
+      handlers.get('pty:hasPty')!(null, { id: 'remote:env-1@@terminal-1' })
+    ).resolves.toBe(null)
+    expect(hasPty).not.toHaveBeenCalled()
+  })
+
   it('lists duplicate SSH relay session ids as distinct app sessions', async () => {
     registerPtyHandlers(mainWindow as never)
     const shutdownA = vi.fn(async () => undefined)
@@ -9975,7 +10045,7 @@ describe('registerPtyHandlers', () => {
     }
   })
 
-  posixOnlyIt('wraps macOS spawns in login(1) with SHELL re-asserted via env(1)', async () => {
+  posixOnlyIt('wraps macOS spawns in login(1) with SHELL restored by the trampoline', async () => {
     const originalShell = process.env.SHELL
     // Re-enable the TCC login wrapper the suite-level beforeEach disables.
     delete process.env.ORCA_DISABLE_MACOS_LOGIN_SHELL
@@ -9999,8 +10069,14 @@ describe('registerPtyHandlers', () => {
       expect(args).toEqual([
         '-flpq',
         userInfo().username,
-        '/usr/bin/env',
-        'SHELL=/bin/zsh',
+        '/bin/bash',
+        '--noprofile',
+        '--norc',
+        '-p',
+        '-c',
+        'export SHELL="$1"; shift; exec -l -- "$@"',
+        'orca-tcc-login',
+        '/bin/zsh',
         '/bin/zsh',
         '-l'
       ])

@@ -218,6 +218,7 @@ import {
   type TerminalPasteSource,
   type TerminalPasteTextOptions
 } from './terminal-paste-coordinator'
+import { appendTerminalErrorMessage } from './terminal-error-accumulation'
 import { formatTerminalPasteExecutionError } from './terminal-paste-errors'
 import { resolveTerminalPasteRuntime } from './terminal-paste-runtime'
 import { getTerminalPasteSshRemotePlatform } from './terminal-paste-ssh-platform'
@@ -595,8 +596,15 @@ export default function TerminalPane({
       setSessionStateSaveFailureOpen(true)
       return
     }
-    setTerminalError((prev) => (prev ? `${prev}\n${message}` : message))
+    setTerminalError((prev) => appendTerminalErrorMessage(prev, message))
   })
+  /** Dismissal is the only signal that the user has seen the surface, so it must also release the transports' repeat-suppression memory. */
+  const dismissTerminalError = useCallback(() => {
+    setTerminalError(null)
+    for (const transport of paneTransportsRef.current.values()) {
+      transport.notifyErrorSurfaceDismissed?.()
+    }
+  }, [])
   const onPtyRecoveryStateRef = useRef(
     (paneId: number, state: PtyTransportRecoveryState | null) => {
       setPtyRecoveryStatesByPaneId((previous) =>
@@ -3163,7 +3171,7 @@ export default function TerminalPane({
       {terminalError && isActive && !showSshReconnectOverlay ? (
         <TerminalErrorToast
           error={terminalError}
-          onDismiss={() => setTerminalError(null)}
+          onDismiss={dismissTerminalError}
           onRestartDaemon={() => daemonActions.setPending('restart')}
         />
       ) : null}

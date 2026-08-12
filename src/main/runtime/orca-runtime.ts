@@ -280,6 +280,7 @@ import { TASK_PROVIDERS } from '../../shared/task-providers'
 import { FIRST_PANE_ID } from '../../shared/pane-key'
 import { isTerminalLeafId, makePaneKey, parsePaneKey } from '../../shared/stable-pane-id'
 import { parseAppSshPtyId } from '../../shared/ssh-pty-id'
+import { isLeafPtyProvenAbsent } from './terminal-leaf-liveness-demotion'
 import { isValidHostTerminalTabId, isValidTerminalTabId } from '../../shared/terminal-tab-id'
 import {
   applyTerminalQuickCommandMutation,
@@ -463,6 +464,7 @@ import type {
 } from '../../shared/artifacts'
 import { RuntimeBrowserCommands } from './orca-runtime-browser'
 import { RemoteRuntimeTerminalCreateIdempotency } from './remote-runtime-terminal-create-idempotency'
+import { SubscriberDrivenDaemonAttach } from './subscriber-driven-daemon-attach'
 import { deriveRemoteRuntimeTerminalCreateHandle } from './remote-runtime-terminal-create-identity'
 import {
   buildHeadlessTerminalSplitLayout,
@@ -483,6 +485,7 @@ import {
   type RetiredTerminalSurface
 } from './mobile-session-terminal-retirement'
 import { retireTerminalSurfaceFromPersistence } from './mobile-session-terminal-persistence-retirement'
+import { groupRetiredSurfacesByOwningHost } from './terminal-retirement-host-partition'
 import {
   advanceTerminalTopologyRevision,
   hasHostAuthoritativeTerminalMembership
@@ -1648,6 +1651,13 @@ type HeadlessSeedMetadata = {
   kittyKeyboardFlags?: number
 }
 
+// Why: `livePtyIds` is worktree-scoped when a list targets one worktree;
+// `allLivePtyIds` is the unscoped aggregate that absence proofs must consult.
+type PtyControllerLivenessInventory = Readonly<{
+  livePtyIds: Set<string>
+  allLivePtyIds: ReadonlySet<string>
+}>
+
 type RuntimePtyController = {
   spawn?(opts: {
     cols: number
@@ -1685,6 +1695,10 @@ type RuntimePtyController = {
     agentSessionEnsure?: AgentSessionClaimedSpawnResult
   }>
   write(ptyId: string, data: string): boolean
+  /** Attach-only adoption of a live local daemon session so its output streams
+   *  to main without a renderer pane; never creates, resizes, or focuses.
+   *  False on doubt (absent session, SSH-scoped id, non-daemon provider). */
+  attach?(ptyId: string): Promise<boolean>
   kill(ptyId: string): boolean
   stopAndWait?(
     ptyId: string,
@@ -3091,6 +3105,18 @@ export class OrcaRuntimeService {
   // Preview windows consume the raw stream but deliberately leave terminal
   // query replies to main's headless emulator.
   private rawTerminalViewSubscriberCounts = new Map<string, number>()
+  // Attaches never-activated local daemon sessions so their output streams to
+  // main (see subscriber-driven-daemon-attach.ts): the first remote view
+  // subscriber of an unattached session drives the attach, and the read
+  // fallback consults its never-attached predicate. Closures read live runtime
+  // state lazily, so declaration order relative to those fields is irrelevant.
+  private readonly subscriberDrivenDaemonAttach = new SubscriberDrivenDaemonAttach({
+    getAttach: () => this.ptyController?.attach,
+    hasHeadlessState: (ptyId) => this.headlessTerminals.has(ptyId),
+    isProviderSnapshotPreferred: (ptyId) => this.providerSnapshotPreferredPtys.has(ptyId),
+    isRegistrationPending: (ptyId) => this.pendingPtyRegistrationIncarnations.has(ptyId),
+    getLocalPtyRouting: (ptyId) => this.ptysById.get(ptyId)
+  })
 
   // Why: per-PTY driver state. The "driver" is whoever currently owns the
   // input/resize floor. While `kind === 'mobile'` the desktop renderer drops
@@ -5579,27 +5605,41 @@ export class OrcaRuntimeService {
       return
     }
     let publishableRetiredSurfaces = retiredSurfaces
-    const session = this.store?.getWorkspaceSession?.()
-    if (session) {
-      // Why: publishing absence before its host membership fence is durable lets a crash or
-      // stale renderer write resurrect the retired surface.
-      if (!this.store?.setWorkspaceSession || !this.store.flushOrThrow) {
+    if (this.store?.getWorkspaceSession) {
+      // Why: a pane's absence must be durable in its OWNING host partition, never the local
+      // one — a remote-host surface retired against the local session is never persisted and a
+      // crash or stale renderer write resurrects it. Partition retirements by host, persist each.
+      if (!this.store.setWorkspaceSession || !this.store.flushOrThrow) {
         return
       }
-      let nextSession = session
       const acceptedSurfaces: RetiredTerminalSurface[] = []
-      for (const surface of retiredSurfaces) {
-        const candidate = retireTerminalSurfaceFromPersistence(nextSession, surface)
-        if (candidate !== nextSession) {
-          acceptedSurfaces.push(surface)
-          nextSession = candidate
+      const pendingWrites: { hostId: ExecutionHostId; session: WorkspaceSessionState }[] = []
+      const surfacesByHostId = groupRetiredSurfacesByOwningHost(retiredSurfaces, (worktreeId) =>
+        this.getWorkspaceSessionHostIdForWorktree(worktreeId)
+      )
+      for (const [hostId, hostSurfaces] of surfacesByHostId) {
+        let nextSession = this.store.getWorkspaceSession(hostId)
+        const acceptedForHost: RetiredTerminalSurface[] = []
+        for (const surface of hostSurfaces) {
+          const candidate = retireTerminalSurfaceFromPersistence(nextSession, surface)
+          if (candidate !== nextSession) {
+            acceptedForHost.push(surface)
+            nextSession = candidate
+          }
         }
+        if (acceptedForHost.length === 0) {
+          continue
+        }
+        pendingWrites.push({ hostId, session: nextSession })
+        acceptedSurfaces.push(...acceptedForHost)
       }
       if (acceptedSurfaces.length === 0) {
         return
       }
       try {
-        this.store.setWorkspaceSession(nextSession)
+        for (const { hostId, session } of pendingWrites) {
+          this.store.setWorkspaceSession(session, hostId)
+        }
         this.store.flushOrThrow()
       } catch (error) {
         console.error('[runtime] failed to persist terminal retirement:', error)
@@ -7980,6 +8020,9 @@ export class OrcaRuntimeService {
       // Why: surface absence cannot distinguish an in-flight admission from a completed headless lifecycle.
       this.pendingPtyRegistrationIncarnations.set(ptyId, incarnationId ?? null)
     }
+    // Why: a spawn through this app already attaches its provider stream, so it
+    // is neither subscriber-attach nor never-attached-read-fallback eligible.
+    this.subscriberDrivenDaemonAttach.markSpawnPublished(ptyId)
     const pty = this.getOrCreatePtyWorktreeRecord(ptyId)
     if (pty) {
       if (incarnationId) {
@@ -8006,6 +8049,9 @@ export class OrcaRuntimeService {
     isWsl?: boolean
   ): void {
     this.assertPtyDidNotExitBeforeRegistration(ptyId, binding?.incarnationId)
+    // Why: a spawn through this app already attaches its provider stream, so it
+    // is neither subscriber-attach nor never-attached-read-fallback eligible.
+    this.subscriberDrivenDaemonAttach.markSpawnPublished(ptyId)
     // Why: record the renderer pane identity at spawn time so a stalled graph
     // sync can't hide that a live PTY already backs a pending mobile create.
     const paneKey =
@@ -8486,6 +8532,30 @@ export class OrcaRuntimeService {
     state.lastAt = at
     state.lastWaitState = nextWaitState
     state.appended = ''
+  }
+
+  // Why: the scanner's first run after a restore seed compares against a null
+  // baseline, so a permission prompt visible only in seeded HISTORY would read
+  // as newly gained and stamp waitBlockedAt "now" on the next benign chunk.
+  // Store the seeded tail's wait state as the baseline WITHOUT stamping; only
+  // a signal that appears in genuinely new output counts as gained.
+  private primeWaitBlockedBaselineFromSeededTail(ptyId: string): void {
+    const pty = this.ptysById.get(ptyId)
+    if (!pty) {
+      return
+    }
+    let state = this.waitBlockedCheckStateByPtyId.get(ptyId)
+    if (!state) {
+      state = { lastAt: 0, lastWaitState: null, appended: '', keywordCarry: '', timer: null }
+      this.waitBlockedCheckStateByPtyId.set(ptyId, state)
+    }
+    if (state.lastWaitState === null) {
+      state.lastWaitState = computeTerminalTailWaitState(
+        pty.tailBuffer,
+        pty.tailPartialLine,
+        pty.preview
+      )
+    }
   }
 
   private clearWaitBlockedCheckState(ptyId: string): void {
@@ -9506,6 +9576,8 @@ export class OrcaRuntimeService {
    *  writing into a different process behind the same ptyId. */
   private advancePtyLifecycleGeneration(ptyId: string): void {
     this.ptyLifecycleGenerationById.set(ptyId, this.nextPtyLifecycleGeneration++)
+    // Why: a respawn under the same session id needs its own subscriber-driven attach.
+    this.subscriberDrivenDaemonAttach.forgetGeneration(ptyId)
     // Why: a provider response belongs to the process generation that issued
     // it; a respawn must neither reuse its frame nor join its in-flight call.
     this.providerBufferAcquisitionsByPtyId.delete(ptyId)
@@ -9639,6 +9711,9 @@ export class OrcaRuntimeService {
     } else {
       this.remoteTerminalViewSubscribers.set(ptyId, [entry])
     }
+    // Why: the daemon only emits for sessions this app attached, so the first
+    // remote subscriber of a never-attached local daemon session drives it.
+    this.subscriberDrivenDaemonAttach.ensureAttach(ptyId)
     this.notifyRemoteTerminalViewPresenceChanged(ptyId)
     let released = false
     return () => {
@@ -10499,6 +10574,34 @@ export class OrcaRuntimeService {
       })
   }
 
+  // Why: reattach/cold-restore/replay payloads arrive as spawn RPC results and
+  // never pass through onPtyData, so after a relaunch the records backing
+  // `terminal list`/`terminal read` stayed blank while the session was alive.
+  // Seed semantics (applySeededAgentStatus precedent): write state only — no
+  // waiters, no orchestration events, and no lastOutputAt, because restored
+  // bytes are historical output, not fresh activity.
+  seedTerminalRestoreTail(ptyId: string, restore: { text?: string; lastTitle?: string }): void {
+    const seed = restore.text ? buildRestoredTerminalTailSeed(restore.text) : null
+    if (seed) {
+      const pty = this.getOrCreatePtyWorktreeRecord(ptyId)
+      // Why: live bytes outrank the seed — only never-written records take it,
+      // so a same-run remount reattach cannot re-apply history it already has.
+      if (pty && restoredTerminalTailSeedAllowed(pty)) {
+        applyRestoredTerminalTailSeed(pty, seed)
+        this.primeWaitBlockedBaselineFromSeededTail(ptyId)
+      }
+      for (const leaf of this.getLeavesForPty(ptyId)) {
+        if (restoredTerminalTailSeedAllowed(leaf)) {
+          applyRestoredTerminalTailSeed(leaf, seed)
+        }
+      }
+    }
+    if (restore.lastTitle) {
+      // Why: mirror renderer hydration — a title main already tracked live outranks the payload's persisted one.
+      this.applySeededAgentStatus(ptyId, this.getTrackedRawTitleForPty(ptyId) ?? restore.lastTitle)
+    }
+  }
+
   // Why: hydrate the runtime headless emulator from the desktop renderer's
   // xterm buffer on the first onPtyData byte after a PTY is taken over by a
   // pane. Eager-state pattern matches seedHeadlessTerminal: headlessTerminals
@@ -11002,6 +11105,22 @@ export class OrcaRuntimeService {
   ): Promise<RuntimeTerminalRead> {
     if (typeof opts.cursor === 'number') {
       return read
+    }
+    // Why: a live daemon session no pane ever attached has ingested zero bytes,
+    // so only the provider holds its screen. Unprovable state stays empty.
+    if (
+      read.tail.length === 0 &&
+      this.subscriberDrivenDaemonAttach.isKnownUnattachedLocalDaemonPty(ptyId)
+    ) {
+      const snapshot = await this.serializeProviderTerminalBuffer(
+        ptyId,
+        { scrollbackRows: 0 },
+        { timeoutMs: VISIBLE_TERMINAL_SNAPSHOT_TIMEOUT_MS }
+      )
+      const providerLines = snapshot ? await this.parseVisibleSnapshotLines(snapshot) : []
+      return providerLines.length > 0
+        ? buildVisibleSnapshotReadFallback(read, providerLines, opts.limit)
+        : read
     }
     const blankFallback = shouldFallbackToVisibleTerminalSnapshot(read, opts)
     const knownAlternateScreen = this.isTerminalAlternateScreen(ptyId)
@@ -14387,13 +14506,18 @@ export class OrcaRuntimeService {
           : targetWorktreeId
             ? []
             : [...worktreesById.values()]
-    const refreshedPtyLiveness = await this.refreshPtyWorktreeRecordsFromController(
+    const controllerInventory = await this.refreshPtyWorktreeRecordsWithControllerInventory(
       resolvedWorktrees,
       targetWorktreeId
     )
+    const refreshedPtyLiveness = controllerInventory ? controllerInventory.livePtyIds : null
     if (opts.requireFreshPtyLiveness && !refreshedPtyLiveness) {
       throw new Error('terminal_liveness_unavailable')
     }
+    // Why: a proof of absence, not of liveness — a leaf whose PTY the controller
+    // answered for but did not list must not read as connected. An unavailable
+    // inventory (null) proves nothing and demotes nothing.
+    const provenLivePtyIds = controllerInventory?.allLivePtyIds ?? null
 
     const livePtyWorktreeIds = new Set<string>()
     for (const pty of this.ptysById.values()) {
@@ -14421,7 +14545,7 @@ export class OrcaRuntimeService {
         if (leaf.ptyId) {
           ptyIdsFromLeaves.add(leaf.ptyId)
         }
-        terminals.push(this.buildTerminalSummary(leaf, worktreesById))
+        terminals.push(this.buildTerminalSummary(leaf, worktreesById, provenLivePtyIds))
       }
     }
 
@@ -28185,10 +28309,27 @@ export class OrcaRuntimeService {
     targetWorktreeId: string | null = null,
     deadline?: number
   ): Promise<Set<string> | null> {
+    const inventory = await this.refreshPtyWorktreeRecordsWithControllerInventory(
+      resolvedWorktrees,
+      targetWorktreeId,
+      deadline
+    )
+    return inventory ? inventory.livePtyIds : null
+  }
+
+  // Why: `livePtyIds` is worktree-scoped when a target is given, but absence
+  // proofs (terminal-list demotion) must consult the *unscoped* aggregate or a
+  // PTY misattributed to another worktree reads as dead. Callers that only need
+  // the scoped set go through the thin wrapper above.
+  private async refreshPtyWorktreeRecordsWithControllerInventory(
+    resolvedWorktrees: ResolvedWorktree[],
+    targetWorktreeId: string | null = null,
+    deadline?: number
+  ): Promise<PtyControllerLivenessInventory | null> {
     if (targetWorktreeId === FLOATING_TERMINAL_WORKTREE_ID) {
       const targetedLiveness = this.refreshFloatingWorkspacePtyLiveness()
       if (targetedLiveness !== null) {
-        return targetedLiveness
+        return { livePtyIds: targetedLiveness, allLivePtyIds: targetedLiveness }
       }
     }
     if (!this.ptyController?.listProcesses) {
@@ -28334,7 +28475,10 @@ export class OrcaRuntimeService {
       }
     }
     this.pruneDisconnectedPtyRecords()
-    return targetWorktreeId ? selectedLivePtyIds : allLivePtyIds
+    return {
+      livePtyIds: targetWorktreeId ? selectedLivePtyIds : allLivePtyIds,
+      allLivePtyIds
+    }
   }
 
   private refreshFloatingWorkspacePtyLiveness(): Set<string> | null {
@@ -28554,12 +28698,21 @@ export class OrcaRuntimeService {
 
   private buildTerminalSummary(
     leaf: RuntimeLeafRecord,
-    worktreesById: Map<string, ResolvedWorktree>
+    worktreesById: Map<string, ResolvedWorktree>,
+    provenLivePtyIds: ReadonlySet<string> | null = null
   ): RuntimeTerminalSummary {
     const worktree = worktreesById.get(leaf.worktreeId)
     const tab = this.tabs.get(leaf.tabId) ?? null
 
     const pty = leaf.ptyId ? this.ptysById.get(leaf.ptyId) : undefined
+    // Why: leaf.connected mirrors the renderer graph (`ptyId !== null`), so a
+    // restored surface whose PTY died with a prior run still reads connected.
+    // Demote it only on a controller-proven absence (see the module for scope).
+    const provenAbsent = isLeafPtyProvenAbsent({
+      ptyId: leaf.ptyId,
+      provenLivePtyIds,
+      controllerHasPty: (ptyId) => this.ptyController?.hasPty?.(ptyId) ?? null
+    })
     return {
       handle: this.issueHandle(leaf),
       ptyId: leaf.ptyId,
@@ -28571,8 +28724,8 @@ export class OrcaRuntimeService {
       tabId: leaf.tabId,
       leafId: leaf.leafId,
       title: getLatestLeafTitle(leaf, tab?.title ?? null),
-      connected: leaf.connected,
-      writable: leaf.writable,
+      connected: provenAbsent ? false : leaf.connected,
+      writable: provenAbsent ? false : leaf.writable,
       lastOutputAt: leaf.lastOutputAt,
       preview: leaf.preview
     }
@@ -29182,7 +29335,6 @@ export class OrcaRuntimeService {
         ownerAgent
       )
       const liveTitleEvidence = leafTitle ?? ptyTitle
-      const liveTitleEvidenceClassification = classifyAgentTitle(liveTitleEvidence)
       const normalizedTabAgentStatus = tab.agentStatus
         ? normalizeCompatibleAgentStatusEntryForOwner(tab.agentStatus, ownerAgent)
         : null
@@ -29190,11 +29342,14 @@ export class OrcaRuntimeService {
       const hasLiveAgentSignal =
         normalizedTabAgentStatus?.interactivePrompt != null ||
         normalizedTabAgentStatus?.toolName != null
+      // Why: only shell/management evidence proves the agent released the pane
+      // (same predicate as the terminal-status API). A merely neutral live title
+      // — 'Terminal', an editor, a cwd — proves nothing, and treating it as
+      // completion published a synthetic `done` that fought the client's own
+      // live status on every republication.
       const keepFullAgentStatus =
         normalizedTabAgentStatus &&
-        (liveTitleEvidence === null ||
-          liveTitleEvidenceClassification === 'agent' ||
-          hasLiveAgentSignal)
+        (!terminalTitleBlocksExplicitAgentStatus(liveTitleEvidence) || hasLiveAgentSignal)
       const agentStatus = keepFullAgentStatus
         ? { agentStatus: normalizedTabAgentStatus }
         : // Why: idle live title → drop stale "working" (no spinner) but keep agent identity so native chat can still address the transcript.
@@ -29379,9 +29534,12 @@ export class OrcaRuntimeService {
         )
       }
     }
-    // A hook-only pane has no PTY status to date the row from; `done` with a
-    // now-stamp is the honest projection — the hook proves identity, not liveness.
-    const now = pty?.lastOutputAt ?? Date.now()
+    // A hook-only pane has no PTY status to date the row from; `done` is the
+    // honest projection — the hook proves identity, not liveness.
+    // Why not lastOutputAt: this state is title/hook-derived, so it must be dated
+    // by its evidence. Stamping it with the byte stream made the frame advance on
+    // every output byte, so a paired client's live status could never outrank it.
+    const evidenceAt = hookRow.providerSessionReceivedAt ?? Date.now()
     const agentType = ownerAgent ?? undefined
     return {
       agentStatus: {
@@ -29392,8 +29550,8 @@ export class OrcaRuntimeService {
               ? 'blocked'
               : 'done',
         prompt: '',
-        updatedAt: now,
-        stateStartedAt: now,
+        updatedAt: evidenceAt,
+        stateStartedAt: evidenceAt,
         paneKey,
         ...(terminalHandle ? { terminalHandle } : {}),
         ...(agentType ? { agentType } : {}),
@@ -29419,6 +29577,10 @@ export class OrcaRuntimeService {
    *  read would keep offering native chat for what is now a plain shell. */
   private getHookAgentRowForPane(rows: readonly AgentStatusIpcPayload[]): {
     providerSession: AgentProviderSessionMetadata | null
+    // Why: a stable wall-clock the identity-only fallback can date its `done` by.
+    // The fork tracks OSC-title observations by sequence number, not epoch, so the
+    // session row's receipt time is the only cross-machine-stable evidence stamp.
+    providerSessionReceivedAt: number | null
     agentType: string | null
   } {
     let session: AgentStatusIpcPayload | null = null
@@ -29444,6 +29606,7 @@ export class OrcaRuntimeService {
     }
     return {
       providerSession: session?.providerSession ?? null,
+      providerSessionReceivedAt: session?.receivedAt ?? null,
       agentType: agent?.agentType ?? null
     }
   }
@@ -34313,6 +34476,108 @@ export function buildPreview(lines: string[], partialLine: string): string {
   return preview.length > MAX_PREVIEW_CHARS
     ? preview.slice(preview.length - MAX_PREVIEW_CHARS)
     : preview
+}
+
+// Why: restore payloads can be multi-MB; the records only retain a bounded tail,
+// so cap the one-time parse on the spawn path to the suffix that can matter.
+const MAX_RESTORE_TAIL_SEED_CHARS = 256 * 1024
+
+type RestoredTerminalTailSeed = {
+  lines: string[]
+  transcriptLines: string[]
+  transcriptChars: number
+  partialLine: string
+  pendingAnsi: string
+  redrawCursor: RetainedTailRedrawCursor | null
+  truncated: boolean
+  linesTotal: number
+  preview: string
+}
+
+type RestorableTerminalTailRecord = Pick<
+  RuntimePtyWorktreeRecord,
+  | 'lastOutputAt'
+  | 'tailBuffer'
+  | 'tailTranscriptBuffer'
+  | 'tailTranscriptChars'
+  | 'tailPartialLine'
+  | 'tailPendingAnsi'
+  | 'tailRedrawCursor'
+  | 'tailTruncated'
+  | 'tailLinesTotal'
+  | 'preview'
+>
+
+export function buildRestoredTerminalTailSeed(text: string): RestoredTerminalTailSeed | null {
+  let bounded = text
+  let sliced = false
+  if (bounded.length > MAX_RESTORE_TAIL_SEED_CHARS) {
+    bounded = bounded.slice(-MAX_RESTORE_TAIL_SEED_CHARS)
+    // Why: an arbitrary suffix can start mid-escape; restarting after the first
+    // line break resumes at a boundary (escape params never span \n or \r —
+    // \r covers newline-free CR-redraw streams). Consume a full \r\n pair so
+    // the seed does not begin with a phantom blank line.
+    const anchor = bounded.search(/[\r\n]/)
+    if (anchor !== -1) {
+      bounded = bounded.slice(
+        bounded[anchor] === '\r' && bounded[anchor + 1] === '\n' ? anchor + 2 : anchor + 1
+      )
+    }
+    sliced = true
+  }
+  // Why: the live-path pipeline, so seeded records equal what streaming the
+  // same bytes through onPtyData would have produced.
+  const normalized = normalizeTerminalChunk(bounded)
+  const tail = appendNormalizedToTailBuffer([], '', normalized.text, null)
+  if (tail.lines.length === 0 && tail.partialLine.length === 0) {
+    return null
+  }
+  const transcript = appendCompletedTerminalTranscript(
+    [],
+    0,
+    tail.newlyCompletedLines,
+    tail.newCompleteLines
+  )
+  return {
+    lines: tail.lines,
+    transcriptLines: transcript.lines,
+    transcriptChars: transcript.characters,
+    partialLine: tail.partialLine,
+    pendingAnsi: normalized.pendingAnsi,
+    redrawCursor: tail.redrawCursor,
+    truncated: sliced || tail.truncated || transcript.truncated,
+    linesTotal: tail.newCompleteLines,
+    preview: buildPreview(tail.lines, tail.partialLine)
+  }
+}
+
+function restoredTerminalTailSeedAllowed(record: RestorableTerminalTailRecord): boolean {
+  return (
+    record.lastOutputAt === null &&
+    record.preview.length === 0 &&
+    record.tailBuffer.length === 0 &&
+    record.tailPartialLine.length === 0
+  )
+}
+
+// Deliberately untouched: lastOutputAt (historical bytes must not read as fresh
+// activity) and waitBlockedAt/tailWaitState (a restored prompt is not a live
+// wait signal; the next live chunk recomputes both from this seeded tail).
+function applyRestoredTerminalTailSeed(
+  record: RestorableTerminalTailRecord,
+  seed: RestoredTerminalTailSeed
+): void {
+  // Why shared instances: append helpers never mutate prior arrays, and equal
+  // references let tailStateMatches keep its O(1) leaf/pty reuse fast path.
+  record.tailBuffer = seed.lines
+  record.tailTranscriptBuffer = seed.transcriptLines
+  record.tailTranscriptChars = seed.transcriptChars
+  record.tailPartialLine = seed.partialLine
+  record.tailPendingAnsi = seed.pendingAnsi
+  record.tailRedrawCursor = seed.redrawCursor
+  record.tailTruncated = seed.truncated
+  record.tailLinesTotal = seed.linesTotal
+  record.preview = seed.preview
 }
 
 function buildTerminalWaitText(lines: string[], partialLine: string, preview: string): string {

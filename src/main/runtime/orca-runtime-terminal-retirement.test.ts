@@ -531,7 +531,8 @@ describe('OrcaRuntimeService terminal surface retirement', () => {
             ptyIdsByLeafId: { right: 'pty-right' }
           })
         }
-      })
+      }),
+      'local'
     )
   })
 
@@ -659,7 +660,8 @@ describe('OrcaRuntimeService terminal surface retirement', () => {
         },
         terminalSurfaceTombstonesByPaneKey: {},
         terminalTopologyRevisionByRepoId: { [REPO_ID]: 1 }
-      })
+      }),
+      'local'
     )
     expect(flushOrThrow).toHaveBeenCalledOnce()
   })
@@ -699,5 +701,96 @@ describe('OrcaRuntimeService terminal surface retirement', () => {
     )
     unsubscribe()
     errorSpy.mockRestore()
+  })
+
+  it("retires an exited SSH pane in its owning host partition, never the local one", () => {
+    const SSH_WORKTREE_ID = 'ssh-repo::/worktree'
+    const SSH_REPO_ID = 'ssh-repo'
+    const SSH_HOST_ID = 'ssh:conn-1'
+    const SSH_REPO = {
+      id: SSH_REPO_ID,
+      path: '/worktree',
+      displayName: 'ssh-repo',
+      badgeColor: 'green',
+      addedAt: 1,
+      executionHostId: SSH_HOST_ID
+    } as const
+    const localSession = getDefaultWorkspaceSession()
+    let sshSession: WorkspaceSessionState = {
+      ...getDefaultWorkspaceSession(),
+      tabsByWorktree: {
+        [SSH_WORKTREE_ID]: [
+          {
+            id: 'tab',
+            ptyId: 'pty-ssh',
+            worktreeId: SSH_WORKTREE_ID,
+            title: 'Terminal',
+            customTitle: null,
+            color: null,
+            sortOrder: 0,
+            createdAt: 1
+          }
+        ]
+      },
+      terminalLayoutsByTabId: {
+        tab: {
+          root: { type: 'leaf', leafId: 'left' },
+          activeLeafId: 'left',
+          expandedLeafId: null,
+          ptyIdsByLeafId: { left: 'pty-ssh' }
+        }
+      }
+    }
+    const setCalls: { session: WorkspaceSessionState; hostId: string | null | undefined }[] = []
+    const store = {
+      getRepos: () => [SSH_REPO],
+      getRepo: (id: string) => (id === SSH_REPO_ID ? SSH_REPO : undefined),
+      getWorkspaceSession: (hostId?: string | null) =>
+        hostId === SSH_HOST_ID ? sshSession : localSession,
+      setWorkspaceSession: (session: WorkspaceSessionState, hostId?: string | null) => {
+        setCalls.push({ session, hostId })
+        if (hostId === SSH_HOST_ID) {
+          sshSession = session
+        }
+      },
+      flushOrThrow: vi.fn()
+    }
+    const runtime = new OrcaRuntimeService(store as never)
+    runtime.attachWindow(1)
+    runtime.syncWindowGraph(1, {
+      tabs: [
+        {
+          tabId: 'tab',
+          worktreeId: SSH_WORKTREE_ID,
+          title: 'Terminal',
+          activeLeafId: 'left',
+          layout: { type: 'leaf', leafId: 'left' }
+        }
+      ],
+      leaves: [
+        {
+          tabId: 'tab',
+          worktreeId: SSH_WORKTREE_ID,
+          leafId: 'left',
+          paneRuntimeId: 1,
+          ptyId: 'pty-ssh'
+        }
+      ]
+    })
+    runtime.registerPty('pty-ssh', SSH_WORKTREE_ID, null, {
+      tabId: 'tab',
+      leafId: 'left',
+      incarnationId: 'incarnation-a'
+    })
+
+    runtime.onPtyExit('pty-ssh', 0, 'incarnation-a')
+
+    // Every retirement write targets the surface's owning SSH partition — the pre-fix bug
+    // wrote it to the local (undefined) partition, orphaning the SSH tombstone.
+    expect(setCalls.length).toBeGreaterThan(0)
+    expect(setCalls.every((call) => call.hostId === SSH_HOST_ID)).toBe(true)
+    expect(sshSession.tabsByWorktree[SSH_WORKTREE_ID] ?? []).toEqual([])
+    expect(localSession.tabsByWorktree[SSH_WORKTREE_ID]).toBeUndefined()
+    expect(store.flushOrThrow).toHaveBeenCalledOnce()
   })
 })

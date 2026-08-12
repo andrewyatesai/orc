@@ -19,7 +19,6 @@ import {
   mobileNativeChatEmptyState,
   type MobileNativeChatPendingItem
 } from './mobile-native-chat-render-data'
-import { useMobileNativeChatAskDismiss } from './use-mobile-native-chat-ask-dismiss'
 import { useMobileNativeChatPinchGesture } from './use-mobile-native-chat-pinch-gesture'
 import { MobileAgentWorkingIndicator } from './MobileAgentWorkingIndicator'
 import type { PendingNativeChatImage } from './mobile-native-chat-image-attachment'
@@ -90,6 +89,11 @@ type Props = {
   /** Structured AskUserQuestion prompt parsed from the transcript (preferred over
    *  the heuristic question card). */
   ask?: AskPrompt | null
+  /** Stable key for the ask card. Dismissal state lives in the controller (it
+   *  must survive this subtree unmounting on a chat↔terminal toggle). */
+  askKey?: string | null
+  /** Hide the answered/dismissed ask until a different question arrives. */
+  onDismissAsk?: () => void
   /** Deliver the ask answer as per-question selections; the send hook turns them
    *  into selector keystrokes (Claude) or pasted label text (other agents). */
   onAnswerAsk?: (prompt: AskPrompt, selections: AskAnswerSelection[]) => Promise<boolean>
@@ -137,6 +141,8 @@ export function MobileNativeChatView({
   filePaths,
   onNeedFiles,
   ask,
+  askKey,
+  onDismissAsk,
   onAnswerAsk,
   onCancelAsk,
   question,
@@ -149,10 +155,6 @@ export function MobileNativeChatView({
   const insets = useSafeAreaInsets()
   const listRef = useRef<FlatList<NativeChatMessage>>(null)
   const [toolsExpanded, setToolsExpanded] = useState(false)
-  // Dismiss the question card as soon as it's answered; the live status lingers
-  // briefly (the agent emits a post-tool event with the same prompt), so hide it
-  // until a genuinely different question arrives.
-  const { askKey, showAsk, dismissAsk } = useMobileNativeChatAskDismiss(ask)
   // Lift the composer clear of the keyboard, plus the bottom safe-area so it
   // never sits under the home indicator / nav bar (mirrors the terminal dock).
   const bottomPad = keyboardInset > 0 ? keyboardInset + insets.bottom : insets.bottom
@@ -340,22 +342,24 @@ export function MobileNativeChatView({
         </GestureHandlerRootView>
       )}
       {/* Pending agent prompt: a structured AskUserQuestion wins, then a
-          heuristic permission, then a heuristic question. */}
-      {showAsk && ask ? (
+          heuristic permission, then a heuristic question. The controller owns
+          dismissal (it must survive this subtree unmounting on a view toggle);
+          `ask` arrives already nulled while dismissed. */}
+      {ask ? (
         <MobileNativeChatAsk
           key={askKey ?? 'ask'}
           prompt={ask}
           onAnswer={async (selections) => {
             const accepted = (await onAnswerAsk?.(ask, selections)) ?? false
             if (accepted) {
-              dismissAsk()
+              onDismissAsk?.()
             }
             return accepted
           }}
           onCancel={async () => {
             const accepted = (await onCancelAsk?.()) ?? false
             if (accepted) {
-              dismissAsk()
+              onDismissAsk?.()
             }
             return accepted
           }}

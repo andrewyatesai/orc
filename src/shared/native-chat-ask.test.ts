@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { NativeChatBlock, NativeChatMessage } from './native-chat-types'
-import { extractPendingAsk, parseAskFromStatus, resolveNativeChatAsk } from './native-chat-ask'
+import {
+  extractPendingAsk,
+  nativeChatAskDismissKey,
+  parseAskFromStatus,
+  resolveNativeChatAsk
+} from './native-chat-ask'
 
 function message(id: string, blocks: NativeChatBlock[]): NativeChatMessage {
   return { id, role: 'assistant', blocks, timestamp: 1, source: 'transcript' }
@@ -17,6 +22,20 @@ function result(): NativeChatBlock {
 const QUESTIONS_INPUT = {
   questions: [{ question: 'Deploy?', options: [{ label: 'Yes' }, { label: 'No' }] }]
 }
+
+describe('nativeChatAskDismissKey', () => {
+  it('uses the full canonical prompt and stays stable across object instances', () => {
+    const first = parseAskFromStatus(JSON.stringify(QUESTIONS_INPUT))
+    const same = parseAskFromStatus(JSON.stringify(QUESTIONS_INPUT))
+    const changed = parseAskFromStatus(
+      JSON.stringify({ questions: [{ question: 'Deploy?', options: [{ label: 'Later' }] }] })
+    )
+
+    expect(nativeChatAskDismissKey(first)).toBe(nativeChatAskDismissKey(same))
+    expect(nativeChatAskDismissKey(first)).not.toBe(nativeChatAskDismissKey(changed))
+    expect(nativeChatAskDismissKey(null)).toBeNull()
+  })
+})
 
 describe('extractPendingAsk', () => {
   it('recognizes an unregistered tool whose input matches the canonical questions shape', () => {

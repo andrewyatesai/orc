@@ -8,6 +8,10 @@ import { parseAgentQuestion } from './mobile-native-chat-question'
 export type MobileNativeChatPrompts = {
   permission: ReturnType<typeof detectAgentPermission>
   question: ReturnType<typeof parseAgentQuestion>
+  /** Ungated detected prompt: whichever source last held a pending ask, without
+   *  the paused gate. Retiring a dismissal keys off this, so a working/done
+   *  status that only hides the card can't be read as the prompt clearing. */
+  detectedAsk: ReturnType<typeof parseAskFromStatus>
   ask: ReturnType<typeof parseAskFromStatus>
 }
 
@@ -48,9 +52,17 @@ export function useMobileNativeChatPrompts(args: {
   )
   const askFromMessages = askFromStatus ? null : resolvedAsk
 
+  const detectedAsk = askFromStatus ?? askFromMessages
+
   return {
     permission,
     question,
-    ask: enabled ? (askFromStatus ?? askFromMessages) : null
+    detectedAsk: enabled ? detectedAsk : null,
+    // Only the status payload needs the paused gate the approval envelope uses:
+    // it outlives its answer, so a working/done agent must not surface one. The
+    // transcript fallback clears itself when the tool result lands, and it is the
+    // only source left once the hook row goes stale and projects to `done` with
+    // no interactivePrompt — gating it too strands a genuinely pending question.
+    ask: enabled ? ((blocked ? askFromStatus : null) ?? askFromMessages) : null
   }
 }

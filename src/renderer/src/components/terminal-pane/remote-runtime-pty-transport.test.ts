@@ -227,7 +227,8 @@ describe('createRemoteRuntimePtyTransport', () => {
     await vi.waitFor(() =>
       expect(latestSubscribePayload().capabilities).toEqual({
         ackOutput: 1,
-        desktopViewportClaims: 1
+        desktopViewportClaims: 1,
+        writeUnavailable: 1
       })
     )
     expect(runtimeSubscribe).toHaveBeenCalledWith(
@@ -497,7 +498,9 @@ describe('createRemoteRuntimePtyTransport', () => {
     expect(
       runtimeCall.mock.calls.filter(([args]) => args.method === 'terminal.create')
     ).toHaveLength(1)
-    expect(onError).toHaveBeenCalledTimes(1)
+    // Why: a recoverable create timeout must not dead-end the pane; it stays disconnected (Reconnect banner live), not surfaced fatal.
+    expect(onError).not.toHaveBeenCalled()
+    expect(transport.getRecoveryState?.().phase).toBe('disconnected')
     transport.destroy?.()
   })
 

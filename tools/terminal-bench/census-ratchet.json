@@ -78,9 +78,22 @@
         "+11 net on orca-runtime.ts (+20/-9) from the batch-4 parity port, attributable in full to 8f29f58ab (#12222, 'keep showing your workspaces when a project is too slow to answer instead of reporting zero'): the SSH-only listStoredSshWorktreesForResolution fallback is generalised to listStoredWorktreesForResolution for any repo kind, gated on getRepoExecutionHostId so a degraded host does not republish another host's rows, and the resolution scan now distinguishes a timeout (null -> restore persisted rows) from a rejection (keeps shipped zero-row semantics). No other batch-4 change touched the file.",
         "pty.ts held flat at 6275 and shimWholeFileLoc held flat at 2813 across the batch — the delivery-reliability shim this ratchet watches did not move, which is the number that would have justified refusing. The touch was minimal and confined to private worktree-resolution methods that operate on this.store; decomposition of orca-runtime.ts remains owed and the next movement should be down."
       ]
+    },
+    {
+      "date": "2026-08-12",
+      "head": "tail-batch5",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36300,
+        "src/main/ipc/pty.ts": 6275
+      },
+      "why": [
+        "+265 net on orca-runtime.ts (+293/-28) and +70 on pty.ts from the batch-5 parity port (miscellaneous tail medium items). The single largest orca-runtime.ts share is 51ca82d02 (seed terminal previews+titles from restore payloads): a +108 module-level block — buildRestoredTerminalTailSeed / restoredTerminalTailSeedAllowed / applyRestoredTerminalTailSeed plus the RestoredTerminalTailSeed types — kept in-file because it drives the private tail-buffer pipeline (normalizeTerminalChunk, appendNormalizedToTailBuffer, appendCompletedTerminalTranscript, buildPreview) and extracting it would export that internal surface. The remainder is method-body wiring for 27da04d50 (truthful handle liveness / terminal-leaf-liveness demotion), 72245918a (#12589 subscriber-driven daemon attach / degraded-daemon session routing), and the browser-screencast frame-admission and system-power-lifecycle helpers.",
+        "pty.ts +70 breaks down as 51ca82d02 seedTerminalRestoreRecordsFromSpawnResult (~37, the helper + two spawn-path call sites), 72245918a the subscriber-driven attach method on the pty controller (~24), and the STA-2830 pty:hasPty `remote:` guard (~9) that stops the local provider fabricating a dead answer for another host's PTY.",
+        "Accepted: upstream feature/port work attaching to the god object where features attach, and every extractable piece this batch DID land in a new named module (terminal-leaf-liveness-demotion, subscriber-driven-daemon-attach, degraded-daemon-session-routing, terminal-retirement-host-partition, renderer-owned-agent-status-registry, terminal-error-accumulation, sleeping-record-park-exemption, remote-browser-screencast-frame-admission, ssh-file-stream-inactivity-deadline, system-power-lifecycle). shimWholeFileLoc held flat at 2813 across the batch — the delivery-reliability shim this ratchet watches did not move, which is the number that would have justified refusing. Decomposition of orca-runtime.ts remains owed; the next movement should be down."
+      ]
     }
   ],
   "shimWholeFileLoc": 2813,
-  "src/main/runtime/orca-runtime.ts": 36300,
-  "src/main/ipc/pty.ts": 6275
+  "src/main/runtime/orca-runtime.ts": 36565,
+  "src/main/ipc/pty.ts": 6345
 }

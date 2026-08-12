@@ -1623,7 +1623,9 @@ describe('SSH IPC handlers', () => {
     expect(mockStore.markSshRemotePtyLease).toHaveBeenCalledWith('ssh-1', 'pty-lease', 'terminated')
   })
 
-  it('ssh:terminateSessions ignores expired leases when disconnected', async () => {
+  it('ssh:terminateSessions does not force a reconnect for expired orphan leases when disconnected', async () => {
+    // Why: 'expired' means reattach gave up, not that the app still owns the PTY, so an
+    // orphan-only terminate must not raise SSH_TERMINATE_RECONNECT_REQUIRED.
     mockStore.getSshRemotePtyLeases.mockReturnValue([
       { targetId: 'ssh-1', ptyId: 'pty-expired', state: 'expired' }
     ])
@@ -1636,6 +1638,70 @@ describe('SSH IPC handlers', () => {
 
     expect(mockPtyProvider.shutdown).not.toHaveBeenCalled()
     expect(mockConnectionManager.disconnect).toHaveBeenCalledWith('ssh-1')
+  })
+
+  it('ssh:terminateSessions reaches expired orphan leases once the relay is connected', async () => {
+    const target: SshTarget = {
+      id: 'ssh-1',
+      label: 'Server',
+      host: 'example.com',
+      port: 22,
+      username: 'deploy'
+    }
+    mockSshStore.getTarget.mockReturnValue(target)
+    mockConnectionManager.connect.mockResolvedValue({})
+    mockConnectionManager.getState.mockReturnValue({
+      targetId: 'ssh-1',
+      status: 'connected',
+      error: null,
+      reconnectAttempt: 0
+    })
+    mockStore.getSshRemotePtyLeases.mockReturnValue([
+      { targetId: 'ssh-1', ptyId: 'pty-expired', state: 'expired' }
+    ])
+    vi.mocked(getSshPtyProvider).mockReturnValue(mockPtyProvider as never)
+    vi.mocked(getPtyIdsForConnection).mockReturnValue([])
+    mockPtyProvider.shutdown.mockResolvedValue(undefined)
+
+    await handlers.get('ssh:connect')!(null, { targetId: 'ssh-1' })
+    await handlers.get('ssh:terminateSessions')!(null, { targetId: 'ssh-1' })
+
+    // The abandoned remote shell is reachable by an explicit terminate, and a clean
+    // shutdown tombstones the lease.
+    expect(mockPtyProvider.shutdown).toHaveBeenCalledWith('ssh:ssh-1@@pty-expired', {
+      immediate: true,
+      keepHistory: false
+    })
+    expect(mockStore.markSshRemotePtyLease).toHaveBeenCalledWith('ssh-1', 'pty-expired', 'terminated')
+  })
+
+  it('ssh:terminateSessions leaves already-terminated leases alone', async () => {
+    const target: SshTarget = {
+      id: 'ssh-1',
+      label: 'Server',
+      host: 'example.com',
+      port: 22,
+      username: 'deploy'
+    }
+    mockSshStore.getTarget.mockReturnValue(target)
+    mockConnectionManager.connect.mockResolvedValue({})
+    mockConnectionManager.getState.mockReturnValue({
+      targetId: 'ssh-1',
+      status: 'connected',
+      error: null,
+      reconnectAttempt: 0
+    })
+    mockStore.getSshRemotePtyLeases.mockReturnValue([
+      { targetId: 'ssh-1', ptyId: 'pty-dead', state: 'terminated' }
+    ])
+    vi.mocked(getSshPtyProvider).mockReturnValue(mockPtyProvider as never)
+    vi.mocked(getPtyIdsForConnection).mockReturnValue([])
+    mockPtyProvider.shutdown.mockResolvedValue(undefined)
+
+    await handlers.get('ssh:connect')!(null, { targetId: 'ssh-1' })
+    await handlers.get('ssh:terminateSessions')!(null, { targetId: 'ssh-1' })
+
+    expect(mockPtyProvider.shutdown).not.toHaveBeenCalled()
   })
 
   it('ssh:resetRelay force-stops the remote relay and expires tracked leases', async () => {

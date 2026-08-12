@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { DegradedDaemonPtyProvider } from './degraded-daemon-pty-provider'
+import { SessionNotFoundError } from './daemon-errors'
 import { DEGRADED_DAEMON_RECOVERY_RETRY_MS } from './degraded-daemon-fresh-spawn-routing'
 import type { DaemonPtyAdapter } from './daemon-pty-adapter'
 import type { IPtyProvider, PtySpawnOptions, PtySpawnResult } from '../providers/types'
@@ -154,6 +155,22 @@ it('forwards dead-endpoint write-unavailable signals from the daemon adapters', 
   unsubscribe()
   current.triggerWriteUnavailable('after-unsubscribe')
   expect(recovered).toEqual(['daemon-pane', 'legacy-pane'])
+})
+
+it('refuses attach for an id that only the in-process fallback would answer', async () => {
+  // Why: an unknown id routes to the fallback, whose no-op attach would resolve
+  // and pin a subscriber-driven attach as succeeded while the stream stays blank.
+  const current = createDaemonAdapter('daemon', ['daemon-session'])
+  const fallback = createProvider('fallback')
+  const provider = new DegradedDaemonPtyProvider({ current, legacy: [], fallback })
+
+  await expect(provider.attach('never-owned-id')).rejects.toBeInstanceOf(SessionNotFoundError)
+  expect(fallback.attach).not.toHaveBeenCalled()
+
+  // A daemon-owned id routes to that adapter's attach.
+  await provider.attach('daemon-session')
+  expect(current.attach).toHaveBeenCalledWith('daemon-session')
+  expect(fallback.attach).not.toHaveBeenCalled()
 })
 
 it('rejects completion inspection instead of borrowing the fallback provider', async () => {
