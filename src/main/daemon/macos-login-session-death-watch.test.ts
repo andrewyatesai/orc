@@ -158,7 +158,7 @@ describe('MacosLoginSessionDeathWatch', () => {
   it('does not count a suspended timer gap as rejection evidence', async () => {
     const readResolverHealth = vi.fn(async () => 'unhealthy' as const)
     const { watch, clock, onRetire, probe } = createWatch({
-      outcomes: [ACCEPTED, REJECTED, REJECTED, REJECTED, REJECTED, ACCEPTED],
+      outcomes: [ACCEPTED, REJECTED, REJECTED, ACCEPTED],
       readResolverHealth
     })
     watch.start()
@@ -167,15 +167,69 @@ describe('MacosLoginSessionDeathWatch', () => {
     await clock.advance(120_000)
     clock.suspend(60 * 60 * 1000)
     await clock.advance(0)
-    await clock.advance(10_000)
-    await clock.advance(10_000)
 
-    expect(probe).toHaveBeenCalledTimes(5)
+    expect(probe).toHaveBeenCalledTimes(3)
     expect(readResolverHealth).not.toHaveBeenCalled()
     expect(onRetire).not.toHaveBeenCalled()
 
-    await clock.advance(100_000)
-    expect(probe).toHaveBeenCalledTimes(6)
+    await clock.advance(119_999)
+    expect(probe).toHaveBeenCalledTimes(3)
+    await clock.advance(1)
+    expect(probe).toHaveBeenCalledTimes(4)
+    expect(onRetire).not.toHaveBeenCalled()
+  })
+
+  it('does not count suspension during an in-flight probe as rejection evidence', async () => {
+    let resolveProbe!: (outcome: LoginPreflightOutcome) => void
+    const deferredProbe = new Promise<LoginPreflightOutcome>((resolve) => {
+      resolveProbe = resolve
+    })
+    const probe = vi
+      .fn<MacosLoginSessionDeathWatchOptions['probeLoginSession']>()
+      .mockResolvedValueOnce(ACCEPTED)
+      .mockResolvedValueOnce(REJECTED)
+      .mockReturnValueOnce(deferredProbe)
+      .mockResolvedValueOnce(ACCEPTED)
+    const readResolverHealth = vi.fn(async () => 'unhealthy' as const)
+    const { watch, clock, onRetire } = createWatch({ probeLoginSession: probe, readResolverHealth })
+    watch.start()
+    await drainMicrotasks()
+
+    await clock.advance(120_000)
+    await clock.advance(10_000)
+    clock.suspend(60 * 60 * 1000)
+    resolveProbe(REJECTED)
+    await drainMicrotasks()
+
+    expect(probe).toHaveBeenCalledTimes(3)
+    expect(readResolverHealth).not.toHaveBeenCalled()
+    expect(onRetire).not.toHaveBeenCalled()
+
+    await clock.advance(119_999)
+    expect(probe).toHaveBeenCalledTimes(3)
+    await clock.advance(1)
+    expect(probe).toHaveBeenCalledTimes(4)
+    expect(onRetire).not.toHaveBeenCalled()
+  })
+
+  it('backs off repeated timer lateness to the periodic probe cadence', async () => {
+    const readResolverHealth = vi.fn(async () => 'unhealthy' as const)
+    const { watch, clock, onRetire, probe } = createWatch({
+      outcomes: [ACCEPTED, ...Array.from({ length: 30 }, () => REJECTED)],
+      readResolverHealth
+    })
+    watch.start()
+    await drainMicrotasks()
+    await clock.advance(120_000)
+
+    for (let i = 0; i < 27; i++) {
+      clock.suspend(135_001)
+      await clock.advance(0)
+    }
+
+    expect(probe).toHaveBeenCalledTimes(29)
+    expect(clock.pendingCount()).toBe(1)
+    expect(readResolverHealth).not.toHaveBeenCalled()
     expect(onRetire).not.toHaveBeenCalled()
   })
 

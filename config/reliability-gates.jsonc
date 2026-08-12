@@ -40,13 +40,13 @@
       "coveredProviders": [
         "local-daemon"
       ],
-      "coverageNotes": "A deterministic fake clock covers short-burst recovery, sustained session death, event-trigger preemption, timer suspension, resolver corroboration, and shutdown cancellation. The production-only watch remains behind the macOS GUI launch flag; SSH/headless, WSL, Linux, Windows, mobile, and relay paths are unaffected.",
+      "coverageNotes": "A deterministic fake clock covers short-burst recovery, sustained session death, pending-timer and in-flight-probe suspension, event-trigger preemption, resolver corroboration, and shutdown cancellation. The production-only watch remains behind the macOS GUI launch flag; SSH/headless, WSL, Linux, Windows, mobile, and relay paths are unaffected.",
       "motivatingLinks": [
         "https://github.com/stablyai/orca/issues/11749",
         "https://github.com/stablyai/orca/issues/7936"
       ],
-      "invariant": "A GUI-spawned macOS daemon may retire for PAM rejections only after it previously accepted login wrapping, receives three conclusive rejections spanning at least one uninterrupted 120-second observation window, and observes explicitly unhealthy in-process resolver state. A conclusive acceptance or a sleep/App Nap-sized timer gap resets the rejection window, and client or PTY activity cannot shorten its scheduled backoff.",
-      "oracle": "Arm the watch with an accepted probe, inject three rejections over 20 seconds plus unhealthy resolver state, then inject client and PTY activity and require zero resolver reads, zero retirement calls, and exactly four probes until the 120-second boundary. Return acceptance at that boundary and require the daemon to survive. Jump wall time by one hour without firing the scheduled timer, require rejection evidence to restart after wake, and again recover without retirement. Separately keep rejecting through an uninterrupted boundary and require one retirement, while healthy or unknown resolver state suppresses it and stop aborts an in-flight resolver check.",
+      "invariant": "A GUI-spawned macOS daemon may retire for PAM rejections only after it previously accepted login wrapping, receives three conclusive rejections spanning at least one uninterrupted 120-second observation window, and observes explicitly unhealthy in-process resolver state. A conclusive acceptance or a sleep/App Nap-sized gap before or during a probe resets the rejection window to the periodic cadence, and client or PTY activity cannot shorten its scheduled backoff.",
+      "oracle": "Arm the watch with an accepted probe, inject three rejections over 20 seconds plus unhealthy resolver state, then inject client and PTY activity and require zero resolver reads, zero retirement calls, and exactly four probes until the 120-second boundary. Return acceptance at that boundary and require the daemon to survive. Jump wall time by one hour while a timer is pending and while a PAM probe promise is unresolved; require rejection evidence to restart after wake, zero probes for the next 119,999 milliseconds, and recovery without retirement in both cases. Repeatedly delay timers beyond the suspension threshold for one hour and require the periodic probe bound, one live timer, and zero resolver or retirement calls. Separately keep rejecting through an uninterrupted boundary and require one retirement, while healthy or unknown resolver state suppresses it and stop aborts an in-flight resolver check.",
       "commands": [
         "pnpm exec vitest run --config config/vitest.config.ts src/main/daemon/macos-login-session-death-watch.test.ts --reporter=dot"
       ],
@@ -59,6 +59,8 @@
           "assertions": [
             "preserves the daemon when a short PAM rejection burst recovers after wake",
             "does not count a suspended timer gap as rejection evidence",
+            "does not count suspension during an in-flight probe as rejection evidence",
+            "backs off repeated timer lateness to the periodic probe cadence",
             "retires only after sustained conclusive rejections with a degraded resolver",
             "suppresses retirement while resolver health is healthy or unknown, then retires on explicit degradation",
             "stop() prevents an in-flight resolver check from retiring the daemon"
@@ -73,7 +75,7 @@
           "command": "pnpm exec vitest run --config config/vitest.config.ts src/main/daemon/macos-login-session-death-watch.test.ts --reporter=dot",
           "result": "passed",
           "durationSeconds": 0.3,
-          "summary": "The focused state-machine suite passed 19 tests, including the field-shaped 20-second rejection burst, suspended-timer rebaselining, bounded recovery retry, sustained-death convergence, resolver suppression, trigger coalescing, and shutdown cancellation."
+          "summary": "The focused state-machine suite passed 21 tests, including the field-shaped 20-second rejection burst, pending-timer and in-flight-probe suspension rebaselining, repeated-lateness backoff, bounded recovery retry, sustained-death convergence, resolver suppression, trigger coalescing, and shutdown cancellation."
         }
       ],
       "runtimeBudget": {
@@ -90,7 +92,7 @@
       },
       "performanceBudget": {
         "required": true,
-        "evidence": "The watch retains one timer and one in-flight probe. A rejection burst runs the existing two 10-second confirmation probes, then one recovery probe at the 120-second boundary; client and PTY activity cannot pull that deadline earlier. Resolver work is skipped until the time floor. No polling loop, startup await, session scan, renderer work, provider fanout, listener, or retained payload was added."
+        "evidence": "The watch retains one timer and one in-flight probe. A rejection burst runs the existing two 10-second confirmation probes, then one recovery probe at the 120-second boundary; client and PTY activity cannot pull that deadline earlier. Timer lateness and in-flight probe suspension both rebaseline evidence to the periodic cadence, preventing an App Nap retry loop, and resolver work is skipped until the time floor. No polling loop, startup await, session scan, renderer work, provider fanout, listener, or retained payload was added."
       },
       "promotionCriteria": [
         "Collect 100 consecutive focused CI passes or 14 days of soak history.",
@@ -99,7 +101,7 @@
       ],
       "knownGaps": [
         "A real dead macOS GUI login session cannot be fabricated without ending the runner's login session; sustained-death coverage uses deterministic PAM and resolver oracles.",
-        "The two-minute production window and one-hour timer suspension are covered by fake-clock tests rather than a real sleep/wake run.",
+        "The two-minute production window and one-hour pending/in-flight suspension cases are covered by fake-clock tests rather than a real sleep/wake run.",
         "No multi-process aggregate throttle is added; each stale daemon independently obeys the same non-preemptible observation window."
       ],
       "demotionRule": "Keep experimental or demote if any activity trigger shortens the rejection window, a transient burst reaches resolver retirement authority, sustained dead-session evidence no longer converges, shutdown permits late retirement, or the focused gate flakes without an identified product or harness fault."
@@ -1119,6 +1121,129 @@
         "SSH and remote providers are intentionally unknown-liveness paths and need separate provider-contract gates."
       ],
       "demotionRule": "Demote or quarantine if the gate flakes once without a product bug or harness bug filed to the owner."
+    },
+    {
+      "id": "terminal-session.layout-pty-ownership",
+      "title": "Restored terminal layouts retain one renderer owner per PTY",
+      "maturity": "experimental",
+      "protection": "partial",
+      "owner": "terminal-runtime",
+      "layer": "renderer-electron-restore",
+      "surfaces": [
+        "persisted terminal layout restore",
+        "daemon PTY reattach",
+        "terminal tab hide and reveal",
+        "aterm renderer ownership",
+        "remote terminal layout mirroring"
+      ],
+      "platforms": ["macos", "linux", "windows"],
+      "providers": ["local", "local-daemon", "ssh", "wsl", "remote-runtime"],
+      "coveredPlatforms": ["macos"],
+      "coveredProviders": ["local-daemon"],
+      "coverageNotes": "Provider-independent unit tests cover persisted replay, state-boundary authority transfer, remote-runtime mirroring, rootless layouts, repeated leaf ids, metadata repair, and 12,000 nested duplicate leaves. A two-launch macOS Electron journey (tests/e2e/terminal-duplicate-pty-renderer-reveal.spec.ts) is defined to cover a real surviving local-daemon PTY, persisted duplicate ownership, synchronized streaming output, and tab hide/reveal. Live Linux, Windows, SSH, WSL, and remote-runtime restore journeys remain gaps.",
+      "motivatingLinks": [
+        "https://github.com/stablyai/orca/issues/11757",
+        "https://github.com/stablyai/orca/pull/11726"
+      ],
+      "invariant": "Within one terminal tab, each PTY has at most one layout leaf, pane manager surface, and renderer owner. Restore and remote mirroring must normalize duplicate ownership before replay while retaining active-leaf focus, scrollback, pane authority, agent metadata, and distinct sibling PTYs.",
+      "oracle": "Launch Orca with a real daemon PTY running a synchronized full-screen stream, close the desktop client without killing the daemon process, seed the persisted tab layout with two leaves bound to that PTY, and relaunch. Hide the restored tab behind a sibling and reveal it, then require the stream to remain visible with exactly one manager pane, one renderer DOM node, one root leaf, one PTY binding, and one unique PTY. Unit contracts require the same one-owner result through persisted replay, store hydration, remote mirroring, rootless and repeated-leaf layouts, and deeply nested input.",
+      "commands": [
+        "pnpm exec vitest run --config config/vitest.config.ts src/renderer/src/components/terminal-pane/layout-serialization.test.ts src/renderer/src/components/terminal-pane/terminal-layout-pty-ownership-depth.test.ts src/renderer/src/components/terminal-pane/terminal-layout-pty-ownership.test.ts src/renderer/src/store/slices/terminal-layout-pty-ownership.test.ts src/renderer/src/runtime/web-session-tabs-sync.test.ts --reporter=dot",
+        "pnpm exec electron-vite build --mode e2e",
+        "SKIP_BUILD=1 pnpm exec playwright test tests/e2e/terminal-duplicate-pty-renderer-reveal.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1"
+      ],
+      "testFiles": [
+        "src/renderer/src/components/terminal-pane/layout-serialization.test.ts",
+        "src/renderer/src/components/terminal-pane/terminal-layout-pty-ownership-depth.test.ts",
+        "src/renderer/src/components/terminal-pane/terminal-layout-pty-ownership.test.ts",
+        "src/renderer/src/store/slices/terminal-layout-pty-ownership.test.ts",
+        "src/renderer/src/runtime/web-session-tabs-sync.test.ts",
+        "tests/e2e/terminal-duplicate-pty-renderer-reveal.spec.ts"
+      ],
+      "assertionRefs": [
+        {
+          "file": "src/renderer/src/components/terminal-pane/layout-serialization.test.ts",
+          "assertions": [
+            "preserves the active leaf when replaying a single-pane snapshot without a root",
+            "prefers the active leaf over multiple retained PTY bindings in a rootless snapshot"
+          ]
+        },
+        {
+          "file": "src/renderer/src/components/terminal-pane/terminal-layout-pty-ownership-depth.test.ts",
+          "assertions": ["prunes deeply nested duplicate ownership without recursive stack growth"]
+        },
+        {
+          "file": "src/renderer/src/components/terminal-pane/terminal-layout-pty-ownership.test.ts",
+          "assertions": [
+            "keeps the active leaf and prunes the stale surface plus its metadata",
+            "is idempotent and preserves one owner across PTY and focus permutations"
+          ]
+        },
+        {
+          "file": "src/renderer/src/store/slices/terminal-layout-pty-ownership.test.ts",
+          "assertions": [
+            "normalizes duplicate PTY surfaces at the renderer state boundary",
+            "moves hydrated pane authority onto the retained PTY leaf"
+          ]
+        },
+        {
+          "file": "src/renderer/src/runtime/web-session-tabs-sync.test.ts",
+          "assertions": ["deduplicates mirrored leaves that claim the same remote PTY"]
+        },
+        {
+          "file": "tests/e2e/terminal-duplicate-pty-renderer-reveal.spec.ts",
+          "assertions": ["repairs duplicate persisted PTY renderers before streaming tab reveal"]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-08-12",
+          "runner": "local",
+          "platform": "macos",
+          "command": "pnpm exec vitest run --config config/vitest.config.ts src/renderer/src/components/terminal-pane/layout-serialization.test.ts src/renderer/src/components/terminal-pane/terminal-layout-pty-ownership-depth.test.ts src/renderer/src/components/terminal-pane/terminal-layout-pty-ownership.test.ts src/renderer/src/store/slices/terminal-layout-pty-ownership.test.ts src/renderer/src/runtime/web-session-tabs-sync.test.ts --reporter=dot",
+          "result": "passed",
+          "durationSeconds": 1.45,
+          "summary": "Five focused files passed 129 ownership, replay, hydration, depth, and remote-mirroring tests in the fork."
+        },
+        {
+          "date": "2026-08-12",
+          "runner": "local",
+          "platform": "macos",
+          "command": "SKIP_BUILD=1 pnpm exec playwright test tests/e2e/terminal-duplicate-pty-renderer-reveal.spec.ts --config tests/playwright.config.ts --project electron-headless --workers=1",
+          "result": "skipped",
+          "durationSeconds": 0,
+          "summary": "The two-launch Electron reveal journey spec is committed but was not executed in this port environment; a live fork Electron run is still pending."
+        }
+      ],
+      "runtimeBudget": {
+        "p95Seconds": 30,
+        "scope": "focused ownership unit suite plus one prebuilt two-launch Electron journey"
+      },
+      "flakeHistory": {
+        "status": "unknown",
+        "evidence": "The deterministic unit gate passes locally on macOS (129 tests); focused CI and soak history are not yet available, and the Electron journey has no fork soak history yet."
+      },
+      "redGreenEvidence": {
+        "status": "partial",
+        "evidence": "Upstream Orca 1.4.161 visibly stranded and fragmented the synchronized stream after restoring duplicate PTY renderers (https://github.com/user-attachments/assets/6917ac6f-9ba3-4f6f-a082-fb62932d511f); the post-resize capture stayed corrupted with duplicated lower rows rather than recovering (https://github.com/user-attachments/assets/32f7be79-0919-48c2-bcad-e4b7f1e14f2d). After the #11726 ownership repair the equivalent stream stayed continuous in one full-width renderer (https://github.com/user-attachments/assets/8c9cc5a2-dbe3-4348-b05c-f8268b98c476). This fork ports the same structural one-owner oracle: the focused unit suite passes (129 tests) and the Electron reveal journey is committed, with a live fork Electron run still pending."
+      },
+      "performanceBudget": {
+        "required": true,
+        "evidence": "Ownership normalization is bounded by layout size, uses iterative traversal, and passes a 12,000-leaf duplicate layout without recursive stack growth. The follow-up adds no production polling, renderer work, listeners, persistence scans, or retained payloads."
+      },
+      "promotionCriteria": [
+        "Collect 100 consecutive focused CI passes or 14 days of soak history.",
+        "Run the live two-launch journey on Linux and Windows.",
+        "Add live SSH or remote-runtime duplicate-restore evidence before claiming provider-complete coverage."
+      ],
+      "knownGaps": [
+        "Live Electron evidence currently covers macOS with a local daemon PTY only.",
+        "The live journey uses a git-backed test workspace; folder-workspace restoration currently relies on the same provider-independent normalization contracts rather than a separate Electron run.",
+        "The gate deterministically seeds the historical persisted-state shape; it does not depend on reproducing the unknown UI sequence that originally wrote duplicate ownership.",
+        "The fork consolidates duplicate-PTY replay coverage in layout-serialization.test.ts rather than a dedicated replay file, and the live Electron reveal journey has not yet run in fork CI.",
+        "The visual old-release evidence and the structural current-version oracle are separate runs because the current test harness did not exist in Orca 1.4.161."
+      ],
+      "demotionRule": "Keep experimental or demote if ownership cardinality flakes, duplicate replay reaches a second renderer, active metadata or authority moves to the wrong leaf, deep normalization regresses, or a supported provider bypasses normalization."
     },
     {
       "id": "terminal-session.kill-all-surface-cleanup",

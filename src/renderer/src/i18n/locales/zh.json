@@ -8254,8 +8254,8 @@
             "65464c31b2": "合并",
             "64e1e1cbe1": "pr",
             "ecfb9f08f0": "清理",
-            "editorFontFamily": "Editor Font Family",
-            "editorFontFamilyDesc": "Font used by file editors and diff views. Leave empty to follow the terminal font."
+            "editorFontFamily": "编辑器字体",
+            "editorFontFamilyDesc": "文件编辑器和差异视图使用的字体。留空则跟随终端字体。"
           }
         },
         "git": {
@@ -10032,9 +10032,9 @@
           "customPathDescription": "Absolute path to the shell executable. Takes effect for new terminals."
         },
         "EditorFontFamilySetting": {
-          "title": "Editor Font Family",
-          "description": "Font used by file editors and diff views. Leave empty to follow the terminal font.",
-          "placeholder": "Same as terminal font"
+          "title": "编辑器字体",
+          "description": "文件编辑器和差异视图使用的字体。留空则跟随终端字体。",
+          "placeholder": "与终端字体相同"
         },
         "GeneralRemoteServerUpdates": {
           "serverCount": "{{value0}} paired servers",
@@ -11173,7 +11173,8 @@
             "runtimeWorkspacesUnsupported": "运行时托管的工作区不支持从历史恢复。",
             "prepareSessionResumeFailed": "无法为恢复准备此会话。",
             "sessionDeleted": "Session deleted",
-            "sessionDeleteFailed": "Couldn't delete the session"
+            "sessionDeleteFailed": "Couldn't delete the session",
+            "noAgentsSelected": "未选择任何智能体"
           },
           "AiVaultPanelControls": {
             "scanningSessions": "正在扫描会话",
@@ -11204,7 +11205,9 @@
             "currentProjectLower": "当前项目",
             "project": "项目",
             "hostScopeAriaLabel": "会话历史主机：{{value0}}",
-            "host": "主机"
+            "host": "主机",
+            "selectAllAgents": "选择全部",
+            "clearAgents": "清除"
           },
           "AiVaultSessionDetails": {
             "updated": "更新时间",

@@ -154,7 +154,7 @@ import {
   gitLabStatusLabel,
   gitLabTodoTargetLabel,
   projectRowStatusLabel
-} from './tasks-screen-status-labels'
+} from '../../../src/tasks/tasks-screen-status-labels'
 
 type RepoSummary = {
   id: string

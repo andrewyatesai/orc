@@ -4027,6 +4027,163 @@ describe('registerWorktreeHandlers', () => {
     })
   })
 
+  // Guards the SSH-path reuse of the shared push-target helpers (60e6a192c): the
+  // SSH twins were deleted, so createRemoteWorktree now feeds provider.exec through
+  // findRemoteForUrl / ensureUniqueRemoteName / configureCreatedWorktreePushTargetWithExec.
+  describe('createRemoteWorktree fork push-target (SSH)', () => {
+    const sshRepo = {
+      id: 'repo-ssh',
+      path: '/remote/repo',
+      displayName: 'ssh',
+      badgeColor: '#000',
+      addedAt: 0,
+      connectionId: 'conn-1',
+      worktreeBaseRef: 'origin/main'
+    }
+
+    // Stateful fake git over provider.exec: `remotes` maps name -> url and
+    // `remote add` mutates it, so the shared helpers observe a consistent view.
+    function makeSshForkProvider(remotes: Record<string, string>) {
+      return {
+        exec: vi.fn().mockImplementation(async (args: string[]) => {
+          if (args[0] === 'remote' && args.length === 1) {
+            return { stdout: Object.keys(remotes).join('\n'), stderr: '' }
+          }
+          if (args[0] === 'remote' && args[1] === 'get-url') {
+            return { stdout: `${remotes[args[2]!] ?? ''}\n`, stderr: '' }
+          }
+          if (args[0] === 'remote' && args[1] === 'add') {
+            remotes[args[2]!] = args[3]!
+            return { stdout: '', stderr: '' }
+          }
+          return { stdout: '', stderr: '' }
+        }),
+        fetchRemoteTrackingRef: vi.fn().mockResolvedValue(undefined),
+        addWorktree: vi.fn().mockResolvedValue(undefined),
+        listWorktrees: vi.fn().mockResolvedValue([
+          {
+            path: '/remote/repo-improve-dashboard',
+            head: 'abc123',
+            branch: 'refs/heads/improve-dashboard',
+            isBare: false,
+            isMainWorktree: false
+          }
+        ])
+      }
+    }
+
+    const forkPushTarget = {
+      remoteName: 'pr-contributor-orca',
+      branchName: 'contributor/fix',
+      remoteUrl: 'git@github.com:contributor/orca.git'
+    }
+
+    function wireSshRepo(provider: ReturnType<typeof makeSshForkProvider>) {
+      store.getRepos.mockReturnValue([sshRepo])
+      store.getRepo.mockReturnValue(sshRepo)
+      getSshGitProviderMock.mockReturnValue(provider)
+      getActiveMultiplexerMock.mockReturnValue({
+        request: vi.fn().mockResolvedValue(undefined),
+        notify: vi.fn()
+      })
+      store.setWorktreeMeta.mockImplementation((_worktreeId, meta) => meta)
+    }
+
+    it('adds the contributor fork remote and sets upstream through the shared helpers', async () => {
+      const provider = makeSshForkProvider({ origin: 'git@github.com:stablyai/orca.git' })
+      wireSshRepo(provider)
+
+      await handlers['worktrees:create'](null, {
+        repoId: 'repo-ssh',
+        name: 'improve-dashboard',
+        pushTarget: forkPushTarget
+      })
+
+      // prepareWorktreePushTargetSsh preamble runs against provider.exec.
+      expect(provider.exec).toHaveBeenCalledWith(
+        ['check-ref-format', '--branch', 'contributor/fix'],
+        '/remote/repo'
+      )
+      // No clash, so ensureUniqueRemoteName keeps the preferred name and adds it.
+      expect(provider.exec).toHaveBeenCalledWith(
+        ['remote', 'add', 'pr-contributor-orca', 'git@github.com:contributor/orca.git'],
+        '/remote/repo'
+      )
+      expect(provider.fetchRemoteTrackingRef).toHaveBeenCalledWith(
+        '/remote/repo',
+        'pr-contributor-orca',
+        'contributor/fix',
+        'refs/remotes/pr-contributor-orca/contributor/fix'
+      )
+      // configureCreatedWorktreePushTargetWithExec wires upstream via provider.exec.
+      expect(provider.exec).toHaveBeenCalledWith(
+        ['branch', '--set-upstream-to', 'pr-contributor-orca/contributor/fix', 'improve-dashboard'],
+        '/remote/repo-improve-dashboard'
+      )
+      expect(store.setWorktreeMeta).toHaveBeenCalledWith(
+        'repo-ssh::/remote/repo-improve-dashboard',
+        expect.objectContaining({
+          pushTarget: expect.objectContaining({
+            remoteName: 'pr-contributor-orca',
+            remoteCreated: true
+          })
+        })
+      )
+    })
+
+    it('reuses an existing remote already pointing at the fork without adding one', async () => {
+      // findRemoteForUrl must match across SSH/HTTPS by GitHub owner/repo.
+      const provider = makeSshForkProvider({
+        origin: 'git@github.com:stablyai/orca.git',
+        'pr-contributor-orca': 'https://github.com/contributor/orca.git'
+      })
+      wireSshRepo(provider)
+
+      await handlers['worktrees:create'](null, {
+        repoId: 'repo-ssh',
+        name: 'improve-dashboard',
+        pushTarget: forkPushTarget
+      })
+
+      expect(provider.exec).not.toHaveBeenCalledWith(
+        ['remote', 'add', expect.any(String), expect.any(String)],
+        expect.any(String)
+      )
+      expect(provider.exec).toHaveBeenCalledWith(
+        ['branch', '--set-upstream-to', 'pr-contributor-orca/contributor/fix', 'improve-dashboard'],
+        '/remote/repo-improve-dashboard'
+      )
+    })
+
+    it('disambiguates the fork remote name via the shared ensureUniqueRemoteName', async () => {
+      // Preferred name is taken by an unrelated URL, so the shared suffix loop wins.
+      const provider = makeSshForkProvider({
+        'pr-contributor-orca': 'git@github.com:someone-else/orca.git'
+      })
+      wireSshRepo(provider)
+
+      await handlers['worktrees:create'](null, {
+        repoId: 'repo-ssh',
+        name: 'improve-dashboard',
+        pushTarget: forkPushTarget
+      })
+
+      expect(provider.exec).toHaveBeenCalledWith(
+        ['remote', 'add', 'pr-contributor-orca-2', 'git@github.com:contributor/orca.git'],
+        '/remote/repo'
+      )
+      expect(provider.exec).toHaveBeenCalledWith(
+        [
+          'branch',
+          '--set-upstream-to',
+          'pr-contributor-orca-2/contributor/fix',
+          'improve-dashboard'
+        ],
+        '/remote/repo-improve-dashboard'
+      )
+    })
+  })
+
   it('suffixes only the SSH worktree path when an exact PR branch checkout path exists', async () => {
     const repo = {
       id: 'repo-ssh',

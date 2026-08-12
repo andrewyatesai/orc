@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import { toast } from 'sonner'
 import type { AiVaultSession } from '../../../../shared/ai-vault-types'
 import { translate } from '@/i18n/i18n'
-import { useConfirmationDialog } from '@/components/confirmation-dialog'
+import { useConfirmationDialog } from '@/components/confirmation-dialog-context'
 import { agentLabel } from './ai-vault-session-filters'
 
 /**

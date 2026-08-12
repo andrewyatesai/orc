@@ -12,7 +12,7 @@ import {
   statSync,
   realpathSync
 } from 'node:fs'
-import { rename, mkdir, rm, copyFile } from 'node:fs/promises'
+import { rename, mkdir, rm, copyFile, stat, access } from 'node:fs/promises'
 import { join, dirname, basename, isAbsolute, resolve, sep } from 'node:path'
 import {
   writeTmpDurableSync,
@@ -742,6 +742,14 @@ function parseWorkspaceSessionsByHostId(
 
 function backupPath(dataFile: string, index: number): string {
   return `${dataFile}.bak.${index}`
+}
+
+/** existsSync's non-blocking twin: existsSync is an access(F_OK) probe, so access() is the exact analogue. */
+async function exists(path: string): Promise<boolean> {
+  return access(path).then(
+    () => true,
+    () => false
+  )
 }
 
 function buildWorkspaceDirHistoryForUpdate(
@@ -2928,6 +2936,8 @@ export class Store {
   private writeTimer: ReturnType<typeof setTimeout> | null = null
   private pendingWrite: Promise<void> | null = null
   private writeGeneration = 0
+  // Prevent a sync flush from interleaving a second rotation with awaited ring mutations.
+  private backupRotationInFlight = false
   // Why: after a profile transfer rewrites this file on disk, a late flush of stale in-memory state would resurrect the moved project.
   private writesFrozen = false
   // Why: exact ciphertext strings that failed to decrypt at load (encryption available but wrong key). buildStateToSave
@@ -3081,28 +3091,52 @@ export class Store {
     }
   }
 
+  // Why separate from the sync twin: a statSync here parks the Electron main thread in uninterruptible
+  // sleep on a stalled SMB/NFS profile mount. Error semantics are deliberately identical: rotate.
+  private async shouldRotateBackupsAsync(dataFile: string): Promise<boolean> {
+    try {
+      const mtime = (await stat(backupPath(dataFile, 0))).mtimeMs
+      return Date.now() - mtime >= BACKUP_MIN_INTERVAL_MS
+    } catch {
+      return true
+    }
+  }
+
   // Why: rotate current file into the .bak ring so load() can recover if a later primary write is truncated or corrupt.
   private async rotateBackupsAsync(dataFile: string): Promise<void> {
-    if (!existsSync(dataFile)) {
+    if (this.backupRotationInFlight) {
       return
     }
-    await rm(backupPath(dataFile, BACKUP_COUNT - 1)).catch((err: unknown) => {
-      if (err && (err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        console.error('[persistence] Failed to remove oldest backup:', err)
+    this.backupRotationInFlight = true
+    try {
+      if (!(await this.shouldRotateBackupsAsync(dataFile))) {
+        return
       }
-    })
-    for (let i = BACKUP_COUNT - 2; i >= 0; i--) {
-      const src = backupPath(dataFile, i)
-      const dst = backupPath(dataFile, i + 1)
-      if (existsSync(src)) {
-        await rename(src, dst).catch((err) => {
-          console.error('[persistence] Failed to rotate backup', src, '->', dst, err)
-        })
+      if (!(await exists(dataFile))) {
+        return
       }
+      await rm(backupPath(dataFile, BACKUP_COUNT - 1)).catch((err: unknown) => {
+        if (err && (err as NodeJS.ErrnoException).code !== 'ENOENT') {
+          console.error('[persistence] Failed to remove oldest backup:', err)
+        }
+      })
+      for (let i = BACKUP_COUNT - 2; i >= 0; i--) {
+        const src = backupPath(dataFile, i)
+        const dst = backupPath(dataFile, i + 1)
+        // Why probe instead of rename-then-swallow-ENOENT: a degraded mount rejects a rename of an
+        // absent slot with ESTALE/EIO, which would log once per empty slot on every debounced save.
+        if (await exists(src)) {
+          await rename(src, dst).catch((err) => {
+            console.error('[persistence] Failed to rotate backup', src, '->', dst, err)
+          })
+        }
+      }
+      await copyFile(dataFile, backupPath(dataFile, 0)).catch((err) => {
+        console.error('[persistence] Failed to snapshot current file to .bak.0:', err)
+      })
+    } finally {
+      this.backupRotationInFlight = false
     }
-    await copyFile(dataFile, backupPath(dataFile, 0)).catch((err) => {
-      console.error('[persistence] Failed to snapshot current file to .bak.0:', err)
-    })
   }
 
   private rotateBackupsSync(dataFile: string): void {
@@ -4173,18 +4207,15 @@ export class Store {
         await rm(tmpFile).catch(() => {})
       }
     }
-    // Why (issue #1158): rotate backups only after rename succeeded, and let a concurrent flush own rotation.
+    // Why (#1158): rotate only after the primary rename while this write still owns its generation.
     if (this.writeGeneration !== gen) {
       return
     }
-    const now = Date.now()
-    if (this.shouldRotateBackups(now, dataFile)) {
-      await this.rotateBackupsAsync(dataFile)
-    }
+    await this.rotateBackupsAsync(dataFile)
   }
 
   // Why: sync variant only for flush() at shutdown, where the process may exit before an async write completes.
-  private writeToDiskSync(opts: { force?: boolean } = {}): void {
+  private writeToDiskSync(opts: { force?: boolean; skipBackupRotation?: boolean } = {}): void {
     if (this.writesFrozen) {
       return
     }
@@ -4219,7 +4250,7 @@ export class Store {
       }
     }
     const now = Date.now()
-    if (this.shouldRotateBackups(now, dataFile)) {
+    if (!opts.skipBackupRotation && this.shouldRotateBackups(now, dataFile)) {
       this.rotateBackupsSync(dataFile)
     }
   }
@@ -4234,7 +4265,10 @@ export class Store {
     // Why: bump writeGeneration so an in-flight async write skips its rename and can't overwrite this sync write.
     this.writeGeneration++
     this.pendingWrite = null
-    this.writeToDiskSync({ force: asyncWriteWasInFlight })
+    this.writeToDiskSync({
+      force: asyncWriteWasInFlight,
+      skipBackupRotation: this.backupRotationInFlight
+    })
   }
 
   flushActiveViewPreferenceOrThrow(): void {

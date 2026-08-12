@@ -208,6 +208,10 @@ export class RelaySessionBroker {
       directorUrl: this.options.authConfig.relayDirectorUrl,
       relayToken: authorization.relayToken,
       relayHostId: this.relayHostId,
+      // Any previously paired host likely holds a durable assignment; the
+      // director verifies the claim, and first-ever pairing simply falls
+      // through to the placement lane.
+      reconnect: true,
       fetch: this.options.fetch
     })
     this.assertCurrent()

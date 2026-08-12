@@ -8269,8 +8269,8 @@
             "65464c31b2": "fusionar",
             "64e1e1cbe1": "pr",
             "ecfb9f08f0": "limpieza",
-            "editorFontFamily": "Editor Font Family",
-            "editorFontFamilyDesc": "Font used by file editors and diff views. Leave empty to follow the terminal font."
+            "editorFontFamily": "Fuente del editor",
+            "editorFontFamilyDesc": "Fuente utilizada por los editores de archivos y vistas de diferencias. Dejar vacío para seguir la fuente de la terminal."
           }
         },
         "git": {
@@ -10032,9 +10032,9 @@
           "customPathDescription": "Absolute path to the shell executable. Takes effect for new terminals."
         },
         "EditorFontFamilySetting": {
-          "title": "Editor Font Family",
-          "description": "Font used by file editors and diff views. Leave empty to follow the terminal font.",
-          "placeholder": "Same as terminal font"
+          "title": "Fuente del editor",
+          "description": "Fuente utilizada por los editores de archivos y vistas de diferencias. Dejar vacío para seguir la fuente de la terminal.",
+          "placeholder": "Igual que la fuente de la terminal"
         },
         "GeneralRemoteServerUpdates": {
           "serverCount": "{{value0}} paired servers",
@@ -11173,7 +11173,8 @@
             "runtimeWorkspacesUnsupported": "Reanudar desde el historial no está disponible en espacios de trabajo alojados en el runtime.",
             "prepareSessionResumeFailed": "Could not prepare this session for resume.",
             "sessionDeleted": "Session deleted",
-            "sessionDeleteFailed": "Couldn't delete the session"
+            "sessionDeleteFailed": "Couldn't delete the session",
+            "noAgentsSelected": "Ningún agente seleccionado"
           },
           "AiVaultPanelControls": {
             "scanningSessions": "Buscando sesiones",
@@ -11204,7 +11205,9 @@
             "currentProjectLower": "proyecto actual",
             "project": "Proyecto",
             "hostScopeAriaLabel": "Host del historial de sesiones: {{value0}}",
-            "host": "Host"
+            "host": "Host",
+            "selectAllAgents": "Seleccionar todo",
+            "clearAgents": "Limpiar"
           },
           "AiVaultSessionDetails": {
             "updated": "Actualizado",

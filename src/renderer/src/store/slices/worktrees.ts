@@ -49,6 +49,7 @@ import {
 import { toRuntimeWorktreeSelector } from '../../runtime/runtime-worktree-selector'
 import { getHostedReviewCacheKey, refreshHostedReviewCard } from './hosted-review'
 import { routeListingBranchSwitchesThroughGitIdentity } from './worktree-listing-branch-switch'
+import { preserveConcurrentManualOrderInListing } from './worktree-listing-manual-order'
 import { isPositiveHostedReviewNumber } from '../../../../shared/hosted-review'
 import { getGitHubPRCacheKey, getLegacyGitHubPRCacheKey } from './github-cache-key'
 import { moveFocusToRendererBeforeFocusedWebviewHidden } from './browser-webview-cleanup'
@@ -2477,13 +2478,21 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
         useLocalOwner && ownerSettings?.activeRuntimeEnvironmentId
           ? { ...ownerSettings, activeRuntimeEnvironmentId: null }
           : ownerSettings
-      const detected = await listDetectedWorktreesForRepoCoalesced(settings, repoId, {
+      const listing = await listDetectedWorktreesForRepoCoalesced(settings, repoId, {
         executionHostId: hostId,
         requireAuthoritative: options?.requireAuthoritative
       })
-      if (options?.requireAuthoritative && !detected.authoritative) {
+      if (options?.requireAuthoritative && !listing.authoritative) {
         return false
       }
+      const stateAtListing = get()
+      const listingMatchOptions = worktreeHostMatchOptions(stateAtListing, repoId, hostId)
+      const detected = preserveConcurrentManualOrderInListing(
+        listing,
+        requestStartedWorktrees,
+        stateAtListing.worktreesByRepo[repoId],
+        (worktree) => worktreeMatchesHost(worktree, hostId, listingMatchOptions)
+      )
       let incoming = toVisibleWorktrees(detected, hostId, setup)
       const latestState = get()
       if (repoHasExecutionHost(latestState, repoId, hostId, ownerWasMissingAtStart)) {
@@ -2627,10 +2636,18 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
           const hostId = getRepoExecutionHostId(r)
           const setup = getProjectHostSetupForRepoHost(requestStartedState, r.id, hostId)
           const settings = settingsForKnownRepoOwner(requestStartedState.settings, r)
-          const detected = await listDetectedWorktreesForRepoCoalesced(settings, r.id, {
+          const listing = await listDetectedWorktreesForRepoCoalesced(settings, r.id, {
             executionHostId: hostId,
             reuseRecentCompatibilityFailure: true
           })
+          const stateAtListing = get()
+          const listingMatchOptions = worktreeHostMatchOptions(stateAtListing, r.id, hostId)
+          const detected = preserveConcurrentManualOrderInListing(
+            listing,
+            requestStartedWorktrees,
+            stateAtListing.worktreesByRepo[r.id],
+            (worktree) => worktreeMatchesHost(worktree, hostId, listingMatchOptions)
+          )
           let incoming = toVisibleWorktrees(detected, hostId, setup)
           const latestState = get()
           if (repoHasExecutionHost(latestState, r.id, hostId, false)) {
@@ -2711,10 +2728,18 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
           const requestStartedWorktrees = requestStartedState.worktreesByRepo[r.id]
           const hostId = getRepoExecutionHostId(r)
           const setup = getProjectHostSetupForRepoHost(requestStartedState, r.id, hostId)
-          const detected = await listDetectedWorktreesForRepoCoalesced(
+          const listing = await listDetectedWorktreesForRepoCoalesced(
             settingsForKnownRepoOwner(requestStartedState.settings, r),
             r.id,
             { executionHostId: hostId, reuseRecentCompatibilityFailure: true }
+          )
+          const stateAtListing = get()
+          const listingMatchOptions = worktreeHostMatchOptions(stateAtListing, r.id, hostId)
+          const detected = preserveConcurrentManualOrderInListing(
+            listing,
+            requestStartedWorktrees,
+            stateAtListing.worktreesByRepo[r.id],
+            (worktree) => worktreeMatchesHost(worktree, hostId, listingMatchOptions)
           )
           let incoming = toVisibleWorktrees(detected, hostId, setup)
           const latestState = get()

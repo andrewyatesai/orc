@@ -8254,8 +8254,8 @@
             "65464c31b2": "머지",
             "64e1e1cbe1": "pr",
             "ecfb9f08f0": "정리",
-            "editorFontFamily": "Editor Font Family",
-            "editorFontFamilyDesc": "Font used by file editors and diff views. Leave empty to follow the terminal font."
+            "editorFontFamily": "편집기 글꼴",
+            "editorFontFamilyDesc": "파일 편집기 및 diff 보기에서 사용되는 글꼴입니다. 비워두면 터미널 글꼴을 따릅니다."
           }
         },
         "git": {
@@ -10032,9 +10032,9 @@
           "customPathDescription": "Absolute path to the shell executable. Takes effect for new terminals."
         },
         "EditorFontFamilySetting": {
-          "title": "Editor Font Family",
-          "description": "Font used by file editors and diff views. Leave empty to follow the terminal font.",
-          "placeholder": "Same as terminal font"
+          "title": "편집기 글꼴",
+          "description": "파일 편집기 및 diff 보기에서 사용되는 글꼴입니다. 비워두면 터미널 글꼴을 따릅니다.",
+          "placeholder": "터미널 글꼴과 동일"
         },
         "GeneralRemoteServerUpdates": {
           "serverCount": "{{value0}} paired servers",
@@ -11173,7 +11173,8 @@
             "runtimeWorkspacesUnsupported": "런타임 호스팅 워크스페이스에서는 기록에서 재개하기를 사용할 수 없습니다.",
             "prepareSessionResumeFailed": "Could not prepare this session for resume.",
             "sessionDeleted": "Session deleted",
-            "sessionDeleteFailed": "Couldn't delete the session"
+            "sessionDeleteFailed": "Couldn't delete the session",
+            "noAgentsSelected": "선택된 에이전트가 없습니다"
           },
           "AiVaultPanelControls": {
             "scanningSessions": "세션 스캔 중",
@@ -11204,7 +11205,9 @@
             "currentProjectLower": "현재 프로젝트",
             "project": "프로젝트",
             "hostScopeAriaLabel": "세션 기록 호스트: {{value0}}",
-            "host": "호스트"
+            "host": "호스트",
+            "selectAllAgents": "모두 선택",
+            "clearAgents": "모두 해제"
           },
           "AiVaultSessionDetails": {
             "updated": "업데이트됨",

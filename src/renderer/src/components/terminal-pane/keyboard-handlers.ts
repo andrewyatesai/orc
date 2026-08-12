@@ -518,9 +518,9 @@ export function useTerminalKeyboardShortcuts({
               // Why: this direct shortcut write does not pass through PTY onData,
               // so no-OSC shells need an explicit post-write confirmation ladder.
               const binding = panePtyBindings?.get(pane.id) as
-                | (IDisposable & { requestDroidReconfirmation?: () => void })
+                | (IDisposable & { requestWindowsShiftEnterReconfirmation?: () => void })
                 | undefined
-              binding?.requestDroidReconfirmation?.()
+              binding?.requestWindowsShiftEnterReconfirmation?.()
             }
           }
         }

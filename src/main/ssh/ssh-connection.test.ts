@@ -130,16 +130,22 @@ vi.mock('./ssh2-module', async () => {
 })
 
 const {
+  findSystemSshMock,
   getOrcaControlSocketPathMock,
   removeControlSocketPathMock,
   spawnSystemSshCommandMock,
   spawnSystemSshMock
 } = vi.hoisted(() => ({
+  findSystemSshMock: vi.fn<() => string | null>(),
   getOrcaControlSocketPathMock: vi.fn(),
   removeControlSocketPathMock: vi.fn(),
   spawnSystemSshMock: vi.fn(),
   spawnSystemSshCommandMock: vi.fn()
 }))
+
+// Why: security-key transport selection scans the real ~/.ssh defaults, so a developer's own
+// FIDO2 key would otherwise decide which transport these tests take.
+vi.mock('./system-ssh-binary', () => ({ findSystemSsh: findSystemSshMock }))
 
 vi.mock('./ssh-system-fallback', () => ({
   getOrcaControlSocketPath: getOrcaControlSocketPathMock,
@@ -329,6 +335,8 @@ describe('SshConnection', () => {
     vi.mocked(writeFileViaSystemSsh).mockResolvedValue(undefined)
     vi.mocked(resolveWithSshG).mockReset()
     vi.mocked(resolveWithSshG).mockResolvedValue(null)
+    findSystemSshMock.mockReset()
+    findSystemSshMock.mockReturnValue(null)
     vi.unstubAllEnvs()
     // Keep host-key verification off the real ~/.ssh/known_hosts so the suite is deterministic.
     vi.stubEnv('ORCA_SSH_KNOWN_HOSTS_PATH', join(tmpdir(), 'orca-nonexistent-known-hosts'))

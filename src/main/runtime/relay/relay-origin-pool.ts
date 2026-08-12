@@ -163,6 +163,9 @@ export class RelayOriginPool {
         directorUrl: this.options.directorUrl,
         relayToken: this.relayJwt,
         relayHostId: this.options.relayHostId,
+        // Recovery always follows an established assignment; the director
+        // verifies this and admits through its reconnect fast lane.
+        reconnect: true,
         fetch: this.options.fetch
       })
       this.assertCurrent()

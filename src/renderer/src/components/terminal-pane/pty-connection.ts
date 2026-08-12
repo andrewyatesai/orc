@@ -690,7 +690,7 @@ type PanePtyBinding = IDisposable & {
    *  agent pane has no OSC boundary left to correct it. */
   sampleForegroundAgentOnFocus: () => void
   /** Reconfirm after direct shortcut input, which bypasses PTY onData. */
-  requestDroidReconfirmation: () => void
+  requestWindowsShiftEnterReconfirmation: () => void
   reconcileIfSessionDead: (liveSessionIds: Set<string>, snapshotRequestedAt?: number) => void
   reconcileIfSessionMissing: (hasPty: HasPty, livenessRequestedAt?: number) => void
 }
@@ -1312,7 +1312,7 @@ export function connectPanePty(
   let commandInferredPaneAgentGeneration = 0
   let shellCommandInferenceSuspendedUntilCommandEnd = false
   let startAcceptedInferredCommand = (_agent: TuiAgent): void => {}
-  let requestKnownDroidReconfirmation = (): void => {}
+  let requestKnownWindowsShiftEnterReconfirmation = (): void => {}
   const resetPendingShellCommandLine = (): void => {
     pendingShellCommandLine = ''
     pendingShellCommandCursor = 0
@@ -1597,8 +1597,8 @@ export function connectPanePty(
       data.includes('\x04')
     ) {
       // Why: shells without OSC 133 give no command/exit boundary. An accepted
-      // submit or interrupt revokes only stale Droid routing and confirms once.
-      requestKnownDroidReconfirmation()
+      // submit or interrupt revokes stale trusted Shift+Enter routing and confirms once.
+      requestKnownWindowsShiftEnterReconfirmation()
     }
     if (commandInferredPaneAgent) {
       return
@@ -2247,19 +2247,22 @@ export function connectPanePty(
   startAcceptedInferredCommand = (agent) => {
     paneForegroundAgentTracker.onCommandStarted(agent)
   }
-  requestKnownDroidReconfirmation = () => {
+  requestKnownWindowsShiftEnterReconfirmation = () => {
     const foreground = useAppStore.getState().paneForegroundAgentByPaneKey[cacheKey]
     // Why: daemon reattach/launch metadata is display-only until a live
     // provider read confirms it. Submit/interrupt/title-exit evidence must
     // revoke that launch-only hint too, otherwise Shift+Enter can route bytes
-    // to a Droid that already exited before confirmation ever ran.
-    if (foreground?.agent !== 'droid') {
+    // to an agent that already exited before confirmation ever ran.
+    if (
+      !foreground?.agent ||
+      TUI_AGENT_CONFIG[foreground.agent].windowsShiftEnterEncoding !== 'csi-u'
+    ) {
       return
     }
     // Why: cmd.exe and Git Bash have no OSC command boundaries. Keep the icon
     // as a hint, but revoke bytes until one current provider confirmation lands.
     useAppStore.getState().setPaneForegroundAgent(cacheKey, {
-      agent: 'droid',
+      agent: foreground.agent,
       shellForeground: false
     })
     visibleForegroundSamplePending = false
@@ -3112,8 +3115,8 @@ export function connectPanePty(
     // identify the launched agent; only adopted or restored PTYs may already be
     // inside Codex with no new foreground signal. But no-OSC shells (Git Bash,
     // cmd.exe) never emit a command-start, so an expected-agent pane spawned into
-    // one would never gain the fresh process evidence that authorizes Droid's
-    // Windows Shift+Enter CSI-u routing — leaving Shift+Enter to submit (#7620).
+    // one would never gain fresh evidence authorizing trusted Windows CSI-u
+    // routing for the launched agent, so Shift+Enter could submit (#7620, #9703).
     // Seed the SAME command-start confirmation the manually-typed launch path
     // uses (onCommandStarted): its bounded retry ladder spans agent boot, and a
     // miss publishes shellForeground:false — recoverable by later focus/reveal
@@ -3441,7 +3444,7 @@ export function connectPanePty(
     deps.onAgentExitedRef.current(pane.leafId)
     clearSuppressedTitleSideEffects()
     clearCommandInferredPaneAgent()
-    requestKnownDroidReconfirmation()
+    requestKnownWindowsShiftEnterReconfirmation()
     // Why: when the terminal title reverts to a plain shell (e.g., "bash", "zsh"),
     // the agent has exited. Clear any running cache timer so the sidebar doesn't
     // show a stale countdown for a tab that no longer has an active Claude session.
@@ -8935,7 +8938,7 @@ export function connectPanePty(
     noteVisibilityResume() {
       ptySizeReassertion.request({ fit: false })
       consumeHibernatedAgentWake()
-      requestKnownDroidReconfirmation()
+      requestKnownWindowsShiftEnterReconfirmation()
       sampleVisiblePaneForegroundAgent()
     },
     // Why: #9626 window wake re-reads the applied grid (geometry only, no fit) so a resize dropped while the container size stayed unchanged is re-forwarded.
@@ -8981,17 +8984,17 @@ export function connectPanePty(
       return null
     },
     sampleForegroundAgentOnFocus() {
-      requestKnownDroidReconfirmation()
+      requestKnownWindowsShiftEnterReconfirmation()
       sampleVisiblePaneForegroundAgent()
     },
-    requestDroidReconfirmation() {
+    requestWindowsShiftEnterReconfirmation() {
       if (shiftEnterReconfirmTimer !== null) {
         clearTimeout(shiftEnterReconfirmTimer)
       }
-      // Why: confirm the Droid composer only after the Shift+Enter burst goes idle, to preserve rapid multiline input.
+      // Why: confirm the composer only after the Shift+Enter burst goes idle, preserving rapid multiline input.
       shiftEnterReconfirmTimer = setTimeout(() => {
         shiftEnterReconfirmTimer = null
-        requestKnownDroidReconfirmation()
+        requestKnownWindowsShiftEnterReconfirmation()
         sampleVisiblePaneForegroundAgent()
       }, SHIFT_ENTER_RECONFIRM_IDLE_MS)
     },
