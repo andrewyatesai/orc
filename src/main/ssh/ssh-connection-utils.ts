@@ -49,6 +49,10 @@ export function isAuthError(err: Error): boolean {
     msg.includes('all configured authentication methods failed') ||
     msg.includes('authentication failed') ||
     msg.includes('too many authentication failures') ||
+    // OpenSSH credential rejection — the parenthesised method list (or "please try again") distinguishes it from a local filesystem EACCES.
+    /permission denied(?:, please try again\.?| \([^)]*(?:publickey|password|keyboard-interactive|gssapi|hostbased)[^)]*\))/.test(
+      msg
+    ) ||
     (err as { level?: string }).level === 'client-authentication'
   )
 }

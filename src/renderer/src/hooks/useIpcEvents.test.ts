@@ -4855,6 +4855,7 @@ describe('useIpcEvents agent status snapshot integration', () => {
     drop?: (paneKey: string) => void
     remoteWorkspace?: Record<string, unknown>
     runtime?: Record<string, unknown>
+    ssh?: Record<string, unknown>
   }): Record<string, unknown> {
     return {
       api: {
@@ -4947,12 +4948,14 @@ describe('useIpcEvents agent status snapshot integration', () => {
           listTargets: () => Promise.resolve([]),
           listPortForwards: () => Promise.resolve([]),
           listDetectedPorts: () => Promise.resolve([]),
+          listRemovedTargetLabels: () => Promise.resolve({}),
           getState: () => Promise.resolve(null),
           onStateChanged: () => () => {},
           onCredentialRequest: () => () => {},
           onCredentialResolved: () => () => {},
           onPortForwardsChanged: () => () => {},
-          onDetectedPortsChanged: () => () => {}
+          onDetectedPortsChanged: () => () => {},
+          ...args.ssh
         },
         agentStatus: {
           onSet: args.onSet,
@@ -8062,6 +8065,108 @@ describe('useIpcEvents agent status snapshot integration', () => {
     })
 
     expect(setAgentStatus).toHaveBeenCalledTimes(1)
+  })
+
+  // Why: reattach hydration fetches a port snapshot; if a live push lands while
+  // that fetch is in flight, resolving the stale snapshot must NOT clobber the
+  // fresher push, or the Ports panel rows vanish after hydration (#11713).
+  it('lets a mid-fetch port push win over the stale initial snapshot (#11713)', async () => {
+    const targetId = 'ssh-target-ports'
+    const connectedState = {
+      targetId,
+      status: 'connected' as const,
+      error: null,
+      reconnectAttempt: 0
+    }
+    const liveForward = {
+      id: 'forward-live',
+      targetId,
+      localPort: 17860,
+      remoteHost: '127.0.0.1',
+      remotePort: 7860,
+      status: 'active' as const
+    }
+    const detectedPort = {
+      port: 7860,
+      pid: 42,
+      processName: 'python',
+      command: 'python -m http.server 7860'
+    }
+
+    let resolveForwards: (value: unknown[]) => void = () => {}
+    const forwardsSnapshot = new Promise<unknown[]>((resolve) => {
+      resolveForwards = resolve
+    })
+    let forwardListener: ((data: { targetId: string; forwards: unknown[] }) => void) | undefined
+
+    const sshConnectionStates = new Map<string, typeof connectedState>()
+    const setPortForwards = vi.fn()
+    const setDetectedPorts = vi.fn()
+    const store = buildStoreState({
+      sshConnectionStates,
+      setSshConnectionState: (id: string, state: typeof connectedState) => {
+        sshConnectionStates.set(id, state)
+      },
+      setPortForwards,
+      setDetectedPorts,
+      setSshTargetsMetadata: vi.fn(),
+      setRemovedSshTargetLabels: vi.fn(),
+      setRemoteWorkspaceSyncStatus: vi.fn()
+    })
+
+    stubReactSyncEffect()
+    stubAuxiliaryModules()
+    vi.doMock('../store', () => ({
+      useAppStore: {
+        subscribe: vi.fn(() => () => {}),
+        getState: () => store
+      }
+    }))
+    vi.stubGlobal(
+      'window',
+      buildWindowApi({
+        onSet: () => () => {},
+        ssh: {
+          listTargets: () => Promise.resolve([{ id: targetId }]),
+          getState: () => Promise.resolve(connectedState),
+          listPortForwards: () => forwardsSnapshot,
+          listDetectedPorts: () => Promise.resolve([detectedPort]),
+          onPortForwardsChanged: (
+            listener: (data: { targetId: string; forwards: unknown[] }) => void
+          ) => {
+            forwardListener = listener
+            return () => {}
+          }
+        }
+      })
+    )
+
+    const flush = async (): Promise<void> => {
+      for (let tick = 0; tick < 15; tick += 1) {
+        await Promise.resolve()
+      }
+    }
+
+    const { useIpcEvents } = await import('./useIpcEvents')
+    useIpcEvents()
+
+    // Let the hydration IIFE advance to the parked port-forward snapshot await.
+    await flush()
+    if (!forwardListener) {
+      throw new Error('Expected onPortForwardsChanged listener to be registered')
+    }
+
+    // A live push lands while the snapshot fetch is still in flight, then the
+    // snapshot resolves EMPTY (the pre-push server view).
+    forwardListener({ targetId, forwards: [liveForward] })
+    resolveForwards([])
+    await flush()
+
+    // The push value survives; the stale empty snapshot never overwrites it.
+    expect(setPortForwards).toHaveBeenCalledTimes(1)
+    expect(setPortForwards).toHaveBeenLastCalledWith(targetId, [liveForward])
+    // The un-raced detected-port stream still applies its snapshot.
+    expect(setDetectedPorts).toHaveBeenCalledWith(targetId, [detectedPort])
   })
 })
 

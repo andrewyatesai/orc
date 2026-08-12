@@ -8707,6 +8707,56 @@ describe('registerWorktreeHandlers', () => {
     expect(callOrder).toEqual(['preflight', 'kill', 'git'])
   })
 
+  // Why (#11960): the PTY gate previously had no escape hatch at all, so a
+  // workspace with an unprovable PTY was unremovable forever.
+  it('forwards an explicit Force Delete to the PTY gate', async () => {
+    mockKnownFeatureWorktree()
+    getEffectiveHooksMock.mockReturnValue(null)
+
+    await handlers['worktrees:remove'](null, {
+      worktreeId: 'repo-1::/workspace/feature-wt',
+      force: true,
+      allowUnverifiedPtyStop: true
+    })
+
+    expect(killAllProcessesForWorktreeMock).toHaveBeenCalledWith(
+      'repo-1::/workspace/feature-wt',
+      expect.objectContaining({ requirePhysicalStop: true, allowUnverifiedStop: true })
+    )
+  })
+
+  // Why (#11960): the ordinary Delete confirmation already sets force:true to skip
+  // the dirty-file prompt. Waiving PTY-stop proof off that signal would silently
+  // disable the gate on the primary delete path.
+  it('keeps the PTY gate strict for a confirmed delete that only sets force', async () => {
+    mockKnownFeatureWorktree()
+    getEffectiveHooksMock.mockReturnValue(null)
+
+    await handlers['worktrees:remove'](null, {
+      worktreeId: 'repo-1::/workspace/feature-wt',
+      force: true
+    })
+
+    expect(killAllProcessesForWorktreeMock).toHaveBeenCalledWith(
+      'repo-1::/workspace/feature-wt',
+      expect.not.objectContaining({ allowUnverifiedStop: true })
+    )
+  })
+
+  it('keeps the PTY gate strict for a plain delete', async () => {
+    mockKnownFeatureWorktree()
+    getEffectiveHooksMock.mockReturnValue(null)
+
+    await handlers['worktrees:remove'](null, {
+      worktreeId: 'repo-1::/workspace/feature-wt'
+    })
+
+    expect(killAllProcessesForWorktreeMock).toHaveBeenCalledWith(
+      'repo-1::/workspace/feature-wt',
+      expect.not.objectContaining({ allowUnverifiedStop: true })
+    )
+  })
+
   it('does not start Git removal when physical PTY teardown cannot be proven', async () => {
     mockKnownFeatureWorktree()
     getEffectiveHooksMock.mockReturnValue(null)

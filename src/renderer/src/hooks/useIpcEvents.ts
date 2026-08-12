@@ -48,6 +48,7 @@ import { stepUIZoomLevel } from '../../../shared/ui-zoom-level'
 import { dispatchZoomLevelChanged } from '@/lib/zoom-events'
 import { canShowRightSidebarForView } from '@/lib/right-sidebar-visibility'
 import { resolveZoomTarget } from './resolve-zoom-target'
+import { createSshPortHydrationBarrier } from './ssh-port-hydration-barrier'
 import {
   handleSwitchRecentTab,
   handleSwitchTab,
@@ -2714,6 +2715,9 @@ export function useIpcEvents(): void {
       unsubs.push(unsubscribeWorkspaceSpaceProgress)
     }
 
+    // Why: a live port push landing mid-fetch is fresher than the initial snapshot; the barrier lets it win (#11713).
+    const sshPortHydrationBarrier = createSshPortHydrationBarrier()
+
     // Why: hydrate initial SSH state for all targets so worktree cards show correct connect state on launch.
     void (async () => {
       try {
@@ -2732,6 +2736,7 @@ export function useIpcEvents(): void {
             useAppStore.getState().setSshConnectionState(target.id, state as SshConnectionState)
             // Why: ports arrive only via push events; on reattach to a live session fetch snapshots or the Ports panel shows empty.
             if ((state as SshConnectionState).status === 'connected') {
+              const hydrationTicket = sshPortHydrationBarrier.begin(target.id)
               const [forwards, detected] = await Promise.all([
                 window.api.ssh.listPortForwards({ targetId: target.id }),
                 window.api.ssh.listDetectedPorts({ targetId: target.id })
@@ -2739,9 +2744,15 @@ export function useIpcEvents(): void {
               // Why: if the session disconnected while awaiting the snapshot, applying it would resurrect a dead session's ports.
               const currentState = useAppStore.getState().sshConnectionStates.get(target.id)
               if (currentState?.status === 'connected') {
-                useAppStore.getState().setPortForwards(target.id, forwards)
-                useAppStore.getState().setDetectedPorts(target.id, detected)
+                // Why: a push that landed mid-fetch is fresher; don't overwrite it with the stale snapshot (#11713).
+                if (hydrationTicket.shouldApplyForwards()) {
+                  useAppStore.getState().setPortForwards(target.id, forwards)
+                }
+                if (hydrationTicket.shouldApplyDetected()) {
+                  useAppStore.getState().setDetectedPorts(target.id, detected)
+                }
               }
+              hydrationTicket.finish()
               void syncRemoteWorkspaceAfterConnect(target.id).catch((err) => {
                 useAppStore.getState().setRemoteWorkspaceSyncStatus(target.id, {
                   phase: 'error',
@@ -2770,12 +2781,14 @@ export function useIpcEvents(): void {
 
     unsubs.push(
       window.api.ssh.onPortForwardsChanged(({ targetId, forwards }) => {
+        sshPortHydrationBarrier.noteForwardPush(targetId)
         useAppStore.getState().setPortForwards(targetId, forwards)
       })
     )
 
     unsubs.push(
       window.api.ssh.onDetectedPortsChanged(({ targetId, ports }) => {
+        sshPortHydrationBarrier.noteDetectedPush(targetId)
         useAppStore.getState().setDetectedPorts(targetId, ports)
       })
     )

@@ -42,9 +42,21 @@
         "Accepted: three are upstream feature/port work landing through the fork, and none is the delivery-reliability shim this ratchet was built to watch \u2014 that held at 2813 across all 22 commits, which is the number that would have justified refusing.",
         "Worth stating since this is the third re-baseline in three days: orca-runtime.ts grows because it is where upstream features attach, and a ratchet that only ever ratchets UP on one file is measuring drift it cannot stop. The useful signal here has been the shim staying flat, not the god object staying small."
       ]
+    },
+    {
+      "date": "2026-08-12",
+      "head": "tail-batch2",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36024,
+        "src/main/ipc/pty.ts": 6241
+      },
+      "why": [
+        "+83 on orca-runtime.ts and +3 on pty.ts from the batch-2 parity port (15 medium items). orca-runtime.ts: the #11611 desktop-promotion PTY-identity work (runtimeSessionOwned flag + getRuntimeWorktreeRemovalOptionsKey so a forced worktree-removal retry does not coalesce onto the attempt that just failed the PTY gate). pty.ts: a single provider-inspection call swap for the same feature.",
+        "Accepted: upstream feature/port work attaching to the god object where features attach, not the delivery-reliability shim this ratchet watches (that held flat at 2813). Decomposition of orca-runtime.ts remains owed; the next movement should be down."
+      ]
     }
   ],
   "shimWholeFileLoc": 2813,
-  "src/main/runtime/orca-runtime.ts": 36024,
-  "src/main/ipc/pty.ts": 6241
+  "src/main/runtime/orca-runtime.ts": 36107,
+  "src/main/ipc/pty.ts": 6244
 }

@@ -77,6 +77,10 @@ export class RelaySessionBroker {
     return `${identity.userId}\0${identity.profileId}\0${identity.organizationId}`
   }
 
+  isLive(): boolean {
+    return !this.closed && this.originPool.hasLiveControl()
+  }
+
   get endpoint(): MobileRelayEndpoint | null {
     const assignment = this.originPool.activeAssignment
     if (!assignment) {

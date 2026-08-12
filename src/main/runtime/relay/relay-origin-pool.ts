@@ -55,6 +55,10 @@ export class RelayOriginPool {
     return this.basisOrigins.get(basisConnId)?.availableControl ?? null
   }
 
+  hasLiveControl(): boolean {
+    return this.activeOrigin?.hasLiveControl() ?? false
+  }
+
   async openInitial(assignment: RelayAssignment, relayJwt: string): Promise<void> {
     this.assignment = assignment
     this.relayJwt = relayJwt
@@ -186,6 +190,12 @@ export class RelayOriginPool {
       this.scheduleControlRotation()
     } catch (error) {
       if (this.isCurrent() && origin === this.activeOrigin) {
+        // Why: this retry loop otherwise runs silently while director throttling
+        // stretches recovery to minutes, making a dead relay look like standby.
+        console.warn(
+          '[relay] control recovery attempt failed:',
+          error instanceof Error ? error.message : String(error)
+        )
         const retryAfterMs = error instanceof RelayHttpError ? (error.retryAfterMs ?? 0) : 0
         this.drainRetry.schedule(retryAfterMs, () => this.handleDrain(origin, message))
       }

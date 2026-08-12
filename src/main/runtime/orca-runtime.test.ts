@@ -22523,6 +22523,117 @@ describe('OrcaRuntimeService', () => {
     ])
   })
 
+  it('keeps a live headed runtime-owned tab until its explicit close', async () => {
+    const ptyId = 'local-runtime-owned-pty'
+    const splitPtyId = 'local-runtime-owned-split-pty'
+    const tabId = 'runtime-session-tab'
+    const leafId = HEADLESS_LEAF_ID
+    const kill = vi.fn(() => true)
+    const { runtimeStore } = makeRuntimeStoreWithWorkspaceSession({
+      ...getDefaultWorkspaceSession(),
+      activeRepoId: TEST_REPO_ID,
+      activeWorktreeId: TEST_WORKTREE_ID,
+      tabsByWorktree: {
+        [TEST_WORKTREE_ID]: [
+          {
+            id: tabId,
+            ptyId: null,
+            worktreeId: TEST_WORKTREE_ID,
+            title: 'Codex',
+            customTitle: null,
+            color: null,
+            sortOrder: 0,
+            createdAt: 1,
+            launchAgent: 'codex'
+          }
+        ]
+      },
+      terminalLayoutsByTabId: {
+        [tabId]: makeHeadlessTerminalLayout({ [leafId]: undefined })
+      }
+    })
+    const runtime = new OrcaRuntimeService(runtimeStore as never)
+    runtime.setPtyController({
+      spawn: vi.fn().mockResolvedValueOnce({ id: ptyId }).mockResolvedValueOnce({ id: splitPtyId }),
+      write: () => true,
+      kill,
+      getForegroundProcess: async () => null,
+      listProcesses: async () => [
+        {
+          id: ptyId,
+          cwd: TEST_WORKTREE_PATH,
+          title: 'Codex',
+          worktreeId: TEST_WORKTREE_ID
+        },
+        {
+          id: splitPtyId,
+          cwd: TEST_WORKTREE_PATH,
+          title: 'Codex',
+          worktreeId: TEST_WORKTREE_ID
+        }
+      ]
+    })
+    const publishRendererOmission = (snapshotVersion: number): void => {
+      runtime.syncWindowGraph(1, {
+        tabs: [],
+        leaves: [],
+        mobileSessionTabs: [
+          {
+            worktree: TEST_WORKTREE_ID,
+            publicationEpoch: 'headed-runtime',
+            snapshotVersion,
+            activeGroupId: 'group-1',
+            activeTabId: null,
+            activeTabType: null,
+            tabs: []
+          }
+        ]
+      })
+    }
+    runtime.attachWindow(1)
+    publishRendererOmission(1)
+    electronMocks.BrowserWindow.fromId.mockReturnValue({
+      isDestroyed: () => false,
+      webContents: { send: vi.fn() }
+    })
+
+    const created = await runtime.createTerminal(`id:${TEST_WORKTREE_ID}`, {
+      presentation: 'background',
+      persistHostSessionBinding: true,
+      tabId,
+      leafId,
+      launchAgent: 'codex'
+    })
+    const split = await runtime.splitTerminal(created.handle, { direction: 'vertical' })
+    publishRendererOmission(2)
+
+    expect((await runtime.listMobileSessionTabs(`id:${TEST_WORKTREE_ID}`)).tabs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: `${tabId}::${leafId}`,
+          parentTabId: tabId,
+          ptyId,
+          status: 'ready',
+          terminal: created.handle
+        }),
+        expect.objectContaining({
+          parentTabId: tabId,
+          ptyId: splitPtyId,
+          status: 'ready',
+          terminal: split.handle
+        })
+      ])
+    )
+    expect((await runtime.listMobileSessionTabs(`id:${TEST_WORKTREE_ID}`)).tabs).toHaveLength(2)
+
+    await runtime.closeMobileSessionTab(`id:${TEST_WORKTREE_ID}`, tabId, { reason: 'user' })
+    publishRendererOmission(3)
+
+    expect(kill).toHaveBeenCalledWith(ptyId)
+    expect(kill).toHaveBeenCalledWith(splitPtyId)
+    expect((await runtime.listMobileSessionTabs(`id:${TEST_WORKTREE_ID}`)).tabs).toEqual([])
+  })
+
   it('publishes laptop-created remote runtime terminals to phone session tabs', async () => {
     const spawn = vi.fn().mockResolvedValue({ id: 'laptop-created-pty' })
     const runtime = new OrcaRuntimeService(store)

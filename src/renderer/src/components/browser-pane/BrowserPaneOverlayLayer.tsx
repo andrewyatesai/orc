@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo } from 'react'
+import { memo, useCallback, useLayoutEffect, useMemo, useState } from 'react'
 import { registerBrowserOverlaySlotViewport } from './browser-page-viewport'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../../store'
@@ -167,6 +167,29 @@ const BrowserPaneOverlayLayer = memo(function BrowserPaneOverlayLayer({
       })}
     </>
   )
+})
+
+// Why: latch the overlay on once eligible so a hidden worktree with a targeted background mount keeps its persistent slot DOM — and its Electron guests — instead of tearing them down (STA-3228).
+export const RetainedBrowserPaneOverlayLayer = memo(function RetainedBrowserPaneOverlayLayer({
+  worktreeId,
+  isWorktreeActive,
+  mountEligible
+}: {
+  worktreeId: string
+  isWorktreeActive: boolean
+  mountEligible: boolean
+}): React.JSX.Element | null {
+  const [hasCommittedMount, setHasCommittedMount] = useState(false)
+  // Why: commit the latch with the persistent slot DOM so discarded renders cannot retain a guest host.
+  useLayoutEffect(() => {
+    if (mountEligible && !hasCommittedMount) {
+      setHasCommittedMount(true)
+    }
+  }, [hasCommittedMount, mountEligible])
+  if (!mountEligible && !hasCommittedMount) {
+    return null
+  }
+  return <BrowserPaneOverlayLayer worktreeId={worktreeId} isWorktreeActive={isWorktreeActive} />
 })
 
 export default BrowserPaneOverlayLayer

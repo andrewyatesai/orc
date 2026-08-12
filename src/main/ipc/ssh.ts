@@ -19,6 +19,7 @@ import type {
 import { SSH_TERMINATE_RECONNECT_REQUIRED } from '../../shared/constants'
 import { isRuntimeOwnedSshTargetId } from '../../shared/execution-host'
 import { isAuthError } from '../ssh/ssh-connection-utils'
+import { createCancelledConnectAttemptError } from '../ssh/ssh-connect-attempt-cancellation'
 import { forceStopRelayForTarget } from '../ssh/ssh-relay-reset'
 import { isSshPtyNotFoundError } from '../providers/ssh-pty-errors'
 import { toAppSshPtyId, toRelaySshPtyId } from '../providers/ssh-pty-id'
@@ -219,10 +220,6 @@ function invalidateConnectAttempt(targetId: string): void {
 
 function isCurrentConnectAttempt(targetId: string, generation: number): boolean {
   return currentConnectGeneration(targetId) === generation
-}
-
-function connectCancelledError(): Error {
-  return new Error('SSH connection attempt was cancelled')
 }
 
 // Why: publish reset's teardown/force-stop/disconnect lifecycle so new connects and duplicate resets can't race it.
@@ -859,7 +856,7 @@ export function registerSshHandlers(
       return existing.promise
     }
     if (currentConnectGeneration(targetId) !== observedGeneration) {
-      throw connectCancelledError()
+      throw createCancelledConnectAttemptError()
     }
 
     pendingTransportReconnects.delete(targetId)
@@ -915,7 +912,7 @@ export function registerSshHandlers(
       // Why: await port teardown before disposing, else the new session's restorePortForwards can hit EADDRINUSE on not-yet-released ports.
       await portForwardManager!.removeAllForwards(targetId)
       if (!isCurrentConnectAttempt(targetId, generation)) {
-        throw connectCancelledError()
+        throw createCancelledConnectAttemptError()
       }
       existingSession.detach()
       activeSessions.delete(targetId)
@@ -940,14 +937,14 @@ export function registerSshHandlers(
     try {
       conn = await connectionManager!.connect(target)
       if (!ownsSession()) {
-        throw connectCancelledError()
+        throw createCancelledConnectAttemptError()
       }
     } catch (err) {
       // Why: connect()'s internal state may not have reached the renderer; broadcast explicitly so the UI leaves 'connecting'.
       const errObj = err instanceof Error ? err : new Error(String(err))
       const status: SshConnectionStatus = isAuthError(errObj) ? 'auth-failed' : 'error'
       if (!ownsSession()) {
-        throw connectCancelledError()
+        throw createCancelledConnectAttemptError()
       }
       // Why: clear this failed connect's credential flag so a later non-prompting connect can't persist lastRequiredPassphrase=true.
       credentialRequestedForTarget.delete(targetId)
@@ -973,7 +970,7 @@ export function registerSshHandlers(
 
       await session.establish(conn, relayGracePeriodForTarget(target))
       if (!ownsSession()) {
-        throw connectCancelledError()
+        throw createCancelledConnectAttemptError()
       }
 
       // Why: we manually pushed `deploying-relay`, so send `connected` straight to the renderer — routing through onStateChange would trigger reconnect logic.
@@ -987,7 +984,7 @@ export function registerSshHandlers(
       })
     } catch (err) {
       if (!ownsSession()) {
-        throw connectCancelledError()
+        throw createCancelledConnectAttemptError()
       }
       activeSessions.delete(targetId)
       clearRelayLostBackoff(targetId)
