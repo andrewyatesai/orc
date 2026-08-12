@@ -253,9 +253,22 @@
     },
     {
       "function": "decodeTerminalStreamFrame",
-      "note": "opcode 17 is the first unknown value beyond SetOutputPaused=16, so it decodes to null",
+      "note": "WriteUnavailable=17 is a real opcode (ff945ef5d): a host that drops it leaves the client typing into a write path that cannot deliver",
       "input": {
         "bytes": [116, 1, 17, 0, 7, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0]
+      },
+      "expected": {
+        "opcode": 17,
+        "streamId": 7,
+        "seq": 3,
+        "payload": []
+      }
+    },
+    {
+      "function": "decodeTerminalStreamFrame",
+      "note": "opcode 18 is the first unknown value beyond WriteUnavailable=17, so it decodes to null",
+      "input": {
+        "bytes": [116, 1, 18, 0, 7, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0]
       },
       "expected": null
     },
