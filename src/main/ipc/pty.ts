@@ -68,7 +68,8 @@ import { agentHookServer } from '../agent-hooks/server'
 import { wslHookRelayManager } from '../agent-hooks/wsl-hook-relay-manager'
 import { isAgentStatusHooksEnabled } from '../agent-hooks/managed-agent-hook-controls'
 import { piTitlebarExtensionService } from '../pi/titlebar-extension-service'
-import type { PiAgentKind } from '../../shared/pi-agent-kind'
+import { isPiCompatibleAgentType, type PiAgentKind } from '../../shared/pi-agent-kind'
+import { detectExplicitPiAgentKindFromCommand } from '../../shared/explicit-pi-agent-launch'
 import { detectPiAgentKindFromCommand } from '../pi/rust-pi-agent-kind'
 import { isPwshAvailable } from '../pwsh'
 import { LocalPtyProvider } from '../providers/local-pty-provider'
@@ -1180,6 +1181,16 @@ export function buildPtyHostEnv(
   const preexistingOpenCodeConfigDir = resolveOpenCodeSourceConfigDir(baseEnv)
   const launchCommandHint = resolveSetupAgentSequenceLaunchCommand(baseEnv, opts.launchCommand)
   const piAgentKind = detectPiAgentKindFromCommand(launchCommandHint)
+  // Why: `piAgentKind` (Rust) defaults bare shells to 'pi'; the explicit kind is
+  // null for bare shells and other agents. Only an explicit Pi/OMP launch (a
+  // trusted `launchAgent` or a command whose binary is `pi`/`omp`) may
+  // materialize the default agent home — otherwise unused agents recreate
+  // deleted `~/.<agent>` dirs on every open (#10196).
+  const explicitPiAgentKind = isPiCompatibleAgentType(opts.launchAgent)
+    ? opts.launchAgent
+    : opts.launchAgent === undefined
+      ? detectExplicitPiAgentKindFromCommand(launchCommandHint)
+      : null
   const hasLaunchCommand =
     typeof launchCommandHint === 'string' && launchCommandHint.trim().length > 0
 
@@ -1270,13 +1281,17 @@ export function buildPtyHostEnv(
     clearPiAgentShadowEnv(baseEnv, 'pi')
     clearPiAgentShadowEnv(baseEnv, 'omp')
     if (piAgentKind === 'pi') {
-      const piEnv = piTitlebarExtensionService.buildPtyEnv(id, preexistingPiAgentDir, 'pi')
+      const piEnv = piTitlebarExtensionService.buildPtyEnv(id, preexistingPiAgentDir, 'pi', {
+        materializeDefaultHome: explicitPiAgentKind === 'pi'
+      })
       Object.assign(baseEnv, piEnv)
       exposePiManagedExtensionEnv(baseEnv, 'pi', piEnv)
     }
 
     if (shouldPrepareOmpShadow) {
-      const ompEnv = piTitlebarExtensionService.buildPtyEnv(id, preexistingOmpAgentDir, 'omp')
+      const ompEnv = piTitlebarExtensionService.buildPtyEnv(id, preexistingOmpAgentDir, 'omp', {
+        materializeDefaultHome: explicitPiAgentKind === 'omp'
+      })
       Object.assign(baseEnv, ompEnv)
       exposePiManagedExtensionEnv(baseEnv, 'omp', ompEnv)
     }

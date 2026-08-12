@@ -231,6 +231,7 @@ import {
   validateTaskPageGitHubDuplicateTarget,
   type TaskPageGitHubCloseAction
 } from '@/components/task-page-github-status-actions'
+import { sortChecksBySeverity } from '../../../shared/pr-check-severity-order'
 
 // Why: the dialog lacks repository context, so recover its host-aware identity from the canonical item URL.
 function parseOwnerRepoFromItemUrl(url: string): GitHubOwnerRepo | null {
@@ -4305,17 +4306,6 @@ function CommentReplyForm({
   )
 }
 
-const CHECK_SORT_ORDER: Record<string, number> = {
-  failure: 0,
-  timed_out: 0,
-  action_required: 0,
-  cancelled: 1,
-  pending: 2,
-  neutral: 3,
-  skipped: 4,
-  success: 5
-}
-
 function getCheckStatusLabel(check: PRCheckDetail): string {
   const conclusion = getCheckConclusion(check)
   if (conclusion === 'success') {
@@ -4425,11 +4415,7 @@ function ChecksTab({
   const prRepo = useMemo(() => resolvePullRequestRepo(item), [item])
   const runtimeHost = getGitHubSourceRuntimeHost(sourceContext)
   const canUseChecksRepoContext = canUseGitHubRepoContext(repoPath, sourceContext)
-  const sorted = [...list].sort(
-    (a, b) =>
-      (CHECK_SORT_ORDER[getCheckConclusion(a)] ?? 3) -
-      (CHECK_SORT_ORDER[getCheckConclusion(b)] ?? 3)
-  )
+  const sorted = sortChecksBySeverity(list)
   const failedChecks = getBrokenChecks(list)
   const counts = getCheckCounts(list)
   const summaryLabel = getChecksSummaryLabel(list)

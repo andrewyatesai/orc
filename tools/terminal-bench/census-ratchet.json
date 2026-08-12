@@ -102,9 +102,20 @@
         "+58 net on orca-runtime.ts (+74/-16) from the batch-6 parity port (miscellaneous tail medium items). Largest share is 5d2ad3597 (Codex direct model selection / title-driven agent-exit confirmation): the confirmPtyAgentExit method plus the loadPtyForegroundAgentFromController afterTitleObservation rework, kept in-file because both are OrcaRuntimeService methods over private ptysById/ptyController/ptyTitleTrackersByPtyId state. The reusable half — the per-PTY getForegroundProcess dedupe cache — was extracted to a NEW named module (pty-foreground-process-read.ts), so only the service-coupled remainder landed here. aa64ac9606 (#12791) contributed a few lines collapsing shouldCreateInBackground's renderer-window check to availableAuthoritativeWindow === null. 6df8997c3 (file-name-sort) REDUCED the file, swapping two 6-line inline directory sorts for one-line sortDirEntries calls, partially offsetting.",
         "Accepted: upstream feature/port work attaching to the god object where features attach, not the delivery-reliability shim this ratchet watches. pty.ts held flat at 6345 and shimWholeFileLoc held flat at 2813 across the batch — the shim not moving is the number that would have justified refusing. Decomposition of orca-runtime.ts remains owed; the next movement should be down."
       ]
+    },
+    {
+      "date": "2026-08-12",
+      "head": "low-batch1",
+      "from": {
+        "src/main/ipc/pty.ts": 6345
+      },
+      "why": [
+        "+15 on pty.ts from the low-impact parity batch, attributable in full to the #10196 port: buildPtyHostEnv now derives an explicitPiAgentKind and passes materializeDefaultHome to piTitlebarExtensionService.buildPtyEnv so only an explicit Pi/OMP launch may recreate the default ~/.<agent> home, instead of every bare-shell open re-materializing deleted agent dirs. The reusable detector was extracted to a NEW named module (src/shared/explicit-pi-agent-launch.ts); only the call-site guard, which is intrinsic to buildPtyHostEnv, landed in pty.ts.",
+        "Accepted: upstream port work at the env-build call site, not the delivery-reliability shim this ratchet watches. orca-runtime.ts held flat at 36623 and shimWholeFileLoc held flat at 2813 across the batch — the god object was not touched at all, and the shim not moving is the number that would have justified refusing. Decomposition of orca-runtime.ts remains owed; the next movement should be down."
+      ]
     }
   ],
   "shimWholeFileLoc": 2813,
   "src/main/runtime/orca-runtime.ts": 36623,
-  "src/main/ipc/pty.ts": 6345
+  "src/main/ipc/pty.ts": 6360
 }

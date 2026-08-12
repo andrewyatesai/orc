@@ -13780,6 +13780,9 @@
           "5d2c3e7ae3": "No speech detected.",
           "micDisconnected": "Microphone disconnected. Dictation stopped.",
           "micFallback": "Selected microphone unavailable. Using system default."
+        },
+        "DictationIndicator": {
+          "335e1bc6cb": "Stop dictation"
         }
       },
       "dashboard": {
@@ -14193,7 +14196,12 @@
           "233b8c94b6": "Cadence",
           "b08ccb4d06": "hourly",
           "8cc026fd73": "weekly",
-          "c3e39e17cf": "custom"
+          "c3e39e17cf": "custom",
+          "55b2ef82a4": "Hourly",
+          "f0202f3a89": "Daily",
+          "57e83307d0": "Weekdays",
+          "837d902bba": "Weekly",
+          "ddba78647e": "Custom cron"
         },
         "AutomationSessionField": {
           "f3c76dce51": "Reuse",
@@ -15497,6 +15505,22 @@
       "permBody": "The agent runs with your full filesystem and network access either way. Ask-me-first is a prompt, not a sandbox.",
       "continue": "Continue",
       "folderBody": "A plain folder works; it does not need to be a git repository."
+    }
+  },
+  "runtimeRpc": {
+    "startupFailure": {
+      "unknownCause": "No additional error details were available.",
+      "continueButton": "Continue without CLI",
+      "title": "Orca CLI unavailable",
+      "message": "Orca couldn't start its local command transport.",
+      "detail": "Orca will continue to work, but commands such as orca status, orca terminal, and orchestration are unavailable for this session.\n\n{{guidance}}\n\nCause: {{cause}}",
+      "guidance": {
+        "permissionDenied": "Orca couldn't write its runtime file. Check permissions on Orca's data folder, then restart.",
+        "storageUnavailable": "Your disk may be full or read-only. Free up space, then restart Orca.",
+        "invalidPath": "Orca's data folder may be missing, moved, or at a path that is too long. Restore it or use a shorter path, then restart Orca.",
+        "addressInUse": "Another process may be holding the port. Restart Orca to try again.",
+        "unknown": "Restart Orca to try again."
+      }
     }
   }
 }

@@ -53,7 +53,7 @@ import { PortScanHandler } from './port-scan-handler'
 import { AgentExecHandler } from './agent-exec-handler'
 import { WorkspaceSessionHandler } from './workspace-session-handler'
 import { endpointDirForRelaySocket, RelayAgentHookServer } from './agent-hook-server'
-import { PluginOverlayManager, getRelayPiStatusExtensionPath } from './plugin-overlay'
+import { PluginOverlayManager } from './plugin-overlay'
 import {
   AGENT_HOOK_INSTALL_PLUGINS_METHOD,
   AGENT_HOOK_NOTIFICATION_METHOD,
@@ -66,6 +66,8 @@ import {
 import { assertPluginSourceUnderByteCap } from './plugin-source-limit'
 import { resolveOpenCodeSourceConfigDir, resolvePiSourceAgentDir } from './plugin-overlay-env'
 import { detectPiAgentKindFromCommand } from './git-wasm'
+import { isPiCompatibleAgentType } from '../shared/pi-agent-kind'
+import { detectExplicitPiAgentKindFromCommand } from '../shared/explicit-pi-agent-launch'
 import { resolveSetupAgentSequenceLaunchCommand } from '../shared/setup-agent-sequencing'
 import { pickRemoteCliEnv } from './remote-cli-env'
 import { relayLogLine } from './relay-diagnostic-log'
@@ -588,14 +590,24 @@ async function main(): Promise<void> {
       // Why: install Orca's guarded extension into the launched agent's (Pi vs OMP) real remote dir without redirecting PI_CODING_AGENT_DIR.
       const launchCommandHint = resolveSetupAgentSequenceLaunchCommand(ctx.env, ctx.command)
       const kind = detectPiAgentKindFromCommand(launchCommandHint)
+      // Why: only an explicit Pi/OMP launch (a trusted launchAgent or a command
+      // whose binary is `pi`/`omp`) may mkdir the default remote home; bare
+      // shells kept recreating deleted `~/.<agent>` dirs (#10196).
+      const explicitKind = isPiCompatibleAgentType(ctx.launchAgent)
+        ? ctx.launchAgent
+        : ctx.launchAgent === undefined
+          ? detectExplicitPiAgentKindFromCommand(launchCommandHint)
+          : null
       const hasLaunchCommand =
         typeof launchCommandHint === 'string' && launchCommandHint.trim().length > 0
       const shouldPrepareOmpShadow = kind === 'omp' || !hasLaunchCommand
       if (kind === 'pi') {
         const sourceDir = resolvePiSourceAgentDir(ctx.env, ctx.shell, 'pi')
-        const dir = pluginOverlay.materializePi(overlayId, sourceDir, 'pi')
-        if (dir) {
-          env.ORCA_PI_SOURCE_AGENT_DIR = dir
+        const result = pluginOverlay.materializePi(overlayId, sourceDir, 'pi', {
+          materializeDefaultHome: explicitKind === 'pi'
+        })
+        if (result?.sourceAgentDir) {
+          env.ORCA_PI_SOURCE_AGENT_DIR = result.sourceAgentDir
         }
       }
       if (shouldPrepareOmpShadow) {
@@ -604,10 +616,16 @@ async function main(): Promise<void> {
           kind === 'omp'
             ? resolvePiSourceAgentDir(ctx.env, ctx.shell, 'omp')
             : ctx.env.ORCA_OMP_SOURCE_AGENT_DIR
-        const dir = pluginOverlay.materializePi(overlayId, sourceDir, 'omp')
-        if (dir) {
-          env.ORCA_OMP_STATUS_EXTENSION = getRelayPiStatusExtensionPath(dir)
-          env.ORCA_OMP_SOURCE_AGENT_DIR = dir
+        const result = pluginOverlay.materializePi(overlayId, sourceDir, 'omp', {
+          materializeDefaultHome: explicitKind === 'omp'
+        })
+        // Why: the status-only fallback (no sourceAgentDir) is intentional for
+        // bare shells without ~/.omp — still export ORCA_OMP_STATUS_EXTENSION (#10196).
+        if (result?.statusExtensionPath) {
+          env.ORCA_OMP_STATUS_EXTENSION = result.statusExtensionPath
+        }
+        if (result?.sourceAgentDir) {
+          env.ORCA_OMP_SOURCE_AGENT_DIR = result.sourceAgentDir
         }
       }
     }
