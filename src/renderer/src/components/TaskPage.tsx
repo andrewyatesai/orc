@@ -373,6 +373,7 @@ import {
   type LinearOrderBy,
   type LinearViewMode
 } from '@/components/task-page-localized-options'
+import { useGitHubTaskSearchCommit } from '@/components/use-github-task-search-commit'
 
 function isGitLabMRFilter(value: GitLabTaskFilter | GitLabIssueFilter): value is GitLabTaskFilter {
   return value === 'opened' || value === 'merged' || value === 'closed' || value === 'all'
@@ -6263,19 +6264,21 @@ export default function TaskPage(): React.JSX.Element {
     ]
   )
 
-  useEffect(() => {
-    if (!taskResumeApplied) {
-      return
-    }
-    const timeout = window.setTimeout(() => {
-      const scoped = scopeGitHubTaskSearch(taskSearchInput, activeGithubTaskKind)
+  const commitTaskSearch = useCallback(
+    (value: string): void => {
+      const scoped = scopeGitHubTaskSearch(value, activeGithubTaskKind)
       if (scoped !== appliedTaskSearch) {
         setTasksFiltering(true)
       }
       setAppliedTaskSearch(scoped)
-    }, TASK_SEARCH_DEBOUNCE_MS)
-    return () => window.clearTimeout(timeout)
-  }, [activeGithubTaskKind, appliedTaskSearch, taskSearchInput, taskResumeApplied])
+    },
+    [activeGithubTaskKind, appliedTaskSearch]
+  )
+  useGitHubTaskSearchCommit({
+    enabled: taskResumeApplied,
+    onCommit: commitTaskSearch,
+    value: taskSearchInput
+  })
 
   useEffect(() => {
     if (!taskResumeApplied) {
@@ -6529,17 +6532,12 @@ export default function TaskPage(): React.JSX.Element {
     setTaskRefreshNonce((current) => current + 1)
   }, [activeGithubTaskKind, setTaskResumeState, taskSearchInput])
 
-  const handleTaskSearchChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>): void => {
-      const next = event.target.value
-      const scoped = scopeGitHubTaskSearch(next, activeGithubTaskKind)
-      setTaskSearchInput(next)
-      setActiveTaskPreset(null)
-      // Why: visible rows are keyed by appliedTaskSearch, not the draft input; hide stale rows once the draft changes the query.
-      setTasksFiltering(scoped !== appliedTaskSearch)
-    },
-    [activeGithubTaskKind, appliedTaskSearch]
-  )
+  const handleTaskSearchChange = useCallback((event: React.ChangeEvent<HTMLInputElement>): void => {
+    // Why: only update the draft input; the idle-window hook owns debounced query timing + row filtering.
+    const next = event.target.value
+    setTaskSearchInput(next)
+    setActiveTaskPreset(null)
+  }, [])
 
   const handleSetDefaultTaskPreset = useCallback(
     (presetId: TaskViewPresetId): void => {

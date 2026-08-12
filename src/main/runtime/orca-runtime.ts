@@ -10,6 +10,7 @@ import {
   normalizeTerminalTitle
 } from '../../shared/agent-detection'
 import { extractOscTitleScanTail } from '../../shared/osc-title-scan-tail'
+import { sortDirEntries } from '../../shared/file-name-sort'
 import { extractLastOsc7Uri, extractOscScanTail } from '../daemon/osc7-uri-extraction'
 import { parseFileUriPathParts } from '../daemon/osc7-file-uri'
 import type { AgentStatus } from '../../shared/agent-detection'
@@ -471,6 +472,7 @@ import {
   countTerminalLayoutLeaves
 } from './headless-terminal-split-layout'
 import { RECENT_PTY_OUTPUT_LIMIT, RecentPtyOutputBuffer } from './recent-pty-output-buffer'
+import { createPtyForegroundProcessReadCache } from './pty-foreground-process-read'
 import {
   buildHeadlessTabGroupMove,
   buildHeadlessTabGroupSplit
@@ -2873,6 +2875,10 @@ export class OrcaRuntimeService {
   private cloneInFlightByPath = new Map<string, Promise<void>>()
   private agentDetector: AgentDetector | null = null
   private ptyForegroundAgentRefreshes = new Map<string, PtyForegroundAgentRefresh>()
+  // Why: shared between the exit-confirmation and foreground-agent refresh paths
+  // so a title-driven exit never fires a second getForegroundProcess round-trip
+  // and never trusts a read that predates the exit title.
+  private ptyForegroundProcessReads = createPtyForegroundProcessReadCache<RuntimePtyController>()
   private ptyDelayedForegroundSnapshotTitleObservations = new Map<string, number>()
   private _orchestrationDb: OrchestrationDb | null = null
   private messageWaitersByHandle = new Map<string, Set<MessageWaiter>>()
@@ -9186,7 +9192,7 @@ export class OrcaRuntimeService {
           })
         },
         onAgentExited: () => {
-          this.recordTerminalSideEffectFact(ptyId, { kind: 'agent-exited' })
+          this.confirmPtyAgentExit(ptyId)
         },
         // Why: bell/command-finished/pr-link/2031 facts exist only for the
         // pty:sideEffect channel. Headless serve has no consumer, so skip the
@@ -16180,6 +16186,47 @@ export class OrcaRuntimeService {
   }
 
   /**
+   * A title reverting to a plain shell prompt looks like an agent exit, but a
+   * value-bearing command (e.g. a live Codex /model change) can transiently show
+   * that title while the agent still runs. Confirm the exit against the foreground
+   * process before recording it; when the agent is still there, restore the status
+   * the exit candidate consumed so a genuine later exit is not lost.
+   */
+  private confirmPtyAgentExit(ptyId: string): void {
+    const pty = this.ptysById.get(ptyId)
+    const titleObservedAt = pty?.lastOscTitleAt ?? null
+    const foregroundRead = this.ptyForegroundProcessReads.read(
+      ptyId,
+      this.ptyController,
+      titleObservedAt ?? 0
+    )
+    if (!pty?.connected || !foregroundRead) {
+      this.recordTerminalSideEffectFact(ptyId, { kind: 'agent-exited' })
+      return
+    }
+    void foregroundRead.then((result) => {
+      const current = this.ptysById.get(ptyId)
+      if (current !== pty || !current.connected) {
+        return
+      }
+      // Why: a title observed after the exit candidate already re-classified the
+      // pane, so this stale confirmation must not fire against fresher state.
+      if (current.lastOscTitleAt !== titleObservedAt && current.lastAgentStatus !== null) {
+        return
+      }
+      if (
+        result.controller === this.ptyController &&
+        result.available &&
+        recognizeAgentProcess(result.process) !== null
+      ) {
+        this.ptyTitleTrackersByPtyId.get(ptyId)?.tracker.restoreLastAgentExit()
+        return
+      }
+      this.recordTerminalSideEffectFact(ptyId, { kind: 'agent-exited' })
+    })
+  }
+
+  /**
    * Schedules an asynchronous query to check which agent process is currently
    * running in the foreground of a PTY.
    */
@@ -16241,7 +16288,10 @@ export class OrcaRuntimeService {
     const refresh = (async (): Promise<boolean> => {
       while (true) {
         entry.startedAfterTitleObservation = entry.requestedAfterTitleObservation
-        const foregroundAgentChanged = await this.loadPtyForegroundAgentFromController(ptyId)
+        const foregroundAgentChanged = await this.loadPtyForegroundAgentFromController(
+          ptyId,
+          entry.startedAfterTitleObservation
+        )
         if (
           foregroundAgentChanged ||
           entry.requestedAfterTitleObservation <= entry.startedAfterTitleObservation
@@ -16263,7 +16313,10 @@ export class OrcaRuntimeService {
    * Queries the PTY controller for the active foreground process, identifies if it
    * is a recognized agent, and updates the PTY's foreground agent state if changed.
    */
-  private async loadPtyForegroundAgentFromController(ptyId: string): Promise<boolean> {
+  private async loadPtyForegroundAgentFromController(
+    ptyId: string,
+    afterTitleObservation = 0
+  ): Promise<boolean> {
     if (!this.ptyController) {
       return false
     }
@@ -16277,12 +16330,19 @@ export class OrcaRuntimeService {
     if (pty.launchAgent) {
       return false
     }
-    let foregroundProcess: string | null
-    try {
-      foregroundProcess = await this.ptyController.getForegroundProcess(ptyId)
-    } catch {
+    const foregroundRead = this.ptyForegroundProcessReads.read(
+      ptyId,
+      this.ptyController,
+      afterTitleObservation
+    )
+    if (!foregroundRead) {
       return false
     }
+    const result = await foregroundRead
+    if (result.controller !== this.ptyController || !result.available) {
+      return false
+    }
+    const foregroundProcess = result.process
     const foregroundAgent = foregroundProcess
       ? (recognizeAgentProcess(foregroundProcess)?.agent ?? null)
       : null
@@ -17621,12 +17681,7 @@ export class OrcaRuntimeService {
           isSymlink: entry.isSymbolicLink()
         }))
     )
-    mapped.sort((a, b) => {
-      if (a.isDirectory !== b.isDirectory) {
-        return a.isDirectory ? -1 : 1
-      }
-      return a.name.localeCompare(b.name)
-    })
+    sortDirEntries(mapped)
     return { resolvedPath: dirPath, entries: mapped }
   }
 
@@ -24275,9 +24330,12 @@ export class OrcaRuntimeService {
       (Boolean(opts.agentSessionClaim) ||
         (!requiresRendererFocus && opts.rendererBacked !== true) ||
         // Why: `orca serve` exposes the local runtime without a renderer
-        // window. Renderer-backed Codex terminals are preferred for the app,
-        // but headless CLI users still need a usable terminal handle.
-        (opts.rendererBacked === true && rendererWindow === null))
+        // window. Renderer-backed and focus-requested creates are preferred on
+        // the renderer, but with no window a background spawn is the only
+        // usable path — otherwise getAuthoritativeWindow() below throws and the
+        // caller gets no terminal at all (#10333). Focus is not lost: the
+        // spawned pane is still published and revealed with `activate`.
+        availableAuthoritativeWindow === null)
 
     if (shouldCreateInBackground) {
       if (!this.ptyController?.spawn) {

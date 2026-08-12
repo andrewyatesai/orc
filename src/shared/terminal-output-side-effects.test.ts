@@ -260,3 +260,38 @@ describe('createTerminalTitleTracker transient-fact scanning suppression', () =>
     expect(events).toEqual([['2031-subscribe']])
   })
 })
+
+describe('createTerminalTitleTracker agent-exit restore', () => {
+  it('re-arms a later exit after restoreLastAgentExit disproves the first', () => {
+    let exits = 0
+    const { tracker } = createRecordingTracker({
+      onAgentExited: () => {
+        exits += 1
+      }
+    })
+
+    tracker.handleChunk(`${ESC}]0;Codex done${BEL}`)
+    tracker.handleChunk(`${ESC}]0;/home/fish${BEL}`)
+    expect(exits).toBe(1)
+
+    // Foreground evidence disproved the exit; putting the idle status back lets a
+    // genuine later exit still fire instead of being swallowed as already-null.
+    tracker.restoreLastAgentExit()
+    tracker.handleChunk(`${ESC}]0;/home/other${BEL}`)
+    expect(exits).toBe(2)
+  })
+
+  it('does not re-arm an exit when the status was never restored', () => {
+    let exits = 0
+    const { tracker } = createRecordingTracker({
+      onAgentExited: () => {
+        exits += 1
+      }
+    })
+
+    tracker.handleChunk(`${ESC}]0;Codex done${BEL}`)
+    tracker.handleChunk(`${ESC}]0;/home/fish${BEL}`)
+    tracker.handleChunk(`${ESC}]0;/home/other${BEL}`)
+    expect(exits).toBe(1)
+  })
+})

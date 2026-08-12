@@ -118,6 +118,7 @@ import {
 } from './startup/dev-education-suppression'
 import { maybeRedirectAppImageCliLaunch } from './startup/appimage-cli-redirect'
 import { maybeRedirectPackagedCliEntryLaunch } from './startup/packaged-cli-entry-redirect'
+import { argvRequestsServeMode, normalizeServeModeArgv } from './startup/serve-mode-argv'
 import { startFirstWindowStartupServices } from './startup/first-window-startup-services'
 import { createWslCliReconciliationStartupBarrier } from './startup/wsl-cli-reconciliation-startup-barrier'
 import { getDevInstanceIdentity } from './startup/dev-instance-identity'
@@ -339,21 +340,11 @@ let gpuFallbackActiveThisLaunch = false
 let localPtyStartupReady: Promise<void> = Promise.resolve()
 let localPtyProviderStartupReady: Promise<void> = Promise.resolve()
 const AGENT_STATE_CRASH_BREADCRUMB_MIN_INTERVAL_MS = 30_000
-const isServeMode = process.argv.includes('--serve')
-if (isServeMode) {
-  reserveServeStdoutForReadiness()
-}
-const desktopActivationGate = createServeDesktopActivationGate({
-  initialState: isServeMode ? 'initializing' : 'ready',
-  activateWindow: () => {
-    // Why: an updater replacement must not resurrect the old app bundle.
-    if (!isQuittingForUpdate()) {
-      focusExistingWindow()
-    }
-  },
-  onBlocked: (reason) => console.error(`[serve] Desktop activation blocked: ${reason}`)
-})
 // Why: on Windows a CLI launch that lost ELECTRON_RUN_AS_NODE would boot the GUI and exit silently; redirect to node mode before the lock gate below.
+// Both redirects run before the serve-argv rewrite so they still match on the launch argv verbatim.
+// It is load-bearing for the AppImage one: rewriting first replaces the `serve` positional, so its
+// command-name lookup finds a port number and strands the launch in an in-process serve. The
+// packaged-CLI one matches on the entry path instead, so order cannot affect it either way.
 const packagedCliEntryRedirect = maybeRedirectPackagedCliEntryLaunch({
   isPackaged: app.isPackaged,
   resourcesPath: process.resourcesPath,
@@ -370,6 +361,26 @@ const appImageCliRedirect = maybeRedirectAppImageCliLaunch({
 if (appImageCliRedirect.redirected) {
   app.exit(appImageCliRedirect.status)
 }
+// Why: extracted AppRun / binary launches can land CLI-form `serve` args on the
+// Electron process without the CLI rewrite that injects `--serve` (#12677).
+// Guarded so a normal GUI launch keeps its original argv array identity.
+if (argvRequestsServeMode(process.argv)) {
+  process.argv = normalizeServeModeArgv(process.argv)
+}
+const isServeMode = process.argv.includes('--serve')
+if (isServeMode) {
+  reserveServeStdoutForReadiness()
+}
+const desktopActivationGate = createServeDesktopActivationGate({
+  initialState: isServeMode ? 'initializing' : 'ready',
+  activateWindow: () => {
+    // Why: an updater replacement must not resurrect the old app bundle.
+    if (!isQuittingForUpdate()) {
+      focusExistingWindow()
+    }
+  },
+  onBlocked: (reason) => console.error(`[serve] Desktop activation blocked: ${reason}`)
+})
 
 // Kill switch for the first-work on-disk folder rename; the renderer reconciles the id change (migrateWorktreeIdentity) so it isn't mistaken for a deletion.
 const ENABLE_FIRST_WORK_FOLDER_RENAME = false

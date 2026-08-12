@@ -258,7 +258,13 @@
           "3b57982bf6": "\"{{value1}}\" 워크스페이스를 삭제한 후 Git이 \"{{value0}}\" 브랜치를 안전하게 삭제할 수 없어 Orca가 로컬 커밋 손실을 방지하기 위해 유지했습니다.",
           "81f13f48d2": "\"{{value1}}\" 워크트리를 삭제한 후 Git이 \"{{value0}}\" 브랜치를 안전하게 삭제할 수 없어 Orca가 로컬 커밋 손실을 방지하기 위해 유지했습니다.",
           "runtimeScopeForbiddenTitle": "이 연결은 제한된(모바일) 액세스입니다",
-          "runtimeScopeForbiddenDescription": "모바일 범위 페어링에서는 워크스페이스를 사용할 수 없습니다. 설정 → 원격 Orca 서버 → 이 Orca 서버 공유에서 브라우저 액세스 링크로 다시 연결하세요."
+          "runtimeScopeForbiddenDescription": "모바일 범위 페어링에서는 워크스페이스를 사용할 수 없습니다. 설정 → 원격 Orca 서버 → 이 Orca 서버 공유에서 브라우저 액세스 링크로 다시 연결하세요.",
+          "localBaseRefRefreshFailedForWorktree": "Local {{value0}} was not refreshed for \"{{value1}}\"",
+          "localBaseRefRefreshFailedDescriptionNamed": "Workspace \"{{value0}}\" was created from {{value1}}, but Orca could not fast-forward local {{value2}}. {{value3}}",
+          "localBaseRefRefreshFailedDetailDirtyNamed": "The worktree at {{value0}} (where local {{value1}} is checked out) has uncommitted changes. Commit, stash, or discard those changes, then update local {{value1}} manually.",
+          "localBaseRefRefreshFailedDetailDirty": "The worktree where local {{value0}} is checked out has uncommitted changes. Commit, stash, or discard those changes, then update local {{value0}} manually.",
+          "localBaseRefRefreshFailedDetailNotFastForward": "Local {{value0}} does not exist or cannot be fast-forwarded cleanly from the remote base. Check for local-only commits before updating it manually.",
+          "localBaseRefRefreshFailedDetailError": "Git returned an error while updating local {{value0}}. Check the repo for locked refs or unusual worktree state, then update local {{value0}} manually."
         },
         "repos": {
           "2975400634": "이 런타임에서 Git이 아닌 폴더를 열려면 Orca 서버를 업데이트하세요.",
@@ -10576,7 +10582,9 @@
             "b8c2e1a904": "{{value0}} → {{value1}}",
             "a4e93c21d7": "현재 브랜치: {{value0}}",
             "c7d4e2f801": "베이스 ref 변경: {{value0}}",
-            "f3a1b8c204": "upstream"
+            "f3a1b8c204": "upstream",
+            "createPrIntentEmptyGeneratedBody": "Generated review details did not include a description. Retry Create PR.",
+            "createPrIntentGenerateDetailsFailed": "Could not generate review details. Retry Create PR."
           },
           "SourceControlAgentActionDialog": {
             "8e856842d1": "선택한 agent를 시작할 수 없습니다.",

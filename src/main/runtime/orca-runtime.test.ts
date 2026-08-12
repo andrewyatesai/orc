@@ -8506,6 +8506,102 @@ describe('OrcaRuntimeService', () => {
       expect(runtime.getPtyOutputSequence('pty-1')).toBe(0)
     })
 
+    it('confirms title-based agent exits against the foreground process', async () => {
+      const { runtime, batches } = createSideEffectRuntime()
+      syncSinglePty(runtime)
+
+      // Establish an idle agent state with no controller (no foreground probe yet).
+      runtime.onPtyData('pty-1', '\x1b]0;Codex done\x07', 100)
+      batches.length = 0
+
+      const getForegroundProcess = vi.fn().mockResolvedValueOnce('codex')
+      runtime.setPtyController({
+        write: () => true,
+        kill: () => true,
+        getForegroundProcess
+      })
+      // A bare shell title looks like an exit; the probe proves the agent is still running.
+      runtime.onPtyData('pty-1', '\x1b]0;/home/fish\x07', 101)
+
+      await vi.waitFor(() => expect(getForegroundProcess).toHaveBeenCalledOnce())
+      await vi.waitFor(() =>
+        expect(batches.flatMap((batch) => batch.facts)).toEqual([
+          { kind: 'title', normalizedTitle: '/home/fish', rawTitle: '/home/fish' }
+        ])
+      )
+      await vi.waitFor(() =>
+        expect(
+          (
+            runtime as unknown as {
+              ptyForegroundProcessReads: { size: number }
+            }
+          ).ptyForegroundProcessReads.size
+        ).toBe(0)
+      )
+      await Promise.resolve()
+
+      // The restore put the idle status back, so a genuine later exit still fires.
+      getForegroundProcess.mockResolvedValueOnce('zsh')
+      runtime.onPtyData('pty-1', '\x1b]0;/home/other\x07', 102)
+
+      await vi.waitFor(() =>
+        expect(batches.flatMap((batch) => batch.facts)).toContainEqual({ kind: 'agent-exited' })
+      )
+      expect(getForegroundProcess).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not confirm an agent exit from a foreground read predating its title', async () => {
+      const { runtime, batches } = createSideEffectRuntime()
+      syncSinglePty(runtime)
+      let resolveStaleRead!: (process: string) => void
+      const staleRead = new Promise<string>((resolve) => {
+        resolveStaleRead = resolve
+      })
+      const getForegroundProcess = vi
+        .fn()
+        .mockReturnValueOnce(staleRead)
+        .mockResolvedValueOnce('zsh')
+      runtime.setPtyController({
+        write: () => true,
+        kill: () => true,
+        getForegroundProcess
+      })
+
+      // The idle-title probe is still pending when the exit-candidate title arrives.
+      runtime.ingestSyntheticTitleFrame('pty-1', '\x1b]0;Codex done\x07')
+      runtime.onPtyData('pty-1', '\x1b]0;/home/fish\x07', 100)
+      expect(getForegroundProcess).toHaveBeenCalledOnce()
+
+      resolveStaleRead('codex')
+
+      await vi.waitFor(() => expect(getForegroundProcess).toHaveBeenCalledTimes(2))
+      await vi.waitFor(() =>
+        expect(batches.flatMap((batch) => batch.facts)).toContainEqual({ kind: 'agent-exited' })
+      )
+    })
+
+    it('treats synchronous foreground read failures as unavailable', async () => {
+      const { runtime, batches } = createSideEffectRuntime()
+      syncSinglePty(runtime)
+      runtime.onPtyData('pty-1', '\x1b]0;Codex done\x07', 100)
+      batches.length = 0
+      const getForegroundProcess = vi.fn(() => {
+        throw new TypeError('getForegroundProcess is unavailable')
+      })
+      runtime.setPtyController({
+        write: () => true,
+        kill: () => true,
+        getForegroundProcess
+      })
+
+      runtime.onPtyData('pty-1', '\x1b]0;/home/fish\x07', 101)
+
+      await vi.waitFor(() =>
+        expect(batches.flatMap((batch) => batch.facts)).toContainEqual({ kind: 'agent-exited' })
+      )
+      expect(getForegroundProcess).toHaveBeenCalledOnce()
+    })
+
     it('aligns a restored session and pre-response bytes to the provider sequence', async () => {
       const { runtime } = createSideEffectRuntime()
 
@@ -12591,6 +12687,155 @@ describe('OrcaRuntimeService', () => {
         worktreeId: TEST_WORKTREE_ID
       })
     )
+  })
+
+  // Why (#10333): `orca serve` publishes a ready graph under
+  // HEADLESS_RUNTIME_WINDOW_ID with no BrowserWindow behind it, so every
+  // focus-requested create used to fall through to getAuthoritativeWindow()
+  // and throw "No renderer window available".
+  const wireHeadlessServeRuntime = (): OrcaRuntimeService => {
+    const runtime = new OrcaRuntimeService(store)
+    electronMocks.BrowserWindow.fromId.mockReturnValue(null as never)
+    runtime.syncWindowGraph(HEADLESS_RUNTIME_WINDOW_ID, { tabs: [], leaves: [] })
+    return runtime
+  }
+
+  it('spawns focus-requested CLI terminal creates in background on headless serve', async () => {
+    const spawn = vi.fn().mockResolvedValue({ id: 'pty-focus-headless' })
+    const runtime = wireHeadlessServeRuntime()
+    const revealTerminalSession = vi.fn().mockResolvedValue({ tabId: 'tab-headless-focus' })
+    runtime.setNotifier({
+      worktreesChanged: vi.fn(),
+      reposChanged: vi.fn(),
+      activateWorktree: vi.fn(),
+      createTerminal: vi.fn(),
+      revealTerminalSession,
+      splitTerminal: vi.fn(),
+      renameTerminal: vi.fn(),
+      focusTerminal: vi.fn(),
+      closeTerminal: vi.fn(),
+      sleepWorktree: vi.fn(),
+      terminalFitOverrideChanged: vi.fn(),
+      terminalDriverChanged: vi.fn()
+    })
+    runtime.setPtyController({
+      spawn,
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+
+    // `orca terminal create --worktree <wt> --command "echo test" --focus`
+    await expect(
+      runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`, {
+        command: 'echo test',
+        focus: true
+      })
+    ).resolves.toMatchObject({
+      worktreeId: TEST_WORKTREE_ID,
+      handle: expect.stringMatching(/^term_/)
+    })
+    expect(spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.stringContaining('echo test'),
+        cwd: TEST_WORKTREE_PATH,
+        worktreeId: TEST_WORKTREE_ID,
+        persistHostSessionBinding: true
+      })
+    )
+    // Why: degrading the create must not silently drop the focus request — the
+    // host still asks whatever surface exists to activate the new pane.
+    expect(revealTerminalSession).toHaveBeenCalledWith(
+      TEST_WORKTREE_ID,
+      expect.objectContaining({ activate: true, presentation: 'focused' })
+    )
+  })
+
+  it('spawns presentation:focused terminal creates in background on headless serve', async () => {
+    const spawn = vi.fn().mockResolvedValue({ id: 'pty-presentation-headless' })
+    const runtime = wireHeadlessServeRuntime()
+    runtime.setPtyController({
+      spawn,
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+
+    // Paired desktop `+` button: clients send presentation:'focused', not focus.
+    await expect(
+      runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`, {
+        command: 'echo test',
+        presentation: 'focused'
+      })
+    ).resolves.toMatchObject({
+      worktreeId: TEST_WORKTREE_ID,
+      surface: 'background',
+      handle: expect.stringMatching(/^term_/)
+    })
+    expect(spawn).toHaveBeenCalled()
+  })
+
+  it('keeps focus-requested terminal creates on the renderer when a window exists', async () => {
+    const spawn = vi.fn().mockResolvedValue({ id: 'pty-should-not-spawn' })
+    const webContents = { send: vi.fn() }
+    const runtime = new OrcaRuntimeService(store)
+    const send = vi.fn((_channel: string, payload: { requestId: string }) => {
+      runtime.syncWindowGraph(1, {
+        tabs: [
+          {
+            tabId: 'tab-focused',
+            worktreeId: TEST_WORKTREE_ID,
+            title: 'Focused Terminal',
+            activeLeafId: 'pane:1',
+            layout: null
+          }
+        ],
+        leaves: [
+          {
+            tabId: 'tab-focused',
+            worktreeId: TEST_WORKTREE_ID,
+            leafId: 'pane:1',
+            paneRuntimeId: 1,
+            ptyId: 'pty-focused',
+            paneTitle: null
+          }
+        ]
+      })
+      ipcMain.emit(
+        'terminal:tabCreateReply',
+        { sender: webContents },
+        { requestId: payload.requestId, tabId: 'tab-focused', title: 'Focused Terminal' }
+      )
+    })
+    webContents.send = send
+    runtime.attachWindow(1)
+    runtime.syncWindowGraph(1, { tabs: [], leaves: [] })
+    electronMocks.BrowserWindow.fromId.mockReturnValue({
+      isDestroyed: () => false,
+      webContents
+    } as never)
+    runtime.setPtyController({
+      spawn,
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+
+    await expect(
+      runtime.createTerminal(`id:${TEST_WORKTREE_ID}`, {
+        command: 'echo test',
+        focus: true
+      })
+    ).resolves.toMatchObject({
+      tabId: 'tab-focused',
+      worktreeId: TEST_WORKTREE_ID,
+      surface: 'visible'
+    })
+    expect(send).toHaveBeenCalledWith(
+      'terminal:requestTabCreate',
+      expect.objectContaining({ activate: true, presentation: 'focused' })
+    )
+    expect(spawn).not.toHaveBeenCalled()
   })
 
   it('accepts renderer-backed terminal create replies only from the target renderer', async () => {

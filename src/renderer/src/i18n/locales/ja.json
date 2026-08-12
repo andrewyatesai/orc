@@ -258,7 +258,13 @@
           "3b57982bf6": "ワークスペース\"{{value1}}\"を削除した後、Git はブランチ\"{{value0}}\"を安全に削除できなかったため、Orca はローカルコミットを失わないように保持しました。",
           "81f13f48d2": "ワークツリー\"{{value1}}\"を削除した後、Git はブランチ\"{{value0}}\"を安全に削除できなかったため、Orca はローカルコミットを失わないように保持しました。",
           "runtimeScopeForbiddenTitle": "この接続は制限付き（モバイル）アクセスです",
-          "runtimeScopeForbiddenDescription": "モバイル範囲のペアリングではワークスペースを使用できません。設定 → リモート Orca サーバー → この Orca サーバーを共有する からブラウザー用リンクで再接続してください。"
+          "runtimeScopeForbiddenDescription": "モバイル範囲のペアリングではワークスペースを使用できません。設定 → リモート Orca サーバー → この Orca サーバーを共有する からブラウザー用リンクで再接続してください。",
+          "localBaseRefRefreshFailedForWorktree": "Local {{value0}} was not refreshed for \"{{value1}}\"",
+          "localBaseRefRefreshFailedDescriptionNamed": "Workspace \"{{value0}}\" was created from {{value1}}, but Orca could not fast-forward local {{value2}}. {{value3}}",
+          "localBaseRefRefreshFailedDetailDirtyNamed": "The worktree at {{value0}} (where local {{value1}} is checked out) has uncommitted changes. Commit, stash, or discard those changes, then update local {{value1}} manually.",
+          "localBaseRefRefreshFailedDetailDirty": "The worktree where local {{value0}} is checked out has uncommitted changes. Commit, stash, or discard those changes, then update local {{value0}} manually.",
+          "localBaseRefRefreshFailedDetailNotFastForward": "Local {{value0}} does not exist or cannot be fast-forwarded cleanly from the remote base. Check for local-only commits before updating it manually.",
+          "localBaseRefRefreshFailedDetailError": "Git returned an error while updating local {{value0}}. Check the repo for locked refs or unusual worktree state, then update local {{value0}} manually."
         },
         "repos": {
           "2975400634": "Orca サーバーを更新して、このランタイムで Git 以外のフォルダーを開くようにします。",
@@ -10576,7 +10582,9 @@
             "b8c2e1a904": "{{value0}} → {{value1}}",
             "a4e93c21d7": "現在のブランチ: {{value0}}",
             "c7d4e2f801": "ベース ref を変更: {{value0}}",
-            "f3a1b8c204": "upstream"
+            "f3a1b8c204": "upstream",
+            "createPrIntentEmptyGeneratedBody": "Generated review details did not include a description. Retry Create PR.",
+            "createPrIntentGenerateDetailsFailed": "Could not generate review details. Retry Create PR."
           },
           "SourceControlAgentActionDialog": {
             "8e856842d1": "選択した agent を開始できませんでした。",

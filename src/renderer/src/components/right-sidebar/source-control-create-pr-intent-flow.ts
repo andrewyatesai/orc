@@ -162,6 +162,44 @@ export function resolveCreatePrIntentRemoteStep({
   return 'none'
 }
 
+type CreatePrIntentReviewFields = {
+  base: string
+  title: string
+  body: string
+  draft: boolean
+}
+
+type CreatePrIntentReviewGeneration =
+  | { success: true; fields: CreatePrIntentReviewFields }
+  | { success: false; error: string }
+
+export type CreatePrIntentGeneratedReviewFields =
+  | { ok: true; fields: CreatePrIntentReviewFields }
+  | { ok: false; error: string | null }
+
+// Fail-closed: an empty body or a failed generation must abort the auto-submit, never fall back to unreviewed fields.
+export function resolveCreatePrIntentGeneratedReviewFields(
+  current: CreatePrIntentReviewFields,
+  generated: CreatePrIntentReviewGeneration
+): CreatePrIntentGeneratedReviewFields {
+  if (!generated.success) {
+    return { ok: false, error: generated.error }
+  }
+  if (!generated.fields.body.trim()) {
+    return { ok: false, error: null }
+  }
+  return {
+    ok: true,
+    fields: {
+      // Why: intent auto-submits, so generated details must not retarget the review without confirmation.
+      base: current.base,
+      title: generated.fields.title.trim() || current.title,
+      body: generated.fields.body,
+      draft: generated.fields.draft
+    }
+  }
+}
+
 export function getCreatePrIntentCommitFailureNoticeMessage(
   commitError: string | null | undefined,
   copy: {
