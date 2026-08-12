@@ -255,9 +255,23 @@ export async function grantDirAclAsync(dirPath: string): Promise<void> {
  * line. Args with cmd metacharacters are rejected instead of escaped because
  * the agent prompt may contain arbitrary staged diff text.
  */
+export type GetSpawnArgsForWindowsOptions = {
+  /**
+   * GUI launchers (Open In apps) should not leave a lingering Command Prompt.
+   * `start "" /B` returns immediately and keeps console-subsystem children of
+   * `.cmd`/`.bat` shims from allocating a fresh visible prompt window.
+   *
+   * Opt-in only: `start` re-parses the command line, so callers whose argv can
+   * carry quoted operands (VS Code `--remote` authorities and remote paths with
+   * spaces) must leave this off.
+   */
+  detachedGui?: boolean
+}
+
 export function getSpawnArgsForWindows(
   command: string,
-  args: string[]
+  args: string[],
+  options: GetSpawnArgsForWindowsOptions = {}
 ): { spawnCmd: string; spawnArgs: string[] } {
   if (isWindowsBatchScript(command)) {
     for (const value of [command, ...args]) {
@@ -269,6 +283,24 @@ export function getSpawnArgsForWindows(
     // Why: when Node passes a pre-quoted command line as one argv entry,
     // cmd.exe sees literal escaped quotes on Windows and refuses to run .cmd
     // shims. Separate argv entries let Node quote spaces without breaking cmd.
+    if (options.detachedGui) {
+      // Why: `start` launches a batch target through a nested `cmd /K`, which
+      // stays resident after the script ends — `/B` only suppresses a *new*
+      // console, so the shim leaks a hidden cmd.exe. Handing `start` an inner
+      // `cmd /d /c` makes that interpreter exit with the script.
+      //
+      // Window title must be an *empty argv entry* (`''`). libuv's Windows
+      // quoter turns empty into `""` on the CreateProcess command line — the
+      // empty title `start` requires so a later quoted path is not eaten as
+      // the title. The two-character string `'""'` is wrong: libuv re-escapes
+      // it to `"\"\""`. (Default ComSpec has no spaces, so the bad form often
+      // still "works"; quoted Program Files paths are where it breaks.)
+      const cmdExePath = getCmdExePath()
+      return {
+        spawnCmd: cmdExePath,
+        spawnArgs: ['/d', '/c', 'start', '', '/B', cmdExePath, '/d', '/c', command, ...args]
+      }
+    }
     return { spawnCmd: getCmdExePath(), spawnArgs: ['/d', '/c', command, ...args] }
   }
   return { spawnCmd: command, spawnArgs: args }
