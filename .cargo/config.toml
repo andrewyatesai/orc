@@ -1,0 +1,25 @@
+# Trust verification flags for cargo invocations that START AT THE REPO ROOT.
+#
+# Cargo reads config from the CURRENT directory upward, so rust/.cargo/config.toml
+# is invisible to `cargo --manifest-path rust/Cargo.toml ...` run from here — the
+# invocation every gate script and most agents use. Before this file existed those
+# builds compiled as vanilla Rust with no warning, or (once the trust toolchain
+# became the pinned default) verified under the WRONG settings: strict policy and
+# no step budget, the exact combination rust/.cargo/config.toml documents as a
+# hang (memchr) and a workspace-wide refusal (vendor crates under strict).
+#
+# Values are IDENTICAL to rust/.cargo/config.toml's — one policy, two entry
+# points. Keep them in lockstep. Vendoring/offline stays in rust/.cargo only:
+# the `vendor` path is relative to that directory, and native/orca-node resolves
+# its own dependencies.
+[target.aarch64-apple-darwin]
+rustflags = [
+  "-Ztrust-verify=on",
+  "-Ztrust-verify-function-budget-steps=100000",
+  "-Ztrust-policy=advisory",
+]
+rustdocflags = [
+  "-Ztrust-verify=on",
+  "-Ztrust-verify-function-budget-steps=100000",
+  "-Ztrust-policy=advisory",
+]

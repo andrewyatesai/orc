@@ -220,3 +220,8 @@ tests/tools/autoformalize-candidates.json
 # goal per run and does not always reap them, so a single E1 gate run leaves
 # ~170 untracked files behind.
 **/proofs/ay/**/.*.tmp-*
+
+# Trust compiler crash dumps. The stage2 writes one per ICE into the cwd; they
+# embed absolute home paths, so check:exported-home-paths flags them as leaks.
+trustc-ice-*.txt
+rust/trustc-ice-*.txt
