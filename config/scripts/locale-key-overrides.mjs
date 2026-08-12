@@ -176,10 +176,11 @@ const BASE_LOCALE_KEY_OVERRIDES = {
     zh: '打开 Linear 任务',
     ja: 'Linear タスクを開く'
   },
+  // Onboarding pill beside Orca Mobile: "New" marks a new feature, not a create action.
   'auto.components.sidebar.SidebarNav.c86d83b5c3': {
-    ko: '새로 만들기',
-    zh: '新建',
-    ja: '新規'
+    ko: '신규',
+    zh: '新功能',
+    ja: '新機能'
   },
   'auto.components.sidebar.SidebarSettingsHelpMenu.eb9884e55b': {
     ko: 'Discord',

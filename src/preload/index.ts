@@ -259,6 +259,7 @@ import { readRendererHeapStatistics } from './renderer-heap-statistics-reader'
 import type { MinimalElectronBridge, PreloadApi } from './api-types'
 import {
   createUpdaterQuitAbortRelay,
+  prepareAndInvokeAppRestart,
   prepareRendererForAppRestart
 } from './renderer-restart-preparation'
 import {
@@ -288,6 +289,8 @@ ipcRenderer.on('updater:status', (_event, status: UpdateStatus) => {
 })
 ipcRenderer.on('window:unload-prevented', () => {
   window.dispatchEvent(new Event(ORCA_RENDERER_UNLOAD_PREVENTED_EVENT))
+  // Why: a main-refused unload must clear the restart latch too, or a refused relaunch/reload leaves unsaved-change prompts suppressed.
+  window.dispatchEvent(new Event(ORCA_APP_RESTART_ABORTED_EVENT))
 })
 
 function getLinuxDisplayServer(): 'wayland' | 'x11' | null {
@@ -464,20 +467,22 @@ const api = {
     getIdentity: (): Promise<AppIdentity> => ipcRenderer.invoke('app:getIdentity'),
     getFeatureWallAssetBaseUrl: (): Promise<string> =>
       ipcRenderer.invoke('app:getFeatureWallAssetBaseUrl'),
-    relaunch: (): Promise<void> => ipcRenderer.invoke('app:relaunch'),
-    restart: async (): Promise<void> => {
-      await prepareRendererForAppRestart(window, {
+    // Why: relaunch/restart/reload each run the durable before-unload checkpoint first, so none tears down the renderer with unpersisted state.
+    relaunch: (): Promise<void> =>
+      prepareAndInvokeAppRestart(window, () => ipcRenderer.invoke('app:relaunch'), {
         startedEventName: ORCA_APP_RESTART_STARTED_EVENT,
         abortedEventName: ORCA_APP_RESTART_ABORTED_EVENT
-      })
-      try {
-        return await ipcRenderer.invoke('app:restart')
-      } catch (error) {
-        window.dispatchEvent(new Event(ORCA_APP_RESTART_ABORTED_EVENT))
-        throw error
-      }
-    },
-    reload: (): Promise<void> => ipcRenderer.invoke('app:reload'),
+      }),
+    restart: (): Promise<void> =>
+      prepareAndInvokeAppRestart(window, () => ipcRenderer.invoke('app:restart'), {
+        startedEventName: ORCA_APP_RESTART_STARTED_EVENT,
+        abortedEventName: ORCA_APP_RESTART_ABORTED_EVENT
+      }),
+    reload: (): Promise<void> =>
+      prepareAndInvokeAppRestart(window, () => ipcRenderer.invoke('app:reload'), {
+        startedEventName: ORCA_APP_RESTART_STARTED_EVENT,
+        abortedEventName: ORCA_APP_RESTART_ABORTED_EVENT
+      }),
     persistBeforeUnloadSync: (
       args: Parameters<PreloadApi['app']['persistBeforeUnloadSync']>[0]
     ) => {

@@ -54,6 +54,21 @@ export async function prepareRendererForAppRestart(
   }
 }
 
+// Why: single checkpoint-then-invoke gate so relaunch/restart/reload can't skip the durable before-unload flush.
+export async function prepareAndInvokeAppRestart(
+  eventTarget: EventTarget,
+  invoke: () => Promise<unknown>,
+  options: AppRestartPrepOptions
+): Promise<void> {
+  await prepareRendererForAppRestart(eventTarget, options)
+  try {
+    await invoke()
+  } catch (error) {
+    eventTarget.dispatchEvent(new Event(options.abortedEventName))
+    throw error
+  }
+}
+
 export type UpdaterQuitAbortRelay = {
   markPrepared: () => void
   abort: () => void

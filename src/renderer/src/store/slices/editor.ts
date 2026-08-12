@@ -1677,8 +1677,10 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
           matchesEditorMode(f, reusableOpenFileModes) &&
           isSameEditorOwner(f, worktreeId, runtimeEnvironmentId)
       )
-      const id =
-        options?.reopenId && !s.openFiles.some((candidate) => candidate.id === options.reopenId)
+      // Why: a snapshot's reopenId can be a stale shape — the same path is bare in whichever worktree opened it first and namespaced elsewhere — so honoring it while this owner's tab is already open would strand activeFileId and the unified tab on an id no OpenFile has.
+      const id = existing
+        ? existing.id
+        : options?.reopenId && !s.openFiles.some((candidate) => candidate.id === options.reopenId)
           ? options.reopenId
           : resolveEditorFileIdForOwner(
               s,

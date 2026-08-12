@@ -4324,7 +4324,7 @@
         "SidebarNav": {
           "80611a8b10": "검색",
           "0c3395fd32": "작업 트리 및 브라우저 탭 검색",
-          "c86d83b5c3": "새로 만들기",
+          "c86d83b5c3": "신규",
           "1b5c41caee": "Orca 모바일",
           "9c95e1ce91": "에이전트",
           "f323383e9a": "자동화",
@@ -5505,7 +5505,7 @@
           "9241b59bf5": "사용",
           "a869d0edd8": "브랜치 이름 명령 템플릿",
           "e784ea62dc": "고급",
-          "d9b65054ef": ") 작업을 요약하는 짧은 이름으로 변경됩니다. Orca 라는 이름의 브랜치만 이름이 변경되며 푸시된 후에는 이름이 변경되지 않습니다.",
+          "d9b65054ef": ") 작업을 요약하는 짧은 이름으로 변경됩니다. Orca가 직접 이름 붙인 브랜치만 이름을 바꾸며, 푸시된 후에는 이름을 바꾸지 않습니다.",
           "12ea4a408d": "agent가 새 워크스페이스에서 작업을 시작하면 Orca는 자동 생성된 브랜치의 이름을 바꿉니다(예:",
           "ef787db0e3": "브랜치 자동 이름 바꾸기",
           "6a051586d2": "agent가 시작되면 작업을 기반으로 자동 생성된 브랜치의 이름을 바꿉니다.",
@@ -6593,7 +6593,10 @@
           "f79972271a": "이 repo에 대한 GitHub 원격을 찾을 수 없습니다.",
           "4d039317f4": "웹사이트 파비콘",
           "acf31559a0": "유효한 웹사이트 URL을 입력하세요.",
-          "868c5c9b56": "repo 아이콘을 가져오지 못했습니다."
+          "868c5c9b56": "repo 아이콘을 가져오지 못했습니다.",
+          "emojiTooLongForRepoIcon": "이 이모티콘은 repo 아이콘으로 사용할 수 없습니다.",
+          "currentEmojiSelection": "현재: {{value0}}",
+          "searchEmojiPlaceholder": "이모티콘 검색"
         },
         "RepositoryPane": {
           "15a99d9b9f": "상대 경로는 이 프로젝트 루트에서 확인됩니다.",
@@ -9173,7 +9176,7 @@
             "action": {
               "recipe": {
                 "options": {
-                  "commitMessage": "단계적 변경에서 commit 메시지를 생성합니다.",
+                  "commitMessage": "스테이징된 변경 사항에서 commit 메시지를 생성합니다.",
                   "pullRequest": "호스팅된 리뷰 제목 및 설명을 생성합니다.",
                   "branchName": "초기 agent 작업에서 Orca가 생성한 브랜치의 이름을 바꿉니다.",
                   "fixCommitFailure": "commit 후크 또는 git commit이 실패하면 agent를 시작합니다.",
@@ -9561,7 +9564,7 @@
           "notificationPlaygroundDescription": "토스트 레이아웃, 복구 작업, 긴 문구 줄바꿈을 확인하기 위한 개발 전용 트리거입니다.",
           "devOnly": "개발 전용",
           "orcaCloud": "Orca Cloud",
-          "orcaCloudDescription": "1方클라우드 로그인의 개발자 전용 미리보기. 프로덕션에서는 숨겨집니다. 개발 환경에서는 ORCA_CLOUD_API_URL과 ORCA_CLOUD_CLIENT_ID가 설정되면 사이드바 계정 전환기에도 표시됩니다.",
+          "orcaCloudDescription": "자사 클라우드 로그인의 개발자 전용 미리보기. 프로덕션에서는 숨겨집니다. 개발 환경에서는 ORCA_CLOUD_API_URL과 ORCA_CLOUD_CLIENT_ID가 설정되면 사이드바 계정 전환기에도 표시됩니다.",
           "orcaCloudStatus": "상태",
           "orcaCloudSignOut": "로그아웃",
           "orcaCloudConnect": "프로필 연결",
@@ -9604,14 +9607,14 @@
           "copyError": "프롬프트를 복사할 수 없습니다.",
           "skillTitle": "워크스페이스별 환경 기술",
           "skillDescription": "repo 소유 환경 레시피를 설정, 빌드, 인증 및 검증합니다.",
-          "whatTitle": "당신과 함께 기술이 하는 일",
+          "whatTitle": "이 스킬로 함께 하는 작업",
           "whatScaffold": "Orca 서버 또는 SSH를 통해 연결된 공급자를 위한 레시피 및 스크립트를 작성합니다.",
           "whatBuild": "재사용 가능한 기본 이미지를 구축하고 agent에 로그인합니다.",
           "whatValidate": "워크스페이스를 생성할 수 있도록 유효성을 검사합니다.",
           "promptHint": "어떤 워크스페이스에서든 agent에게 다음과 같이 질문하세요.",
           "copy": "복사",
           "copied": "복사됨",
-          "recipes": "조리법",
+          "recipes": "레시피",
           "recipesHelp": "agent가 orca.yaml에 추가하는 레시피가 여기에 표시되어 워크스페이스를 시작할 준비가 됩니다.",
           "refresh": "임시 VM 레시피 새로 고침",
           "checking": "레시피 확인 중...",
@@ -10457,7 +10460,7 @@
             "c07b236287": "변경사항을 보려면 워크스페이스를 선택하세요.",
             "dc5a6465fc": "{{value0}}(예: {{value1}}{{value2}})",
             "8eb3782a0c": "{{value0}} 파일{{value1}}을(를) 삭제하지 못했습니다.",
-            "a5e5a11090": "모두 삭제 실패 - 삭제하기 전에 파일을 스테이지 해제할 수 없습니다.",
+            "a5e5a11090": "모든 변경 사항 취소 실패 — 취소 전에 파일의 스테이징을 해제하지 못했습니다.",
             "8a5ba6a988": "commit 차이점을 로드하지 못했습니다.",
             "fe5bd1a610": "{{value0}} 생성 중...",
             "812cb992ee": "{{value0}}에서 열기",
@@ -10475,7 +10478,7 @@
             "d62bc0c7d8": "추적되지 않은",
             "ab31221779": "언스테이지 폴더",
             "bfe9011a0e": "스테이지 폴더",
-            "6d7f2a47e5": "폴더 삭제",
+            "6d7f2a47e5": "폴더의 변경 사항 취소",
             "9b367363b6": "추적되지 않은 폴더 삭제",
             "540ca8f78c": "병합 중단",
             "425f138269": "리베이스 중단",
@@ -11020,7 +11023,7 @@
                   "5ddd8cac7f": "스테이징된 변경 사항을 모두 삭제하시겠습니까?",
                   "1426c2efff": "그러면 이 파일의 모든 변경 사항이 되돌려집니다. 이 작업은 취소할 수 없습니다.",
                   "d4df3a61df": "'{{value0}}' 변경사항을 취소하시겠습니까?",
-                  "40e9357b2a": "이렇게 하면 HEAD에서 파일이 복원되고 삭제 내용이 삭제됩니다. 이 작업은 취소할 수 없습니다.",
+                  "40e9357b2a": "이렇게 하면 HEAD에서 파일을 복원하고 파일 삭제를 취소합니다. 이 작업은 취소할 수 없습니다.",
                   "5c0bdbc4cb": "'{{value0}}'을(를) 복원하시겠습니까?",
                   "d97bf697c9": "이 파일이 영구적으로 삭제됩니다. 이 작업은 취소할 수 없습니다.",
                   "96c772bee9": "'{{value0}}'을 삭제하시겠습니까?"
@@ -11061,7 +11064,7 @@
                   "41d4bcf157": "PR 상태 확인 중…",
                   "acce237921": "commit 할 것이 없습니다. 브랜치에 게시할 변경 사항이 없습니다.",
                   "fa3bd4f40c": "commit 할 파일을 하나 이상 스테이지하세요",
-                  "5a477d80cb": "모든 변경 사항을 준비합니다.",
+                  "5a477d80cb": "모든 변경 사항 스테이징",
                   "18a0fca877": "모두 스테이지",
                   "f01f16d77f": "commit 하려면 commit 메시지를 입력하세요.",
                   "ab41fb926b": "스테이지된 변경 사항 Commit",
@@ -13870,7 +13873,8 @@
             "4a9568f773": "뒤로",
             "4f86e2a10b": "둘러보기 건너뛰기",
             "d974f32a83": "투어 닫기",
-            "ffa4412b66": "다음"
+            "ffa4412b66": "다음",
+            "complete": "완료"
           },
           "ContextualTourProgressDots": {
             "7734cb8ad3": "중",
@@ -13880,7 +13884,17 @@
             "tour": {
               "overlay": {
                 "measurement": {
-                  "38b3155418": "다음"
+                  "38b3155418": "다음",
+                  "automations": {
+                    "intro": {
+                      "title": "자동화란 무엇인가요?",
+                      "body": "자동화는 일정에 따라 agent 작업을 실행합니다. 이 버튼을 눌러 자동화를 추가하세요."
+                    },
+                    "results": {
+                      "title": "결과 확인",
+                      "body": "실행 내역에서 자동화가 언제 실행되었는지, 어떤 일이 발생했는지, 출력을 어디서 확인할 수 있는지 볼 수 있습니다."
+                    }
+                  }
                 }
               }
             }
@@ -15393,25 +15407,25 @@
   },
   "browser": {
     "loadFailure": {
-      "connectionNotSecure": "Connection isn't secure",
-      "cantReachHost": "Can't reach {{value0}}",
-      "cantLoadPage": "Can't load this page",
-      "certificateNameMismatch": "The certificate doesn't match {{value0}}.",
-      "certificateDateInvalid": "The certificate for {{value0}} isn't valid at the current date and time.",
-      "certificateAuthorityInvalid": "Orca doesn't trust the authority that issued the certificate for {{value0}}.",
-      "certificateVerificationFailed": "Orca couldn't verify the certificate for {{value0}}.",
-      "trustedCertificateGuidance": "For local development, use a trusted local certificate when possible.",
-      "retry": "Retry",
-      "copyAddress": "Copy Address",
-      "addressCopied": "Copied the current page address.",
-      "openExternally": "Open Externally",
-      "tryHttps": "Try HTTPS",
-      "proceedUnsafe": "Proceed Anyway (Unsafe)",
-      "connecting": "Connecting…",
-      "certificateChallengeExpired": "This certificate approval expired. Retry the page to request a new one.",
-      "certificateChallengeChanged": "The certificate request changed. Retry the page and review the new warning.",
-      "certificateChallengeUnavailable": "This certificate request is no longer available. Retry the page to request a new one.",
-      "certificateProceedFailed": "Orca could not approve this certificate request. Retry the page and try again."
+      "connectionNotSecure": "연결이 안전하지 않습니다",
+      "cantReachHost": "{{value0}}에 연결할 수 없습니다",
+      "cantLoadPage": "이 페이지를 불러올 수 없습니다",
+      "certificateNameMismatch": "인증서가 {{value0}}과(와) 일치하지 않습니다.",
+      "certificateDateInvalid": "{{value0}}의 인증서가 현재 날짜와 시간에는 유효하지 않습니다.",
+      "certificateAuthorityInvalid": "Orca는 {{value0}}의 인증서를 발급한 인증 기관을 신뢰하지 않습니다.",
+      "certificateVerificationFailed": "Orca가 {{value0}}의 인증서를 확인하지 못했습니다.",
+      "trustedCertificateGuidance": "로컬 개발에서는 가능하면 신뢰할 수 있는 로컬 인증서를 사용하세요.",
+      "retry": "다시 시도",
+      "copyAddress": "주소 복사",
+      "addressCopied": "현재 페이지 주소를 복사했습니다.",
+      "openExternally": "외부에서 열기",
+      "tryHttps": "HTTPS로 시도",
+      "proceedUnsafe": "계속(안전하지 않음)",
+      "connecting": "연결 중…",
+      "certificateChallengeExpired": "이 인증서 승인이 만료되었습니다. 페이지를 다시 시도해 새로 요청하세요.",
+      "certificateChallengeChanged": "인증서 요청이 변경되었습니다. 페이지를 다시 시도하고 새 경고를 확인하세요.",
+      "certificateChallengeUnavailable": "이 인증서 요청은 더 이상 사용할 수 없습니다. 페이지를 다시 시도해 새로 요청하세요.",
+      "certificateProceedFailed": "Orca가 이 인증서 요청을 승인하지 못했습니다. 페이지를 다시 시도한 후 다시 요청하세요."
     }
   },
   "appMode": {

@@ -4324,7 +4324,7 @@
         "SidebarNav": {
           "80611a8b10": "検索",
           "0c3395fd32": "ワークツリーとブラウザタブを検索する",
-          "c86d83b5c3": "新規",
+          "c86d83b5c3": "新機能",
           "1b5c41caee": "Orca モバイル",
           "9c95e1ce91": "エージェント",
           "f323383e9a": "自動化",
@@ -6630,7 +6630,10 @@
           "f79972271a": "この repo の GitHub リモートが見つかりません。",
           "4d039317f4": "ウェブサイトのファビコン",
           "acf31559a0": "有効な Web サイトの URL を入力。",
-          "868c5c9b56": "repo のインポートに失敗しましたアイコン"
+          "868c5c9b56": "repo のインポートに失敗しましたアイコン",
+          "emojiTooLongForRepoIcon": "この絵文字は repo アイコンとして使用できません。",
+          "currentEmojiSelection": "現在: {{value0}}",
+          "searchEmojiPlaceholder": "絵文字を検索"
         },
         "RepositoryPane": {
           "15a99d9b9f": "相対パスは、このプロジェクトのルートから解決されます。",
@@ -11051,8 +11054,8 @@
                   "ed93b4f14f": "Commit",
                   "946a8a05ea": "このブランチの {{value0}} を作成します",
                   "e7ffa46946": "{{value0}} を作成する",
-                  "95550cff15": "押す",
-                  "d64292a938": "引く",
+                  "95550cff15": "プッシュ",
+                  "d64292a938": "プル",
                   "795f1509c5": "同期",
                   "390abeab93": "フォースプッシュ",
                   "1884cf34af": "このブランチをオリジンに公開します",
@@ -13870,7 +13873,8 @@
             "4a9568f773": "戻る",
             "4f86e2a10b": "ツアーをスキップ",
             "d974f32a83": "ツアーを閉じる",
-            "ffa4412b66": "次"
+            "ffa4412b66": "次",
+            "complete": "完了"
           },
           "ContextualTourProgressDots": {
             "7734cb8ad3": "の",
@@ -13880,7 +13884,17 @@
             "tour": {
               "overlay": {
                 "measurement": {
-                  "38b3155418": "次へ"
+                  "38b3155418": "次へ",
+                  "automations": {
+                    "intro": {
+                      "title": "自動化とは？",
+                      "body": "自動化はスケジュールに従ってエージェントの作業を実行します。このボタンをクリックして自動化を追加します。"
+                    },
+                    "results": {
+                      "title": "結果を確認",
+                      "body": "実行履歴には、自動化がいつ実行されたか、何が起きたか、出力をどこで確認できるかが表示されます。"
+                    }
+                  }
                 }
               }
             }
@@ -15393,25 +15407,25 @@
   },
   "browser": {
     "loadFailure": {
-      "connectionNotSecure": "Connection isn't secure",
-      "cantReachHost": "Can't reach {{value0}}",
-      "cantLoadPage": "Can't load this page",
-      "certificateNameMismatch": "The certificate doesn't match {{value0}}.",
-      "certificateDateInvalid": "The certificate for {{value0}} isn't valid at the current date and time.",
-      "certificateAuthorityInvalid": "Orca doesn't trust the authority that issued the certificate for {{value0}}.",
-      "certificateVerificationFailed": "Orca couldn't verify the certificate for {{value0}}.",
-      "trustedCertificateGuidance": "For local development, use a trusted local certificate when possible.",
-      "retry": "Retry",
-      "copyAddress": "Copy Address",
-      "addressCopied": "Copied the current page address.",
-      "openExternally": "Open Externally",
-      "tryHttps": "Try HTTPS",
-      "proceedUnsafe": "Proceed Anyway (Unsafe)",
-      "connecting": "Connecting…",
-      "certificateChallengeExpired": "This certificate approval expired. Retry the page to request a new one.",
-      "certificateChallengeChanged": "The certificate request changed. Retry the page and review the new warning.",
-      "certificateChallengeUnavailable": "This certificate request is no longer available. Retry the page to request a new one.",
-      "certificateProceedFailed": "Orca could not approve this certificate request. Retry the page and try again."
+      "connectionNotSecure": "接続は安全ではありません",
+      "cantReachHost": "{{value0}} に接続できません",
+      "cantLoadPage": "このページを読み込めません",
+      "certificateNameMismatch": "証明書が {{value0}} と一致しません。",
+      "certificateDateInvalid": "{{value0}} の証明書は現在の日時では有効ではありません。",
+      "certificateAuthorityInvalid": "Orca は {{value0}} の証明書を発行した認証局を信頼していません。",
+      "certificateVerificationFailed": "Orca は {{value0}} の証明書を検証できませんでした。",
+      "trustedCertificateGuidance": "ローカル開発では、可能な限り信頼されたローカル証明書を使用してください。",
+      "retry": "再試行",
+      "copyAddress": "アドレスをコピー",
+      "addressCopied": "現在のページのアドレスをコピーしました。",
+      "openExternally": "外部で開く",
+      "tryHttps": "HTTPS を試す",
+      "proceedUnsafe": "続行（安全ではない）",
+      "connecting": "接続中…",
+      "certificateChallengeExpired": "この証明書の承認は期限切れです。ページを再試行して、承認をもう一度リクエストしてください。",
+      "certificateChallengeChanged": "証明書のリクエストが変更されました。ページを再試行して、警告の内容を改めて確認してください。",
+      "certificateChallengeUnavailable": "この証明書のリクエストは利用できなくなりました。ページを再試行して、もう一度リクエストしてください。",
+      "certificateProceedFailed": "Orca はこの証明書のリクエストを承認できませんでした。ページを再試行して、もう一度お試しください。"
     }
   },
   "appMode": {
