@@ -173,7 +173,7 @@ describe('isFilePathCodeSpan', () => {
   })
 
   it('accepts POSIX absolute paths and :line citations', () => {
-    expect(isFilePathCodeSpan('/Users/me/wt/src/app.tsx')).toBe(true)
+    expect(isFilePathCodeSpan('/home/me/wt/src/app.tsx')).toBe(true)
     expect(isFilePathCodeSpan('src/foo.ts:42')).toBe(true)
     expect(isFilePathCodeSpan('src/foo.ts:42:7')).toBe(true)
     expect(isFilePathCodeSpan('MobileNativeChatComposer.tsx:23')).toBe(true)

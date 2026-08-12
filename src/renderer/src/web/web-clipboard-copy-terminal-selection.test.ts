@@ -66,8 +66,8 @@ describe('web copy fallback vs. the terminal selection', () => {
     const clipboardData = createClipboardDataStub()
     stubExecCommand(terminalElement, clipboardData)
 
-    expect(copyClipboardTextViaExecCommand('/Users/me/repo/src/index.ts', document)).toBe(true)
-    expect(clipboardData.getData('text/plain')).toBe('/Users/me/repo/src/index.ts')
+    expect(copyClipboardTextViaExecCommand('/home/me/repo/src/index.ts', document)).toBe(true)
+    expect(clipboardData.getData('text/plain')).toBe('/home/me/repo/src/index.ts')
   })
 
   it('wins over a later document-level copy handler', () => {
