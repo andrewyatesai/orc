@@ -15,6 +15,7 @@ pub enum ContextualTourId {
     Browser,
     Tasks,
     Automations,
+    FloatingWorkspace,
     WorkspaceCreation,
 }
 
@@ -26,6 +27,7 @@ impl ContextualTourId {
             ContextualTourId::Browser => "browser",
             ContextualTourId::Tasks => "tasks",
             ContextualTourId::Automations => "automations",
+            ContextualTourId::FloatingWorkspace => "floating-workspace",
             ContextualTourId::WorkspaceCreation => "workspace-creation",
         }
     }
@@ -37,6 +39,7 @@ impl ContextualTourId {
             "browser" => Some(ContextualTourId::Browser),
             "tasks" => Some(ContextualTourId::Tasks),
             "automations" => Some(ContextualTourId::Automations),
+            "floating-workspace" => Some(ContextualTourId::FloatingWorkspace),
             "workspace-creation" => Some(ContextualTourId::WorkspaceCreation),
             _ => None,
         }
@@ -113,6 +116,9 @@ impl ContextualTourStepPlacement {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ContextualTourStep {
+    /// Optional stable id — upstream adds these per step as they become anchor
+    /// points for persistence/telemetry (automations first, 651f334c4).
+    pub id: Option<&'static str>,
     pub title: &'static str,
     pub body: &'static str,
     pub target_selector: &'static str,
@@ -144,6 +150,7 @@ const fn step(
     target_selector: &'static str,
 ) -> ContextualTourStep {
     ContextualTourStep {
+        id: None,
         title,
         body,
         target_selector,
@@ -159,7 +166,7 @@ const fn step(
     }
 }
 
-pub const CONTEXTUAL_TOURS: [ContextualTour; 6] = [
+pub const CONTEXTUAL_TOURS: [ContextualTour; 7] = [
     ContextualTour {
         id: ContextualTourId::WorkspaceBoard,
         allowed_active_modals: &[],
@@ -263,6 +270,7 @@ pub const CONTEXTUAL_TOURS: [ContextualTour; 6] = [
         allowed_active_modals: &[],
         steps: &[
             ContextualTourStep {
+                id: Some("automations-intro"),
                 required_for_start: Some(true),
                 ..step(
                     "What is an automation?",
@@ -270,11 +278,37 @@ pub const CONTEXTUAL_TOURS: [ContextualTour; 6] = [
                     "[data-contextual-tour-target=\"automations-create\"]",
                 )
             },
-            step(
-                "Find the results",
-                "Runs show when automations executed, what happened, and where to inspect their output.",
-                "[data-contextual-tour-target=\"automations-runs\"]",
-            ),
+            ContextualTourStep {
+                id: Some("automations-results"),
+                ..step(
+                    "Find the results",
+                    "Runs show when automations ran, what happened, and where to inspect their output.",
+                    "[data-contextual-tour-target=\"automations-runs\"]",
+                )
+            },
+        ],
+    },
+    ContextualTour {
+        id: ContextualTourId::FloatingWorkspace,
+        allowed_active_modals: &[],
+        steps: &[
+            ContextualTourStep {
+                required_for_start: Some(true),
+                preferred_placement: Some(ContextualTourStepPlacement::Left),
+                ..step(
+                    "Run an agent across every repo",
+                    "Agents here run in any folder you choose. Point one at the directory above your services to work across all your repos at once.",
+                    "[data-contextual-tour-target=\"floating-workspace-new-terminal\"], [data-contextual-tour-target=\"floating-workspace-surface\"]",
+                )
+            },
+            ContextualTourStep {
+                preferred_placement: Some(ContextualTourStepPlacement::Left),
+                ..step(
+                    "Or use it as a scratchpad",
+                    "Open agents, scratch terminals, notes, and browser tabs without cluttering the worktree you\u{2019}re focused on.",
+                    "[data-contextual-tour-target=\"floating-workspace-new-markdown\"], [data-contextual-tour-target=\"floating-workspace-surface\"]",
+                )
+            },
         ],
     },
     ContextualTour {
@@ -364,6 +398,7 @@ mod tests {
             ContextualTourId::Browser,
             ContextualTourId::Tasks,
             ContextualTourId::Automations,
+            ContextualTourId::FloatingWorkspace,
             ContextualTourId::WorkspaceCreation,
         ];
 
