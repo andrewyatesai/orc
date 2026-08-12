@@ -49,14 +49,16 @@
         "id": "automations",
         "steps": [
           {
+            "id": "automations-intro",
             "title": "What is an automation?",
             "body": "Automations run agent work on a schedule. Add an automation by clicking this button.",
             "targetSelector": "[data-contextual-tour-target=\"automations-create\"]",
             "requiredForStart": true
           },
           {
+            "id": "automations-results",
             "title": "Find the results",
-            "body": "Runs show when automations executed, what happened, and where to inspect their output.",
+            "body": "Runs show when automations ran, what happened, and where to inspect their output.",
             "targetSelector": "[data-contextual-tour-target=\"automations-runs\"]"
           }
         ]
@@ -75,7 +77,10 @@
             "targetSelector": "[data-contextual-tour-target=\"terminal-pane-split-target\"], [data-contextual-tour-target=\"workspace-agent-terminal-tip\"]",
             "requiredForStart": true,
             "preferredPlacement": "bottom",
-            "primaryAction": { "kind": "split-terminal-pane", "label": "Split terminal" },
+            "primaryAction": {
+              "kind": "split-terminal-pane",
+              "label": "Split terminal"
+            },
             "advanceOnFeatureInteraction": "terminal-pane-split"
           },
           {
@@ -107,7 +112,9 @@
             "title": "Name it, or start from existing work",
             "body": "Start from a linked task for a short issue or PR name. Or leave it blank to auto-name it from your first agent message.",
             "targetSelector": "[data-contextual-tour-target=\"workspace-creation-name\"]",
-            "control": { "kind": "auto-rename-branch-from-work" }
+            "control": {
+              "kind": "auto-rename-branch-from-work"
+            }
           },
           {
             "title": "Choose what agent starts the work",
