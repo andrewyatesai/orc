@@ -69,6 +69,7 @@ import {
   invalidateRuntimeEnvironmentTransport,
   registerRuntimeEnvironmentHandlers
 } from './runtime-environments'
+import { advanceRuntimeEnvironmentTransportGeneration } from './runtime-environment-transport-generation'
 import { toRuntimeExecutionHostId } from '../../shared/execution-host'
 
 function pairingCode(endpoint = 'ws://127.0.0.1:6768'): string {
@@ -1065,6 +1066,186 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       unsubscribed: false
     })
     expect(close).not.toHaveBeenCalled()
+  })
+
+  it('delivers a close event to the renderer when a retired transport closes its streaming subscription', async () => {
+    registerRuntimeEnvironmentHandlers(store as never)
+    const close = vi.fn()
+    const senderSend = vi.fn()
+    sendRemoteRuntimeRequestMock.mockResolvedValue({
+      id: 'status',
+      ok: true,
+      result: {
+        runtimeId: 'runtime-remote',
+        capabilities: [REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY]
+      },
+      _meta: { runtimeId: 'runtime-remote' }
+    })
+    subscribeRemoteRuntimeSharedControlRequestMock.mockResolvedValue({
+      requestId: 'tabs-shared',
+      close,
+      sendBinary: vi.fn()
+    })
+
+    const add = handler<
+      { name: string; pairingCode: string },
+      { environment: { id: string; name: string } }
+    >('runtimeEnvironments:addFromPairingCode')
+    const { environment } = await add(null, { name: 'desk', pairingCode: pairingCode() })
+
+    const subscribe = handler<
+      { selector: string; method: string; subscriptionId?: string },
+      { subscriptionId: string; requestId: string }
+    >('runtimeEnvironments:subscribe')
+    await subscribe(
+      {
+        sender: {
+          id: 1,
+          isDestroyed: () => false,
+          isLoadingMainFrame: () => true,
+          on: vi.fn(),
+          send: senderSend,
+          once: vi.fn(),
+          removeListener: vi.fn()
+        }
+      },
+      { selector: 'desk', method: 'session.tabs.subscribeAll', subscriptionId: 'retired-sub' }
+    )
+    senderSend.mockClear()
+
+    // Retiring the transport must tell the renderer its stream closed, even though a
+    // shared-control logical close never calls back through onEvent.
+    invalidateRuntimeEnvironmentTransport(environment.id)
+
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(senderSend).toHaveBeenCalledWith('runtimeEnvironments:subscriptionEvent', {
+      subscriptionId: 'retired-sub',
+      type: 'close'
+    })
+  })
+
+  it('delivers a stale subscription close after the transport generation advanced', async () => {
+    registerRuntimeEnvironmentHandlers(store as never)
+    const senderSend = vi.fn()
+    sendRemoteRuntimeRequestMock.mockResolvedValue({
+      id: 'status',
+      ok: true,
+      result: {
+        runtimeId: 'runtime-remote',
+        capabilities: [REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY]
+      },
+      _meta: { runtimeId: 'runtime-remote' }
+    })
+    subscribeRemoteRuntimeSharedControlRequestMock.mockResolvedValue({
+      requestId: 'tabs-shared',
+      close: vi.fn(),
+      sendBinary: vi.fn()
+    })
+
+    const add = handler<
+      { name: string; pairingCode: string },
+      { environment: { id: string; name: string } }
+    >('runtimeEnvironments:addFromPairingCode')
+    const { environment } = await add(null, { name: 'desk', pairingCode: pairingCode() })
+
+    const subscribe = handler<
+      { selector: string; method: string; subscriptionId?: string },
+      { subscriptionId: string; requestId: string }
+    >('runtimeEnvironments:subscribe')
+    await subscribe(
+      {
+        sender: {
+          id: 1,
+          isDestroyed: () => false,
+          isLoadingMainFrame: () => true,
+          on: vi.fn(),
+          send: senderSend,
+          once: vi.fn(),
+          removeListener: vi.fn()
+        }
+      },
+      { selector: 'desk', method: 'session.tabs.subscribeAll', subscriptionId: 'stale-sub' }
+    )
+
+    const transportCallbacks = subscribeRemoteRuntimeSharedControlRequestMock.mock.calls[0]![5] as {
+      onClose: () => void
+    }
+    // A retirement advances the generation first; a late transport close must still
+    // reach the renderer rather than being gated out as a stale transport frame.
+    advanceRuntimeEnvironmentTransportGeneration(environment.id)
+    transportCallbacks.onClose()
+
+    expect(senderSend).toHaveBeenCalledWith('runtimeEnvironments:subscriptionEvent', {
+      subscriptionId: 'stale-sub',
+      type: 'close'
+    })
+  })
+
+  it("retires an environment's remaining subscriptions when one teardown throws", async () => {
+    registerRuntimeEnvironmentHandlers(store as never)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const senderSend = vi.fn()
+    const closeA = vi.fn(() => {
+      throw new Error('socket close failed')
+    })
+    const closeB = vi.fn()
+    sendRemoteRuntimeRequestMock.mockResolvedValue({
+      id: 'status',
+      ok: true,
+      result: {
+        runtimeId: 'runtime-remote',
+        capabilities: [REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY]
+      },
+      _meta: { runtimeId: 'runtime-remote' }
+    })
+    subscribeRemoteRuntimeSharedControlRequestMock
+      .mockResolvedValueOnce({ requestId: 'sub-a', close: closeA, sendBinary: vi.fn() })
+      .mockResolvedValueOnce({ requestId: 'sub-b', close: closeB, sendBinary: vi.fn() })
+
+    const add = handler<
+      { name: string; pairingCode: string },
+      { environment: { id: string; name: string } }
+    >('runtimeEnvironments:addFromPairingCode')
+    const { environment } = await add(null, { name: 'desk', pairingCode: pairingCode() })
+
+    const subscribe = handler<
+      { selector: string; method: string; subscriptionId?: string },
+      { subscriptionId: string; requestId: string }
+    >('runtimeEnvironments:subscribe')
+    const sender = {
+      id: 1,
+      isDestroyed: () => false,
+      isLoadingMainFrame: () => true,
+      on: vi.fn(),
+      send: senderSend,
+      once: vi.fn(),
+      removeListener: vi.fn()
+    }
+    await subscribe(
+      { sender },
+      { selector: 'desk', method: 'session.tabs.subscribeAll', subscriptionId: 'sub-a' }
+    )
+    await subscribe(
+      { sender },
+      { selector: 'desk', method: 'session.tabs.subscribeAll', subscriptionId: 'sub-b' }
+    )
+    senderSend.mockClear()
+
+    // A single failing teardown must not abandon the environment's other sockets.
+    expect(() => invalidateRuntimeEnvironmentTransport(environment.id)).not.toThrow()
+
+    expect(closeA).toHaveBeenCalledTimes(1)
+    expect(closeB).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalled()
+    expect(senderSend).toHaveBeenCalledWith('runtimeEnvironments:subscriptionEvent', {
+      subscriptionId: 'sub-a',
+      type: 'close'
+    })
+    expect(senderSend).toHaveBeenCalledWith('runtimeEnvironments:subscriptionEvent', {
+      subscriptionId: 'sub-b',
+      type: 'close'
+    })
+    warn.mockRestore()
   })
 
   it('falls back to legacy passive subscriptions when shared control is unsupported', async () => {

@@ -5804,6 +5804,66 @@ describe('OrcaRuntimeService', () => {
     expect(deleteWorktreeHistoryDirMock).toHaveBeenCalledWith(`${TEST_REPO_ID}::/remote/feature`)
   })
 
+  // Regression (#12388-parity): `repoId::path` ids repeat across hosts, so the SSH delete's
+  // runtime sweep used to stop the same-id local workspace's terminals too.
+  it('leaves a same-id local terminal running when the SSH copy is removed', async () => {
+    const remoteRepo = {
+      id: TEST_REPO_ID,
+      path: '/remote/repo',
+      displayName: 'repo',
+      badgeColor: 'blue',
+      addedAt: 1,
+      connectionId: 'ssh-1'
+    }
+    const remoteStore = { ...store, getRepos: () => [remoteRepo], getRepo: () => remoteRepo }
+    const gitProvider = {
+      listWorktrees: vi.fn().mockResolvedValue([
+        {
+          path: '/remote/repo',
+          head: 'main',
+          branch: 'refs/heads/main',
+          isBare: false,
+          isMainWorktree: true
+        },
+        {
+          path: '/remote/feature',
+          head: 'abc',
+          branch: 'feature/foo',
+          isBare: false,
+          isMainWorktree: false
+        }
+      ]),
+      removeWorktree: vi.fn().mockResolvedValue(undefined)
+    }
+    registerSshGitProvider('ssh-1', gitProvider as never)
+    const ptyProvider = {
+      listProcesses: vi.fn().mockResolvedValue([]),
+      shutdown: vi.fn().mockResolvedValue(undefined)
+    }
+    const runtime = new OrcaRuntimeService(remoteStore as never, undefined, {
+      getSshProvider: () => ptyProvider as never
+    })
+    const stopAndWait = vi.fn(async () => true)
+    runtime.setPtyController({
+      write: () => true,
+      kill: vi.fn(() => true),
+      stopAndWait,
+      getForegroundProcess: async () => null
+    })
+    syncSinglePty(runtime, null)
+    runtime.registerPty('pty-remote', `${TEST_REPO_ID}::/remote/feature`, 'ssh-1')
+    runtime.registerPty('pty-local-same-id', `${TEST_REPO_ID}::/remote/feature`, null)
+
+    try {
+      await runtime.removeManagedWorktree('path:/remote/feature', true, false)
+    } finally {
+      unregisterSshGitProvider('ssh-1')
+    }
+
+    expect(stopAndWait).toHaveBeenCalledWith('pty-remote', expect.anything())
+    expect(stopAndWait).not.toHaveBeenCalledWith('pty-local-same-id', expect.anything())
+  })
+
   it('rejects SSH-backed runtime removal of the main worktree before provider deletion', async () => {
     const remoteStore = {
       ...store,
@@ -14326,6 +14386,94 @@ describe('OrcaRuntimeService', () => {
     })
   })
 
+  it('coalesces concurrent focusTerminal navigations so only the latest full reveal runs', async () => {
+    // Instant reveals during createTerminal; switch to gated mock before focus storm.
+    const revealTerminalSession = vi.fn().mockResolvedValue({ tabId: 'tab-create' })
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      spawn: vi
+        .fn()
+        .mockResolvedValueOnce({ id: 'pty-a' })
+        .mockResolvedValueOnce({ id: 'pty-b' })
+        .mockResolvedValueOnce({ id: 'pty-c' }),
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+    runtime.setNotifier({
+      worktreesChanged: vi.fn(),
+      reposChanged: vi.fn(),
+      activateWorktree: vi.fn(),
+      createTerminal: vi.fn(),
+      revealTerminalSession,
+      splitTerminal: vi.fn(),
+      renameTerminal: vi.fn(),
+      focusTerminal: vi.fn(),
+      closeTerminal: vi.fn(),
+      sleepWorktree: vi.fn(),
+      terminalFitOverrideChanged: vi.fn(),
+      terminalDriverChanged: vi.fn()
+    })
+    runtime.attachWindow(1)
+    runtime.syncWindowGraph(1, { tabs: [], leaves: [] })
+    const a = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`, {
+      title: 'a',
+      presentation: 'background'
+    })
+    const b = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`, {
+      title: 'b',
+      presentation: 'background'
+    })
+    const c = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`, {
+      title: 'c',
+      presentation: 'background'
+    })
+
+    let releaseFirstReveal!: (value: { tabId: string }) => void
+    let firstRevealStarted = false
+    const firstRevealGate = new Promise<{ tabId: string }>((resolve) => {
+      releaseFirstReveal = resolve
+    })
+    revealTerminalSession.mockReset()
+    revealTerminalSession.mockImplementation(() => {
+      if (!firstRevealStarted) {
+        firstRevealStarted = true
+        return firstRevealGate
+      }
+      return Promise.resolve({ tabId: 'tab-latest' })
+    })
+
+    const pA = runtime.focusTerminal(a.handle)
+    await vi.waitFor(() => {
+      expect(firstRevealStarted).toBe(true)
+    })
+    const pB = runtime.focusTerminal(b.handle)
+    const pC = runtime.focusTerminal(c.handle)
+
+    // B is superseded while A is in flight — identity only, never navigated.
+    await expect(pB).resolves.toMatchObject({
+      handle: b.handle,
+      navigated: false
+    })
+    releaseFirstReveal({ tabId: 'tab-a' })
+    // A may still complete reveal work, but if C superseded it, navigated is false.
+    const aResult = await pA
+    expect(aResult.handle).toBe(a.handle)
+    expect(aResult.navigated).toBe(false)
+    await expect(pC).resolves.toMatchObject({
+      handle: c.handle,
+      tabId: 'tab-latest',
+      navigated: true
+    })
+
+    // B must never have started a reveal; only A and/or C.
+    const revealedPtyIds = revealTerminalSession.mock.calls.map(
+      (call) => (call[1] as { ptyId?: string }).ptyId
+    )
+    expect(revealedPtyIds).not.toContain('pty-b')
+    expect(revealedPtyIds.at(-1)).toBe('pty-c')
+  })
+
   it('clears terminal scrollback through the PTY controller and headless buffer', async () => {
     const clearBuffer = vi.fn().mockResolvedValue(undefined)
     const runtime = new OrcaRuntimeService(store)
@@ -21686,6 +21834,7 @@ describe('OrcaRuntimeService', () => {
         tabId: 'host-tab',
         leafId: HEADLESS_LEAF_ID,
         sessionId: expect.stringMatching(/^serve-/),
+        isNewSession: true,
         persistHostSessionBinding: true
       })
     )
@@ -23095,7 +23244,8 @@ describe('OrcaRuntimeService', () => {
     await expect(runtime.focusTerminal(laptopTerminal.handle)).resolves.toEqual({
       handle: laptopTerminal.handle,
       tabId: 'laptop-tab',
-      worktreeId: TEST_WORKTREE_ID
+      worktreeId: TEST_WORKTREE_ID,
+      navigated: false
     })
     await expect(runtime.closeTerminal(laptopTerminal.handle)).resolves.toEqual({
       handle: laptopTerminal.handle,
@@ -30234,6 +30384,50 @@ describe('OrcaRuntimeService', () => {
     // Pin the margin: RPCs must settle WORKTREE_TEARDOWN_RPC_MARGIN_MS before the
     // sweep deadline so the accurate stop failure outruns the sweep-timeout error.
     expect(opts?.deadlineMs).toBe(deadline - WORKTREE_TEARDOWN_RPC_MARGIN_MS)
+  })
+
+  it('stops only the owning connection when one worktree id lives on two hosts', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    const kill = vi.fn(() => true)
+    runtime.setPtyController({
+      write: () => true,
+      kill,
+      stopAndWait: vi.fn(async () => true),
+      getForegroundProcess: async () => null
+    })
+    // Why (#12388-parity): the store keeps one `repoId::path` per host, so deleting the
+    // SSH copy must leave the same-id local copy's terminals running — the fence the
+    // destructive removal paths now supply.
+    syncSinglePty(runtime, null)
+    runtime.registerPty('pty-ssh', TEST_WORKTREE_ID, 'ssh-1')
+    runtime.registerPty('pty-local', TEST_WORKTREE_ID, null)
+
+    await expect(
+      runtime.stopTerminalsForWorktree(TEST_WORKTREE_ID, {
+        resolvedWorktreeId: TEST_WORKTREE_ID,
+        resolvedConnectionId: 'ssh-1'
+      })
+    ).resolves.toEqual({ stopped: 1 })
+    expect(kill).toHaveBeenCalledWith('pty-ssh')
+    expect(kill).not.toHaveBeenCalledWith('pty-local')
+  })
+
+  it('sweeps every host when no fence is supplied (non-destructive stop)', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    const kill = vi.fn(() => true)
+    runtime.setPtyController({
+      write: () => true,
+      kill,
+      stopAndWait: vi.fn(async () => true),
+      getForegroundProcess: async () => null
+    })
+    syncSinglePty(runtime, null)
+    runtime.registerPty('pty-ssh', TEST_WORKTREE_ID, 'ssh-1')
+    runtime.registerPty('pty-local', TEST_WORKTREE_ID, null)
+
+    await expect(runtime.stopTerminalsForWorktree(TEST_WORKTREE_ID)).resolves.toEqual({ stopped: 2 })
+    expect(kill).toHaveBeenCalledWith('pty-ssh')
+    expect(kill).toHaveBeenCalledWith('pty-local')
   })
 
   it('fails terminal listing closed if the graph reloads during selector resolution', async () => {

@@ -84,6 +84,9 @@ export const electronViteConfig: UserConfig = {
         external: isExternalMainModule,
         input: {
           index: resolve('src/main/index.ts'),
+          // Why: sandboxed webview preloads cannot load Rollup helper chunks, so the
+          // window.close guard ships as its own standalone CJS entry in out/main.
+          'browser-window-close-preload': resolve('src/preload/browser-window-close.ts'),
           'computer-sidecar': resolve('src/main/computer/sidecar-entry.ts'),
           'stt-worker': resolve('src/main/speech/stt-worker.ts'),
           'warp-theme-parser-worker': resolve('src/main/warp-themes/warp-theme-parser-worker.ts'),

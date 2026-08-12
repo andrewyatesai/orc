@@ -218,9 +218,6 @@ import type { PtyListedSession } from '../../shared/pty-listed-session'
 // Routes PTY operations by connectionId (null = local provider).
 
 let localProvider: IPtyProvider = new LocalPtyProvider()
-type FreshLocalFallbackProvider = IPtyProvider & {
-  routesFreshSpawnsToLocalProvider?: true
-}
 const sshProviders = new Map<string, IPtyProvider>()
 
 type RegisteredPtyProvider = {
@@ -1377,10 +1374,23 @@ function pinClaudeSessionIdForPaneAttribution(command: string | undefined): {
   return { command: `${trimmed} --session-id ${pinnedSessionId}`, pinnedSessionId }
 }
 
-function routesFreshSpawnsToLocalProvider(
-  provider: IPtyProvider
-): provider is FreshLocalFallbackProvider {
-  return (provider as FreshLocalFallbackProvider).routesFreshSpawnsToLocalProvider === true
+function routesFreshSpawnsToLocalProvider(provider: IPtyProvider): boolean {
+  return provider.routesFreshSpawnsToLocalProvider === true
+}
+
+// Why: a degraded daemon can regain spawn health; re-probe before a fresh spawn so
+// new terminals route back to the daemon instead of the non-persistent fallback.
+// Skips reattaches (an existing sessionId that is not a fresh create) and SSH.
+function recoverFreshSpawnProviderRouting(
+  provider: IPtyProvider,
+  connectionId: string | null | undefined,
+  sessionId: string | undefined,
+  isNewSession = sessionId === undefined
+): Promise<boolean> | undefined {
+  if (connectionId || (!isNewSession && sessionId) || !routesFreshSpawnsToLocalProvider(provider)) {
+    return
+  }
+  return provider.recoverFreshSpawnRouting?.()
 }
 
 function beginPtySpawnForWorktree(
@@ -3469,6 +3479,15 @@ export function registerPtyHandlers(
       await assertFolderWorkspacePtyPathUsable(args.worktreeId)
       const cwd = resolvePtySpawnStartupCwd(args.worktreeId, args.cwd)
       const provider = getProvider(args.connectionId)
+      const freshSpawnRecovery = recoverFreshSpawnProviderRouting(
+        provider,
+        args.connectionId,
+        args.sessionId,
+        args.isNewSession
+      )
+      if (freshSpawnRecovery) {
+        await freshSpawnRecovery
+      }
       const isClaudeLaunch = !args.connectionId && isClaudeLaunchCommand(args.command)
       const claudePin = isClaudeLaunch
         ? pinClaudeSessionIdForPaneAttribution(args.command)
@@ -3540,7 +3559,11 @@ export function registerPtyHandlers(
         sessionId !== undefined ? getRelayPtyId(args.connectionId, sessionId) : undefined
       const effectiveSessionAppId =
         sessionId !== undefined ? getAppPtyId(args.connectionId, sessionId) : undefined
-      const isMintedSessionId = callerRequestedSessionId === undefined && isDaemonHostSpawn
+      // Why: a caller-provided id that is explicitly a fresh create (isNewSession)
+      // is still a minted daemon session after recovery — reset its incarnation
+      // rather than treat it as a reattach.
+      const isMintedSessionId =
+        (callerRequestedSessionId === undefined || args.isNewSession === true) && isDaemonHostSpawn
       const expectedWslDistro = !args.connectionId
         ? (resolveWslSessionContext({
             cwd,
@@ -4604,6 +4627,14 @@ export function registerPtyHandlers(
         didFallbackToWorkspaceRootCwd && cwd ? ({ kind: 'worktree', cwd } as const) : undefined
       spawnTiming.mark('preflight')
       const provider = getProvider(args.connectionId)
+      const freshSpawnRecovery = recoverFreshSpawnProviderRouting(
+        provider,
+        args.connectionId,
+        args.sessionId
+      )
+      if (freshSpawnRecovery) {
+        await freshSpawnRecovery
+      }
       const isClaudeLaunch = !args.connectionId && isClaudeLaunchCommand(args.command)
       const claudePin = isClaudeLaunch
         ? pinClaudeSessionIdForPaneAttribution(args.command)

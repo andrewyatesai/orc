@@ -139,6 +139,10 @@ async function stopPtysForDestructiveWorktreeRemoval(
   }
   const teardownResult = await killAllProcessesForWorktree(worktreeId, {
     runtime,
+    // Why: fence the runtime-graph sweep to the owning host so an SSH delete cannot
+    // stop a same-id local (or other-connection) workspace's terminals (#12388-parity).
+    resolvedWorktreeId: worktreeId,
+    ...(connectionId ? { resolvedConnectionId: connectionId } : {}),
     localProvider: provider,
     onPtyStopped: clearProviderPtyState,
     requirePhysicalStop: true,
@@ -1514,10 +1518,24 @@ export function registerWorktreeHandlers(
             )
           }
           // Why: folder workspaces share one root, so there's no Git remove step to close shells; sweep PTYs before dropping metadata.
+          // Folder projects can be SSH-backed, so fence the sweep to the owning host
+          // exactly like the git paths — a local inventory must never reach a remote id.
+          const folderConnectionId = repo.connectionId ?? undefined
+          const folderSshPtyProvider = folderConnectionId
+            ? getSshPtyProvider(folderConnectionId)
+            : undefined
           await killAllProcessesForWorktree(args.worktreeId, {
             runtime,
-            localProvider: getLocalPtyProvider(),
-            onPtyStopped: clearProviderPtyState
+            resolvedWorktreeId: args.worktreeId,
+            ...(folderConnectionId ? { resolvedConnectionId: folderConnectionId } : {}),
+            localProvider: folderSshPtyProvider ?? getLocalPtyProvider(),
+            onPtyStopped: clearProviderPtyState,
+            ...(folderConnectionId
+              ? {
+                  includeProviderInventory: Boolean(folderSshPtyProvider),
+                  includeLocalRegistry: false
+                }
+              : {})
           }).catch((err) => {
             console.warn(`[worktree-teardown] failed for ${args.worktreeId}:`, err)
           })

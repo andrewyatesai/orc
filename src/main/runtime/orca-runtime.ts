@@ -1015,6 +1015,10 @@ import {
 } from './terminal-view-attribute-store'
 import { killAllProcessesForWorktree, teardownRpcDeadline } from './worktree-teardown'
 import {
+  ptyBelongsToTeardownFence,
+  type WorktreeTeardownHostFence
+} from './worktree-teardown-host-fence'
+import {
   MobileNotificationReplayBuffer,
   type ReplayableMobileNotification
 } from './mobile-notification-replay'
@@ -1023,6 +1027,7 @@ import {
   createMobileSessionTabsNotifyCoalescer,
   type MobileSessionTabsNotifyCoalescer
 } from './mobile-session-tabs-notify-coalescer'
+import { TerminalFocusNavigationCoalescer } from './terminal-focus-navigation-coalescer'
 import type {
   IFilesystemProvider,
   IPtyProvider,
@@ -1410,6 +1415,8 @@ type TerminalCreateOptions = {
   tabId?: string
   leafId?: string
   sessionId?: string
+  /** True when sessionId names a freshly-minted (non-reattach) session. */
+  isNewSession?: boolean
   preAllocatedHandle?: string
   persistHostSessionBinding?: boolean
   // Why: only the host-derived structured resume path may attach provider
@@ -1660,6 +1667,8 @@ type RuntimePtyController = {
     tabId?: string
     leafId?: string
     sessionId?: string
+    /** True when this carries a caller-minted id for a fresh (non-reattach) session. */
+    isNewSession?: boolean
     persistHostSessionBinding?: boolean
     terminalColorQueryReplies?: { foreground?: string; background?: string }
     agentSessionEnsure?: {
@@ -2801,6 +2810,12 @@ export class OrcaRuntimeService {
     createMobileSessionTabsNotifyCoalescer((worktreeId) =>
       this.notifyMobileSessionTabsChangedNow(worktreeId)
     )
+  // Why: concurrent host terminal.focus storms (CLI switch fan-out / bulk open)
+  // each await a full host reveal; only one terminal can be focused, so latest-wins
+  // single-flight bounds host work. Does not replace cheaper activation or
+  // reconnect-scan bounding for sequential soft freezes.
+  private readonly terminalFocusNavigationCoalescer =
+    new TerminalFocusNavigationCoalescer<RuntimeTerminalFocus>()
   private pendingMobileSessionPtyInventoryRefresh: Promise<Set<string> | null> | null = null
   // Why: a pane key and a terminal handle are both selectors a caller supplies,
   // so these two registries are where a name becomes a pane. Bounding the lookup
@@ -3400,6 +3415,10 @@ export class OrcaRuntimeService {
     }
     const teardownResult = await killAllProcessesForWorktree(worktreeId, {
       runtime: this,
+      // Why: fence the runtime-graph sweep to the owning host so an SSH delete cannot
+      // stop a same-id local (or other-connection) workspace's terminals (#12388-parity).
+      resolvedWorktreeId: worktreeId,
+      ...(connectionId ? { resolvedConnectionId: connectionId } : {}),
       localProvider: provider,
       onPtyStopped: this.onPtyStopped ?? undefined,
       requirePhysicalStop: true,
@@ -23117,14 +23136,29 @@ export class OrcaRuntimeService {
             'Cannot delete the project root workspace. Remove the folder project instead.'
           )
         }
-        const localProvider = this.getLocalProvider()
-        if (localProvider) {
+        // Why: folder projects can be SSH-backed, so resolve the owning host before
+        // sweeping — a local inventory must never reach a remote same-id workspace.
+        const folderConnectionId = repo.connectionId ?? undefined
+        const folderSshPtyProvider = folderConnectionId
+          ? this.getSshProviderFn?.(folderConnectionId)
+          : undefined
+        const folderPtyProvider = folderSshPtyProvider ?? this.getLocalProvider()
+        if (folderPtyProvider) {
           // Why: folder workspace deletion has no Git removal phase where PTYs
           // would otherwise be swept; tear them down before hiding the workspace.
           await killAllProcessesForWorktree(removalTarget.id, {
             runtime: this,
-            localProvider,
-            onPtyStopped: this.onPtyStopped ?? undefined
+            // Fence the sweep to the owning host exactly like the git paths (#12388-parity).
+            resolvedWorktreeId: removalTarget.id,
+            ...(folderConnectionId ? { resolvedConnectionId: folderConnectionId } : {}),
+            localProvider: folderPtyProvider,
+            onPtyStopped: this.onPtyStopped ?? undefined,
+            ...(folderConnectionId
+              ? {
+                  includeProviderInventory: Boolean(folderSshPtyProvider),
+                  includeLocalRegistry: false
+                }
+              : {})
           }).catch((err) => {
             console.warn(`[worktree-teardown] failed for ${removalTarget.id}:`, err)
           })
@@ -24271,6 +24305,7 @@ export class OrcaRuntimeService {
         ...(launchOpts.signal ? { signal: launchOpts.signal } : {}),
         ...(launchOpts.onPtySpawnCommitted ? { onPtySpawnCommitted: reportPtySpawnCommitted } : {}),
         ...(launchOpts.sessionId ? { sessionId: launchOpts.sessionId } : {}),
+        ...(launchOpts.isNewSession ? { isNewSession: true } : {}),
         // Why: a headless-created pane has no renderer session writer. Persist
         // its tab/leaf binding at spawn so a later promoted window reattaches
         // the live daemon or SSH PTY instead of replacing it with a fresh one.
@@ -25004,6 +25039,9 @@ export class OrcaRuntimeService {
     // Why: SshPtyProvider treats sessionId as a relay reattach; only synthesize local serve ids so SSH fresh terminals still call pty.spawn.
     const stableSessionId =
       opts.identity?.sessionId ?? (workspace.connectionId ? undefined : `serve-${randomUUID()}`)
+    // Why: a synthesized serve id is a fresh create, not a reattach — flag it so a
+    // recovered degraded daemon resets its incarnation instead of adopting it.
+    const isNewSession = stableSessionId !== undefined && opts.identity?.sessionId === undefined
     const terminal = await this.createTerminal(`id:${worktreeId}`, {
       focus: false,
       command: opts.command,
@@ -25023,6 +25061,7 @@ export class OrcaRuntimeService {
         : stableSessionId
           ? { sessionId: stableSessionId }
           : {}),
+      ...(isNewSession ? { isNewSession: true } : {}),
       persistHostSessionBinding: true,
       // Why: this method publishes the authoritative snapshot below; skip the intermediate publish to avoid a wrong-group flash.
       deferMobileSessionPublish: true
@@ -25481,38 +25520,159 @@ export class OrcaRuntimeService {
     handle: string,
     options: { navigateHost?: boolean } = {}
   ): Promise<RuntimeTerminalFocus> {
+    const navigateHost = options.navigateHost !== false
+    // Re-resolve identity when a job is superseded so the receipt still reflects live state.
+    const livePtyIdentity = (): RuntimeTerminalFocus => {
+      const live = this.getLivePtyForHandle(handle)
+      if (!live?.pty.connected) {
+        throw new Error('terminal_exited')
+      }
+      return {
+        handle,
+        tabId: live.pty.tabId ?? live.record.tabId,
+        worktreeId: live.pty.worktreeId,
+        navigated: false
+      }
+    }
+    const liveLeafIdentity = (): RuntimeTerminalFocus => {
+      this.assertGraphReady()
+      const { leaf: current } = this.getLiveLeafForHandle(handle)
+      return {
+        handle,
+        tabId: current.tabId,
+        worktreeId: current.worktreeId,
+        navigated: false
+      }
+    }
+
     const pty = this.getLivePtyForHandle(handle)
     if (pty) {
       if (!pty.pty.connected) {
         throw new Error('terminal_exited')
       }
-      const parsedPaneKey = parsePaneKey(pty.pty.paneKey ?? '')
-      const revealed =
-        options.navigateHost === false
-          ? undefined
-          : await this.notifier?.revealTerminalSession?.(pty.pty.worktreeId, {
-              ptyId: pty.pty.ptyId,
-              title: getLatestPtyTitle(pty.pty),
-              ...(pty.pty.launchConfig
-                ? { launchConfig: copySleepingAgentLaunchConfig(pty.pty.launchConfig) }
-                : {}),
-              ...(pty.pty.launchToken ? { launchToken: pty.pty.launchToken } : {}),
-              ...(pty.pty.launchAgent ? { launchAgent: pty.pty.launchAgent } : {}),
-              ...(pty.pty.tabId !== null ? { tabId: pty.pty.tabId } : {}),
-              ...(parsedPaneKey ? { leafId: parsedPaneKey.leafId } : {})
-            })
-      return {
-        handle,
-        tabId: revealed?.tabId ?? pty.pty.tabId ?? pty.record.tabId,
-        worktreeId: pty.pty.worktreeId
+      if (!navigateHost || !this.notifier?.revealTerminalSession) {
+        return {
+          handle,
+          tabId: pty.pty.tabId ?? pty.record.tabId,
+          worktreeId: pty.pty.worktreeId,
+          navigated: false
+        }
       }
+      // Coalesce concurrent host navigations: only the latest full reveal claims navigated.
+      return this.terminalFocusNavigationCoalescer.run({
+        key: handle,
+        resolveSuperseded: (completed) =>
+          completed ? { ...completed, navigated: false } : livePtyIdentity(),
+        run: async (ctx) => {
+          const live = this.getLivePtyForHandle(handle)
+          if (!live?.pty.connected) {
+            throw new Error('terminal_exited')
+          }
+          if (!ctx.isCurrent()) {
+            return {
+              handle,
+              tabId: live.pty.tabId ?? live.record.tabId,
+              worktreeId: live.pty.worktreeId,
+              navigated: false
+            }
+          }
+          const notifier = this.notifier
+          if (!notifier?.revealTerminalSession) {
+            return {
+              handle,
+              tabId: live.pty.tabId ?? live.record.tabId,
+              worktreeId: live.pty.worktreeId,
+              navigated: false
+            }
+          }
+          const parsedPaneKey = parsePaneKey(live.pty.paneKey ?? '')
+          const revealed = await notifier.revealTerminalSession(live.pty.worktreeId, {
+            ptyId: live.pty.ptyId,
+            title: getLatestPtyTitle(live.pty),
+            ...(live.pty.launchConfig
+              ? { launchConfig: copySleepingAgentLaunchConfig(live.pty.launchConfig) }
+              : {}),
+            ...(live.pty.launchToken ? { launchToken: live.pty.launchToken } : {}),
+            ...(live.pty.launchAgent ? { launchAgent: live.pty.launchAgent } : {}),
+            ...(live.pty.tabId !== null ? { tabId: live.pty.tabId } : {}),
+            ...(parsedPaneKey ? { leafId: parsedPaneKey.leafId } : {})
+          })
+          if (!ctx.isCurrent() || this.notifier !== notifier) {
+            return {
+              handle,
+              tabId: revealed?.tabId ?? live.pty.tabId ?? live.record.tabId,
+              worktreeId: live.pty.worktreeId,
+              navigated: false
+            }
+          }
+          return {
+            handle,
+            tabId: revealed?.tabId ?? live.pty.tabId ?? live.record.tabId,
+            worktreeId: live.pty.worktreeId,
+            navigated: true
+          }
+        }
+      })
     }
     this.assertGraphReady()
     const { leaf } = this.getLiveLeafForHandle(handle)
-    if (options.navigateHost !== false) {
-      this.notifier?.focusTerminal(leaf.tabId, leaf.worktreeId, leaf.leafId)
+    if (!navigateHost) {
+      return {
+        handle,
+        tabId: leaf.tabId,
+        worktreeId: leaf.worktreeId,
+        navigated: false
+      }
     }
-    return { handle, tabId: leaf.tabId, worktreeId: leaf.worktreeId }
+    if (!this.notifier?.focusTerminal) {
+      return {
+        handle,
+        tabId: leaf.tabId,
+        worktreeId: leaf.worktreeId,
+        navigated: false
+      }
+    }
+    return this.terminalFocusNavigationCoalescer.run({
+      key: handle,
+      resolveSuperseded: (completed) =>
+        completed ? { ...completed, navigated: false } : liveLeafIdentity(),
+      run: async (ctx) => {
+        this.assertGraphReady()
+        const { leaf: liveLeaf } = this.getLiveLeafForHandle(handle)
+        if (!ctx.isCurrent()) {
+          return {
+            handle,
+            tabId: liveLeaf.tabId,
+            worktreeId: liveLeaf.worktreeId,
+            navigated: false
+          }
+        }
+        const notifier = this.notifier
+        if (!notifier?.focusTerminal) {
+          return {
+            handle,
+            tabId: liveLeaf.tabId,
+            worktreeId: liveLeaf.worktreeId,
+            navigated: false
+          }
+        }
+        notifier.focusTerminal(liveLeaf.tabId, liveLeaf.worktreeId, liveLeaf.leafId)
+        if (!ctx.isCurrent() || this.notifier !== notifier) {
+          return {
+            handle,
+            tabId: liveLeaf.tabId,
+            worktreeId: liveLeaf.worktreeId,
+            navigated: false
+          }
+        }
+        return {
+          handle,
+          tabId: liveLeaf.tabId,
+          worktreeId: liveLeaf.worktreeId,
+          navigated: true
+        }
+      }
+    })
   }
 
   async closeTerminal(handle: string): Promise<RuntimeTerminalClose> {
@@ -25828,6 +25988,11 @@ export class OrcaRuntimeService {
         ptyId: string,
         stop: () => boolean | Promise<boolean>
       ) => Promise<{ stopped: boolean; owner: boolean }>
+      // Why: `repoId::path` ids repeat across hosts, so a destructive sweep names its
+      // owner (exact id + owning connection) or it stops a same-id workspace's terminals
+      // on another host. Absent, every host's terminals are swept (#12388-parity).
+      resolvedWorktreeId?: string
+      resolvedConnectionId?: string
     } = {}
   ): Promise<{ stopped: number }> {
     // Why: this mutates live PTYs, so reject while the graph is reloading rather than act on cached leaf ownership.
@@ -25837,14 +26002,31 @@ export class OrcaRuntimeService {
     if (options.deadline !== undefined && Date.now() >= options.deadline) {
       return { stopped: 0 }
     }
+    const hostFence: WorktreeTeardownHostFence | undefined = options.resolvedWorktreeId
+      ? {
+          resolvedWorktreeId: options.resolvedWorktreeId,
+          ...(options.resolvedConnectionId
+            ? { resolvedConnectionId: options.resolvedConnectionId }
+            : {})
+        }
+      : undefined
     const ptyIds = new Set<string>()
     for (const leaf of this.leaves.values()) {
       if (leaf.worktreeId === worktree.id && leaf.ptyId) {
-        ptyIds.add(leaf.ptyId)
+        // Why: a leaf carries no connection of its own; resolve it from the registered
+        // PTY so the fence sees the same owner the ptysById scan below does.
+        const leafConnectionId = this.ptysById.get(leaf.ptyId)?.connectionId ?? null
+        if (ptyBelongsToTeardownFence(leafConnectionId, hostFence)) {
+          ptyIds.add(leaf.ptyId)
+        }
       }
     }
     for (const pty of this.ptysById.values()) {
-      if (pty.worktreeId === worktree.id && pty.connected) {
+      if (
+        pty.worktreeId === worktree.id &&
+        pty.connected &&
+        ptyBelongsToTeardownFence(pty.connectionId, hostFence)
+      ) {
         ptyIds.add(pty.ptyId)
       }
     }

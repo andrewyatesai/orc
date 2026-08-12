@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ORCA_BROWSER_GUEST_WEB_PREFERENCES_ATTRIBUTE } from '../../../../shared/browser-guest-web-preferences'
+import { BROWSER_WINDOW_CLOSE_ALLOWED_PRELOAD } from '../../../../shared/browser-window-close-policy'
 
 const registryMocks = vi.hoisted(() => ({
   destroyPersistentWebview: vi.fn(),
@@ -132,5 +133,21 @@ describe('BrowserPane webview preferences', () => {
     expect(ensuredWebview?.container).toBe(replacementContainer)
     expect(replacementContainer.isConnected).toBe(true)
     expect(replacementContainer.lastElementChild).toBe(ensuredWebview?.webview as unknown as Element)
+  })
+
+  it('marks explicitly allowed CLI pages before the guest attaches', () => {
+    const container = createContainer('cli-page')
+
+    const ensuredWebview = ensureBrowserPageWebview({
+      browserTabId: 'browser-page-cli',
+      container,
+      inputLocked: false,
+      webviewPartition: 'persist:orca-browser',
+      allowWindowClose: true,
+      resolveContainer: () => container
+    })
+
+    expect(ensuredWebview?.webview.getAttribute('preload')).toBe(BROWSER_WINDOW_CLOSE_ALLOWED_PRELOAD)
+    expect(BROWSER_WINDOW_CLOSE_ALLOWED_PRELOAD).toMatch(/^file:/)
   })
 })

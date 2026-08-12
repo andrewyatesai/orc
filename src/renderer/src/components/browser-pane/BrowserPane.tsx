@@ -3645,6 +3645,7 @@ function BrowserPagePane({
       container,
       inputLocked: inputLockedRef.current,
       webviewPartition,
+      allowWindowClose: browserTab.allowWindowClose === true,
       resolveContainer: () =>
         ensureBrowserPageViewport(browserTab.id, workspaceId)?.container ?? null
     })

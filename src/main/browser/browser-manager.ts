@@ -937,11 +937,16 @@ export class BrowserManager {
   private retireStaleGuestWebContents(previousWebContentsId: number): void {
     // Why: after a renderer-process swap, stop the dead guest id resolving to the live page so stale callbacks don't hit the wrong session.
     this.cleanupGuestPolicyAttachment(previousWebContentsId)
-    this.tabIdByWebContentsId.delete(previousWebContentsId)
   }
 
   private cleanupGuestPolicyAttachment(guestWebContentsId: number): void {
-    const isPrimaryGuest = this.tabIdByWebContentsId.has(guestWebContentsId)
+    const browserTabId = this.tabIdByWebContentsId.get(guestWebContentsId)
+    const isPrimaryGuest = browserTabId !== undefined
+    // Why: a self-closing guest (window.close) fully retires — drop the reverse map too so a stale id can't resolve to a dead page.
+    if (browserTabId && this.webContentsIdByTabId.get(browserTabId) === guestWebContentsId) {
+      this.webContentsIdByTabId.delete(browserTabId)
+    }
+    this.tabIdByWebContentsId.delete(guestWebContentsId)
     this.certificateTrustController?.onGuestRetired(guestWebContentsId)
     const policyCleanup = this.policyCleanupByGuestId.get(guestWebContentsId)
     if (policyCleanup) {
@@ -1067,7 +1072,8 @@ export class BrowserManager {
         this.cancelDownloadInternal(downloadId, 'Tab closed before download completed.')
       }
     }
-    const wcId = this.webContentsIdByTabId.get(browserTabId)
+    // Why: cleanupGuestPolicyAttachment above already dropped the tab->wc mapping, so reuse the id captured before it ran.
+    const wcId = guestWebContentsId
     if (wcId !== undefined) {
       this.tabIdByWebContentsId.delete(wcId)
       // Why: webview.remove() does not synchronously destroy the guest, so its

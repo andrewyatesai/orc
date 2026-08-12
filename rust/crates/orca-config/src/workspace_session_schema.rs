@@ -617,6 +617,8 @@ fn p_browser_page(value: Option<&Value>, path: &[String]) -> PResult {
     set_req(&mut out, obj, "canGoForward", path, p_boolean)?;
     set_req(&mut out, obj, "loadError", path, |v, p| p_nullable(v, p, p_browser_load_error))?;
     set_req(&mut out, obj, "createdAt", path, p_number)?;
+    // CLI-created pages keep native window.close across a restart; z.boolean().optional().
+    set_opt(&mut out, obj, "allowWindowClose", path, p_boolean)?;
     set_opt(&mut out, obj, "browserRuntimeEnvironmentId", path, |v, p| {
         p_nullable(v, p, p_string)
     })?;
@@ -1253,6 +1255,39 @@ mod tests {
         assert!(value["tabsByWorktree"]["wt-1"][0].get("legacyPaneState").is_none());
         assert!(value["terminalLayoutsByTabId"]["tab-1"].get("zoomLevel").is_none());
         assert!(value["terminalLayoutsByTabId"]["tab-1"]["root"].get("legacySize").is_none());
+    }
+
+    #[test]
+    fn preserves_allow_window_close_on_browser_pages_and_omits_it_when_absent() {
+        // The window.close guard opt-out (CLI-created pages) must survive a restart.
+        let session = minimal_with(&[(
+            "browserPagesByWorkspace",
+            json!({
+                "ws-1": [
+                    {
+                        "id": "page-cli", "workspaceId": "ws-1", "worktreeId": "wt",
+                        "url": "https://example.com", "title": "Example", "loading": false,
+                        "faviconUrl": null, "canGoBack": false, "canGoForward": false,
+                        "loadError": null, "createdAt": 1, "allowWindowClose": true
+                    },
+                    {
+                        "id": "page-embed", "workspaceId": "ws-1", "worktreeId": "wt",
+                        "url": "https://example.org", "title": "Embed", "loading": false,
+                        "faviconUrl": null, "canGoBack": false, "canGoForward": false,
+                        "loadError": null, "createdAt": 2
+                    }
+                ]
+            }),
+        )]);
+        let result = parse(session);
+        let value = result.value().unwrap();
+        assert_eq!(
+            value["browserPagesByWorkspace"]["ws-1"][0]["allowWindowClose"],
+            json!(true)
+        );
+        assert!(value["browserPagesByWorkspace"]["ws-1"][1]
+            .get("allowWindowClose")
+            .is_none());
     }
 
     #[test]

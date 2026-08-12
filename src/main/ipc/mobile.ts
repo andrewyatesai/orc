@@ -7,6 +7,7 @@ import {
   type NetworkInterface
 } from './mobile-pairing-interfaces'
 import type { DeviceEntry } from '../runtime/device-registry'
+import { NETWORK_EXPOSURE_FAILED_GUIDANCE } from '../runtime/network-exposure-guidance'
 import type { OrcaRuntimeRpcServer } from '../runtime/runtime-rpc'
 import type { RelayBrokerStatus } from '../runtime/relay/relay-session-broker'
 import {
@@ -126,6 +127,22 @@ export function registerMobileHandlers(
       const ip = args?.address ?? getDefaultPairingAddress()
       if (!ip) {
         return { available: false as const }
+      }
+
+      // Why: STA-2370 — generating a runtime pairing offer is the user's explicit opt-in to remote
+      // reach, so widen the loopback listener before advertising its LAN endpoint. If the widen fails the
+      // listener stays on loopback, so report unavailable rather than advertise a dead LAN endpoint.
+      try {
+        await rpcServer.ensureNetworkExposure()
+      } catch (error) {
+        console.error('[mobile] Network exposure failed while creating a runtime pairing offer:', error)
+        // Why: STA-2370 — carry the specific reason/guidance to the renderer (mirrors the mobile-QR path) so
+        // a widen failure is distinguishable from a missing address, not collapsed into a bare unavailable.
+        return {
+          available: false as const,
+          reason: 'network_exposure_failed' as const,
+          guidance: NETWORK_EXPOSURE_FAILED_GUIDANCE
+        }
       }
 
       // Why: web/desktop runtime clients need full runtime access, not the

@@ -4600,7 +4600,7 @@ const api = {
       address?: string
       rotate?: boolean
     }): Promise<
-      | { available: false }
+      | { available: false; reason?: 'network_exposure_failed'; guidance?: string }
       | {
           available: true
           pairingUrl: string

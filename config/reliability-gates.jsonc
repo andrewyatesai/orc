@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-07-26",
+  "updatedAt": "2026-08-12",
   "policy": {
     "maturityLevels": [
       "experimental",
@@ -16,6 +16,94 @@
     }
   },
   "gates": [
+    {
+      "id": "terminal-provider.login-session-retirement",
+      "title": "macOS login-session retirement preserves live daemons through transient rejection bursts",
+      "maturity": "experimental",
+      "protection": "partial",
+      "owner": "daemon-terminal",
+      "layer": "macos-daemon-lifecycle",
+      "surfaces": [
+        "GUI-spawned macOS daemon",
+        "local PTY survival",
+        "daemon reconnect and replacement"
+      ],
+      "platforms": [
+        "macos"
+      ],
+      "providers": [
+        "local-daemon"
+      ],
+      "coveredPlatforms": [
+        "macos"
+      ],
+      "coveredProviders": [
+        "local-daemon"
+      ],
+      "coverageNotes": "A deterministic fake clock covers short-burst recovery, sustained session death, event-trigger preemption, timer suspension, resolver corroboration, and shutdown cancellation. The production-only watch remains behind the macOS GUI launch flag; SSH/headless, WSL, Linux, Windows, mobile, and relay paths are unaffected.",
+      "motivatingLinks": [
+        "https://github.com/stablyai/orca/issues/11749",
+        "https://github.com/stablyai/orca/issues/7936"
+      ],
+      "invariant": "A GUI-spawned macOS daemon may retire for PAM rejections only after it previously accepted login wrapping, receives three conclusive rejections spanning at least one uninterrupted 120-second observation window, and observes explicitly unhealthy in-process resolver state. A conclusive acceptance or a sleep/App Nap-sized timer gap resets the rejection window, and client or PTY activity cannot shorten its scheduled backoff.",
+      "oracle": "Arm the watch with an accepted probe, inject three rejections over 20 seconds plus unhealthy resolver state, then inject client and PTY activity and require zero resolver reads, zero retirement calls, and exactly four probes until the 120-second boundary. Return acceptance at that boundary and require the daemon to survive. Jump wall time by one hour without firing the scheduled timer, require rejection evidence to restart after wake, and again recover without retirement. Separately keep rejecting through an uninterrupted boundary and require one retirement, while healthy or unknown resolver state suppresses it and stop aborts an in-flight resolver check.",
+      "commands": [
+        "pnpm exec vitest run --config config/vitest.config.ts src/main/daemon/macos-login-session-death-watch.test.ts --reporter=dot"
+      ],
+      "testFiles": [
+        "src/main/daemon/macos-login-session-death-watch.test.ts"
+      ],
+      "assertionRefs": [
+        {
+          "file": "src/main/daemon/macos-login-session-death-watch.test.ts",
+          "assertions": [
+            "preserves the daemon when a short PAM rejection burst recovers after wake",
+            "does not count a suspended timer gap as rejection evidence",
+            "retires only after sustained conclusive rejections with a degraded resolver",
+            "suppresses retirement while resolver health is healthy or unknown, then retires on explicit degradation",
+            "stop() prevents an in-flight resolver check from retiring the daemon"
+          ]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-08-12",
+          "runner": "local",
+          "platform": "macos",
+          "command": "pnpm exec vitest run --config config/vitest.config.ts src/main/daemon/macos-login-session-death-watch.test.ts --reporter=dot",
+          "result": "passed",
+          "durationSeconds": 0.3,
+          "summary": "The focused state-machine suite passed 19 tests, including the field-shaped 20-second rejection burst, suspended-timer rebaselining, bounded recovery retry, sustained-death convergence, resolver suppression, trigger coalescing, and shutdown cancellation."
+        }
+      ],
+      "runtimeBudget": {
+        "p95Seconds": 2,
+        "scope": "deterministic login-session death-watch state-machine suite"
+      },
+      "flakeHistory": {
+        "status": "unknown",
+        "evidence": "The deterministic suite passes locally; focused CI and soak history are not yet available."
+      },
+      "redGreenEvidence": {
+        "status": "complete",
+        "evidence": "On origin/main, the field-shaped accepted then three-rejection sequence calls onRetire after 20 seconds and fails the recovery oracle. With the minimum observation window and non-preemptible rejection schedule, the identical oracle preserves the daemon and recovers at the boundary."
+      },
+      "performanceBudget": {
+        "required": true,
+        "evidence": "The watch retains one timer and one in-flight probe. A rejection burst runs the existing two 10-second confirmation probes, then one recovery probe at the 120-second boundary; client and PTY activity cannot pull that deadline earlier. Resolver work is skipped until the time floor. No polling loop, startup await, session scan, renderer work, provider fanout, listener, or retained payload was added."
+      },
+      "promotionCriteria": [
+        "Collect 100 consecutive focused CI passes or 14 days of soak history.",
+        "Capture field evidence from macOS sleep/wake and a full GUI logout without a false retirement or missed stale-session recovery.",
+        "Keep the exact probe-count, no-early-resolver, trigger-preemption, acceptance-reset, and shutdown-abort assertions green."
+      ],
+      "knownGaps": [
+        "A real dead macOS GUI login session cannot be fabricated without ending the runner's login session; sustained-death coverage uses deterministic PAM and resolver oracles.",
+        "The two-minute production window and one-hour timer suspension are covered by fake-clock tests rather than a real sleep/wake run.",
+        "No multi-process aggregate throttle is added; each stale daemon independently obeys the same non-preemptible observation window."
+      ],
+      "demotionRule": "Keep experimental or demote if any activity trigger shortens the rejection window, a transient burst reaches resolver retirement authority, sustained dead-session evidence no longer converges, shutdown permits late retirement, or the focused gate flakes without an identified product or harness fault."
+    },
     {
       "id": "terminal.predictive-echo-felt-latency",
       "title": "Mosh-style predictive echo stays wired and bounds felt keystroke latency",
@@ -6918,6 +7006,94 @@
         "Windows native runtime watches bypass this child path; WSL reservation/release is deterministic-contract tested but not live fault-injected, and SSH registration ownership is not live-relay fault-injected."
       ],
       "demotionRule": "Demote or quarantine if the fault harness flakes without a product or harness bug, if healthy operation exceeds one runtime watcher child, if total physical operation exceeds eight children including retiring generations, if quarantine children outlive their roots or repeat after fusing, if event delivery becomes unbounded, or if metadata/stat work returns to the serve process."
+    },
+    {
+      "id": "runtime.streaming-subscription-close-delivery",
+      "title": "Retiring a runtime transport always tells the renderer its streams closed",
+      "maturity": "experimental",
+      "protection": "partial",
+      "owner": "runtime-platform",
+      "layer": "runtime-subscription-ipc-contract",
+      "surfaces": [
+        "paired remote server",
+        "runtime environment disconnect and re-pair",
+        "terminal.multiplex streaming",
+        "browser screencast streaming"
+      ],
+      "platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "providers": [
+        "remote-runtime"
+      ],
+      "coveredPlatforms": [
+        "macos"
+      ],
+      "coveredProviders": [
+        "remote-runtime"
+      ],
+      "coverageNotes": "Deterministic main-IPC contract tests cover disconnect-driven close delivery through the real subscribe handler, close delivery to a subscription whose transport generation already advanced, and per-subscription teardown isolation when one socket close throws. Live Linux and Windows paired-server evidence, exactly-once dedupe under a transport-driven close following an environment-wide retirement, and a headed reveal journey remain uncollected in this fork gate.",
+      "motivatingLinks": [
+        "https://github.com/stablyai/orca/pull/12384"
+      ],
+      "invariant": "Every renderer-held runtime subscription receives a terminal close event when its transport is retired, including when the retirement advanced the transport generation first, and a single failing teardown never abandons that environment's remaining subscriptions. A shared-control logical close, which never calls back through the transport, is notified directly; a late transport-driven close is delivered rather than gated out as a stale-generation frame; and a per-subscription latch keeps the close from being sent twice.",
+      "oracle": "The main IPC contract test subscribes a shared-control stream through the real handler, retires the environment via invalidateRuntimeEnvironmentTransport, and asserts the renderer received a {type: close} subscription event and the transport closed. A second test advances the transport generation before firing the transport close and asserts the renderer still receives close. A third subscribes two streams to one environment, makes the first teardown throw, and asserts the retirement does not throw, both transports closed, and both subscriptions delivered their close.",
+      "commands": [
+        "pnpm exec vitest run --config config/vitest.config.ts src/main/ipc/runtime-environments.test.ts"
+      ],
+      "testFiles": [
+        "src/main/ipc/runtime-environments.test.ts"
+      ],
+      "assertionRefs": [
+        {
+          "file": "src/main/ipc/runtime-environments.test.ts",
+          "assertions": [
+            "delivers a close event to the renderer when a retired transport closes its streaming subscription (the load-bearing repro; red with the fix reverted)",
+            "delivers a stale subscription close after the transport generation advanced (the onEvent close-branch bypass; red without it)",
+            "retires an environment's remaining subscriptions when one teardown throws (per-subscription isolation; red without the guarded teardown)"
+          ]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-08-12",
+          "runner": "local",
+          "platform": "macos",
+          "command": "pnpm exec vitest run --config config/vitest.config.ts src/main/ipc/runtime-environments.test.ts",
+          "result": "passed",
+          "durationSeconds": 0.65,
+          "summary": "45 runtime environment IPC tests passed, including the new close-delivery, generation-advanced close, and teardown-isolation contracts; each turns red when the main-side fix is reverted."
+        }
+      ],
+      "runtimeBudget": {
+        "p95Seconds": 30,
+        "scope": "focused runtime environment IPC contract tests"
+      },
+      "flakeHistory": {
+        "status": "unknown",
+        "evidence": "Deterministic single-process IPC contract tests with no timers or sockets; no soak history yet."
+      },
+      "redGreenEvidence": {
+        "status": "complete",
+        "evidence": "With the main-side fix reverted, all three contracts turn red: the retirement close is never delivered, the generation-advanced close is swallowed by the transport-current gate, and a throwing teardown propagates out of invalidateRuntimeEnvironmentTransport and strands the sibling subscription. With the fix the renderer receives one close per retired subscription and a failing teardown is isolated to itself."
+      },
+      "performanceBudget": {
+        "required": false,
+        "evidence": "The fix adds one boolean latch and at most one extra IPC send per retired subscription on a path that already tears the subscription down. It introduces no timer, poll, retry, subprocess, or per-frame work, and the close is deduplicated so a transport-driven close after an environment-wide retirement sends nothing."
+      },
+      "promotionCriteria": [
+        "Collect at least 100 consecutive CI or soak passes or 14 days without an unexplained flake.",
+        "Collect live Linux and Windows paired-server disconnect and re-pair evidence.",
+        "Add exactly-once close coverage for a transport-driven close arriving after an environment-wide retirement."
+      ],
+      "knownGaps": [
+        "Coverage is deterministic main-process IPC only; no headed paired-server reveal journey exists in this fork gate.",
+        "Live validation currently covers macOS only.",
+        "Browser screencast subscribers share the fixed contract but have no dedicated gate."
+      ],
+      "demotionRule": "Demote if a retired runtime transport can leave a renderer subscription without a close event, if one failing teardown strands its sibling subscriptions, or if a close delivered after a generation advance is gated out as a stale transport frame."
     }
   ]
 }

@@ -1,16 +1,16 @@
 import type { DaemonPtyAdapter } from './daemon-pty-adapter'
 import { combineUnsubscribes } from './combine-unsubscribes'
 import { shutdownDegradedFallbackSessions } from './degraded-daemon-fallback-shutdown'
+import { DegradedDaemonFreshSpawnRouter } from './degraded-daemon-fresh-spawn-routing'
 import { inspectPtyProviderProcess } from '../providers/pty-process-inspection'
 import type { IPtyProvider, PtyBackgroundStreamEvent } from '../providers/types'
 import type { PtyDataEvent, PtyProviderBufferSnapshot } from '../providers/types'
 import type { PtyProcessInfo, PtySpawnOptions, PtySpawnResult } from '../providers/types'
 
 export class DegradedDaemonPtyProvider implements IPtyProvider {
-  readonly routesFreshSpawnsToLocalProvider = true
-  // Why: the preserved daemon answers protocol but cannot spawn fresh PTYs.
-  // Surfaced to the UI as the `degraded` flag on pty:management:listSessions
-  // and as 'degraded-fallback' in the daemon-status registry (both key off
+  // Why: the preserved daemon answers protocol but cannot spawn fresh PTYs yet.
+  // Surfaced to the UI as the `degraded` flag on pty:management:listSessions and
+  // as 'degraded-fallback' in the daemon-status registry (both key off
   // `instanceof DegradedDaemonPtyProvider`); this marker keeps the contract
   // visible on the provider type itself.
   readonly isDegraded = true
@@ -19,6 +19,7 @@ export class DegradedDaemonPtyProvider implements IPtyProvider {
   private legacy: DaemonPtyAdapter[]
   private fallback: IPtyProvider
   private sessionProviders = new Map<string, IPtyProvider>()
+  private freshSpawns: DegradedDaemonFreshSpawnRouter
   private unsubscribers: (() => void)[] = []
   private dataListeners: ((payload: PtyDataEvent) => void)[] = []
   private exitListeners: ((payload: { id: string; code: number }) => void)[] = []
@@ -27,10 +28,17 @@ export class DegradedDaemonPtyProvider implements IPtyProvider {
     current: DaemonPtyAdapter
     legacy: DaemonPtyAdapter[]
     fallback: IPtyProvider
+    probeCurrentDaemonSpawn?: () => Promise<boolean>
   }) {
     this.current = opts.current
     this.legacy = opts.legacy
     this.fallback = opts.fallback
+    this.freshSpawns = new DegradedDaemonFreshSpawnRouter(
+      opts.current,
+      opts.fallback,
+      this.sessionProviders,
+      opts.probeCurrentDaemonSpawn ?? null
+    )
 
     for (const provider of this.allProviders()) {
       this.unsubscribers.push(
@@ -62,17 +70,24 @@ export class DegradedDaemonPtyProvider implements IPtyProvider {
     }
   }
 
-  async spawn(opts: PtySpawnOptions): Promise<PtySpawnResult> {
-    const mapped = opts.sessionId ? this.sessionProviders.get(opts.sessionId) : undefined
-    const target = mapped ?? this.fallback
-    const result = await target.spawn(opts)
-    this.sessionProviders.set(result.id, target)
-    return result
+  // Why: a preserved daemon can regain spawn health after a transient node-pty/cwd
+  // fault; re-probe on demand so fresh terminals stop routing to the non-persistent
+  // in-process fallback.
+  get routesFreshSpawnsToLocalProvider(): true | undefined {
+    return this.freshSpawns.routesToFallback
   }
 
-  async attach(id: string): Promise<void> {
-    await this.providerFor(id).attach(id)
-  }
+  recoverFreshSpawnRouting = (): Promise<boolean> => this.freshSpawns.recover()
+
+  supportsGitCredentialGuardHost = (id?: string): boolean =>
+    this.freshSpawns.supportsGitGuardHost(id)
+
+  canProvideAuthoritativeBufferSnapshot = (id: string): boolean =>
+    this.freshSpawns.canProvideSnapshot(id)
+
+  spawn = (opts: PtySpawnOptions): Promise<PtySpawnResult> => this.freshSpawns.spawn(opts)
+
+  attach = (id: string): Promise<void> => this.providerFor(id).attach(id)
 
   hasPty(id: string): boolean {
     const mapped = this.sessionProviders.get(id)
@@ -139,9 +154,7 @@ export class DegradedDaemonPtyProvider implements IPtyProvider {
     return (await this.providerFor(id).getBufferSnapshot?.(id, opts)) ?? null
   }
 
-  async clearBuffer(id: string): Promise<void> {
-    await this.providerFor(id).clearBuffer(id)
-  }
+  clearBuffer = (id: string): Promise<void> => this.providerFor(id).clearBuffer(id)
 
   async closeStartupQueryAuthority(id: string): Promise<number> {
     return (await this.providerFor(id).closeStartupQueryAuthority?.(id)) ?? 0

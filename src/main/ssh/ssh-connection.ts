@@ -48,6 +48,7 @@ import {
   createCancelledConnectAttemptError,
   isCancelledConnectAttemptError
 } from './ssh-connect-attempt-cancellation'
+import { requiresSystemSshForSecurityKey } from './ssh-transport-selection'
 import {
   isDefiniteSystemSshHostFailure,
   isTransientReconnectError
@@ -670,7 +671,15 @@ export class SshConnection {
     const resolved = await resolveWithSshG(this.target.configHost || this.target.label).catch(
       () => null
     )
-    if (shouldUseSystemSshTransport(this.target, resolved)) {
+    const usesConfiguredSystemTransport = shouldUseSystemSshTransport(this.target, resolved)
+    // Why: ssh2 can't drive FIDO2 keys; probe identities only when a proxy/jump hasn't already forced system ssh.
+    const requiresSecurityKeyTransport = usesConfiguredSystemTransport
+      ? false
+      : await requiresSystemSshForSecurityKey(this.target, resolved)
+    if (!this.isCurrentConnectAttempt(connectGeneration)) {
+      throw this.createCancelledConnectAttemptError()
+    }
+    if (usesConfiguredSystemTransport || requiresSecurityKeyTransport) {
       await this.doSystemSshProbeWithControlMasterRetry(connectGeneration, resolved)
       return
     }

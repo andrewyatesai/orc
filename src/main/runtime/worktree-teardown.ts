@@ -26,6 +26,13 @@ export type WorktreeTeardownDeps = {
   /** Explicit Force Delete only: warn instead of throwing when a stop stays unproven (#11960). */
   allowUnverifiedStop?: boolean
   includeLocalRegistry?: boolean
+  // Why: `repoId::path` ids repeat across hosts, so a destructive sweep names its
+  // owner (exact id + owning connection) or it stops a same-id workspace's terminals
+  // on another host. Absent, the runtime-graph sweep stays host-agnostic (#12388-parity).
+  resolvedWorktreeId?: string
+  resolvedConnectionId?: string
+  /** Set false to skip the provider inventory sweep — an external host's inventory must never sweep local sessions. */
+  includeProviderInventory?: boolean
 }
 
 export type WorktreeTeardownResult = {
@@ -109,7 +116,15 @@ export async function killAllProcessesForWorktree(
   // destructive removal closed (#9625).
   const runtimeSweep = deps.runtime
     ? settleBeforeDeadline(
-        () => deps.runtime!.stopTerminalsForWorktree(worktreeId, { deadline, stopPty }),
+        () =>
+          deps.runtime!.stopTerminalsForWorktree(worktreeId, {
+            deadline,
+            stopPty,
+            // Why: fence the runtime-graph sweep to the owning host so a same-id
+            // workspace on another connection keeps its terminals (#12388-parity).
+            ...(deps.resolvedWorktreeId ? { resolvedWorktreeId: deps.resolvedWorktreeId } : {}),
+            ...(deps.resolvedConnectionId ? { resolvedConnectionId: deps.resolvedConnectionId } : {})
+          }),
         { stopped: 0 },
         deadline,
         deps.requirePhysicalStop ? deadlineError : undefined,
@@ -120,20 +135,23 @@ export async function killAllProcessesForWorktree(
           )
       )
     : Promise.resolve({ stopped: 0 })
-  const providerSweep = settleBeforeDeadline(
-    () =>
-      sweepProviderByPrefix(
-        worktreeId,
-        deps.localProvider,
-        deadline,
-        stopPty,
-        deps.onPtyStopped,
-        deps.requirePhysicalStop
-      ),
-    0,
-    deadline,
-    deps.requirePhysicalStop ? deadlineError : undefined
-  )
+  const providerSweep =
+    deps.includeProviderInventory === false
+      ? Promise.resolve(0)
+      : settleBeforeDeadline(
+          () =>
+            sweepProviderByPrefix(
+              worktreeId,
+              deps.localProvider,
+              deadline,
+              stopPty,
+              deps.onPtyStopped,
+              deps.requirePhysicalStop
+            ),
+          0,
+          deadline,
+          deps.requirePhysicalStop ? deadlineError : undefined
+        )
   const registrySweep =
     deps.includeLocalRegistry === false
       ? Promise.resolve(0)
