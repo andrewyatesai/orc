@@ -33,6 +33,7 @@ import { describeSocketEvent } from './socket-event-debug'
 import { markRpcDeliveryUnknown } from './rpc-delivery-ambiguity'
 import { openRpcRequestBudget, resolvePostConnectRequestTimeout } from './rpc-request-budget'
 import { isRpcResponse } from './rpc-response-shape'
+import { isStaleForegroundDial } from './rpc-stale-dial'
 import { websocketPayloadToUint8 } from './websocket-payload-bytes'
 
 type PendingRequest = {
@@ -56,6 +57,9 @@ export type SendRequestOptions = {
    *  against the post-connect clock, and squeezing them to the floor after a slow
    *  reconnect would fail sends that used to land. */
   budgetSpansConnect?: boolean
+  /** Reject immediately when not connected — a send parked in the connect wait
+   *  replays stale terminal bytes into the PTY after reconnect. */
+  failWhenDisconnected?: boolean
 }
 
 type SocketClosedOptions = { timedOut?: boolean; closeCode?: number }
@@ -166,6 +170,9 @@ export function connect(
   let lastWsClosedAt: number | null = null
   let wsConstructionCounter = 0
   let currentWsOpenedAt: number | null = null
+  // When the current dial entered 'connecting'; lets a foreground nudge tell a
+  // stale suspended dial (opened over a dead path) from a fresh one worth waiting out.
+  let dialStartedAt = 0
 
   // Why: fresh ephemeral keypair per connection provides forward secrecy.
   let sharedKey: Uint8Array | null = null
@@ -285,13 +292,14 @@ export function connect(
       msSinceLastInbound: lastInboundAt != null ? now - lastInboundAt : null
     })
     setState('connecting')
+    dialStartedAt = now
     sharedKey = null
 
     currentWsOpenedAt = now
     emitLog(
       'info',
       reconnectAttempt > 0 ? `Reconnecting (attempt ${reconnectAttempt + 1})` : 'Opening WebSocket',
-      endpoint
+      redactedEndpoint(endpoint)
     )
 
     ws = new WebSocket(endpoint)
@@ -322,10 +330,7 @@ export function connect(
           'WebSocket connect timeout',
           `No TCP/WS handshake within ${CONNECT_TIMEOUT_MS / 1000}s — endpoint unreachable?`
         )
-        openingWs.close()
-        if (ws === openingWs) {
-          handleSocketClosed(openingWs, { timedOut: true })
-        }
+        closeAndSynthesize(openingWs)
       }
     }, CONNECT_TIMEOUT_MS)
 
@@ -364,6 +369,11 @@ export function connect(
           `No e2ee_ready/e2ee_authenticated within ${HANDSHAKE_TIMEOUT_MS / 1000}s`
         )
         openingWs.close()
+        // Why: RN can omit onclose for a wedged transport — synthesize the close so the
+        // client leaves 'handshaking' and arms reconnect (mirrors the connect-timeout path).
+        if (ws === openingWs) {
+          handleSocketClosed(openingWs, { timedOut: true })
+        }
       }, HANDSHAKE_TIMEOUT_MS)
     }
 
@@ -744,6 +754,28 @@ export function connect(
     }
   }
 
+  // Why: RN can omit onclose for a wedged/suspended transport, so drive the close
+  // path directly. handleSocketClosed's stale-ws guard no-ops any later real onclose.
+  function closeAndSynthesize(socket: WebSocket) {
+    socket.close()
+    if (ws === socket) {
+      handleSocketClosed(socket, { timedOut: true })
+    }
+  }
+
+  // Why: a revival signal dials at once rather than waiting out the armed backoff.
+  // Only the caller knows whether the attempt that led here should be forgiven.
+  function redialNow(resetAttempts: boolean) {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+    if (resetAttempts) {
+      reconnectAttempt = 0
+    }
+    openConnection()
+  }
+
   // Why: app-level liveness probe (see ACTIVITY_PROBE_INTERVAL_MS) — force-closes the WS on failure so onclose reconnects.
   function runActivityProbe() {
     if (state !== 'connected' || !ws) {
@@ -980,6 +1012,9 @@ export function connect(
       const budget = openRpcRequestBudget(options)
       const waitStart = budget.startedAt
       const wasConnected = state === 'connected'
+      if (options?.failWhenDisconnected && !wasConnected) {
+        throw new Error(`Not connected: ${method}`)
+      }
       await waitForConnected(options?.timeoutMs)
       if (!wasConnected) {
         console.log('[net] sendRequest waited for connect', {
@@ -1147,18 +1182,30 @@ export function connect(
         runActivityProbe()
         return
       }
+      // Why: a phone suspended mid-dial resumes still holding a socket RN keeps at
+      // CONNECTING (no close was ever delivered). Abandon it — it was opened over a
+      // path that may no longer exist — so the redial below runs on a live one.
+      const dialing = ws
+      const dialAgeMs = Date.now() - dialStartedAt
+      let abandoned = false
+      if (dialing && isStaleForegroundDial(state, dialAgeMs)) {
+        console.log('[net] foreground — abandoning stale dial', { state, dialAgeMs })
+        closeAndSynthesize(dialing)
+        abandoned = true
+      }
       if (state === 'reconnecting') {
         // Why: foreground is a strong user signal — restart immediately instead of waiting out a 60s/90s backoff timer.
         console.log('[net] foreground — restarting reconnect loop', {
           attempt: reconnectAttempt,
           hadTimer: !!reconnectTimer
         })
-        if (reconnectTimer) {
-          clearTimeout(reconnectTimer)
-          reconnectTimer = null
-        }
-        reconnectAttempt = 0
-        openConnection()
+        // Why: an abandoned dial keeps the failure it already represents — it never
+        // authenticated, so it is the same failure the connect timeout would have
+        // booked had we waited it out. Zeroing there would let a resume (or a flapping
+        // network) reset the counter faster than it climbs, pinning the card at
+        // "Connecting…" through a real outage (issue #10119). A redial with no dial to
+        // abandon is a genuinely fresh start.
+        redialNow(!abandoned)
       }
     },
 

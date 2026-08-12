@@ -35,6 +35,7 @@ describe('terminal live input affordance', () => {
     expect(block).toContain('pressed && styles.liveInputFocusTargetPressed')
     expect(block).toContain('!canSend && styles.liveInputFocusTargetDisabled')
     expect(block).toContain('showSoftInputOnFocus')
+    expect(block).toContain('liveInputText={liveInputCapture}')
     expect(sessionRouteSource).toContain('focusTerminalLiveInputTarget(liveInputRef.current')
     expect(sessionRouteSource).toContain('keyboardHeight')
     expect(sessionRouteSource).toContain('scheduleTerminalLiveInputFocus(liveInputFocusTimerRef')
@@ -42,6 +43,8 @@ describe('terminal live input affordance', () => {
 
   it('makes the live keyboard target visible instead of status-only chrome', () => {
     expect(liveInputStatusSource).toContain("'Tap to show keyboard'")
+    expect(liveInputStatusSource).toContain("liveInputText || 'Tap to show keyboard'")
+    expect(liveInputStatusSource).toContain('ellipsizeMode="head"')
     expect(commandInputStylesSource).toContain('backgroundColor: colors.bgRaised')
     expect(commandInputStylesSource).toContain('borderWidth: 1')
     expect(commandInputStylesSource).toContain('liveInputFocusTargetPressed')

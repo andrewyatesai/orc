@@ -394,59 +394,6 @@ export function useHostClient(hostId: string | undefined): {
   return { client: bound ? clientRef.current : null, state: boundState }
 }
 
-// Why: refcounting prevents a double-open when a host-detail screen shares one of these hosts.
-export function useAllHostClients(hostIds: string[]) {
-  const ctx = useRpcClientContext()
-  // Stable key so we don't tear down on every render of the array.
-  const key = useMemo(() => [...hostIds].sort().join(','), [hostIds])
-  const [tick, setTick] = useState(0)
-
-  useEffect(() => {
-    if (hostIds.length === 0) {
-      return
-    }
-    for (const id of hostIds) {
-      ctx.acquire(id)
-    }
-    const unsubs: Array<() => void> = []
-    for (const id of hostIds) {
-      unsubs.push(ctx.subscribeHostState(id, () => setTick((n) => n + 1)))
-    }
-    unsubs.push(ctx.subscribeAllHosts(() => setTick((n) => n + 1)))
-    return () => {
-      for (const u of unsubs) {
-        u()
-      }
-      for (const id of hostIds) {
-        ctx.release(id)
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
-
-  return useMemo(() => {
-    const out: Array<{
-      hostId: string
-      client: RpcClient
-      state: ConnectionState
-      path: MobileConnectionPath
-    }> = []
-    for (const id of hostIds) {
-      const all = ctx.getAllClients().find((entry) => entry.hostId === id)
-      if (all) {
-        out.push({
-          hostId: id,
-          client: all.client,
-          state: ctx.getState(id),
-          path: ctx.getActivePath(id)
-        })
-      }
-    }
-    return out
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, tick])
-}
-
 // Why: host-store's removeHost() must close the live client but has no React-side handle; this hook bridges to it.
 export function useCloseHost(): (hostId: string) => void {
   const ctx = useRpcClientContext()
