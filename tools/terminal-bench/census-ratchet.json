@@ -29,9 +29,22 @@
         "Accepted rather than refused: it narrows an RPC exemption from whole-surface to per-method, which is a security tightening whose cost is more code. Refusing it would push back on the wrong thing.",
         "The other two ceilings are UNCHANGED and deliberately not re-measured \u2014 shimWholeFileLoc 2813 and pty.ts 6230 held across these 11 commits, and a ratchet that re-pins every key on every touch stops being a ratchet."
       ]
+    },
+    {
+      "date": "2026-08-12",
+      "head": "b6250648b",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 35905,
+        "src/main/ipc/pty.ts": 6230
+      },
+      "why": [
+        "+119 on orca-runtime.ts and +11 on pty.ts across 22 upstream commits, net +130 total, attributable to four: f5e79827a account-backed artifact sharing (+63), 2fef23b4e mobile inline restore on re-subscribe (+38), 0906471fb parity port of 11 medium items (+18), f8b57aac5 parity port of 7 medium items (+11). Every other commit in the range left both files untouched.",
+        "Accepted: three are upstream feature/port work landing through the fork, and none is the delivery-reliability shim this ratchet was built to watch \u2014 that held at 2813 across all 22 commits, which is the number that would have justified refusing.",
+        "Worth stating since this is the third re-baseline in three days: orca-runtime.ts grows because it is where upstream features attach, and a ratchet that only ever ratchets UP on one file is measuring drift it cannot stop. The useful signal here has been the shim staying flat, not the god object staying small."
+      ]
     }
   ],
   "shimWholeFileLoc": 2813,
-  "src/main/runtime/orca-runtime.ts": 35905,
-  "src/main/ipc/pty.ts": 6230
+  "src/main/runtime/orca-runtime.ts": 36024,
+  "src/main/ipc/pty.ts": 6241
 }
