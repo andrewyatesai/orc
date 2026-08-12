@@ -1685,7 +1685,8 @@ export default function SessionScreen() {
 
       try {
         const response = await client.sendRequest('terminal.list', {
-          worktree: `id:${worktreeId}`
+          worktree: `id:${worktreeId}`,
+          includeVisualLayouts: false
         })
         if (response.ok) {
           const result = (response as RpcSuccess).result as { terminals: Terminal[] }

@@ -34,6 +34,25 @@ export type MethodNotificationHandler = (params: Record<string, unknown>) => voi
 export type RequestHandler = (params: Record<string, unknown>) => Promise<unknown> | unknown
 
 const REQUEST_TIMEOUT_MS = 30_000
+
+// Why: callers branch on "the request timed out" (fall back to a slower path,
+// report a host issue). Matching the message text made every unrelated error
+// carrying the same phrase take the timeout branch, so tag it with a code.
+export const SSH_MUX_REQUEST_TIMEOUT_CODE = 'SSH_MUX_REQUEST_TIMEOUT'
+
+function sshMuxRequestTimeoutError(method: string, timeoutMs: number): Error {
+  return Object.assign(new Error(`Request "${method}" timed out after ${timeoutMs}ms`), {
+    code: SSH_MUX_REQUEST_TIMEOUT_CODE
+  })
+}
+
+export function isSshMuxRequestTimeoutError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error as Error & { code?: unknown }).code === SSH_MUX_REQUEST_TIMEOUT_CODE
+  )
+}
+
 // Why: a tick gap far beyond the interval means the process was paused
 // (system sleep, App Nap timer throttling) — not that the link is dead (#7773).
 const WAKE_GAP_MS = KEEPALIVE_SEND_MS * 3
@@ -217,7 +236,7 @@ export class SshChannelMultiplexer {
           this.notify('rpc.cancel', { id })
         }
         this.pendingRequests.delete(id)
-        reject(new Error(`Request "${method}" timed out after ${timeoutMs}ms`))
+        reject(sshMuxRequestTimeoutError(method, timeoutMs))
       }, timeoutMs)
 
       if (options?.signal) {

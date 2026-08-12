@@ -6602,6 +6602,7 @@ describe('connectPanePty', () => {
 
     expect(mockStoreState.paneForegroundAgentByPaneKey[paneKey]).toEqual({
       agent: 'droid',
+      routingRevoked: true,
       shellForeground: false
     })
     expect(resolveMockPaneWindowsShiftEnterEncoding(mockStoreState, paneKey)).toBe('alt-enter')
@@ -22446,6 +22447,7 @@ describe('connectPanePty', () => {
       await vi.advanceTimersByTimeAsync(1)
       expect(mockStoreState.paneForegroundAgentByPaneKey[cacheKey]).toEqual({
         agent: 'droid',
+        routingRevoked: true,
         shellForeground: false
       })
 
@@ -22488,6 +22490,7 @@ describe('connectPanePty', () => {
 
       expect(mockStoreState.paneForegroundAgentByPaneKey[cacheKey]).toEqual({
         agent: 'pi',
+        routingRevoked: true,
         shellForeground: false
       })
       expect(resolveMockPaneWindowsShiftEnterEncoding(mockStoreState, cacheKey)).toBe('alt-enter')

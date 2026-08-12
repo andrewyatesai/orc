@@ -161,6 +161,20 @@ export function resetAndRefreshAllTerminalWebglAtlases(): void {
   }
 }
 
+/** Repaint every live pane from its current buffer WITHOUT the heavy
+ *  re-rasterize reset. Used while the rate-cap suppresses a full atlas recovery:
+ *  the live grid still presents, but the cross-manager scheduleDraw storm is
+ *  skipped so a sustained stream can't churn every pane each settle. */
+export function presentAllTerminalPanesWithoutAtlasClear(): void {
+  for (const manager of liveManagers) {
+    try {
+      manager.refreshAllPanes?.()
+    } catch {
+      // A disposing manager must not block sibling panes from presenting.
+    }
+  }
+}
+
 /**
  * Per-pane WebGL renderer state across all live managers, for the one-paste
  * freeze report. Lets a post-wake garble report show, per pane, whether it

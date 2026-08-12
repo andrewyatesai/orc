@@ -3283,6 +3283,24 @@ describe('OrcaRuntimeRpcServer', () => {
         }
       ])
 
+      // Gate: an explicit `includeVisualLayouts: false` opts out of the ~31%
+      // layout payload while the terminal roster (and its handles) stay intact.
+      const gatedResponse = await sendRequest(metadata!.transports[0]!.endpoint, {
+        id: 'req_list_no_layout',
+        authToken: metadata!.authToken,
+        method: 'terminal.list',
+        params: { worktree: `id:${worktreeId}`, includeVisualLayouts: false }
+      })
+      const gatedResult = gatedResponse.result as {
+        visualLayouts?: unknown[]
+        terminals: { handle: string }[]
+      }
+      expect(gatedResponse).toMatchObject({ id: 'req_list_no_layout', ok: true })
+      expect(gatedResult.visualLayouts).toBeUndefined()
+      expect(gatedResult.terminals.map((terminal) => terminal.handle).sort()).toEqual(
+        result.terminals.map((terminal) => terminal.handle).sort()
+      )
+
       const resolvePaneResponse = await sendRequest(metadata!.transports[0]!.endpoint, {
         id: 'req_resolve_pane',
         authToken: metadata!.authToken,

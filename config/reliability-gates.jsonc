@@ -3502,7 +3502,7 @@
         "macos"
       ],
       "coveredProviders": [],
-      "coverageNotes": "Platform-neutral unit coverage proves the Resource Manager closed badge performs one readiness seed, coalesces unknown spawn signals, skips known-session reattach signals, and installs no interval. Broader terminal interaction coverage remains on the pending reliability stack.",
+      "coverageNotes": "Platform-neutral unit coverage proves the Resource Manager closed badge performs one readiness seed, coalesces unknown spawn signals, skips known-session reattach signals, installs no interval, and re-reads only once per explicit daemon-management kill/restart (which emits no pty:exit). Broader terminal interaction coverage remains on the pending reliability stack.",
       "motivatingLinks": [
         "https://github.com/stablyai/orca/pull/7002",
         "https://github.com/stablyai/orca/pull/6858",
@@ -3531,7 +3531,8 @@
             "spawn signals during a slow inventory read never overlap provider-wide scans and cause at most one required follow-up",
             "unknown sessions that exit before reconciliation cancel their queued inventory read",
             "unmount during a slow inventory read cannot schedule follow-up work",
-            "exit and out-of-order refresh races cannot resurrect stale sessions"
+            "exit and out-of-order refresh races cannot resurrect stale sessions",
+            "an explicit daemon-management invalidation performs exactly one inventory read, and none before readiness or after unmount"
           ]
         },
         {

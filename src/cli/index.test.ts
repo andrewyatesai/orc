@@ -3637,7 +3637,9 @@ describe('orca cli worktree awareness', () => {
 
     expect(callMock).toHaveBeenNthCalledWith(2, 'terminal.list', {
       worktree: 'id:repo::/tmp/repo/feature',
-      limit: undefined
+      limit: undefined,
+      // Why: --json opts out of the visualLayouts payload unless --include-visual-layouts is set.
+      includeVisualLayouts: false
     })
   })
 

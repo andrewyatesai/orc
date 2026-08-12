@@ -134,9 +134,19 @@
       "why": [
         "+4 on pty.ts from the low-batch6 port (a call-site guard); orca-runtime.ts + shim held flat. Accepted attach-kind growth."
       ]
+    },
+    {
+      "date": "2026-08-12",
+      "head": "low-batch8",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36659
+      },
+      "why": [
+        "+22 on orca-runtime.ts from the checkRepoHooks status-field port (7956335ce); pty.ts + shim flat. Accepted attach-kind growth."
+      ]
     }
   ],
   "shimWholeFileLoc": 2813,
-  "src/main/runtime/orca-runtime.ts": 36659,
+  "src/main/runtime/orca-runtime.ts": 36681,
   "src/main/ipc/pty.ts": 6364
 }

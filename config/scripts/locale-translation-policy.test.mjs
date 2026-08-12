@@ -546,7 +546,7 @@ describe('locale-translation-policy', () => {
         localeValue: '玩',
         locale: 'zh'
       })
-    ).toBe('Play')
+    ).toBe('播放')
     expect(
       repairTranslatedValue({
         key: 'auto.components.right.sidebar.SourceControlAgentActionDialogForm.1bc0bdbb5e',

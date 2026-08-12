@@ -26,6 +26,9 @@ const PACKAGED_RUNTIME_PACKAGE_ROOTS = [
   'serve-sim',
   'qrcode',
   'ssh2',
+  // Why: the effective-TLD list the browser cookie-import policy uses to bound
+  // domain-scope replacement; its only dep (tldts-core) rides the closure walk.
+  'tldts',
   'tweetnacl',
   'ws',
   'yaml',

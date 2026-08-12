@@ -5,12 +5,15 @@ import { tmpdir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
 import type * as ChromiumCookieSnapshotModule from './chromium-cookie-snapshot'
 
-const { userData, sessionFromPartitionMock, cookiesSetMock, snapshotSpy } = vi.hoisted(() => ({
-  userData: { dir: '' },
-  sessionFromPartitionMock: vi.fn(),
-  cookiesSetMock: vi.fn(async () => {}),
-  snapshotSpy: vi.fn()
-}))
+const { userData, sessionFromPartitionMock, cookiesGetMock, cookiesRemoveMock, cookiesSetMock, snapshotSpy } =
+  vi.hoisted(() => ({
+    userData: { dir: '' },
+    sessionFromPartitionMock: vi.fn(),
+    cookiesGetMock: vi.fn(async () => []),
+    cookiesRemoveMock: vi.fn(async () => {}),
+    cookiesSetMock: vi.fn(async () => {}),
+    snapshotSpy: vi.fn()
+  }))
 
 vi.mock('electron', () => ({
   app: { getPath: () => userData.dir },
@@ -59,10 +62,16 @@ describe('importCookiesFromBrowser Firefox', () => {
   beforeEach(() => {
     userData.dir = mkdtempSync(join(tmpdir(), 'orca-ff-import-'))
     sessionFromPartitionMock.mockReset()
+    cookiesGetMock.mockReset()
+    cookiesGetMock.mockResolvedValue([])
+    cookiesRemoveMock.mockReset()
+    cookiesRemoveMock.mockResolvedValue(undefined)
     cookiesSetMock.mockReset()
     cookiesSetMock.mockResolvedValue(undefined)
     snapshotSpy.mockClear()
-    sessionFromPartitionMock.mockReturnValue({ cookies: { set: cookiesSetMock } })
+    sessionFromPartitionMock.mockReturnValue({
+      cookies: { get: cookiesGetMock, remove: cookiesRemoveMock, set: cookiesSetMock }
+    })
   })
 
   afterEach(() => {

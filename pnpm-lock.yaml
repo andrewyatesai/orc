@@ -65,6 +65,9 @@ importers:
       ssh2:
         specifier: ^1.17.0
         version: 1.17.0
+      tldts:
+        specifier: ^7.4.9
+        version: 7.4.9
       tweetnacl:
         specifier: ^1.0.3
         version: 1.0.3
@@ -12598,13 +12601,11 @@ snapshots:
 
   tinyrainbow@3.1.0: {}
 
-  tldts-core@7.4.9:
-    optional: true
+  tldts-core@7.4.9: {}
 
   tldts@7.4.9:
     dependencies:
       tldts-core: 7.4.9
-    optional: true
 
   tmp-promise@3.0.3:
     dependencies:

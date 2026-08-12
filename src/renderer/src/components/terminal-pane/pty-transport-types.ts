@@ -213,6 +213,9 @@ export type PtyTransport = {
   resetCrossChunkParserState?: () => void
   serializeBuffer?: (opts?: { scrollbackRows?: number }) => Promise<PtyBufferSnapshot | null>
   preserve?: () => void
+  /** Hand the live PTY to a successor without process teardown. Terminal for this instance:
+   *  it also drops the transport's output processor from the pty side-effect memory census,
+   *  so a reattached one would run untracked. Create a new transport instead. */
   detach?: () => void
   destroy?: () => void | Promise<void>
 }

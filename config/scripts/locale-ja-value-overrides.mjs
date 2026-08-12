@@ -94,7 +94,7 @@ export const JA_VALUE_OVERRIDES = {
   'Launch plan': '起動プラン',
   'Launch agent': 'エージェントを起動',
   'Launch {{value0}} in a new terminal': '新規ターミナルで {{value0}} を起動',
-  Play: 'Play',
+  Play: '再生',
   Action: '操作',
   Actions: '操作',
   action: '操作',

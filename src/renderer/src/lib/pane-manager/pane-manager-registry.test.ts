@@ -4,6 +4,7 @@ import {
   forEachLivePaneForDesyncSentinel,
   getLivePaneCensus,
   getLivePaneMemoryProfileCounts,
+  presentAllTerminalPanesWithoutAtlasClear,
   refitAndRefreshAllTerminalPanes,
   registerLivePaneManager,
   resetAndRefreshAllTerminalWebglAtlases,
@@ -114,6 +115,46 @@ describe('pane manager registry', () => {
     expect(broken.resetWebglTextureAtlases).toHaveBeenCalledTimes(1)
     expect(broken.refreshAllPanes).not.toHaveBeenCalled()
     expect(healthy.resetWebglTextureAtlases).toHaveBeenCalledTimes(1)
+    expect(healthy.refreshAllPanes).toHaveBeenCalledTimes(1)
+  })
+
+  it('presents every registered manager without resetting their atlases', () => {
+    const first = {
+      resetWebglTextureAtlases: vi.fn<() => void>(),
+      refreshAllPanes: vi.fn<() => void>()
+    }
+    const second = {
+      resetWebglTextureAtlases: vi.fn<() => void>(),
+      refreshAllPanes: vi.fn<() => void>()
+    }
+    registerLivePaneManager(first)
+    registeredManagers.push(first)
+    registerLivePaneManager(second)
+    registeredManagers.push(second)
+
+    presentAllTerminalPanesWithoutAtlasClear()
+
+    expect(first.refreshAllPanes).toHaveBeenCalledTimes(1)
+    expect(second.refreshAllPanes).toHaveBeenCalledTimes(1)
+    expect(first.resetWebglTextureAtlases).not.toHaveBeenCalled()
+    expect(second.resetWebglTextureAtlases).not.toHaveBeenCalled()
+  })
+
+  it('continues presenting later managers when one manager throws', () => {
+    const broken = {
+      refreshAllPanes: vi.fn<() => void>(() => {
+        throw new Error('pane disposed')
+      })
+    }
+    registerLivePaneManager(broken)
+    registeredManagers.push(broken)
+    const healthy = { refreshAllPanes: vi.fn<() => void>() }
+    registerLivePaneManager(healthy)
+    registeredManagers.push(healthy)
+
+    expect(() => presentAllTerminalPanesWithoutAtlasClear()).not.toThrow()
+
+    expect(broken.refreshAllPanes).toHaveBeenCalledTimes(1)
     expect(healthy.refreshAllPanes).toHaveBeenCalledTimes(1)
   })
 

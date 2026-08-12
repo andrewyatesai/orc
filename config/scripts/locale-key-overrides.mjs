@@ -162,8 +162,8 @@ const BASE_LOCALE_KEY_OVERRIDES = {
     ja: 'クローズ'
   },
   'auto.components.GitHubItemDialog.dc1ca081a8': {
-    ko: '진행 중',
-    zh: '进行中',
+    ko: '열림',
+    zh: '开放',
     ja: 'オープン'
   },
   'auto.components.tab.bar.TabBarCreateEntry.b27864279e': {

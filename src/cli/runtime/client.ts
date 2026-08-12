@@ -4,14 +4,9 @@ import { launchOrcaApp } from './launch'
 import { getDefaultUserDataPath, readMetadata } from './metadata'
 import { getCliStatus, resolveDesktopWindowStatus } from './status'
 import { sendRequest } from './transport'
-import { RuntimeClientError, RuntimeRpcFailureError, type RuntimeRpcSuccess } from './types'
-import type { sendWebSocketRequest } from './websocket-transport'
+import { RuntimeRpcFailureError, RuntimeClientError, type RuntimeRpcSuccess } from './types'
 import { markEnvironmentUsed, resolveEnvironmentPairingOffer } from './environments'
-import { describeRuntimeCompatBlock, evaluateRuntimeCompat } from '../../shared/protocol-compat'
-import {
-  MIN_COMPATIBLE_RUNTIME_SERVER_VERSION,
-  RUNTIME_PROTOCOL_VERSION
-} from '../../shared/protocol-version'
+import { RemoteRuntimeCompatGate } from './remote-runtime-compat-gate'
 
 // Why: for long-poll methods the caller's method-level
 // `params.timeoutMs` is the inner waiter budget; we extend the client-side
@@ -24,8 +19,8 @@ const LONG_POLL_CLIENT_GRACE_MS = 10_000
 // Why: ws + tweetnacl + the remote-runtime frame stack only matter once a
 // request actually goes over a pairing offer, which local CLI calls never do.
 // Both call sites already await this, so deferring the load changes no ordering.
-async function loadSendWebSocketRequest(): Promise<typeof sendWebSocketRequest> {
-  return (await import('./websocket-transport.js')).sendWebSocketRequest
+async function loadWebSocketTransport() {
+  return await import('./websocket-transport.js')
 }
 
 export class RuntimeClient {
@@ -33,7 +28,7 @@ export class RuntimeClient {
   private readonly requestTimeoutMs: number
   private readonly remotePairing: PairingOffer | null
   private readonly environmentSelector: string | null
-  private remoteCompatChecked = false
+  private readonly remoteCompat: RemoteRuntimeCompatGate
 
   // Why: browser commands trigger first-time session init (agent-browser connect +
   // CDP proxy setup) which can take 15-30s. 60s accommodates cold start without
@@ -48,6 +43,7 @@ export class RuntimeClient {
     this.requestTimeoutMs = requestTimeoutMs
     this.environmentSelector = environmentSelector
     this.remotePairing = resolveRemotePairing(userDataPath, remotePairingCode, environmentSelector)
+    this.remoteCompat = new RemoteRuntimeCompatGate(userDataPath, environmentSelector)
   }
 
   get isRemote(): boolean {
@@ -67,16 +63,14 @@ export class RuntimeClient {
   ): Promise<RuntimeRpcSuccess<TResult>> {
     const effectiveTimeoutMs = options?.timeoutMs ?? this.resolveMethodTimeoutMs(method, params)
     if (this.remotePairing) {
-      if (method !== 'status.get') {
-        await this.ensureRemoteRuntimeCompatible(effectiveTimeoutMs)
-      }
-      const sendWebSocketRequest = await loadSendWebSocketRequest()
-      const response = await sendWebSocketRequest<TResult>(
-        this.remotePairing,
+      const transport = await loadWebSocketTransport()
+      const response = await this.remoteCompat.send<TResult>({
+        transport,
+        pairing: this.remotePairing,
         method,
         params,
-        effectiveTimeoutMs
-      )
+        timeoutMs: effectiveTimeoutMs
+      })
       if (response.ok === false) {
         throw new RuntimeRpcFailureError(response)
       }
@@ -116,8 +110,7 @@ export class RuntimeClient {
   async getCliStatus(): Promise<RuntimeRpcSuccess<CliStatusResult>> {
     if (this.remotePairing) {
       const response = await this.call<RuntimeStatus>('status.get')
-      this.assertRemoteRuntimeStatusCompatible(response.result)
-      this.remoteCompatChecked = true
+      this.remoteCompat.noteVerifiedStatus(response.result)
       const graphState = response.result.graphStatus
       return {
         id: response.id,
@@ -153,42 +146,6 @@ export class RuntimeClient {
       }
     }
     return getCliStatus(this.userDataPath)
-  }
-
-  private async ensureRemoteRuntimeCompatible(timeoutMs: number): Promise<void> {
-    if (!this.remotePairing || this.remoteCompatChecked) {
-      return
-    }
-    const sendWebSocketRequest = await loadSendWebSocketRequest()
-    const response = await sendWebSocketRequest<RuntimeStatus>(
-      this.remotePairing,
-      'status.get',
-      undefined,
-      timeoutMs
-    )
-    if (response.ok === false) {
-      throw new RuntimeRpcFailureError(response)
-    }
-    this.assertRemoteRuntimeStatusCompatible(response.result)
-    this.remoteCompatChecked = true
-    if (this.environmentSelector) {
-      markEnvironmentUsed(this.userDataPath, this.environmentSelector, {
-        runtimeId: response._meta.runtimeId
-      })
-    }
-  }
-
-  private assertRemoteRuntimeStatusCompatible(status: RuntimeStatus): void {
-    const verdict = evaluateRuntimeCompat({
-      clientProtocolVersion: RUNTIME_PROTOCOL_VERSION,
-      minCompatibleServerProtocolVersion: MIN_COMPATIBLE_RUNTIME_SERVER_VERSION,
-      serverProtocolVersion: status.runtimeProtocolVersion ?? status.protocolVersion,
-      serverMinCompatibleClientProtocolVersion:
-        status.minCompatibleRuntimeClientVersion ?? status.minCompatibleMobileVersion
-    })
-    if (verdict.kind === 'blocked') {
-      throw new RuntimeClientError('incompatible_runtime', describeRuntimeCompatBlock(verdict))
-    }
   }
 
   async openOrca(timeoutMs = 15_000): Promise<RuntimeRpcSuccess<CliStatusResult>> {

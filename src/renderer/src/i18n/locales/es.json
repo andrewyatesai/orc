@@ -4362,7 +4362,9 @@
           "83a820fa71": "Filtrar proyectos...",
           "5a273fbfce": "Agregar proyecto...",
           "4815c70605": "Ningún proyecto coincide",
-          "bbbc6e8e3b": "Ningún proyecto no seleccionado coincide"
+          "bbbc6e8e3b": "Ningún proyecto no seleccionado coincide",
+          "allProjects": "Todos los proyectos",
+          "selectedProjectsCount": "{{value0}} proyectos"
         },
         "SidebarSettingsHelpMenu": {
           "ad3d3ed7f1": "Reiniciar Orca",
@@ -4436,6 +4438,7 @@
           "680043342f": "compacto",
           "c7591b6014": "repositorio",
           "hosts": "Hosts",
+          "showSection": "Mostrar",
           "allHostsDetail": "Mostrar todos los hosts",
           "configuredSshHost": "SSH configurado",
           "projectSshHost": "SSH del proyecto",
@@ -13993,6 +13996,8 @@
             "1b179ab561": "Copiar URL de página",
             "f7ab83f7ed": "Abrir página en el navegador predeterminado",
             "0e080d820e": "Recargar",
+            "a1f3c2e4b5": "Recarga forzada",
+            "b7e4d9c1a2": "Detener",
             "250a9b3e42": "Adelante",
             "40edfa75cb": "Atrás",
             "efb0e8f7f3": "Copiar dirección de enlace",
@@ -15263,7 +15268,7 @@
         "other": "Otro…",
         "otherPlaceholder": "Escribe tu respuesta",
         "cancel": "Cancelar",
-        "send": "Enviar respuesta",
+        "send": "Enviar",
         "next": "Siguiente",
         "skip": "Omitir",
         "sending": "Enviando…"

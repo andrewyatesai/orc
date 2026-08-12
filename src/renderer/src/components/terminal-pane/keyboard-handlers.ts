@@ -330,7 +330,22 @@ export function useTerminalKeyboardShortcuts({
       }
       const state = useAppStore.getState()
       const paneKey = makePaneKey(tabId, activePane.leafId)
-      return resolveWindowsShiftEnterEncodingForPane(state, paneKey)
+      // Why: foreground titles only recover trust on local Windows ConPTY panes;
+      // gate the title so SSH/relay panes cannot forge a Pi/Droid CSI-u encoding.
+      const terminalTitle = isLocalWindowsConptyPaneForCtrlArrow({
+        isWindows,
+        userAgent: navigator.userAgent,
+        state,
+        worktreeId,
+        tabId,
+        paneId: activePane.id,
+        paneCwd: paneCwdRef.current,
+        fallbackCwd,
+        transport: paneTransportsRef.current.get(activePane.id) ?? null
+      })
+        ? state.runtimePaneTitlesByTabId[tabId]?.[activePane.id]
+        : undefined
+      return resolveWindowsShiftEnterEncodingForPane(state, paneKey, terminalTitle)
     }
 
     // Why: host metadata is live and can hydrate after the terminal mounts;

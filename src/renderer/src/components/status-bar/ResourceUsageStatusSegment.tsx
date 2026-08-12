@@ -827,9 +827,6 @@ export function ResourceUsageStatusSegment({
       clearSessionsError()
       void fetchSnapshot()
       void refreshSessions()
-    },
-    onKillAllSettled: () => {
-      void refreshSessions()
     }
   })
 

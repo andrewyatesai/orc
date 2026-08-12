@@ -4686,7 +4686,7 @@
     "ko": "중지 중"
   },
   "auto.components.status.bar.WorkspaceSpaceCompactPanel.8ff597593d": {
-    "ko": "Space"
+    "ko": "저장 공간"
   },
   "auto.components.status.bar.WorkspaceSpaceCompactPanel.9be86c46a0": {
     "ko": "확보 가능"
@@ -4956,7 +4956,7 @@
     "ko": "선택한 리포지토리와 일치하는 비활성 워크스페이스가 없습니다."
   },
   "auto.components.workspace.space.WorkspaceSpacePage.45f6302dbc": {
-    "ko": "Space"
+    "ko": "저장 공간"
   },
   "auto.components.workspace.space.WorkspaceSpacePage.8d0048e1cb": {
     "ko": "워크스페이스 디스크 사용량과 회수 가능한 워크트리 저장 공간."

@@ -71,6 +71,7 @@ import {
 } from './runtime-environments'
 import { advanceRuntimeEnvironmentTransportGeneration } from './runtime-environment-transport-generation'
 import { toRuntimeExecutionHostId } from '../../shared/execution-host'
+import { RemoteRuntimeClientError } from '../../shared/remote-runtime-client-error'
 
 function pairingCode(endpoint = 'ws://127.0.0.1:6768'): string {
   return encodePairingOffer({
@@ -532,6 +533,39 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       75
     )
     expect(sendRemoteRuntimeConnectionRequestMock).not.toHaveBeenCalled()
+  })
+
+  it('returns a typed transport rejection as a structured failure so its code survives IPC', async () => {
+    // Why: a thrown error loses its `code` crossing ipcMain.handle; the handler
+    // must hand back {ok:false, error:{code,message}} instead of rejecting, or
+    // the renderer falls back to English-message classification (#12667).
+    registerRuntimeEnvironmentHandlers(store as never)
+    sendRemoteRuntimeRequestMock.mockRejectedValue(
+      new RemoteRuntimeClientError(
+        'remote_runtime_unavailable',
+        'Remote Orca runtime is not connected.'
+      )
+    )
+
+    const add = handler<
+      { name: string; pairingCode: string },
+      { environment: { id: string; name: string } }
+    >('runtimeEnvironments:addFromPairingCode')
+    await add(null, { name: 'desk', pairingCode: pairingCode() })
+
+    const call = handler<
+      { selector: string; method: string; params?: unknown; timeoutMs?: number },
+      { ok: false; error: { code: string; message: string } }
+    >('runtimeEnvironments:call')
+    await expect(
+      call(null, { selector: 'desk', method: 'session.tabs.list' })
+    ).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: 'remote_runtime_unavailable',
+        message: expect.stringContaining('Remote Orca runtime is not connected.')
+      }
+    })
   })
 
   it('falls back to one-shot RPC when the saved runtime lacks shared-control support', async () => {

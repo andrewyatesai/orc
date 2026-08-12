@@ -27,7 +27,7 @@ describe('locale-translation-policy ja round 5', () => {
         localeValue: '遊ぶ',
         locale: 'ja'
       })
-    ).toBe('Play')
+    ).toBe('再生')
     expect(
       repairTranslatedValue({
         key: 'auto.components.TaskPage.8396825a14',

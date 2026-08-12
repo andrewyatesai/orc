@@ -73,6 +73,7 @@ import {
   getTaskSourceRuntimeSettings,
   type TaskSourceContext
 } from '../../../../shared/task-source-context'
+import { normalizeGitHubPRForBranchOutcome } from '../../../../shared/github-pr-for-branch-outcome'
 
 // ─── ProjectV2 cache types ────────────────────────────────────────────
 // Why: separate from CacheEntry<T> — project-view has a single GraphQL source (no issue/PR fallback) and a distinct error union.
@@ -2079,18 +2080,6 @@ export type GitHubSlice = {
   patchProjectRowContent: (cacheKey: string, rowId: string, patch: ProjectRowContentPatch) => void
 }
 
-/** Normalizes `github.prForBranch` into a {@link PRRefreshOutcome}: preserves a runtime `upstream-error` instead of collapsing to a false "no PR"; a legacy host returning `PRInfo | null` maps to `found`/`no-pr`. */
-function normalizeRuntimePRForBranchOutcome(
-  result: PRRefreshOutcome | PRInfo | null
-): PRRefreshOutcome {
-  if (result && typeof result === 'object' && 'kind' in result) {
-    return result
-  }
-  return result
-    ? { kind: 'found', pr: result, fetchedAt: Date.now() }
-    : { kind: 'no-pr', fetchedAt: Date.now() }
-}
-
 export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (set, get) => ({
   prCache: {},
   issueCache: {},
@@ -3116,7 +3105,7 @@ export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (s
                   : {})
               },
               { timeoutMs: 30_000 }
-            ).then((result) => normalizeRuntimePRForBranchOutcome(result))
+            ).then((result) => normalizeGitHubPRForBranchOutcome(result))
           : await (async () => {
               const candidate: GitHubPRRefreshCandidate = {
                 repoId: repoId ?? '',
@@ -3138,24 +3127,18 @@ export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (s
                 cachedMergeable: cached?.data?.mergeable ?? null,
                 cachedMergeStateStatus: cached?.data?.mergeStateStatus ?? null
               }
-              return window.api.gh.refreshPRNow
+              const response = window.api.gh.refreshPRNow
                 ? await window.api.gh.refreshPRNow({ candidate })
-                : await window.api.gh
-                    .prForBranch({
-                      repoPath,
-                      repoId,
-                      branch,
-                      linkedPRNumber,
-                      fallbackPRNumber,
-                      acceptMergedFallbackPR:
-                        fallbackPRNumber !== null && fallbackPRSource !== null,
-                      currentHeadOid: requestHeadOid
-                    })
-                    .then((pr) =>
-                      pr
-                        ? ({ kind: 'found', pr, fetchedAt: Date.now() } as const)
-                        : ({ kind: 'no-pr', fetchedAt: Date.now() } as const)
-                    )
+                : await window.api.gh.prForBranch({
+                    repoPath,
+                    repoId,
+                    branch,
+                    linkedPRNumber,
+                    fallbackPRNumber,
+                    acceptMergedFallbackPR: fallbackPRNumber !== null && fallbackPRSource !== null,
+                    currentHeadOid: requestHeadOid
+                  })
+              return normalizeGitHubPRForBranchOutcome(response)
             })()
         const pr: PRInfo | null =
           outcome.kind === 'found' ? outcome.pr : outcome.kind === 'no-pr' ? null : null

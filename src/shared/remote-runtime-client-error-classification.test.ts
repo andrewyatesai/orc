@@ -33,6 +33,24 @@ describe('remote runtime client error classification', () => {
     expect(isRuntimeRpcQueueOverloadError(error)).toBe(true)
   })
 
+  it('trusts a structured recovery code before legacy message fragments', () => {
+    expect(
+      isRecoverableRemoteRuntimeConnectionError({
+        code: 'unauthorized',
+        message: 'Remote Orca runtime closed the connection.'
+      })
+    ).toBe(false)
+  })
+
+  it('trusts a structured queue code before legacy message fragments', () => {
+    expect(
+      isRuntimeRpcQueueOverloadError({
+        code: 'remote_runtime_unavailable',
+        message: 'Remote runtime call queue is full; retry after current calls finish.'
+      })
+    ).toBe(false)
+  })
+
   it('does not retry authentication or protocol failures', () => {
     expect(
       isRecoverableRemoteRuntimeConnectionError({ code: 'unauthorized', message: 'bad token' })

@@ -1,7 +1,12 @@
 import type { AgentStatusEntry } from '../../../shared/agent-status-types'
 import type { TerminalLayoutSnapshot, TuiAgent } from '../../../shared/types'
-import { isTerminalLeafId, makePaneKey, parsePaneKey } from '../../../shared/stable-pane-id'
+import { isTerminalLeafId, makePaneKey } from '../../../shared/stable-pane-id'
 import { agentTypeToIconAgent } from './agent-status'
+import {
+  firstTabAgentExcludingLeaf,
+  selectCompletedTabAgentPanes,
+  selectLiveTabAgentPanes
+} from './tab-agent-status-index'
 
 /**
  * Resolve a terminal tab's agent from hook-reported status — the PRIMARY
@@ -43,16 +48,10 @@ function resolveAnyTabAgent(
   tabId: string,
   excludedLeafId?: string
 ): TuiAgent | null {
-  for (const [paneKey, entry] of Object.entries(agentStatusByPaneKey)) {
-    const parsedPaneKey = parsePaneKey(paneKey)
-    if (parsedPaneKey?.tabId === tabId && parsedPaneKey.leafId !== excludedLeafId) {
-      const agent = agentFromStatusEntry(entry)
-      if (agent) {
-        return agent
-      }
-    }
-  }
-  return null
+  return firstTabAgentExcludingLeaf(
+    selectLiveTabAgentPanes(agentStatusByPaneKey, tabId),
+    excludedLeafId
+  )
 }
 
 function agentFromStatusEntry(entry: AgentStatusEntry | undefined): TuiAgent | null {
@@ -92,16 +91,10 @@ function resolveAnyCompletedTabAgent(
   tabId: string,
   excludedLeafId?: string
 ): TuiAgent | null {
-  for (const [paneKey, entry] of Object.entries(agentStatusByPaneKey)) {
-    const parsedPaneKey = parsePaneKey(paneKey)
-    if (parsedPaneKey?.tabId === tabId && parsedPaneKey.leafId !== excludedLeafId) {
-      const agent = completedAgentFromStatusEntry(entry)
-      if (agent) {
-        return agent
-      }
-    }
-  }
-  return null
+  return firstTabAgentExcludingLeaf(
+    selectCompletedTabAgentPanes(agentStatusByPaneKey, tabId),
+    excludedLeafId
+  )
 }
 
 function completedAgentFromStatusEntry(entry: AgentStatusEntry | undefined): TuiAgent | null {
