@@ -31,6 +31,7 @@ import type { OpenFile } from '../store/slices/editor'
 import { isTerminalLeafId, makePaneKey, parsePaneKey } from '../../../shared/stable-pane-id'
 import { getRemoteRuntimePtyEnvironmentId, toRemoteRuntimePtyId } from './runtime-terminal-stream'
 import { sanitizeTerminalLayoutPaneTitlesForLabels } from '@/lib/terminal-pane-title-sanitization'
+import { normalizeTerminalLayoutPtyOwnership } from '@/components/terminal-pane/terminal-layout-pty-ownership'
 import {
   getExplicitRuntimeEnvironmentIdForWorktree,
   getRuntimeSessionMirrorEnvironmentIds
@@ -115,6 +116,7 @@ type MirroredTerminalTab = {
   hostTabId: string
   ptyIds: string[]
   layout: TerminalLayoutSnapshot
+  retainedSurfaceByPrunedLeafId?: ReadonlyMap<string, TerminalSurface>
 }
 
 type MirroredBrowserTab = {
@@ -585,9 +587,26 @@ function buildMirroredTerminalTabs(
         .filter((surface): surface is ReadyTerminalSurface => surface.status === 'ready')
         .map((surface) => [surface.leafId, toRemoteRuntimePtyId(surface.terminal, environmentId)])
     )
-    const ptyIds = surfaces
-      .map((surface) => ptyIdsByLeafId[surface.leafId]!)
-      .filter((ptyId): ptyId is string => typeof ptyId === 'string' && ptyId.length > 0)
+    const layout = normalizeTerminalLayoutPtyOwnership(
+      chooseRemoteTerminalLayout(surfaces, ptyIdsByLeafId, existingLayout, requestedActiveLeafId)
+    ).snapshot
+    const layoutPtyEntries = Object.entries(layout.ptyIdsByLeafId ?? {})
+    const ptyIds = layoutPtyEntries.map(([, ptyId]) => ptyId)
+    let retainedSurfaceByPrunedLeafId: Map<string, TerminalSurface> | undefined
+    if (layoutPtyEntries.length < Object.keys(ptyIdsByLeafId).length) {
+      const retainedLeafIdByPtyId = new Map(layoutPtyEntries.map(([leafId, ptyId]) => [ptyId, leafId]))
+      const surfaceByLeafId = new Map(surfaces.map((surface) => [surface.leafId, surface]))
+      retainedSurfaceByPrunedLeafId = new Map()
+      for (const [leafId, ptyId] of Object.entries(ptyIdsByLeafId)) {
+        const retainedLeafId = retainedLeafIdByPtyId.get(ptyId)
+        if (retainedLeafId && retainedLeafId !== leafId) {
+          const retainedSurface = surfaceByLeafId.get(retainedLeafId)
+          if (retainedSurface) {
+            retainedSurfaceByPrunedLeafId.set(leafId, retainedSurface)
+          }
+        }
+      }
+    }
     const launchAgent =
       activeSurface.launchAgent ?? surfaces.find((surface) => surface.launchAgent)?.launchAgent
     const ownerAgent = resolvePaneAgentOwner({
@@ -645,34 +664,33 @@ function buildMirroredTerminalTabs(
       },
       hostTabId: parentTabId,
       ptyIds,
-      layout: chooseRemoteTerminalLayout(
-        surfaces,
-        ptyIdsByLeafId,
-        existingLayout,
-        requestedActiveLeafId
-      )
+      layout,
+      ...(retainedSurfaceByPrunedLeafId ? { retainedSurfaceByPrunedLeafId } : {})
     }
   })
 }
 
-function toMirroredPaneKey(surface: TerminalSurface): string | null {
-  if (!isTerminalLeafId(surface.leafId)) {
+function toMirroredPaneKey(surface: TerminalSurface, leafId = surface.leafId): string | null {
+  if (!isTerminalLeafId(leafId)) {
     return null
   }
-  return makePaneKey(toWebTerminalSurfaceTabId(surface.parentTabId), surface.leafId)
+  return makePaneKey(toWebTerminalSurfaceTabId(surface.parentTabId), leafId)
 }
 
 /** Normalises and mirrors agent status updates from the host payload, preserving ownership metadata. */
-function remapHostAgentStatus(surface: TerminalSurface): AgentStatusEntry | null {
+function remapHostAgentStatus(
+  surface: TerminalSurface,
+  retainedSurface?: TerminalSurface
+): AgentStatusEntry | null {
   if (!surface.agentStatus) {
     return null
   }
-  const paneKey = toMirroredPaneKey(surface)
+  const paneKey = toMirroredPaneKey(surface, retainedSurface?.leafId)
   if (!paneKey) {
     return null
   }
   const ownerAgent = resolvePaneAgentOwner({
-    launchAgent: surface.launchAgent,
+    launchAgent: retainedSurface?.launchAgent ?? surface.launchAgent,
     hookAgent: surface.agentStatus.agentType
   })
   return {
@@ -691,6 +709,7 @@ function buildMirroredAgentStatusPatch(
   state: WebSessionTabsSyncState,
   currentTerminalTabs: readonly TerminalTab[],
   terminalSurfaceTabs: readonly TerminalSurface[],
+  mirroredTerminalTabs: readonly MirroredTerminalTab[],
   now: number
 ): Pick<WebSessionTabsSyncState, 'agentStatusByPaneKey' | 'agentStatusEpoch' | 'sortEpoch'> | null {
   const mirroredTabIds = new Set<string>()
@@ -707,13 +726,27 @@ function buildMirroredAgentStatusPatch(
     return null
   }
 
+  let retainedSurfaceByHostTabAndPrunedLeafId:
+    | Map<string, ReadonlyMap<string, TerminalSurface>>
+    | undefined
+  for (const entry of mirroredTerminalTabs) {
+    if (entry.retainedSurfaceByPrunedLeafId) {
+      retainedSurfaceByHostTabAndPrunedLeafId ??= new Map()
+      retainedSurfaceByHostTabAndPrunedLeafId.set(entry.hostTabId, entry.retainedSurfaceByPrunedLeafId)
+    }
+  }
   const nextByPaneKey = new Map<string, AgentStatusEntry>()
   for (const surface of terminalSurfaceTabs) {
-    const entry = remapHostAgentStatus(surface)
+    const retainedSurface = retainedSurfaceByHostTabAndPrunedLeafId
+      ?.get(surface.parentTabId)
+      ?.get(surface.leafId)
+    const entry = remapHostAgentStatus(surface, retainedSurface)
     if (!entry) {
       continue
     }
-    const existing = state.agentStatusByPaneKey[entry.paneKey]
+    // Why: a pruned duplicate leaf remaps onto the retained pane key, so coalesce with the entry
+    // already staged this pass before falling back to the store snapshot.
+    const existing = nextByPaneKey.get(entry.paneKey) ?? state.agentStatusByPaneKey[entry.paneKey]
     // Why: an active web stream can report a fresher OSC 9999 status before the next host snapshot, so don't rewind it with an older host publication.
     const nextEntry =
       existing && existing.updatedAt > entry.updatedAt
@@ -2514,6 +2547,7 @@ export function applyWebSessionTabsSnapshot(
     state,
     currentTerminalTabs,
     terminalSurfaceTabs,
+    mirroredTerminalTabs,
     now
   )
 

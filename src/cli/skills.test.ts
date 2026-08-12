@@ -63,8 +63,15 @@ vi.mock('./runtime-client', () => {
   }
 })
 
+// Why: force a bare host — no agent detected — so the headless install refusal is
+// deterministic instead of depending on what is installed on the test machine.
+vi.mock('../main/ipc/local-agent-install-dir-detection', () => ({
+  detectCommandsInInstallDirs: () => new Set<string>()
+}))
+
 import { dispatch } from './dispatch'
 import { main } from './index'
+import { ORCA_SKILLS_REPOSITORY_URL } from '../shared/agent-feature-install-commands'
 
 describe('orca skills CLI', () => {
   beforeEach(() => {
@@ -190,6 +197,123 @@ describe('orca skills CLI', () => {
       'Unknown skill topic "missing". Available topics: alpha, zeta'
     )
     expect(runtimeClientConstructorMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('orca skills install/update (headless)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    runtimeClientConstructorMock.mockClear()
+    delete process.env.ORCA_CLI_CWD
+    process.exitCode = undefined
+  })
+
+  it('renders the exact npx argv for a scoped --dry-run install without spawning', async () => {
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+
+    await main(
+      ['skills', 'install', '--skill', 'alpha', '--agent', 'universal', '--dry-run'],
+      '/tmp/repo'
+    )
+
+    expect(stdoutText(stdoutSpy)).toBe(
+      `npx --yes skills add ${ORCA_SKILLS_REPOSITORY_URL} --skill alpha --global --agent universal -y\n\n` +
+        'Rerun without --dry-run to install now.\n'
+    )
+    expect(process.exitCode).toBeUndefined()
+    expect(runtimeClientConstructorMock).not.toHaveBeenCalled()
+  })
+
+  it('scopes to the current project with --local and rejects unknown skills', async () => {
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+
+    await main(
+      ['skills', 'update', '--skill', 'alpha', '--local', '--dry-run'],
+      '/tmp/repo'
+    )
+    expect(stdoutText(stdoutSpy)).toBe(
+      'npx --yes skills update alpha --project -y\n\nRerun without --dry-run to update now.\n'
+    )
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await main(['skills', 'install', '--skill', 'missing'], '/tmp/repo')
+    expect(process.exitCode).toBe(1)
+    expect(String(errorSpy.mock.calls.at(-1)?.[0])).toContain(
+      'Unknown skill "missing". Available skills: alpha, zeta'
+    )
+  })
+
+  it('lists installable skills when neither --skill nor --all is given', async () => {
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+
+    await main(['skills', 'install'], '/tmp/repo')
+
+    expect(stdoutText(stdoutSpy)).toBe(
+      [
+        'Choose one or more skills to install:',
+        '  alpha',
+        '  zeta',
+        '',
+        'Usage: orca skills install --skill <name> [--skill <name> ...]',
+        '   or: orca skills install --all\n'
+      ].join('\n')
+    )
+  })
+
+  it('refuses a real install with --json because npx output is not JSON', async () => {
+    // Why: --json routes the failure through console.log as a JSON envelope.
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await main(
+      ['skills', 'install', '--skill', 'alpha', '--agent', 'universal', '--json'],
+      '/tmp/repo'
+    )
+
+    expect(process.exitCode).toBe(1)
+    expect(String(logSpy.mock.calls.at(-1)?.[0])).toContain(
+      'orca skills install --json only supports --dry-run'
+    )
+  })
+
+  it('refuses to install with no detected agent and no explicit --agent', async () => {
+    // Why: the whole point of the feature — a bare headless host must not fan out
+    // into ~75 agent config directories, so an empty detection refuses loudly.
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await main(['skills', 'install', '--skill', 'alpha', '--dry-run'], '/tmp/repo')
+
+    expect(process.exitCode).toBe(1)
+    expect(String(errorSpy.mock.calls.at(-1)?.[0])).toContain(
+      'No coding agent detected on this host'
+    )
+  })
+
+  it('rejects an --agent value the skills CLI would silently drop', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await main(['skills', 'install', '--skill', 'alpha', '--agent', '-y'], '/tmp/repo')
+    expect(process.exitCode).toBe(1)
+    expect(String(errorSpy.mock.calls.at(-1)?.[0])).toContain('Invalid --agent value "-y"')
+
+    process.exitCode = undefined
+    await main(['skills', 'install', '--skill', 'alpha', '--agent', ','], '/tmp/repo')
+    expect(process.exitCode).toBe(1)
+    expect(String(errorSpy.mock.calls.at(-1)?.[0])).toContain('Missing required --agent')
+  })
+
+  it('refuses to write to the wrong host when the shell forwards orca', async () => {
+    process.env.ORCA_CLI_CWD = '/remote/project'
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await main(
+      ['skills', 'install', '--skill', 'alpha', '--agent', 'universal', '--dry-run'],
+      '/tmp/repo'
+    )
+
+    expect(process.exitCode).toBe(1)
+    expect(String(errorSpy.mock.calls.at(-1)?.[0])).toContain(
+      'writes to the machine that runs it'
+    )
   })
 })
 

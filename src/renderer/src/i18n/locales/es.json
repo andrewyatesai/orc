@@ -305,6 +305,11 @@
             "f518e89aa5": "El proyecto ya existe en ese perfil",
             "f03ae7f27b": "Error al transferir proyecto"
           }
+        },
+        "runtime": {
+          "status": {
+            "runtimeHostDisconnectedDescription": "Workspaces and terminals on this server are unavailable."
+          }
         }
       }
     },
@@ -3236,7 +3241,8 @@
             "runtime_disconnect_failed": "No se pudo desconectar",
             "runtime_reconnecting": "Reconectando",
             "runtime_last_close_reason": "Cerrado: {{value0}}",
-            "runtime_reconnect_attempt": "Intento {{value0}}"
+            "runtime_reconnect_attempt": "Intento {{value0}}",
+            "runtime_workspace_window_closed": "Workspace window closed"
           },
           "StatusBar": {
             "9659e38343": "Puertos",
@@ -4478,7 +4484,8 @@
         },
         "WorkspaceKanbanStatusLane": {
           "8ad104642b": "Vacío",
-          "3611d1ae7f": "Cambiar tamaño de columnas del tablero de espacios de trabajo"
+          "3611d1ae7f": "Cambiar tamaño de columnas del tablero de espacios de trabajo",
+          "2df01a03ff": "No hay coincidencias"
         },
         "WorkspaceStatusAppearancePopover": {
           "514be2f569": "Establecer color de {{value0}} en {{value1}}",
@@ -5116,6 +5123,14 @@
         "WorktreeDeveloperMenu": {
           "developer": "Developer",
           "parkTerminal": "Park terminal"
+        },
+        "WorkspaceKanbanSearchField": {
+          "bdb753c78d": "Ningún espacio de trabajo coincide",
+          "4d96c209d6": "{{value0}} de {{value1}} espacios de trabajo coinciden",
+          "c0cd6bdf6c": "Buscar espacios de trabajo",
+          "3b7ea51793": "Borrar búsqueda",
+          "7f1c2e94a5": "El texto de búsqueda es demasiado largo: el tablero no está filtrado",
+          "9a4d0f6b21": "Demasiado largo"
         }
       },
       "shared": {
@@ -6641,7 +6656,9 @@
           "projectRuntimeDescription": "Elige si este proyecto se ejecuta en Windows o WSL.",
           "hostStateDisconnected": "Disconnected",
           "hostStateUnknown": "Unknown",
-          "nestedHostLabel": "{{value0}} via {{value1}}"
+          "nestedHostLabel": "{{value0}} via {{value1}}",
+          "hostStateWorkspaceWindowClosed": "Workspace window closed",
+          "hostWorkspaceWindowClosedHelp": "The server is reachable but its Orca window is closed. Open Orca on {{value0}} to use this setup."
         },
         "RepositorySourceControlAiActionRows": {
           "548a6e1281": "Plantilla de comando",
@@ -11113,7 +11130,9 @@
             "sessionHostMismatchUnsupported": "Esta sesión pertenece a un host diferente. Abre un espacio de trabajo en el mismo host para reanudarla.",
             "runtimeBrowseLocalHistory": "Los espacios de trabajo alojados en el runtime pueden explorar el historial local. Las acciones de reanudación están disponibles en espacios de trabajo locales y SSH.",
             "runtimeWorkspacesUnsupported": "Reanudar desde el historial no está disponible en espacios de trabajo alojados en el runtime.",
-            "prepareSessionResumeFailed": "Could not prepare this session for resume."
+            "prepareSessionResumeFailed": "Could not prepare this session for resume.",
+            "sessionDeleted": "Session deleted",
+            "sessionDeleteFailed": "Couldn't delete the session"
           },
           "AiVaultPanelControls": {
             "scanningSessions": "Buscando sesiones",
@@ -11231,7 +11250,11 @@
             "jumpToWorktree": "Saltar al worktree",
             "recoverableBadge": "No guardada",
             "subagentCountSingular": "1 subagente",
-            "subagentCountPlural": "{{value0}} subagentes"
+            "subagentCountPlural": "{{value0}} subagentes",
+            "delete": "Delete",
+            "deleteReasonNonLocalHost": "Only sessions on this device can be deleted.",
+            "deleteReasonSyntheticPath": "This session can't be deleted from Orca.",
+            "deleteReasonUnsupportedAgent": "{{value0}} sessions can't be deleted from Orca."
           },
           "FileExplorerNameFilter": {
             "26fb73c6e3": "Buscar archivos",
@@ -11317,6 +11340,11 @@
           },
           "activityBar": {
             "error": "Error"
+          },
+          "AiVaultSessionDeleteDialog": {
+            "title": "Delete this session?",
+            "description": "\"{{value0}}\" will be deleted. Once deleted, it will no longer be resumable from {{value1}}'s own command line either.",
+            "confirm": "Delete"
           }
         }
       },
@@ -11829,7 +11857,8 @@
         "NetworkInterfacePicker": {
           "trigger-label": "Dirección de red para anunciar",
           "custom-option": "{{address}} (personalizada)",
-          "add-custom": "Añadir dirección personalizada…"
+          "add-custom": "Añadir dirección personalizada…",
+          "no-address-selected": "No address selected"
         },
         "WindowsFirewallNotice": {
           "repair-success": "Windows Firewall now allows Orca Mobile on private networks",
@@ -13086,6 +13115,7 @@
           "4cc7b83ffe": "Filtrar archivos...",
           "21783df79f": "Contraer árbol de archivos",
           "481e63ca52": "Archivos",
+          "resizeFileTree": "Cambiar el tamaño del árbol de archivos",
           "d5ac717d65": "sin commit",
           "39b6b9e4e4": "Commits en la rama"
         },

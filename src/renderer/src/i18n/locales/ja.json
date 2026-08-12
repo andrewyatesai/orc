@@ -305,6 +305,11 @@
             "f518e89aa5": "プロジェクトはそのプロファイルに既に存在します",
             "f03ae7f27b": "プロジェクトの転送に失敗しました"
           }
+        },
+        "runtime": {
+          "status": {
+            "runtimeHostDisconnectedDescription": "Workspaces and terminals on this server are unavailable."
+          }
         }
       }
     },
@@ -3236,7 +3241,8 @@
             "runtime_disconnect_failed": "切断に失敗しました",
             "runtime_reconnecting": "再接続中",
             "runtime_last_close_reason": "クローズ: {{value0}}",
-            "runtime_reconnect_attempt": "試行 {{value0}}"
+            "runtime_reconnect_attempt": "試行 {{value0}}",
+            "runtime_workspace_window_closed": "Workspace window closed"
           },
           "StatusBar": {
             "9659e38343": "ポート",
@@ -4459,7 +4465,8 @@
         },
         "WorkspaceKanbanStatusLane": {
           "8ad104642b": "空の",
-          "3611d1ae7f": "ワークスペースボードの列のサイズを変更する"
+          "3611d1ae7f": "ワークスペースボードの列のサイズを変更する",
+          "2df01a03ff": "一致なし"
         },
         "WorkspaceStatusAppearancePopover": {
           "514be2f569": "{{value0}} の色を {{value1}} に設定します",
@@ -5116,6 +5123,14 @@
         "WorktreeDeveloperMenu": {
           "developer": "Developer",
           "parkTerminal": "Park terminal"
+        },
+        "WorkspaceKanbanSearchField": {
+          "bdb753c78d": "一致するワークスペースはありません",
+          "4d96c209d6": "{{value1}} 件中 {{value0}} 件のワークスペースが一致します",
+          "c0cd6bdf6c": "ワークスペースの検索",
+          "3b7ea51793": "検索をクリア",
+          "7f1c2e94a5": "検索テキストが長すぎます — ボードは絞り込まれていません",
+          "9a4d0f6b21": "長すぎます"
         }
       },
       "shared": {
@@ -6663,7 +6678,9 @@
           "projectRuntimeDescription": "Choose whether this project runs on Windows or WSL.",
           "hostStateDisconnected": "Disconnected",
           "hostStateUnknown": "Unknown",
-          "nestedHostLabel": "{{value0}} via {{value1}}"
+          "nestedHostLabel": "{{value0}} via {{value1}}",
+          "hostStateWorkspaceWindowClosed": "Workspace window closed",
+          "hostWorkspaceWindowClosedHelp": "The server is reachable but its Orca window is closed. Open Orca on {{value0}} to use this setup."
         },
         "RepositorySourceControlAiActionRows": {
           "548a6e1281": "コマンドテンプレート",
@@ -11113,7 +11130,9 @@
             "sessionHostMismatchUnsupported": "このセッションは別のホストに属しています。再開するには同じホスト上のワークスペースを開いてください。",
             "runtimeBrowseLocalHistory": "ランタイムでホストされるワークスペースではローカル履歴を閲覧できます。再開アクションはローカルおよび SSH のワークスペースで利用できます。",
             "runtimeWorkspacesUnsupported": "ランタイムでホストされるワークスペースでは、履歴からの再開は利用できません。",
-            "prepareSessionResumeFailed": "Could not prepare this session for resume."
+            "prepareSessionResumeFailed": "Could not prepare this session for resume.",
+            "sessionDeleted": "Session deleted",
+            "sessionDeleteFailed": "Couldn't delete the session"
           },
           "AiVaultPanelControls": {
             "scanningSessions": "Scanning sessions",
@@ -11231,7 +11250,11 @@
             "jumpToWorktree": "ワークツリーにジャンプ",
             "recoverableBadge": "未保存",
             "subagentCountSingular": "1 件のサブエージェント",
-            "subagentCountPlural": "{{value0}} 件のサブエージェント"
+            "subagentCountPlural": "{{value0}} 件のサブエージェント",
+            "delete": "Delete",
+            "deleteReasonNonLocalHost": "Only sessions on this device can be deleted.",
+            "deleteReasonSyntheticPath": "This session can't be deleted from Orca.",
+            "deleteReasonUnsupportedAgent": "{{value0}} sessions can't be deleted from Orca."
           },
           "FileExplorerNameFilter": {
             "26fb73c6e3": "ファイルを検索",
@@ -11317,6 +11340,11 @@
           },
           "activityBar": {
             "error": "Error"
+          },
+          "AiVaultSessionDeleteDialog": {
+            "title": "Delete this session?",
+            "description": "\"{{value0}}\" will be deleted. Once deleted, it will no longer be resumable from {{value1}}'s own command line either.",
+            "confirm": "Delete"
           }
         }
       },
@@ -11829,7 +11857,8 @@
         "NetworkInterfacePicker": {
           "trigger-label": "通知するネットワークアドレス",
           "custom-option": "{{address}}（カスタム）",
-          "add-custom": "カスタムアドレスを追加…"
+          "add-custom": "カスタムアドレスを追加…",
+          "no-address-selected": "No address selected"
         },
         "WindowsFirewallNotice": {
           "repair-success": "Windows Firewall now allows Orca Mobile on private networks",
@@ -13086,6 +13115,7 @@
           "4cc7b83ffe": "ファイルをフィルタリング...",
           "21783df79f": "ファイルツリーを折りたたむ",
           "481e63ca52": "ファイル",
+          "resizeFileTree": "ファイルツリーのサイズを変更",
           "d5ac717d65": "commit されていない",
           "39b6b9e4e4": "Committed on Branch"
         },

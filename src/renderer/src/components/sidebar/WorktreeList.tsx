@@ -172,6 +172,7 @@ import {
   getWorkspaceKanbanSidebarDropTarget,
   hasWorkspaceKanbanSidebarDropBoard,
   isWorkspaceKanbanSidebarDropPointInBoard,
+  resolveWorkspaceKanbanSidebarFullLaneDropIndex,
   updateWorkspaceKanbanSidebarDropTargetVisual
 } from './workspace-kanban-sidebar-drop'
 import {
@@ -3203,7 +3204,12 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
         onDropWorktreesOnWorkspaceBoard({
           worktreeIds: drag.reorderDraggedIds,
           status: boardDropTarget.status,
-          dropIndex: boardDropTarget.dropIndex,
+          // Why: the target counts rendered cards, but the groups are the full
+          // lane. Board search can make those two differ.
+          dropIndex: resolveWorkspaceKanbanSidebarFullLaneDropIndex(
+            boardDropTarget.status,
+            boardDropTarget.dropIndex
+          ),
           groups: getWorkspaceKanbanSidebarDropGroups()
         })
       } else {

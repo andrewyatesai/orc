@@ -11,17 +11,20 @@ export function copyClipboardTextViaExecCommand(text: string, doc: Document = do
       return
     }
     event.clipboardData.setData('text/plain', text)
+    // Why bubble + stop: the terminal engine's copy handler on the pane element
+    // overwrites text/plain, and preventDefault alone does not stop it or any
+    // later window-level handler.
+    event.stopImmediatePropagation()
     event.preventDefault()
     served = true
   }
-  // Why capture: run before any app-level copy handler so the terminal text wins.
-  doc.addEventListener('copy', onCopy, true)
+  doc.addEventListener('copy', onCopy)
   try {
     // Chromium can return true even when no handler supplied clipboard data.
     return doc.execCommand('copy') === true && served
   } catch {
     return false
   } finally {
-    doc.removeEventListener('copy', onCopy, true)
+    doc.removeEventListener('copy', onCopy)
   }
 }

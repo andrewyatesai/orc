@@ -1,4 +1,5 @@
 import { recordDurableCrashBreadcrumb } from '../crash-reporting/durable-crash-breadcrumb'
+import { removeBootstrapFatalExitGuard } from './bootstrap-fatal-exit-guard'
 
 type FatalMainProcessErrorKind = 'main_uncaught_exception' | 'main_unhandled_rejection'
 
@@ -115,6 +116,8 @@ export function installUncaughtPipeErrorGuard(): void {
   }
 
   process.on('uncaughtException', onUncaughtException)
+  // The source-level guard now owns fatal handling; retire the generated pre-import guard.
+  removeBootstrapFatalExitGuard()
 }
 
 /** Keep one failed background promise from silently killing the whole app.

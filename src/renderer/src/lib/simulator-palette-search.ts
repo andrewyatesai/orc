@@ -1,5 +1,6 @@
 import type { Tab, TabGroup, Worktree } from '../../../shared/types'
 import { isClipboardTextByteLengthOverLimit } from '../../../shared/clipboard-text'
+import { resolveWorktreeDisplayName } from './worktree-default-display-name'
 import type { MatchRange } from './worktree-palette-search'
 
 export type SearchableSimulatorTab = {
@@ -193,6 +194,8 @@ export function searchSimulatorTabs(
     // Why: type is already clear from the smartphone icon; a fixed label only
     // crowds the row (and used to leave a bare "· ·" under width pressure).
     const secondaryText = ''
+    // Why: a cleared display name leaves this undefined at runtime; findRange would throw.
+    const worktreeName = resolveWorktreeDisplayName(entry.worktree)
     const baseResult = {
       tabId: entry.tab.id,
       worktreeId: entry.worktree.id,
@@ -200,7 +203,7 @@ export function searchSimulatorTabs(
       title,
       secondaryText,
       repoName: entry.repoName,
-      worktreeName: entry.worktree.displayName,
+      worktreeName,
       isCurrentTab: entry.isCurrentTab,
       isCurrentWorktree: entry.isCurrentWorktree
     }
@@ -262,7 +265,7 @@ export function searchSimulatorTabs(
       continue
     }
 
-    const worktreeRange = findRange(entry.worktree.displayName, trimmedQuery)
+    const worktreeRange = findRange(worktreeName, trimmedQuery)
     if (worktreeRange) {
       results.push({
         ...baseResult,

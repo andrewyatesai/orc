@@ -305,6 +305,11 @@
             "f518e89aa5": "프로젝트가 해당 프로필에 이미 있습니다",
             "f03ae7f27b": "프로젝트를 전송하지 못했습니다"
           }
+        },
+        "runtime": {
+          "status": {
+            "runtimeHostDisconnectedDescription": "Workspaces and terminals on this server are unavailable."
+          }
         }
       }
     },
@@ -3236,7 +3241,8 @@
             "runtime_disconnect_failed": "연결 해제 실패",
             "runtime_reconnecting": "다시 연결 중",
             "runtime_last_close_reason": "닫힘: {{value0}}",
-            "runtime_reconnect_attempt": "{{value0}}번째 시도"
+            "runtime_reconnect_attempt": "{{value0}}번째 시도",
+            "runtime_workspace_window_closed": "Workspace window closed"
           },
           "StatusBar": {
             "9659e38343": "포트",
@@ -4459,7 +4465,8 @@
         },
         "WorkspaceKanbanStatusLane": {
           "8ad104642b": "비어 있음",
-          "3611d1ae7f": "워크스페이스 보드 열 크기 조정"
+          "3611d1ae7f": "워크스페이스 보드 열 크기 조정",
+          "2df01a03ff": "일치하는 항목 없음"
         },
         "WorkspaceStatusAppearancePopover": {
           "514be2f569": "{{value0}} 색상을 {{value1}}로 설정",
@@ -5116,6 +5123,14 @@
         "WorktreeDeveloperMenu": {
           "developer": "Developer",
           "parkTerminal": "Park terminal"
+        },
+        "WorkspaceKanbanSearchField": {
+          "bdb753c78d": "일치하는 워크스페이스가 없습니다",
+          "4d96c209d6": "워크스페이스 {{value1}}개 중 {{value0}}개 일치",
+          "c0cd6bdf6c": "워크스페이스 검색",
+          "3b7ea51793": "검색 지우기",
+          "7f1c2e94a5": "검색어가 너무 깁니다 — 보드가 필터링되지 않았습니다",
+          "9a4d0f6b21": "너무 김"
         }
       },
       "shared": {
@@ -6626,7 +6641,9 @@
           "projectRuntimeDescription": "이 프로젝트를 Windows에서 실행할지 WSL에서 실행할지 선택합니다.",
           "hostStateDisconnected": "Disconnected",
           "hostStateUnknown": "Unknown",
-          "nestedHostLabel": "{{value0}} via {{value1}}"
+          "nestedHostLabel": "{{value0}} via {{value1}}",
+          "hostStateWorkspaceWindowClosed": "Workspace window closed",
+          "hostWorkspaceWindowClosedHelp": "The server is reachable but its Orca window is closed. Open Orca on {{value0}} to use this setup."
         },
         "RepositorySourceControlAiActionRows": {
           "548a6e1281": "명령 템플릿",
@@ -11113,7 +11130,9 @@
             "sessionHostMismatchUnsupported": "이 세션은 다른 호스트에 속합니다. 재개하려면 같은 호스트의 워크스페이스를 여세요.",
             "runtimeBrowseLocalHistory": "런타임 호스팅 워크스페이스에서는 로컬 기록을 탐색할 수 있습니다. 재개 작업은 로컬 및 SSH 워크스페이스에서 사용할 수 있습니다.",
             "runtimeWorkspacesUnsupported": "런타임 호스팅 워크스페이스에서는 기록에서 재개하기를 사용할 수 없습니다.",
-            "prepareSessionResumeFailed": "Could not prepare this session for resume."
+            "prepareSessionResumeFailed": "Could not prepare this session for resume.",
+            "sessionDeleted": "Session deleted",
+            "sessionDeleteFailed": "Couldn't delete the session"
           },
           "AiVaultPanelControls": {
             "scanningSessions": "세션 스캔 중",
@@ -11231,7 +11250,11 @@
             "jumpToWorktree": "작업 트리로 이동",
             "recoverableBadge": "저장 안 됨",
             "subagentCountSingular": "서브에이전트 1개",
-            "subagentCountPlural": "서브에이전트 {{value0}}개"
+            "subagentCountPlural": "서브에이전트 {{value0}}개",
+            "delete": "Delete",
+            "deleteReasonNonLocalHost": "Only sessions on this device can be deleted.",
+            "deleteReasonSyntheticPath": "This session can't be deleted from Orca.",
+            "deleteReasonUnsupportedAgent": "{{value0}} sessions can't be deleted from Orca."
           },
           "FileExplorerNameFilter": {
             "26fb73c6e3": "파일 찾기",
@@ -11317,6 +11340,11 @@
           },
           "activityBar": {
             "error": "Error"
+          },
+          "AiVaultSessionDeleteDialog": {
+            "title": "Delete this session?",
+            "description": "\"{{value0}}\" will be deleted. Once deleted, it will no longer be resumable from {{value1}}'s own command line either.",
+            "confirm": "Delete"
           }
         }
       },
@@ -11829,7 +11857,8 @@
         "NetworkInterfacePicker": {
           "trigger-label": "알릴 네트워크 주소",
           "custom-option": "{{address}} (사용자 지정)",
-          "add-custom": "사용자 지정 주소 추가…"
+          "add-custom": "사용자 지정 주소 추가…",
+          "no-address-selected": "No address selected"
         },
         "WindowsFirewallNotice": {
           "repair-success": "이제 Windows 방화벽이 개인 네트워크에서 Orca Mobile을 허용합니다",
@@ -13086,6 +13115,7 @@
           "4cc7b83ffe": "파일 필터링...",
           "21783df79f": "파일 트리 축소",
           "481e63ca52": "파일",
+          "resizeFileTree": "파일 트리 크기 조정",
           "d5ac717d65": "commit 안 됨",
           "39b6b9e4e4": "브랜치에 커밋됨"
         },
