@@ -12,7 +12,13 @@ import { listClaudeSubagentSessions } from '../ai-vault/session-scanner-claude-s
 import { claudeProjectsRootDirs } from '../ai-vault/session-scanner-source-discovery'
 import { isPathInsideOrEqual } from '../../shared/cross-platform-path'
 import { aiVaultScanLimit } from '../../shared/ai-vault-session-depth'
-import { aiVaultScanIssueResult, mergeAiVaultListResults } from '../ai-vault/session-list-results'
+import {
+  aiVaultScanIssueResult,
+  mergeAiVaultListResults,
+  runtimeHostDiscoveryIssueResult,
+  runtimeScanIssueResult,
+  sshScanIssueResult
+} from '../ai-vault/session-list-results'
 import type {
   AiVaultListArgs,
   AiVaultListResult,
@@ -190,7 +196,8 @@ async function scanRuntimeAiVaultSessions(
   const scanner = handlerOptions.scanRuntimeAiVaultSessions
   if (!scanner) {
     return runtimeScanIssueResult(
-      hostInfo,
+      hostInfo.executionHostId,
+      hostInfo.environmentId,
       'Agent Session History is not available for this execution host.'
     )
   }
@@ -208,25 +215,11 @@ async function scanRuntimeAiVaultSessions(
     return await scanner(hostInfo.environmentId, scanArgs, options)
   } catch (error) {
     return runtimeScanIssueResult(
-      hostInfo,
+      hostInfo.executionHostId,
+      hostInfo.environmentId,
       error instanceof Error ? error.message : 'Remote Orca server is unavailable.'
     )
   }
-}
-
-function runtimeScanIssueResult(
-  hostInfo: RuntimeAiVaultHostInfo,
-  message: string
-): AiVaultListResult {
-  return aiVaultScanIssueResult({
-    executionHostId: hostInfo.executionHostId,
-    path: hostInfo.environmentId,
-    message
-  })
-}
-
-function runtimeHostDiscoveryIssueResult(message: string): AiVaultListResult {
-  return aiVaultScanIssueResult({ path: 'runtime environments', message })
 }
 
 async function scanLocalAiVaultSessions(args?: AiVaultListArgs): Promise<AiVaultListResult> {
@@ -263,18 +256,6 @@ async function scanSshAiVaultSessions(
     limit: args?.limit,
     unlimited: args?.unlimited,
     scopePaths: args?.scopePaths
-  })
-}
-
-function sshScanIssueResult(args: {
-  executionHostId: `ssh:${string}`
-  targetId: string
-  message: string
-}): AiVaultListResult {
-  return aiVaultScanIssueResult({
-    executionHostId: args.executionHostId,
-    path: args.targetId,
-    message: args.message
   })
 }
 

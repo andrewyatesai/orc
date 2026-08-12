@@ -149,6 +149,12 @@ import {
   githubProjectHost,
   githubProjectIdentityKey as githubProjectKey
 } from '../../../../src/shared/github-project-identity'
+import {
+  gitHubStatusLabel,
+  gitLabStatusLabel,
+  gitLabTodoTargetLabel,
+  projectRowStatusLabel
+} from './tasks-screen-status-labels'
 
 type RepoSummary = {
   id: string
@@ -984,25 +990,6 @@ function githubProjectOptionColor(color: string | null | undefined): string {
   return /^#[0-9a-fA-F]{6}$/.test(hex) ? hex : colors.textMuted
 }
 
-function projectRowStatusLabel(row: GitHubProjectRow): string {
-  if (row.itemType === 'DRAFT_ISSUE') {
-    return 'Draft'
-  }
-  if (row.itemType === 'REDACTED') {
-    return 'Redacted'
-  }
-  if (row.content.isDraft) {
-    return 'Draft'
-  }
-  if (row.content.state === 'MERGED') {
-    return 'Merged'
-  }
-  if (row.content.state === 'CLOSED') {
-    return 'Closed'
-  }
-  return 'Open'
-}
-
 function scopeGitHubTaskSearch(query: string, kind: GitHubTaskKind): string {
   const trimmed = query.trim()
   if (!trimmed) {
@@ -1012,16 +999,6 @@ function scopeGitHubTaskSearch(query: string, kind: GitHubTaskKind): string {
     return trimmed
   }
   return `${kind === 'prs' ? 'is:pr' : 'is:issue'} ${trimmed}`
-}
-
-function gitHubStatusLabel(item: GitHubWorkItem): string {
-  if (item.state === 'merged') {
-    return 'Merged'
-  }
-  if (item.state === 'draft') {
-    return 'Draft'
-  }
-  return item.state === 'closed' ? 'Closed' : 'Open'
 }
 
 function gitHubTaskSubtitle(item: GitHubWorkItem): string {
@@ -1041,19 +1018,6 @@ function createGitHubTask(repo: RepoSummary, item: Omit<GitHubWorkItem, 'repoId'
   }
 }
 
-function gitLabStatusLabel(item: GitLabWorkItem): string {
-  if (item.state === 'opened') {
-    return 'Open'
-  }
-  if (item.state === 'merged') {
-    return 'Merged'
-  }
-  if (item.state === 'draft') {
-    return 'Draft'
-  }
-  return item.state === 'closed' ? 'Closed' : 'Locked'
-}
-
 function createGitLabTask(repo: RepoSummary, item: Omit<GitLabWorkItem, 'repoId' | 'repoName'>) {
   const source: GitLabWorkItem = { ...item, repoId: repo.id, repoName: repo.displayName }
   return {
@@ -1065,16 +1029,6 @@ function createGitLabTask(repo: RepoSummary, item: Omit<GitLabWorkItem, 'repoId'
     updatedAt: item.updatedAt,
     source
   }
-}
-
-function gitLabTodoTargetLabel(todo: Pick<GitLabTodo, 'targetType'>): string {
-  if (todo.targetType === 'MergeRequest') {
-    return 'Merge request'
-  }
-  if (todo.targetType === 'Issue') {
-    return 'Issue'
-  }
-  return 'GitLab todo'
 }
 
 function gitLabTodoTargetRef(todo: Pick<GitLabTodo, 'targetType' | 'targetIid'>): string {
