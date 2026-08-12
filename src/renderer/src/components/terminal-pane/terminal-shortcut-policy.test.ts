@@ -413,8 +413,8 @@ describe('resolveTerminalShortcutAction', () => {
     expect(
       resolveTerminalShortcutAction(event({ key: 'Enter', code: 'Enter', ctrlKey: true }), false)
     ).toEqual({ type: 'sendInput', data: '\x1b[13;5u' })
-    // Windows uses the same kitty sequence for now: no TUI is known to treat the
-    // CSI-u Ctrl+Enter form as inert (cf. the Shift+Enter Codex-on-PowerShell case).
+    // A Windows *client* whose PTY host is not a local ConPTY (remote/WSL) still
+    // gets CSI-u — the fallback keys off the pane, not merely the client OS.
     expect(
       resolveTerminalShortcutAction(
         event({ key: 'Enter', code: 'Enter', ctrlKey: true }),
@@ -453,6 +453,20 @@ describe('resolveTerminalShortcutAction', () => {
         () => true
       )
     ).toBeNull()
+
+    // Local Windows ConPTY protection (#12329): an un-negotiated ConPTY shell prints
+    // \x1b[13;5u verbatim, so degrade to a bare CR unless a trusted agent opted into CSI-u.
+    expect(
+      resolveTerminalShortcutAction(
+        event({ key: 'Enter', code: 'Enter', ctrlKey: true }),
+        false,
+        'false',
+        0,
+        true,
+        undefined,
+        () => true
+      )
+    ).toEqual({ type: 'sendInput', data: '\r' })
   })
 
   it('translates Cmd+←/→ on macOS to readline start/end-of-line (Ctrl+A/E)', () => {
