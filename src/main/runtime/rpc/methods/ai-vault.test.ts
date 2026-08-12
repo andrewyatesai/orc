@@ -85,6 +85,12 @@ describe('aiVault.listSessions params schema', () => {
     expect(parsed.success).toBe(false)
   })
 
+  it('accepts an unlimited request regardless of the limit hint', () => {
+    const parsed = AiVaultListSessionsParams.safeParse({ limit: 5000, unlimited: true })
+    expect(parsed.success).toBe(true)
+    expect(parsed.data?.unlimited).toBe(true)
+  })
+
   it('clamps scopePaths past the cap instead of rejecting', () => {
     // Why: uncapped producers (web client, pre-cap desktop parents) may exceed
     // the bound; scope paths only widen discovery, so truncation is safe.

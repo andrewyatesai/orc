@@ -16,6 +16,7 @@ vi.mock('../ipc/runtime-environment-transport-routing', () => ({
 
 const {
   getSavedRuntimeAiVaultHostInfos,
+  parseRuntimeAiVaultListResult,
   prepareRuntimeAiVaultSessionResume,
   scanRuntimeAiVaultSessions
 } = await import('./runtime-session-scanner')
@@ -110,6 +111,51 @@ describe('runtime AI Vault session scanner', () => {
         executionHostId: 'runtime:env-1'
       })
     ])
+  })
+
+  it('surfaces a session whose agent is unknown to this build', async () => {
+    mocks.callRuntimeEnvironment.mockResolvedValueOnce({
+      ok: true,
+      result: {
+        sessions: [{ ...session('local', 'session-1'), agent: 'agent-from-newer-build' }],
+        issues: [],
+        scannedAt: '2026-07-04T00:00:00.000Z'
+      }
+    })
+
+    const scanResult = await scanRuntimeAiVaultSessions('/user-data', 'env-1', {})
+
+    expect(scanResult.sessions).toEqual([
+      expect.objectContaining({
+        id: 'runtime:env-1:agent-from-newer-build:session-1:/sessions/session-1.jsonl',
+        executionHostId: 'runtime:env-1',
+        agent: 'agent-from-newer-build'
+      })
+    ])
+  })
+
+  it('keeps valid rows when a sibling session is malformed', async () => {
+    mocks.callRuntimeEnvironment.mockResolvedValueOnce({
+      ok: true,
+      result: {
+        // Second row is missing required fields; per-row tolerance drops only it.
+        sessions: [session('local', 'session-1'), { id: 'broken', agent: 'codex' }],
+        issues: [],
+        scannedAt: '2026-07-04T00:00:00.000Z'
+      }
+    })
+
+    const scanResult = await scanRuntimeAiVaultSessions('/user-data', 'env-1', {})
+
+    expect(scanResult.sessions).toEqual([
+      expect.objectContaining({ id: 'runtime:env-1:codex:session-1:/sessions/session-1.jsonl' })
+    ])
+  })
+
+  it('rejects a wholly malformed envelope instead of a per-row drop', () => {
+    const outcome = parseRuntimeAiVaultListResult({ sessions: 'not-an-array' })
+
+    expect(outcome.ok).toBe(false)
   })
 
   it('prepares a resume on the transcript-owning runtime', async () => {

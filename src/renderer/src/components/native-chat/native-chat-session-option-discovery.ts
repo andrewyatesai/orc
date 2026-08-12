@@ -52,6 +52,9 @@ export async function discoverNativeChatCatalogModels(
   return result.models.map((model) => ({
     id: model.id,
     label: model.label,
+    // Why: carry the CLI's own default marker so a catalog with defaultModelIsCliDefault
+    // can name the model a fresh session actually runs.
+    ...(model.isDefault ? { isDefault: true as const } : {}),
     options: []
   }))
 }

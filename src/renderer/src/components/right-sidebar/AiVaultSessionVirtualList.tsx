@@ -64,7 +64,8 @@ export function AiVaultSessionVirtualList({
   onCopyPath,
   onOpenLog,
   onRevealLog,
-  onOpenCwd
+  onOpenCwd,
+  onDeleteSession
 }: {
   groups: readonly AiVaultSessionGroup[]
   collapsedGroups: ReadonlySet<string>
@@ -90,6 +91,7 @@ export function AiVaultSessionVirtualList({
   onOpenLog: (session: AiVaultSession) => void
   onRevealLog: (session: AiVaultSession) => void
   onOpenCwd: (session: AiVaultSession) => void
+  onDeleteSession: (session: AiVaultSession) => void
 }): React.JSX.Element {
   const listScrollRef = useRef<HTMLDivElement>(null)
   const stickyRangeStartIndexRef = useRef(0)
@@ -219,6 +221,7 @@ export function AiVaultSessionVirtualList({
               onOpenLog={onOpenLog}
               onRevealLog={onRevealLog}
               onOpenCwd={onOpenCwd}
+              onDeleteSession={onDeleteSession}
             />
           ))}
         </div>
@@ -253,7 +256,8 @@ function AiVaultVirtualRow({
   onCopyPath,
   onOpenLog,
   onRevealLog,
-  onOpenCwd
+  onOpenCwd,
+  onDeleteSession
 }: {
   row: AiVaultListRow | undefined
   index: number
@@ -281,6 +285,7 @@ function AiVaultVirtualRow({
   onOpenLog: (session: AiVaultSession) => void
   onRevealLog: (session: AiVaultSession) => void
   onOpenCwd: (session: AiVaultSession) => void
+  onDeleteSession: (session: AiVaultSession) => void
 }): React.JSX.Element | null {
   if (!row) {
     return null
@@ -391,6 +396,7 @@ function AiVaultVirtualRow({
           onOpenCwd={
             canOpenLocalSessionPaths && row.session.cwd ? () => onOpenCwd(row.session) : undefined
           }
+          onDeleteSession={onDeleteSession}
         />
       )}
     </div>

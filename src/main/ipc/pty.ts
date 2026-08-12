@@ -188,6 +188,7 @@ import {
 } from '../codex/codex-pane-account-registry'
 import { resolveCodexPaneLaunchAccount } from '../codex/codex-pane-launch-account'
 import { getSystemCodexHomePath } from '../codex/codex-home-paths'
+import { ensureCodexStateDbBackfillRecoveryStarted } from '../codex/codex-state-db-backfill-recovery'
 import { isCodexSystemDefaultRealHomeEnabled } from '../codex/codex-real-home-flag'
 import type { CodexSessionResumePreparation } from '../codex/codex-session-resume-home'
 import { dropUnverifiedCodexResumeArgv } from '../codex/codex-unverified-resume-launch'
@@ -3592,6 +3593,11 @@ export function registerPtyHandlers(
                 }) ?? null)
           )
         : null
+      if (args.launchAgent === 'codex' && selectedCodexHomePath) {
+        // Why: a launch into this home must not race Codex's own index rebuild;
+        // claim the supervisor lease first so a bounded pane never steals it.
+        await ensureCodexStateDbBackfillRecoveryStarted(selectedCodexHomePath)
+      }
       const skipCodexHomeEnv =
         isDaemonHostSpawn &&
         shouldSkipCodexHomeEnvForWindowsShell(daemonShellOverride, cwd) &&
@@ -4805,6 +4811,11 @@ export function registerPtyHandlers(
                 }) ?? null)
           )
         : null
+      if (args.launchAgent === 'codex' && selectedCodexHomePath) {
+        // Why: a launch into this home must not race Codex's own index rebuild;
+        // claim the supervisor lease first so a bounded pane never steals it.
+        await ensureCodexStateDbBackfillRecoveryStarted(selectedCodexHomePath)
+      }
       const skipCodexHomeEnv =
         isDaemonHostSpawn &&
         shouldSkipCodexHomeEnvForWindowsShell(effectiveShellOverride, cwd) &&

@@ -5,6 +5,7 @@ import {
   type MutableRefObject,
   type SetStateAction
 } from 'react'
+import { encodeNativeChatTranscriptIdentity } from '../../../src/shared/native-chat-transcript-retention'
 import { useMobileSessionViewMode } from './use-mobile-session-view-mode'
 import type { RpcClient } from '../transport/rpc-client'
 import type { ConnectionState } from '../transport/types'
@@ -143,6 +144,7 @@ export function useMobileNativeChatController(args: {
 
   const nativeChatSession = useMobileNativeChatSession({
     client,
+    sourceIdentity: encodeNativeChatTranscriptIdentity([hostId, worktreeId]),
     agent: activeChatResolution?.agent ?? null,
     sessionId: activeChatSessionId,
     transcriptPath: activeChatResolution?.transcriptPath ?? null
@@ -186,7 +188,8 @@ export function useMobileNativeChatController(args: {
   } = useMobileNativeChatPrompts({
     enabled: activeChatResolution != null,
     status: nativeChatStatus,
-    messages: nativeChatSession.messages
+    messages: nativeChatSession.messages,
+    transcriptLoading: nativeChatSession.transcriptLoading
   })
 
   const handleNativeChatOpenFile = useCallback(

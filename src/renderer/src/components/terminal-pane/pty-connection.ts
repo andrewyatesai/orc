@@ -233,6 +233,7 @@ import { getTerminalPasteSshRemotePlatform } from './terminal-paste-ssh-platform
 import { resolveTerminalPasteRuntime } from './terminal-paste-runtime'
 import { isKnownTuiAgentTerminalStartupCommand } from './terminal-startup-command-classifier'
 import { createCommandCodeOutputStatusDetector } from '../../../../shared/command-code-output-status'
+import { createCodexBackfillErrorDetector } from './codex-backfill-error-detector'
 import { createCodexErrorOutputStatusDetector } from '../../../../shared/codex-error-output-status'
 import {
   agentLaunchFailureMessage,
@@ -4724,6 +4725,10 @@ export function connectPanePty(
       }
       deps.onPtyErrorRef?.current?.(pane.id, message)
     }
+    const codexBackfillErrorDetector =
+      paneStartup?.launchAgent === 'codex' || tab?.launchAgent === 'codex'
+        ? createCodexBackfillErrorDetector()
+        : null
 
     // Why: shared registration so both fresh-spawn and reattach paths install
     // the same SerializeAddon-backed serializer plus the onTitleChange wrapper
@@ -7658,6 +7663,10 @@ export function connectPanePty(
         }
       }
       commandCodeOutputStatusDetector?.observe(data)
+      const codexBackfillNotice = codexBackfillErrorDetector?.observe(data)
+      if (codexBackfillNotice) {
+        reportError(codexBackfillNotice)
+      }
       // Why: split panes have visible-but-inactive panes the user watches; throttle only when the pane or whole document is hidden.
       const foreground =
         shouldWritePtyOutputForeground(deps.isVisibleRef.current) && meta?.background !== true

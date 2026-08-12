@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import type { AgentStatusEntry } from '../../../src/shared/agent-status-types'
 import type { NativeChatMessage } from '../../../src/shared/native-chat-types'
-import { extractPendingAsk, parseAskFromStatus } from './mobile-native-chat-ask'
+import { parseAskFromStatus, resolveNativeChatAsk } from './mobile-native-chat-ask'
 import { detectAgentPermission, parseApprovalFromStatus } from './mobile-native-chat-permission'
 import { parseAgentQuestion } from './mobile-native-chat-question'
 
@@ -16,8 +16,11 @@ export function useMobileNativeChatPrompts(args: {
   enabled: boolean
   status: AgentStatusEntry | null | undefined
   messages: readonly NativeChatMessage[]
+  /** True while `messages` is an unsettled read (including the list held across a
+   *  reconnect). Required: an ask derived from it may already be answered. */
+  transcriptLoading: boolean
 }): MobileNativeChatPrompts {
-  const { enabled, status, messages } = args
+  const { enabled, status, messages, transcriptLoading } = args
   const blocked = status?.state === 'waiting' || status?.state === 'blocked'
   const permission =
     (blocked && status
@@ -34,10 +37,16 @@ export function useMobileNativeChatPrompts(args: {
     () => parseAskFromStatus(status?.interactivePrompt, status?.toolName),
     [status?.interactivePrompt, status?.toolName]
   )
-  const askFromMessages = useMemo(
-    () => (askFromStatus ? null : extractPendingAsk(messages)),
-    [askFromStatus, messages]
+  const resolvedAsk = useMemo(
+    () =>
+      resolveNativeChatAsk({
+        liveAsk: askFromStatus,
+        messages,
+        transcriptSettled: !transcriptLoading
+      }),
+    [askFromStatus, transcriptLoading, messages]
   )
+  const askFromMessages = askFromStatus ? null : resolvedAsk
 
   return {
     permission,

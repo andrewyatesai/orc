@@ -41,6 +41,7 @@ import { translate } from '@/i18n/i18n'
 import { AiVaultPanelHeader } from './AiVaultPanelHeader'
 import { AiVaultSessionVirtualList } from './AiVaultSessionVirtualList'
 import { useAiVaultSessionRefresh } from './ai-vault-session-refresh'
+import { useAiVaultSessionDeleteAction } from './ai-vault-session-delete-action'
 import {
   buildAiVaultHostScopeOptions,
   buildRuntimeAiVaultHostScopeOptions,
@@ -142,6 +143,7 @@ export default function AiVaultPanel(): React.JSX.Element {
     scopePaths,
     executionHostScope
   )
+  const deleteSession = useAiVaultSessionDeleteAction({ refresh })
   // Deliberately blind to the active repo/worktree: rebuilding these ~500-entry
   // maps on every worktree switch is what made switching visibly slow (#10841 era).
   const sessionProjectById = useMemo(
@@ -384,6 +386,7 @@ export default function AiVaultPanel(): React.JSX.Element {
             void window.api.shell.openPath(session.cwd)
           }
         }}
+        onDeleteSession={(session) => void deleteSession(session)}
       />
       {launchActions.continuationRequest && (
         <AgentSessionContinuationDialog

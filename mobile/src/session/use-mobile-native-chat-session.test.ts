@@ -33,9 +33,16 @@ describe('useMobileNativeChatSession', () => {
     renderer = null
   })
 
-  function Harness({ client }: { client: RpcClient | null }): null {
+  function Harness({
+    client,
+    sourceIdentity = 'host\0worktree'
+  }: {
+    client: RpcClient | null
+    sourceIdentity?: string
+  }): null {
     state = useMobileNativeChatSession({
       client,
+      sourceIdentity,
       agent: 'claude',
       sessionId: 'session',
       transcriptPath: null
@@ -431,5 +438,70 @@ describe('useMobileNativeChatSession', () => {
       limit: 100
     })
     expect(state?.messages.map((entry) => entry.id)).toEqual(['fresh-growing-tail'])
+  })
+
+  it('keeps the transcript on screen across a same-source client reconnect', async () => {
+    // A manual retry swaps the client under an unchanged identity. The effect
+    // re-runs and clears the list to loading, but the retained transcript must
+    // stay visible until the fresh subscription replays its snapshot.
+    const sendRequest = vi.fn() as unknown as RpcClient['sendRequest']
+    const makeSubscribe = (autoSnapshot: boolean): RpcClient['subscribe'] =>
+      vi.fn((_method, _params, onData) => {
+        emit = onData
+        if (autoSnapshot) {
+          onData({ type: 'snapshot', messages: [message('a'), message('b')], hasMore: false })
+        }
+        return () => {}
+      })
+    await mount({ sendRequest, subscribe: makeSubscribe(true) } as unknown as RpcClient)
+    expect(state?.messages.map((entry) => entry.id)).toEqual(['a', 'b'])
+
+    // Fresh client, same identity, whose subscription has not replayed yet.
+    await act(async () =>
+      renderer?.update(
+        createElement(Harness, {
+          client: { sendRequest, subscribe: makeSubscribe(false) } as unknown as RpcClient
+        })
+      )
+    )
+    expect(state?.status).toBe('loading')
+    expect(state?.transcriptLoading).toBe(true)
+    expect(state?.messages.map((entry) => entry.id)).toEqual(['a', 'b'])
+
+    // The swapped client's snapshot lands and takes over the visible list.
+    await act(async () =>
+      emit({ type: 'snapshot', messages: [message('a'), message('b'), message('c')], hasMore: false })
+    )
+    expect(state?.messages.map((entry) => entry.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('does not retain a prior source when the identity changes underneath a reconnect', async () => {
+    // Same hook instance, but the source identity also changed: the retained list
+    // belongs to the old source and must not bleed into the new one's loading view.
+    const sendRequest = vi.fn() as unknown as RpcClient['sendRequest']
+    const subscribe: RpcClient['subscribe'] = vi.fn((_method, _params, onData) => {
+      emit = onData
+      onData({ type: 'snapshot', messages: [message('a'), message('b')], hasMore: false })
+      return () => {}
+    })
+    await mount({ sendRequest, subscribe } as unknown as RpcClient)
+    expect(state?.messages.map((entry) => entry.id)).toEqual(['a', 'b'])
+
+    // A fresh client under a NEW source whose subscription has not replayed yet.
+    const quietClient = {
+      sendRequest,
+      subscribe: vi.fn((_method, _params, onData) => {
+        emit = onData
+        return () => {}
+      })
+    } as unknown as RpcClient
+    await act(async () =>
+      renderer?.update(
+        createElement(Harness, { client: quietClient, sourceIdentity: 'other-host\0worktree' })
+      )
+    )
+
+    expect(state?.status).toBe('loading')
+    expect(state?.messages).toEqual([])
   })
 })

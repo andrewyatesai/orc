@@ -185,6 +185,10 @@ import {
 import { setCodexTrustGrantTelemetry } from './codex/codex-trust-grant-telemetry'
 import { startCodexSessionBackfillInBackground } from './codex/codex-session-backfill'
 import { startCodexSessionIndexHealInBackground } from './codex/codex-session-index-heal'
+import {
+  startCodexStateDbBackfillRecoveryInBackground,
+  stopCodexStateDbBackfillRecoveries
+} from './codex/codex-state-db-backfill-recovery'
 import { createCodexSessionMigrationScheduler } from './codex/codex-session-migration-scheduler'
 import { prepareLegacySharedCodexSessionResume } from './codex/codex-legacy-session-resume'
 import { resolveHostCodexSessionSourceHome } from './codex/codex-session-source-home'
@@ -2175,6 +2179,9 @@ app.whenReady().then(async () => {
   openCodeUsage = new OpenCodeUsageStore(store)
   rateLimits = new RateLimitService()
   codexRuntimeHome = new CodexRuntimeHomeService(store)
+  // Why: a prior run can die mid-index, so Codex refuses to start until its
+  // state DB backfill finishes; supervise the managed home from launch.
+  void startCodexStateDbBackfillRecoveryInBackground(getOrcaManagedCodexHomePath())
   // Why: an incapable trust-grant host must fall back to the managed home for
   // every consumer (PTY env, rate limits, commit messages) in one place.
   codexRuntimeHome.setRealHomeLaneGate(() => isRealHomeCodexHookLaneUsable())
@@ -2859,6 +2866,9 @@ app.on('will-quit', (e) => {
   runtime?.getOffscreenBrowserBackend()?.destroyAll?.()
   browserManager.setBrowserGuestStateChangedListener(null)
   const emulatorShutdown = runtime?.getEmulatorBridge()?.destroyAllSessions() ?? Promise.resolve()
+  // Why: abort background Codex-index supervisors so their app-server claimants
+  // release auth.json before the process exits; quit waits bounded for drain.
+  const codexBackfillRecoveryShutdown = stopCodexStateDbBackfillRecoveries()
   killAllPty()
   // Why: notebook cells run detached (own process group) so they survive the main group's
   // quit signal; terminate them explicitly or a runaway cell keeps consuming CPU forever.
@@ -2897,7 +2907,8 @@ app.on('will-quit', (e) => {
       { name: 'daemon', promise: daemonTeardown },
       { name: 'runtime-rpc', promise: rpcStopAndClear },
       { name: 'watchers', promise: watcherShutdown },
-      { name: 'emulator', promise: emulatorShutdown }
+      { name: 'emulator', promise: emulatorShutdown },
+      { name: 'codex-backfill-recovery', promise: codexBackfillRecoveryShutdown }
     ])
       .then((pendingTeardowns) => {
         if (pendingTeardowns.length > 0) {

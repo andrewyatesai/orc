@@ -1,6 +1,7 @@
 import type { TuiAgent } from './types'
 import { isTuiAgentEnabled } from './tui-agent-selection'
 import { assertJsonTextStructureWithinLimits } from './json-text-structure-limit'
+import { labelFromModelId } from './model-id-label'
 
 /* eslint-disable max-lines -- Why: this is the single registry for non-interactive commit-message agents, their model discovery parsers, and UI capabilities. */
 
@@ -20,6 +21,9 @@ export type CommitMessageModel = {
   thinkingLevels?: ThinkingLevel[]
   /** Required when thinkingLevels is present. */
   defaultThinkingLevel?: string
+  /** Set when the listing marks this as the id the CLI runs with no --model flag.
+   *  Optional so an older remote host that never reports it simply omits it. */
+  isDefault?: boolean
 }
 
 export type CommitMessageAgentSpec = {
@@ -48,6 +52,8 @@ export type CommitMessageModelCapability = {
   label: string
   thinkingLevels?: ThinkingLevel[]
   defaultThinkingLevel?: string
+  /** Absent from an older remote host, which simply yields no default to display. */
+  isDefault?: boolean
 }
 
 export type CommitMessageAgentCapability = {
@@ -83,21 +89,6 @@ const CLAUDE_THINKING_LEVELS: ThinkingLevel[] = [
   { id: 'xhigh', label: 'Extra High' },
   { id: 'max', label: 'Max' }
 ]
-
-function labelFromModelId(id: string): string {
-  return id
-    .split(/[/-]/)
-    .filter(Boolean)
-    .map((part) => {
-      if (/^gpt$/i.test(part)) {
-        return 'GPT'
-      }
-      return part.length <= 3 && /^\d/.test(part)
-        ? part.toUpperCase()
-        : part.charAt(0).toUpperCase() + part.slice(1)
-    })
-    .join(' ')
-}
 
 function uniqueModels(models: CommitMessageModel[]): CommitMessageModel[] {
   const seen = new Set<string>()

@@ -469,6 +469,10 @@ import type {
   AiVaultSubagentListResult
 } from '../shared/ai-vault-types'
 import type {
+  AiVaultDeleteSessionArgs,
+  AiVaultDeleteSessionResult
+} from '../shared/ai-vault-session-deletion'
+import type {
   AiVaultPrepareSessionResumeArgs,
   AiVaultPrepareSessionResumeResult
 } from '../shared/ai-vault-resume-preparation'
@@ -894,6 +898,8 @@ export type AiVaultApi = {
   ) => Promise<AiVaultPrepareSessionResumeResult>
   /** Lists the Task subagent transcripts of one session, on demand. */
   listSubagentSessions: (args: AiVaultSubagentListArgs) => Promise<AiVaultSubagentListResult>
+  /** Deletes a local single-file provider session; main re-validates the path. */
+  deleteSession: (args: AiVaultDeleteSessionArgs) => Promise<AiVaultDeleteSessionResult>
   /** Fires when any app window regains OS focus; returns an unsubscribe. */
   onWindowFocused: (callback: () => void) => () => void
 }

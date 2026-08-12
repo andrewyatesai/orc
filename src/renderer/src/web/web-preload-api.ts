@@ -8,6 +8,7 @@ import type {
 } from '../../../preload/api-types'
 import type { RuntimeRpcResponse } from '../../../shared/runtime-rpc-envelope'
 import type { PosixTerminalShellDetection } from '../../../shared/posix-terminal-shell'
+import type { AiVaultDeleteSessionArgs } from '../../../shared/ai-vault-session-deletion'
 import type { AiVaultListArgs, AiVaultListResult } from '../../../shared/ai-vault-types'
 import type {
   AiVaultPrepareSessionResumeArgs,
@@ -1411,6 +1412,15 @@ function createAiVaultApi(): NonNullable<Partial<PreloadApi>['aiVault']> {
       callRuntimeResult<AiVaultPrepareSessionResumeResult>('aiVault.prepareSessionResume', args),
     // Why: no server-side RPC for subagent transcript listing yet, so report an empty (not erroring) result.
     listSubagentSessions: () => Promise.resolve({ sessions: [], issues: [] }),
+    // Why: session deletion is local-only and has no runtime RPC; a web client's
+    // sessions are runtime-hosted, so report the same non-local rejection the UI
+    // already gates on rather than pretend to delete.
+    deleteSession: (args: AiVaultDeleteSessionArgs) =>
+      Promise.resolve({
+        outcome: 'rejected',
+        agent: args.agent,
+        reason: 'non-local-host' as const
+      }),
     onWindowFocused: () => noopUnsubscribe
   }
 }
