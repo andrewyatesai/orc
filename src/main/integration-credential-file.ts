@@ -281,12 +281,21 @@ function upgradeStoredCredentialToCiphertext(
   readPath: string,
   token: string
 ): void {
+  // Why the passphrase is tried here too: encryptCredential only speaks safeStorage, so on a
+  // keychain-less host this bailed and a cleartext token left by an older build stayed on disk
+  // forever — even once an operator had configured a passphrase that could seal it right now.
+  // Retiring cleartext at rest is the entire point of this function.
   const ciphertext = encryptCredential(service, token)
-  if (!ciphertext) {
+  const sealed = ciphertext ?? sealSecretWithPassphrase(token)
+  if (!sealed) {
     return
   }
   try {
-    writeFileSync(encryptedPath, ciphertext, { mode: 0o600 })
+    writeFileSync(
+      encryptedPath,
+      sealed,
+      typeof sealed === 'string' ? { encoding: 'utf-8', mode: 0o600 } : { mode: 0o600 }
+    )
   } catch (error) {
     console.warn(`[${logTag(service)}] could not re-encrypt the stored credential:`, error)
     return

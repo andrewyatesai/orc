@@ -108,6 +108,23 @@ describe('a packaged host with no keychain and an operator passphrase', () => {
     expect(existsSync(plaintextPath())).toBe(false)
   })
 
+  // Retiring cleartext at rest is the whole job of the read-time upgrade, and it used to speak only
+  // safeStorage — so on the hosts that need it most a token left in the clear by an older build
+  // stayed there forever, even once an operator had configured a passphrase that could seal it.
+  it('seals a legacy cleartext token on read when only a passphrase is available', async () => {
+    writeFileSync(encryptedPath, TOKEN, 'utf-8')
+    process.env[PASSPHRASE_ENV] = PASSPHRASE
+    const store = await loadCredentialFile()
+
+    expect(store.readStoredCredentialTokenFile('Jira', encryptedPath)).toBe(TOKEN)
+
+    const atRest = readFileSync(encryptedPath, 'utf-8')
+    expect(atRest).not.toBe(TOKEN)
+    expect(atRest.startsWith('orca-passphrase-v1:')).toBe(true)
+    // And it is still readable afterwards — an upgrade that loses the token is not an upgrade.
+    expect(store.readStoredCredentialTokenFile('Jira', encryptedPath)).toBe(TOKEN)
+  })
+
   it('prefers the passphrase over the dev cleartext opt-in even when both are set', async () => {
     appMock.isPackaged = false
     process.env[PLAINTEXT_OPT_IN_ENV] = '1'
