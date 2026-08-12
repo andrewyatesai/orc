@@ -141,6 +141,16 @@ describe('runWorktreeBatchDelete', () => {
     expect(mocks.state.openModal).toHaveBeenCalledWith('delete-worktree', { worktreeId: 'wt-1' })
   })
 
+  it('treats duplicate selected ids as one delete target', () => {
+    setWorktrees([{ id: 'wt-1' }])
+
+    const started = runWorktreeBatchDelete(['wt-1', 'wt-1'])
+
+    expect(started).toBe(true)
+    expect(mocks.state.clearWorktreeDeleteState).toHaveBeenCalledTimes(1)
+    expect(mocks.state.openModal).toHaveBeenCalledWith('delete-worktree', { worktreeId: 'wt-1' })
+  })
+
   it('keeps batch deletes behind confirmation when confirmation is skipped', () => {
     mocks.state.settings = { skipDeleteWorktreeConfirm: true }
     setWorktrees([

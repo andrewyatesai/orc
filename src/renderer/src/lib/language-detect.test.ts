@@ -47,6 +47,13 @@ describe('detectLanguage', () => {
     expect(detectLanguage('C:\\Users\\alice\\.codex\\LOG.JSONL')).toBe('jsonl')
   })
 
+  it('maps R files to the r language id regardless of extension case', () => {
+    // The lookup lowercases the extension, so a single '.r' key covers '.R';
+    // an uppercase '.R' key would be unreachable dead code.
+    expect(detectLanguage('analysis/model.r')).toBe('r')
+    expect(detectLanguage('analysis/MODEL.R')).toBe('r')
+  })
+
   it('keeps .json/.jsonc on the built-in json language and unknown on plaintext', () => {
     expect(detectLanguage('config/settings.json')).toBe('json')
     expect(detectLanguage('config/tsconfig.jsonc')).toBe('json')

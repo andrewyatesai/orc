@@ -46,16 +46,18 @@ export async function runWorktreeDeletesInParallel(
   targets: readonly Pick<Worktree, 'id' | 'displayName' | 'repoId' | 'path'>[],
   options: WorktreeDeleteWithToastOptions = {}
 ): Promise<string[]> {
+  // Why: refresh races can leave duplicate rows, but a destructive command must run once per identity.
+  const uniqueTargets = Array.from(new Map(targets.map((target) => [target.id, target])).values())
   // Why: capture the viewed workspace before any delete so we can focus one survivor after the batch settles, not per delete.
   const activeWorktreeIdBefore = useAppStore.getState().activeWorktreeId
   const commitBatchFocus = activeWorktreeIdBefore
     ? prepareActiveWorktreeFocusAfterDelete(activeWorktreeIdBefore)
     : null
   // Why: mark every target deleting up front for immediate in-flight feedback, even though deletes serialize per repo.
-  useAppStore.getState().markWorktreesDeleting(targets.map((target) => target.id))
+  useAppStore.getState().markWorktreesDeleting(uniqueTargets.map((target) => target.id))
   // Why: worktree remove/prune/branch -D race on shared ref locks; group by repoId to serialize per repo (cross-repo stays parallel).
-  const groups = new Map<string, (typeof targets)[number][]>()
-  for (const target of targets) {
+  const groups = new Map<string, (typeof uniqueTargets)[number][]>()
+  for (const target of uniqueTargets) {
     const group = groups.get(target.repoId)
     if (group) {
       group.push(target)
@@ -95,7 +97,7 @@ export async function runWorktreeDeletesInParallel(
   if (activeWorktreeIdBefore && deletedSet.has(activeWorktreeIdBefore)) {
     commitBatchFocus?.()
   }
-  return targets.filter((target) => deletedSet.has(target.id)).map((target) => target.id)
+  return uniqueTargets.filter((target) => deletedSet.has(target.id)).map((target) => target.id)
 }
 
 /**
@@ -272,7 +274,8 @@ export function runWorktreeBatchDelete(
 ): boolean {
   const state = useAppStore.getState()
   const worktreeMap = getWorktreeMapFromState(state)
-  const targets = worktreeIds
+  // Why: a stale selection can list the same id twice; collapse it so a destructive delete runs once per identity.
+  const targets = Array.from(new Set(worktreeIds))
     .map((id) => worktreeMap.get(id) ?? null)
     .filter((worktree): worktree is Worktree => worktree != null && !worktree.isMainWorktree)
 
