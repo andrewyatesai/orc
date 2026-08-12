@@ -16,8 +16,8 @@ describe('shouldBounceMissingWorktree', () => {
   })
 
   it('never bounces synthetic routes the host cannot resolve', () => {
-    expect(isSyntheticWorkspaceRoute('folder:/Users/x/dir')).toBe(true)
-    expect(shouldBounceMissingWorktree('folder:/Users/x/dir', 'missing')).toBe(false)
+    expect(isSyntheticWorkspaceRoute('folder:/home/x/dir')).toBe(true)
+    expect(shouldBounceMissingWorktree('folder:/home/x/dir', 'missing')).toBe(false)
     expect(shouldBounceMissingWorktree('global-floating-terminal', 'missing')).toBe(false)
   })
 })

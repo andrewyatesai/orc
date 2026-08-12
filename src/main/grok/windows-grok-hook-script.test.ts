@@ -96,7 +96,7 @@ describe.skipIf(process.platform !== 'win32')('buildWindowsGrokHookScript (win32
   }
 
   const PANE_KEY = 'tab!1:pane!2'
-  const WORKTREE_ID = 'repo::C:/Users/test/wip!fix'
+  const WORKTREE_ID = 'repo::C:/home/test/wip!fix'
 
   /**
    * Why: `spawnSync` would hold the event loop for the child's whole lifetime, so

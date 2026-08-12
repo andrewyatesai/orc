@@ -123,7 +123,7 @@ describe('resolveFullLaneDropIndex', () => {
 
 describe('workspace lane full-id channel', () => {
   it('round-trips lane membership through the delimiter', () => {
-    const ids = ['repo-a::/Users/dev/projects/orca/main', 'repo-b::C:\\src\\atlas, v2']
+    const ids = ['repo-a::/home/dev/projects/orca/main', 'repo-b::C:\\src\\atlas, v2']
     const serialized = serializeWorkspaceLaneFullIds(ids)
 
     expect(serialized).not.toBeNull()
@@ -141,7 +141,7 @@ describe('workspace lane full-id channel', () => {
     // or colon delimiter would split one id into phantom lane members. Dropping
     // the channel is not an escape hatch either — under a query the reader
     // would fall back to the DOM and see only the matched cards.
-    const ids = ['repo-a::/Users/dev/we\nird, one: two', 'repo-b::C:\\src\\atlas']
+    const ids = ['repo-a::/home/dev/we\nird, one: two', 'repo-b::C:\\src\\atlas']
 
     expect(parseWorkspaceLaneFullIds(serializeWorkspaceLaneFullIds(ids) ?? undefined)).toEqual(ids)
   })
