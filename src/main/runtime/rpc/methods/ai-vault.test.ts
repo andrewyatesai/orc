@@ -187,6 +187,22 @@ describe('aiVault.listSessions handler + shared cache', () => {
     expect(scanAiVaultSessions).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps completed scans cached for one minute', async () => {
+    vi.useFakeTimers({ now: new Date('2026-08-05T00:00:00.000Z') })
+    try {
+      await listAiVaultSessions({ limit: 500 })
+      await vi.advanceTimersByTimeAsync(59_999)
+      await listAiVaultSessions({ limit: 500 })
+      expect(scanAiVaultSessions).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(1)
+      await listAiVaultSessions({ limit: 500 })
+      expect(scanAiVaultSessions).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('keeps a newer different-key scan dedupable after an older scan resolves', async () => {
     // Why: the resolving scan's cleanup must not clear tracking a concurrent
     // different-key scan replaced, or re-requests start a duplicate rescan.

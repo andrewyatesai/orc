@@ -42,6 +42,7 @@ type RankedRow = {
   attentionTimestamp: number
   visitedAt: number | undefined
   focusOrdinal: number
+  worktreeId: string
 }
 
 /** Classes 1 (blocked/waiting) and 2 (freshly done) are the rows that want the user. */
@@ -124,6 +125,11 @@ function compareRankedRows(a: RankedRow, b: RankedRow): number {
     }
     return b.visitedAt - a.visitedAt
   }
+  // Why: focusOrdinal is a per-worktree sequence, so comparing it across worktrees interleaves
+  // them arbitrarily. Keep input (positional) order instead.
+  if (a.worktreeId !== b.worktreeId) {
+    return 0
+  }
   return b.focusOrdinal - a.focusOrdinal
 }
 
@@ -144,6 +150,7 @@ export function orderRecentWorkspaceTabs(inputs: RecentWorkspaceTabOrderInputs):
         attentionClass: attention.cls,
         attentionTimestamp: attention.attentionTimestamp,
         visitedAt: lastVisitedAtByWorktreeId[row.worktreeId],
+        worktreeId: row.worktreeId,
         focusOrdinal:
           row.unifiedTabId === null
             ? NO_FOCUS_ORDINAL

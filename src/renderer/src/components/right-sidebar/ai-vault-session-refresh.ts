@@ -5,21 +5,13 @@ import { useAppStore } from '@/store'
 
 const SESSION_LIMIT = 500
 
-// Panel entry and window refocus must show sessions started since the last
-// scan, so they bypass the main process's 15s cache — but a full scan parses
-// up to ~1000 transcripts, so bound forced scans to one per interval. Module
-// scope so the throttle survives panel remounts (the panel unmounts per tab).
-const FORCED_RESCAN_MIN_INTERVAL_MS = 5_000
+// In-app session creation bypasses the cache so the new session appears
+// promptly. A full scan parses up to ~1000 transcripts, so bound forced scans
+// to one per interval; module scope keeps the throttle across panel remounts
+// (the panel unmounts per tab). Panel entry and refocus lean on the shared
+// scan cache instead of forcing.
+const FORCED_RESCAN_MIN_INTERVAL_MS = 30_000
 let lastForcedRescanAt = 0
-
-function consumeForcedRescanBudget(): boolean {
-  const now = Date.now()
-  if (now - lastForcedRescanAt < FORCED_RESCAN_MIN_INTERVAL_MS) {
-    return false
-  }
-  lastForcedRescanAt = now
-  return true
-}
 
 export function resetAiVaultForcedRescanThrottleForTest(): void {
   lastForcedRescanAt = 0
@@ -143,10 +135,10 @@ export function useAiVaultSessionRefresh(
     [currentScanScopeKey]
   )
 
-  // Forced rescans triggered by events (refocus, agent-session starts) run
-  // immediately when the throttle allows, otherwise once as soon as it frees
-  // up — dropping the event would leave a just-started session invisible
-  // until some unrelated later trigger.
+  // Forced rescans triggered by new in-app agent sessions run immediately when
+  // the throttle allows, otherwise once as soon as it frees up — dropping the
+  // event would leave a just-started session invisible until some unrelated
+  // later trigger.
   const forcedRescanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const requestForcedRescan = useCallback(() => {
     const waitMs = lastForcedRescanAt + FORCED_RESCAN_MIN_INTERVAL_MS - Date.now()
@@ -179,27 +171,24 @@ export function useAiVaultSessionRefresh(
   }, [])
 
   // Re-scan on mount and whenever the active scope changes, since the scanner
-  // tailors its in-scope results to scopePaths. Force (throttled) so
-  // re-entering the panel shows sessions newer than the 15s cache; when the
-  // throttle denies it, paint from cache now and catch up once it frees.
+  // tailors its in-scope results to scopePaths. Reuse the shared scan cache
+  // rather than forcing — a full transcript scan on every panel entry is the
+  // cost this bound removes.
   useEffect(() => {
-    const force = consumeForcedRescanBudget()
-    void refresh({ force })
-    if (!force) {
-      requestForcedRescan()
-    }
-  }, [refresh, requestForcedRescan, scanScopeKey])
+    void refresh({ force: false })
+  }, [refresh, scanScopeKey])
 
   // Sessions started while the app was backgrounded should appear when the
-  // user returns, so refocus also bypasses the scan cache (throttled). OS
-  // refocus arrives via the main process — renderer DOM focus events don't
-  // fire on macOS app activation; visibilitychange covers minimize-restore.
+  // user returns; refocus checks the shared cache without forcing another
+  // transcript scan. OS refocus arrives via the main process — renderer DOM
+  // focus events don't fire on macOS app activation; visibilitychange covers
+  // minimize-restore.
   useEffect(() => {
     const onRefocus = (): void => {
       if (document.visibilityState !== 'visible') {
         return
       }
-      requestForcedRescan()
+      void refresh({ background: true, force: false })
     }
     const unsubscribeWindowFocus = window.api.aiVault.onWindowFocused?.(onRefocus)
     document.addEventListener('visibilitychange', onRefocus)
@@ -207,7 +196,7 @@ export function useAiVaultSessionRefresh(
       unsubscribeWindowFocus?.()
       document.removeEventListener('visibilitychange', onRefocus)
     }
-  }, [requestForcedRescan])
+  }, [refresh])
 
   // Sessions started inside Orca never blur the window, so refocus alone
   // can't surface them. Agent hooks already report provider sessions; re-scan

@@ -3463,7 +3463,8 @@ export type PreloadApi = {
           available: true
           qrDataUrl: string
           pairingUrl: string
-          endpoint: string
+          /** Null when no direct address was advertised — the QR pairs over Relay alone. */
+          endpoint: string | null
           deviceId: string
           /** Mode the QR actually encodes; 'local-only' when Relay could not be attached. */
           connectionMode: MobilePairingConnectionMode

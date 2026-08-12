@@ -79,7 +79,7 @@ describe('scorePaletteRelevance', () => {
     expect(worstPrimary).toBeLessThan(bestSecondary)
   })
 
-  it('treats a CJK character before the match as a word boundary', () => {
+  it('treats a CJK letter before the match as mid-word, like a Latin letter', () => {
     expect(
       scorePaletteRelevance([{ text: '工作树perf', range: { start: 3, end: 7 }, tier: 0 }])
     ).toBe(scorePaletteRelevance([{ text: 'aperf', range: { start: 1, end: 5 }, tier: 0 }]))

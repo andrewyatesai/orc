@@ -127,6 +127,118 @@ describe('registerMobileHandlers', () => {
     })
   })
 
+  it('lists a container bridge below a real LAN address but keeps it pickable', () => {
+    // Why: the bridge stays in the list (a VM guest may know it is routable) but never outranks a real
+    // interface, so it is never the auto-advertised default even though enumeration surfaced it first.
+    networkInterfacesMock.mockReturnValue({
+      docker0: [{ family: 'IPv4', internal: false, address: '172.17.0.1' }],
+      en0: [{ family: 'IPv4', internal: false, address: '192.168.1.24' }]
+    })
+
+    registerMobileHandlers({} as never)
+
+    expect(handlers.get('mobile:listNetworkInterfaces')?.()).toEqual({
+      interfaces: [
+        { name: 'en0', address: '192.168.1.24' },
+        { name: 'docker0', address: '172.17.0.1' }
+      ]
+    })
+  })
+
+  it('never auto-advertises a bridge: a bridge-only host pairs over Relay with no address', async () => {
+    // Why: a bridge address the phone provably cannot reach must not become the default, and Relay
+    // needs no local address — so the QR ships without a direct path instead of an unreachable one.
+    networkInterfacesMock.mockReturnValue({
+      docker0: [{ family: 'IPv4', internal: false, address: '172.17.0.1' }],
+      'vEthernet (WSL)': [{ family: 'IPv4', internal: false, address: '172.28.80.1' }]
+    })
+    const createMobilePairingOffer = vi.fn().mockResolvedValue({
+      available: true,
+      pairingUrl: 'orca://pair#relay',
+      endpoint: 'ws://127.0.0.1:6768',
+      deviceId: 'mobile-bridge-only',
+      connectionMode: 'automatic'
+    })
+
+    registerMobileHandlers({ createMobilePairingOffer } as never)
+
+    await expect(handlers.get('mobile:getPairingQR')?.(null, {})).resolves.toMatchObject({
+      available: true,
+      connectionMode: 'automatic',
+      // Why: the offer's loopback fallback points at the scanning phone, not this host — reporting it
+      // would print a direct endpoint under the QR that nothing can dial.
+      endpoint: null
+    })
+    expect(createMobilePairingOffer).toHaveBeenCalledWith(
+      expect.objectContaining({ address: null })
+    )
+    // The bridges stay pickable, just never automatically.
+    expect(handlers.get('mobile:listNetworkInterfaces')?.()).toEqual({
+      interfaces: [
+        { name: 'docker0', address: '172.17.0.1' },
+        { name: 'vEthernet (WSL)', address: '172.28.80.1' }
+      ]
+    })
+  })
+
+  it('refuses a LAN-only QR on a bridge-only host instead of advertising the bridge', async () => {
+    // Why: LAN has no Relay to fall back on, so a dead direct endpoint is worse than saying so — the
+    // bridge is still selectable in the picker on purpose, but it is never the automatic default.
+    networkInterfacesMock.mockReturnValue({
+      docker0: [{ family: 'IPv4', internal: false, address: '172.17.0.1' }]
+    })
+    const createMobilePairingOffer = vi.fn()
+
+    registerMobileHandlers({ createMobilePairingOffer } as never)
+
+    await expect(
+      handlers.get('mobile:getPairingQR')?.(null, { connectionMode: 'local-only' })
+    ).resolves.toEqual({ available: false })
+    expect(createMobilePairingOffer).not.toHaveBeenCalled()
+  })
+
+  it('honors an explicitly picked bridge address', async () => {
+    // Why: exclusion is about the automatic default only — a user who knows their bridge is routable
+    // (a VM guest pairing with the host) must still be able to advertise it.
+    networkInterfacesMock.mockReturnValue({
+      docker0: [{ family: 'IPv4', internal: false, address: '172.17.0.1' }],
+      en0: [{ family: 'IPv4', internal: false, address: '192.168.1.24' }]
+    })
+    const createMobilePairingOffer = vi.fn().mockResolvedValue({
+      available: true,
+      pairingUrl: 'orca://pair#bridge',
+      endpoint: 'ws://172.17.0.1:6768',
+      deviceId: 'mobile-bridge-pick',
+      connectionMode: 'local-only'
+    })
+
+    registerMobileHandlers({ createMobilePairingOffer } as never)
+    await handlers.get('mobile:getPairingQR')?.(null, {
+      address: '172.17.0.1',
+      connectionMode: 'local-only'
+    })
+
+    expect(createMobilePairingOffer).toHaveBeenCalledWith(
+      expect.objectContaining({ address: '172.17.0.1' })
+    )
+  })
+
+  it('reports runtime pairing unavailable rather than advertising a bridge', async () => {
+    // Why: runtime clients have no Relay fallback, so a bridge-only host has nothing reachable to
+    // advertise — the handler fails closed instead of minting a link that would be dead anyway.
+    networkInterfacesMock.mockReturnValue({
+      docker0: [{ family: 'IPv4', internal: false, address: '172.17.0.1' }]
+    })
+    const createPairingOffer = vi.fn()
+
+    registerMobileHandlers({ createPairingOffer } as never)
+
+    await expect(handlers.get('mobile:getRuntimePairingUrl')?.(null, {})).resolves.toEqual({
+      available: false
+    })
+    expect(createPairingOffer).not.toHaveBeenCalled()
+  })
+
   it('forwards an explicit local-only pairing choice', async () => {
     networkInterfacesMock.mockReturnValue({
       en0: [{ family: 'IPv4', internal: false, address: '192.168.1.24' }]

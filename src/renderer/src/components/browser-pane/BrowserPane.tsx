@@ -127,6 +127,10 @@ import { BrowserMobileDriverOverlay } from './BrowserMobileDriverOverlay'
 import { getShortcutPlatform, useShortcutLabel } from '@/hooks/useShortcutLabel'
 import { getRemoteBrowserFrameStyle } from './remote-browser-frame-style'
 import {
+  RemoteBrowserStreamRestartScheduler,
+  type RemoteBrowserStreamRestartAttempt
+} from './remote-browser-stream-restart-scheduler'
+import {
   getRemoteBrowserKeyboardShortcut,
   getRemoteBrowserKeypressKey
 } from './remote-browser-keyboard'
@@ -900,7 +904,15 @@ function RemoteBrowserPagePane({
   const remoteViewportTimerRef = useRef<number | null>(null)
   const streamFrameUrlRef = useRef<string | null>(null)
   const streamSubscriptionRef = useRef<RemoteBrowserStreamSubscription | null>(null)
-  const streamRestartTimerRef = useRef<number | null>(null)
+  const streamRestartSchedulerRef = useRef<RemoteBrowserStreamRestartScheduler | null>(null)
+  if (streamRestartSchedulerRef.current === null) {
+    // Why: bounded backoff over a fixed single-shot — absorb a transient drop, then hand control
+    // back with a surfaced error instead of retrying a dead stream forever (STA-3483).
+    streamRestartSchedulerRef.current = new RemoteBrowserStreamRestartScheduler(undefined, () => {
+      setRemoteError('Failed to restart remote browser stream.')
+      setBusy(false)
+    })
+  }
   const remoteTabRefreshTimerRef = useRef<number | null>(null)
   const remoteInputQueueRef = useRef<Promise<unknown>>(Promise.resolve())
   const pendingRemoteWheelRef = useRef<PendingRemoteBrowserWheel | null>(null)
@@ -1012,10 +1024,7 @@ function RemoteBrowserPagePane({
       activeStreamTokenRef.current = null
       streamSubscriptionRef.current?.unsubscribe()
       streamSubscriptionRef.current = null
-      if (streamRestartTimerRef.current !== null) {
-        window.clearTimeout(streamRestartTimerRef.current)
-        streamRestartTimerRef.current = null
-      }
+      streamRestartSchedulerRef.current?.cancel()
       if (remoteViewportTimerRef.current !== null) {
         window.clearTimeout(remoteViewportTimerRef.current)
         remoteViewportTimerRef.current = null
@@ -1199,10 +1208,7 @@ function RemoteBrowserPagePane({
       pendingFrameDecodeRef.current += 1
       activeStreamTokenRef.current = null
       remoteStreamViewportSizeRef.current = null
-      if (streamRestartTimerRef.current !== null) {
-        window.clearTimeout(streamRestartTimerRef.current)
-        streamRestartTimerRef.current = null
-      }
+      streamRestartSchedulerRef.current?.cancel()
       if (remoteViewportTimerRef.current !== null) {
         window.clearTimeout(remoteViewportTimerRef.current)
         remoteViewportTimerRef.current = null
@@ -1543,13 +1549,14 @@ function RemoteBrowserPagePane({
 
   const scheduleRemoteStreamRestart = useCallback(
     (token: RemoteBrowserStreamToken): void => {
-      if (!isCurrentRemoteStreamOperation(token) || streamRestartTimerRef.current !== null) {
+      if (!isCurrentRemoteStreamOperation(token)) {
         return
       }
-      streamRestartTimerRef.current = window.setTimeout(() => {
-        streamRestartTimerRef.current = null
+      // Resolves true to keep retrying (transient drop), false to stop (success/superseded/missing);
+      // the scheduler's budget bounds it and surfaces the error once the budget is spent.
+      const run: RemoteBrowserStreamRestartAttempt = async () => {
         if (!isCurrentRemoteStreamOperation(token)) {
-          return
+          return false
         }
         setBusy(true)
         const operationToken: RemoteBrowserOperationToken = {
@@ -1558,44 +1565,35 @@ function RemoteBrowserPagePane({
           remotePageId: token.remotePageId,
           generation: token.operationGeneration
         }
-        void fetchRemoteTabInfo(operationToken)
-          .then((tab) => {
-            if (!tab || !isCurrentRemoteStreamOperation(token)) {
-              return
-            }
+        try {
+          const tab = await fetchRemoteTabInfo(operationToken).catch(() => null)
+          if (tab && isCurrentRemoteStreamOperation(token)) {
             applyRemoteTabInfo(tab)
-          })
-          .catch(() => {})
-          .then(() => {
-            if (!isCurrentRemoteStreamOperation(token)) {
-              return null
+          }
+          if (!isCurrentRemoteStreamOperation(token)) {
+            return false
+          }
+          const subscription = await startRemoteStreamRef.current(token.remotePageId)
+          if (subscription) {
+            if (isCurrentRemoteStreamToken(subscription.token)) {
+              streamSubscriptionRef.current = subscription
+            } else {
+              subscription.unsubscribe()
             }
-            return startRemoteStreamRef.current(token.remotePageId)
-          })
-          .then((subscription) => {
-            if (!subscription) {
-              return
-            }
-            if (!isCurrentRemoteStreamToken(subscription.token)) {
-              subscription?.unsubscribe()
-              return
-            }
-            streamSubscriptionRef.current = subscription
-          })
-          .catch((error: unknown) => {
-            if (!isCurrentRemoteStreamOperation(token)) {
-              return
-            }
-            if (isRemoteBrowserPageMissingError(error)) {
-              closeMissingRemotePage(token.remotePageId)
-              return
-            }
-            setRemoteError(
-              error instanceof Error ? error.message : 'Failed to restart remote browser stream.'
-            )
-            setBusy(false)
-          })
-      }, 500)
+          }
+          return false
+        } catch (error) {
+          if (!isCurrentRemoteStreamOperation(token)) {
+            return false
+          }
+          if (isRemoteBrowserPageMissingError(error)) {
+            closeMissingRemotePage(token.remotePageId)
+            return false
+          }
+          return true
+        }
+      }
+      streamRestartSchedulerRef.current?.schedule(run)
     },
     [
       applyRemoteTabInfo,
@@ -1693,6 +1691,8 @@ function RemoteBrowserPagePane({
               }
               const event = response.result as BrowserScreencastResult
               if (event.type === 'ready') {
+                // Confirmed-live: forget prior failures so the next drop gets the whole budget again.
+                streamRestartSchedulerRef.current?.reset()
                 applyRemoteTabInfo(event.tab)
                 void syncRemoteViewport(event.browserPageId).catch(() => {})
                 setBusy(false)
@@ -1763,10 +1763,7 @@ function RemoteBrowserPagePane({
       activeStreamTokenRef.current = null
       streamSubscriptionRef.current = null
       remoteStreamViewportSizeRef.current = null
-      if (streamRestartTimerRef.current !== null) {
-        window.clearTimeout(streamRestartTimerRef.current)
-        streamRestartTimerRef.current = null
-      }
+      streamRestartSchedulerRef.current?.cancel()
       setBusy(true)
       current.unsubscribe()
       void startRemoteStreamRef
@@ -1818,10 +1815,7 @@ function RemoteBrowserPagePane({
     activeStreamTokenRef.current = null
     streamSubscriptionRef.current?.unsubscribe()
     streamSubscriptionRef.current = null
-    if (streamRestartTimerRef.current !== null) {
-      window.clearTimeout(streamRestartTimerRef.current)
-      streamRestartTimerRef.current = null
-    }
+    streamRestartSchedulerRef.current?.cancel()
     const operationToken = createRemoteOperationToken()
     if (!operationToken) {
       setBusy(false)
@@ -1869,10 +1863,7 @@ function RemoteBrowserPagePane({
       clearPendingRemoteWheel()
       streamSubscriptionRef.current?.unsubscribe()
       streamSubscriptionRef.current = null
-      if (streamRestartTimerRef.current !== null) {
-        window.clearTimeout(streamRestartTimerRef.current)
-        streamRestartTimerRef.current = null
-      }
+      streamRestartSchedulerRef.current?.cancel()
     }
   }, [
     clearPendingRemoteWheel,

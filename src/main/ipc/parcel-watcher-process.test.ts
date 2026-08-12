@@ -656,6 +656,40 @@ describe('subscribeViaWatcherProcess', () => {
     )
   })
 
+  it('does not respawn for later subscriptions after the crash fuse opens', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(0)
+      const promise = subscribeViaWatcherProcess('/repo', vi.fn(), {})
+      ackSubscribe(currentChild())
+      await promise
+
+      for (const crashTime of [0, 40_000]) {
+        vi.setSystemTime(crashTime)
+        const child = currentChild()
+        child.connected = false
+        child.emit('exit', 3221226505, null)
+        ackSubscribe(currentChild())
+      }
+      vi.setSystemTime(80_000)
+      const last = currentChild()
+      last.connected = false
+      last.emit('exit', 3221226505, null)
+      expect(forkMock).toHaveBeenCalledTimes(3)
+
+      // Why: the fuse latched at t=80s; ten minutes later — long past the
+      // 2-minute window that would age those crashes out — a new subscribe must
+      // still be refused, not fork a fourth child.
+      vi.setSystemTime(10 * 60_000)
+      await expect(subscribeViaWatcherProcess('/later', vi.fn(), {})).rejects.toMatchObject({
+        code: 'process_unavailable'
+      })
+      expect(forkMock).toHaveBeenCalledTimes(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('kills the idle child after the last unsubscribe and respawns on the next subscribe', async () => {
     const promise = subscribeViaWatcherProcess('/repo', vi.fn(), {})
     const first = currentChild()

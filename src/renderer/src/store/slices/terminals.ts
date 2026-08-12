@@ -458,6 +458,18 @@ function uniquePtyIds(ptyIds: readonly (string | null | undefined)[]): string[] 
   return [...new Set(ptyIds.filter((ptyId): ptyId is string => Boolean(ptyId)))]
 }
 
+// Every PTY id a persisted terminal row lays claim to: its own, its remote session, and its layout leaves.
+function collectPersistedTerminalPtyIds(
+  session: WorkspaceSessionState,
+  tab: TerminalTab
+): string[] {
+  return uniquePtyIds([
+    tab.ptyId,
+    session.remoteSessionIdsByTabId?.[tab.id],
+    ...Object.values(session.terminalLayoutsByTabId[tab.id]?.ptyIdsByLeafId ?? {})
+  ])
+}
+
 function resolvePrimaryLayoutPtyId(layout: TerminalLayoutSnapshot): string | null {
   const ptyIdsByLeafId = layout.ptyIdsByLeafId ?? {}
   const activePtyId = layout.activeLeafId ? ptyIdsByLeafId[layout.activeLeafId] : undefined
@@ -3341,6 +3353,16 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         Object.entries(session.tabsByWorktree)
           .filter(([worktreeId]) => validWorktreeIds.has(worktreeId))
           .map(([worktreeId, tabs]) => {
+            const canonicalTerminalIds = new Set(
+              (session.unifiedTabs?.[worktreeId] ?? []).flatMap((tab) =>
+                tab.contentType === 'terminal' ? [tab.entityId] : []
+              )
+            )
+            const canonicalPtyIds = new Set(
+              tabs
+                .filter((tab) => canonicalTerminalIds.has(tab.id))
+                .flatMap((tab) => collectPersistedTerminalPtyIds(session, tab))
+            )
             const quickCommandLabelByTerminalId = new Map(
               (session.unifiedTabs?.[worktreeId] ?? [])
                 .filter((tab) => tab.contentType === 'terminal' && tab.quickCommandLabel?.trim())
@@ -3355,8 +3377,15 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
               worktreeId,
               [...tabs]
                 .filter((tab) => {
+                  // Why: canonical mounts win PTY ownership over stale legacy duplicates.
                   // Why: old web-client mirrors could persist host surface ids with "::"; makePaneKey reserves ":" as its separator.
-                  return isValidTerminalTabId(tab.id)
+                  return (
+                    (canonicalTerminalIds.has(tab.id) ||
+                      !collectPersistedTerminalPtyIds(session, tab).some((ptyId) =>
+                        canonicalPtyIds.has(ptyId)
+                      )) &&
+                    isValidTerminalTabId(tab.id)
+                  )
                 })
                 .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt)
                 .map((tab, index) => {

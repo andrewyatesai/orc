@@ -1056,19 +1056,47 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
   // send ⌘3 to the wrong row; dots keep updating, positions don't.
   const [recentTabOrder, setRecentTabOrder] = useState<readonly string[]>(EMPTY_RECENT_TAB_ORDER)
   const recentTabOrderCapturedRef = useRef(false)
+  // Why: unified tabs can land before tabsByWorktree entities. A capture then ranks every chat as
+  // IDLE; allow one re-capture when entities arrive, then freeze for good.
+  const recentTabOrderAttentionReadyRef = useRef(false)
+  // Terminal rows without a tabsByWorktree entity can't resolve attention yet (see orderRecent…).
+  const recentOrderAttentionIncomplete = useMemo(() => {
+    for (const item of openTabItems) {
+      if (item.type !== 'workspace-tab' || item.result.contentType !== 'terminal') {
+        continue
+      }
+      const worktree = worktreeMap.get(item.result.worktreeId)
+      if (!worktree || worktree.isArchived || isCurrentOpenTabItem(item)) {
+        continue
+      }
+      if (!terminalTabsById.has(item.result.entityId)) {
+        return true
+      }
+    }
+    return false
+  }, [openTabItems, terminalTabsById, worktreeMap])
   // Why layout, not passive: a post-paint capture shows one frame of worktrees-only, which flashes
   // the list, renumbers ⌘1–6 under the user, and lets cmdk latch a worktree as the Enter target.
   useLayoutEffect(() => {
     if (!visible) {
       recentTabOrderCapturedRef.current = false
+      recentTabOrderAttentionReadyRef.current = false
       autoSelectedItemIdRef.current = null
       setRecentTabOrder(EMPTY_RECENT_TAB_ORDER)
       return
     }
     // Why: the query is cleared by the open effect below, which runs after this one — capturing
     // before that lands would freeze the *previous* session's filtered subset for good.
-    if (recentTabOrderCapturedRef.current || hasQuery || query.length > 0) {
+    if (hasQuery || query.length > 0) {
       return
+    }
+    // Fully frozen after an attention-ready capture; provisional freeze while entities still pending
+    // so agent-status churn can't reshuffle under the cursor before the one-shot re-rank.
+    if (recentTabOrderCapturedRef.current) {
+      if (recentTabOrderAttentionReadyRef.current || recentOrderAttentionIncomplete) {
+        return
+      }
+      // Incomplete → complete: fall through and re-capture with real attention ranks.
     }
     const order = orderRecentWorkspaceTabs({
       rows: recentTabRows,
@@ -1080,11 +1108,15 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
     if (order.length === 0) {
       // Why: tabs can arrive after the palette opens (cold start, session restore, a late tab
       // mirror). Latching an empty snapshot would leave Recent dead — and digits inert — until
-      // close+reopen, so stay unlatched; the stable empty ref keeps this a no-op re-render.
+      // close+reopen. Also clear a provisional latch: incomplete→complete fallthrough can hit empty
+      // if open tabs briefly vanish, and keeping captured would freeze an empty Recent forever.
+      recentTabOrderCapturedRef.current = false
+      recentTabOrderAttentionReadyRef.current = false
       setRecentTabOrder(EMPTY_RECENT_TAB_ORDER)
       return
     }
     recentTabOrderCapturedRef.current = true
+    recentTabOrderAttentionReadyRef.current = !recentOrderAttentionIncomplete
     setRecentTabOrder(order)
     // Why: recents render above the worktrees, so a row auto-selected before they arrived is no
     // longer the list head — hand Enter back to the top, matching ⌘1. Untouched selections only:
@@ -1098,6 +1130,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
     hasQuery,
     lastVisitedAtByWorktreeId,
     query.length,
+    recentOrderAttentionIncomplete,
     recentTabPaneSources,
     recentTabRows,
     visible

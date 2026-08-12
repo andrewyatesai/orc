@@ -68,7 +68,12 @@ export function registerMobileHandlers(
       // embed in the QR code. This supports overlay networks (Tailscale,
       // ZeroTier) where the default LAN IP isn't reachable from the phone.
       const ip = args?.address ?? getDefaultPairingAddress()
-      if (!ip) {
+      // Why: the local address is optional under Relay — the QR carries the relay invite, so a host
+      // with nothing auto-advertisable (only container bridges, or no interface at all) still pairs;
+      // the offer's endpoint then falls back to loopback, which is the scanning phone's own device, so
+      // the direct candidate loses the race by construction. LAN-only has no relay to fall back on, so
+      // it fails closed rather than advertising a bridge the phone cannot reach.
+      if (!ip && args?.connectionMode === 'local-only') {
         return { available: false as const }
       }
 
@@ -102,7 +107,10 @@ export function registerMobileHandlers(
         available: true as const,
         qrDataUrl,
         pairingUrl: offer.pairingUrl,
-        endpoint: offer.endpoint,
+        // Why: with nothing advertised the offer's endpoint is the loopback fallback, which points at
+        // whichever device scans the QR — never this host. Report no endpoint so the UI omits it
+        // instead of printing an address the phone can't reach.
+        endpoint: ip ? offer.endpoint : null,
         deviceId: offer.deviceId,
         // Why: an automatic request can degrade to a local-only offer when
         // Relay provisioning fails; the UI needs the encoded mode to avoid

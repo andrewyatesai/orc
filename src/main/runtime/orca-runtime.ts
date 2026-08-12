@@ -28004,7 +28004,7 @@ export class OrcaRuntimeService {
           : (session.worktreeId ??
             persistedWorktree?.id ??
             inferredWorktreeId ??
-            findResolvedWorktreeIdForPath(resolvedWorktrees, session.cwd))
+            findResolvedWorktreeIdForPath(resolvedWorktrees, session.cwd, targetWorktreeId))
       if (
         !targetWorktreeId ||
         (worktreeId && runtimeWorktreeIdsEqual(worktreeId, targetWorktreeId))
@@ -35393,9 +35393,14 @@ function runtimePathsEqual(left: string, right: string): boolean {
   return normalizeRuntimePathForComparison(left) === normalizeRuntimePathForComparison(right)
 }
 
+// Why: runtime identity is per *workspace*, not per checkout dir. Folder projects back
+// several independent workspaces with one directory, separated only by the
+// `::workspace:<uuid>` suffix that filesystem callers strip; stripping it here instead
+// lets one session steal a sibling's PTYs. Normalize only path spelling via
+// runtimePathsEqual, so Windows/WSL/SSH ids still match themselves across hosts.
 function runtimeWorktreeIdsEqual(left: string, right: string): boolean {
-  const parsedLeft = splitWorktreeIdForFilesystem(left)
-  const parsedRight = splitWorktreeIdForFilesystem(right)
+  const parsedLeft = splitWorktreeId(left)
+  const parsedRight = splitWorktreeId(right)
   return parsedLeft && parsedRight
     ? parsedLeft.repoId === parsedRight.repoId &&
         runtimePathsEqual(parsedLeft.worktreePath, parsedRight.worktreePath)
@@ -35403,7 +35408,8 @@ function runtimeWorktreeIdsEqual(left: string, right: string): boolean {
 }
 
 function runtimeWorktreeIdentityKey(worktreeId: string): string {
-  const parsed = splitWorktreeIdForFilesystem(worktreeId)
+  // Same suffix rule: this keys PTY refresh, sleep, and mutation-queue state per session.
+  const parsed = splitWorktreeId(worktreeId)
   return parsed
     ? `${parsed.repoId}\0${normalizeRuntimePathForComparison(parsed.worktreePath)}`
     : worktreeId
@@ -35688,7 +35694,8 @@ function includeTargetResolvedWorktree(
 
 function findResolvedWorktreeIdForPath(
   resolvedWorktrees: ResolvedWorktree[],
-  cwd: string
+  cwd: string,
+  targetWorktreeId?: string | null
 ): string | null {
   if (!cwd) {
     return null
@@ -35696,7 +35703,18 @@ function findResolvedWorktreeIdForPath(
   const matches = resolvedWorktrees
     .filter((worktree) => isPathInsideOrEqual(worktree.path, cwd))
     .sort((left, right) => right.path.length - left.path.length)
-  return matches[0]?.id ?? null
+  // Why: a cwd cannot distinguish folder-workspace siblings, which all share one
+  // directory. Break that tie toward the caller's target instead of store order, so an
+  // unattributed PTY still lands in the workspace being listed. Only ties at the deepest
+  // path qualify — a nested worktree must still beat its parent.
+  const deepest = matches.filter((worktree) => worktree.path.length === matches[0]?.path.length)
+  return (
+    (deepest.length > 1
+      ? deepest.find((worktree) => worktree.id === targetWorktreeId)?.id
+      : undefined) ??
+    matches[0]?.id ??
+    null
+  )
 }
 
 function normalizeForegroundProcessName(processName: string): string {
