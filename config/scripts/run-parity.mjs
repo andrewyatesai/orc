@@ -62,7 +62,19 @@ if (cargoBin && rustcBin) {
       vectorsDir,
       outputsFile
     ],
-    { env: { ...process.env, RUSTC: rustcBin } }
+    {
+      env: {
+        ...process.env,
+        RUSTC: rustcBin,
+        // The repo-root .cargo/config.toml turns Trust verification on via `-Z`
+        // rustflags, which this STABLE leg refuses to parse. Parity asks whether
+        // the ported logic matches its TS twin — a question about the code, not
+        // the verifier — so the flags are cleared (env overrides the config
+        // table wholesale), same idiom as build-rust-daemon/build-terminal-addon.
+        RUSTFLAGS: process.env.RUSTFLAGS ?? '',
+        RUSTDOCFLAGS: process.env.RUSTDOCFLAGS ?? ''
+      }
+    }
   )
 } else if (prebuilt) {
   console.warn(`[parity] rustup stable unavailable; using prebuilt ${prebuilt}`)
