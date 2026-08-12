@@ -2805,7 +2805,7 @@ describe('orca cli worktree awareness', () => {
     })
   })
 
-  it('passes agent prompt and setup policy through worktree.create', async () => {
+  it('starts an agent worktree in the background unless activation is explicit', async () => {
     queueFixtures(
       callMock,
       worktreeListFixture([buildWorktree('/tmp/repo', 'main', 'abc', 'repo-1')]),
@@ -2843,7 +2843,7 @@ describe('orca cli worktree awareness', () => {
       linkedIssue: undefined,
       comment: undefined,
       runHooks: false,
-      activate: true,
+      activate: false,
       setupDecision: 'run',
       parentWorktree: undefined,
       cwdParentWorktree: 'id:repo-1::/tmp/repo',
@@ -2855,7 +2855,7 @@ describe('orca cli worktree awareness', () => {
     })
   })
 
-  it('infers the repo from the current worktree on worktree.create', async () => {
+  it('infers the repo and honors explicit activation on worktree.create', async () => {
     queueFixtures(
       callMock,
       worktreeListFixture([buildWorktree('/tmp/repo', 'main', 'abc', 'repo-1')]),
@@ -2877,6 +2877,7 @@ describe('orca cli worktree awareness', () => {
         'codex',
         '--prompt',
         'hi',
+        '--activate',
         '--json'
       ],
       '/tmp/repo/src'

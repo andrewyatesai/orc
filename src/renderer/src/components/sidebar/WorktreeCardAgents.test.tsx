@@ -613,6 +613,8 @@ describe('WorktreeCardAgents', () => {
     expect(markup).toContain('compact-agent-row')
     expect(markup).toContain('group/compact-agent-row')
     expect(markup).toContain('flex h-6 items-center gap-1')
+    // #11336: row clips overflowing nested agent metadata to its own bounds.
+    expect(markup).toContain('min-w-0 overflow-hidden cursor-pointer')
     expect(markup).not.toContain('<img')
     expect(markup).not.toContain('max-h-36')
     expect(markup).not.toContain('data-testid="agent-row"')

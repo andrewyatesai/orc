@@ -36,6 +36,7 @@ beforeEach(() => {
     api: { pty: { hasPty: mocks.hasPty } }
   })
   vi.spyOn(console, 'error').mockImplementation(() => {})
+  vi.spyOn(console, 'warn').mockImplementation(() => {})
 })
 
 afterEach(() => {
@@ -60,6 +61,21 @@ describe('requestTerminalPaneRecovery', () => {
     )
     // Pipeline-death reasons are already probe-certified — no liveness gate.
     expect(mocks.hasPty).not.toHaveBeenCalled()
+  })
+
+  it('logs a successful recovery at warn, not error (recovery is a healthy remount)', async () => {
+    const warn = vi.spyOn(console, 'warn')
+    const error = vi.spyOn(console, 'error')
+
+    const result = await requestTerminalPaneRecovery({
+      tabId: 'tab-1',
+      ptyId: 'pty-1',
+      reason: 'write-stalled'
+    })
+
+    expect(result).toBe(true)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('recovering pane tab tab-1'))
+    expect(error).not.toHaveBeenCalled()
   })
 
   it('records a breadcrumb when the tab cannot be remounted, without consuming budget', async () => {

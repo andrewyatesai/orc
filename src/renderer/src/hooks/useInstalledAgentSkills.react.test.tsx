@@ -60,6 +60,13 @@ function deferred<T>(): {
   return { promise, resolve, reject }
 }
 
+async function flushMicrotasks(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+}
+
 const LINEAR_AGENT_SKILL_NAMES = ['orca-linear', 'linear-tickets'] as const
 
 const projectWslRuntime: ProjectExecutionRuntimeResolution = {
@@ -244,5 +251,31 @@ describe('useInstalledAgentSkill', () => {
       wslDistro: 'Ubuntu',
       projectRuntime: projectWslRuntime
     })
+  })
+
+  it('does not rescan when a caller rebuilds an equivalent target object', async () => {
+    // Why: callers derive the target inside a store-backed useMemo, so an
+    // unrelated store write hands this hook a new object with the same key.
+    const discover = vi
+      .fn<(target?: SkillDiscoveryTarget) => Promise<SkillDiscoveryResult>>()
+      .mockRejectedValue(new Error('runtime host unreachable'))
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: { skills: { discover } }
+    })
+
+    await renderProbe({ projectRuntime: projectWslRuntime })
+    await flushMicrotasks()
+    expect(discover).toHaveBeenCalledTimes(1)
+
+    for (let rebuild = 0; rebuild < 5; rebuild += 1) {
+      await renderProbe({ projectRuntime: { ...projectWslRuntime } })
+      await flushMicrotasks()
+    }
+
+    // A failed scan caches nothing, so an unstable target identity would issue a
+    // fresh discovery per store write for as long as the host stays unreachable.
+    expect(discover).toHaveBeenCalledTimes(1)
+    expect(latestState?.error).toBe('runtime host unreachable')
   })
 })

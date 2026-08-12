@@ -289,7 +289,9 @@ export async function requestTerminalPaneRecovery(request: RecoveryRequest): Pro
     // would suppress input on a pane that never recovered.
     armTerminalInputQuarantine(request.tabId)
   }
-  console.error(
+  // warn, not error: recovery is an expected, healthy remount over a still-live
+  // PTY — surfacing it as an error trips crash dashboards on a non-failure.
+  console.warn(
     `[terminal] recovering pane tab ${request.tabId} — ${request.reason} with a live PTY (${request.ptyId ?? 'unbound'}); remounting to rebuild the renderer`
   )
   recordRendererCrashBreadcrumb('terminal_pane_recovery_remount', {

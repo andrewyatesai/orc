@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   DiscoveredSkill,
   SkillDiscoveryResult,
+  SkillDiscoverySource,
   SkillDiscoveryTarget,
   SkillSourceKind
 } from '../../../shared/skills'
@@ -9,6 +10,10 @@ import { ORCHESTRATION_SKILL_NAME } from '@/lib/agent-feature-install-commands'
 import { markOrchestrationSetupComplete } from '@/lib/orchestration-setup-state'
 import { INSTALLED_AGENT_SKILLS_CHANGED_EVENT } from './installed-agent-skills-change-event'
 import { useMountedRef } from './useMountedRef'
+import {
+  getSkillDiscoveryTargetKey,
+  normalizeSkillDiscoveryTarget
+} from './skill-discovery-target-key'
 
 export const GLOBAL_AGENT_SKILL_SOURCE_KINDS = [
   'home'
@@ -29,6 +34,7 @@ export type InstalledAgentSkillState = {
   loading: boolean
   error: string | null
   skills: readonly DiscoveredSkill[]
+  sources: readonly SkillDiscoverySource[]
   refresh: () => Promise<boolean>
 }
 
@@ -81,43 +87,6 @@ export function notifyInstalledAgentSkillsChanged(): void {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(INSTALLED_AGENT_SKILLS_CHANGED_EVENT))
   }
-}
-
-function normalizeSkillDiscoveryTarget(
-  target: SkillDiscoveryTarget | undefined
-): SkillDiscoveryTarget | undefined {
-  const projectRuntime = target?.projectRuntime
-  if (projectRuntime) {
-    if (projectRuntime.status === 'repair-required') {
-      return { projectRuntime }
-    }
-    if (projectRuntime.runtime.kind === 'wsl') {
-      return {
-        runtime: 'wsl',
-        wslDistro: projectRuntime.runtime.distro,
-        projectRuntime
-      }
-    }
-    return {
-      runtime: 'host',
-      projectRuntime
-    }
-  }
-
-  if (target?.runtime !== 'wsl') {
-    return undefined
-  }
-  return { runtime: 'wsl', wslDistro: target.wslDistro?.trim() || null }
-}
-
-function getSkillDiscoveryTargetKey(target: SkillDiscoveryTarget | undefined): string {
-  if (target?.projectRuntime) {
-    return target.projectRuntime.status === 'resolved'
-      ? target.projectRuntime.runtime.cacheKey
-      : target.projectRuntime.repair.cacheKey
-  }
-  const normalizedTarget = normalizeSkillDiscoveryTarget(target)
-  return normalizedTarget?.runtime === 'wsl' ? `wsl:${normalizedTarget.wslDistro ?? ''}` : 'host'
 }
 
 function startInstalledAgentSkillDiscovery(
@@ -204,9 +173,15 @@ export function useInstalledAgentSkillNames(
   const [loading, setLoading] = useState(enabled && !cachedDiscovery)
   const [error, setError] = useState<string | null>(null)
   const currentDiscoveryTargetKeyRef = useRef(discoveryTargetKey)
+  // Why: callers rebuild the target in a store-backed useMemo, so unrelated store
+  // writes hand us a new object with the same key. Read it through a ref so
+  // `refresh` — keyed on the string, not the object — stays stable and the
+  // discovery effect it drives does not refire once per store write.
+  const discoveryTargetRef = useRef(discoveryTarget)
   const refreshGenerationRef = useRef(0)
   const stateResetInputRef = useRef({ discoveryTargetKey, enabled })
   currentDiscoveryTargetKeyRef.current = discoveryTargetKey
+  discoveryTargetRef.current = discoveryTarget
   // Why: skill scans can outlive transient settings/onboarding panels; keep
   // the module cache update but skip React state writes after unmount.
   const mountedRef = useMountedRef()
@@ -253,7 +228,7 @@ export function useInstalledAgentSkillNames(
       })
       let installedAfterRefresh = false
       try {
-        const next = await discoverInstalledAgentSkills(force, discoveryTarget)
+        const next = await discoverInstalledAgentSkills(force, discoveryTargetRef.current)
         installedAfterRefresh = hasInstalledAgentSkillNamed(next.skills, candidateSkillNames, {
           sourceKinds
         })
@@ -276,7 +251,7 @@ export function useInstalledAgentSkillNames(
       }
       return installedAfterRefresh
     },
-    [candidateSkillNames, discoveryTarget, discoveryTargetKey, enabled, mountedRef, sourceKinds]
+    [candidateSkillNames, discoveryTargetKey, enabled, mountedRef, sourceKinds]
   )
 
   useEffect(() => {
@@ -305,6 +280,11 @@ export function useInstalledAgentSkillNames(
     [enabled, resultForRender]
   )
 
+  const sources = useMemo(
+    () => (enabled && resultForRender ? resultForRender.sources : []),
+    [enabled, resultForRender]
+  )
+
   const installed = useMemo(
     () =>
       enabled ? hasInstalledAgentSkillNamed(skills, candidateSkillNames, { sourceKinds }) : false,
@@ -326,6 +306,7 @@ export function useInstalledAgentSkillNames(
     loading: loadingForRender,
     error: errorForRender,
     skills,
+    sources,
     refresh: forceRefresh
   }
 }
