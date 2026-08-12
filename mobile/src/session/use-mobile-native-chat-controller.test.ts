@@ -73,6 +73,7 @@ vi.mock('./mobile-native-chat-send', async (importOriginal) => ({
 }))
 
 import { sendMobileNativeChatMessageWithOutcome } from './mobile-native-chat-send'
+import { AGENT_TUI_CLEAR_INPUT_MAX } from '../../../src/shared/agent-tui-input-clear'
 import {
   isMobileNativeChatInputStale,
   markMobileNativeChatInputStale,
@@ -166,7 +167,7 @@ describe('useMobileNativeChatController handleNativeChatSend', () => {
     expect(clientStub.sendRequest).toHaveBeenCalledTimes(1)
     expect(clientStub.sendRequest.mock.calls[0]?.[1]).toMatchObject({
       terminal: 'term-1',
-      text: '\x15',
+      text: AGENT_TUI_CLEAR_INPUT_MAX,
       enter: false
     })
     expect(isMobileNativeChatInputStale('term-1')).toBe(false)
