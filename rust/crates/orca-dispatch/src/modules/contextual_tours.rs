@@ -47,6 +47,10 @@ fn tour_to_json(tour: &ContextualTour) -> Value {
 
 fn step_to_json(step: &ContextualTourStep) -> Value {
     let mut object = Map::new();
+    // Key order mirrors the TS literal: `id` first where a step declares one.
+    if let Some(value) = step.id {
+        object.insert("id".to_string(), Value::String(value.to_string()));
+    }
     object.insert("title".to_string(), Value::String(step.title.to_string()));
     object.insert("body".to_string(), Value::String(step.body.to_string()));
     object.insert("targetSelector".to_string(), Value::String(step.target_selector.to_string()));
