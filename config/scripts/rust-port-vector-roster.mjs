@@ -106,7 +106,13 @@ export function rustSourceEvidence(rustCrate) {
       reason: 'the parity vector names no rustCrate'
     }
   }
-  const [crate, ...rest] = rustCrate.split('::')
+  // Why two spellings: the corpus uses both `crate::module` and `crate (module)`. Parsing only the
+  // first made 5 vectors report "rust source not located" for ports that are on disk — a false
+  // negative that reads as "never written" and is exactly the wrong direction for this report.
+  const parenthesised = /^(?<crate>[\w-]+)\s*\((?<module>[\w:]+)\)$/u.exec(rustCrate.trim())
+  const [crate, ...rest] = parenthesised
+    ? [parenthesised.groups.crate, ...parenthesised.groups.module.split('::')]
+    : rustCrate.split('::')
   const crateDir = path.join(CRATES_DIR, crate)
   if (!fs.existsSync(crateDir)) {
     return {
