@@ -314,7 +314,10 @@
         },
         "runtime": {
           "status": {
-            "runtimeHostDisconnectedDescription": "Workspaces and terminals on this server are unavailable."
+            "runtimeHostDisconnectedDescription": "Check that Orca is running on this server and that your network connection is working, then try again.",
+            "runtimeHostUnreachableNamed": "Can't reach {{hostName}}",
+            "runtimeHostUnreachable": "Can't reach Orca server",
+            "tryAgain": "Try again"
           }
         }
       }
@@ -4606,7 +4609,10 @@
           "setParentWorkspace": "親ワークツリーを設定...",
           "workspaceSection": "ワークスペース",
           "primaryDeleteDisabled": "プライマリワークツリーは削除できません。代わりにプロジェクトを削除してください。",
-          "deleteWorktree": "ワークツリーを削除"
+          "deleteWorktree": "ワークツリーを削除",
+          "sleepWithDescendants": "Sleep with Descendants ({{value0}})",
+          "sleepWithDescendantsDescription": "Close active panels in this workspace and every nested descendant to free up memory and CPU.",
+          "deleteWithDescendants": "Delete with Descendants…"
         },
         "WorktreeList": {
           "d880ea0744": "グループを作成し、このプロジェクトをそのグループに移動します。",
@@ -5359,7 +5365,10 @@
           "5f818f12ab": "準備中...",
           "4c05b9d7cb": "セットアップ用ターミナルを準備しています。",
           "installingFromBuild": "Installing...",
-          "installingHint": "Installing from this app build. No network needed."
+          "installingHint": "Installing from this app build. No network needed.",
+          "setupCommandFailed": "The setup command exited with code {{value0}}. This error will clear after a successful retry.",
+          "setupFailed": "Setup failed",
+          "retrySetup": "Retry"
         },
         "AgentsPane": {
           "d83834f5e6": "インストールされている agents を検出しています…",

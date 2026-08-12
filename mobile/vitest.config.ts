@@ -14,6 +14,7 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts']
+    // .test.tsx included so component tests (react-test-renderer) are discovered.
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx']
   }
 })

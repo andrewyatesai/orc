@@ -314,7 +314,10 @@
         },
         "runtime": {
           "status": {
-            "runtimeHostDisconnectedDescription": "Workspaces and terminals on this server are unavailable."
+            "runtimeHostDisconnectedDescription": "Check that Orca is running on this server and that your network connection is working, then try again.",
+            "runtimeHostUnreachableNamed": "Can't reach {{hostName}}",
+            "runtimeHostUnreachable": "Can't reach Orca server",
+            "tryAgain": "Try again"
           }
         }
       }
@@ -4606,7 +4609,10 @@
           "setParentWorkspace": "设置父工作树...",
           "workspaceSection": "工作区",
           "primaryDeleteDisabled": "主工作树不能删除。请改为移除项目。",
-          "deleteWorktree": "删除工作树"
+          "deleteWorktree": "删除工作树",
+          "sleepWithDescendants": "Sleep with Descendants ({{value0}})",
+          "sleepWithDescendantsDescription": "Close active panels in this workspace and every nested descendant to free up memory and CPU.",
+          "deleteWithDescendants": "Delete with Descendants…"
         },
         "WorktreeList": {
           "d880ea0744": "创建一个组并将该项目移入其中。",
@@ -5359,7 +5365,10 @@
           "5f818f12ab": "正在准备...",
           "4c05b9d7cb": "正在准备设置终端。",
           "installingFromBuild": "Installing...",
-          "installingHint": "Installing from this app build. No network needed."
+          "installingHint": "Installing from this app build. No network needed.",
+          "setupCommandFailed": "The setup command exited with code {{value0}}. This error will clear after a successful retry.",
+          "setupFailed": "Setup failed",
+          "retrySetup": "Retry"
         },
         "AgentsPane": {
           "d83834f5e6": "检测已安装的智能体...",
@@ -14157,10 +14166,10 @@
           "2dc9ee84d0": "3小时",
           "521f77cd58": "1小时",
           "e5ad263ae5": "30分钟",
-          "529dc6c0b7": "没有恩典",
+          "529dc6c0b7": "无宽限期",
           "3d70c185c8": "如果 Orca 或执行主机在计划时间不可用，Orca 会在该窗口内变得可用时运行一次错过的事件。较旧的错过运行将被跳过。",
-          "3df53d554a": "错过运行恩典帮助",
-          "fc089e5fde": "优雅"
+          "3df53d554a": "错过运行宽限期帮助",
+          "fc089e5fde": "宽限期"
         },
         "AutomationPrecheckFields": {
           "d2a2ac89ac": "10分钟",

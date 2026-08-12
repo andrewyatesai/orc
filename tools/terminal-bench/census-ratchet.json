@@ -113,9 +113,20 @@
         "+15 on pty.ts from the low-impact parity batch, attributable in full to the #10196 port: buildPtyHostEnv now derives an explicitPiAgentKind and passes materializeDefaultHome to piTitlebarExtensionService.buildPtyEnv so only an explicit Pi/OMP launch may recreate the default ~/.<agent> home, instead of every bare-shell open re-materializing deleted agent dirs. The reusable detector was extracted to a NEW named module (src/shared/explicit-pi-agent-launch.ts); only the call-site guard, which is intrinsic to buildPtyHostEnv, landed in pty.ts.",
         "Accepted: upstream port work at the env-build call site, not the delivery-reliability shim this ratchet watches. orca-runtime.ts held flat at 36623 and shimWholeFileLoc held flat at 2813 across the batch — the god object was not touched at all, and the shim not moving is the number that would have justified refusing. Decomposition of orca-runtime.ts remains owed; the next movement should be down."
       ]
+    },
+    {
+      "date": "2026-08-12",
+      "head": "low-batch3",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36623
+      },
+      "why": [
+        "+36 net on orca-runtime.ts (+39/-3) from the low-batch3 parity port, attributable in full to 4f00b2118 (#11636, 'fix(mobile): restore Codex chat session identity'): the mobile-tab agent-status builder now resolves the hook session row's own agent identity (providerSessionAgentType added to getHookAgentRowForPane) so a renderer status published by a different agent cannot adopt a hook providerSession that is not its transcript. The change is a surgical edit to an existing OrcaRuntimeService method body over private this-state (getHookAgentRowForPane, getHookRowsForPane, ownerAgent, tab.agentStatus); it is not extractable without exporting that internal surface.",
+        "Accepted: upstream port work attaching to the god object where features attach, not the delivery-reliability shim this ratchet watches — pty.ts held flat at 6360 and shimWholeFileLoc held flat at 2813 across the batch, which is the number that would have justified refusing. Decomposition of orca-runtime.ts remains owed; the next movement should be down."
+      ]
     }
   ],
   "shimWholeFileLoc": 2813,
-  "src/main/runtime/orca-runtime.ts": 36623,
+  "src/main/runtime/orca-runtime.ts": 36659,
   "src/main/ipc/pty.ts": 6360
 }

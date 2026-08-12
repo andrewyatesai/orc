@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useState, type ComponentProps, type ReactNode } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Copy, Download, Loader2, RefreshCw, Terminal } from 'lucide-react'
 import { toast } from 'sonner'
 import { IntegrationStatusPill } from '../integration-status-pill'
 import { SkillFreshnessStatusPill } from '../skills/SkillFreshnessStatusPill'
 import { OnboardingInlineCommandTerminal } from '../onboarding/OnboardingInlineCommandTerminal'
+import { AgentSkillSetupFailureNotice } from './AgentSkillSetupFailureNotice'
+import type { AgentSkillSetupPanelProps } from './agent-skill-setup-panel-props'
+import { useAgentSkillSetupTerminal } from './use-agent-skill-setup-terminal'
 import { Button } from '../ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { notifyInstalledAgentSkillsChanged } from '@/hooks/useInstalledAgentSkills'
@@ -11,55 +14,6 @@ import { useMountedRef } from '@/hooks/useMountedRef'
 import { isOrcaCliAvailableOnPath } from '@/lib/agent-skill-cli-prerequisite'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
-
-type AgentSkillSetupPanelVariant = 'card' | 'inline'
-type SkillPrerequisiteStatus = Awaited<ReturnType<typeof window.api.cli.getInstallStatus>>
-
-type AgentSkillSetupPanelProps = {
-  title: string
-  description: ReactNode
-  command: string
-  installedCommand?: string
-  terminalTitle: string
-  terminalAriaLabel: string
-  terminalWorktreeId: string
-  installed: boolean
-  loading: boolean
-  error: string | null
-  installDisabled?: boolean
-  terminalHeightPx?: number
-  terminalShellOverride?: string
-  leading?: ReactNode
-  icon?: ReactNode
-  variant?: AgentSkillSetupPanelVariant
-  className?: string
-  // Why: when an enclosing surface (e.g. a modal) already shows the title and
-  // status, hide the panel's own header row to avoid a duplicate heading.
-  hideHeader?: boolean
-  preInstallNotice?: ReactNode
-  getPrerequisiteStatus?: () => Promise<SkillPrerequisiteStatus>
-  isPrerequisiteAvailable?: (status: SkillPrerequisiteStatus) => boolean
-  onBeforeOpenTerminal?: () => void | Promise<void>
-  // Why: when set, the install action first tries the offline bundled install and
-  // only falls through to the terminal (and its CLI preflight) when that returns
-  // false — so the happy path never opens a shell or raises a system prompt.
-  offlineInstall?: () => Promise<boolean>
-  showInstallWhenInstalled?: boolean
-  showRecheckWhenInstalled?: boolean
-  installLabel?: string
-  installedInstallLabel?: string
-  // Why: defaults to 'outline' so settings panels stay unchanged; modals that make
-  // Install the sole footer CTA pass 'default' for a filled primary hierarchy.
-  installVariant?: ComponentProps<typeof Button>['variant']
-  actionHint?: ReactNode
-  openingHint?: ReactNode
-  footer?: ReactNode
-  onRecheck: () => void | Promise<unknown>
-  // Why: when set, the installed pill reflects skill freshness and Re-check also
-  // refreshes the freshness inventory. Callers omit it for non-local runtimes,
-  // which the local-host-only freshness scan cannot vouch for.
-  freshnessSkillName?: string
-}
 
 export function AgentSkillSetupPanel({
   title,
@@ -96,10 +50,6 @@ export function AgentSkillSetupPanel({
   onRecheck,
   freshnessSkillName
 }: AgentSkillSetupPanelProps): React.JSX.Element {
-  const [terminalOpen, setTerminalOpen] = useState(false)
-  const [terminalCommand, setTerminalCommand] = useState<string | null>(null)
-  const [terminalOpening, setTerminalOpening] = useState(false)
-  const [offlineInstalling, setOfflineInstalling] = useState(false)
   const [preInstallNoticeVisible, setPreInstallNoticeVisible] = useState(
     Boolean(preInstallNotice && !installed)
   )
@@ -109,10 +59,6 @@ export function AgentSkillSetupPanel({
     [getPrerequisiteStatus]
   )
   const activeCommand = installed ? (installedCommand ?? command) : command
-  const installBusy = terminalOpening || offlineInstalling
-  // Why: the inline terminal auto-inserts when its command changes, so keep an
-  // already-open terminal pinned to the command selected by the user's click.
-  const openTerminalCommand = terminalCommand ?? activeCommand
 
   useEffect(() => {
     if (!preInstallNotice) {
@@ -158,6 +104,31 @@ export function AgentSkillSetupPanel({
     }
   }
 
+  const {
+    terminalOpen,
+    terminalCommand,
+    terminalAttempt,
+    terminalOpening,
+    offlineInstalling,
+    setupAttemptRunning,
+    setupCommandFailedCode,
+    installBusy,
+    openSetupTerminal,
+    handleSetupCommandFinished,
+    handleTerminalExit
+  } = useAgentSkillSetupTerminal({
+    activeCommand,
+    mountedRef,
+    refreshPreInstallNotice,
+    offlineInstall,
+    onBeforeOpenTerminal,
+    onRecheck,
+    freshnessSkillName
+  })
+  // Why: the inline terminal auto-inserts when its command changes, so keep an
+  // already-open terminal pinned to the command selected by the user's click.
+  const openTerminalCommand = terminalCommand ?? activeCommand
+
   const copyActiveCommand = async (): Promise<void> => {
     try {
       await window.api.ui.writeClipboardText(openTerminalCommand)
@@ -178,49 +149,12 @@ export function AgentSkillSetupPanel({
 
   const actionRow = (
     <div className="mt-3 flex flex-wrap items-center gap-2">
-      {!installed || showInstallWhenInstalled ? (
+      {(!installed || showInstallWhenInstalled) && setupCommandFailedCode === null ? (
         <Button
           type="button"
           variant={installVariant}
           size="sm"
-          onClick={() => {
-            if (installBusy) {
-              return
-            }
-            const nextCommand = activeCommand
-            if (offlineInstall) {
-              setOfflineInstalling(true)
-            } else {
-              setTerminalOpening(true)
-            }
-            void (async () => {
-              let shouldOpenTerminal = false
-              try {
-                if (offlineInstall && (await offlineInstall())) {
-                  await refreshPreInstallNotice()
-                  return
-                }
-                if (mountedRef.current) {
-                  setOfflineInstalling(false)
-                  setTerminalOpening(true)
-                }
-                await onBeforeOpenTerminal?.()
-                await refreshPreInstallNotice()
-                shouldOpenTerminal = true
-              } catch {
-                shouldOpenTerminal = false
-              } finally {
-                if (mountedRef.current) {
-                  setOfflineInstalling(false)
-                  setTerminalOpening(false)
-                  if (shouldOpenTerminal) {
-                    setTerminalCommand(nextCommand)
-                    setTerminalOpen(true)
-                  }
-                }
-              }
-            })()
-          }}
+          onClick={openSetupTerminal}
           disabled={terminalOpen || installDisabled || installBusy}
         >
           {installBusy ? (
@@ -247,22 +181,32 @@ export function AgentSkillSetupPanel({
                 : installLabel}
         </Button>
       ) : null}
-      {!installed || showRecheckWhenInstalled ? (
+      {setupCommandFailedCode !== null || !installed || showRecheckWhenInstalled ? (
         <Button
           type="button"
           variant="ghost"
           size="sm"
           className="gap-1.5"
           onClick={() => {
+            if (setupCommandFailedCode !== null) {
+              openSetupTerminal()
+              return
+            }
             void onRecheck()
             if (freshnessSkillName) {
               notifyInstalledAgentSkillsChanged()
             }
           }}
-          disabled={loading}
+          disabled={
+            setupCommandFailedCode !== null
+              ? installDisabled || installBusy || setupAttemptRunning
+              : loading
+          }
         >
-          <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
-          {translate('auto.components.settings.AgentSkillSetupPanel.c689392435', 'Re-check')}
+          <RefreshCw className={cn('size-3.5', (loading || installBusy) && 'animate-spin')} />
+          {setupCommandFailedCode !== null
+            ? translate('auto.components.settings.AgentSkillSetupPanel.retrySetup', 'Retry')
+            : translate('auto.components.settings.AgentSkillSetupPanel.c689392435', 'Re-check')}
         </Button>
       ) : null}
       {installBusy ? (
@@ -308,7 +252,14 @@ export function AgentSkillSetupPanel({
             <div className="min-w-0 flex-1 self-center">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <h3 className="text-[15px] font-semibold leading-tight text-foreground">{title}</h3>
-                {loading && !installed ? (
+                {setupCommandFailedCode !== null ? (
+                  <IntegrationStatusPill tone="attention">
+                    {translate(
+                      'auto.components.settings.AgentSkillSetupPanel.setupFailed',
+                      'Setup failed'
+                    )}
+                  </IntegrationStatusPill>
+                ) : loading && !installed ? (
                   <IntegrationStatusPill tone="neutral">
                     {translate(
                       'auto.components.settings.AgentSkillSetupPanel.68a468752e',
@@ -342,6 +293,7 @@ export function AgentSkillSetupPanel({
         <div className={cn('max-w-none', hideHeader ? null : 'mt-3')}>
           <p className="text-[13px] leading-snug text-muted-foreground">{description}</p>
           {actionRow}
+          <AgentSkillSetupFailureNotice exitCode={setupCommandFailedCode} />
           {actionHint ? <div className="mt-2">{actionHint}</div> : null}
           {!installed && preInstallNotice && preInstallNoticeVisible ? (
             <p className="mt-3 text-[12px] leading-snug text-muted-foreground">
@@ -393,6 +345,7 @@ export function AgentSkillSetupPanel({
             </Tooltip>
           </div>
           <OnboardingInlineCommandTerminal
+            key={terminalAttempt}
             worktreeId={terminalWorktreeId}
             command={openTerminalCommand}
             title={terminalTitle}
@@ -406,7 +359,8 @@ export function AgentSkillSetupPanel({
             terminalTopMarginPx={8}
             descriptionPaddingClassName="px-4 py-2"
             autoScrollIntoView={false}
-            onTerminalExit={notifyInstalledAgentSkillsChanged}
+            onTerminalExit={handleTerminalExit}
+            onCommandFinished={handleSetupCommandFinished}
           />
         </div>
       ) : null}

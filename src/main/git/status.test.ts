@@ -12,6 +12,7 @@ import {
 const {
   gitExecFileAsyncMock,
   gitExecFileAsyncBufferMock,
+  gitStreamOptionsMock,
   lstatMock,
   realpathMock,
   readFileMock,
@@ -21,6 +22,7 @@ const {
 } = vi.hoisted(() => ({
   gitExecFileAsyncMock: vi.fn(),
   gitExecFileAsyncBufferMock: vi.fn(),
+  gitStreamOptionsMock: vi.fn(),
   lstatMock: vi.fn(),
   realpathMock: vi.fn(),
   readFileMock: vi.fn(),
@@ -39,10 +41,12 @@ vi.mock('./runner', () => ({
   // and call ordering (status, then numstat) is preserved.
   gitStreamStdout: async (
     args: string[],
-    options: { onStdoutBytes: (chunk: Buffer) => boolean | void }
+    options: { signal?: AbortSignal; onStdoutBytes: (chunk: Buffer) => boolean | void }
   ) => {
     // Forward args so arg-routing mock implementations (e.g. `args.includes`)
-    // still match the status read.
+    // still match the status read. Expose the shared signal so lease tests can
+    // assert the physical read is only aborted after every live caller cancels.
+    gitStreamOptionsMock(options)
     const { stdout } = await gitExecFileAsyncMock(args)
     const stoppedEarly = options.onStdoutBytes(Buffer.from(stdout ?? '', 'utf8')) === true
     return { stoppedEarly }
@@ -1034,6 +1038,7 @@ describe('getSubmoduleStatus', () => {
     clearEffectiveUpstreamStatusCacheForTests()
     gitExecFileAsyncMock.mockReset()
     gitExecFileAsyncBufferMock.mockReset()
+    gitStreamOptionsMock.mockReset()
     lstatMock.mockReset()
     readFileMock.mockReset()
     existsSyncMock.mockReset()
@@ -1151,6 +1156,7 @@ describe('getStatus', () => {
     clearEffectiveUpstreamStatusCacheForTests()
     gitExecFileAsyncMock.mockReset()
     gitExecFileAsyncBufferMock.mockReset()
+    gitStreamOptionsMock.mockReset()
     lstatMock.mockReset()
     readFileMock.mockReset()
     existsSyncMock.mockReset()
@@ -1229,6 +1235,132 @@ describe('getStatus', () => {
     expect(statusCommandCalls).toBe(2)
   })
 
+  it('shares one physical status read across distinct caller signals', async () => {
+    readFileMock.mockResolvedValue('gitdir: /repo/.git/worktrees/feature\n')
+    existsSyncMock.mockReturnValue(false)
+    let releaseStatus!: () => void
+    let statusCommandCalls = 0
+    gitExecFileAsyncMock.mockImplementation((args: string[]) => {
+      if (args.includes('status')) {
+        statusCommandCalls += 1
+        return new Promise<{ stdout: string }>((resolve) => {
+          releaseStatus = () => resolve({ stdout: '' })
+        })
+      }
+      return Promise.resolve({ stdout: '' })
+    })
+    const firstController = new AbortController()
+    const secondController = new AbortController()
+    const firstError = new Error('first caller cancelled')
+    const first = getStatus('/repo', { signal: firstController.signal })
+    const second = getStatus('/repo', { signal: secondController.signal })
+
+    await vi.waitFor(() => expect(statusCommandCalls).toBe(1))
+    const underlyingSignal = gitStreamOptionsMock.mock.calls[0]?.[0].signal as AbortSignal
+    firstController.abort(firstError)
+    await expect(first).rejects.toBe(firstError)
+    expect(underlyingSignal?.aborted).toBe(false)
+
+    releaseStatus()
+    await expect(second).resolves.toMatchObject({ entries: [] })
+    expect(statusCommandCalls).toBe(1)
+  })
+
+  it('aborts physical status work after its last live caller cancels', async () => {
+    readFileMock.mockResolvedValue('gitdir: /repo/.git/worktrees/feature\n')
+    existsSyncMock.mockReturnValue(false)
+    let statusCommandCalls = 0
+    let rejectStatus!: (error: unknown) => void
+    gitExecFileAsyncMock.mockImplementation((args: string[]) => {
+      if (!args.includes('status')) {
+        return Promise.resolve({ stdout: '' })
+      }
+      statusCommandCalls += 1
+      if (statusCommandCalls > 1) {
+        return Promise.resolve({ stdout: '' })
+      }
+      return new Promise<{ stdout: string }>((_resolve, reject) => {
+        rejectStatus = reject
+      })
+    })
+    const firstController = new AbortController()
+    const secondController = new AbortController()
+    const first = getStatus('/repo', { signal: firstController.signal })
+    const second = getStatus('/repo', { signal: secondController.signal })
+
+    await vi.waitFor(() => expect(statusCommandCalls).toBe(1))
+    const underlyingSignal = gitStreamOptionsMock.mock.calls[0]?.[0].signal as AbortSignal
+    underlyingSignal.addEventListener('abort', () => rejectStatus(underlyingSignal.reason), {
+      once: true
+    })
+    firstController.abort(new Error('first cancelled'))
+    await expect(first).rejects.toThrow('first cancelled')
+    expect(underlyingSignal.aborted).toBe(false)
+    secondController.abort(new Error('second cancelled'))
+    await expect(second).rejects.toThrow('second cancelled')
+    expect(underlyingSignal.aborted).toBe(true)
+
+    await expect(getStatus('/repo')).resolves.toMatchObject({ entries: [] })
+    expect(statusCommandCalls).toBe(2)
+  })
+
+  it('rejects a pre-aborted caller without starting or joining status work', async () => {
+    readFileMock.mockResolvedValue('gitdir: /repo/.git/worktrees/feature\n')
+    existsSyncMock.mockReturnValue(false)
+    let releaseStatus!: () => void
+    let statusCommandCalls = 0
+    gitExecFileAsyncMock.mockImplementation((args: string[]) => {
+      if (args.includes('status')) {
+        statusCommandCalls += 1
+        return new Promise<{ stdout: string }>((resolve) => {
+          releaseStatus = () => resolve({ stdout: '' })
+        })
+      }
+      return Promise.resolve({ stdout: '' })
+    })
+    const active = getStatus('/repo')
+    await vi.waitFor(() => expect(statusCommandCalls).toBe(1))
+    const controller = new AbortController()
+    const abortError = new Error('already cancelled')
+    controller.abort(abortError)
+
+    await expect(getStatus('/repo', { signal: controller.signal })).rejects.toBe(abortError)
+    expect(statusCommandCalls).toBe(1)
+
+    releaseStatus()
+    await active
+  })
+
+  it('isolates status reads by worktree, host, and output-affecting options', async () => {
+    readFileMock.mockResolvedValue('gitdir: /repo/.git/worktrees/feature\n')
+    existsSyncMock.mockReturnValue(false)
+    let statusCommandCalls = 0
+    const releases: (() => void)[] = []
+    gitExecFileAsyncMock.mockImplementation((args: string[]) => {
+      if (args.includes('status')) {
+        statusCommandCalls += 1
+        return new Promise<{ stdout: string }>((resolve) => {
+          releases.push(() => resolve({ stdout: '' }))
+        })
+      }
+      return Promise.resolve({ stdout: '' })
+    })
+    const reads = [
+      getStatus('/repo'),
+      getStatus('/other-repo'),
+      getStatus('/repo', { wslDistro: 'Ubuntu' }),
+      getStatus('/repo', { includeIgnored: true }),
+      getStatus('/repo', { reuseLineStats: true }),
+      getStatus('/repo', { bypassEffectiveUpstreamNegativeCache: true }),
+      getStatus('/repo', { limit: 1 })
+    ]
+
+    await vi.waitFor(() => expect(statusCommandCalls).toBe(7))
+    releases.splice(0).forEach((release) => release())
+    await Promise.all(reads)
+    expect(statusCommandCalls).toBe(7)
+  })
+
   it('clears in-flight status reads when a mutation runs', async () => {
     readFileMock.mockResolvedValue('gitdir: /repo/.git/worktrees/feature\n')
     existsSyncMock.mockReturnValue(false)
@@ -1257,6 +1389,42 @@ describe('getStatus', () => {
     releaseStatusReads.splice(0).forEach((release) => release())
     await Promise.all([first, second])
     expect(statusCommandCalls).toBe(2)
+  })
+
+  it('fences reads started before, during, and after a concurrent mutation', async () => {
+    readFileMock.mockResolvedValue('gitdir: /repo/.git/worktrees/feature\n')
+    existsSyncMock.mockReturnValue(false)
+    let statusCommandCalls = 0
+    let releaseMutation!: () => void
+    const releaseStatusReads: (() => void)[] = []
+    gitExecFileAsyncMock.mockImplementation((args: string[]) => {
+      if (args.includes('status')) {
+        statusCommandCalls += 1
+        return new Promise<{ stdout: string }>((resolve) => {
+          releaseStatusReads.push(() => resolve({ stdout: '' }))
+        })
+      }
+      if (args.includes('add')) {
+        return new Promise<{ stdout: string }>((resolve) => {
+          releaseMutation = () => resolve({ stdout: '' })
+        })
+      }
+      return Promise.resolve({ stdout: '' })
+    })
+
+    const beforeMutation = getStatus('/repo', { signal: new AbortController().signal })
+    await vi.waitFor(() => expect(statusCommandCalls).toBe(1))
+    const mutation = stageFile('/repo', 'src/file.ts')
+    const duringMutation = getStatus('/repo', { signal: new AbortController().signal })
+    await vi.waitFor(() => expect(statusCommandCalls).toBe(2))
+    releaseMutation()
+    await mutation
+    const afterMutation = getStatus('/repo', { signal: new AbortController().signal })
+    await vi.waitFor(() => expect(statusCommandCalls).toBe(3))
+
+    releaseStatusReads.splice(0).forEach((release) => release())
+    await Promise.all([beforeMutation, duringMutation, afterMutation])
+    expect(statusCommandCalls).toBe(3)
   })
 
   it('parses unmerged porcelain v2 entries into unresolved conflict rows', async () => {
@@ -1689,7 +1857,10 @@ describe('getStatus', () => {
         '--',
         ':(literal)docs/a => b.txt'
       ],
-      { cwd: '/repo', env: expect.objectContaining({ GIT_OPTIONAL_LOCKS: '0' }) }
+      expect.objectContaining({
+        cwd: '/repo',
+        env: expect.objectContaining({ GIT_OPTIONAL_LOCKS: '0' })
+      })
     )
     expect(result.entries).toEqual([
       { path: 'docs/a => b.txt', status: 'modified', area: 'unstaged', added: 1, removed: 0 }
@@ -1728,7 +1899,10 @@ describe('getStatus', () => {
         ':(literal)src/new name.ts',
         ':(literal)src/old name.ts'
       ],
-      { cwd: '/repo', env: expect.objectContaining({ GIT_OPTIONAL_LOCKS: '0' }) }
+      expect.objectContaining({
+        cwd: '/repo',
+        env: expect.objectContaining({ GIT_OPTIONAL_LOCKS: '0' })
+      })
     )
     expect(result.entries).toEqual([
       {

@@ -70,11 +70,11 @@ function showRuntimeDisconnectedToast(environmentId: string, getState: () => App
   const activation = Symbol(toastId)
   const title = environment?.name
     ? translate(
-        'auto.components.sidebar.WorktreeCard.runtimeHostDisconnectedNamed',
-        '{{hostName}} disconnected',
+        'auto.store.slices.runtime.status.runtimeHostUnreachableNamed',
+        "Can't reach {{hostName}}",
         { hostName: environment.name }
       )
-    : translate('auto.components.sidebar.WorktreeCard.runtimeHostDisconnected', 'Server disconnected')
+    : translate('auto.store.slices.runtime.status.runtimeHostUnreachable', "Can't reach Orca server")
   activeRuntimeDisconnectedToasts.set(toastId, activation)
   const clearActiveToast = (): void => {
     if (activeRuntimeDisconnectedToasts.get(toastId) === activation) {
@@ -87,11 +87,11 @@ function showRuntimeDisconnectedToast(environmentId: string, getState: () => App
       id: toastId,
       description: translate(
         'auto.store.slices.runtime.status.runtimeHostDisconnectedDescription',
-        'Workspaces and terminals on this server are unavailable.'
+        'Check that Orca is running on this server and that your network connection is working, then try again.'
       ),
       duration,
       action: {
-        label: translate('browser.loadFailure.retry', 'Retry'),
+        label: translate('auto.store.slices.runtime.status.tryAgain', 'Try again'),
         onClick: (event) => {
           // Why: Sonner otherwise deletes the keyed toast after the action callback.
           event.preventDefault()

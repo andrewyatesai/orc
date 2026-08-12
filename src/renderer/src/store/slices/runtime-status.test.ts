@@ -186,11 +186,12 @@ describe('runtime-status slice', () => {
 
     expect(toast.warning).toHaveBeenCalledTimes(1)
     expect(toast.warning).toHaveBeenCalledWith(
-      'Dev Box disconnected',
+      "Can't reach Dev Box",
       expect.objectContaining({
         id: 'runtime-environment-disconnected:env-a',
-        description: 'Workspaces and terminals on this server are unavailable.',
-        action: expect.objectContaining({ label: 'Retry' })
+        description:
+          'Check that Orca is running on this server and that your network connection is working, then try again.',
+        action: expect.objectContaining({ label: 'Try again' })
       })
     )
   })

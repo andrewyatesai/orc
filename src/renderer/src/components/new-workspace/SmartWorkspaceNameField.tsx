@@ -1352,7 +1352,7 @@ export default function SmartWorkspaceNameField({
             <TabsList
               ref={tabsListRef}
               variant="line"
-              className="h-7 w-full justify-start gap-4 px-0"
+              className="h-7 w-full justify-start gap-4 overflow-x-auto overflow-y-hidden px-0 scrollbar-sleek"
               onFocusCapture={(event) => {
                 // Why: Radix Tabs roving focus re-applies tabindex=0 to the active trigger (races React commits), so forward Tab to the input.
                 const previous = event.relatedTarget as HTMLElement | null

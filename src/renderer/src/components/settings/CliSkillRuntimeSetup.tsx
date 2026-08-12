@@ -8,6 +8,7 @@ import {
   quotePowerShellNativeArgument
 } from '../../../../shared/powershell-native-argument'
 import { buildWslLoginShellCommand } from '../../../../shared/wsl-login-shell-command'
+import { resolveWindowsShellStartupFamily } from '../../../../shared/windows-terminal-shell'
 import { buildAgentFeatureSkillInstallCommand } from '../../../../shared/agent-feature-install-commands'
 import { getProjectAgentSkillTerminalShellOverride } from '@/lib/project-skill-runtime'
 import { wrapWindowsSkillCommandWithNpxPrerequisite } from '@/lib/windows-npx-skill-preflight'
@@ -94,7 +95,11 @@ export function buildSkillCommandForRuntime(
       currentPlatform,
       // Why: skill setup terminals spawn on the focused runtime environment, so a
       // Windows client must not hand a cmd.exe command to a remote host.
-      isRemoteRuntimeEnvironmentFocused()
+      isRemoteRuntimeEnvironmentFocused(),
+      // Why: the copied command lands in the user's configured shell, and MSYS
+      // shells rewrite cmd.exe's leading /d /s /c switches into drive paths,
+      // starting an interactive cmd session instead of running the payload.
+      isPosixFamilyWindowsShellConfigured()
     )
   }
 
@@ -131,6 +136,13 @@ function normalizeWindowsSkillUpdateCommand(
   // Windows, while reinstalling from the same repo source is idempotent and
   // keeps the setup affordance working.
   return buildAgentFeatureSkillInstallCommand([updateMatch[1]])
+}
+
+function isPosixFamilyWindowsShellConfigured(): boolean {
+  return (
+    resolveWindowsShellStartupFamily(useAppStore.getState().settings?.terminalWindowsShell) ===
+    'posix'
+  )
 }
 
 function isRemoteRuntimeEnvironmentFocused(): boolean {

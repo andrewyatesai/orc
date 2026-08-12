@@ -9,18 +9,22 @@ const WINDOWS_MISSING_NPX_GUIDANCE =
 /**
  * Wraps a native-Windows `npx skills add|update` command in a cmd.exe preflight
  * that checks for npx on PATH before running it. Non-Windows platforms, focused
- * remote runtime environments (the terminal spawns there), and non-skill
- * commands pass through untouched.
+ * remote runtime environments (the terminal spawns there), POSIX-family Windows
+ * shells (the copied command lands in Git Bash / wsl.exe, which MSYS-rewrites
+ * cmd.exe's /d /s /c switches and silently no-ops), and non-skill commands pass
+ * through untouched.
  */
 export function wrapWindowsSkillCommandWithNpxPrerequisite(
   command: string,
   currentPlatform: NodeJS.Platform,
-  remoteRuntimeEnvironmentFocused: boolean
+  remoteRuntimeEnvironmentFocused: boolean,
+  posixFamilyWindowsShellConfigured: boolean
 ): string {
   const trimmedCommand = command.trim()
   if (
     currentPlatform !== 'win32' ||
     remoteRuntimeEnvironmentFocused ||
+    posixFamilyWindowsShellConfigured ||
     !/^npx\s+skills\s+(?:add|update)\b/i.test(trimmedCommand)
   ) {
     return command
