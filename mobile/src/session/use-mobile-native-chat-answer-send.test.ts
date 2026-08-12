@@ -18,6 +18,7 @@ import {
 } from './mobile-native-chat-terminal-write-lock'
 import { useMobileNativeChatAnswerSend } from './use-mobile-native-chat-answer-send'
 import { useNativeChatAcceptedAction } from './use-native-chat-action-outcomes'
+import { AGENT_TUI_CLEAR_INPUT_MAX } from '../../../src/shared/agent-tui-input-clear'
 
 type AnswerSend = ReturnType<typeof useMobileNativeChatAnswerSend>
 
@@ -289,7 +290,7 @@ describe('useMobileNativeChatAnswerSend', () => {
     // Without the leading clear, the pasted label + Enter would submit
     // "<image path>Spaces" as one prompt.
     expect(sendRequest).toHaveBeenCalledTimes(2)
-    expect(sendRequest.mock.calls[0]?.[1]).toMatchObject({ text: '\x15', enter: false })
+    expect(sendRequest.mock.calls[0]?.[1]).toMatchObject({ text: AGENT_TUI_CLEAR_INPUT_MAX, enter: false })
     expect(sendRequest.mock.calls[1]?.[1]).toMatchObject({ text: 'Spaces', enter: true })
     expect(isMobileNativeChatInputStale('terminal')).toBe(false)
   })
@@ -322,7 +323,7 @@ describe('useMobileNativeChatAnswerSend', () => {
     await expect(answerSend?.answerAsk(TABS_OR_SPACES, [{ indices: [1] }])).resolves.toBe(false)
     // Only the clear was attempted; the answer must not ride on a dirty line.
     expect(sendRequest).toHaveBeenCalledTimes(1)
-    expect(sendRequest.mock.calls[0]?.[1]).toMatchObject({ text: '\x15', enter: false })
+    expect(sendRequest.mock.calls[0]?.[1]).toMatchObject({ text: AGENT_TUI_CLEAR_INPUT_MAX, enter: false })
     expect(onSendError).toHaveBeenCalledWith('Answer not sent')
     expect(isMobileNativeChatInputStale('terminal')).toBe(true)
   })

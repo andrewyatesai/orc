@@ -10,6 +10,7 @@ import {
   resetMobileNativeChatStaleInputForTests
 } from './mobile-native-chat-stale-input'
 import { useMobileDiffReviewSendActions } from './use-mobile-diff-review-send-actions'
+import { AGENT_TUI_CLEAR_INPUT_MAX } from '../../../src/shared/agent-tui-input-clear'
 
 type SendActions = ReturnType<typeof useMobileDiffReviewSendActions>
 
@@ -111,7 +112,7 @@ describe('useMobileDiffReviewSendActions', () => {
     // or the orphaned paste is submitted with the notes.
     expect(sendRequest.mock.calls[0]?.[1]).toMatchObject({
       terminal: 'terminal-1',
-      text: '\x15',
+      text: AGENT_TUI_CLEAR_INPUT_MAX,
       enter: false
     })
     expect(sendRequest.mock.calls[1]?.[1]).toMatchObject({ terminal: 'terminal-1', enter: true })
@@ -135,7 +136,7 @@ describe('useMobileDiffReviewSendActions', () => {
     expect((error as Error).message).toBe('Failed to send notes')
     // Only the failed clear — never the notes.
     expect(sendRequest).toHaveBeenCalledTimes(1)
-    expect(sendRequest.mock.calls[0]?.[1]).toMatchObject({ text: '\x15', enter: false })
+    expect(sendRequest.mock.calls[0]?.[1]).toMatchObject({ text: AGENT_TUI_CLEAR_INPUT_MAX, enter: false })
     expect(saveCommentsAndReviewState).not.toHaveBeenCalled()
     expect(setActionError).not.toHaveBeenCalled()
     expect(setSendSheet).not.toHaveBeenCalled()
