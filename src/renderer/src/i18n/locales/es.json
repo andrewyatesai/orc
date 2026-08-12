@@ -1999,6 +1999,7 @@
         "95be6587d3": "Crear worktree \"{{value0}}\"",
         "worktreesHeader": "Worktrees",
         "recentWorktreesHeader": "Worktrees recientes",
+        "recentChatsTerminalsHeader": "Chats y terminales recientes",
         "settingsBadge": "Ajustes",
         "actionBadge": "Acción",
         "paletteHostBadge": "Host: {{value0}}",
@@ -3029,7 +3030,12 @@
             "25dc1cd653": "Abrir archivo",
             "7cdf8ee0c8": "Abrir URL",
             "b27864279e": "Iniciar agente",
-            "39676a184c": "Abrir cualquier archivo, URL, agente, ..."
+            "0e5b7a3f16": "Search open tabs, files, URLs, agents…",
+            "8f0a1c4d92": "Switch to tab",
+            "2c38630a01": "Workspace no longer exists",
+            "4f0d9a71c2": "Tab no longer exists",
+            "d7d496a451": "Browser page no longer exists",
+            "7726ce9970": "Mobile emulator tab no longer exists"
           },
           "TabBarQuickCommandsButton": {
             "a2c7a33831": "Comando",
@@ -3064,7 +3070,7 @@
                 "classifier": {
                   "42e6262ae9": "No hay acción disponible.",
                   "097a982ee0": "Cargando archivos...",
-                  "5a9c83c04b": "Abrir cualquier archivo, URL, agente, ...",
+                  "c41f8d20b7": "Search open tabs, files, URLs, agents…",
                   "90eb94dc48": "Introduce una URL http:// o https://.",
                   "5553b283ce": "Introduce una URL o ruta de archivo.",
                   "queryTooLarge": "El texto de búsqueda es demasiado grande.",

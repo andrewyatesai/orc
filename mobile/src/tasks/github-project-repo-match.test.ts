@@ -125,4 +125,68 @@ describe('GitHub project repo matching', () => {
       )
     ).toBeNull()
   })
+
+  it('matches a fork through its upstream parent when origin does not (#12647)', () => {
+    const forkRepos = [
+      {
+        id: 'fork-1',
+        path: '/userhome/me/orca',
+        displayName: 'orca',
+        upstream: { owner: 'stablyai', repo: 'orca' }
+      }
+    ]
+
+    expect(
+      findRepoForGitHubProjectRepository('stablyai/orca', forkRepos, {
+        'fork-1': {
+          path: '/userhome/me/orca',
+          repository: { owner: 'me', repo: 'orca' }
+        }
+      })
+    ).toBe(forkRepos[0])
+  })
+
+  it('prefers an origin clone of the upstream repo over a fork of it', () => {
+    const both = [
+      { id: 'clone', path: '/userhome/me/clone', displayName: 'orca' },
+      {
+        id: 'fork',
+        path: '/userhome/me/fork',
+        displayName: 'orca',
+        upstream: { owner: 'stablyai', repo: 'orca' }
+      }
+    ]
+
+    expect(
+      findRepoForGitHubProjectRepository('stablyai/orca', both, {
+        clone: { path: '/userhome/me/clone', repository: { owner: 'stablyai', repo: 'orca' } },
+        fork: { path: '/userhome/me/fork', repository: { owner: 'me', repo: 'orca' } }
+      })
+    ).toBe(both[0])
+  })
+
+  it('scopes an absent upstream host to the fork origin host', () => {
+    const forkRepos = [
+      {
+        id: 'fork-1',
+        path: '/userhome/me/orca',
+        displayName: 'orca',
+        upstream: { owner: 'stablyai', repo: 'orca' }
+      }
+    ]
+    const slugs = {
+      'fork-1': {
+        path: '/userhome/me/orca',
+        repository: { owner: 'me', repo: 'orca', host: 'github.acme-corp.com' }
+      }
+    }
+
+    // The parent lives on the fork's Enterprise host, not github.com.
+    expect(
+      findRepoForGitHubProjectRepository('stablyai/orca', forkRepos, slugs, 'github.acme-corp.com')
+    ).toBe(forkRepos[0])
+    expect(
+      findRepoForGitHubProjectRepository('stablyai/orca', forkRepos, slugs, 'github.com')
+    ).toBeNull()
+  })
 })

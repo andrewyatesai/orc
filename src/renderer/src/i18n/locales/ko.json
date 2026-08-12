@@ -1999,6 +1999,7 @@
         "95be6587d3": "워크트리 \"{{value0}}\" 만들기",
         "worktreesHeader": "워크트리",
         "recentWorktreesHeader": "최근 워크트리",
+        "recentChatsTerminalsHeader": "최근 채팅 및 터미널",
         "settingsBadge": "설정",
         "actionBadge": "작업",
         "paletteHostBadge": "호스트: {{value0}}",
@@ -3029,7 +3030,12 @@
             "25dc1cd653": "파일 열기",
             "7cdf8ee0c8": "URL 열기",
             "b27864279e": "agent 실행",
-            "39676a184c": "모든 파일, URL, agent를 엽니다..."
+            "0e5b7a3f16": "Search open tabs, files, URLs, agents…",
+            "8f0a1c4d92": "Switch to tab",
+            "2c38630a01": "Workspace no longer exists",
+            "4f0d9a71c2": "Tab no longer exists",
+            "d7d496a451": "Browser page no longer exists",
+            "7726ce9970": "Mobile emulator tab no longer exists"
           },
           "TabBarQuickCommandsButton": {
             "a2c7a33831": "명령",
@@ -3064,7 +3070,7 @@
                 "classifier": {
                   "42e6262ae9": "사용할 수 있는 작업이 없습니다.",
                   "097a982ee0": "파일 로드 중...",
-                  "5a9c83c04b": "모든 파일, URL, agent를 엽니다...",
+                  "c41f8d20b7": "Search open tabs, files, URLs, agents…",
                   "90eb94dc48": "http:// 또는 https:// URL을 입력하세요.",
                   "5553b283ce": "URL 또는 파일 경로를 입력하세요.",
                   "queryTooLarge": "검색 텍스트가 너무 큽니다.",

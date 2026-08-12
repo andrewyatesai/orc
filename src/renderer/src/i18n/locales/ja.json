@@ -1999,6 +1999,7 @@
         "95be6587d3": "ワークツリー「{{value0}}」を作成する",
         "worktreesHeader": "ワークツリー",
         "recentWorktreesHeader": "最近のワークツリー",
+        "recentChatsTerminalsHeader": "最近のチャットとターミナル",
         "settingsBadge": "設定",
         "actionBadge": "操作",
         "paletteHostBadge": "ホスト: {{value0}}",
@@ -3029,7 +3030,12 @@
             "25dc1cd653": "ファイルを開く",
             "7cdf8ee0c8": "URLを開く",
             "b27864279e": "agent を起動",
-            "39676a184c": "任意のファイル、URL、agent などを開きます..."
+            "0e5b7a3f16": "Search open tabs, files, URLs, agents…",
+            "8f0a1c4d92": "Switch to tab",
+            "2c38630a01": "Workspace no longer exists",
+            "4f0d9a71c2": "Tab no longer exists",
+            "d7d496a451": "Browser page no longer exists",
+            "7726ce9970": "Mobile emulator tab no longer exists"
           },
           "TabBarQuickCommandsButton": {
             "a2c7a33831": "コマンド",
@@ -3064,7 +3070,7 @@
                 "classifier": {
                   "42e6262ae9": "利用可能な操作はありません。",
                   "097a982ee0": "ファイルをロード中...",
-                  "5a9c83c04b": "任意のファイル、URL、agent などを開きます...",
+                  "c41f8d20b7": "Search open tabs, files, URLs, agents…",
                   "90eb94dc48": "http:// または https:// URL を入力します。",
                   "5553b283ce": "URL またはファイル パスを入力します。",
                   "queryTooLarge": "検索テキストが大きすぎます。",

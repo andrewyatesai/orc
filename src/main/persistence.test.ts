@@ -4940,6 +4940,24 @@ describe('Store', () => {
     expect(reloaded.getRepo('r1')!.upstream).toBeNull()
   })
 
+  it('updateRepo keeps the fork upstream host across a reload', async () => {
+    const store = await createStore()
+    store.addRepo(makeRepo())
+
+    // Why: a GHES fork's parent lives on the same Enterprise server; dropping
+    // host forced consumers to re-infer it from origin (#12647).
+    store.updateRepo('r1', {
+      upstream: { owner: ' stablyai ', repo: ' orca ', host: ' ghe.example:8443 ' }
+    })
+    store.flush()
+    const reloaded = await createStore()
+    expect(reloaded.getRepo('r1')!.upstream).toEqual({
+      owner: 'stablyai',
+      repo: 'orca',
+      host: 'ghe.example:8443'
+    })
+  })
+
   it('updateRepo persists the resolved no-usable-remote identity marker', async () => {
     const store = await createStore()
     store.addRepo(makeRepo())

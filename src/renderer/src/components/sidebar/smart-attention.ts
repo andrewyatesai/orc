@@ -246,6 +246,72 @@ function leafIdFromPaneKey(paneKey: string): string | null {
   return parsePaneKey(paneKey)?.leafId ?? null
 }
 
+/** Renderer state a single tab's panes are resolved from. */
+export type TabPaneInputSources = {
+  entriesByTabId: ReadonlyMap<string, AgentStatusEntry[]>
+  ptyIdsByTabId: Record<string, string[]>
+  runtimePaneTitlesByTabId: Record<string, Record<number, string>>
+  terminalLayoutsByTabId?: Record<string, TerminalLayoutSnapshot>
+}
+
+/**
+ * One terminal tab's contribution to an attention resolution: its hook entries, plus the title
+ * heuristic for panes no fresh hook covers. Gated on `tabHasLivePty` so a slept tab's stale
+ * working-pattern title can't leak through. Extracted so Cmd+J's recent rows can reuse the exact
+ * per-tab resolution the sidebar's `buildAttentionByWorktree` runs.
+ */
+export function collectTabPaneInputs(
+  tab: Pick<TerminalTab, 'id' | 'title'>,
+  worktreeLastActivityAt: number,
+  sources: TabPaneInputSources,
+  now: number
+): PaneInput[] {
+  const panes: PaneInput[] = []
+  // Why: leaves covered by a hook entry skip the title fallback so we don't double-count them.
+  const hookLeafIds = new Set<string>()
+  for (const entry of sources.entriesByTabId.get(tab.id) ?? []) {
+    panes.push({ kind: 'hook', entry })
+    // Why: only fresh hook entries suppress the title fallback; a stale one would hide the live title and drop to Class 4.
+    if (!isExplicitAgentStatusFresh(entry, now, AGENT_STATUS_STALE_AFTER_MS)) {
+      continue
+    }
+    const leafId = leafIdFromPaneKey(entry.paneKey)
+    if (leafId !== null) {
+      hookLeafIds.add(leafId)
+    }
+  }
+
+  // Why: runtimePaneTitlesByTabId survives sleep, so a slept tab's stale working-pattern title would leak in without this gate.
+  if (!tabHasLivePty(sources.ptyIdsByTabId, tab.id)) {
+    return panes
+  }
+
+  const paneTitles = sources.runtimePaneTitlesByTabId[tab.id]
+  if (paneTitles && Object.keys(paneTitles).length > 0) {
+    // Why: split-pane tabs host multiple agents, one title each; mirrors getWorkingAgentsPerWorktree precedence.
+    const tabLayout = sources.terminalLayoutsByTabId?.[tab.id]
+    for (const [runtimePaneId, title] of Object.entries(paneTitles)) {
+      const leafId = resolveRuntimePaneTitleLeafId(tabLayout, runtimePaneId)
+      if (leafId !== null && hookLeafIds.has(leafId)) {
+        continue
+      }
+      panes.push({
+        kind: 'title',
+        status: classifyTitleActivity(title),
+        worktreeLastActivityAt
+      })
+    }
+  } else if (hookLeafIds.size === 0) {
+    // Why: unmounted tabs (restored-but-unvisited) expose only the legacy tab title.
+    panes.push({
+      kind: 'title',
+      status: classifyTitleActivity(tab.title),
+      worktreeLastActivityAt
+    })
+  }
+  return panes
+}
+
 /**
  * Build the per-worktree attention map consumed by the smart comparator.
  * Hook authority is per-pane; panes without a fresh hook fall back to the title heuristic,
@@ -266,6 +332,12 @@ export function buildAttentionByWorktree(
   const mirroredTabIds = new Set(
     Object.values(tabsByWorktree ?? {}).flatMap((tabs) => tabs.map((tab) => tab.id))
   )
+  const paneSources: TabPaneInputSources = {
+    entriesByTabId: byTab,
+    ptyIdsByTabId,
+    runtimePaneTitlesByTabId,
+    terminalLayoutsByTabId
+  }
   const result = new Map<string, WorktreeAttention>()
 
   for (const worktree of worktrees) {
@@ -282,51 +354,7 @@ export function buildAttentionByWorktree(
       continue
     }
     for (const tab of tabs) {
-      const hookEntries = byTab.get(tab.id)
-      // Why: leaves covered by a hook entry skip the title fallback so we don't double-count them.
-      const hookLeafIds = new Set<string>()
-      if (hookEntries) {
-        for (const entry of hookEntries) {
-          panes.push({ kind: 'hook', entry })
-          // Why: only fresh hook entries suppress the title fallback; a stale one would hide the live title and drop to Class 4.
-          if (!isExplicitAgentStatusFresh(entry, now, AGENT_STATUS_STALE_AFTER_MS)) {
-            continue
-          }
-          const leafId = leafIdFromPaneKey(entry.paneKey)
-          if (leafId !== null) {
-            hookLeafIds.add(leafId)
-          }
-        }
-      }
-
-      // Why: runtimePaneTitlesByTabId survives sleep, so a slept tab's stale working-pattern title would leak in without this gate.
-      if (!tabHasLivePty(ptyIdsByTabId, tab.id)) {
-        continue
-      }
-
-      const paneTitles = runtimePaneTitlesByTabId[tab.id]
-      if (paneTitles && Object.keys(paneTitles).length > 0) {
-        // Why: split-pane tabs host multiple agents, one title each; mirrors getWorkingAgentsPerWorktree precedence.
-        const tabLayout = terminalLayoutsByTabId?.[tab.id]
-        for (const [runtimePaneId, title] of Object.entries(paneTitles)) {
-          const leafId = resolveRuntimePaneTitleLeafId(tabLayout, runtimePaneId)
-          if (leafId !== null && hookLeafIds.has(leafId)) {
-            continue
-          }
-          panes.push({
-            kind: 'title',
-            status: classifyTitleActivity(title),
-            worktreeLastActivityAt: worktree.lastActivityAt
-          })
-        }
-      } else if (hookLeafIds.size === 0) {
-        // Why: unmounted tabs (restored-but-unvisited) expose only the legacy tab title.
-        panes.push({
-          kind: 'title',
-          status: classifyTitleActivity(tab.title),
-          worktreeLastActivityAt: worktree.lastActivityAt
-        })
-      }
+      panes.push(...collectTabPaneInputs(tab, worktree.lastActivityAt, paneSources, now))
     }
     result.set(worktree.id, resolveAttention(panes, now))
   }
