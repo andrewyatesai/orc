@@ -45,6 +45,11 @@ pub enum TerminalStreamOpcode {
     /// stream. Mirrors the TS enum's 16; without this arm the host would drop
     /// every pause frame and keep flooding a stalled renderer.
     SetOutputPaused = 16,
+    /// Host tells the client its writes cannot be delivered right now (JSON
+    /// reason payload), negotiated per stream. Mirrors the TS enum's 17 — added
+    /// upstream in ff945ef5d, and caught here by the parity corpus the same day,
+    /// which is precisely how SetOutputPaused went missing for a release cycle.
+    WriteUnavailable = 17,
 }
 
 impl TerminalStreamOpcode {
@@ -66,6 +71,7 @@ impl TerminalStreamOpcode {
             14 => Some(Self::ClaimViewport),
             15 => Some(Self::OutputSpan),
             16 => Some(Self::SetOutputPaused),
+            17 => Some(Self::WriteUnavailable),
             _ => None,
         }
     }
@@ -262,6 +268,7 @@ mod tests {
             TerminalStreamOpcode::ClaimViewport,
             TerminalStreamOpcode::OutputSpan,
             TerminalStreamOpcode::SetOutputPaused,
+            TerminalStreamOpcode::WriteUnavailable,
         ] {
             let frame = decode_terminal_stream_frame(&encode_terminal_stream_frame(
                 &TerminalStreamFrame { opcode, stream_id: 7, seq: 3, payload: Vec::new() },
@@ -272,14 +279,14 @@ mod tests {
             assert_eq!(frame.seq, 3);
             assert!(frame.payload.is_empty());
         }
-        // Opcode 17 is now the first unknown value beyond SetOutputPaused.
+        // Opcode 18 is now the first unknown value beyond WriteUnavailable.
         let mut unknown = encode_terminal_stream_frame(&TerminalStreamFrame {
             opcode: TerminalStreamOpcode::Output,
             stream_id: 1,
             seq: 1,
             payload: Vec::new(),
         });
-        unknown[2] = 17;
+        unknown[2] = 18;
         assert_eq!(decode_terminal_stream_frame(&unknown), None);
     }
 
