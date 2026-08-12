@@ -1,7 +1,12 @@
-// The split this module drives decides which modules a reader looks at first, so its two failure
-// modes are asymmetric and both matter: reading the registry as EMPTY dumps 57 modules into the
-// actionable column and buries the real 2, while reading it as covering everything empties that
-// column entirely. Neither may happen silently.
+// The split this module drives decides which modules a reader looks at first, and both of its
+// failure modes lie: under-reading the registries pushes verified modules into the actionable
+// column (the first version did exactly that to the two parity-only oracles), while over-reading
+// empties that column and hides a genuinely unchecked port. Neither may happen silently, so a
+// registry that cannot be read or parses to nothing throws instead of contributing zero keys.
+//
+// The actionable column is currently empty — every ported module has a differential check. That is
+// the finding, not a reason to delete the section: it is the invariant that makes a new unchecked
+// port visible the day it lands.
 
 import fs from 'node:fs'
 import os from 'node:os'
@@ -31,7 +36,7 @@ afterEach(() => {
 })
 
 describe('reading the Rust parity dispatch registry', () => {
-  it('finds the modules the real registry dispatches', () => {
+  it('finds the modules the real registries dispatch', () => {
     const keys = parityDispatchedModules()
     // Sampled rather than pinned to a count, so adding a port does not fail this test.
     expect(keys.has('task-claim')).toBe(true)
@@ -39,8 +44,24 @@ describe('reading the Rust parity dispatch registry', () => {
     expect(keys.size).toBeGreaterThan(50)
   })
 
+  // The regression this scanner already shipped once: reading only orca-dispatch reported
+  // `nacl-box` and `orchestration-store` as the only unverified modules in the repo. They are the
+  // opposite — parity-only oracles held out of the SHIPPED registry on purpose, because one pulls
+  // rusqlite and the other drags the crypto stack into the relay wasm for no caller.
+  it('includes the parity-only oracles that live outside the shipped registry', () => {
+    const keys = parityDispatchedModules()
+    expect(keys.has('nacl-box')).toBe(true)
+    expect(keys.has('orchestration-store')).toBe(true)
+  })
+
+  it('throws when ANY registry parses to nothing, not just when the union is empty', () => {
+    const populated = registryFile('match m { "task-claim" => Some(x), _ => None, }')
+    const empty = registryFile('fn main() {}')
+    expect(() => parityDispatchedModules([populated, empty])).toThrow(/zero modules/u)
+  })
+
   it('parses the match-arm shape and ignores other string literals', () => {
-    const keys = parityDispatchedModules(
+    const keys = parityDispatchedModules([
       registryFile(`
         pub mod task_claim;
         const NOTE: &str = "not-a-dispatch-arm";
@@ -50,18 +71,18 @@ describe('reading the Rust parity dispatch registry', () => {
           _ => None,
         }
       `)
-    )
+    ])
     expect([...keys].sort()).toEqual(['fleet-identity', 'task-claim'])
   })
 
   // Both of these would otherwise present as "every module is unverified", which reads as a
   // damning finding about the codebase rather than a broken instrument.
   it('throws when the registry cannot be read', () => {
-    expect(() => parityDispatchedModules('/nonexistent/mod.rs')).toThrow(/cannot read/u)
+    expect(() => parityDispatchedModules(['/nonexistent/mod.rs'])).toThrow(/cannot read/u)
   })
 
   it('throws when the arm shape parses to nothing', () => {
-    expect(() => parityDispatchedModules(registryFile('fn main() {}'))).toThrow(/zero modules/u)
+    expect(() => parityDispatchedModules([registryFile('fn main() {}')])).toThrow(/zero modules/u)
   })
 })
 
