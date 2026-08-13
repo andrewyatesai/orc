@@ -12,7 +12,7 @@ import type { InactiveClaudeAccountInfo } from './claude-fetcher'
 import { mapClaudeUsageWindow } from './claude-usage-window'
 import type { ClaudeStatusLineRateLimits } from '../../shared/claude-statusline-rate-limits'
 import { consumeCodexRateLimitResetCredit, fetchCodexRateLimits } from './codex-fetcher'
-import { activeFailureRefetchThrottleMs } from './active-failure-backoff'
+import { activeFailureRefetchThrottleMs } from '../rust-provider-backoff'
 import type { ClaudeRuntimeAuthPreparation } from '../claude-accounts/runtime-auth-service'
 import type { NetworkProxySettings } from '../../shared/network-proxy'
 import {
