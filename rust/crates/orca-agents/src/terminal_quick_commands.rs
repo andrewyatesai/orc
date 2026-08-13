@@ -78,18 +78,25 @@ impl TerminalQuickCommand {
     }
 }
 
-/// Truncate to the first `max_len` UTF-16 code units (TS `String.slice(0, n)`).
+/// Truncate to the first `max_units` UTF-16 code units (TS `String.slice(0, n)`).
+///
+/// Named `max_units`, not `max_units`: Trust reserves a `*_len` synthetic
+/// projection namespace for source contracts, and a parameter matching it is a
+/// hard compile error under `trust_verify` ("parameter `max_units` collides with
+/// the source-contract synthetic projection namespace"). Same family as the ay
+/// reserved-word collision fixed upstream in 439720e01b; the projection
+/// namespace deserves the same prefixing treatment there.
 // Trust contract: inert under stock cargo, proved under `--cfg trust_verify`.
 // Postcondition — the result never exceeds the cap in UTF-16 code units. (A
 // cap that splits a surrogate pair yields U+FFFD via the lossy decode rather
 // than the lone surrogate TS would keep; the caps here never split real input.)
-#[cfg_attr(trust_verify, trust::ensures(|out: &String| out.encode_utf16().count() <= max_len))]
-fn slice_utf16(value: &str, max_len: usize) -> String {
+#[cfg_attr(trust_verify, trust::ensures(|out: &String| out.encode_utf16().count() <= max_units))]
+fn slice_utf16(value: &str, max_units: usize) -> String {
     let units: Vec<u16> = value.encode_utf16().collect();
-    if units.len() <= max_len {
+    if units.len() <= max_units {
         return value.to_string();
     }
-    String::from_utf16_lossy(&units[..max_len])
+    String::from_utf16_lossy(&units[..max_units])
 }
 
 /// Chars stripped by JS `String.prototype.trim` — the ECMAScript WhiteSpace +
