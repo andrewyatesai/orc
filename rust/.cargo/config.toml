@@ -70,8 +70,10 @@ rustflags = [
 # override. The stable test entrypoint (`pnpm run test:rust`, i.e.
 # config/scripts/run-rust-tests.mjs) clears RUSTDOCFLAGS alongside RUSTFLAGS;
 # do the same in any new stable-lane script that runs doctests.
-rustdocflags = [
-  "-Ztrust-verify=on",
-  "-Ztrust-verify-function-budget-steps=100000",
-  "-Ztrust-policy=advisory",
-]
+# EMPTY on purpose, and load-bearing: trustdoc's embedded doctest frontend
+# REFUSES verification controls outright ("EmbeddedNoOfficialEvidence compiler
+# frontend rejects semantic, evidence, or backend control `-Ztrust-verify`"),
+# so carrying the trust flags here fails every doctest run loudly. Doctests
+# compile-and-run UNVERIFIED by the toolchain's own policy — a refusal, not a
+# silent fallback — and that refusal is the honest behavior.
+rustdocflags = []
