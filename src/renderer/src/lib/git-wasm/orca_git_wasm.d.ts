@@ -175,8 +175,12 @@ export function normalizeGitErrorMessage(message?: string | null, operation?: st
 /**
  * Aggregate pure-module dispatch — the relay/renderer twin of the napi
  * `orcaDispatch`, running the IDENTICAL registry so output is byte-identical.
- * `input_json` empty/invalid → JSON null (a no-arg call). Returns the module's
- * JSON result, or an `__dispatch_error__` object for an unregistered module.
+ * `input_json` empty → JSON null (a no-arg call); input that does not parse is
+ * an `__dispatch_error__`, NOT a silent no-arg call. Returns the module's JSON
+ * result, or an `__dispatch_error__` object for an unregistered module.
+ *
+ * Body lives in `orca_dispatch::json_entry` so this and the napi twin cannot
+ * drift — one decode decision, two bindings.
  */
 export function orcaDispatch(module: string, _function: string, input_json: string): string;
 
@@ -305,9 +309,9 @@ export interface InitOutput {
     readonly tuiAgentStartupOp: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly upstreamOnlyCommitsArePatchEquivalent: (a: number, b: number) => number;
     readonly validateGitPushTargetRules: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
-    readonly __wasm_bindgen_func_elem_1632: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_1721: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_1646: (a: number, b: number, c: number) => void;
+    readonly __wasm_bindgen_func_elem_1860: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_1949: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_1874: (a: number, b: number, c: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_export3: (a: number) => void;

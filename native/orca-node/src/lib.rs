@@ -897,19 +897,16 @@ pub fn git_engine() -> &'static str {
 }
 
 /// Aggregate pure-module dispatch: the single napi entry every ported module
-/// ships through (no per-module export). `input_json` empty/invalid → JSON null
-/// (a no-arg call). Returns the module's JSON result, or an `__dispatch_error__`
+/// ships through (no per-module export). `input_json` empty → JSON null (a no-arg
+/// call); input that does not parse is an `__dispatch_error__`, NOT a silent
+/// no-arg call. Returns the module's JSON result, or an `__dispatch_error__`
 /// object when no Rust dispatch is registered for `module`.
+///
+/// Body lives in `orca_dispatch::json_entry` so this and the wasm twin cannot
+/// drift — one decode decision, two bindings.
 #[napi(catch_unwind)]
 pub fn orca_dispatch(module: String, function: String, input_json: String) -> String {
-    let value =
-        serde_json::from_str::<serde_json::Value>(&input_json).unwrap_or(serde_json::Value::Null);
-    match orca_dispatch::dispatch(&module, &function, &value) {
-        Some(v) => v.to_string(),
-        None => {
-            serde_json::json!({ "__dispatch_error__": format!("unknown module {module}") }).to_string()
-        }
-    }
+    orca_dispatch::dispatch_json(&module, &function, &input_json)
 }
 
 // --- orca-runtime: the multi-agent orchestration store, exposed as the stateful

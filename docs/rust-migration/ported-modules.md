@@ -12,6 +12,27 @@ Authoritative inventory of what each subsystem does lives in `functional-map.md`
    panic-free (so Trust can discharge panic-safety obligations).
 5. Record it here; mark the owning subsystem in `functional-map.md` when fully covered.
 
+## The shim boundary contract (read before writing the TS wrapper)
+
+Never hand-roll `JSON.parse(binding.orcaDispatch(m, f, JSON.stringify(input)))`.
+`JSON.stringify` emits a lone UTF-16 surrogate as `"\ud800"` — valid JSON text
+that serde cannot decode as UTF-8, so the WHOLE payload fails to parse — writes
+`null` for `NaN`/`±Infinity`, and drops keys whose value is `undefined`. Rust used
+to answer a parse failure with `Value::Null`, i.e. a no-arg call, so the module
+returned a confident wrong answer with nothing logged (measured on `task-claim`).
+
+* Encode with `encodeDispatchPayload` from `src/shared/dispatch-payload-codec.ts`
+  (`encodeNumericDispatchPayload` for all-numeric payloads on a hot path). It
+  throws `DispatchPayloadError` naming the field and why; the full table of what
+  crosses and what is rejected is the header comment of that module.
+* Decode with `decodeDispatchResult`, which throws `DispatchCoreError` on the
+  `__dispatch_error__` envelope so an error can never be returned as a result.
+* The Rust half is `rust/crates/orca-dispatch/src/json_entry.rs`, shared by the
+  napi and wasm bindings: `""` is the no-arg call, anything unparseable is an
+  `__dispatch_error__`, never a silent null.
+* Encoder overhead vs bare `JSON.stringify`:
+  `node config/scripts/dispatch-payload-codec-benchmark.mjs [--check]`.
+
 ## `orca-config` — project/config tier (14 modules, 113 tests, clippy clean)
 
 JSON-backed config inspection on **vendored `serde_json`** (`preserve_order`,

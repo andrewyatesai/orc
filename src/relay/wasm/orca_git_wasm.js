@@ -532,8 +532,12 @@ export function normalizeGitErrorMessage(message, operation) {
 /**
  * Aggregate pure-module dispatch — the relay/renderer twin of the napi
  * `orcaDispatch`, running the IDENTICAL registry so output is byte-identical.
- * `input_json` empty/invalid → JSON null (a no-arg call). Returns the module's
- * JSON result, or an `__dispatch_error__` object for an unregistered module.
+ * `input_json` empty → JSON null (a no-arg call); input that does not parse is
+ * an `__dispatch_error__`, NOT a silent no-arg call. Returns the module's JSON
+ * result, or an `__dispatch_error__` object for an unregistered module.
+ *
+ * Body lives in `orca_dispatch::json_entry` so this and the napi twin cannot
+ * drift — one decode decision, two bindings.
  * @param {string} module
  * @param {string} _function
  * @param {string} input_json
@@ -987,7 +991,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return __wasm_bindgen_func_elem_1721(a, state0.b, arg0, arg1);
+                        return __wasm_bindgen_func_elem_1949(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -1042,8 +1046,8 @@ function __wbg_get_imports() {
             return addHeapObject(ret);
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 71, function: Function { arguments: [Externref], shim_idx: 72, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1632, __wasm_bindgen_func_elem_1646);
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 73, function: Function { arguments: [Externref], shim_idx: 74, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1860, __wasm_bindgen_func_elem_1874);
             return addHeapObject(ret);
         },
         __wbindgen_cast_0000000000000002: function(arg0, arg1) {
@@ -1065,12 +1069,12 @@ function __wbg_get_imports() {
     };
 }
 
-function __wasm_bindgen_func_elem_1646(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_1646(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_1874(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_1874(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_1721(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_1721(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_1949(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_1949(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const QuickOpenIndexFinalization = (typeof FinalizationRegistry === 'undefined')

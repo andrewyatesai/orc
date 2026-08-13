@@ -10,6 +10,12 @@
 // This file imports NO napi/wasm — it is pure indirection, safe to load in any
 // surface.
 
+import {
+  decodeDispatchResult,
+  encodeDispatchPayload,
+  type DispatchEncodeOptions
+} from './dispatch-payload-codec'
+
 export type OrcaDispatchFn = (module: string, fn: string, inputJson: string) => string
 
 let bound: OrcaDispatchFn | null = null
@@ -30,22 +36,34 @@ export function isOrcaDispatchReady(): boolean {
  *  yet (pre-bootstrap / renderer wasm not ready). Callers MUST supply a safe
  *  degraded fallback at the call site — never keep the old TS impl as the
  *  fallback, which would defeat the dedup. */
-export function tryOrcaDispatch(module: string, fn: string, input: unknown): unknown | null {
+export function tryOrcaDispatch(
+  module: string,
+  fn: string,
+  input: unknown,
+  options?: DispatchEncodeOptions
+): unknown | null {
   if (!bound) {
     return null
   }
-  return JSON.parse(bound(module, fn, JSON.stringify(input ?? null)))
+  const call = { module, fn }
+  return decodeDispatchResult(bound(module, fn, encodeDispatchPayload(input, options)), call)
 }
 
 /** Dispatch through the bound Rust core, THROWING if no binding is installed.
  *  Use only from modules that run exclusively on always-ready surfaces
  *  (main/cli/relay bind synchronously at bootstrap) — an unbound seam there is a
  *  bootstrap-order bug we want to surface loudly, not silently degrade. */
-export function requireOrcaDispatch(module: string, fn: string, input: unknown): unknown {
+export function requireOrcaDispatch(
+  module: string,
+  fn: string,
+  input: unknown,
+  options?: DispatchEncodeOptions
+): unknown {
   if (!bound) {
     throw new Error(
       `orcaDispatch seam not bound for ${module}.${fn} — the surface bootstrap must install its binding first`
     )
   }
-  return JSON.parse(bound(module, fn, JSON.stringify(input ?? null)))
+  const call = { module, fn }
+  return decodeDispatchResult(bound(module, fn, encodeDispatchPayload(input, options)), call)
 }

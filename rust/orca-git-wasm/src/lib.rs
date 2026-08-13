@@ -404,18 +404,15 @@ pub fn tui_agent_startup_op_json(function: &str, input_json: &str) -> String {
 
 /// Aggregate pure-module dispatch — the relay/renderer twin of the napi
 /// `orcaDispatch`, running the IDENTICAL registry so output is byte-identical.
-/// `input_json` empty/invalid → JSON null (a no-arg call). Returns the module's
-/// JSON result, or an `__dispatch_error__` object for an unregistered module.
+/// `input_json` empty → JSON null (a no-arg call); input that does not parse is
+/// an `__dispatch_error__`, NOT a silent no-arg call. Returns the module's JSON
+/// result, or an `__dispatch_error__` object for an unregistered module.
+///
+/// Body lives in `orca_dispatch::json_entry` so this and the napi twin cannot
+/// drift — one decode decision, two bindings.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = "orcaDispatch"))]
 pub fn orca_dispatch(module: &str, function: &str, input_json: &str) -> String {
-    let value =
-        serde_json::from_str::<serde_json::Value>(input_json).unwrap_or(serde_json::Value::Null);
-    match orca_dispatch::dispatch(module, function, &value) {
-        Some(v) => v.to_string(),
-        None => {
-            serde_json::json!({ "__dispatch_error__": format!("unknown module {module}") }).to_string()
-        }
-    }
+    orca_dispatch::dispatch_json(module, function, input_json)
 }
 
 fn parse_pull_request_context(context_json: &str) -> orca_agents::PullRequestDraftContext {
