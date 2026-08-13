@@ -16,8 +16,9 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
         "activeFailureRefetchThrottleMs" => {
             // A negative or absent streak reads as 0, matching the TS `max(0, …)`
             // guard where a non-positive streak collapses to the base wait.
-            let streak = input
-                .get("streak")
+            // Reads via the recording reader: the one module already cut over, and
+            // `streak` is its only key, so the all-or-nothing adoption rule holds.
+            let streak = crate::input_reader::field(input, "streak")
                 .and_then(Value::as_i64)
                 .map_or(0, |n| n.max(0).min(u32::MAX as i64) as u32);
             json!(active_failure_refetch_throttle_ms(streak))

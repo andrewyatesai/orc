@@ -16,9 +16,11 @@ use serde_json::{json, Value};
 
 /// A droppable-session count is non-negative; a negative/absent/non-integer input
 /// reads as 0, matching the TS `Math.max(0, …)` guard (both then feed `max(1, n)`).
+///
+/// Adopted the recording reader: this is the module the typo hazard was measured
+/// on, and it reads this ONE key, so the all-or-nothing adoption rule holds.
 fn droppable_sessions(input: &Value) -> u64 {
-    input
-        .get("droppableSessions")
+    crate::input_reader::field(input, "droppableSessions")
         .and_then(Value::as_i64)
         .map_or(0, |n| n.max(0) as u64)
 }

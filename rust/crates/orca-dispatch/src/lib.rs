@@ -6,9 +6,11 @@
 //! while production reaches the SAME registry through a single napi export
 //! (Electron main) and a single wasm export (renderer/relay) — so any ported
 //! module ships via a thin TS wrapper with no further per-module Rust work.
+pub mod input_reader;
 pub mod json_entry;
 pub mod modules;
 
+pub use input_reader::field;
 pub use json_entry::{decode_input, dispatch_json};
 pub use modules::dispatch;
 
