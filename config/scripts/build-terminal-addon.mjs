@@ -6,7 +6,7 @@
 // daemon throws without it. Run before `test`, `build`, and `build:release`.
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, copyFileSync, statSync, readdirSync } from 'node:fs'
+import { existsSync, copyFileSync, statSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 import { homedir } from 'node:os'
 import {
@@ -18,6 +18,7 @@ import {
   resolveMacBuildArches
 } from './mac-build-arches.mjs'
 import { CargoCommandFailure, runStreamedCargoCommand } from './stream-cargo-command.mjs'
+import { newestTerminalAddonSourceMtime } from './terminal-addon-source-inputs.mjs'
 import {
   clearInstalledAtermSourceCommit,
   installedAtermSourceIsCurrent,
@@ -102,34 +103,6 @@ function ensureAtermSubmodule() {
   }
 }
 
-function newestMtime() {
-  // Cheap freshness probe: the newest mtime among the addon + adapter sources.
-  const roots = [
-    resolve(addonDir, 'src'),
-    resolve(addonDir, 'Cargo.toml'),
-    resolve(projectDir, 'rust/crates/orca-terminal/src'),
-    resolve(projectDir, 'rust/crates/orca-terminal/Cargo.toml')
-  ]
-  let newest = 0
-  const walk = (p) => {
-    if (!existsSync(p)) {
-      return
-    }
-    const st = statSync(p)
-    if (st.isDirectory()) {
-      for (const e of readdirSync(p)) {
-        walk(join(p, e))
-      }
-    } else {
-      newest = Math.max(newest, st.mtimeMs)
-    }
-  }
-  for (const r of roots) {
-    walk(r)
-  }
-  return newest
-}
-
 const dest = resolve(addonDir, ADDON_NAME)
 
 function destCoversRequestedArches() {
@@ -149,7 +122,7 @@ if (!force) {
   }
   if (
     existsSync(dest) &&
-    statSync(dest).mtimeMs >= newestMtime() &&
+    statSync(dest).mtimeMs >= newestTerminalAddonSourceMtime({ addonDir, projectDir }) &&
     destCoversRequestedArches() &&
     installedAtermSourceIsCurrent(atermSource, ATERM_SOURCE_STAMP)
   ) {
