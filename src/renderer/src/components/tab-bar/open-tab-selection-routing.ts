@@ -1,11 +1,7 @@
 // Routes an omnibox switch row to the matching palette activation and reports
 // how the destination should take keyboard focus once the menu closes.
 
-import {
-  ORCA_BROWSER_FOCUS_REQUEST_EVENT,
-  queueBrowserFocusRequest,
-  type BrowserFocusRequestDetail
-} from '@/components/browser-pane/browser-focus'
+import { requestBrowserFocus } from '@/components/browser-pane/browser-focus'
 import { translate } from '@/i18n/i18n'
 import { activateBrowserPagePaletteResult } from '@/lib/browser-page-palette-activation'
 import { focusTerminalTabSurface } from '@/lib/focus-terminal-tab-surface'
@@ -32,11 +28,6 @@ function failed(reason: string, staleMessage: string): OpenTabSelectionOutcome {
   }
 }
 
-function requestBrowserPageFocus(detail: BrowserFocusRequestDetail): void {
-  queueBrowserFocusRequest(detail)
-  window.dispatchEvent(new CustomEvent(ORCA_BROWSER_FOCUS_REQUEST_EVENT, { detail }))
-}
-
 export function activateOpenTabSearchResult(result: OpenTabSearchResult): OpenTabSelectionOutcome {
   if (result.source === 'browser') {
     const activation = activateBrowserPagePaletteResult({
@@ -56,7 +47,7 @@ export function activateOpenTabSearchResult(result: OpenTabSearchResult): OpenTa
     return {
       status: 'activated',
       focus: () =>
-        requestBrowserPageFocus({ pageId: activation.pageId, target: activation.focusTarget })
+        requestBrowserFocus({ pageId: activation.pageId, target: activation.focusTarget })
     }
   }
 
@@ -74,7 +65,9 @@ export function activateOpenTabSearchResult(result: OpenTabSearchResult): OpenTa
         )
       )
     }
-    return { status: 'activated', focus: () => focusTerminalTabSurface(activation.tabId) }
+    // A mobile emulator tab focuses itself on mount; no terminal handoff, and
+    // an automatic focus after search activation stole the caret from the menu.
+    return { status: 'activated', focus: null }
   }
 
   const activation = activateWorkspaceTabPaletteResult({

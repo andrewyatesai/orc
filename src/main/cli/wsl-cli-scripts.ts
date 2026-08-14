@@ -90,6 +90,35 @@ public static extern bool FreeEnvironmentStringsW(System.IntPtr block);
 }
 Repair-OrcaDuplicateEnvNames
 
+function ConvertTo-NativeCommandLineArgument {
+  param([AllowEmptyString()][string]$Value)
+
+  if ($Value.Length -gt 0 -and $Value -notmatch '[\\s"]') {
+    return $Value
+  }
+
+  $Quoted = [System.Text.StringBuilder]::new()
+  [void]$Quoted.Append([char]'"')
+  [int]$BackslashCount = 0
+  foreach ($Character in $Value.ToCharArray()) {
+    if ($Character -eq [char]'\\') {
+      $BackslashCount += 1
+      continue
+    }
+    if ($Character -eq [char]'"') {
+      [void]$Quoted.Append([char]'\\', $BackslashCount * 2 + 1)
+      [void]$Quoted.Append([char]'"')
+    } else {
+      [void]$Quoted.Append([char]'\\', $BackslashCount)
+      [void]$Quoted.Append($Character)
+    }
+    $BackslashCount = 0
+  }
+  [void]$Quoted.Append([char]'\\', $BackslashCount * 2)
+  [void]$Quoted.Append([char]'"')
+  return $Quoted.ToString()
+}
+
 $exitCode = 0
 try {
   # Why: a param block prefix-binds forwarded flags such as --for in PowerShell 5.1.
@@ -116,16 +145,20 @@ try {
     $env:ORCA_CLI_CWD = $WslCwd
   }
   Push-Location -LiteralPath (Split-Path -Parent $OrcaLauncher)
-  & $OrcaLauncher @ForwardArgs
-  if ($null -eq $LASTEXITCODE) {
-    if (-not $?) {
-      $exitCode = 1
-    } else {
-      $exitCode = 0
-    }
-  } else {
-    $exitCode = $LASTEXITCODE
+  # Why: Windows PowerShell 5.1 cannot losslessly splat strings to native argv.
+  $StartInfo = [System.Diagnostics.ProcessStartInfo]::new()
+  $StartInfo.FileName = $OrcaLauncher
+  $StartInfo.Arguments = (($ForwardArgs | ForEach-Object {
+    ConvertTo-NativeCommandLineArgument $_
+  }) -join ' ')
+  $StartInfo.UseShellExecute = $false
+  $Process = [System.Diagnostics.Process]::Start($StartInfo)
+  if ($null -eq $Process) {
+    throw 'Unable to start the Orca Windows CLI launcher.'
   }
+  $Process.WaitForExit()
+  $exitCode = $Process.ExitCode
+  $Process.Dispose()
 } catch {
   Write-Error $_
   $exitCode = 1

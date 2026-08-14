@@ -16,6 +16,7 @@ import {
   containsAgentName,
   containsAgentSpinnerGlyph,
   containsAny,
+  containsBrailleSpinner,
   containsLegacyAgentName,
   isClaudeManagementTitle,
   isGeminiTerminalTitle,
@@ -23,6 +24,7 @@ import {
   isPiTerminalTitle
 } from './agent-title-core'
 import type { AgentStatus } from './agent-title-core'
+import { isOpenCodeNativeTitle } from './opencode-terminal-title'
 import { getPiCompatibleSyntheticAgentStatus } from './pi-compatible-synthetic-title'
 import { isGrokRotatingWorkingTitle } from './terminal-title-agent-type'
 
@@ -158,6 +160,13 @@ export function detectAgentStatusFromTitle(title: string): AgentStatus | null {
   }
   if (title.trim().toLowerCase() === CURSOR_NATIVE_TITLE_LOWER) {
     return null
+  }
+
+  // Why: `OC | …` names no agent token and its session summary may echo another
+  // agent's name or a status word; assert presence before those keyword gates so
+  // identity holds. A braille spinner is the one status decoration OpenCode adds.
+  if (isOpenCodeNativeTitle(title)) {
+    return containsBrailleSpinner(title) ? 'working' : 'idle'
   }
 
   if (title.includes(GEMINI_PERMISSION)) {

@@ -1876,6 +1876,66 @@ describe('fetchWorktrees', () => {
     expect(store.getState().sortEpoch).toBe(7)
   })
 
+  it('defers remote lineage when a caller owns the final host refresh', async () => {
+    const store = createTestStore()
+    const worktree = makeWorktree({
+      id: 'repo1::/remote/wt1',
+      repoId: 'repo1',
+      path: '/remote/wt1',
+      branch: 'refs/heads/remote'
+    })
+    const staleLineage = makeLineage({
+      worktreeId: worktree.id,
+      parentWorktreeId: 'repo1::/remote/old-parent'
+    })
+    const freshLineage = makeLineage({
+      worktreeId: worktree.id,
+      parentWorktreeId: 'repo1::/remote/new-parent'
+    })
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
+      worktreesByRepo: { repo1: [worktree] },
+      worktreeLineageById: { [worktree.id]: staleLineage }
+    } as Partial<AppState>)
+    runtimeEnvironmentCall.mockImplementation(({ method }: RuntimeEnvironmentCallRequest) => {
+      const result =
+        method === 'worktree.lineageList'
+          ? { lineage: { [freshLineage.worktreeId]: freshLineage } }
+          : makeDetectedResult('repo1', [worktree])
+      return Promise.resolve({
+        id: 'rpc-1',
+        ok: true,
+        result,
+        _meta: { runtimeId: 'runtime-remote' }
+      })
+    })
+
+    // Bulk caller suppresses its own lineage pass: the payload-unchanged merge must not probe lineage.
+    await store.getState().fetchWorktrees('repo1', {
+      ownerHostId: 'runtime:env-1',
+      suppressRemoteLineageRefresh: true
+    })
+
+    expect(
+      runtimeEnvironmentCall.mock.calls.filter(
+        ([request]) => request.method === 'worktree.lineageList'
+      )
+    ).toHaveLength(0)
+    expect(store.getState().worktreeLineageById).toEqual({ [worktree.id]: staleLineage })
+
+    // The single final host-wide refresh then applies the fresh snapshot.
+    await store.getState().fetchWorktreeLineage({ executionHostId: 'runtime:env-1' })
+
+    expect(
+      runtimeEnvironmentCall.mock.calls.filter(
+        ([request]) => request.method === 'worktree.lineageList'
+      )
+    ).toHaveLength(1)
+    expect(store.getState().worktreeLineageById).toEqual({
+      [freshLineage.worktreeId]: freshLineage
+    })
+  })
+
   it('keeps a successful remote worktree refresh when lineage refresh fails', async () => {
     const store = createTestStore()
     const refreshed = makeWorktree({

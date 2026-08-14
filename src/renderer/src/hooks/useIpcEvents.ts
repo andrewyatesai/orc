@@ -25,7 +25,6 @@ import { activateTabNumberShortcut } from '@/lib/tab-number-shortcuts'
 import { emitCmdJRowIndexJump } from '@/lib/cmd-j-row-index-jump'
 import { nextEditorFontZoomLevel, computeEditorFontSize } from '@/lib/editor-font-zoom'
 import type {
-  Repo,
   TerminalLayoutSnapshot,
   TerminalPaneLayoutNode,
   UpdateStatus,
@@ -101,9 +100,14 @@ import { subscribeRuntimeClientEvents } from '@/runtime/runtime-client-events'
 import { subscribeToUnpairedDeviceAuthNotification } from './unpaired-device-auth-notification'
 import {
   applyRuntimeEnvironmentSshStateChanged,
-  hydrateRuntimeEnvironmentSshState
+  hydrateRuntimeEnvironmentSshState,
+  refreshRuntimeEnvironmentSshTargetMetadata
 } from '@/runtime/runtime-environment-ssh-state'
 import { createRuntimeProjectRefreshScheduler } from './runtime-project-refresh-scheduler'
+import {
+  refreshRuntimeProjectWorktrees,
+  refreshRuntimeProjectWorktreesAndLineage
+} from './runtime-project-lineage-coalesce'
 import { createRuntimeClientEventsSync } from './runtime-client-events-sync'
 import { detectLanguage } from '@/lib/language-detect'
 import { makePaneKey, parsePaneKey } from '../../../shared/stable-pane-id'
@@ -167,7 +171,6 @@ function getShortcutPlatform(): NodeJS.Platform {
 }
 
 const BROWSER_AUTOMATION_BOOTSTRAP_LEASE_MS = 10_000
-const RUNTIME_PROJECT_REFRESH_CONCURRENCY = 5
 const browserAutomationBootstrapLeaseByPageId = new Map<string, { token: string; timer: number }>()
 
 function resolveTerminalPresentation(data: {
@@ -830,41 +833,6 @@ export function getRuntimeProjectRefreshEnvironmentIds(args: {
   ]
 }
 
-async function refreshRuntimeProjectWorktrees(
-  repos: readonly Pick<Repo, 'id' | 'connectionId' | 'executionHostId'>[]
-): Promise<void> {
-  let nextIndex = 0
-  const failures: { repoId: string; error: unknown }[] = []
-  const workerCount = Math.min(RUNTIME_PROJECT_REFRESH_CONCURRENCY, repos.length)
-
-  // Why: one coalesced repo event can represent many repos; bound the probes so idle refresh never floods the renderer.
-  await Promise.all(
-    Array.from({ length: workerCount }, async () => {
-      while (nextIndex < repos.length) {
-        const index = nextIndex
-        nextIndex += 1
-        const repo = repos[index]
-        try {
-          // Why: a runtime repo can share its id with a local checkout; scope the refresh to the owning host's rows.
-          await useAppStore
-            .getState()
-            .fetchWorktrees(repo.id, { ownerHostId: getRepoExecutionHostId(repo) })
-        } catch (error) {
-          failures.push({ repoId: repo.id, error })
-        }
-      }
-    })
-  )
-  if (failures.length > 0) {
-    throw new AggregateError(
-      failures.map((failure) => failure.error),
-      `Failed to refresh ${failures.length} runtime project worktree(s): ${failures
-        .map((failure) => failure.repoId)
-        .join(', ')}`
-    )
-  }
-}
-
 function getWorktreeRuntimeEnvironmentId(worktreeId: string | null | undefined): string | null {
   return getRuntimeEnvironmentIdForWorktree(useAppStore.getState(), worktreeId)
 }
@@ -1025,11 +993,21 @@ export function useIpcEvents(): void {
 
     const runtimeProjectRefreshScheduler = createRuntimeProjectRefreshScheduler({
       refresh: async (environmentId) => {
-        // Why: refresh the env's SSH bucket on (re)connect so a pre-drop snapshot can't keep a reconnect overlay stale.
-        void hydrateRuntimeEnvironmentSshState(environmentId, { force: true }).catch(() => {})
+        // Why: project events can reveal target CRUD, but known target states already arrive by push.
+        void refreshRuntimeEnvironmentSshTargetMetadata(environmentId).catch(() => {})
         const repos = await useAppStore.getState().fetchRuntimeEnvironmentRepos(environmentId)
-        await refreshRuntimeProjectWorktrees(repos)
-        await useAppStore.getState().fetchWorktreeLineage()
+        // Why: coalesce the per-repo lineage probes into one final host-wide snapshot,
+        // scoped to the environment just refreshed, without stranding it if a repo fails.
+        await refreshRuntimeProjectWorktreesAndLineage(
+          () =>
+            refreshRuntimeProjectWorktrees(repos, (repoId, options) =>
+              useAppStore.getState().fetchWorktrees(repoId, options)
+            ),
+          () =>
+            useAppStore.getState().fetchWorktreeLineage({
+              executionHostId: toRuntimeExecutionHostId(environmentId)
+            })
+        )
       },
       onError: (error) => {
         console.error('Failed to refresh runtime projects:', error)

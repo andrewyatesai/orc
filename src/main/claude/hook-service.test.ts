@@ -183,6 +183,11 @@ describe('ClaudeHookService.install', () => {
         (definition: { hooks: TestHook[] }) => definition.hooks
       )
       expect(legacyHooks.map((hook: TestHook) => hook.command)).toContain('/usr/local/bin/user-hook')
+      // Why: the managed local command must resolve $HOME at runtime, never bake the install-time home.
+      const managedHook = legacyHooks.find((hook: TestHook) =>
+        hasManagedCommand(hook, isClaudeManagedCommand)
+      )
+      expect(JSON.stringify(managedHook)).not.toContain(tmpHome.replaceAll('\\', '/'))
       expect(
         legacyHooks.some((hook: TestHook) => hasManagedCommand(hook, isClaudeManagedCommand))
       ).toBe(true)
@@ -214,7 +219,13 @@ describe('ClaudeHookService.install', () => {
         readFileSync(join(tmpHome, '.claude', 'settings.json'), 'utf-8')
       ) as { statusLine?: { type: string; command: string } }
       expect(settings.statusLine?.type).toBe('command')
-      expect(settings.statusLine?.command).toContain('claude-statusline')
+      expect(settings.statusLine?.command).toContain(
+        '"$HOME/.orca/agent-hooks/claude-statusline.cmd"'
+      )
+      expect(settings.statusLine?.command).toContain(
+        '"$HOME/.orca/agent-hooks/claude-statusline.sh"'
+      )
+      expect(settings.statusLine?.command).not.toContain(tmpHome.replaceAll('\\', '/'))
 
       const script = readFileSync(
         join(tmpHome, '.orca', 'agent-hooks', STATUSLINE_SCRIPT_FILE_NAME),
@@ -412,8 +423,9 @@ describe('ClaudeHookService.installRemote', () => {
     ]) {
       expect(parsed.hooks[event]).toBeTruthy()
       const cmd = parsed.hooks[event][0].hooks[0].command as string
-      expect(cmd).toContain('/home/dev/.orca/agent-hooks/claude-hook.sh')
-      expect(cmd).toMatch(/^if \[ -f /)
+      // Why: the launcher resolves $HOME on the remote host at runtime — never the SFTP-discovered path.
+      expect(cmd).toContain('"$HOME/.orca/agent-hooks/claude-hook.sh"')
+      expect(cmd).not.toContain('/home/dev/.orca/agent-hooks/claude-hook.sh')
     }
     // Managed script body
     const script = fs.files.get('/home/dev/.orca/agent-hooks/claude-hook.sh')
@@ -505,9 +517,10 @@ describe('OpenClaudeHookService-compatible install', () => {
       for (const event of ['UserPromptSubmit', 'Stop', 'StopFailure']) {
         const command = parsed.hooks[event][0].hooks[0].command as string
         expect(isOpenClaudeManagedCommand(command)).toBe(true)
-        if (process.platform !== 'win32') {
-          expect(command).toMatch(/^if \[ -f /)
-        }
+        // Why: the portable launcher carries both platform branches and resolves $HOME at runtime.
+        expect(command).toContain('"$HOME/.orca/agent-hooks/openclaude-hook.cmd"')
+        expect(command).toContain('"$HOME/.orca/agent-hooks/openclaude-hook.sh"')
+        expect(command).not.toContain(tmpHome.replaceAll('\\', '/'))
       }
       expect(
         readFileSync(join(tmpHome, '.orca', 'agent-hooks', OPENCLAUDE_SCRIPT_FILE_NAME), 'utf-8')
@@ -536,7 +549,8 @@ describe('OpenClaudeHookService-compatible install', () => {
     })
     const parsed = JSON.parse(fs.files.get('/home/dev/.openclaude/settings.json')!)
     const command = parsed.hooks.StopFailure[0].hooks[0].command as string
-    expect(command).toContain('/home/dev/.orca/agent-hooks/openclaude-hook.sh')
+    expect(command).toContain('"$HOME/.orca/agent-hooks/openclaude-hook.sh"')
+    expect(command).not.toContain('/home/dev/.orca/agent-hooks/openclaude-hook.sh')
     expect(fs.files.get('/home/dev/.orca/agent-hooks/openclaude-hook.sh')).toContain('/hook/claude')
   })
 })

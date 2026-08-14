@@ -21,3 +21,21 @@ export function buildTerminalOverlayAssignments(
   }
   return assignments
 }
+
+// Why: the tab active in the active group is the hidden->visible edge the
+// cold-park policy ranks by, so same-pass hidden ties break on activation
+// order instead of random UUID.
+export function selectActiveTerminalTabInGroup(
+  activeGroupId: string | undefined,
+  assignments: ReadonlyMap<string, TerminalOverlayAssignment>
+): string | null {
+  if (!activeGroupId) {
+    return null
+  }
+  for (const [terminalTabId, assignment] of assignments) {
+    if (assignment.groupId === activeGroupId && assignment.isActiveInGroup) {
+      return terminalTabId
+    }
+  }
+  return null
+}

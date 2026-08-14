@@ -663,7 +663,10 @@
           "import": {
             "toast": {
               "restartFallbackUnavailableNone": "None of the {{value0}} cookies could be loaded, and the restart fallback was unavailable. The previous cookies for this profile were replaced. Try the import again.",
-              "restartFallbackUnavailablePartial": "Imported {{value0}} of {{value1}} cookies. The rest could not be loaded, and the restart fallback was unavailable. Try the import again."
+              "restartFallbackUnavailablePartial": "Imported {{value0}} of {{value1}} cookies. The rest could not be loaded, and the restart fallback was unavailable. Try the import again.",
+              "googleCookiesSkipped": "Las cookies de Google no se importaron. Abre un navegador en Orca con este perfil e inicia sesión en Google.",
+              "googleDirectSignInAction": "Iniciar sesión en Google",
+              "googleDirectSignInUnavailable": "No se pudo abrir el perfil del navegador. Ábrelo e inicia sesión en accounts.google.com."
             }
           }
         }
@@ -3062,6 +3065,11 @@
             "b775303755": "Ejecutar comando rápido: {{value0}}",
             "196593b6a9": "Quitar {{value0}}",
             "15529ede69": "Editar {{value0}}",
+            "8d525e5f15": "Copiado",
+            "53b17a4b1b": "No se pudo copiar",
+            "a9a564b7e7": "Copiar {{value0}}",
+            "69a1441a21": "Nada que copiar",
+            "192a4616a5": "Acciones del comando rápido",
             "1d411fb6a5": "Guarda un comando rápido para este repositorio",
             "8f1e971966": "Agregar comando rápido",
             "3220e2da27": "Este comando rápido se eliminará de tu lista guardada.",
@@ -6511,6 +6519,10 @@
         "QuickCommandsPane": {
           "8764c6e9e4": "Quitar {{value0}}",
           "7d90fd5299": "Editar {{value0}}",
+          "8d525e5f15": "Copiado",
+          "53b17a4b1b": "No se pudo copiar",
+          "a9a564b7e7": "Copiar {{value0}}",
+          "69a1441a21": "Nada que copiar",
           "8c877dec41": "Global",
           "c6b155911b": "Todos los comandos",
           "5aacc8f7dc": "Agregar comando",
@@ -14979,6 +14991,10 @@
         "useManualTerminalWorktreeParking": {
           "cannotPark": "These terminals cannot be parked safely."
         }
+      },
+      "BrowserCookieImportDisclosure": {
+        "title": "Los inicios de sesión de Google no se importan",
+        "description": "Inicia sesión en Google directamente en Orca."
       }
     },
     "i18n": {

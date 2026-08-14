@@ -947,6 +947,18 @@ function settingsForKnownRepoOwner(
     : ({ activeRuntimeEnvironmentId: null } as AppState['settings'])
 }
 
+function scopeSettingsToExecutionHost(
+  settings: AppState['settings'],
+  executionHostId: ExecutionHostId
+): AppState['settings'] {
+  // Runtime hosts key their own lineage bucket; local/SSH resolve to the local bucket.
+  const parsed = parseExecutionHostId(executionHostId)
+  const activeRuntimeEnvironmentId = parsed?.kind === 'runtime' ? parsed.environmentId : null
+  return settings
+    ? { ...settings, activeRuntimeEnvironmentId }
+    : ({ activeRuntimeEnvironmentId } as AppState['settings'])
+}
+
 function trySettingsForWorktreeOwner(
   state: Pick<
     AppState,
@@ -2568,7 +2580,10 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
             ...(removedIds.length > 0 ? buildWorktreePurgeState(s, removedIds) : {})
           }
         })
-        await refreshRemoteWorktreeLineageBestEffort(settings, set)
+        // Why: bulk runtime callers apply one final host-wide lineage snapshot after every repo merges.
+        if (!options?.suppressRemoteLineageRefresh) {
+          await refreshRemoteWorktreeLineageBestEffort(settings, set)
+        }
         return detected.authoritative
       }
 
@@ -2623,7 +2638,10 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
           ...(removedIds.length > 0 ? buildWorktreePurgeState(s, removedIds) : {})
         }
       })
-      await refreshRemoteWorktreeLineageBestEffort(settings, set)
+      // Why: bulk runtime callers apply one final host-wide lineage snapshot after every repo merges.
+      if (!options?.suppressRemoteLineageRefresh) {
+        await refreshRemoteWorktreeLineageBestEffort(settings, set)
+      }
       return detected.authoritative
     } catch (err) {
       if (notifyRuntimeScopeForbiddenIfNeeded(err)) {
@@ -2875,11 +2893,14 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     try {
       // Why: lineage is a focused-host refresh; host-merge so other hosts' fetched lineage is preserved.
       const ownerSettings = get().settings
-      // Why: forceLocalOwner pins lineage to the local host so a local worktrees:changed
-      // under an active runtime refreshes local lineage, matching the paired forced-local
-      // list refresh rather than the remote runtime's (#6628).
-      const lineageSettings =
-        options?.forceLocalOwner && ownerSettings?.activeRuntimeEnvironmentId
+      // Why: executionHostId scopes the refresh to a specific host so a bulk runtime
+      // caller's one final snapshot targets the environment it just refreshed, not the
+      // focused host. forceLocalOwner pins lineage to the local host so a local
+      // worktrees:changed under an active runtime refreshes local lineage, matching the
+      // paired forced-local list refresh rather than the remote runtime's (#6628).
+      const lineageSettings = options?.executionHostId
+        ? scopeSettingsToExecutionHost(ownerSettings, options.executionHostId)
+        : options?.forceLocalOwner && ownerSettings?.activeRuntimeEnvironmentId
           ? { ...ownerSettings, activeRuntimeEnvironmentId: null }
           : ownerSettings
       await refreshWorktreeLineageForSettings(lineageSettings, set, {

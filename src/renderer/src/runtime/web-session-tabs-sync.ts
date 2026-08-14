@@ -8,6 +8,7 @@ import {
   AGENT_STATUS_STALE_AFTER_MS,
   type AgentStatusEntry
 } from '../../../shared/agent-status-types'
+import { agentEntryCompletionAt } from '../../../shared/agent-completion-time'
 import { agentProviderSessionsEqual } from '../../../shared/agent-session-resume'
 import type {
   RuntimeMobileSessionTabsResult,
@@ -976,11 +977,18 @@ function buildMirroredAgentStatusPatch(
     changed = true
     const entryAttributionChanged =
       existing?.worktreeId !== entry.worktreeId || existing?.tabId !== entry.tabId
+    // Why: a mirrored same-state `done` update can flip completion eligibility (e.g. interrupted
+    // cleared) without moving state, so the sort must re-run to age the row correctly.
+    const doneAttentionChanged =
+      existing?.state === 'done' &&
+      entry.state === 'done' &&
+      agentEntryCompletionAt(existing) !== agentEntryCompletionAt(entry)
     const entrySortRelevantChange =
       !existing ||
       existing.state !== entry.state ||
       !isAgentStatusFresh(existing, now) ||
       entryAttributionChanged ||
+      doneAttentionChanged ||
       isMirroredCommandCodeTurnBump(existing, entry)
     aggregateRelevantChange = aggregateRelevantChange || entrySortRelevantChange
     sortRelevantChange = sortRelevantChange || entrySortRelevantChange

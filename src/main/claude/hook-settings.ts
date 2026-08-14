@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { join, win32 } from 'node:path'
+import { basename, extname, join, win32 } from 'node:path'
 import {
   buildManagedCommandHook,
   createManagedCommandMatcher,
@@ -7,13 +7,12 @@ import {
   isPlainObject,
   MANAGED_HOOK_TIMEOUT_SECONDS,
   removeManagedCommands,
-  wrapPosixHookCommand,
-  wrapWindowsGitBashHookCommand,
   wrapWindowsHookCommand,
   type HookCommandConfig,
   type HookDefinition,
   type HooksConfig
 } from '../agent-hooks/installer-utils'
+import { wrapRuntimeHomeHookCommand } from '../agent-hooks/runtime-home-hook-command'
 
 export type ClaudeCompatibleHookSettings = {
   configDirName: '.claude' | '.openclaude'
@@ -108,10 +107,14 @@ export function getRemoteConfigPath(remoteHome: string, settings = CLAUDE_HOOK_S
   return `${remoteHome.replace(/\/$/, '')}/${settings.configDirName}/settings.json`
 }
 
+// Why: settings resolve $HOME (POSIX) / %USERPROFILE% (Windows) at runtime, so the
+// command is byte-identical across profiles and never bakes an install-time path.
 export function getManagedCommand(scriptPath: string): string {
-  return process.platform === 'win32'
-    ? wrapWindowsGitBashHookCommand(scriptPath)
-    : wrapPosixHookCommand(scriptPath)
+  const scriptFileName = basename(scriptPath)
+  const extension = extname(scriptFileName)
+  return wrapRuntimeHomeHookCommand(
+    extension ? scriptFileName.slice(0, -extension.length) : scriptFileName
+  )
 }
 
 export function getManagedLifecycleHook(
@@ -163,7 +166,7 @@ export function hasSameManagedHookInvocation(
 }
 
 export function getRemoteManagedCommand(scriptPath: string): string {
-  return wrapPosixHookCommand(scriptPath)
+  return getManagedCommand(scriptPath)
 }
 
 export function applyManagedHooks(

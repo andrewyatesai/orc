@@ -690,6 +690,8 @@ export type TerminalSlice = {
       /** Initial native-chat view mode; agent launches pass 'chat' when openAgentTabsInChatByDefault is on, else omitted for the 'terminal' default. */
       viewMode?: Tab['viewMode']
       startupCwd?: string
+      /** Why: ephemeral setup terminals opt out of the worktree's WSL distro so a host-native fallback command runs on the host shell. */
+      forceHostRuntime?: boolean
     }
   ) => TerminalTab
   openNewTerminalTabInActiveWorkspace: (groupId: string) => Promise<void>
@@ -1109,7 +1111,9 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
           : null,
         // Why: new terminals enter the worktree's repo-scoped WSL distro even when the global Windows shell is PowerShell/cmd.exe.
         isWslWorktree,
-        isRemoteWorktree ? undefined : getLocalProjectExecutionRuntimeContext(s, worktreeId)
+        isRemoteWorktree || options?.forceHostRuntime
+          ? undefined
+          : getLocalProjectExecutionRuntimeContext(s, worktreeId)
       )
       tab = {
         id,
@@ -1125,6 +1129,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         sortOrder: existing.length,
         createdAt: Date.now(),
         ...(createdShellOverride !== undefined ? { shellOverride: createdShellOverride } : {}),
+        ...(options?.forceHostRuntime ? { forceHostRuntime: true } : {}),
         ...(startupCwd && startupCwd.length > 0 ? { startupCwd } : {}),
         ...(options?.launchAgent ? { launchAgent: options.launchAgent } : {}),
         // Why: mark click-caused (not work-caused) spawns so updateTabPtyId skips the activity/sortEpoch bump that would reorder Recent/Smart on click.

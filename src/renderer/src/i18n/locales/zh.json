@@ -663,7 +663,10 @@
           "import": {
             "toast": {
               "restartFallbackUnavailableNone": "{{value0}} 个 Cookie 均无法加载，且重启回退不可用。此配置文件的旧 Cookie 已被替换。请重试导入。",
-              "restartFallbackUnavailablePartial": "已导入 {{value1}} 个 Cookie 中的 {{value0}} 个。其余无法加载，且重启回退不可用。请重试导入。"
+              "restartFallbackUnavailablePartial": "已导入 {{value1}} 个 Cookie 中的 {{value0}} 个。其余无法加载，且重启回退不可用。请重试导入。",
+              "googleCookiesSkipped": "未导入 Google Cookie。请在 Orca 中使用此配置文件打开浏览器，然后登录 Google。",
+              "googleDirectSignInAction": "登录 Google",
+              "googleDirectSignInUnavailable": "无法打开浏览器配置文件。请打开它并在 accounts.google.com 登录。"
             }
           }
         }
@@ -3062,6 +3065,11 @@
             "b775303755": "运行快捷命令：{{value0}}",
             "196593b6a9": "删除 {{value0}}",
             "15529ede69": "编辑 {{value0}}",
+            "8d525e5f15": "已复制",
+            "53b17a4b1b": "无法复制",
+            "a9a564b7e7": "复制 {{value0}}",
+            "69a1441a21": "无可复制内容",
+            "192a4616a5": "快捷命令操作",
             "1d411fb6a5": "为此仓库保存快捷命令",
             "8f1e971966": "添加快捷命令",
             "3220e2da27": "该快捷命令将从您保存的列表中删除。",
@@ -6496,6 +6504,10 @@
         "QuickCommandsPane": {
           "8764c6e9e4": "删除 {{value0}}",
           "7d90fd5299": "编辑 {{value0}}",
+          "8d525e5f15": "已复制",
+          "53b17a4b1b": "无法复制",
+          "a9a564b7e7": "复制 {{value0}}",
+          "69a1441a21": "无可复制内容",
           "8c877dec41": "全局的",
           "c6b155911b": "所有命令",
           "5aacc8f7dc": "添加命令",
@@ -14979,6 +14991,10 @@
         "useManualTerminalWorktreeParking": {
           "cannotPark": "这些终端无法安全停放。"
         }
+      },
+      "BrowserCookieImportDisclosure": {
+        "title": "未导入 Google 登录信息",
+        "description": "请在 Orca 中直接登录 Google。"
       }
     },
     "i18n": {

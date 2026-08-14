@@ -21,6 +21,8 @@ const PTY_TEXT_FALLBACK_MS = 750
 
 type OnboardingInlineCommandTerminalProps = {
   command: string
+  /** Adapts the pasted command to the created tab's resolved shell (e.g. rewrites a WSL host wrapper to bash). */
+  prepareCommandForShell?: (command: string, shellOverride: string | undefined) => string
   title: string
   description?: string
   ariaLabel: string
@@ -30,6 +32,7 @@ type OnboardingInlineCommandTerminalProps = {
   autoScrollIntoView?: boolean
   worktreeId?: string
   shellOverride?: string
+  forceHostRuntime?: boolean
   onOpened?: () => void
   onInteracted?: (method: 'keyboard' | 'pointer', event?: KeyboardEvent<HTMLElement>) => void
   onTerminalExit?: () => void
@@ -43,6 +46,7 @@ type OnboardingInlineCommandTerminalProps = {
  */
 export function OnboardingInlineCommandTerminal({
   command,
+  prepareCommandForShell,
   title,
   description,
   ariaLabel,
@@ -52,6 +56,7 @@ export function OnboardingInlineCommandTerminal({
   autoScrollIntoView = true,
   worktreeId: worktreeIdProp = ONBOARDING_INLINE_TERMINAL_WORKTREE_ID,
   shellOverride,
+  forceHostRuntime = false,
   onOpened,
   onInteracted,
   onTerminalExit,
@@ -75,13 +80,17 @@ export function OnboardingInlineCommandTerminal({
     []
   )
   const [cwd, setCwd] = useState<string | null>(null)
-  const [tabId, setTabId] = useState<string | null>(null)
+  const [createdTab, setCreatedTab] = useState<{
+    id: string
+    shellOverride: string | undefined
+  } | null>(null)
+  const tabId = createdTab?.id ?? null
   // Why: starts at `prefersReducedMotion` so users opted out of motion never
   // see the slide-in frame; otherwise we flip to true after first paint so the
   // CSS transition has a starting state to interpolate from.
   const [entered, setEntered] = useState(prefersReducedMotion)
   const terminalSectionRef = useRef<HTMLElement>(null)
-  const autoInsertedRef = useRef<string | null>(null)
+  const autoInsertedRef = useRef<{ tabId: string; command: string } | null>(null)
 
   useEffect(() => {
     onOpened?.()
@@ -120,11 +129,12 @@ export function OnboardingInlineCommandTerminal({
   useEffect(() => {
     const tab = createTab(worktreeId, undefined, shellOverride, {
       activate: false,
-      recordInteraction: false
+      recordInteraction: false,
+      forceHostRuntime
     })
     setActiveTabForWorktree(worktreeId, tab.id)
     setTabCustomTitle(tab.id, title, { recordInteraction: false })
-    setTabId(tab.id)
+    setCreatedTab({ id: tab.id, shellOverride: tab.shellOverride })
     return () => {
       // Why: inline setup panels can disappear after detection succeeds; close
       // the backing tab so installer shells do not keep running invisibly.
@@ -133,6 +143,7 @@ export function OnboardingInlineCommandTerminal({
   }, [
     closeTab,
     createTab,
+    forceHostRuntime,
     setActiveTabForWorktree,
     setTabCustomTitle,
     shellOverride,
@@ -201,9 +212,17 @@ export function OnboardingInlineCommandTerminal({
   }, [autoScrollIntoView, entered, prefersReducedMotion])
 
   const insertCommand = useCallback(() => {
-    if (!tabId) {
+    if (!createdTab) {
       return
     }
+    const terminalCommand = prepareCommandForShell?.(command, createdTab.shellOverride) ?? command
+    if (
+      autoInsertedRef.current?.tabId === createdTab.id &&
+      autoInsertedRef.current.command === terminalCommand
+    ) {
+      return
+    }
+    autoInsertedRef.current = { tabId: createdTab.id, command: terminalCommand }
     if (autoScrollIntoView) {
       terminalSectionRef.current?.scrollIntoView({
         behavior: 'auto',
@@ -213,16 +232,16 @@ export function OnboardingInlineCommandTerminal({
     window.dispatchEvent(
       new CustomEvent<PasteTerminalTextDetail>(PASTE_TERMINAL_TEXT_EVENT, {
         detail: {
-          tabId,
-          text: command.trim()
+          tabId: createdTab.id,
+          text: terminalCommand.trim()
         }
       })
     )
-    focusTerminalTabSurface(tabId)
-  }, [autoScrollIntoView, command, tabId])
+    focusTerminalTabSurface(createdTab.id)
+  }, [autoScrollIntoView, command, createdTab, prepareCommandForShell])
 
   useEffect(() => {
-    if (!tabId || !cwd || autoInsertedRef.current === command) {
+    if (!tabId || !cwd) {
       return
     }
     let canceled = false
@@ -236,7 +255,6 @@ export function OnboardingInlineCommandTerminal({
       }
       insertionTimer = window.setTimeout(() => {
         if (!canceled) {
-          autoInsertedRef.current = command
           insertCommand()
         }
       }, AUTO_INSERT_DELAY_MS)
@@ -280,7 +298,7 @@ export function OnboardingInlineCommandTerminal({
         window.clearTimeout(insertionTimer)
       }
     }
-  }, [command, cwd, insertCommand, tabId])
+  }, [cwd, insertCommand, tabId])
 
   // Why: grid 0fr → 1fr animates to the child's natural height without a
   // hardcoded max-height, so we don't leave dead space if the terminal

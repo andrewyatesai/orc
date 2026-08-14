@@ -31,13 +31,10 @@ export type OpenTabSearchEntryState = Pick<
   | 'activeTabType'
   | 'activeTabTypeByWorktree'
   | 'activeWorktreeId'
-  | 'agentStatusByPaneKey'
   | 'browserPagesByWorkspace'
   | 'browserTabsByWorktree'
   | 'groupsByWorktree'
   | 'openFiles'
-  | 'retainedAgentsByPaneKey'
-  | 'sleepingAgentSessionsByPaneKey'
   | 'tabsByWorktree'
   | 'unifiedTabsByWorktree'
 > & {
@@ -45,6 +42,14 @@ export type OpenTabSearchEntryState = Pick<
   repo: Pick<Repo, 'displayName' | 'id'> | null
   worktree: Worktree | null
 }
+
+// Split out because agent status is a high-frequency stream: the subscribed
+// entry state stays stable while the menu is open, and this snapshot is read
+// only when the menu opens or its tab set changes.
+export type OpenTabSearchAgentState = Pick<
+  AppState,
+  'agentStatusByPaneKey' | 'retainedAgentsByPaneKey' | 'sleepingAgentSessionsByPaneKey'
+>
 
 const EMPTY_ENTRIES: OpenTabSearchEntries = {
   workspaceTabs: [],
@@ -70,7 +75,6 @@ export function selectOpenTabSearchEntryState(
     activeTabType: state.activeTabType,
     activeTabTypeByWorktree: state.activeTabTypeByWorktree,
     activeWorktreeId: state.activeWorktreeId,
-    agentStatusByPaneKey: state.agentStatusByPaneKey,
     browserPagesByWorkspace: state.browserPagesByWorkspace,
     browserTabsByWorktree: state.browserTabsByWorktree,
     generatedTitlesEnabled: state.settings?.tabAutoGenerateTitle === true,
@@ -79,15 +83,24 @@ export function selectOpenTabSearchEntryState(
     repo: worktree
       ? (state.repos.find((candidate) => candidate.id === worktree.repoId) ?? null)
       : null,
-    retainedAgentsByPaneKey: state.retainedAgentsByPaneKey,
-    sleepingAgentSessionsByPaneKey: state.sleepingAgentSessionsByPaneKey,
     tabsByWorktree: state.tabsByWorktree,
     unifiedTabsByWorktree: state.unifiedTabsByWorktree,
     worktree
   }
 }
 
-export function buildOpenTabSearchEntries(state: OpenTabSearchEntryState): OpenTabSearchEntries {
+export function selectOpenTabSearchAgentState(state: AppState): OpenTabSearchAgentState {
+  return {
+    agentStatusByPaneKey: state.agentStatusByPaneKey,
+    retainedAgentsByPaneKey: state.retainedAgentsByPaneKey,
+    sleepingAgentSessionsByPaneKey: state.sleepingAgentSessionsByPaneKey
+  }
+}
+
+export function buildOpenTabSearchEntries(
+  state: OpenTabSearchEntryState,
+  agentState: OpenTabSearchAgentState
+): OpenTabSearchEntries {
   if (!state.worktree) {
     return EMPTY_ENTRIES
   }
@@ -106,9 +119,9 @@ export function buildOpenTabSearchEntries(state: OpenTabSearchEntryState): OpenT
       unifiedTabsByWorktree: state.unifiedTabsByWorktree,
       tabsByWorktree: state.tabsByWorktree,
       openFiles: state.openFiles,
-      agentStatusByPaneKey: state.agentStatusByPaneKey,
-      retainedAgentsByPaneKey: state.retainedAgentsByPaneKey,
-      sleepingAgentSessionsByPaneKey: state.sleepingAgentSessionsByPaneKey,
+      agentStatusByPaneKey: agentState.agentStatusByPaneKey,
+      retainedAgentsByPaneKey: agentState.retainedAgentsByPaneKey,
+      sleepingAgentSessionsByPaneKey: agentState.sleepingAgentSessionsByPaneKey,
       activeGroupIdByWorktree: state.activeGroupIdByWorktree,
       groupsByWorktree: state.groupsByWorktree,
       activeWorktreeId: state.activeWorktreeId,

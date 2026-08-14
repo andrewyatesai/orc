@@ -10,7 +10,10 @@ import {
   resolveSiblingCompletedTabAgent,
   resolveSiblingTabAgent
 } from './tab-agent'
-import { resolveExplicitTerminalTitleAgentType } from '../../../shared/terminal-title-agent-type'
+import {
+  isClaudeIdentityFrameTitle,
+  resolveExplicitTerminalTitleAgentType
+} from '../../../shared/terminal-title-agent-type'
 import { resolveCompatibleAgentTypeForOwner } from '../../../shared/agent-title-owner'
 import { resolvePaneAgentOwner } from '../../../shared/pane-agent-owner'
 import type { TerminalTab, TuiAgent } from '../../../shared/types'
@@ -110,11 +113,16 @@ export function resolveTabAgentFromSignals(args: {
     owner
   )
   const priorIdentity = idleFocusedIdentity ?? launchAgent
+  // Why: a "claude" token in another agent's task text is a mention, not identity, so it must
+  // not take a pane from its known owner — only a title that PRESENTS Claude may (#8940).
+  const titleClaimsIdentity =
+    explicitTitleAgent !== 'claude' || isClaudeIdentityFrameTitle(args.title)
   // Why: a completed hook already proves activity, so it arms the reuse override without waiting for hasObservedAgentSignal (false for one mount commit).
   const titleReclaimsReusedPane =
     priorIdentity !== null &&
     explicitTitleAgent !== null &&
     explicitTitleAgent !== priorIdentity &&
+    titleClaimsIdentity &&
     (args.hasObservedAgentSignal || hasCompletedHook)
   const titleAgent = processProvesShell
     ? null

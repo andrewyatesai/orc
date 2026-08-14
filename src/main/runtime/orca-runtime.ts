@@ -6,6 +6,7 @@ import {
   isClaudeManagementTitle,
   isCursorAgentTitle,
   isCursorNativeAgentTitle,
+  isOpenCodeNativeTitle,
   isShellProcess,
   normalizeTerminalTitle
 } from '../../shared/agent-detection'
@@ -19,6 +20,7 @@ import type { TerminalOscColorQueryReplyColors } from '../../shared/terminal-osc
 import {
   createTerminalTitleTracker,
   stripBrailleSpinnerGlyphs,
+  type TerminalTitleFactMeta,
   type TerminalTitleTracker
 } from '../../shared/terminal-output-side-effects'
 import { createCommandCodeOutputStatusDetector } from '../../shared/command-code-output-status'
@@ -9073,11 +9075,14 @@ export class OrcaRuntimeService {
   getTerminalSideEffectSnapshot(ptyId: string): TerminalSideEffectBatch | null {
     const tracker = this.ptyTitleTrackersByPtyId.get(ptyId)?.tracker
     const recordTitle = this.ptysById.get(ptyId)?.lastOscTitle
-    // Why: the cursor-agent literal drop applies to every title surface; a
-    // record-fallback snapshot must not replay the bare native title the
-    // tracker would have refused to emit live.
-    const rawTitle = recordTitle && !isCursorNativeAgentTitle(recordTitle) ? recordTitle : null
     const normalizedTitle = tracker?.getLastNormalizedTitle() ?? null
+    // Why: a record-fallback snapshot must not replay the bare cursor-agent literal over a
+    // tracker title Orca synthesized from hooks — but with no tracker title it is the pane's
+    // only Cursor identity, so restored/mobile tabs keep it (#10258).
+    const rawTitle =
+      recordTitle && (normalizedTitle === null || !isCursorNativeAgentTitle(recordTitle))
+        ? recordTitle
+        : null
     if (normalizedTitle === null && !rawTitle) {
       return null
     }
@@ -9111,12 +9116,37 @@ export class OrcaRuntimeService {
     return null
   }
 
+  private isLiveCursorNativeTitle(rawTitle: string, meta?: TerminalTitleFactMeta): boolean {
+    return isCursorNativeAgentTitle(rawTitle) && meta?.staleWorkingTitleClear !== true
+  }
+
+  /** Display fallback for identities intentionally omitted from liveness records. */
+  private getTrackedDisplayTitleForPty(ptyId: string): string | null {
+    return (
+      this.getTrackedRawTitleForPty(ptyId) ??
+      this.ptyTitleTrackersByPtyId.get(ptyId)?.tracker.getLastNormalizedTitle() ??
+      null
+    )
+  }
+
+  private getUnpersistedTrackedTitleForPty(ptyId: string | null): string | null {
+    if (!ptyId || this.getTrackedRawTitleForPty(ptyId) !== null) {
+      return null
+    }
+    // Why: a manual title is authoritative until explicitly cleared with null.
+    const pty = this.ptysById.get(ptyId)
+    if (pty && pty.title !== null) {
+      return null
+    }
+    return this.ptyTitleTrackersByPtyId.get(ptyId)?.tracker.getLastNormalizedTitle() ?? null
+  }
+
   /** Why: synthetic agent title frames no longer ride pty:data, so neither
    *  renderer xterm nor the headless emulator observes them. Mobile-parity
    *  snapshot titles must prefer main's tracker over snapshot lastTitle, or
    *  hook-driven spinner/idle titles vanish from mobile tabs. */
   private preferTrackedLastTitle<T extends { lastTitle?: string }>(ptyId: string, snapshot: T): T {
-    const tracked = this.getTrackedRawTitleForPty(ptyId)
+    const tracked = this.getTrackedDisplayTitleForPty(ptyId)
     if (!tracked) {
       return snapshot
     }
@@ -9159,8 +9189,11 @@ export class OrcaRuntimeService {
             rawTitle,
             ...(meta?.staleWorkingTitleClear ? { staleWorkingTitleClear: true } : {})
           })
-          const changed = this.applyTrackedPtyTitle(ptyId, rawTitle, normalizedTitle)
-          if (!changed) {
+          const changed = this.applyTrackedPtyTitle(ptyId, rawTitle, normalizedTitle, meta)
+          // Why: an identity-only cursor title records nothing, so on a fresh pane `changed` is
+          // false — but the tracker title is that pane's only Cursor identity and still has to
+          // fan out to the sidebar and mobile (#10258).
+          if (!changed && !this.isLiveCursorNativeTitle(rawTitle, meta)) {
             return
           }
           const live = this.ptyTitleTrackersByPtyId.get(ptyId)
@@ -9267,23 +9300,40 @@ export class OrcaRuntimeService {
 
   /** Apply one observed OSC title (raw form) to the PTY and leaf records.
    *  Returns true when the PTY record's title or status changed. */
-  private applyTrackedPtyTitle(ptyId: string, rawTitle: string, normalizedTitle: string): boolean {
+  private applyTrackedPtyTitle(
+    ptyId: string,
+    rawTitle: string,
+    normalizedTitle: string,
+    meta?: TerminalTitleFactMeta
+  ): boolean {
     // Why: status is detected from the RAW title (mirrors the renderer tracker),
     // so working/idle transitions are unaffected by normalization; the records
     // store the NORMALIZED title so rotating Grok/Pi/Gemini frames collapse to
     // one stable stored label (#7880) instead of churning `ps`/mobile tabs.
-    const agentStatus = detectAgentStatusFromTitle(rawTitle)
+    //
+    // Why the identity-only case: the bare cursor-agent literal identifies the pane without
+    // asserting activity, so it records NO title/status evidence — only the tracker keeps it,
+    // for display (#10258). Nulling the status here rather than trusting the detector keeps
+    // that contract local, since every activity-gated effect below is keyed on status.
+    const identityOnlyTitle = this.isLiveCursorNativeTitle(rawTitle, meta)
+    const recordedTitle = identityOnlyTitle ? null : normalizedTitle
+    const agentStatus = identityOnlyTitle ? null : detectAgentStatusFromTitle(rawTitle)
     let ptyRecordChanged = false
     const pty = this.ptysById.get(ptyId)
     if (pty) {
       const prevStatus = pty.lastAgentStatus
       const prevTitle = pty.lastOscTitle
       const observedAt = this.nextTitleObservationSequence()
-      pty.lastOscTitle = normalizedTitle
-      pty.lastOscTitleAt = observedAt
+      pty.lastOscTitle = recordedTitle
+      pty.lastOscTitleAt = identityOnlyTitle ? null : observedAt
       pty.lastAgentStatus = agentStatus
-      this.setPtyManagementTitleFromObservedTitle(pty, normalizedTitle, observedAt)
-      ptyRecordChanged = prevTitle !== normalizedTitle || prevStatus !== agentStatus
+      if (identityOnlyTitle) {
+        pty.managementTitle = null
+        pty.managementTitleAt = null
+      } else {
+        this.setPtyManagementTitleFromObservedTitle(pty, normalizedTitle, observedAt)
+      }
+      ptyRecordChanged = prevTitle !== recordedTitle || prevStatus !== agentStatus
       if (agentStatus === 'idle' && prevStatus !== 'idle') {
         this.resolvePtyTuiIdleWaiters(pty, ptyId)
       }
@@ -9316,8 +9366,8 @@ export class OrcaRuntimeService {
       // daemon-hosted terminals (no renderer pushing pane titles) had no
       // way to clear a stale 'working' status after the agent exited and
       // the shell took over the title — the stuck-spinner bug in #1437.
-      leaf.lastOscTitle = normalizedTitle
-      leaf.lastOscTitleAt = this.nextTitleObservationSequence()
+      leaf.lastOscTitle = recordedTitle
+      leaf.lastOscTitleAt = identityOnlyTitle ? null : this.nextTitleObservationSequence()
       const prevStatus = leaf.lastAgentStatus
       // Why: when a new OSC title doesn't classify as an agent state (e.g.
       // bare shell title after the agent exits), clear lastAgentStatus so
@@ -16026,7 +16076,8 @@ export class OrcaRuntimeService {
     const liveTitleClearsBlockedText =
       terminal.titleStatusIsLive &&
       terminal.titleStatus !== null &&
-      terminal.titleStatus !== 'permission'
+      terminal.titleStatus !== 'permission' &&
+      !isOpenCodeNativeTitle(terminal.title)
     if (terminal.titleStatus === 'permission' && terminal.titleStatusIsLive) {
       return { handle, isRunningAgent: true, status: 'permission' }
     }
@@ -16053,6 +16104,18 @@ export class OrcaRuntimeService {
       }
     }
     if (terminal.titleStatus) {
+      // Why: the native OpenCode marker is presence-only; a stale marker left on a
+      // shell must not report a status, so corroborate it against live process
+      // evidence the way a hookless send would before trusting the title.
+      if (isOpenCodeNativeTitle(terminal.title)) {
+        const isRunningAgent = await this.isTerminalRunningAgent(handle)
+        this.assertTerminalAgentStatusPtyBinding(handle, ptyId)
+        return {
+          handle,
+          isRunningAgent,
+          status: isRunningAgent ? terminal.titleStatus : null
+        }
+      }
       return { handle, isRunningAgent: true, status: terminal.titleStatus }
     }
 
@@ -29434,6 +29497,12 @@ export class OrcaRuntimeService {
       const hookAgentStatus = tab.agentStatus
         ? this.getHookAgentRowForPane(getHookRowsForPane(paneKey))
         : null
+      // Why not tab.ptyId: findPtyForMobileTerminalTab already rejected it when it returned
+      // null, because persisted ids can collide with an unrelated pane after restart — reading
+      // that pane's tracker would publish its title here, ahead of every other source.
+      const trackerOnlyTitle = this.getUnpersistedTrackedTitleForPty(
+        liveLeafPtyId ?? pty?.ptyId ?? null
+      )
       const leafTitle = leaf
         ? getLatestAgentCandidateTitle(
             { title: leaf.paneTitle, updatedAt: leaf.paneTitleUpdatedAt },
@@ -29461,7 +29530,7 @@ export class OrcaRuntimeService {
         pty?.foregroundAgent ??
         null
       const title = normalizeCompatibleAgentTitleForOwner(
-        leafTitle ?? ptyTitle ?? syncedTab?.title ?? tab.title,
+        trackerOnlyTitle ?? leafTitle ?? ptyTitle ?? syncedTab?.title ?? tab.title,
         ownerAgent
       )
       const liveTitleEvidence = leafTitle ?? ptyTitle
@@ -29627,6 +29696,7 @@ export class OrcaRuntimeService {
       ? { providerSession: hookRow.providerSession }
       : {}
     const leaf = this.leaves.get(this.getLeafKey(tab.parentTabId, tab.leafId)) ?? null
+    const trackerOnlyTitle = this.getUnpersistedTrackedTitleForPty(pty?.ptyId ?? leaf?.ptyId ?? null)
     const ptyTitle = pty
       ? getLatestAgentCandidateTitle(
           { title: pty.title, updatedAt: pty.titleUpdatedAt },
@@ -29663,7 +29733,7 @@ export class OrcaRuntimeService {
       pty?.foregroundAgent ??
       null
     const terminalTitle = normalizeCompatibleAgentTitleForOwner(
-      (pty ? getLatestPtyTitle(pty) : null) ?? tab.title,
+      trackerOnlyTitle ?? (pty ? getLatestPtyTitle(pty) : null) ?? tab.title,
       ownerAgent
     )
     // Why: OSC 9999 hook payload carries real state/prompt/agent; without preferring it, hook-only transitions never surfaced (#7970).
@@ -30197,16 +30267,20 @@ export class OrcaRuntimeService {
       // Why: check the leaf pane title and the tab title, which already carries OSC-enriched agent indicators (e.g. ✳ prefix).
       const paneTitle = getLatestLeafTitle(leaf, null)
       const paneTitleClassification = classifyAgentTitle(paneTitle)
-      if (paneTitleClassification === 'agent') {
+      // Why: the OpenCode native marker names no agent token, so classifyAgentTitle
+      // scores it 'agent' by identity alone; defer it to the foreground-process
+      // check below so a stale marker on a shell is not authorized on title only.
+      if (paneTitleClassification === 'agent' && !isOpenCodeNativeTitle(paneTitle)) {
         return true
       }
       const tabTitle = this.tabs.get(leaf.tabId)?.title?.trim() || null
       const tabTitleClassification = paneTitle === null ? classifyAgentTitle(tabTitle) : 'neutral'
-      if (tabTitleClassification === 'agent') {
+      if (tabTitleClassification === 'agent' && !isOpenCodeNativeTitle(tabTitle)) {
         return true
       }
+      const openCodeMarkerTitle = paneTitle ?? tabTitle
       const waitText = buildTerminalWaitText(leaf.tailBuffer, leaf.tailPartialLine, leaf.preview)
-      if (isKnownReadyPromptPreview(waitText)) {
+      if (!isOpenCodeNativeTitle(openCodeMarkerTitle) && isKnownReadyPromptPreview(waitText)) {
         return true
       }
       const hasCurrentTitleEvidence = paneTitle !== null || tabTitle !== null
@@ -30252,7 +30326,7 @@ export class OrcaRuntimeService {
         )
       : null
     const leafTitleClassification = classifyAgentTitle(leafTitle)
-    if (leafTitleClassification === 'agent') {
+    if (leafTitleClassification === 'agent' && !isOpenCodeNativeTitle(leafTitle)) {
       return true
     }
     const ptyTitle = getLatestAgentCandidateTitle(
@@ -30260,15 +30334,25 @@ export class OrcaRuntimeService {
       { title: pty.lastOscTitle, updatedAt: pty.lastOscTitleAt }
     )
     const ptyTitleClassification = classifyAgentTitle(ptyTitle)
-    if (leafTitle === null && ptyTitleClassification === 'agent') {
+    if (
+      leafTitle === null &&
+      ptyTitleClassification === 'agent' &&
+      !isOpenCodeNativeTitle(ptyTitle)
+    ) {
       return true
     }
     const managementTitleClassification = classifyLatestAgentTitle({
       title: pty.managementTitle,
       updatedAt: pty.managementTitleAt
     })
+    // Why: an Orca-launched OpenCode pane owns its marker, so the launch bit is
+    // proof enough; a hookless/manual marker still falls through to the process check.
+    const openCodeMarkerTitle = leafTitle ?? ptyTitle
+    if (isOpenCodeNativeTitle(openCodeMarkerTitle) && pty.launchAgent === 'opencode') {
+      return true
+    }
     const waitText = buildTerminalWaitText(pty.tailBuffer, pty.tailPartialLine, pty.preview)
-    if (isKnownReadyPromptPreview(waitText)) {
+    if (!isOpenCodeNativeTitle(openCodeMarkerTitle) && isKnownReadyPromptPreview(waitText)) {
       return true
     }
     // Why: stale status is a fallback only when no current title evidence exists; neutral titles (shells) clear it.
@@ -35802,6 +35886,8 @@ function detectExplicitIdleStatusFromTitle(title: string): AgentStatus | null {
   // Why: launch titles like "Codex YOLO" contain an agent name but aren't readiness signals; terminal.wait needs explicit idle evidence.
   if (
     EXPLICIT_IDLE_TITLE_RE.test(title) ||
+    // Why: unblock hookless remote waits; guarded writes corroborate this marker.
+    isOpenCodeNativeTitle(title) ||
     title.startsWith(CLAUDE_IDLE_PREFIX) ||
     title.startsWith('* ') ||
     title.includes(GEMINI_IDLE_PREFIX) ||
@@ -35939,7 +36025,7 @@ function isTerminalWaitWhitespace(value: string, index: number): boolean {
 }
 
 const TERMINAL_WAIT_BLOCKED_SENTINEL_RE =
-  /update available|choose working directory to|codex just got an upgrade|hooks need review|do you trust|trust this|trusted workspace|press enter to (?:confirm|continue|view|insert)|press t to trust/i
+  /update available|choose working directory to|codex just got an upgrade|hooks need review|do you trust|trust this|trusted workspace|press enter to (?:confirm|continue|view|insert)|press t to trust|permission required|requires permission|allow once|allow always/i
 
 function findTerminalWaitBlockedSignal(
   normalized: string
@@ -36007,6 +36093,20 @@ function findTerminalWaitBlockedSignal(
     )
     if (!hasSpecificPromptInContext) {
       candidates.push({ reason: 'codex-interactive-prompt', index: interactivePromptIndex })
+    }
+  }
+  const permissionPromptIndex = Math.max(
+    normalized.lastIndexOf('permission required'),
+    normalized.lastIndexOf('requires permission')
+  )
+  if (permissionPromptIndex !== -1) {
+    const permissionSegment = normalized.slice(permissionPromptIndex, permissionPromptIndex + 1_500)
+    const decisionCount = ['allow once', 'allow always', 'reject', 'deny'].filter((choice) =>
+      permissionSegment.includes(choice)
+    ).length
+    if (decisionCount >= 2) {
+      // Why: preserve the existing remote receipt value for mixed-version clients.
+      candidates.push({ reason: 'codex-interactive-prompt', index: permissionPromptIndex })
     }
   }
   return candidates.length > 0

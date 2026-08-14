@@ -2580,7 +2580,8 @@
       "invariant": "Only an explicit user change in Settings > Remote Orca Servers > Advanced > Active Server may mutate activeRuntimeEnvironmentId. Connecting, pairing, disconnecting, selecting or revealing a workspace or terminal, browser/mobile handoff, remote navigation, and reconnect must use transient or target-owner routing and must never rewrite the durable preference. Generic settings mutation cannot bypass the dedicated preference IPC.",
       "oracle": "Start with Active Server=Local desktop, connect and navigate Windows 2, then reveal a local terminal and assert it succeeds while the persisted preference remains local before and after restart. Repeat with multiple clients and servers, browser host switches, remote-owned and local-owned workspaces, pairing/connect/disconnect, and generic settings writes. Assert only the dedicated validated preference method changes activeRuntimeEnvironmentId and stale host-operation completions cannot overwrite the newly selected transient host.",
       "commands": [
-        "pnpm exec vitest run --config config/vitest.config.ts src/main/ipc/settings.test.ts src/main/ipc/runtime-environments.test.ts src/renderer/src/store/slices/settings.test.ts src/renderer/src/store/slices/browser.test.ts src/renderer/src/components/settings/browser-session-host-selection.test.ts src/renderer/src/components/settings/RuntimeEnvironmentsPane.test.ts src/renderer/src/components/status-bar/SshStatusSegment.test.ts src/renderer/src/components/sidebar/use-add-repo-host-selection.test.ts src/renderer/src/hooks/useIpcEvents.test.ts src/renderer/src/web/web-preload-api.test.ts --maxWorkers=1"
+        "pnpm exec vitest run --config config/vitest.config.ts src/main/ipc/settings.test.ts src/main/ipc/runtime-environments.test.ts src/renderer/src/store/slices/settings.test.ts src/renderer/src/store/slices/browser.test.ts src/renderer/src/components/settings/browser-session-host-selection.test.ts src/renderer/src/components/settings/RuntimeEnvironmentsPane.test.ts src/renderer/src/components/status-bar/SshStatusSegment.test.ts src/renderer/src/components/sidebar/use-add-repo-host-selection.test.ts src/renderer/src/hooks/useIpcEvents.test.ts src/renderer/src/web/web-preload-api.test.ts --maxWorkers=1",
+        "pnpm exec vitest run --config config/vitest.config.ts src/renderer/src/components/sidebar/use-add-repo-host-selection.test.ts src/renderer/src/components/sidebar/add-repo-browse-authority.test.ts src/renderer/src/components/sidebar/AddRepoDialogStepContent.test.tsx src/renderer/src/components/sidebar/AddRepoStartSteps.test.tsx src/renderer/src/components/sidebar/useAddRepoServerPathFlow.test.ts src/renderer/src/runtime/runtime-server-directory-browser.test.ts src/renderer/src/store/slices/repos-paired-runtime-add.test.ts --maxWorkers=1"
       ],
       "testFiles": [
         "src/main/ipc/settings.test.ts",
@@ -2591,10 +2592,42 @@
         "src/renderer/src/components/settings/RuntimeEnvironmentsPane.test.ts",
         "src/renderer/src/components/status-bar/SshStatusSegment.test.ts",
         "src/renderer/src/components/sidebar/use-add-repo-host-selection.test.ts",
+        "src/renderer/src/components/sidebar/add-repo-browse-authority.test.ts",
+        "src/renderer/src/components/sidebar/AddRepoDialogStepContent.test.tsx",
+        "src/renderer/src/components/sidebar/AddRepoStartSteps.test.tsx",
+        "src/renderer/src/store/slices/repos-paired-runtime-add.test.ts",
         "src/renderer/src/hooks/useIpcEvents.test.ts",
         "src/renderer/src/web/web-preload-api.test.ts"
       ],
       "assertionRefs": [
+        {
+          "file": "src/renderer/src/components/sidebar/use-add-repo-host-selection.test.ts",
+          "assertions": [
+            "paired web hides the viewing computer as an Add Project filesystem authority and selects the paired runtime"
+          ]
+        },
+        {
+          "file": "src/renderer/src/components/sidebar/add-repo-browse-authority.test.ts",
+          "assertions": [
+            "paired runtime browsing opens the host browser without invoking native pickFolders while desktop local and SSH routes remain intact"
+          ]
+        },
+        {
+          "file": "src/renderer/src/components/sidebar/AddRepoDialogStepContent.test.tsx",
+          "assertions": ["paired runtime browsing renders the in-app host filesystem browser"]
+        },
+        {
+          "file": "src/renderer/src/components/sidebar/AddRepoStartSteps.test.tsx",
+          "assertions": [
+            "host-scoped Add Project actions remain disabled until a paired runtime is selectable"
+          ]
+        },
+        {
+          "file": "src/renderer/src/store/slices/repos-paired-runtime-add.test.ts",
+          "assertions": [
+            "an explicitly selected paired runtime submits repo.add to that runtime without native repo or folder-picker calls"
+          ]
+        },
         {
           "file": "src/main/ipc/settings.test.ts",
           "assertions": [

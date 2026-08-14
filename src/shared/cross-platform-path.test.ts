@@ -1,11 +1,29 @@
 import { describe, expect, it } from 'vitest'
 import {
+  isCaseInsensitiveRuntimeRoot,
   isPathInsideOrEqual,
   isRuntimePathAbsolute,
   normalizeRuntimePathForComparison,
   relativePathInsideRoot,
   resolveRuntimePath
 } from './cross-platform-path'
+
+describe('isCaseInsensitiveRuntimeRoot', () => {
+  it('folds Windows drive and UNC roots by syntax, never the client platform', () => {
+    expect(isCaseInsensitiveRuntimeRoot('C:\\Users\\dev\\repo')).toBe(true)
+    expect(isCaseInsensitiveRuntimeRoot('c:/users/dev/repo')).toBe(true)
+    expect(isCaseInsensitiveRuntimeRoot('\\\\Server\\Share\\repo')).toBe(true)
+  })
+
+  it('keeps WSL UNC aliases and POSIX/SSH roots case-sensitive', () => {
+    // The WSL UNC alias fronts a case-sensitive Linux filesystem.
+    expect(isCaseInsensitiveRuntimeRoot('\\\\wsl$\\Ubuntu\\home\\dev\\repo')).toBe(false)
+    expect(isCaseInsensitiveRuntimeRoot('\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo')).toBe(false)
+    // POSIX roots (native Linux, macOS, SSH) never fold, even a home directory.
+    expect(isCaseInsensitiveRuntimeRoot('/home/dev/repo')).toBe(false)
+    expect(isCaseInsensitiveRuntimeRoot('/srv/home/dev/repo')).toBe(false)
+  })
+})
 
 describe('cross-platform path containment', () => {
   it('keeps POSIX sibling prefixes outside the root', () => {

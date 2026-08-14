@@ -663,7 +663,10 @@
           "import": {
             "toast": {
               "restartFallbackUnavailableNone": "None of the {{value0}} cookies could be loaded, and the restart fallback was unavailable. The previous cookies for this profile were replaced. Try the import again.",
-              "restartFallbackUnavailablePartial": "Imported {{value0}} of {{value1}} cookies. The rest could not be loaded, and the restart fallback was unavailable. Try the import again."
+              "restartFallbackUnavailablePartial": "Imported {{value0}} of {{value1}} cookies. The rest could not be loaded, and the restart fallback was unavailable. Try the import again.",
+              "googleCookiesSkipped": "Google cookies were not imported. Open a browser in Orca with this profile, then sign into Google.",
+              "googleDirectSignInAction": "Sign in to Google",
+              "googleDirectSignInUnavailable": "Could not open the browser profile. Open it and sign in at accounts.google.com."
             }
           }
         }
@@ -845,6 +848,10 @@
       }
     },
     "components": {
+      "BrowserCookieImportDisclosure": {
+        "title": "Google logins aren't imported",
+        "description": "Sign in to Google directly in Orca."
+      },
       "CodexRestartChip": {
         "a4c8e1b2f7": "Codex is still signed in as {{value0}}",
         "c72a5fb234": "Restart",
@@ -3062,6 +3069,11 @@
             "b775303755": "Run quick command: {{value0}}",
             "196593b6a9": "Remove {{value0}}",
             "15529ede69": "Edit {{value0}}",
+            "8d525e5f15": "Copied",
+            "53b17a4b1b": "Couldn't copy",
+            "a9a564b7e7": "Copy {{value0}}",
+            "69a1441a21": "Nothing to copy",
+            "192a4616a5": "Quick command actions",
             "1d411fb6a5": "Save a quick command for this repo",
             "8f1e971966": "Add quick command",
             "3220e2da27": "This quick command will be removed from your saved list.",
@@ -6548,6 +6560,10 @@
         "QuickCommandsPane": {
           "8764c6e9e4": "Remove {{value0}}",
           "7d90fd5299": "Edit {{value0}}",
+          "8d525e5f15": "Copied",
+          "53b17a4b1b": "Couldn't copy",
+          "a9a564b7e7": "Copy {{value0}}",
+          "69a1441a21": "Nothing to copy",
           "8c877dec41": "Global",
           "c6b155911b": "All commands",
           "5aacc8f7dc": "Add Command",

@@ -377,6 +377,7 @@ const TerminalPaneOverlayLayer = memo(function TerminalPaneOverlayLayer({
     terminalTabs,
     assignments,
     isWorktreeActive,
+    activeGroupId,
     coldParkTerminalPanes,
     shouldMeasureHiddenWorktree,
     activityTerminalPortals,

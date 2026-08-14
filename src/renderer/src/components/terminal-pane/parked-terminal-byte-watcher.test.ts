@@ -154,14 +154,16 @@ describe('startParkedTerminalByteWatcher', () => {
     dispose()
   })
 
-  it('drops the bare cursor-agent native title before it reaches the store', async () => {
+  // Why: a hookless Cursor pane has no other identity, so the literal reaches the store
+  // once (#10258); its redraw repeat must not stomp a later synthesized Cursor title. The
+  // renderer's redraw-repeat suppression itself is covered in pty-transport.test.ts.
+  it('stores the bare cursor-agent native title once, then keeps the synthetic title', async () => {
     const { dispose } = await startWatcher()
-
     emit('\x1b]0;Cursor Agent\x07')
+    emit('\x1b]0;⠋ Cursor Agent\x07')
     flushSideEffects()
-
-    expect(mockStoreState.setRuntimePaneTitle).not.toHaveBeenCalled()
-    expect(mockStoreState.updateTabTitle).not.toHaveBeenCalled()
+    const paneTitles = mockStoreState.setRuntimePaneTitle.mock.calls.map((call) => call[2])
+    expect(paneTitles).toEqual(['Cursor Agent', '⠋ Cursor Agent'])
     dispose()
   })
 

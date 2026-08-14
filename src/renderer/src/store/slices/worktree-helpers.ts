@@ -138,10 +138,16 @@ export type WorktreeSlice = {
       // Why: pin an unbound repo's refresh to the local host so a local
       // worktrees:changed under an active runtime lists local rows (#6628).
       forceLocalOwner?: boolean
+      /** Skip the per-repo remote lineage pass when the caller owns a final host-wide lineage refresh. */
+      suppressRemoteLineageRefresh?: boolean
     }
   ) => Promise<boolean>
   fetchAllWorktrees: (options?: { hydrationPurge?: 'allow' | 'defer' }) => Promise<void>
-  fetchWorktreeLineage: (options?: { forceLocalOwner?: boolean }) => Promise<void>
+  fetchWorktreeLineage: (options?: {
+    forceLocalOwner?: boolean
+    /** Scope the refresh to a specific host's lineage instead of the focused one. */
+    executionHostId?: ExecutionHostId
+  }) => Promise<void>
   updateWorktreeLineage: (
     worktreeId: string,
     args: { parentWorktreeId?: string; noParent?: boolean }

@@ -2318,6 +2318,48 @@ describe('applyWebSessionTabsSnapshot', () => {
     expect(patch.sortEpoch).toBe((initialState.sortEpoch ?? 0) + 1)
   })
 
+  it('bumps sort epoch when a mirrored same-state done update becomes a completion', () => {
+    const hostPaneKey = makePaneKey('host-tab-1', LEAF_ID)
+    const doneSurface = (interrupted: boolean | undefined, updatedAt: number) => ({
+      type: 'terminal' as const,
+      id: HOST_SURFACE_ID,
+      title: 'Claude',
+      parentTabId: 'host-tab-1',
+      leafId: LEAF_ID,
+      isActive: true,
+      status: 'ready' as const,
+      terminal: 'terminal-1',
+      agentStatus: {
+        state: 'done' as const,
+        prompt: 'same prompt',
+        updatedAt,
+        stateStartedAt: NOW - 2_000,
+        agentType: 'claude',
+        paneKey: hostPaneKey,
+        terminalTitle: 'Claude',
+        stateHistory: [],
+        interrupted
+      }
+    })
+    const initialPatch = applyWebSessionTabsSnapshot(
+      makeState(),
+      makeSnapshot([doneSurface(true, NOW - 1_000)]),
+      ENV,
+      NOW
+    ) as Partial<WebSessionTabsSyncState>
+    const initialState = { ...makeState(), ...initialPatch }
+
+    const patch = applyWebSessionTabsSnapshot(
+      initialState,
+      makeSnapshot([doneSurface(undefined, NOW)], { snapshotVersion: 2 }),
+      ENV,
+      NOW
+    ) as Partial<WebSessionTabsSyncState>
+
+    expect(patch.agentStatusEpoch).toBe((initialState.agentStatusEpoch ?? 0) + 1)
+    expect(patch.sortEpoch).toBe((initialState.sortEpoch ?? 0) + 1)
+  })
+
   it('hydrates multiple initial host snapshots in one merged patch', () => {
     const secondWorktree = 'repo::/other-worktree'
     const patch = applyWebSessionTabsSnapshots(

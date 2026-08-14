@@ -1,5 +1,12 @@
+// @vitest-environment happy-dom
+
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { consumeBrowserFocusRequest, queueBrowserFocusRequest } from './browser-focus'
+import {
+  ORCA_BROWSER_FOCUS_REQUEST_EVENT,
+  consumeBrowserFocusRequest,
+  queueBrowserFocusRequest,
+  requestBrowserFocus
+} from './browser-focus'
 
 describe('browser-focus', () => {
   afterEach(() => {
@@ -22,6 +29,23 @@ describe('browser-focus', () => {
 
   it('returns null for a page id that was never queued', () => {
     expect(consumeBrowserFocusRequest('nonexistent-page')).toBeNull()
+  })
+
+  it('requestBrowserFocus both queues the target and announces it to live listeners', () => {
+    const detail = { pageId: 'page-request', target: 'address-bar' } as const
+    const announced: CustomEvent[] = []
+    const onFocusRequest = (event: Event): void => {
+      announced.push(event as CustomEvent)
+    }
+    window.addEventListener(ORCA_BROWSER_FOCUS_REQUEST_EVENT, onFocusRequest)
+
+    requestBrowserFocus(detail)
+    window.removeEventListener(ORCA_BROWSER_FOCUS_REQUEST_EVENT, onFocusRequest)
+
+    // A pane mounting after the event still reads the queued target.
+    expect(consumeBrowserFocusRequest('page-request')).toBe('address-bar')
+    // A pane already listening hears it synchronously.
+    expect(announced[0]?.detail).toEqual(detail)
   })
 
   it('expires unconsumed requests for pages that never mount', () => {

@@ -623,6 +623,31 @@ describe('agent status tool + assistant fields', () => {
     expect(store.getState().sortEpoch).toBe(firstSortEpoch + 1)
   })
 
+  it('bumps sort epoch when a same-state done update changes completion eligibility', () => {
+    vi.useFakeTimers()
+    const store = createTestStore()
+    // An interrupted done has no completion; a later same-state non-interrupted done does, so the
+    // sort must re-run even though state and stateStartedAt are unchanged.
+    store
+      .getState()
+      .setAgentStatus(
+        'tab-1:1',
+        { state: 'done', prompt: 'p1', agentType: 'claude', interrupted: true },
+        'claude',
+        { updatedAt: 1_000, stateStartedAt: 1_000 }
+      )
+    const firstSortEpoch = store.getState().sortEpoch
+
+    store
+      .getState()
+      .setAgentStatus('tab-1:1', { state: 'done', prompt: 'p1', agentType: 'claude' }, 'claude', {
+        updatedAt: 2_000,
+        stateStartedAt: 1_000
+      })
+
+    expect(store.getState().sortEpoch).toBe(firstSortEpoch + 1)
+  })
+
   it('bumps aggregate epochs when a same-state entry gains worktree attribution', () => {
     vi.useFakeTimers()
     const store = createTestStore()

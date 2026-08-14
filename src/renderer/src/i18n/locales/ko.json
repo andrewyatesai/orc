@@ -663,7 +663,10 @@
           "import": {
             "toast": {
               "restartFallbackUnavailableNone": "None of the {{value0}} cookies could be loaded, and the restart fallback was unavailable. The previous cookies for this profile were replaced. Try the import again.",
-              "restartFallbackUnavailablePartial": "Imported {{value0}} of {{value1}} cookies. The rest could not be loaded, and the restart fallback was unavailable. Try the import again."
+              "restartFallbackUnavailablePartial": "Imported {{value0}} of {{value1}} cookies. The rest could not be loaded, and the restart fallback was unavailable. Try the import again.",
+              "googleCookiesSkipped": "Google 쿠키를 가져오지 않았습니다. 이 프로필로 Orca에서 브라우저를 연 다음 Google에 로그인하세요.",
+              "googleDirectSignInAction": "Google에 로그인",
+              "googleDirectSignInUnavailable": "브라우저 프로필을 열 수 없습니다. 프로필을 열고 accounts.google.com에서 로그인하세요."
             }
           }
         }
@@ -3062,6 +3065,11 @@
             "b775303755": "빠른 명령 실행: {{value0}}",
             "196593b6a9": "{{value0}} 제거",
             "15529ede69": "{{value0}} 편집",
+            "8d525e5f15": "복사됨",
+            "53b17a4b1b": "복사하지 못함",
+            "a9a564b7e7": "{{value0}} 복사",
+            "69a1441a21": "복사할 내용 없음",
+            "192a4616a5": "빠른 명령 작업",
             "1d411fb6a5": "이 repo에 대한 빠른 명령 저장",
             "8f1e971966": "빠른 명령 추가",
             "3220e2da27": "이 빠른 명령은 저장된 목록에서 제거됩니다.",
@@ -6496,6 +6504,10 @@
         "QuickCommandsPane": {
           "8764c6e9e4": "{{value0}} 제거",
           "7d90fd5299": "{{value0}} 편집",
+          "8d525e5f15": "복사됨",
+          "53b17a4b1b": "복사하지 못함",
+          "a9a564b7e7": "{{value0}} 복사",
+          "69a1441a21": "복사할 내용 없음",
           "8c877dec41": "글로벌",
           "c6b155911b": "모든 명령",
           "5aacc8f7dc": "명령 추가",
@@ -14979,6 +14991,10 @@
         "useManualTerminalWorktreeParking": {
           "cannotPark": "These terminals cannot be parked safely."
         }
+      },
+      "BrowserCookieImportDisclosure": {
+        "title": "Google 로그인은 가져오지 않습니다",
+        "description": "Orca에서 직접 Google에 로그인하세요."
       }
     },
     "i18n": {

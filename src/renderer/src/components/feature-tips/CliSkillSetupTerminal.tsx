@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { OnboardingInlineCommandTerminal } from '@/components/onboarding/OnboardingInlineCommandTerminal'
 import { buildSkillCommandForRuntime } from '@/components/settings/CliSkillRuntimeSetup'
+import { buildSkillSetupTerminalCommand } from '@/components/settings/wsl-setup-terminal-paste'
 import { ORCA_CLI_ORCHESTRATION_SKILL_INSTALL_COMMAND } from '@/lib/agent-feature-install-commands'
 import { useActiveProjectSkillRuntime } from '@/hooks/useActiveProjectSkillRuntime'
 import { translate } from '@/i18n/i18n'
@@ -71,6 +72,7 @@ export function CliSkillSetupTerminal(): React.JSX.Element {
       </div>
       <OnboardingInlineCommandTerminal
         command={skillCommand}
+        prepareCommandForShell={buildSkillSetupTerminalCommand}
         title={translate(
           'auto.components.feature.tips.CliSkillSetupTerminal.84e9576dac',
           'Skill setup'
@@ -89,6 +91,7 @@ export function CliSkillSetupTerminal(): React.JSX.Element {
         autoScrollIntoView={false}
         worktreeId="feature-tip-cli-skills-terminal"
         shellOverride={activeSkillRuntime.terminalShellOverride}
+        forceHostRuntime={Boolean(activeSkillRuntime.installDisabledReason)}
       />
     </div>
   )

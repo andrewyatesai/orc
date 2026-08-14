@@ -100,6 +100,7 @@ type StoreState = {
       title?: string
       launchAgent?: string
       shellOverride?: string
+      forceHostRuntime?: boolean
     }[]
   >
   ptyIdsByTabId?: Record<string, string[]>
@@ -1163,6 +1164,27 @@ describe('connectPanePty', () => {
         cacheKey: 'repo1:windows-host'
       }
     })
+  })
+
+  it('keeps an explicit host fallback out of the project runtime', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport()
+    transportFactoryQueue.push(transport)
+    mockStoreState = {
+      ...mockStoreState,
+      tabsByWorktree: {
+        'wt-1': [{ id: 'tab-1', ptyId: null, forceHostRuntime: true }]
+      },
+      settings: {
+        ...mockStoreState.settings,
+        localWindowsRuntimeDefault: { kind: 'wsl', distro: 'Ubuntu' }
+      }
+    }
+
+    connectPanePty(createPane(1) as never, createManager(1) as never, createDeps() as never)
+    await flushAsyncTicks()
+
+    expect(createdTransportOptions[0]?.projectRuntime).toBeUndefined()
   })
 
   it('coalesces terminal resize forwarding while a pane resize hold is active', async () => {

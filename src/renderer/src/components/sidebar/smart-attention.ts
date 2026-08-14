@@ -1,4 +1,5 @@
 import { classifyTitleActivity, isExplicitAgentStatusFresh } from '@/lib/pane-agent-evidence'
+import { agentEntryCompletionAt } from '../../../../shared/agent-completion-time'
 import { migrationUnsupportedToAgentStatusEntry } from '@/lib/migration-unsupported-agent-entry'
 import { tabHasLivePty } from '@/lib/tab-has-live-pty'
 import { resolveRuntimePaneTitleLeafId } from '@/lib/runtime-pane-title-leaf-id'
@@ -15,9 +16,9 @@ import { parsePaneKey } from '../../../../shared/stable-pane-id'
 /**
  * Ordinal class for the "Smart" sort. Lower number = more attention-demanding.
  *   1 — Needs you (`blocked` / `waiting`)
- *   2 — Done (`done`, not interrupted)
+ *   2 — Done (`done`, not interrupted, completed within AGENT_STATUS_STALE_AFTER_MS)
  *   3 — Working (`working`)
- *   4 — Idle (no live entry, stale entry, or interrupted `done`)
+ *   4 — Idle (no live entry, stale entry, interrupted `done`, or an aged-out completion)
  *
  * Primary sort key; ties fall back to the attention timestamp. See docs/smart-worktree-order-redesign.md.
  */
@@ -34,7 +35,7 @@ export type AttentionCause = 'blocked' | 'waiting' | 'title-heuristic'
  * Per-worktree resolution computed once before sorting.
  *
  * `attentionTimestamp` by class:
- *   - Class 1 / 2: `stateStartedAt` of the current entry.
+ *   - Class 1: `stateStartedAt` of the current entry. Class 2: the entry's completion time.
  *   - Class 3: `stateStartedAt` of the most recent prior `done`/`blocked`/`waiting` entry,
  *     falling back to the current `working` `stateStartedAt`.
  *   - Class 4: `0` — comparator drops to `effectiveRecentActivity` for idle ordering.
@@ -137,12 +138,18 @@ export function resolveAttention(panes: PaneInput[], now: number): WorktreeAtten
         ts = entry.stateStartedAt
         cause = entry.state
       } else if (entry.state === 'done') {
-        // Why: interrupted `done` (Ctrl+C) means the user is done with the turn; treat as idle, not Class 2.
-        if (entry.interrupted) {
+        // Why: null covers interrupted `done` (Ctrl+C — the user is finished with the turn); not attention.
+        const completedAt = agentEntryCompletionAt(entry)
+        if (completedAt === null) {
+          continue
+        }
+        // Why: same-state `done` writes advance updatedAt without moving the completion, so the hook
+        // freshness gate alone can keep a row in Class 2 long after the UI shows it aged out.
+        if (now - completedAt > AGENT_STATUS_STALE_AFTER_MS) {
           continue
         }
         cls = 2
-        ts = entry.stateStartedAt
+        ts = completedAt
       } else {
         // working
         cls = 3

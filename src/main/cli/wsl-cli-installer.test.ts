@@ -313,7 +313,7 @@ describe('WslCliInstaller', () => {
 
   it('generates a launcher that forwards arguments through a PowerShell file bridge', () => {
     const launcher = _internals.buildWslLauncher(
-      'C:\\Program Files\\Orca\\orca.cmd',
+      'C:\\Program Files\\Orca\\resources\\bin\\orca.exe',
       '/home/alice/.local/share/orca/orca-wsl-bridge.ps1'
     )
     const bridge = _internals.buildWslBridgeScript()
@@ -342,14 +342,13 @@ describe('WslCliInstaller', () => {
     expect(bridge).toContain('if ([string]::IsNullOrEmpty($WslCwd))')
     expect(bridge).toContain('$env:ORCA_CLI_CWD = $WslCwd')
     expect(bridge).toContain('Push-Location -LiteralPath (Split-Path -Parent $OrcaLauncher)')
-    expect(bridge).toContain('& $OrcaLauncher @ForwardArgs')
-    const nullExitCodeBranch = bridge.indexOf('if ($null -eq $LASTEXITCODE)')
-    const invocationFailureBranch = bridge.indexOf('if (-not $?)')
-    expect(nullExitCodeBranch).toBeGreaterThan(-1)
-    // Why: native launchers can set a non-zero LASTEXITCODE while $? is false;
-    // checking the native status first preserves that specific exit code.
-    expect(nullExitCodeBranch).toBeLessThan(invocationFailureBranch)
-    expect(bridge).toContain('$exitCode = $LASTEXITCODE')
+    expect(bridge).toContain('function ConvertTo-NativeCommandLineArgument')
+    expect(bridge).toContain("[void]$Quoted.Append([char]'\\', $BackslashCount * 2 + 1)")
+    expect(bridge).toContain('$StartInfo.UseShellExecute = $false')
+    expect(bridge).toContain('[System.Diagnostics.Process]::Start($StartInfo)')
+    expect(bridge).toContain('$Process.WaitForExit()')
+    expect(bridge).toContain('$exitCode = $Process.ExitCode')
+    expect(bridge).not.toContain('& $OrcaLauncher @ForwardArgs')
     expect(bridge).toContain('Remove-Item Env:ORCA_CLI_CWD -ErrorAction SilentlyContinue')
     expect(bridge).toContain('catch')
     expect(bridge).toContain('$exitCode = 1')
