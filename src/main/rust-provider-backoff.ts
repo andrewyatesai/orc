@@ -1,6 +1,6 @@
 // Main-process active-window refetch backoff, driven by the Rust
 // orca-provider-backoff core via napi (the TS impl was gutted to data).
-import { requireRustGitBinding } from './daemon/rust-git-addon'
+import { dispatchNumericToRustCore } from './rust-core-dispatch'
 import {
   ACTIVE_FAILURE_REFETCH_BASE_MS,
   MAX_ACTIVE_FAILURE_REFETCH_MS
@@ -31,17 +31,16 @@ export function activeFailureRefetchThrottleMs(
       `activeFailureRefetchThrottleMs: the Rust orca-provider-backoff core pins base=${ACTIVE_FAILURE_REFETCH_BASE_MS}/max=${MAX_ACTIVE_FAILURE_REFETCH_MS}; got base=${baseMs}/max=${maxMs}`
     )
   }
-  // Why: JSON.stringify turns NaN/Infinity into null (which Rust reads as streak
-  // 0), so resolve them here — NaN to the base wait, +Infinity to the saturating
-  // streak — instead of letting +Infinity collapse from the ceiling to the base.
+  // Why this stays even though the codec now REJECTS NaN/Infinity: rejecting is
+  // a boundary decision, but which backoff a non-finite streak deserves is a
+  // domain one — NaN is the base wait, +Infinity the saturating streak. Deleting
+  // this would turn "maximum backoff" into a thrown error at the call site, and
+  // the Math.trunc is load-bearing regardless (Rust reads the streak as i64, so a
+  // fractional streak the codec happily encodes would not decode).
   const safeStreak = Number.isNaN(streak)
     ? 0
     : Math.min(Math.max(0, Math.trunc(streak)), MAX_DISPATCHABLE_STREAK)
-  return JSON.parse(
-    requireRustGitBinding().orcaDispatch(
-      'provider-backoff',
-      'activeFailureRefetchThrottleMs',
-      JSON.stringify({ streak: safeStreak })
-    )
-  ) as number
+  return dispatchNumericToRustCore('provider-backoff', 'activeFailureRefetchThrottleMs', {
+    streak: safeStreak
+  }) as number
 }
