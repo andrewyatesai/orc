@@ -220,7 +220,49 @@ Credit where it is due, because the core is worth this polish:
   NOT verified-clean"), and the absent-callee residue is documented as one gap
   rather than disguised as many bugs.
 
-## 4. Priority order, if the Trust repo takes one thing
+## 4. Postscript, one day later — every bug in §1 is fixed, and turning the verifier on found two more
+
+The day after this document was written, the toolchain was actually repaired,
+and the repair validated its thesis twice over.
+
+**The §1 bugs.** The serde_json ICE and the reserved-symbol panic were both
+ALREADY FIXED upstream (4f7ad78ebd, 439720e01b) — sitting in the 185 commits the
+local checkout was behind. Merging origin/main + one local bootstrap commit
+(76d408e1cd, the trustdoc→rustdoc sysroot alias) and one stage2 rebuild retired
+all three. The doctest story resolved into policy, not absence: the embedded
+doctest frontend accepts exactly one trust flag, `-Ztrust-verify=off` (its own
+source calls it a "redundant deauthorization"), and anything else — including
+nothing, which inherits strict-verify and fail-closes on assert bodies — fails
+loudly. Both workload configs now carry that spelling with the reasoning.
+
+**And then the first real workspace contact found two NEW compile-aborting bugs
+in the verify pipeline**, both introduced by the very upstream delta that fixed
+the old ones:
+
+* `mir_for_trust_verification` promised its callers never need to check
+  `Steal::is_stolen` — but its consumers gate on a deliberately WIDER predicate
+  than its snapshot does (`optimized_mir_query_would_cycle` vs
+  `trust_mir_is_mutually_recursive`), and the dynamic remainder cannot be
+  snapshotted. A def in the gap aborted the build. Fixed by making the query
+  `Option` and letting the consumers' existing fail-soft paths absorb `None`
+  (775d74f050).
+* The new dyn call-site reliance rule keys coercion candidates by BARE trait
+  DefId and propagates them to supertraits, then resolves without an
+  instantiation check — so `std::env::var_os` plus `std::process::exit` in one
+  crate (two lines, safe code) ICE'd codegen with SignatureMismatch. Fixed by
+  declining candidates whose tupled inputs do not match the site's demanded
+  instantiation (21a34694be); the deeper re-keying is a recorded follow-up.
+
+Both fixes are strictly fail-closed: a skipped body and a declined candidate are
+unproved sites, never false proofs.
+
+**What this postscript proves about the document above:** §2.1 (silent vanilla)
+was the root failure — four of the five bugs existed *undetected* precisely
+because nothing was building with the verifier on. The two new ICEs had been in
+the tree for three days; the first honest workspace build found them in an hour.
+A verifier that runs is a verifier that gets debugged.
+
+## 5. Priority order, if the Trust repo takes one thing
 
 1. **§2.1** — silent vanilla is the root failure; everything else was
    discoverable once builds stopped lying about whether the verifier ran.

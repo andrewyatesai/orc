@@ -4,6 +4,14 @@
 //! output/input/resize/snapshot traffic over a single connection. JSON payloads
 //! ride the vendored `serde_json`; the frame header is hand-rolled bytes.
 
+// Trust contracts: the `trust` tool namespace only exists under `trustc`
+// (`--cfg trust_verify`); inert under stock cargo so the crate stays
+// dual-buildable. terminal_stream.rs carries a `trust::ensures` that was a hard
+// E0433 the moment verification turned on — the contract landed without this
+// registration, invisible while nothing set the cfg.
+#![cfg_attr(trust_verify, feature(register_tool))]
+#![cfg_attr(trust_verify, register_tool(trust))]
+
 mod base64;
 // The encrypted-channel reducer is the only crypto consumer; behind the default
 // `e2ee` feature so pure dependents (aggregate dispatch → relay/renderer wasm)
