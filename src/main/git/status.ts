@@ -54,7 +54,7 @@ import { resolveWorktreeBaseCommitOid } from './worktree-base-ref-probe'
 import { getLargeDiffRenderLimit } from '../../shared/large-diff-render-limit'
 import { InFlightPromiseDedupe, stableInFlightKey } from '../../shared/in-flight-promise-dedupe'
 import type { GitRuntimeOptions } from './git-runtime-options'
-import { gitOptionsForWorktree } from './git-runtime-options'
+import { gitOptionsForWorktree, gitStatusReadOptionsForWorktree } from './git-runtime-options'
 import { GitStatusReadLeaseOwner } from './git-status-read-lease-owner'
 import { parseGitRevListFirstParentOid } from '../../shared/git-rev-list-output'
 import {
@@ -278,6 +278,8 @@ async function runGetStatus(
       {
         cwd: worktreePath,
         wslDistro: options.wslDistro,
+        // Why: on WSL, run the porcelain read directly (bypassing the login shell) once the env is primed.
+        preferWslDirectGit: true,
         // Why: status polling is read-like; disable optional locks to avoid racing terminal Git on index.lock.
         env: gitOptionalLocksDisabledEnv(),
         signal: options.signal
@@ -558,7 +560,10 @@ async function runNumstat(
           ? ['--', ...pathspecs.map((filePath) => literalPathspec(filePath, options))]
           : [])
       ],
-      { ...gitOptionsForWorktree(worktreePath, options), env: gitOptionalLocksDisabledEnv() }
+      {
+        ...gitStatusReadOptionsForWorktree(worktreePath, options),
+        env: gitOptionalLocksDisabledEnv()
+      }
     )
     return parseNumstatNative(stdout)
   } catch (error) {
@@ -804,7 +809,7 @@ async function probeOrRevalidateEffectiveUpstreamStatus(
   } else if (cached) {
     try {
       const status = await getGitUpstreamStatusForUpstreamName(
-        (args) => gitExecFileAsync(args, gitOptionsForWorktree(worktreePath, options)),
+        (args) => gitExecFileAsync(args, gitStatusReadOptionsForWorktree(worktreePath, options)),
         cached.upstreamName
       )
       return { status, probedSameNameOriginRef: false }
@@ -841,7 +846,7 @@ async function probeEffectiveUpstreamStatus(
 ): Promise<{ status: GitUpstreamStatus; probedSameNameOriginRef: boolean }> {
   let probedSameNameOriginRef = false
   const snapshotRunner = createGitConfigSnapshotRunner((args) =>
-    gitExecFileAsync(args, gitOptionsForWorktree(worktreePath, options))
+    gitExecFileAsync(args, gitStatusReadOptionsForWorktree(worktreePath, options))
   )
   const status = await getEffectiveGitUpstreamStatus((args) => {
     if (args[0] === 'rev-parse' && args.includes(`refs/remotes/origin/${branchName}`)) {

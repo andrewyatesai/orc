@@ -960,7 +960,15 @@ export const KEYBINDING_DEFINITIONS: readonly KeybindingDefinition[] = [
     group: 'Terminal Panes',
     scope: 'terminal',
     searchKeywords: ['shortcut', 'terminal', 'copy', 'selection'],
-    defaultBindings: platformBindings(['Mod+Shift+C'])
+    // Why: platform-native copy chord (matches the aterm xterm-bypass-policy,
+    // which already treats Mod+C / Ctrl+C as the terminal copy binding). Bare
+    // Ctrl+C off macOS falls through to SIGINT when nothing is selected —
+    // copyPaneSelectionViaShortcut returns false and the handler skips preventDefault.
+    defaultBindings: {
+      darwin: ['Mod+C'],
+      linux: ['Ctrl+Shift+C', 'Ctrl+C'],
+      win32: ['Ctrl+Shift+C', 'Ctrl+C']
+    }
   },
   {
     id: 'terminal.paste',

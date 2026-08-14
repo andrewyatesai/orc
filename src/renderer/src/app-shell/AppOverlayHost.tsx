@@ -27,6 +27,7 @@ import {
   NonGitFolderDialog,
   OnboardingFlow,
   PetOverlay,
+  PreservedBranchBatchReviewModal,
   ProjectAddedDialog,
   QuickOpen,
   RemoteServerUpdateDialog,
@@ -292,6 +293,16 @@ export function AppOverlayHost({
             compact
           >
             <DeleteWorktreeDialog />
+          </RecoverableRenderErrorBoundary>
+        ) : null}
+        {activeModal === 'preserved-branch-review' ? (
+          <RecoverableRenderErrorBoundary
+            boundaryId="modal.preserved-branch-review"
+            surface="modal"
+            resetKey
+            compact
+          >
+            <PreservedBranchBatchReviewModal />
           </RecoverableRenderErrorBoundary>
         ) : null}
       </Suspense>

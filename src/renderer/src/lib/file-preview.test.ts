@@ -2,18 +2,36 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   REMOTE_FILE_BROWSER_UNSUPPORTED_MESSAGE,
   getWorkspaceFileBrowserOpenTarget,
-  openFileInBrowserTab
+  openFileInBrowserTab,
+  openFilePreviewToSide
 } from './file-preview'
 
 const mocks = vi.hoisted(() => ({
   createBrowserTab: vi.fn(),
+  createEmptySplitGroup: vi.fn(() => 'group-2'),
+  closeEmptyGroup: vi.fn(),
+  createWebRuntimeSessionBrowserTab: vi.fn(),
+  environmentId: null as string | null,
   connectionId: null as string | null
+}))
+
+vi.mock('@/lib/worktree-runtime-owner', () => ({
+  getRuntimeEnvironmentIdForWorktree: () => mocks.environmentId
+}))
+
+vi.mock('@/runtime/web-runtime-session', () => ({
+  createWebRuntimeSessionBrowserTab: mocks.createWebRuntimeSessionBrowserTab
 }))
 
 vi.mock('@/store', () => ({
   useAppStore: {
     getState: () => ({
       createBrowserTab: mocks.createBrowserTab,
+      createEmptySplitGroup: mocks.createEmptySplitGroup,
+      closeEmptyGroup: mocks.closeEmptyGroup,
+      groupsByWorktree: {},
+      layoutByWorktree: {},
+      activeGroupIdByWorktree: {},
       repos: [{ id: 'repo-1', connectionId: mocks.connectionId }],
       worktreesByRepo: {
         'repo-1': [{ id: 'wt-1', repoId: 'repo-1' }]
@@ -24,6 +42,9 @@ vi.mock('@/store', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.createEmptySplitGroup.mockReturnValue('group-2')
+  mocks.createWebRuntimeSessionBrowserTab.mockResolvedValue(true)
+  mocks.environmentId = null
   mocks.connectionId = null
 })
 
@@ -38,6 +59,22 @@ describe('openFileInBrowserTab', () => {
       title: 'example file.html',
       activate: true
     })
+    expect(mocks.createWebRuntimeSessionBrowserTab).not.toHaveBeenCalled()
+  })
+
+  it('creates paired-runtime file browsers at the owning host', () => {
+    mocks.environmentId = 'runtime-1'
+
+    openFileInBrowserTab({ filePath: '/srv/repo/example.html', worktreeId: 'wt-1' })
+
+    expect(mocks.createWebRuntimeSessionBrowserTab).toHaveBeenCalledWith({
+      worktreeId: 'wt-1',
+      environmentId: 'runtime-1',
+      url: 'file:///srv/repo/example.html',
+      stagedTitle: 'example.html',
+      stagedFocusAddressBar: false
+    })
+    expect(mocks.createBrowserTab).not.toHaveBeenCalled()
   })
 
   it('returns unsupported for SSH worktrees without creating a local file URL tab', () => {
@@ -54,6 +91,64 @@ describe('openFileInBrowserTab', () => {
       message: REMOTE_FILE_BROWSER_UNSUPPORTED_MESSAGE
     })
     expect(mocks.createBrowserTab).not.toHaveBeenCalled()
+    expect(mocks.createWebRuntimeSessionBrowserTab).not.toHaveBeenCalled()
+  })
+})
+
+describe('openFilePreviewToSide', () => {
+  it('creates paired-runtime side previews in the requested split, kept in the background', () => {
+    mocks.environmentId = 'runtime-1'
+
+    openFilePreviewToSide({
+      language: 'html',
+      filePath: '/srv/repo/example.html',
+      worktreeId: 'wt-1',
+      sourceGroupId: 'group-1'
+    })
+
+    expect(mocks.createWebRuntimeSessionBrowserTab).toHaveBeenCalledWith({
+      worktreeId: 'wt-1',
+      environmentId: 'runtime-1',
+      url: 'file:///srv/repo/example.html',
+      targetGroupId: 'group-2',
+      focusOnCreate: false,
+      stagedTitle: 'example.html',
+      stagedFocusAddressBar: false
+    })
+    expect(mocks.createBrowserTab).not.toHaveBeenCalled()
+  })
+
+  it('discards the freshly-created split when the paired-runtime create fails', async () => {
+    mocks.environmentId = 'runtime-1'
+    mocks.createWebRuntimeSessionBrowserTab.mockResolvedValue(false)
+
+    openFilePreviewToSide({
+      language: 'html',
+      filePath: '/srv/repo/example.html',
+      worktreeId: 'wt-1',
+      sourceGroupId: 'group-1'
+    })
+
+    await vi.waitFor(() => {
+      expect(mocks.closeEmptyGroup).toHaveBeenCalledWith('wt-1', 'group-2')
+    })
+    expect(mocks.createBrowserTab).not.toHaveBeenCalled()
+  })
+
+  it('creates a local side preview when the worktree is not paired', () => {
+    openFilePreviewToSide({
+      language: 'html',
+      filePath: '/tmp/example.html',
+      worktreeId: 'wt-1',
+      sourceGroupId: 'group-1'
+    })
+
+    expect(mocks.createBrowserTab).toHaveBeenCalledWith('wt-1', 'file:///tmp/example.html', {
+      title: 'example.html',
+      targetGroupId: 'group-2',
+      activate: true
+    })
+    expect(mocks.createWebRuntimeSessionBrowserTab).not.toHaveBeenCalled()
   })
 })
 

@@ -55,6 +55,7 @@ const ENV = 'web-env-1'
 const NOW = 1_700_000_000_000
 const LEAF_ID = '11111111-1111-4111-8111-111111111111'
 const SECOND_LEAF_ID = '22222222-2222-4222-8222-222222222222'
+const THIRD_LEAF_ID = '33333333-3333-4333-8333-333333333333'
 const HOST_SURFACE_ID = `host-tab-1::${LEAF_ID}`
 
 function makeState(overrides: Partial<WebSessionTabsSyncState> = {}): WebSessionTabsSyncState {
@@ -642,7 +643,8 @@ describe('applyWebSessionTabsSnapshot', () => {
 
     expect(_getWebSessionTabsTrackingCountsForTest()).toEqual({
       freshness: 1,
-      hostMappings: 1
+      hostMappings: 1,
+      hostMappingWorktrees: 1
     })
 
     applyFreshWebSessionTabsSnapshot(
@@ -663,7 +665,8 @@ describe('applyWebSessionTabsSnapshot', () => {
 
     expect(_getWebSessionTabsTrackingCountsForTest()).toEqual({
       freshness: 0,
-      hostMappings: 0
+      hostMappings: 0,
+      hostMappingWorktrees: 0
     })
   })
 
@@ -719,15 +722,87 @@ describe('applyWebSessionTabsSnapshot', () => {
 
     expect(_getWebSessionTabsTrackingCountsForTest()).toEqual({
       freshness: 2,
-      hostMappings: 2
+      hostMappings: 2,
+      hostMappingWorktrees: 2
     })
 
     clearWebSessionTabsTrackingForEnvironment(ENV)
 
     expect(_getWebSessionTabsTrackingCountsForTest()).toEqual({
       freshness: 1,
-      hostMappings: 1
+      hostMappings: 1,
+      hostMappingWorktrees: 1
     })
+  })
+
+  it('clears one worktree mapping without dropping a sibling in the same environment', () => {
+    // Why: POSIX paths may contain ':', so this sibling's worktree id is prefixed by WT's — the case a prefix scan wiped.
+    const secondWorktree = `${WT}:2`
+    const terminalSnapshot = makeSnapshot([
+      {
+        type: 'terminal',
+        id: HOST_SURFACE_ID,
+        title: 'host shell',
+        parentTabId: 'host-tab-1',
+        leafId: LEAF_ID,
+        isActive: true,
+        status: 'ready',
+        terminal: 'terminal-1'
+      }
+    ])
+    const secondSnapshot = makeSnapshot(
+      [
+        {
+          type: 'terminal',
+          id: `host-tab-2::${SECOND_LEAF_ID}`,
+          title: 'second shell',
+          parentTabId: 'host-tab-2',
+          leafId: SECOND_LEAF_ID,
+          isActive: true,
+          status: 'ready',
+          terminal: 'terminal-2'
+        }
+      ],
+      { worktree: secondWorktree }
+    )
+    applyFreshWebSessionTabsSnapshot(makeState(), terminalSnapshot, ENV, NOW)
+    applyFreshWebSessionTabsSnapshot(makeState(), secondSnapshot, ENV, NOW)
+
+    applyFreshWebSessionTabsSnapshot(
+      makeState(),
+      {
+        ...makeSnapshot([], {
+          publicationEpoch: 'removed-epoch',
+          snapshotVersion: 0,
+          activeGroupId: null,
+          activeTabId: null,
+          activeTabType: null
+        }),
+        removed: true
+      } as RuntimeMobileSessionTabsResult,
+      ENV,
+      NOW + 1
+    )
+
+    expect(_getWebSessionTabsTrackingCountsForTest()).toEqual({
+      freshness: 1,
+      hostMappings: 1,
+      hostMappingWorktrees: 1
+    })
+    expect(
+      resolveHostSessionTabIdForWebSessionTab(makeState(), {
+        environmentId: ENV,
+        worktreeId: WT,
+        tabId: toWebTerminalSurfaceTabId('host-tab-1')
+      })
+    ).toBeNull()
+    expect(
+      resolveHostSessionTabIdForWebSessionTab(makeState(), {
+        environmentId: ENV,
+        worktreeId: secondWorktree,
+        tabId: toWebTerminalSurfaceTabId('host-tab-2')
+      })
+    ).toBe('host-tab-2')
   })
 
   it('keeps a provisional Claude tab when the host Claude surface is unrelated', () => {
@@ -2288,6 +2363,157 @@ describe('applyWebSessionTabsSnapshot', () => {
         [patch.tabsByWorktree?.[secondWorktree]?.[0]?.id ?? '']: ['remote:web-env-1@@terminal-2']
       })
     )
+  })
+
+  it('keeps an empty snapshot batch as an identity no-op', () => {
+    const state = makeState()
+    expect(applyWebSessionTabsSnapshots(state, [], ENV, NOW)).toBe(state)
+  })
+
+  it('matches sequential reconciliation across duplicate-worktree mixed snapshots', () => {
+    const secondWorktree = 'repo::/other-worktree'
+    const snapshots: RuntimeMobileSessionTabsResult[] = [
+      makeSnapshot([
+        {
+          type: 'terminal',
+          id: HOST_SURFACE_ID,
+          title: 'first agent',
+          parentTabId: 'host-tab-1',
+          leafId: LEAF_ID,
+          isActive: true,
+          status: 'ready',
+          terminal: 'terminal-1',
+          agentStatus: {
+            state: 'working',
+            prompt: 'first task',
+            updatedAt: NOW,
+            stateStartedAt: NOW,
+            agentType: 'codex',
+            paneKey: HOST_SURFACE_ID,
+            stateHistory: []
+          }
+        }
+      ]),
+      makeSnapshot(
+        [
+          {
+            type: 'browser',
+            id: 'host-browser-unified',
+            title: 'Example Domain',
+            browserWorkspaceId: 'host-browser-workspace',
+            browserPageId: 'host-browser-page',
+            url: 'https://example.com/',
+            loading: false,
+            canGoBack: false,
+            canGoForward: false,
+            isActive: true
+          }
+        ],
+        {
+          worktree: secondWorktree,
+          activeGroupId: 'host-group-2',
+          activeTabId: 'host-browser-unified',
+          activeTabType: 'browser'
+        }
+      ),
+      makeSnapshot([], {
+        snapshotVersion: 2,
+        activeGroupId: null,
+        activeTabId: null,
+        activeTabType: null
+      }),
+      makeSnapshot(
+        [
+          {
+            type: 'terminal',
+            id: `host-tab-3::${THIRD_LEAF_ID}`,
+            title: 'replacement agent',
+            parentTabId: 'host-tab-3',
+            leafId: THIRD_LEAF_ID,
+            isActive: true,
+            status: 'ready',
+            terminal: 'terminal-3',
+            agentStatus: {
+              state: 'waiting',
+              prompt: 'replacement question',
+              updatedAt: NOW + 1,
+              stateStartedAt: NOW + 1,
+              agentType: 'codex',
+              paneKey: `host-tab-3::${THIRD_LEAF_ID}`,
+              stateHistory: []
+            }
+          }
+        ],
+        { snapshotVersion: 3 }
+      ),
+      makeSnapshot(
+        [
+          {
+            type: 'markdown',
+            id: 'host-readme-unified',
+            title: 'README.md',
+            filePath: '/repo/README.md',
+            relativePath: 'README.md',
+            language: 'markdown',
+            mode: 'edit',
+            isDirty: false,
+            isActive: true,
+            sourceFileId: '/repo/README.md',
+            sourceFilePath: '/repo/README.md',
+            sourceRelativePath: 'README.md',
+            documentVersion: 'file:/repo/README.md'
+          }
+        ],
+        {
+          worktree: secondWorktree,
+          snapshotVersion: 2,
+          activeGroupId: 'host-group-2',
+          activeTabId: 'host-readme-unified',
+          activeTabType: 'markdown'
+        }
+      )
+    ]
+    const provisionalTab: TerminalTab = {
+      id: 'host-tab-1',
+      ptyId: null,
+      worktreeId: WT,
+      title: 'Codex',
+      defaultTitle: 'Codex',
+      customTitle: null,
+      color: null,
+      sortOrder: 0,
+      createdAt: NOW,
+      launchAgent: 'codex'
+    }
+    const initial = makeState({
+      activeWorktreeId: null,
+      tabsByWorktree: { [WT]: [provisionalTab] },
+      pendingStartupByTabId: {
+        [provisionalTab.id]: { command: 'codex' }
+      },
+      automaticAgentResumeClaimsByTabId: {
+        [provisionalTab.id]: {
+          worktreeId: WT,
+          launchAgent: 'codex',
+          providerSession: { key: 'session_id', id: 'session-a' }
+        }
+      }
+    })
+    const initialCopy = structuredClone(initial)
+    let sequential = initial
+    for (const snapshot of snapshots) {
+      const patch = applyWebSessionTabsSnapshot(sequential, snapshot, ENV, NOW)
+      if (patch !== sequential) {
+        sequential = { ...sequential, ...patch }
+      }
+    }
+
+    resetWebSessionTabsSnapshotFreshnessForTests()
+    const batchPatch = applyWebSessionTabsSnapshots(initial, snapshots, ENV, NOW)
+    const batched = { ...initial, ...batchPatch }
+
+    expect(batched).toEqual(sequential)
+    expect(initial).toEqual(initialCopy)
   })
 
   it('replaces temporary web-created tabs once the host publishes the same PTY', () => {

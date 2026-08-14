@@ -4771,7 +4771,8 @@
               "ae57cbf6e4": "No se pudo eliminar el espacio de trabajo",
               "7488ed8711": "Ver",
               "2b20ce87b3": "Forzar eliminación",
-              "4f3876c0f5": "Falló la eliminación forzada"
+              "4f3876c0f5": "Falló la eliminación forzada",
+              "workspaceListChanged": "La lista de espacios de trabajo cambió"
             },
             "toast": {
               "1d0fa5c0a5": "No se pudo eliminar el espacio de trabajo {{value0}}",
@@ -5151,6 +5152,45 @@
           "3b7ea51793": "Borrar búsqueda",
           "7f1c2e94a5": "El texto de búsqueda es demasiado largo: el tablero no está filtrado",
           "9a4d0f6b21": "Demasiado largo"
+        },
+        "PreservedBranchBatchReviewDialog": {
+          "c4bf8e7eaf": "Revisar ramas conservadas",
+          "f21976c9a8": "Selecciona las ramas locales que quieres forzar a eliminar. Las ramas no seleccionadas permanecen en sus repositorios.",
+          "38c947f7c5": "Seleccionar todo",
+          "9602129d38": "{{value0}} de {{value1}} seleccionadas",
+          "ee39e872d5": "Puede no estar fusionada",
+          "676db406fd": "HEAD no disponible",
+          "285e1e4882": "Cancelar",
+          "a0f9863597": "Forzar eliminación de {{count}} ramas",
+          "a0f9863597_one": "Forzar eliminación de {{count}} rama",
+          "a0f9863597_other": "Forzar eliminación de {{count}} ramas"
+        },
+        "preserved": {
+          "branch": {
+            "batch": {
+              "toast": {
+                "a3cdd9d9e6": "Git conservó {{count}} ramas locales porque pueden contener commits sin fusionar. Las ramas conservadas no mantienen las carpetas de espacio de trabajo; sus commits permanecen en el repositorio. Orca puede seguir liberando espacio de disco de los espacios de trabajo en segundo plano.",
+                "6310412304": "Revisar {{count}} ramas",
+                "cea24c2b7d": "{{count}} espacios de trabajo eliminados",
+                "0e0379f24a": "{{count}} ramas conservadas",
+                "4cf75caab7": "{{value0}}, {{value1}}",
+                "e61d78054f": "Eliminando ramas locales: {{value0}}",
+                "1e1a5f6763": "Ramas locales eliminadas: {{value0}}",
+                "43d9395605": "{{value0}} eliminadas, {{value1}} no eliminadas",
+                "d42f1f14e0": "Reintentar {{count}} ramas",
+                "a3cdd9d9e6_one": "Git conservó {{count}} rama local porque puede contener commits sin fusionar. Las ramas conservadas no mantienen las carpetas de espacio de trabajo; sus commits permanecen en el repositorio. Orca puede seguir liberando espacio de disco de los espacios de trabajo en segundo plano.",
+                "a3cdd9d9e6_other": "Git conservó {{count}} ramas locales porque pueden contener commits sin fusionar. Las ramas conservadas no mantienen las carpetas de espacio de trabajo; sus commits permanecen en el repositorio. Orca puede seguir liberando espacio de disco de los espacios de trabajo en segundo plano.",
+                "6310412304_one": "Revisar {{count}} rama",
+                "6310412304_other": "Revisar {{count}} ramas",
+                "cea24c2b7d_one": "{{count}} espacio de trabajo eliminado",
+                "cea24c2b7d_other": "{{count}} espacios de trabajo eliminados",
+                "0e0379f24a_one": "{{count}} rama conservada",
+                "0e0379f24a_other": "{{count}} ramas conservadas",
+                "d42f1f14e0_one": "Reintentar {{count}} rama",
+                "d42f1f14e0_other": "Reintentar {{count}} ramas"
+              }
+            }
+          }
         }
       },
       "shared": {
@@ -10232,7 +10272,8 @@
             "f9d7ca753d": "Copiar rutas",
             "3161c4e425": "carpeta",
             "e887fa4b2e": "Abrir en terminal",
-            "1d8e182c32": "Ver archivo"
+            "1d8e182c32": "Ver archivo",
+            "clipboardStagingUnavailable": "No se pudo copiar el archivo porque el almacenamiento temporal de Orca no está disponible"
           },
           "FileExplorerToolbar": {
             "d238264654": "Mostrar archivos ignorados por Git",
@@ -15175,6 +15216,9 @@
       },
       "webRuntimeSession": {
         "remoteHostDisconnected": "The workspace is not connected to a remote Orca host."
+      },
+      "githubCheckDetailsTimeout": {
+        "timedOut": "Se agotó el tiempo de espera al cargar los detalles del check."
       }
     }
   },

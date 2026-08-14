@@ -251,14 +251,13 @@ export function useMobileNativeChatSession(args: {
     })()
   }, [client, agent, sessionId, transcriptPath, hasMore, setList])
 
-  // While a same-identity read is re-loading (a reconnect), keep the retained
-  // transcript on screen; a real source switch has a different identity and so
-  // falls through to the freshly-cleared (empty) list.
+  // Held for any unsettled read, not just an in-flight one: a stream error or a
+  // dropped client would otherwise trade the conversation for an error card. A
+  // real source switch has a different identity and falls through to the empty list.
   const visibleMessages = transcriptRetentionRef.current.visible({
     identity,
     messages,
-    settled: status !== 'loading',
-    loading: status === 'loading'
+    settled: status === 'ready'
   })
 
   return {

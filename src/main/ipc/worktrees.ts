@@ -34,6 +34,7 @@ import type {
 } from '../../shared/types'
 import { assertWorktreeUnlockedForRemoval } from '../../shared/worktree-removal'
 import { getRepoExecutionHostId, type ExecutionHostId } from '../../shared/execution-host'
+import { preservedBranchCleanupScopeKey } from '../../shared/preserved-branch-cleanup'
 import {
   applyMetadataFallbackVisibility,
   buildKnownOrcaWorkspaceLayouts,
@@ -437,15 +438,18 @@ type WorktreeRemovalInFlight = {
 }
 
 type PreservedBranchCleanupTarget = {
+  worktreeId: string
+  hostId: ExecutionHostId
   branchName: string
   head: string
   pushTarget?: GitPushTarget
 }
 
-const preservedBranchCleanupByWorktreeId = new Map<string, PreservedBranchCleanupTarget>()
+const preservedBranchCleanupByScope = new Map<string, PreservedBranchCleanupTarget>()
 
 function rememberPreservedBranchCleanupTarget(
   worktreeId: string,
+  hostId: ExecutionHostId,
   result: RemoveWorktreeResult | undefined,
   fallbackHead: string | undefined,
   pushTarget: GitPushTarget | undefined
@@ -457,14 +461,16 @@ function rememberPreservedBranchCleanupTarget(
         `Cannot safely offer force-delete for preserved branch "${result.preservedBranch.branchName}" without its saved commit.`
       )
     }
-    preservedBranchCleanupByWorktreeId.set(worktreeId, {
+    preservedBranchCleanupByScope.set(preservedBranchCleanupScopeKey({ worktreeId, hostId }), {
+      worktreeId,
+      hostId,
       branchName: result.preservedBranch.branchName,
       head,
       ...(pushTarget ? { pushTarget } : {})
     })
     return
   }
-  preservedBranchCleanupByWorktreeId.delete(worktreeId)
+  preservedBranchCleanupByScope.delete(preservedBranchCleanupScopeKey({ worktreeId, hostId }))
 }
 
 function preserveBranchHeadFallback(
@@ -486,9 +492,22 @@ function preserveBranchHeadFallback(
 function getPreservedBranchCleanupTarget(
   worktreeId: string,
   branchName: string,
-  expectedHead: string
+  expectedHead: string,
+  hostId?: ExecutionHostId
 ): PreservedBranchCleanupTarget {
-  const target = preservedBranchCleanupByWorktreeId.get(worktreeId)
+  const exactTarget = hostId
+    ? preservedBranchCleanupByScope.get(preservedBranchCleanupScopeKey({ worktreeId, hostId }))
+    : undefined
+  // Why: a legacy caller without a hostId can still resolve a single unambiguous match.
+  const legacyMatches = hostId
+    ? []
+    : [...preservedBranchCleanupByScope.values()].filter(
+        (target) =>
+          target.worktreeId === worktreeId &&
+          target.branchName === branchName &&
+          target.head === expectedHead
+      )
+  const target = exactTarget ?? (legacyMatches.length === 1 ? legacyMatches[0] : undefined)
   if (!target || target.branchName !== branchName || target.head !== expectedHead) {
     throw new Error(`No preserved branch cleanup is pending for "${branchName}".`)
   }
@@ -1496,10 +1515,9 @@ export function registerWorktreeHandlers(
       if (!repo) {
         throw new Error(`Repo not found: ${repoId}`)
       }
-      const inFlightKey = getWorktreeRemovalInFlightKey(
-        args.worktreeId,
-        getRepoExecutionHostId(repo)
-      )
+      // Why: scope preserved-branch cleanup by host so the same worktreeId on two hosts keeps distinct routes.
+      const removalHostId = getRepoExecutionHostId(repo)
+      const inFlightKey = getWorktreeRemovalInFlightKey(args.worktreeId, removalHostId)
       const optionsKey = getWorktreeRemovalOptionsKey(args)
       const inFlightRemoval = worktreeRemovalsInFlight.get(inFlightKey)
       if (inFlightRemoval) {
@@ -1540,7 +1558,9 @@ export function registerWorktreeHandlers(
             console.warn(`[worktree-teardown] failed for ${args.worktreeId}:`, err)
           })
           removeWorktreeMetadataAndTransientState(store, args.worktreeId)
-          preservedBranchCleanupByWorktreeId.delete(args.worktreeId)
+          preservedBranchCleanupByScope.delete(
+            preservedBranchCleanupScopeKey({ worktreeId: args.worktreeId, hostId: removalHostId })
+          )
           notifyWorktreesChanged(mainWindow, repoId)
           return {}
         }
@@ -1647,7 +1667,9 @@ export function registerWorktreeHandlers(
             }
             runtime.clearOptimisticReconcileToken(args.worktreeId)
             removeWorktreeMetadataAndTransientState(store, args.worktreeId)
-            preservedBranchCleanupByWorktreeId.delete(args.worktreeId)
+            preservedBranchCleanupByScope.delete(
+              preservedBranchCleanupScopeKey({ worktreeId: args.worktreeId, hostId: removalHostId })
+            )
             notifyWorktreesChanged(mainWindow, repoId)
             return {}
           }
@@ -1692,7 +1714,9 @@ export function registerWorktreeHandlers(
               )
               runtime.clearOptimisticReconcileToken(args.worktreeId)
               removeWorktreeMetadataAndTransientState(store, args.worktreeId)
-              preservedBranchCleanupByWorktreeId.delete(args.worktreeId)
+              preservedBranchCleanupByScope.delete(
+                preservedBranchCleanupScopeKey({ worktreeId: args.worktreeId, hostId: removalHostId })
+              )
               invalidateAuthorizedRootsCache()
               notifyWorktreesChanged(mainWindow, repoId)
               return {}
@@ -1724,7 +1748,9 @@ export function registerWorktreeHandlers(
             }
             runtime.clearOptimisticReconcileToken(args.worktreeId)
             removeWorktreeMetadataAndTransientState(store, args.worktreeId)
-            preservedBranchCleanupByWorktreeId.delete(args.worktreeId)
+            preservedBranchCleanupByScope.delete(
+              preservedBranchCleanupScopeKey({ worktreeId: args.worktreeId, hostId: removalHostId })
+            )
             notifyWorktreesChanged(mainWindow, repoId)
             return {}
           }
@@ -1768,6 +1794,7 @@ export function registerWorktreeHandlers(
           )
           rememberPreservedBranchCleanupTarget(
             args.worktreeId,
+            removalHostId,
             removalResult,
             registeredWorktree.head,
             removedPushTarget
@@ -1842,6 +1869,7 @@ export function registerWorktreeHandlers(
           )
           rememberPreservedBranchCleanupTarget(
             args.worktreeId,
+            removalHostId,
             removalResult,
             registeredWorktree.head,
             removedPushTarget
@@ -1982,7 +2010,9 @@ export function registerWorktreeHandlers(
               )
               runtime.clearOptimisticReconcileToken(args.worktreeId)
               removeWorktreeMetadataAndTransientState(store, args.worktreeId)
-              preservedBranchCleanupByWorktreeId.delete(args.worktreeId)
+              preservedBranchCleanupByScope.delete(
+                preservedBranchCleanupScopeKey({ worktreeId: args.worktreeId, hostId: removalHostId })
+              )
               invalidateAuthorizedRootsCache()
               notifyWorktreesChanged(mainWindow, repoId)
               removalCompleted = true
@@ -2027,6 +2057,7 @@ export function registerWorktreeHandlers(
         )
         rememberPreservedBranchCleanupTarget(
           args.worktreeId,
+          removalHostId,
           removalResult,
           refreshedRegisteredWorktree.head,
           removedPushTarget
@@ -2093,7 +2124,9 @@ export function registerWorktreeHandlers(
 
         runtime.clearOptimisticReconcileToken(args.worktreeId)
         removeWorktreeMetadataAndTransientState(store, args.worktreeId)
-        preservedBranchCleanupByWorktreeId.delete(args.worktreeId)
+        preservedBranchCleanupByScope.delete(
+          preservedBranchCleanupScopeKey({ worktreeId: args.worktreeId, hostId: getRepoExecutionHostId(repo) })
+        )
         notifyWorktreesChanged(mainWindow, repoId)
         return {}
       })()
@@ -2112,15 +2145,21 @@ export function registerWorktreeHandlers(
     'worktrees:forceDeletePreservedBranch',
     async (
       _event,
-      args: { worktreeId: string; branchName: string; expectedHead: string }
+      args: {
+        worktreeId: string
+        branchName: string
+        expectedHead: string
+        hostId?: ExecutionHostId
+      }
     ): Promise<ForceDeleteWorktreeBranchResult> => {
       const { repoId } = parseWorktreeId(args.worktreeId)
       const cleanupTarget = getPreservedBranchCleanupTarget(
         args.worktreeId,
         args.branchName,
-        args.expectedHead
+        args.expectedHead,
+        args.hostId
       )
-      const repo = store.getRepo(repoId)
+      const repo = getRepoForWorktreeRemoval(store, repoId, cleanupTarget.hostId)
       if (!repo) {
         throw new Error(`Repo not found: ${repoId}`)
       }
@@ -2163,7 +2202,9 @@ export function registerWorktreeHandlers(
         )
       }
 
-      preservedBranchCleanupByWorktreeId.delete(args.worktreeId)
+      preservedBranchCleanupByScope.delete(
+        preservedBranchCleanupScopeKey({ worktreeId: args.worktreeId, hostId: cleanupTarget.hostId })
+      )
       return { deleted: true }
     }
   )

@@ -144,9 +144,19 @@
       "why": [
         "+22 on orca-runtime.ts from the checkRepoHooks status-field port (7956335ce); pty.ts + shim flat. Accepted attach-kind growth."
       ]
+    },
+    {
+      "date": "2026-08-14",
+      "head": "delta-b1",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36681
+      },
+      "why": [
+        "+42 on orca-runtime.ts from fresh-delta batch 1 runtime attach: #13288 structural printable-keydown IME claim wiring, preserved-branch-cleanup-by-scope, and AbortSignal threading (c1e75477f3). In-place OrcaRuntimeService methods; nothing extractable. pty.ts flat 6364, shim flat."
+      ]
     }
   ],
   "shimWholeFileLoc": 2813,
-  "src/main/runtime/orca-runtime.ts": 36681,
+  "src/main/runtime/orca-runtime.ts": 36723,
   "src/main/ipc/pty.ts": 6364
 }

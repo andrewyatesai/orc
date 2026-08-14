@@ -75,6 +75,7 @@ import {
 } from '../../../../shared/task-source-context'
 import { normalizeGitHubPRForBranchOutcome } from '../../../../shared/github-pr-for-branch-outcome'
 import { getGitHubRepoLookupIndex } from './github-repo-lookup-index'
+import { withGitHubCheckDetailsTimeout } from '@/runtime/github-check-details-timeout'
 
 // ─── ProjectV2 cache types ────────────────────────────────────────────
 // Why: separate from CacheEntry<T> — project-view has a single GraphQL source (no issue/PR fallback) and a distinct error union.
@@ -3618,30 +3619,36 @@ export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (s
       repoPath,
       options?.sourceContext
     )
-    return requestContext.target.kind === 'environment'
-      ? await callRuntimeRpc<PRCheckRunDetails | null>(
-          { kind: 'environment', environmentId: requestContext.target.environmentId },
-          'github.prCheckDetails',
-          {
-            repo: requestContext.target.runtimeRepoId,
-            checkRunId: args.checkRunId,
-            workflowRunId: args.workflowRunId,
-            checkName: args.checkName,
-            url: args.url,
-            prRepo: args.prRepo ?? null
-          },
-          { timeoutMs: 30_000 }
+    const requestTarget = requestContext.target
+    return requestTarget.kind === 'environment'
+      ? await withGitHubCheckDetailsTimeout((signal) =>
+          callRuntimeRpc<PRCheckRunDetails | null>(
+            { kind: 'environment', environmentId: requestTarget.environmentId },
+            'github.prCheckDetails',
+            {
+              repo: requestTarget.runtimeRepoId,
+              checkRunId: args.checkRunId,
+              workflowRunId: args.workflowRunId,
+              checkName: args.checkName,
+              url: args.url,
+              prRepo: args.prRepo ?? null
+            },
+            { timeoutMs: 30_000, signal }
+          )
         )
-      : ((await window.api.gh.prCheckDetails({
-          repoPath,
-          repoId,
-          checkRunId: args.checkRunId,
-          workflowRunId: args.workflowRunId,
-          checkName: args.checkName,
-          url: args.url,
-          prRepo: args.prRepo ?? null,
-          sourceContext: options?.sourceContext
-        })) as PRCheckRunDetails | null)
+      : await withGitHubCheckDetailsTimeout(
+          () =>
+            window.api.gh.prCheckDetails({
+              repoPath,
+              repoId,
+              checkRunId: args.checkRunId,
+              workflowRunId: args.workflowRunId,
+              checkName: args.checkName,
+              url: args.url,
+              prRepo: args.prRepo ?? null,
+              sourceContext: options?.sourceContext
+            }) as Promise<PRCheckRunDetails | null>
+        )
   },
 
   fetchPRComments: async (repoPath, prNumber, options): Promise<PRComment[]> => {

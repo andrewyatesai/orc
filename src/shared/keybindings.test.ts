@@ -1172,6 +1172,44 @@ describe('keybindings', () => {
     ).toBe(true)
   })
 
+  it('binds terminal copy to the platform-native chord (Cmd+C / Ctrl+C)', () => {
+    // Why: the aterm xterm-bypass-policy already treats Mod+C / Ctrl+C as the
+    // terminal copy chord; the copySelection default must agree so the keybinding
+    // and the engine-bypass layer resolve the same key. #13388.
+    expect(getEffectiveKeybindingsForAction('terminal.copySelection', 'darwin')).toEqual(['Mod+C'])
+    expect(getEffectiveKeybindingsForAction('terminal.copySelection', 'linux')).toEqual([
+      'Ctrl+Shift+C',
+      'Ctrl+C'
+    ])
+    expect(getEffectiveKeybindingsForAction('terminal.copySelection', 'win32')).toEqual([
+      'Ctrl+Shift+C',
+      'Ctrl+C'
+    ])
+    expect(
+      keybindingMatchesAction(
+        'terminal.copySelection',
+        { key: 'c', code: 'KeyC', control: false, meta: true, alt: false, shift: false },
+        'darwin'
+      )
+    ).toBe(true)
+    // Bare Ctrl+C off macOS resolves to copySelection; the no-selection SIGINT
+    // fall-through is the handler's job (copyPaneSelectionViaShortcut), not the binding's.
+    expect(
+      keybindingMatchesAction(
+        'terminal.copySelection',
+        { key: 'c', code: 'KeyC', control: true, meta: false, alt: false, shift: false },
+        'linux'
+      )
+    ).toBe(true)
+    expect(
+      keybindingMatchesAction(
+        'terminal.copySelection',
+        { key: 'c', code: 'KeyC', control: true, meta: false, alt: false, shift: true },
+        'linux'
+      )
+    ).toBe(true)
+  })
+
   it('matches the default file explorer delete shortcut', () => {
     expect(getEffectiveKeybindingsForAction('fileExplorer.delete', 'darwin')).toEqual([
       'Mod+Backspace',

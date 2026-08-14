@@ -134,6 +134,7 @@ import {
   getRemoteBrowserKeyboardShortcut,
   getRemoteBrowserKeypressKey
 } from './remote-browser-keyboard'
+import { useRemoteBrowserStreamActive } from './use-remote-browser-stream-activation'
 import {
   consumeBrowserFocusRequest,
   ORCA_BROWSER_FOCUS_REQUEST_EVENT,
@@ -929,6 +930,9 @@ function RemoteBrowserPagePane({
   const currentBrowserTabIdRef = useRef(browserTab.id)
   const currentBrowserTabUrlRef = useRef(browserTab.url)
   const runtimeWorktree = useMemo(() => toRuntimeWorktreeSelector(worktreeId), [worktreeId])
+  // Why: gate the screencast subscription on both the tab being active and the window being visible,
+  // so a minimized/occluded window parks the remote stream instead of decoding frames nobody sees.
+  const remoteStreamActive = useRemoteBrowserStreamActive(isActive)
   const activeRuntimeEnvironmentIdRef = useRef<string | null>(activeRuntimeEnvironmentId)
   const startRemoteStreamRef = useRef<
     (pageId: string) => Promise<RemoteBrowserStreamSubscription | null>
@@ -1806,7 +1810,7 @@ function RemoteBrowserPagePane({
   }, [restartRemoteStreamForViewport, startRemoteStream])
 
   useEffect(() => {
-    if (!isActive) {
+    if (!remoteStreamActive) {
       return
     }
     let cancelled = false
@@ -1872,7 +1876,7 @@ function RemoteBrowserPagePane({
     createRemoteOperationToken,
     ensureRemotePage,
     fetchRemoteTabInfo,
-    isActive,
+    remoteStreamActive,
     closeMissingRemotePage,
     isCurrentRemoteOperationToken,
     isCurrentRemoteStreamToken,

@@ -192,6 +192,41 @@ describePosix('daemon shell-ready launch config', () => {
     expect(existsSync(rcfile)).toBe(true)
   })
 
+  it('extends the startup barrier to fish so launch commands queue until the prompt', async () => {
+    const { shellPathSupportsPtyStartupBarrier, supportsPtyStartupBarrier } =
+      await importFreshShellReady()
+
+    expect(shellPathSupportsPtyStartupBarrier('/opt/homebrew/bin/fish')).toBe(true)
+    expect(supportsPtyStartupBarrier({ SHELL: '/usr/local/bin/fish' })).toBe(true)
+    // Why: unwrapped shells must stay off the barrier or their first command queues forever.
+    expect(shellPathSupportsPtyStartupBarrier('/usr/bin/tcsh')).toBe(false)
+  })
+
+  it('wraps fish launches with a fish_prompt shell-ready marker init command', async () => {
+    const { getShellReadyLaunchConfig } = await importFreshShellReady()
+
+    const config = getShellReadyLaunchConfig('/opt/homebrew/bin/fish')
+
+    expect(config.supportsReadyMarker).toBe(true)
+    expect(config.env).toEqual({ ORCA_SHELL_READY_MARKER: '1' })
+    expect(config.args?.slice(0, 2)).toEqual(['-l', '-C'])
+    const init = config.args?.[2] ?? ''
+    expect(init).toContain('--on-event fish_prompt')
+    // Why `builtin`: a user-defined printf function would swallow the marker and
+    // stall every launch on the ready timeout.
+    expect(init).toContain('builtin printf "\\033]777;orca-shell-ready\\007"')
+    // Why: the marker must fire once; a repeating marker would corrupt later output scans.
+    expect(init).toContain('functions -e __orca_shell_ready_marker')
+  })
+
+  it('keeps attribution-only fish spawns unwrapped', async () => {
+    const { getAttributionShellLaunchConfig } = await importFreshShellReady()
+
+    const config = getAttributionShellLaunchConfig('/opt/homebrew/bin/fish')
+
+    expect(config).toEqual({ args: null, env: {}, supportsReadyMarker: false })
+  })
+
   it('rewrites wrappers when a long-lived daemon finds a missing rcfile', async () => {
     const { getShellReadyLaunchConfig } = await importFreshShellReady()
     const rcfile = join(userDataPath, 'shell-ready', 'bash', 'rcfile')

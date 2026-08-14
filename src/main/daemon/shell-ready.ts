@@ -12,6 +12,7 @@ import {
 } from '../powershell-osc133-bootstrap'
 import { getPosixOmpShellWrapper } from '../pty/omp-shell-wrapper'
 import {
+  getFishShellReadyInitCommand,
   getNuShellReadyIntegrationContent,
   getPosixOsc633CommandlineEmitBlock,
   getZshEnvTemplate,
@@ -370,6 +371,9 @@ export function shellPathSupportsPtyStartupBarrier(shellPath: string): boolean {
   return (
     shellName === 'zsh' ||
     shellName === 'bash' ||
+    // Why fish: markerless, its startup command is written before fish's reader owns
+    // the PTY and the launch is lost under slow prompts like Starship (STA-3417).
+    shellName === 'fish' ||
     // Why: nu emits the OSC 777 marker only when the integration file is sourced (gated on the probed version floor).
     (isNushellExecutableName(shellName) && getCachedNushellIntegrationSupport(shellPath) === true)
   )
@@ -447,6 +451,15 @@ function getWrappedShellLaunchConfig(
       ],
       env: {},
       supportsReadyMarker: false
+    }
+  }
+
+  // Why: mirrors local-pty-shell-ready.ts; attribution-only fish stays unwrapped.
+  if (shellName === 'fish' && options.emitReadyMarker) {
+    return {
+      args: ['-l', '-C', getFishShellReadyInitCommand(SHELL_READY_MARKER)],
+      env: { ORCA_SHELL_READY_MARKER: '1' },
+      supportsReadyMarker: true
     }
   }
 

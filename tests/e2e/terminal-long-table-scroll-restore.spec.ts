@@ -58,7 +58,6 @@ type LongTableDebugWindow = Window & {
     snapshot: () => {
       hiddenRendererSkipCount: number
       hiddenRendererSkippedChars: number
-      hiddenRendererMode2031ReplyCount: number
     }
   }
 }

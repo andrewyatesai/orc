@@ -38,4 +38,24 @@ describe('terminal reply query scan', () => {
 
     expect(second.queries).toEqual([])
   })
+
+  // #9993: the 2031 withdraw must replay alongside its arm, or a late-attaching client
+  // registers a subscription the TUI already retired (fish rearms/withdraws per prompt).
+  it('replays a DECRST 2031 withdrawal alongside the arm', () => {
+    const data = `\x1b[?2031h paint \x1b[?2031l`
+    const result = scanTerminalReplyQuerySequences(data, 0, EMPTY_TERMINAL_REPLY_QUERY_SCAN_STATE)
+
+    expect(result.queries.map((query) => query.data)).toEqual(['\x1b[?2031h', '\x1b[?2031l'])
+  })
+
+  it('does not replay a combined DECRST that toggles unrelated modes with 2031', () => {
+    // Exact-form only — replaying `CSI ?2004;2031l` would also flip mode 2004 in the client.
+    const result = scanTerminalReplyQuerySequences(
+      `\x1b[?2004;2031l`,
+      0,
+      EMPTY_TERMINAL_REPLY_QUERY_SCAN_STATE
+    )
+
+    expect(result.queries).toEqual([])
+  })
 })

@@ -3142,6 +3142,7 @@ export default function TerminalPane({
             <div className="absolute inset-0 z-10 flex min-h-0 min-w-0 bg-background">
               <NativeChatView
                 terminalTabId={tabId}
+                isVisible={isRendererVisible}
                 paneKey={makePaneKey(tabId, chatPane.leafId)}
                 targetPtyId={chatPanePtyId}
                 launchAgent={chatPaneLaunchAgent}

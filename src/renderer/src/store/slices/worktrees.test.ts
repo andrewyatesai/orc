@@ -4704,6 +4704,7 @@ describe('worktree remote runtime mutations', () => {
       method: 'worktree.rm',
       params: {
         worktree: `id:${wt.id}`,
+        hostId: 'runtime:env-1',
         force: undefined,
         allowUnverifiedPtyStop: false,
         runHooks: true
@@ -4742,6 +4743,7 @@ describe('worktree remote runtime mutations', () => {
       method: 'worktree.rm',
       params: {
         worktree: `id:${wt.id}`,
+        hostId: 'ssh:hub-private-target',
         force: undefined,
         allowUnverifiedPtyStop: false,
         runHooks: true

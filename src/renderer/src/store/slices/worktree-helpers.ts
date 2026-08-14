@@ -39,6 +39,15 @@ export type WorktreeDeleteState = {
   lockReason?: string | null
 }
 
+// Why: the renderer tags a preserved branch with the deletion-time route so a
+// later force-delete lands on the same host, even after the row is gone.
+type RendererRemoveWorktreeResult = Omit<RemoveWorktreeResult, 'preservedBranch'> & {
+  preservedBranch?: NonNullable<RemoveWorktreeResult['preservedBranch']> & {
+    hostId?: ExecutionHostId
+    runtimeEnvironmentId?: string
+  }
+}
+
 export type WorktreeMetaUpdateGuard = (worktree: Worktree | DetectedWorktree | undefined) => boolean
 
 export type WorktreeMetaUpdateOptions = {
@@ -207,13 +216,18 @@ export type WorktreeSlice = {
       // PTY stopped; `force` alone is set by the ordinary delete confirmation.
       allowUnverifiedPtyStop?: boolean
     }
-  ) => Promise<({ ok: true } & RemoveWorktreeResult) | { ok: false; error: string }>
+  ) => Promise<({ ok: true } & RendererRemoveWorktreeResult) | { ok: false; error: string }>
   markWorktreesDeleting: (worktreeIds: readonly string[]) => void
   markWorktreesQueuedForDeletion: (worktreeIds: readonly string[]) => void
   forceDeletePreservedBranch: (
     worktreeId: string,
     branchName: string,
-    expectedHead: string
+    expectedHead: string,
+    options?: {
+      suppressToast?: boolean
+      hostId?: ExecutionHostId
+      runtimeEnvironmentId?: string
+    }
   ) => Promise<({ ok: true } & ForceDeleteWorktreeBranchResult) | { ok: false; error: string }>
   clearWorktreeDeleteState: (worktreeId: string) => void
   updateWorktreeMeta: (

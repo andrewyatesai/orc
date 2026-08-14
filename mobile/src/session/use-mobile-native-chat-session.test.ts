@@ -127,7 +127,10 @@ describe('useMobileNativeChatSession', () => {
       await Promise.resolve()
     })
 
-    expect(state?.messages).toEqual([])
+    // The retained window keeps rendering while the source is gone; what must
+    // never land is the page that resolved after it disappeared.
+    expect(state?.messages.map((entry) => entry.id)).not.toContain('stale-page')
+    expect(state?.messages).toHaveLength(40)
     expect(state?.status).toBe('idle')
     expect(state?.loadingEarlier).toBe(false)
   })
@@ -503,5 +506,25 @@ describe('useMobileNativeChatSession', () => {
 
     expect(state?.status).toBe('loading')
     expect(state?.messages).toEqual([])
+  })
+
+  it('keeps the retained transcript rendered when the stream reports an error', async () => {
+    // A transient read failure must not blank a conversation the user is looking
+    // at; the last settled list for this identity stays until a read supersedes it.
+    const sendRequest = vi.fn() as unknown as RpcClient['sendRequest']
+    const subscribe: RpcClient['subscribe'] = vi.fn((_method, _params, onData) => {
+      emit = onData
+      onData({ type: 'snapshot', messages: [message('a-1')], hasMore: false })
+      return () => {}
+    })
+    await mount({ sendRequest, subscribe } as unknown as RpcClient)
+    expect(state?.status).toBe('ready')
+    expect(state?.messages.map((entry) => entry.id)).toEqual(['a-1'])
+
+    await act(async () => emit({ type: 'error', message: 'stream broke' }))
+
+    expect(state?.status).toBe('error')
+    expect(state?.transcriptLoading).toBe(false)
+    expect(state?.messages.map((entry) => entry.id)).toEqual(['a-1'])
   })
 })
