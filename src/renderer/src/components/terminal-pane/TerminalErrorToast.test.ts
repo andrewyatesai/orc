@@ -1,3 +1,4 @@
+import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import {
@@ -82,7 +83,7 @@ describe('shouldOfferDaemonRestart', () => {
 describe('TerminalErrorToast issue link', () => {
   it('routes local terminal failures to the ALab development issue tracker', () => {
     const html = renderToStaticMarkup(
-      TerminalErrorToast({
+      createElement(TerminalErrorToast, {
         error: 'Terminal failed to start.',
         onDismiss: () => undefined
       })

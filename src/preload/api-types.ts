@@ -1060,6 +1060,9 @@ export type PreloadApi = {
     get: () => {
       platform: NodeJS.Platform
       osRelease: string
+      arch: string
+      /** Login shell or ComSpec when available. */
+      shell: string
       displayServer: 'wayland' | 'x11' | null
     }
   }

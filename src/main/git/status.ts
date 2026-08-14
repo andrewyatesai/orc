@@ -40,6 +40,7 @@ import {
   gitOptionalLocksDisabledEnv
 } from './runner'
 import { streamGitStatus } from './git-status-stream'
+import { overlapStatusWithConflictDetection } from '../../shared/git-status-conflict-overlap'
 import { untrackedAdditionsCounter } from './untracked-additions-counter'
 import { capGitStatusEntries, resolveGitStatusLimit } from '../../shared/git-status-limit'
 import { describeMaxBufferOverflowError, isMaxBufferOverflowError } from './max-buffer-overflow'
@@ -269,19 +270,23 @@ async function runGetStatus(
   // Why: stream + parse incrementally and stop git the moment the entry count
   // crosses `limit`, so a repo with an enormous un-ignored folder never buffers
   // a status listing big enough to crash the process. streamGitStatus drives the
-  // Rust orca-git streaming parser (orca_node.node — a required dependency).
-  const conflictOperation = await conflictPromise
-  const streamed = await streamGitStatus(
-    statusArgs,
-    {
-      cwd: worktreePath,
-      wslDistro: options.wslDistro,
-      // Why: status polling is read-like; disable optional locks to avoid racing terminal Git on index.lock.
-      env: gitOptionalLocksDisabledEnv(),
-      signal: options.signal
-    },
-    limit
+  // Rust orca-git streaming parser (orca_node.node — a required dependency). Start
+  // it before awaiting the conflict marker I/O so the two reads overlap (#13529).
+  const awaitStatusStream = overlapStatusWithConflictDetection(() =>
+    streamGitStatus(
+      statusArgs,
+      {
+        cwd: worktreePath,
+        wslDistro: options.wslDistro,
+        // Why: status polling is read-like; disable optional locks to avoid racing terminal Git on index.lock.
+        env: gitOptionalLocksDisabledEnv(),
+        signal: options.signal
+      },
+      limit
+    )
   )
+  const conflictOperation = await conflictPromise
+  const streamed = await awaitStatusStream()
   statusSucceeded = streamed.succeeded
   const didHitLimit = streamed.didHitLimit
   const { head, branch, upstreamName, upstreamAheadBehind } = streamed

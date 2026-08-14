@@ -1167,6 +1167,34 @@ describe('getStatus', () => {
     gitExecFileAsyncMock.mockResolvedValue({ stdout: '' })
   })
 
+  it('starts the git status stream before the conflict-marker read settles (#13529)', async () => {
+    // Hold the conflict detector's `.git` marker read pending; the overlap must not
+    // gate the status stream on it (a serialized path never reaches the status read
+    // until the marker resolves, so statusStreamStarted would stay false forever).
+    let releaseMarkerRead!: () => void
+    readFileMock.mockReturnValue(
+      new Promise<string>((resolve) => {
+        releaseMarkerRead = () => resolve('gitdir: /repo/.git/worktrees/feature\n')
+      })
+    )
+    existsSyncMock.mockReturnValue(false)
+    let statusStreamStarted = false
+    gitExecFileAsyncMock.mockImplementation((args: string[]) => {
+      if (args.includes('status')) {
+        statusStreamStarted = true
+      }
+      return Promise.resolve({ stdout: '' })
+    })
+
+    const resultPromise = getStatus('/repo-overlap')
+    await vi.waitFor(() => expect(statusStreamStarted).toBe(true))
+    releaseMarkerRead()
+    await expect(resultPromise).resolves.toMatchObject({
+      entries: [],
+      conflictOperation: 'unknown'
+    })
+  })
+
   it('benchmarks concurrent status burst subprocess pressure', async () => {
     const benchPath = process.env.ORCA_GIT_STATUS_COALESCING_BENCH_JSON
     if (!benchPath) {

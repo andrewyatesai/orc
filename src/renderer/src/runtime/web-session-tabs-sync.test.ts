@@ -2821,28 +2821,30 @@ describe('applyWebSessionTabsSnapshot', () => {
       }
     }
 
+    const state = makeState({
+      activeTabId: mirroredTabId,
+      activeTabIdByWorktree: { [WT]: mirroredTabId },
+      activeTabType: 'terminal',
+      activeTabTypeByWorktree: { [WT]: 'terminal' },
+      tabsByWorktree: {
+        [WT]: [
+          {
+            id: mirroredTabId,
+            ptyId: 'remote:web-env-1@@terminal-2',
+            worktreeId: WT,
+            title: 'right pane',
+            customTitle: null,
+            color: null,
+            sortOrder: 0,
+            createdAt: NOW
+          }
+        ]
+      },
+      terminalLayoutsByTabId: { [mirroredTabId]: currentLayout }
+    })
+
     const patch = applyWebSessionTabsSnapshot(
-      makeState({
-        activeTabId: mirroredTabId,
-        activeTabIdByWorktree: { [WT]: mirroredTabId },
-        activeTabType: 'terminal',
-        activeTabTypeByWorktree: { [WT]: 'terminal' },
-        tabsByWorktree: {
-          [WT]: [
-            {
-              id: mirroredTabId,
-              ptyId: 'remote:web-env-1@@terminal-2',
-              worktreeId: WT,
-              title: 'right pane',
-              customTitle: null,
-              color: null,
-              sortOrder: 0,
-              createdAt: NOW
-            }
-          ]
-        },
-        terminalLayoutsByTabId: { [mirroredTabId]: currentLayout }
-      }),
+      state,
       makeSnapshot([
         {
           type: 'terminal',
@@ -2882,7 +2884,11 @@ describe('applyWebSessionTabsSnapshot', () => {
       ptyId: 'remote:web-env-1@@terminal-2',
       title: 'right pane'
     })
-    expect(patch.terminalLayoutsByTabId?.[mirroredTabId]?.activeLeafId).toBe(SECOND_LEAF_ID)
+    // No layout patch at all, and the effective layout keeps the local active leaf.
+    expect(patch.terminalLayoutsByTabId).toBeUndefined()
+    expect({ ...state, ...patch }.terminalLayoutsByTabId[mirroredTabId]?.activeLeafId).toBe(
+      SECOND_LEAF_ID
+    )
   })
 
   it('removes a null-pty pending activation tab when the host publishes the initial terminal', () => {
@@ -3259,10 +3265,8 @@ describe('applyWebSessionTabsSnapshot', () => {
         title: 'Example Domain'
       }
     ])
-    expect(patch.remoteBrowserPageHandlesByPageId?.[page.id]).toEqual({
-      environmentId: ENV,
-      remotePageId: 'host-browser-page'
-    })
+    // Absent key, not a missing handle: the seeded { ENV, 'host-browser-page' } handle matched.
+    expect(patch.remoteBrowserPageHandlesByPageId).toBeUndefined()
     expect(patch.unifiedTabsByWorktree?.[WT]?.map((tab) => tab.id)).toEqual([
       'local-browser-unified'
     ])

@@ -258,7 +258,7 @@ describe('useTerminalPaneGlobalEffects', () => {
     ['linux', 'passive']
   ] as const)('runs visibility transitions in the %s effect phase', async (platform, phase) => {
     window.api.platform = {
-      get: () => ({ platform, osRelease: 'test', displayServer: null })
+      get: () => ({ platform, osRelease: 'test', arch: 'x64', shell: '', displayServer: null })
     }
     vi.resetModules()
     const { useTerminalPaneGlobalEffects: usePlatformTerminalPaneGlobalEffects } =

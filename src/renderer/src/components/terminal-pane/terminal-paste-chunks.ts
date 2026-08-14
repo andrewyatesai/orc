@@ -1,6 +1,7 @@
 import { BRACKETED_PASTE_END, BRACKETED_PASTE_START } from './terminal-bracketed-paste'
 import { TERMINAL_PASTE_CHUNK_MAX_BYTES } from './terminal-paste-limits'
 import type { TerminalPastePlan } from './terminal-paste-coordinator'
+import { readUtf8CodePointAt } from '../../../../shared/utf8-byte-limits'
 
 const TERMINAL_PASTE_ESCAPE_CODE_POINT = 0x1b
 const TERMINAL_PASTE_INERT_ESCAPE_CODE_POINT = 0x241b
@@ -37,7 +38,7 @@ function* iterateTextByUtf8Bytes(
   let chunk = ''
   let chunkBytes = 0
   for (let index = 0; index < text.length; index += 1) {
-    const codePoint = text.codePointAt(index) ?? 0
+    const codePoint = readUtf8CodePointAt(text, index)
     const codeUnitLength = codePoint > 0xffff ? 2 : 1
     // Why: iterator normalization avoids a full-size copy and keeps CRLF atomic across chunks.
     if (

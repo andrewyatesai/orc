@@ -82,7 +82,7 @@ import {
   browserViewportPresetToOverride,
   getBrowserViewportPreset
 } from '../../../../shared/browser-viewport-presets'
-import { rememberLiveBrowserUrl } from './browser-runtime'
+import { getLiveBrowserUrl, rememberLiveBrowserUrl, seedLiveBrowserUrl } from './browser-runtime'
 import { ensureBrowserPageWebview } from './browser-page-webview'
 import {
   destroyPersistentWebview,
@@ -707,33 +707,8 @@ function getRemoteBrowserDeviceScaleFactor(): number {
   return Math.min(2, Math.max(1, Number(scale.toFixed(2))))
 }
 
-function getOpenableExternalUrl(
-  webview: Electron.WebviewTag | null,
-  fallbackUrl: string
-): string | null {
-  let currentUrl = fallbackUrl
-  if (webview) {
-    try {
-      currentUrl = webview.getURL() || fallbackUrl
-    } catch {
-      // Why: querying nav state before dom-ready throws and blanks the whole IDE on launch; fall back to the persisted URL.
-      currentUrl = fallbackUrl
-    }
-  }
+function getOpenableExternalUrl(currentUrl: string): string | null {
   return normalizeExternalBrowserUrl(redactKagiSessionToken(currentUrl))
-}
-
-function getCurrentBrowserUrl(webview: Electron.WebviewTag | null, fallbackUrl: string): string {
-  let currentUrl = fallbackUrl
-  if (webview) {
-    try {
-      currentUrl = webview.getURL() || fallbackUrl
-    } catch {
-      // Why: toolbar actions need a stable URL during early guest attach/restore; fall back to the persisted URL instead of throwing.
-      currentUrl = fallbackUrl
-    }
-  }
-  return toDisplayUrl(currentUrl)
 }
 
 function retryBrowserTabLoad(
@@ -3744,6 +3719,7 @@ function BrowserPagePane({
     container = ensuredWebview.container
     const webview = ensuredWebview.webview
     const needsInitialNavigation = ensuredWebview.created
+    seedLiveBrowserUrl(browserTab.id, redactKagiSessionToken(browserTabUrlRef.current))
 
     if (!ensuredWebview.created) {
       // pointerEvents already applied inside ensureBrowserPageWebview for the reused-webview path.
@@ -4672,8 +4648,10 @@ function BrowserPagePane({
 
   // Why: a blank tab reads as 'about:blank' or the resolved data: URL, so match both to keep the "New Browser Tab" overlay visible.
   const isBlankTab = browserTab.url === 'about:blank' || browserTab.url === ORCA_BROWSER_BLANK_URL
-  const externalUrl = getOpenableExternalUrl(webviewRef.current, browserTab.url)
-  const currentBrowserUrl = getCurrentBrowserUrl(webviewRef.current, browserTab.url)
+  // Why: synchronous webview URL access blocks render; navigation handlers update this cache before their store writes can re-render the pane.
+  const liveBrowserUrl = getLiveBrowserUrl(browserTab.id) ?? browserTab.url
+  const externalUrl = getOpenableExternalUrl(liveBrowserUrl)
+  const currentBrowserUrl = toDisplayUrl(liveBrowserUrl)
   const failedNavigationUrl = browserTab.loadError?.validatedUrl ?? currentBrowserUrl
   const failureExternalUrl = normalizeExternalBrowserUrl(failedNavigationUrl)
   const showFailureOverlay = Boolean(browserTab.loadError) && !isBlankTab

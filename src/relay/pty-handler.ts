@@ -44,6 +44,8 @@ import {
 import { isTuiAgent } from '../shared/tui-agent-config'
 import type { TuiAgent } from '../shared/types'
 import { forceKillPosixPtyProcessGroups } from '../main/pty/posix-pty-process-groups'
+import { signalPosixPtyForegroundGroup } from '../main/pty/posix-pty-foreground-group'
+import { readPtsName } from '../main/pty/node-pty-pts-name'
 import {
   PTY_STARTUP_INGRESS_VERSION,
   PtyStartupIngress,
@@ -1315,6 +1317,16 @@ export class PtyHandler {
     // Why: dispose neutralizes pty.kill on POSIX; treat disposed as not-found so signals don't silently no-op.
     if (!managed || managed.disposed) {
       throw new Error(`PTY "${id}" not found`)
+    }
+    // Why only SIGWINCH: a real resize reaches the tty's foreground process group,
+    // and node-pty's kill targets the root pid, which the shell setpgid's away from.
+    // Host-local behavior only — no wire change, so an older client simply gets a
+    // SIGWINCH that now lands. Destructive signals keep node-pty's own path.
+    if (signal === 'SIGWINCH') {
+      signalPosixPtyForegroundGroup(managed.pty.pid, readPtsName(managed.pty), signal, () => {
+        managed.pty.kill(signal)
+      })
+      return
     }
     managed.pty.kill(signal)
   }

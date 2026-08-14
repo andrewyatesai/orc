@@ -5690,7 +5690,7 @@ describe('connectPanePty', () => {
     expect(transport.sendInput).not.toHaveBeenCalled()
   })
 
-  it('sends fast startup commands via sendInput for SSH connections', async () => {
+  it('waits for shell-ready before unhinted SSH startup commands', async () => {
     // Capture the setTimeout callback directly so we can fire it without vi.useFakeTimers() (which would also replace beforeEach's rAF mock).
     const pendingTimeouts: (() => void)[] = []
     const originalSetTimeout = globalThis.setTimeout
@@ -5714,7 +5714,7 @@ describe('connectPanePty', () => {
       )
       transportFactoryQueue.push(transport)
 
-      // SSH connection: connectionId set; relay gets command metadata for spawn context but the renderer owns fast command delivery.
+      // SSH connection: the relay gets command metadata while the renderer owns delivery.
       mockStoreState = {
         ...mockStoreState,
         tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: null }] },
@@ -5730,14 +5730,19 @@ describe('connectPanePty', () => {
       connectPanePty(pane as never, manager as never, deps as never)
       expect(capturedDataCallback.current).not.toBeNull()
 
-      // Simulate shell prompt arriving — queues the debounce timer
+      // A bare prompt is not the readiness marker: the command must not land yet.
       capturedDataCallback.current?.('user@remote $ ')
+      expect(transport.sendInput).not.toHaveBeenCalled()
 
-      // Fire all queued setTimeout callbacks (the debounce)
-      for (const fn of pendingTimeouts) {
+      // The relay's shell-ready marker releases the queued startup command.
+      capturedDataCallback.current?.('\x1b]777;orca-shell-ready\x07user@remote $ ')
+      for (const fn of pendingTimeouts.splice(0)) {
         fn()
       }
 
+      expect(createdTransportOptions[0]).toEqual(
+        expect.objectContaining({ startupCommandDelivery: 'shell-ready' })
+      )
       expect(transport.sendInput).toHaveBeenCalledWith("claude 'say test'\r")
     } finally {
       globalThis.setTimeout = originalSetTimeout
@@ -7220,6 +7225,62 @@ describe('connectPanePty', () => {
     expect(notifyCodexPaneBoundForStaleSweep).toHaveBeenCalledWith('leaf-pty-2')
   })
 
+  it('defers the reattach grid push while the pane is display:none and forwards it on reveal', async () => {
+    // Why (production path): a restored floating-workspace pane reattaches while its panel is
+    // still closed, so the pane is display:none for the whole reattach. The reattach fit is the
+    // only step that pushes the client grid back and signals SIGWINCH — dropping it strands the
+    // PTY at the restored grid. connectPanePty must opt this caller into deferIfHidden so the push
+    // survives to the first measurable fit after the panel opens.
+    const { connectPanePty } = await import('./pty-connection')
+    const { safeFit } = await import('@/lib/pane-manager/pane-tree-ops')
+    const transport = createMockTransport('tab-pty')
+    transportFactoryQueue.push(transport)
+    const pane = createPane(1)
+    pane.terminal.cols = 80
+    pane.terminal.rows = 24
+    let containerDisplay = 'none'
+    Object.assign(pane.container as object, {
+      parentElement: null,
+      ownerDocument: {
+        defaultView: { getComputedStyle: () => ({ display: containerDisplay }) }
+      }
+    })
+    // Unmeasurable while hidden: no proposed grid → the reattach fit fails → the push defers.
+    let proposedGrid: { cols: number; rows: number } | undefined = undefined
+    ;(
+      pane.fitAddon as unknown as {
+        proposeDimensions: () => { cols: number; rows: number } | undefined
+      }
+    ).proposeDimensions = vi.fn(() => proposedGrid)
+    pane.fitAddon.fit = vi.fn(() => {
+      if (proposedGrid) {
+        pane.terminal.cols = proposedGrid.cols
+        pane.terminal.rows = proposedGrid.rows
+      }
+    })
+    const signalPty = window.api.pty.signal as unknown as ReturnType<typeof vi.fn>
+    const deps = createDeps({
+      restoredLeafId: LEAF_1,
+      restoredPtyIdByLeafId: { [LEAF_1]: 'tab-pty' },
+      isVisibleRef: { current: false }
+    })
+
+    connectPanePty(pane as never, createManager(1) as never, deps as never)
+    await flushAsyncTicks(20)
+    transport.resize.mockClear()
+    signalPty.mockClear()
+
+    // Reveal: the panel opens, the pane gains a box, and the first fit becomes measurable.
+    containerDisplay = 'block'
+    ;(deps.isVisibleRef as { current: boolean }).current = true
+    proposedGrid = { cols: 120, rows: 40 }
+    safeFit(pane as never)
+    await flushAsyncTicks(12)
+
+    expect(transport.resize).toHaveBeenCalledWith(120, 40)
+    expect(signalPty).toHaveBeenCalledWith('tab-pty', 'SIGWINCH')
+  })
+
   it('resizes a reattached PTY to the current grid when the pane narrows before reattach resolves', async () => {
     const { connectPanePty } = await import('./pty-connection')
     const reattach = createDeferred<void>()
@@ -7622,7 +7683,10 @@ describe('connectPanePty', () => {
       connectPanePty(pane as never, manager as never, deps as never)
       await flushAsyncTicks(20)
       capturedDataCallback.current?.('user@remote $ ')
-      for (const fn of pendingTimeouts) {
+      expect(transport.sendInput).not.toHaveBeenCalled()
+
+      capturedDataCallback.current?.('\x1b]777;orca-shell-ready\x07user@remote $ ')
+      for (const fn of pendingTimeouts.splice(0)) {
         fn()
       }
 
@@ -7631,6 +7695,7 @@ describe('connectPanePty', () => {
         2,
         expect.objectContaining({
           command: "codex '--dangerously-bypass-approvals-and-sandbox' 'resume' 'codex-session-1'",
+          startupCommandDelivery: 'shell-ready',
           env: expect.objectContaining({
             ORCA_PANE_KEY: paneKey,
             ORCA_TAB_ID: 'tab-1',
@@ -10379,11 +10444,12 @@ describe('connectPanePty', () => {
     expect(mockStoreState.sleepingAgentSessionsByPaneKey[paneKey]).toBeDefined()
   })
 
-  it('does not write the restored banner through xterm bytes for sidebar-resumed startup commands', async () => {
+  it('forwards one sidebar resume spawn without writing the restored banner through xterm', async () => {
     const { connectPanePty } = await import('./pty-connection')
     const transport = createMockTransport('pty-1')
     transportFactoryQueue.push(transport)
     const pane = createPane(1)
+    const providerSession = { key: 'session_id', id: 'codex-session-1' } as const
 
     connectPanePty(
       pane as never,
@@ -10391,6 +10457,7 @@ describe('connectPanePty', () => {
       createDeps({
         startup: {
           command: "codex 'resume' 'codex-session-1'",
+          resumeProviderSession: providerSession,
           showSessionRestoredBanner: true
         }
       }) as never
@@ -10406,7 +10473,11 @@ describe('connectPanePty', () => {
       expect.stringContaining('--- session restored ---'),
       expect.any(Function)
     )
-    expect(createdTransportOptions[0]?.command).toBe("codex 'resume' 'codex-session-1'")
+    expect(transport.connect).toHaveBeenCalledTimes(1)
+    expect(createdTransportOptions[0]).toMatchObject({
+      command: "codex 'resume' 'codex-session-1'",
+      resumeProviderSession: providerSession
+    })
   })
 
   it('does not consume the sleeping record when daemon reattach returns a live snapshot', async () => {

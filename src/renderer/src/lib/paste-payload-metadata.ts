@@ -1,4 +1,5 @@
 import { yieldToEventLoop } from '../../../shared/event-loop-yield'
+import { readUtf8CodePointAt } from '../../../shared/utf8-byte-limits'
 
 export type PastePayloadMetadata = {
   byteLength: number
@@ -24,7 +25,7 @@ export function measurePastePayloadMetadata(
   let previousWasCarriageReturn = false
 
   for (let index = 0; index < text.length; index += 1) {
-    const codePoint = text.codePointAt(index) ?? 0
+    const codePoint = readUtf8CodePointAt(text, index)
     byteLength += getUtf8ByteLengthForCodePoint(codePoint)
     hasControlSequences ||= isPasteControlSequenceCodePoint(codePoint)
     if (codePoint === 0x0d) {
@@ -72,7 +73,7 @@ export async function measurePastePayloadMetadataWithYield(
   let previousWasCarriageReturn = false
 
   for (let index = 0; index < text.length; index += 1) {
-    const codePoint = text.codePointAt(index) ?? 0
+    const codePoint = readUtf8CodePointAt(text, index)
     byteLength += getUtf8ByteLengthForCodePoint(codePoint)
     hasControlSequences ||= isPasteControlSequenceCodePoint(codePoint)
     if (codePoint === 0x0d) {
@@ -109,7 +110,7 @@ export function countPastePayloadLines(text: string): number {
 
 export function hasPastePayloadControlSequence(text: string): boolean {
   for (let index = 0; index < text.length; index += 1) {
-    const codePoint = text.codePointAt(index) ?? 0
+    const codePoint = readUtf8CodePointAt(text, index)
     if (isPasteControlSequenceCodePoint(codePoint)) {
       return true
     }

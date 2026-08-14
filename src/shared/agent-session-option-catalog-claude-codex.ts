@@ -116,7 +116,7 @@ function codexEffort(includeExtraHigh: boolean): CatalogOption {
     apply: {
       launchArgs: (value) => ['-c', `model_reasoning_effort=${String(value)}`],
       agentArgsOverride: hasCodexEffortOverride,
-      midSession: { kind: 'agent-picker', command: '/model' }
+      midSession: { kind: 'agent-picker', command: '/model', delivery: 'type' }
     }
   }
 }
@@ -138,11 +138,8 @@ export const CODEX_SESSION_OPTION_CATALOG: AgentSessionOptionCatalog = {
   modelApply: {
     launchArgs: (value) => ['-m', String(value)],
     agentArgsOverride: (tokens) => hasFlag(tokens, ['-m', '--model']),
-    // Codex accepts a model argument in its live /model command.
-    midSession: {
-      kind: 'command',
-      build: (value) => `/model ${String(value)}`,
-      pickerCommand: '/model'
-    }
+    // Codex classifies multi-character writes as pasted prose; type the bare
+    // command and let its own picker apply the account-supported model.
+    midSession: { kind: 'agent-picker', command: '/model', delivery: 'type' }
   }
 }

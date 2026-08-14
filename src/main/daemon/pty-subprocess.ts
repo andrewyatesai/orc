@@ -70,6 +70,8 @@ import { assertSafeAgentStartupCwd, resolveSafePtyDefaultCwd } from '../provider
 import { ORCA_HERMES_STARTUP_QUERY_ENV } from '../../shared/hermes-startup-query'
 import type { TuiAgent } from '../../shared/types'
 import { forceKillPosixPtyProcessGroups } from '../pty/posix-pty-process-groups'
+import { signalPosixPtyForegroundGroup } from '../pty/posix-pty-foreground-group'
+import { readPtsName } from '../pty/node-pty-pts-name'
 
 const PANE_IDENTITY_ENV_KEYS = [
   'ORCA_PANE_KEY',
@@ -1251,11 +1253,22 @@ export function createPtySubprocess(opts: PtySubprocessOptions): SubprocessHandl
       if (dead) {
         return
       }
-      try {
-        process.kill(proc.pid, sig)
-      } catch {
-        // Process may already be dead
+      const signalRootPid = (): void => {
+        try {
+          process.kill(proc.pid, sig)
+        } catch {
+          // Process may already be dead
+        }
       }
+      // Why only SIGWINCH: the kernel delivers a real resize to the tty's foreground
+      // group, and proc.pid is never in it (the shell setpgid's away, and on macOS
+      // proc.pid is login(1), which drops SIGWINCH). Destructive signals keep the
+      // narrower root-pid target.
+      if (sig === 'SIGWINCH') {
+        signalPosixPtyForegroundGroup(proc.pid, readPtsName(proc), sig, signalRootPid)
+        return
+      }
+      signalRootPid()
     },
     onData: (cb) => {
       onDataCb = cb

@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   sendHandle: { cancel: vi.fn(), settleAfterMs: 500 },
   sendNativeChatMessage: vi.fn(),
   sendNativeChatMessageVerified: vi.fn(),
+  typeNativeChatCommand: vi.fn(),
   trackPendingSend: vi.fn(),
   setDraft: vi.fn(),
   draftScopeKeys: [] as string[]
@@ -57,6 +58,7 @@ vi.mock('./native-chat-runtime-send', () => ({
   sendNativeChatMessage: (...args: unknown[]) => mocks.sendNativeChatMessage(...args),
   sendNativeChatMessageVerified: (...args: unknown[]) =>
     mocks.sendNativeChatMessageVerified(...args),
+  typeNativeChatCommand: (...args: unknown[]) => mocks.typeNativeChatCommand(...args),
   sendNativeChatMessageWithImageAttachments: vi.fn(),
   submitNativeChatPrompt: vi.fn()
 }))
@@ -149,6 +151,7 @@ describe('NativeChatComposer', () => {
     mocks.getMainBufferSnapshot.mockResolvedValue(null)
     mocks.sendNativeChatMessage.mockReturnValue(mocks.sendHandle)
     mocks.sendNativeChatMessageVerified.mockResolvedValue(true)
+    mocks.typeNativeChatCommand.mockResolvedValue(true)
     mocks.sendHandle.settleAfterMs = 500
     Object.defineProperty(window, 'api', {
       configurable: true,
@@ -408,7 +411,7 @@ describe('NativeChatComposer', () => {
     expect(onSwitchToTerminal).toHaveBeenCalledOnce()
   })
 
-  it('applies a Codex model change without switching to the terminal', async () => {
+  it('types the Codex picker command and switches to the terminal', async () => {
     mocks.sendHandle.settleAfterMs = 0
     const onSwitchToTerminal = vi.fn()
     render(
@@ -421,17 +424,17 @@ describe('NativeChatComposer', () => {
       />
     )
 
-    // Codex model changes are value-bearing commands; only effort still uses the TUI picker.
     await act(async () => {
-      await mocks.fieldProps?.sessionOptionsSurface?.setOption('model', 'gpt-5.5')
+      await mocks.fieldProps?.sessionOptionsSurface?.invokeAction('model')
     })
 
-    expect(mocks.sendNativeChatMessageVerified).toHaveBeenCalledWith(
+    expect(mocks.typeNativeChatCommand).toHaveBeenCalledWith(
       {},
       'pty-1',
-      '/model gpt-5.5',
+      '/model',
       expect.any(AbortSignal)
     )
-    expect(onSwitchToTerminal).not.toHaveBeenCalled()
+    expect(mocks.sendNativeChatMessageVerified).not.toHaveBeenCalled()
+    expect(onSwitchToTerminal).toHaveBeenCalledOnce()
   })
 })

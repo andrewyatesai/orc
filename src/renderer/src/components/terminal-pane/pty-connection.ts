@@ -131,8 +131,6 @@ import {
 } from './xterm-bypass-policy'
 import { buildFreshShellViewportBlankingSequence } from './terminal-restored-viewport'
 import { createShellReadyMarkerScanState, scanForShellReadyMarker } from './shell-ready-marker-scan'
-import { shouldUseShellReadyStartupDelivery } from '../../../../shared/codex-startup-delivery'
-import { resolveSetupAgentSequenceLaunchCommand } from '../../../../shared/setup-agent-sequencing'
 import { getSystemPrefersDark } from '@/lib/terminal-theme'
 import {
   INITIAL_MODE_2031_REPLY_SCAN_STATE,
@@ -3785,9 +3783,13 @@ export function connectPanePty(
     env: paneEnv,
     ...(paneStartup?.envToDelete ? { envToDelete: paneStartup.envToDelete } : {}),
     command: shouldDeliverStartupViaTerminalPaste ? undefined : paneStartup?.command,
+    // Why: every renderer-delivered SSH startup command must wait on the relay's
+    // readiness marker, not just Codex-hinted ones — an unready shell drops it.
     startupCommandDelivery: shouldDeliverStartupViaTerminalPaste
       ? undefined
-      : paneStartup?.startupCommandDelivery,
+      : connectionId && paneStartup?.command
+        ? 'shell-ready'
+        : paneStartup?.startupCommandDelivery,
     connectionId,
     executionHostId,
     worktreeId: deps.worktreeId,
@@ -4900,21 +4902,33 @@ export function connectPanePty(
           ? { command: paneStartup.command }
           : null
         : null
-    const startupShellReadyCommandHint = resolveSetupAgentSequenceLaunchCommand(
-      paneStartup?.env ?? {},
-      paneStartup?.command
-    )
+    // Why: every renderer-delivered SSH command needs the relay's readiness marker;
+    // the existing fallback preserves shells that cannot emit it.
     const shouldWaitForSshShellReady =
       Boolean(connectionId) &&
-      shouldUseShellReadyStartupDelivery({
-        command: startupShellReadyCommandHint,
-        startupCommandDelivery: paneStartup?.startupCommandDelivery
-      }) &&
+      Boolean(pendingStartupCommand) &&
       !shouldDeliverStartupViaTerminalPaste
-    const sshShellReadyMarkerScan = shouldWaitForSshShellReady
+    let sshShellReadyMarkerScan = shouldWaitForSshShellReady
       ? createShellReadyMarkerScanState()
       : null
     let sshStartupShellReady = !shouldWaitForSshShellReady
+    // Why: a fresh remote respawn (agent resume) must re-arm the marker wait so the
+    // resume command lands on the new shell's prompt, and cancel any pending write.
+    const armSshStartupShellReady = (): void => {
+      if (!connectionId || !pendingStartupCommand || shouldDeliverStartupViaTerminalPaste) {
+        return
+      }
+      if (startupInjectTimer !== null) {
+        clearTimeout(startupInjectTimer)
+        startupInjectTimer = null
+      }
+      if (sshShellReadyFallbackTimer !== null) {
+        clearTimeout(sshShellReadyFallbackTimer)
+        sshShellReadyFallbackTimer = null
+      }
+      sshShellReadyMarkerScan = createShellReadyMarkerScanState()
+      sshStartupShellReady = false
+    }
     const markSshStartupShellReady = (): void => {
       if (sshStartupShellReady) {
         return
@@ -5231,7 +5245,10 @@ export function connectPanePty(
       return transport.sendInput('\r')
     }
     const schedulePendingStartupCommandDelivery = (): void => {
-      if (!pendingStartupCommand) {
+      // Why: capture at schedule time so a stale reschedule (a re-armed respawn
+      // reassigns pendingStartupCommand) cancels the earlier queued write.
+      const startup = pendingStartupCommand
+      if (!startup) {
         return
       }
       if (!sshStartupShellReady) {
@@ -5252,8 +5269,7 @@ export function connectPanePty(
       startupInjectTimer = setTimeout(() => {
         startupInjectTimer = null
         void (async () => {
-          const startup = pendingStartupCommand
-          if (!startup || disposed) {
+          if (pendingStartupCommand !== startup || disposed) {
             return
           }
           if (shouldDeliverStartupViaTerminalPaste) {
@@ -5347,6 +5363,7 @@ export function connectPanePty(
         // must still submit the resume command to the fresh remote shell.
         pendingStartupCommand = { command: startupOverride.command }
       }
+      armSshStartupShellReady()
       const coldRestoreOverride =
         startupOverride && 'launchConfig' in startupOverride
           ? (startupOverride as ColdRestoreAgentResumeStartup)
@@ -5369,6 +5386,9 @@ export function connectPanePty(
         cols,
         rows,
         ...(startupOverride?.command ? { command: startupOverride.command } : {}),
+        ...(connectionId && startupOverride?.command
+          ? { startupCommandDelivery: 'shell-ready' as const }
+          : {}),
         ...(startupOverride?.env
           ? { env: mergeStartupEnvWithPaneIdentity(startupOverride.env) }
           : {}),
@@ -7900,6 +7920,65 @@ export function connectPanePty(
       }
     }
 
+    // Why (fork): POSIX only delivers SIGWINCH on a real dims change, so the
+    // reattach path signals explicitly to make restored TUIs repaint — on the
+    // NORMAL screen only. Stand down when the pane is on the alt screen (the
+    // TUI owns its full frame; a forced repaint makes some TUIs rebuild their
+    // viewport to the top) or a hidden-output restore is still pending
+    // (applyMainBufferSnapshot decides repaint from the snapshot's own
+    // alt-screen flag once it replays — signaling first races the replay and
+    // the TUI's top-rebuild frame lands last, clobbering it).
+    const maybeSignalReattachSigwinch = (reattachPtyId: string): void => {
+      const hiddenRestorePending =
+        hiddenOutputRestoreNeeded || hiddenOutputRestorePendingChunks.length > 0
+      if (
+        !isRemoteRuntimePtyId(reattachPtyId) &&
+        pane.terminal.buffer.active.type !== 'alternate' &&
+        !hiddenRestorePending
+      ) {
+        window.api.pty.signal(reattachPtyId, 'SIGWINCH')
+      }
+    }
+    // Why built at connection scope and not inside handleReattachResult: a display:none pane
+    // parks this grid push until reveal (safeFitAndThen deferIfHidden), and a closure created
+    // in the reattach scope would pin the whole payload (snapshot/replay/coldRestore bytes) for
+    // as long as the pane stays hidden. Taking the generation and pty id by value keeps only
+    // connection-level state alive.
+    const createReattachGridPush = (
+      attemptGeneration: number,
+      reattachPtyId: string
+    ): { shouldContinue: () => boolean; continuation: () => void } => {
+      const isCurrent = (): boolean =>
+        !disposed &&
+        attemptGeneration === transportStreamGeneration &&
+        transport.getPtyId() === reattachPtyId
+      return {
+        shouldContinue: isCurrent,
+        continuation: () => {
+          if (!isCurrent()) {
+            return
+          }
+          // Why re-checked at fire time: the caller's pre-check cannot see a mobile takeover
+          // that lands while the pane waits for a box, and transport.resize here bypasses
+          // forwardPtyResize's own suppression.
+          if (shouldSuppressDesktopPtyResize()) {
+            return
+          }
+          const reattachCols = pane.terminal.cols
+          const reattachRows = pane.terminal.rows
+          if (reattachCols > 0 && reattachRows > 0) {
+            transport.resize(reattachCols, reattachRows)
+          }
+          maybeSignalReattachSigwinch(reattachPtyId)
+          // Why here: a deferred reveal resolves the fit handle as incomplete, so an awaited
+          // reassertion at the call site would never run for the deferred-until-revealed path.
+          if (deps.isVisibleRef.current) {
+            ptySizeReassertion.request({ fit: false })
+          }
+        }
+      }
+    }
+
     const handleReattachResult = async (
       result: PtyConnectResult | string | void,
       staleSessionId?: string | null,
@@ -8173,25 +8252,6 @@ export function connectPanePty(
         }
       }
 
-      // Why (fork): POSIX only delivers SIGWINCH on a real dims change, so the
-      // reattach path signals explicitly to make restored TUIs repaint — on the
-      // NORMAL screen only. Stand down when the pane is on the alt screen (the
-      // TUI owns its full frame; a forced repaint makes some TUIs rebuild their
-      // viewport to the top) or a hidden-output restore is still pending
-      // (applyMainBufferSnapshot decides repaint from the snapshot's own
-      // alt-screen flag once it replays — signaling first races the replay and
-      // the TUI's top-rebuild frame lands last, clobbering it).
-      const maybeSignalReattachSigwinch = (reattachPtyId: string): void => {
-        const hiddenRestorePending =
-          hiddenOutputRestoreNeeded || hiddenOutputRestorePendingChunks.length > 0
-        if (
-          !isRemoteRuntimePtyId(reattachPtyId) &&
-          pane.terminal.buffer.active.type !== 'alternate' &&
-          !hiddenRestorePending
-        ) {
-          window.api.pty.signal(reattachPtyId, 'SIGWINCH')
-        }
-      }
       const fitAfterReattachRestore = async (): Promise<void> => {
         if (!isCurrentReattachPayload()) {
           return
@@ -8201,34 +8261,24 @@ export function connectPanePty(
           return
         }
         if (!getFitOverrideForPty(reattachPtyId)) {
-          const fit = safeFitAndThen(
-            pane,
-            'reattach-pty-resize',
-            () => {
-              if (!isCurrentReattachPayload() || transport.getPtyId() !== reattachPtyId) {
-                return
-              }
-              const reattachCols = pane.terminal.cols
-              const reattachRows = pane.terminal.rows
-              if (reattachCols > 0 && reattachRows > 0) {
-                transport.resize(reattachCols, reattachRows)
-              }
-              maybeSignalReattachSigwinch(reattachPtyId)
-            },
-            { shouldContinue: isCurrentReattachPayload, retryIfUnmeasurable: true }
-          )
+          const gridPush = createReattachGridPush(attemptGeneration, reattachPtyId)
+          const fit = safeFitAndThen(pane, 'reattach-pty-resize', gridPush.continuation, {
+            shouldContinue: gridPush.shouldContinue,
+            retryIfUnmeasurable: true,
+            // Why only this caller: a restored floating workspace is display:none until the
+            // user opens it, so dropping the grid push strands the PTY at the replay grid.
+            deferIfHidden: true
+          })
           pendingReattachFit = fit
-          let fitCompleted = false
           try {
-            fitCompleted = await fit.completion
+            // Why: reattach resize is fire-and-forget, so the continuation itself requests the
+            // applied-grid verification — it is the only point reached by both the immediate
+            // and the deferred-until-revealed path.
+            await fit.completion
           } finally {
             if (pendingReattachFit === fit) {
               pendingReattachFit = null
             }
-          }
-          if (fitCompleted && isCurrentReattachPayload() && deps.isVisibleRef.current) {
-            // Why: reattach resize is fire-and-forget; verify the provider's applied grid while this reveal still owns the visible pane.
-            ptySizeReassertion.request({ fit: false })
           }
         } else if (isCurrentReattachPayload() && !isRemoteRuntimePtyId(reattachPtyId)) {
           maybeSignalReattachSigwinch(reattachPtyId)

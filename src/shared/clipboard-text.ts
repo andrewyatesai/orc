@@ -1,4 +1,5 @@
 import { yieldToEventLoop } from './event-loop-yield'
+import { readUtf8CodePointAt } from './utf8-byte-limits'
 
 export const CLIPBOARD_TEXT_READ_MAX_BYTES = 16 * 1024 * 1024
 export const CLIPBOARD_TEXT_WRITE_MAX_BYTES = 16 * 1024 * 1024
@@ -26,7 +27,7 @@ export function measureClipboardTextByteLength(
   const stopAfterBytes = options.stopAfterBytes
   let byteLength = 0
   for (let index = 0; index < text.length; index += 1) {
-    const codePoint = text.codePointAt(index) ?? 0
+    const codePoint = readUtf8CodePointAt(text, index)
     byteLength += getUtf8ByteLengthForCodePoint(codePoint)
     if (Number.isFinite(stopAfterBytes) && byteLength > (stopAfterBytes ?? 0)) {
       return { byteLength, exceededLimit: true }
@@ -60,7 +61,7 @@ export async function measureClipboardTextByteLengthWithYield(
   let byteLength = 0
 
   for (let index = 0; index < text.length; index += 1) {
-    const codePoint = text.codePointAt(index) ?? 0
+    const codePoint = readUtf8CodePointAt(text, index)
     byteLength += getUtf8ByteLengthForCodePoint(codePoint)
     if (Number.isFinite(stopAfterBytes) && byteLength > (stopAfterBytes ?? 0)) {
       return { byteLength, exceededLimit: true }

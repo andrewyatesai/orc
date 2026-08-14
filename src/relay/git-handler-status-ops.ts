@@ -10,6 +10,7 @@ import type { GitExec } from './git-handler-ops'
 import type { RelayGitStreamExec } from './git-stdout-stream'
 import type { GitUpstreamStatus } from '../shared/types'
 import { streamRelayGitStatus } from './git-status-stream'
+import { overlapStatusWithConflictDetection } from '../shared/git-status-conflict-overlap'
 import { splitRemoteBranchName } from '../shared/git-effective-upstream'
 import { readOrProbeNoEffectiveUpstreamStatus } from './git-status-upstream-negative-cache'
 import { applyLineStats, type GitLineStats } from '../shared/git-uncommitted-line-stats'
@@ -78,33 +79,25 @@ export async function getStatusOp(
   const includeIgnored = params.includeIgnored === true
   // Why: reject NaN/negative limits — NaN would silently disable capping, negatives would over-truncate.
   const limit = resolveGitStatusLimit(params.limit)
-  const conflictOperation = await detectConflictOperation(worktreePath)
-  const entries: Record<string, unknown>[] = []
-  let head: string | undefined
-  let branch: string | undefined
-  let upstreamStatus: GitUpstreamStatus | undefined
-  let ignoredPaths: string[] = []
-  let didHitLimit = false
-  let statusLength = 0
-
-  try {
-    // Why: core.quotePath=false keeps non-ASCII filenames as raw UTF-8 instead of octal escapes that render as gibberish.
-    const statusArgs = [
-      '-c',
-      'core.quotePath=false',
-      'status',
-      '--porcelain=v2',
-      '--branch',
-      '--untracked-files=all'
-    ]
-    if (includeIgnored) {
-      statusArgs.push('--ignored=matching')
-    }
-    // Why: stream + scan incrementally and stop git the moment the entry count
-    // crosses `limit`, so an enormous un-ignored folder never buffers a status
-    // listing big enough to crash the process. The scan is the Rust orca-git
-    // parser via wasm — the same core the main process runs through napi.
-    const streamed = await streamRelayGitStatus(
+  // Why: core.quotePath=false keeps non-ASCII filenames as raw UTF-8 instead of octal escapes that render as gibberish.
+  const statusArgs = [
+    '-c',
+    'core.quotePath=false',
+    'status',
+    '--porcelain=v2',
+    '--branch',
+    '--untracked-files=all'
+  ]
+  if (includeIgnored) {
+    statusArgs.push('--ignored=matching')
+  }
+  // Why: stream + scan incrementally and stop git the moment the entry count
+  // crosses `limit`, so an enormous un-ignored folder never buffers a status
+  // listing big enough to crash the process. The scan is the Rust orca-git
+  // parser via wasm — the same core the main process runs through napi. Start it
+  // before awaiting the conflict marker I/O so the two reads overlap (#13529).
+  const awaitStatusStream = overlapStatusWithConflictDetection(() =>
+    streamRelayGitStatus(
       streamGit,
       statusArgs,
       worktreePath,
@@ -115,6 +108,18 @@ export async function getStatusOp(
       },
       limit
     )
+  )
+  const conflictOperation = await detectConflictOperation(worktreePath)
+  const entries: Record<string, unknown>[] = []
+  let head: string | undefined
+  let branch: string | undefined
+  let upstreamStatus: GitUpstreamStatus | undefined
+  let ignoredPaths: string[] = []
+  let didHitLimit = false
+  let statusLength = 0
+
+  try {
+    const streamed = await awaitStatusStream()
     head = streamed.head
     branch = streamed.branch
     ignoredPaths = streamed.ignoredPaths

@@ -1,4 +1,7 @@
+import { useEffect, useState } from 'react'
 import { translate } from '@/i18n/i18n'
+import { resolveClientEnvironmentFooter } from '@/lib/client-environment-info'
+import { hasClientEnvironmentFooter } from '../../../../shared/client-environment-info'
 import { ORCA_ALAB_DEVELOPMENT_ISSUES_URL } from '../../../../shared/repository-endpoints'
 
 const SSH_PREFIX = 'SSH connection is not active'
@@ -49,6 +52,28 @@ export function TerminalErrorToast({
 }): React.JSX.Element {
   const ssh = isSshError(error)
   const showDaemonRestart = !ssh && onRestartDaemon && shouldOfferDaemonRestart(error)
+  const [environmentFooter, setEnvironmentFooter] = useState<{
+    error: string
+    footer: string
+  } | null>(null)
+
+  // Why: a select-all copy should carry details loaded asynchronously from preload.
+  useEffect(() => {
+    if (ssh || hasClientEnvironmentFooter(error)) {
+      return
+    }
+    let cancelled = false
+    void resolveClientEnvironmentFooter().then((footer) => {
+      if (!cancelled) {
+        setEnvironmentFooter({ error, footer })
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [error, ssh])
+
+  const footer = environmentFooter?.error === error ? environmentFooter.footer : ''
 
   return (
     <div
@@ -99,6 +124,7 @@ export function TerminalErrorToast({
               .
             </>
           ) : null}
+          {!ssh && footer ? `\n\n${footer}` : null}
         </span>
         {showDaemonRestart ? (
           <button

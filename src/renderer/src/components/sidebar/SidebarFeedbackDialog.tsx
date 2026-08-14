@@ -16,6 +16,8 @@ import { cn } from '@/lib/utils'
 import type { GitHubViewer } from '../../../../shared/types'
 import { translate } from '@/i18n/i18n'
 import { ORCA_ALAB_DEVELOPMENT_ISSUES_URL } from '../../../../shared/repository-endpoints'
+import { stripClientEnvironmentFooter } from '../../../../shared/client-environment-info'
+import { useSidebarFeedbackEnvironmentPrefill } from './use-sidebar-feedback-environment-prefill'
 
 const DISCORD_URL = 'https://discord.gg/fzjDKHxv8Q'
 const X_URL = 'https://x.com/orca_build'
@@ -60,6 +62,14 @@ export function SidebarFeedbackDialog({
   const mountedRef = useMountedRef()
   const feedbackTextareaRef = useRef<HTMLTextAreaElement>(null)
 
+  useSidebarFeedbackEnvironmentPrefill({
+    open,
+    feedback,
+    setFeedback,
+    textareaRef: feedbackTextareaRef,
+    mountedRef
+  })
+
   React.useEffect(() => {
     if (!open) {
       return
@@ -93,7 +103,10 @@ export function SidebarFeedbackDialog({
 
   const handleSubmit = async (): Promise<void> => {
     const trimmed = feedback.trim()
-    if (!trimmed) {
+    // Why: strip only the prefilled env footer so users who type past it still
+    // count as having authored feedback.
+    const userText = stripClientEnvironmentFooter(feedback).trim()
+    if (!trimmed || !userText) {
       toast.warning(
         translate(
           'auto.components.sidebar.SidebarFeedbackDialog.a2fd890d9e',
@@ -286,7 +299,10 @@ export function SidebarFeedbackDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
             {translate('auto.components.sidebar.SidebarFeedbackDialog.8bf619e4cf', 'Cancel')}
           </Button>
-          <Button onClick={() => void handleSubmit()} disabled={isSubmitting || !feedback.trim()}>
+          <Button
+            onClick={() => void handleSubmit()}
+            disabled={isSubmitting || stripClientEnvironmentFooter(feedback).trim() === ''}
+          >
             {isSubmitting
               ? translate('auto.components.sidebar.SidebarFeedbackDialog.69969ba364', 'Sending…')
               : translate('auto.components.sidebar.SidebarFeedbackDialog.f2e42e1307', 'Send')}

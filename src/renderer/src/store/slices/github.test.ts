@@ -5391,6 +5391,135 @@ describe('createGitHubSlice.refreshGitHubForWorktreeIfStale', () => {
 describe('createGitHubSlice.refreshAllGitHub', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    resetRemoteRuntimeMocks()
+  })
+
+  it('publishes no store update when the cache sweep changes nothing', () => {
+    const store = createTestStore()
+    store.setState({
+      repos: [{ id: 'repo-1', path: '/repo', name: 'repo', kind: 'git' }],
+      groupBy: 'repo',
+      worktreeCardProperties: ['comment'],
+      rightSidebarOpen: false,
+      worktreesByRepo: { 'repo-1': [makePRRefreshWorktree()] }
+    } as unknown as Partial<AppState>)
+    let publications = 0
+    const unsubscribe = store.subscribe(() => {
+      publications += 1
+    })
+
+    store.getState().refreshAllGitHub()
+    unsubscribe()
+
+    expect(publications).toBe(0)
+  })
+
+  it('still clears populated comments when no workspace refresh is needed', () => {
+    const store = createTestStore()
+    store.setState({
+      commentsCache: { cached: { data: [], fetchedAt: 1 } },
+      groupBy: 'repo',
+      worktreeCardProperties: ['comment'],
+      rightSidebarOpen: false
+    } as unknown as Partial<AppState>)
+    let publications = 0
+    const unsubscribe = store.subscribe(() => {
+      publications += 1
+    })
+
+    store.getState().refreshAllGitHub()
+    unsubscribe()
+
+    expect(store.getState().commentsCache).toEqual({})
+    expect(publications).toBe(1)
+  })
+
+  it('skips repo and worktree identity reads when no GitHub decoration is visible', () => {
+    const store = createTestStore()
+    const repoId = 'repo-idle'
+    let repoIdentityReads = 0
+    let worktreeRepoIdentityReads = 0
+    const repo = { id: repoId, path: '/idle', name: 'idle', kind: 'git' as const }
+    const worktree = makePRRefreshWorktree({
+      id: 'wt-idle',
+      repoId,
+      path: '/idle/worktrees/idle',
+      branch: 'feature/idle'
+    })
+    Object.defineProperty(repo, 'id', {
+      configurable: true,
+      enumerable: true,
+      get: () => {
+        repoIdentityReads += 1
+        return repoId
+      }
+    })
+    Object.defineProperty(worktree, 'repoId', {
+      configurable: true,
+      enumerable: true,
+      get: () => {
+        worktreeRepoIdentityReads += 1
+        return repoId
+      }
+    })
+    store.setState({
+      repos: [repo],
+      groupBy: 'repo',
+      worktreeCardProperties: ['comment'],
+      rightSidebarOpen: false,
+      commentsCache: { cached: { data: [], fetchedAt: 1 } },
+      worktreesByRepo: { [repoId]: [worktree] }
+    } as unknown as Partial<AppState>)
+    repoIdentityReads = 0
+    worktreeRepoIdentityReads = 0
+
+    store.getState().refreshAllGitHub()
+
+    expect(store.getState().commentsCache).toEqual({})
+    expect(repoIdentityReads).toBe(0)
+    expect(worktreeRepoIdentityReads).toBe(0)
+    expect(mockApi.gh.enqueuePRRefresh).not.toHaveBeenCalled()
+    expect(mockApi.gh.issue).not.toHaveBeenCalled()
+  })
+
+  it('routes duplicate repo IDs through the first-owner lookup index when enqueuing refreshes', () => {
+    const store = createTestStore()
+    const repoId = 'dup-repo'
+    store.setState({
+      repos: [
+        { id: repoId, path: '/first', name: 'first', kind: 'git' },
+        { id: repoId, path: '/second', name: 'second', kind: 'git' }
+      ],
+      groupBy: 'repo',
+      worktreeCardProperties: ['comment'],
+      activeWorktreeId: 'wt-dup-a',
+      rightSidebarOpen: true,
+      rightSidebarTab: 'source-control',
+      worktreesByRepo: {
+        [repoId]: [
+          makePRRefreshWorktree({
+            id: 'wt-dup-a',
+            repoId,
+            path: '/first/worktrees/a',
+            branch: 'feature/a'
+          }),
+          makePRRefreshWorktree({
+            id: 'wt-dup-b',
+            repoId,
+            path: '/first/worktrees/b',
+            branch: 'feature/b'
+          })
+        ]
+      }
+    } as unknown as Partial<AppState>)
+
+    store.getState().refreshAllGitHub()
+
+    const enqueuedPaths = mockApi.gh.enqueuePRRefresh.mock.calls.map(
+      ([call]) => call.candidate.repoPath
+    )
+    expect(enqueuedPaths.length).toBeGreaterThan(0)
+    expect(enqueuedPaths.every((path: string) => path === '/first')).toBe(true)
   })
 
   it('refreshes stale PR data when source control is the visible PR surface', () => {

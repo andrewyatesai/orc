@@ -53,8 +53,9 @@ import {
   resetRendererOwnedAgentStatusPanesForTests
 } from '../components/terminal-pane/renderer-owned-agent-status-registry'
 import {
-  applyFreshWebSessionTabsSnapshot,
-  resetWebSessionTabsSnapshotFreshnessForTests
+  applyWebSessionTabsSnapshot,
+  resetWebSessionTabsSnapshotFreshnessForTests,
+  shouldApplyWebSessionTabsSnapshot
 } from './web-session-tabs-sync'
 
 // The store's title derivation runs the Rust orca-text core via wasm; init it
@@ -151,9 +152,9 @@ function applyHostSnapshot(
   now: number
 ): void {
   const state = store.getState()
-  const patch = applyFreshWebSessionTabsSnapshot(state, snapshot, ENV, now)
   // The freshness gate must accept every republished frame (monotonic version).
-  expect(patch).not.toBe(state)
+  expect(shouldApplyWebSessionTabsSnapshot(snapshot, ENV)).toBe(true)
+  const patch = applyWebSessionTabsSnapshot(state, snapshot, ENV, now)
   store.setState(patch as Partial<AppState>)
 }
 

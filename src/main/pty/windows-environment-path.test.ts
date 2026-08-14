@@ -13,6 +13,7 @@ import {
   mergePersistedWindowsPath,
   readPersistedWindowsPathSegments
 } from './windows-environment-path'
+import { __setWindowsPathRegistryLoaderForTests } from './windows-path-registry-reader'
 
 describe('readPersistedWindowsPathSegments', () => {
   it('reads machine and user Path values from the Windows registry', () => {
@@ -72,21 +73,23 @@ describe('readPersistedWindowsPathSegments', () => {
     expect(execFileSync).not.toHaveBeenCalled()
   })
 
-  it('caches production registry reads briefly', () => {
+  it('caches production native registry reads briefly', () => {
     const originalPlatform = process.platform
     Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
-    defaultExecFileSyncMock
-      .mockReturnValueOnce('    Path    REG_SZ    C:\\Machine\r\n')
-      .mockReturnValueOnce('    Path    REG_SZ    C:\\User\r\n')
+    const getRegistryKey = vi
+      .fn()
+      .mockReturnValueOnce({ Path: { type: 1, value: 'C:\\Machine' } })
+      .mockReturnValueOnce({ Path: { type: 1, value: 'C:\\User' } })
+    __setWindowsPathRegistryLoaderForTests(() => ({ HK: { LM: 1, CU: 2 }, getRegistryKey }))
     __resetPersistedWindowsPathCacheForTests()
 
     try {
       expect(readPersistedWindowsPathSegments()).toEqual(['C:\\Machine', 'C:\\User'])
       expect(readPersistedWindowsPathSegments()).toEqual(['C:\\Machine', 'C:\\User'])
-      expect(defaultExecFileSyncMock).toHaveBeenCalledTimes(2)
+      expect(getRegistryKey).toHaveBeenCalledTimes(2)
     } finally {
       __resetPersistedWindowsPathCacheForTests()
-      defaultExecFileSyncMock.mockReset()
+      __setWindowsPathRegistryLoaderForTests()
       Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
     }
   })
