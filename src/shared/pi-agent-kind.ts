@@ -20,6 +20,10 @@ export type PiAgentKind = 'pi' | 'omp'
  * True when `agentType` names a Pi-compatible (goal/mission) kind. These agents
  * emit milestone `agent_end` events between steps while still working, so they
  * are treated differently from agents that only signal completion at turn end.
+ *
+ * Unported, not un-cut-over (same standing as `isBehindOnlyUpstream` in
+ * git-upstream-status.ts): orca-text has no counterpart and the parity vectors
+ * have no cases for it, so there is nothing for a shim to dispatch to.
  */
 export function isPiCompatibleAgentType(
   agentType: string | null | undefined

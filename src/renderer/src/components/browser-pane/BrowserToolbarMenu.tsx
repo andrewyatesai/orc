@@ -8,7 +8,7 @@ import type { BrowserViewportPresetId } from '../../../../shared/types'
 import {
   browserViewportPresetToOverride,
   getBrowserViewportPreset
-} from '../../../../shared/browser-viewport-presets'
+} from '@/lib/git-wasm/browser-viewport-presets'
 import { BrowserToolbarMenuDropdown } from './browser-toolbar-menu-dropdown'
 import { BrowserToolbarProfileDialogs } from './browser-toolbar-profile-dialogs'
 import { translate } from '@/i18n/i18n'

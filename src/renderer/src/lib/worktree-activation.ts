@@ -17,7 +17,7 @@ import type {
 import { shouldAutoCreateInitialTerminal } from '@/components/terminal/initial-terminal'
 import { buildSetupRunnerCommand, getWorktreeSetupTerminalShellFamily } from './setup-runner'
 import { createSequencedSetupAgentCommands } from '../../../shared/setup-agent-sequencing'
-import { getSetupRunnerCommandPlatformForPath } from '../../../shared/setup-runner-command'
+import { getSetupRunnerCommandPlatformForPath } from './git-wasm/setup-runner-command-platform'
 import { agentKindToTuiAgent } from './git-wasm/agent-kind'
 import { useAppStore } from '@/store'
 import type { PendingSidebarWorktreeReveal } from '@/store/slices/ui'

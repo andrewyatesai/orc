@@ -201,7 +201,67 @@ Compliant: `gitlab-pipeline-checks`, `agent-tab-title`, `git-remote-error`
 ready for EVERY input — required, because the sole caller equality-compares it
 to `upstreamStatus.upstreamName` to unlock "Push linked review", and a `null`
 sentinel would read equal to an absent `upstreamName` and push at a target the
-upstream never matched), `base-ref-search-result` (case 3, handled — see below).
+upstream never matched), `base-ref-search-result` (case 3, handled — see below),
+`terminal-surface-id` (all three mappings rebuild the twin inline, for the same
+reason as `git-publish-target-status`, only harder: these values ARE the tab
+identity — `toWebTerminalSurfaceTabId` keys `tabsByWorktree` and feeds
+`makePaneKey()`, and `web-session-terminal-orphan-recovery.ts` REAPS every local
+surface whose `toHostSessionTabId(tab.id)` key is missing from the host's live
+set, so `null`/`''`/`false` would kill live terminals. One pinned `divergence`
+row covers the READY side, not the fallback: on a malformed percent-escape the
+twin's `catch` returned the whole `web-terminal-…` id and the Rust core returns
+the decoded slice — the `allowDivergence` case already recorded in the vectors,
+unreachable for ids minted by `toWebTerminalSurfaceTabId`).
+
+`browser-viewport-presets` (2026-08, case 1 both ways): the twin's answers came
+entirely out of the preset TABLE, which survives in the data-only
+`src/shared/browser-viewport-presets.ts` — the dropdown still renders it — so the
+fallback finds the row / copies the four emulation fields inline and pre-ready
+equals ready for every input. Parity is mandatory, not tidy: both results go
+straight to `window.api.browser.setViewportOverride`, so a `null` would send
+`override: null` while `setBrowserPageViewportPreset` has already persisted the
+id — the menu shows "Tablet" checked over a desktop-sized page, reasserted by
+`BrowserPane` on every dom-ready for the rest of the session.
+
+`git-upstream-force-push-decision.shouldForcePushWithLeaseForUpstream` (case 3,
+handled) is the newest, and the FIRST shim on the shared dispatch seam rather
+than in `src/renderer/src/lib/git-wasm/`: two `src/shared` decision modules
+(`source-control-primary-action-decision`, `source-control-create-review-intent`)
+call it, and a `src/shared` module cannot import a surface-specific binding. Its
+pre-ready value is `undefined` because the twin answered from the input and
+NEITHER boolean is even the safe direction — `false` sends `syncBranch` down
+`git pull`, re-merging the stale patch-equivalent commits a force-with-lease
+exists to replace; `true` force-pushes. **The fallback errs toward WITHHOLDING**:
+the diverged primary renders its counts with the button DISABLED, the dropdown
+folds the sentinel into `upstreamLoading` so Sync / Pull / Fast-forward /
+Commit & Push / Commit & Sync / Push-before-review disable themselves, both
+Create-PR-intent resolvers withhold the one-click prepare, and `syncBranch`
+throws into the existing "Sync failed" toast. Explicit Push / Force Push stay
+enabled — the user names those, and the predicate only *worded* them. Because
+`config/vitest-orca-dispatch-seam.ts` binds the seam for every test file,
+`shim-pre-ready-contract.test.ts` now unbinds it before the pre-ready pass, or a
+seam shim's row would pass vacuously. `isBehindOnlyUpstream` stays TypeScript in
+`src/shared/git-upstream-status.ts`: orca-core has no counterpart and the vectors
+have no cases for it, so it is unported, not un-cut-over.
+
+`git-push-target-shape.assertGitPushTargetShape` (compliant, `parity`) is the
+second shared-seam shim: main's five `git:*` SSH IPC handlers, `worktree-remote`'s
+SSH push-target prepare, and the relay's four git-handler entry points all
+validate the same wire value, so one seam shim serves both trees (`src/main/git/*`
+keeps its napi `validateGitPushTargetRules` shim — same Rust rules, main-only
+seam, and now cross-checked against this one instead of the deleted twin). An
+`asserts` function has NO spare state — throw and return are both real answers —
+and it is the anti-traversal gate on a value replayed into `git push`, so the
+fallback rebuilds the twin's body from the kept rule constants and is the twin's
+answer for every input. Two hazards drove the shape of it, both from the reverted
+first attempt: (1) only the three validated fields cross, never the caller's
+object, or a lone surrogate on an unread sibling key (`remoteCreated`, notes)
+would fail the encode and flip an accept into a reject naming a field the twin
+never read; (2) `DispatchPayloadError` is caught and answered locally, because a
+lone surrogate is reachable off the wire (relay `JSON.parse`, Electron structured
+clone) and the twin ACCEPTED one in `branchName` — its rule is only non-empty +
+no leading `-`, with `check-ref-format` as the next gate — while rejecting one in
+`remoteName`. A `DispatchCoreError` still propagates.
 
 Violations, worst first — value written back to persisted state:
 
@@ -347,13 +407,13 @@ the handshake state machine is fully unit-testable with no IO.
 | `worktree_base_ref` | `worktree-base-ref.ts` | `git worktree add` ref qualification |
 | `wsl_paths` | `wsl-paths.ts` | `\\wsl.localhost\` / `\\wsl$\` UNC parsing |
 | `repo_badge_color` | `repo-badge-color.ts` (+`constants.ts`) | hex colour normalise/expand/validate |
-| `git_push_target` | `git-push-target-validation.ts` | remote/branch/URL safety (anti-traversal) |
+| `git_push_target` | `git-push-target-validation.ts` | remote/branch/URL safety (anti-traversal). **Cut over**: seam shim `src/shared/git-push-target-shape.ts` for main's IPC handlers + the relay, napi shim `src/main/git/rust-push-target-validation.ts` for `src/main/git/*`; the twin keeps only the rule constants both fallbacks rebuild from |
 | `gitlab_projects` | `gitlab-projects.ts` | GitLab recents list: most-recent-first, dedupe by host+path, cap at 10 (clock injected as ISO string) |
 | `gitlab_pipeline_checks` | `gitlab-pipeline-checks.ts` | GitLab pipeline jobs → provider-neutral `PRCheckDetail` status/conclusion (manual→neutral, scheduled/waiting→queued+pending); shares the Checks panel with GitHub |
 | `branch_name_from_work` | `branch-name-from-work.ts` (+`marine-creatures.ts`) | slug sanitise, creature-name detection, prompt build |
-| `browser_search` | `browser-url.ts` (search heuristics) | search-vs-URL detection + per-engine search-URL building (Google/DuckDuckGo/Bing/Kagi) |
+| `browser_search` | `browser-url.ts` (search heuristics) | search-vs-URL detection + per-engine search-URL building (Google/DuckDuckGo/Bing/Kagi). **Cut over**: renderer shim `git-wasm/browser-search.ts`; the twin keeps `SEARCH_ENGINE_URLS`/`SEARCH_ENGINE_LABELS` as data and the un-ported navigation normaliser, whose search branch moved to `browser-pane/address-bar-navigation-url.ts` (main never reached it — every main caller passes no engine) |
 | `marine_creatures` | `marine-creatures.ts` | 552-entry name corpus (data table) |
-| `native_file_drop` | `native-file-drop.ts` | OS file-drop routing by event target path (terminal/editor/composer/sidebar/file-explorer), internal-drag rejection, fail-closed explorer dir |
+| `native_file_drop` | `native-file-drop.ts` | OS file-drop routing by event target path (terminal/editor/composer/sidebar/file-explorer), internal-drag rejection, fail-closed explorer dir. **Cut over**: shared-seam shim `src/shared/native-file-drop-routing.ts` — the real consumer is `src/preload/index.ts`, which can bind neither binding, so both fallbacks rebuild the twin inline (`parity`, mandatory: a bare boolean and a real-answer `null`). `paneLeafId` is unported (orca-core's entry has no such field) and is composed by the shim on BOTH paths; the twin keeps the ids/limits/types plus the unported payload build/validate/guard half |
 | `nested_repo_telemetry` | `nested-repo-telemetry.ts` | nested-repo scan/import funnel payloads: count cap+bucket, scan/import outcome classification, UUIDv4 attempt-id (random bytes injected), all-selected from raw counts |
 | `tab_title_resolution` | `tab-title-resolution.ts` | tab title/label priority resolution |
 | `base_ref_search_result` | `base-ref-search-result.ts` | legacy remote-ref → local branch derivation |

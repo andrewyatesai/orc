@@ -81,7 +81,7 @@ import { getScreenSubmitModifierLabel, isScreenSubmitShortcut } from '@/lib/scre
 import {
   browserViewportPresetToOverride,
   getBrowserViewportPreset
-} from '../../../../shared/browser-viewport-presets'
+} from '@/lib/git-wasm/browser-viewport-presets'
 import { rememberLiveBrowserUrl } from './browser-runtime'
 import { ensureBrowserPageWebview } from './browser-page-webview'
 import {

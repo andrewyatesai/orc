@@ -67,7 +67,7 @@ import {
   isExecKilledError,
   runPullWithDivergenceFallback
 } from '../shared/git-remote-error'
-import { assertGitPushTargetShape } from '../shared/git-push-target-validation'
+import { assertGitPushTargetShape } from '../shared/git-push-target-shape'
 import type { GitPushTarget } from '../shared/types'
 import {
   getEffectiveGitUpstreamStatus,

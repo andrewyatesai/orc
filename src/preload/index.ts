@@ -225,13 +225,15 @@ import {
   ORCA_INTERNAL_FILE_DRAG_TYPE,
   createNativeFileDropPayload,
   createRejectedNativeFileDropPayload,
-  hasNativeFileDragTypes,
   NATIVE_FILE_DROP_MAX_PATHS,
-  resolveNativeFileDropPath,
   type NativeDropResolution,
   type NativeFileDropPayload,
   type NativeFileDropPathEntry
 } from '../shared/native-file-drop'
+import {
+  hasNativeFileDragTypes,
+  resolveNativeFileDropPath
+} from '../shared/native-file-drop-routing'
 import type {
   LocalLogTailChangedPayload,
   LocalLogTailReadArgs,

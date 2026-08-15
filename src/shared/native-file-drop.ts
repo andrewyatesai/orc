@@ -1,3 +1,9 @@
+// The drag-type gate and the target-path router moved to the Rust core
+// (`orca_core::native_file_drop`); both trees reach it through
+// `./native-file-drop-routing.ts`. What stays here is the data the shim and the
+// callers compose from — the ids, the limits, the payload types — plus the
+// payload builders/validators, which have no Rust counterpart yet (they hang off
+// `measureClipboardTextByteLength`, and their vectors do not exist).
 import { measureClipboardTextByteLength } from './clipboard-text'
 
 export const ORCA_INTERNAL_FILE_DRAG_TYPE = 'text/x-orca-file-path'
@@ -81,58 +87,6 @@ function isNativeFileDropPathList(value: unknown): value is string[] {
 
 function isNonNegativeFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
-}
-
-function getDataTransferTypes(
-  types: Iterable<string> | ArrayLike<string> | null | undefined
-): string[] {
-  return types ? Array.from(types) : []
-}
-
-export function hasNativeFileDragTypes(
-  types: Iterable<string> | ArrayLike<string> | null | undefined
-): boolean {
-  const values = getDataTransferTypes(types)
-  return values.includes('Files') && !values.includes(ORCA_INTERNAL_FILE_DRAG_TYPE)
-}
-
-export function resolveNativeFileDropPath(
-  path: readonly NativeFileDropPathEntry[]
-): NativeDropResolution | null {
-  let foundExplorer = false
-  let destinationDir: string | undefined
-  let terminalPaneLeafId: string | undefined
-
-  for (const entry of path) {
-    terminalPaneLeafId ??= entry.terminalPaneLeafId
-    const target = entry.nativeFileDropTarget
-    if (target === NATIVE_FILE_DROP_TARGET.terminal) {
-      return { target, tabId: entry.terminalTabId, paneLeafId: terminalPaneLeafId }
-    }
-    if (target === NATIVE_FILE_DROP_TARGET.editor || target === NATIVE_FILE_DROP_TARGET.composer) {
-      return { target }
-    }
-    if (target === NATIVE_FILE_DROP_TARGET.projectSidebar) {
-      return { target }
-    }
-    if (target === NATIVE_FILE_DROP_TARGET.fileExplorer) {
-      foundExplorer = true
-    }
-
-    // Pick the nearest (innermost) destination directory marker.
-    if (destinationDir === undefined && entry.nativeFileDropDir) {
-      destinationDir = entry.nativeFileDropDir
-    }
-  }
-
-  if (foundExplorer) {
-    if (!destinationDir) {
-      return { target: 'rejected' }
-    }
-    return { target: NATIVE_FILE_DROP_TARGET.fileExplorer, destinationDir }
-  }
-
-  return null
 }
 
 export function measureNativeFileDropPathBytes(paths: readonly string[]): number {

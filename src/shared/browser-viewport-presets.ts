@@ -1,4 +1,9 @@
-import type { BrowserViewportOverride, BrowserViewportPresetId } from './types'
+// Types + the preset TABLE only: the lookup and the CDP-override mapping now run
+// in Rust (orca-core `browser_viewport_presets`), reached from the renderer
+// through src/renderer/src/lib/git-wasm/browser-viewport-presets.ts. The table
+// stays here because it is data — the dropdown renders it directly, and the
+// shim's pre-ready fallback reads it to reproduce the deleted functions exactly.
+import type { BrowserViewportPresetId } from './types'
 
 export type BrowserViewportPreset = {
   id: BrowserViewportPresetId
@@ -70,23 +75,3 @@ export const BROWSER_VIEWPORT_PRESETS = [
     mobile: false
   }
 ] as const satisfies readonly BrowserViewportPreset[]
-
-export function getBrowserViewportPreset(
-  id: BrowserViewportPresetId | null | undefined
-): BrowserViewportPreset | null {
-  if (!id) {
-    return null
-  }
-  return BROWSER_VIEWPORT_PRESETS.find((p) => p.id === id) ?? null
-}
-
-export function browserViewportPresetToOverride(
-  preset: BrowserViewportPreset
-): BrowserViewportOverride {
-  return {
-    width: preset.width,
-    height: preset.height,
-    deviceScaleFactor: preset.deviceScaleFactor,
-    mobile: preset.mobile
-  }
-}

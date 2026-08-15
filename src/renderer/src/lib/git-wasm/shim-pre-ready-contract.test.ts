@@ -20,18 +20,28 @@ import { tuiAgentToAgentKind } from './agent-kind'
 import { buildAgentNotificationId } from './agent-notification-id'
 import { legacyBaseRefSearchResults } from './base-ref-search-result'
 import { sanitizeBranchSlug } from './branch-name-from-work'
+import {
+  browserViewportPresetToOverride,
+  getBrowserViewportPreset
+} from './browser-viewport-presets'
 import { getCommitMessageModelDiscoveryHostKeyForScope } from './commit-message-host-key'
 import { normalizeFeatureEducationSource } from './feature-education-telemetry'
 import { buildFeatureWallTourDepthSummary } from './feature-wall-tour-depth'
 import { getPublishTargetDisplayName } from './git-publish-target-status'
+import { assertGitPushTargetShape } from '../../../../shared/git-push-target-shape'
 import { setOrcaDispatchBinding } from '../../../../shared/orca-dispatch-seam'
 import { resolveGitHubPRMergeMethods } from './github-pr-merge-methods'
 import { gitLabPipelineJobsToPRChecks } from './gitlab-pipeline-checks'
 import { resolveHookCommandSourcePolicy } from './hook-command-source-policy'
 import { normalizeHostedReviewBaseRef } from './hosted-review-refs'
+import {
+  hasNativeFileDragTypes,
+  resolveNativeFileDropPath
+} from '../../../../shared/native-file-drop-routing'
 import { normalizeProxyUrl } from './network-proxy'
 import { githubAvatarIcon, sanitizeRepoIcon } from './repo-icon'
 import { normalizeRepoBadgeColor, resolveRepoBadgeColor } from './repo-badge-color'
+import { getSetupRunnerCommandPlatformForPath } from './setup-runner-command-platform'
 import {
   buildSetupScriptPromptActionTelemetry,
   buildSetupScriptPromptTelemetry
@@ -192,6 +202,37 @@ const CASES: PreReadyCase[] = [
       handledBy: 'the tab keeps its default title; the next store update applies the real one'
     }
   },
+  // All three branches of the resolver, because the fallback reproduces the
+  // twin's body rather than a constant. Parity is mandatory and a sentinel is
+  // impossible: the two-member union has no spare state, and the answer picks the
+  // SHELL that executes the setup runner — a wrong 'windows' types
+  // `cmd.exe /c "/home/…/run.sh"` at a bash prompt.
+  {
+    name: 'setup-runner-command-platform.getSetupRunnerCommandPlatformForPath (windows-absolute)',
+    call: () =>
+      getSetupRunnerCommandPlatformForPath('C:\\repo\\.git\\orca\\setup-runner.cmd', 'posix'),
+    contract: {
+      kind: 'parity',
+      why: 'the fallback re-runs isWindowsAbsolutePathLike inline, exactly as the deleted twin did'
+    }
+  },
+  {
+    name: 'setup-runner-command-platform.getSetupRunnerCommandPlatformForPath (posix-absolute)',
+    call: () =>
+      getSetupRunnerCommandPlatformForPath('/remote/repo/.git/orca/setup-runner.sh', 'windows'),
+    contract: {
+      kind: 'parity',
+      why: 'the fallback keeps the twin\'s leading-slash branch, which outranks the caller fallback'
+    }
+  },
+  {
+    name: 'setup-runner-command-platform.getSetupRunnerCommandPlatformForPath (caller fallback)',
+    call: () => getSetupRunnerCommandPlatformForPath('orca/setup-runner.sh', 'windows'),
+    contract: {
+      kind: 'parity',
+      why: 'a relative path returns the caller-supplied platform unchanged, in Rust and in the fallback'
+    }
+  },
   {
     // Case 3: mode/provider/buckets are all derived from the candidate, so no
     // constant is honest. A schema-VALID guess is the hazard here — the main
@@ -319,6 +360,42 @@ const CASES: PreReadyCase[] = [
     name: 'task-providers.resolveVisibleTaskProvider(hidden preference)',
     call: () => resolveVisibleTaskProvider('linear', ['github']),
     contract: { kind: 'divergence', consequence: 'resolves to a provider that is not visible' }
+  },
+  // Parity is mandatory for both browser-viewport rows: the result is fed
+  // straight to window.api.browser.setViewportOverride, so a null pre-ready row
+  // would send `override: null` and un-emulate a viewport the menu shows
+  // checked — on every dom-ready, for the whole session, if the core failed.
+  {
+    name: 'browser-viewport-presets.getBrowserViewportPreset("tablet")',
+    call: () => getBrowserViewportPreset('tablet'),
+    contract: {
+      kind: 'parity',
+      why: 'the fallback finds the row in the kept BROWSER_VIEWPORT_PRESETS table — the twin did nothing else, for any id'
+    }
+  },
+  {
+    name: 'browser-viewport-presets.getBrowserViewportPreset(null)',
+    call: () => getBrowserViewportPreset(null),
+    contract: {
+      kind: 'parity',
+      why: 'no preset selected is null in both states, as the twin returned'
+    }
+  },
+  {
+    name: 'browser-viewport-presets.browserViewportPresetToOverride(mobile-s)',
+    call: () =>
+      browserViewportPresetToOverride({
+        id: 'mobile-s',
+        label: 'Mobile S — 320 × 568',
+        width: 320,
+        height: 568,
+        deviceScaleFactor: 2,
+        mobile: true
+      }),
+    contract: {
+      kind: 'parity',
+      why: 'the fallback copies the four emulation fields inline — the twin was that projection, for any row'
+    }
   },
   {
     name: 'branch-name-from-work.sanitizeBranchSlug',
@@ -453,8 +530,104 @@ const CASES: PreReadyCase[] = [
       kind: 'parity',
       why: 'the accepting direction: a pre-ready false would make createTab mint a fresh UUID and orphan the host PTY binding'
     }
+  },
+  {
+    name: 'git-push-target-shape.assertGitPushTargetShape(valid)',
+    call: () => pushTargetOutcome({ remoteName: 'origin', branchName: 'feature/fix' }),
+    contract: {
+      kind: 'parity',
+      why: 'an `asserts` fn has only throw/return, both real answers — the fallback is the twin body over the kept rule constants, so a valid target is never rejected while the seam is unbound'
+    }
+  },
+  {
+    name: 'git-push-target-shape.assertGitPushTargetShape(traversal remote)',
+    call: () => pushTargetOutcome({ remoteName: 'foo/../bar', branchName: 'feature/fix' }),
+    contract: {
+      kind: 'parity',
+      why: 'the rejecting direction, message included: this is the anti-traversal gate on a value replayed into `git push`, so pre-ready must not fail open'
+    }
+  },
+  {
+    name: 'git-push-target-shape.assertGitPushTargetShape(lone surrogate in branch)',
+    call: () => pushTargetOutcome({ remoteName: 'origin', branchName: 'feat-\ud800' }),
+    contract: {
+      kind: 'parity',
+      why: 'the codec refuses to encode it in BOTH states, so both take the fallback — the twin accepted it (check-ref-format is the next gate), and the reverted first attempt was exactly this accept turning into a reject naming the wrong field'
+    }
+  },
+  // Parity is mandatory for both, and a sentinel is impossible for either. The
+  // real consumer is src/preload/index.ts, which can bind NEITHER binding, so
+  // its seam stays unbound for the whole session — the fallback is the behaviour
+  // of every OS file drop. hasNativeFileDragTypes is a bare boolean consumed
+  // inside `if (!…) return`, and resolveNativeFileDropPath's `null` is a real
+  // answer ("no surface claimed it" → an editor drop).
+  {
+    name: 'native-file-drop-routing.hasNativeFileDragTypes(["Files"])',
+    call: () => hasNativeFileDragTypes(['Files']),
+    contract: {
+      kind: 'parity',
+      why: 'the fallback is the twin body over the kept internal-drag-type constant — a pre-ready false would make the preload dragover handler ignore every native drag'
+    }
+  },
+  {
+    name: 'native-file-drop-routing.hasNativeFileDragTypes(internal move)',
+    call: () => hasNativeFileDragTypes(['Files', 'text/x-orca-file-path']),
+    contract: {
+      kind: 'parity',
+      why: 'the rejecting direction: a pre-ready true would hijack Orca\'s own file-explorer→terminal drags away from their React handlers'
+    }
+  },
+  {
+    name: 'native-file-drop-routing.resolveNativeFileDropPath(terminal + leaf)',
+    call: () =>
+      resolveNativeFileDropPath([
+        { terminalPaneLeafId: 'leaf-9' },
+        { nativeFileDropTarget: 'terminal', terminalTabId: 'tab-1' }
+      ]),
+    contract: {
+      kind: 'parity',
+      why: 'paneLeafId is UNPORTED (orca_core has no such entry field) so the shim composes it on both paths — without it a drop on one split pastes into the active pane instead'
+    }
+  },
+  {
+    name: 'native-file-drop-routing.resolveNativeFileDropPath(nearest explorer dir)',
+    call: () =>
+      resolveNativeFileDropPath([
+        { nativeFileDropDir: '/repo/src' },
+        { nativeFileDropTarget: 'file-explorer', nativeFileDropDir: '/repo' }
+      ]),
+    contract: {
+      kind: 'parity',
+      why: 'the destination dir is the write target for the dropped files, so an innermost-vs-outermost difference would copy them into the wrong folder'
+    }
+  },
+  {
+    name: 'native-file-drop-routing.resolveNativeFileDropPath(explorer, no dir)',
+    call: () => resolveNativeFileDropPath([{ nativeFileDropTarget: 'file-explorer' }]),
+    contract: {
+      kind: 'parity',
+      why: 'the fail-closed branch: `rejected` drops the gesture, where a pre-ready null would fall through to the editor default and open the files instead'
+    }
+  },
+  {
+    name: 'native-file-drop-routing.resolveNativeFileDropPath(unclaimed)',
+    call: () => resolveNativeFileDropPath([{ nativeFileDropDir: '/repo' }]),
+    contract: {
+      kind: 'parity',
+      why: 'null here is the twin\'s real answer for this input, not a signal — createNativeFileDropPayload turns it into the editor drop'
+    }
   }
 ]
+
+// An `asserts` shim answers by throwing, so shape it into a comparable value.
+function pushTargetOutcome(target: unknown): { ok: boolean; error?: string } {
+  try {
+    assertGitPushTargetShape(target)
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
 
 // Serialized so a Set/undefined compares stably; the shims are JSON-boundary
 // functions, so a JSON view loses nothing they can return.

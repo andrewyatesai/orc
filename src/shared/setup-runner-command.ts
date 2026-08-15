@@ -1,3 +1,17 @@
+// PARTIALLY CUT OVER to the Rust `orca_core::setup_runner_command` core.
+//
+// `getSetupRunnerCommandPlatformForPath` is gone from here — main reaches it
+// through `src/main/rust-setup-runner-command-platform.ts` (napi) and the
+// renderer through `src/renderer/src/lib/git-wasm/setup-runner-command-platform.ts`
+// (wasm). Its `SetupRunnerCommandPlatform` type stays as the shared vocabulary.
+//
+// `resolveSetupRunnerCommand` and the WSL UNC pair below are NOT cut over and
+// must not be: orca-core's `build_setup_runner_command` predates #6896/#8928, so
+// it has no `terminalShellFamily` parameter and cannot emit the Git Bash
+// (`MSYS_NO_PATHCONV=…`) or nushell (`\`-escaped) deliveries, and it has no
+// counterpart at all for the `runnerScriptPathForShell`/`shell` fields that
+// `setup-agent-sequencing` builds its completion marker from. Dispatching these
+// would EXECUTE a cmd.exe wrapper at a Git Bash prompt. Unported, not un-cut-over.
 import { isWindowsAbsolutePathLike } from './cross-platform-path'
 import { quoteNuDoubleQuoted } from './nushell-shell'
 import type { AgentStartupShell } from './tui-agent-startup-shell'
@@ -17,19 +31,6 @@ export function buildSetupRunnerCommand(
   terminalShellFamily?: AgentStartupShell
 ): string {
   return resolveSetupRunnerCommand(runnerScriptPath, platform, terminalShellFamily).command
-}
-
-export function getSetupRunnerCommandPlatformForPath(
-  runnerScriptPath: string,
-  fallbackPlatform: SetupRunnerCommandPlatform
-): SetupRunnerCommandPlatform {
-  if (isWindowsAbsolutePathLike(runnerScriptPath)) {
-    return 'windows'
-  }
-  if (runnerScriptPath.startsWith('/')) {
-    return 'posix'
-  }
-  return fallbackPlatform
 }
 
 export function resolveSetupRunnerCommand(

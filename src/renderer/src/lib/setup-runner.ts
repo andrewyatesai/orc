@@ -1,7 +1,5 @@
-import {
-  buildSetupRunnerCommand as buildSharedSetupRunnerCommand,
-  getSetupRunnerCommandPlatformForPath
-} from '../../../shared/setup-runner-command'
+import { buildSetupRunnerCommand as buildSharedSetupRunnerCommand } from '../../../shared/setup-runner-command'
+import { getSetupRunnerCommandPlatformForPath } from './git-wasm/setup-runner-command-platform'
 import type { AgentStartupShell } from '../../../shared/tui-agent-startup-shell'
 import { resolveLocalAgentStartupShell } from '../../../shared/local-agent-startup-shell'
 import { repoIsRemote } from '../../../shared/agent-launch-remote'
