@@ -94,9 +94,43 @@ by an adversarial sweep rather than by this tool: it trims with Rust
 segment containing U+0085 (Rust only) or U+FEFF (JS only) answers differently.
 The other three worktree-id functions are clean.
 
+### What is actually left, and what each one is waiting on
+
+40 of the 85 vector-backed modules hold no twin implementation any more. Of the
+rest, the blockers fall into four kinds, and only the first is a cutover problem:
+
+| Blocker | Count | What unblocks it |
+| --- | --- | --- |
+| nothing — clean and cuttable | 14 | a cutover slot |
+| an export with NO Rust dispatch arm | 13 | a Rust change, not a shim |
+| a divergence outside the corpus shape | 3 | judgement: lean port, or a real gap |
+| deliberate never-cut-over | 3 | nothing; see below |
+
+**No Rust dispatch arm** is the big one and it is invisible to `pnpm parity`,
+because the corpus cannot miss a case for a function it has never named.
+`orca_core` frequently implements the function while
+`rust/crates/orca-dispatch/src/modules/<mod>.rs` never registers it, so the
+shipped cores answer `unknown function <name>`. `stable-pane-id::makePaneKey` is
+the worked example: ~60 importers, used as a React key, no arm. A cutover here
+throws on the first call once wasm initialises. Regenerate the list with
+`pnpm parity:twin-derived`; it prints every export with no vector and whether an
+arm exists.
+
+**Never cut over, on purpose.** `nacl-box` and `orchestration-store` are
+parity-only oracles, held out of the shipped artifacts so rusqlite and curve25519
+do not bloat the relay wasm. `keep-tail` is a hot path whose `update` runs on
+every pending-data change.
+
+**Open judgement calls.** `worktree-id` is cut over in the working tree and
+verified safe, but costs 19x-65x per call on the ready path
+(`getRepoIdFromWorktreeId` 9ns -> 581ns wasm / 346ns napi), reaching a leaf sweep
+the repo's own tests build at 2,773 elements. `worktree-ownership` is a lean port
+by design and its 15 "divergences" are passthrough fields Rust was never handed.
+
 ## The per-module pattern
 
-0. `pnpm parity:twin-derived` — a STALE module is re-ported, not cut over.
+0. `pnpm parity:twin-derived` — a STALE module is re-ported, not cut over, and an
+   export with no Rust dispatch arm needs the arm before the shim.
 1. Read the `src/shared/<mod>.ts` source **and** its `.test.ts`.
 2. Port the logic to `rust/crates/orca-core/src/<mod>.rs`, faithful to behaviour.
 3. Translate the original test cases **verbatim** into a `#[cfg(test)]` module.
