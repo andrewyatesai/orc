@@ -1,9 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import {
-  NATIVE_FILE_DROP_TARGET,
-  hasNativeFileDragTypes
-} from '../../../../shared/native-file-drop'
+import { NATIVE_FILE_DROP_TARGET } from '../../../../shared/native-file-drop'
+import { hasNativeFileDragTypes } from '../../../../shared/native-file-drop-routing'
 import { useMountedRef } from '@/hooks/useMountedRef'
 import { useAppStore } from '@/store'
 import {

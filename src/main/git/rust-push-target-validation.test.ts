@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assertGitPushTargetShape } from '../../shared/git-push-target-validation'
+import { assertGitPushTargetShape } from '../../shared/git-push-target-shape'
 import { assertGitPushTargetShapeNative } from './rust-push-target-validation'
 
 // The Rust-preferring wrapper must be a byte-for-byte behavioural drop-in for the

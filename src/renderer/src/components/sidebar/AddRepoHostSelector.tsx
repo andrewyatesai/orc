@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import type { SidebarHostOption } from './sidebar-host-options'
 import { getSidebarHostHealthLabel, shouldShowHostScopeControls } from './sidebar-host-options'
 import type { ExecutionHostId } from '../../../../shared/execution-host'
-import { describeRuntimeCompatBlock } from '../../../../shared/protocol-compat'
+import { describeRuntimeCompatBlock } from '../../../../shared/protocol-compat-verdict'
 import { translate } from '@/i18n/i18n'
 import { canConnectAddRepoHost, canSelectAddRepoHost } from './add-repo-host-availability'
 

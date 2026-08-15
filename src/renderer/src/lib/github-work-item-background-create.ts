@@ -24,7 +24,7 @@ import { getSettingsForRepoRuntimeOwner } from '@/lib/repo-runtime-owner'
 import { readRuntimeIssueCommand } from '@/runtime/runtime-hooks-client'
 import { isGitRepoKind } from '../../../shared/repo-kind'
 import { getRepoExecutionHostId, parseExecutionHostId } from '../../../shared/execution-host'
-import { evaluateRuntimeCompat } from '../../../shared/protocol-compat'
+import { evaluateRuntimeCompat } from '../../../shared/protocol-compat-verdict'
 import {
   MIN_COMPATIBLE_RUNTIME_SERVER_VERSION,
   RUNTIME_PROTOCOL_VERSION

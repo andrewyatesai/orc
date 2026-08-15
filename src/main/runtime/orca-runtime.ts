@@ -270,10 +270,8 @@ import { parsePtySessionId } from '../../shared/pty-session-id-format'
 import { clampLinearIssueListLimit } from '../../shared/linear-issue-read-limits'
 import { isFolderRepo } from '../../shared/repo-kind'
 import { DEFAULT_WORKSPACE_STATUS_ID } from '../../shared/workspace-statuses'
-import {
-  buildSetupRunnerCommand,
-  getSetupRunnerCommandPlatformForPath
-} from '../../shared/setup-runner-command'
+import { buildSetupRunnerCommand } from '../../shared/setup-runner-command'
+import { getSetupRunnerCommandPlatformForPath } from '../rust-setup-runner-command-platform'
 import {
   createSequencedSetupAgentCommands,
   SETUP_AGENT_SEQUENCE_STARTUP_COMMAND_ENV

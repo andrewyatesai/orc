@@ -25,7 +25,7 @@ import { useMountedRef } from '@/hooks/useMountedRef'
 import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
 import { parseExecutionHostId } from '../../../../shared/execution-host'
-import { describeRuntimeCompatBlock } from '../../../../shared/protocol-compat'
+import { describeRuntimeCompatBlock } from '../../../../shared/protocol-compat-verdict'
 import {
   clearRuntimeCompatibilityCache,
   unwrapRuntimeRpcResult

@@ -1,5 +1,5 @@
 import type { PairingOffer } from '../../shared/pairing'
-import { describeRuntimeCompatBlock, evaluateRuntimeCompat } from '../../shared/protocol-compat'
+import { describeRuntimeCompatBlock, evaluateRuntimeCompat } from '../../shared/protocol-compat-verdict'
 import {
   MIN_COMPATIBLE_RUNTIME_SERVER_VERSION,
   RUNTIME_PROTOCOL_VERSION

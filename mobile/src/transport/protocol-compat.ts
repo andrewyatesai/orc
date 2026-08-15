@@ -1,8 +1,10 @@
-// Why: this file mirrors src/shared/protocol-compat.ts (which is
-// covered by CI vitest). Metro can't resolve out of mobile/, so the
-// pure function is duplicated here. Keep the two files in sync — when
-// you change the evaluator's logic, update both. The src/shared/ copy
-// is the tested canonical version.
+// Why: this file mirrors the desktop evaluator, now
+// src/shared/protocol-compat-verdict.ts (a shim over the Rust
+// `orca_core::protocol_compat` port; src/shared/protocol-compat.ts keeps only the
+// types). Metro can't resolve out of mobile/, so the pure function is duplicated
+// here. Keep the two in sync — when the evaluator's logic changes, update both
+// and the shared parity vectors (tools/parity/vectors/protocol-compat.json),
+// which are what pin this copy to the same behaviour.
 import { MIN_COMPATIBLE_DESKTOP_VERSION, MOBILE_PROTOCOL_VERSION } from './protocol-version'
 
 export type CompatVerdict =

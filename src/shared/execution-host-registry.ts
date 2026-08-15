@@ -9,7 +9,8 @@ import {
   type ExecutionHostId,
   type ExecutionHostKind
 } from './execution-host'
-import { evaluateRuntimeCompat, type RuntimeCompatVerdict } from './protocol-compat'
+import { type RuntimeCompatVerdict } from './protocol-compat'
+import { evaluateRuntimeCompat } from './protocol-compat-verdict'
 import { MIN_COMPATIBLE_RUNTIME_SERVER_VERSION, RUNTIME_PROTOCOL_VERSION } from './protocol-version'
 import type { RuntimeStatus } from './runtime-types'
 import type { SshConnectionState, SshConnectionStatus } from './ssh-types'

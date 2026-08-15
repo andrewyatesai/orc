@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { loadRustGitBinding } from '../daemon/rust-git-addon'
-import { assertGitPushTargetShape } from '../../shared/git-push-target-validation'
+import { assertGitPushTargetShape } from '../../shared/git-push-target-shape'
 import { isBinaryBuffer } from '../../shared/binary-buffer'
 
 // napi-surface checks for the Rust `orca-git` parsers. The dual-run TS oracles
