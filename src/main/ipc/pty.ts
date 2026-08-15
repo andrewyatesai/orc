@@ -66,6 +66,7 @@ import {
 } from '../../shared/command-token-scanner'
 import { agentHookServer } from '../agent-hooks/server'
 import { wslHookRelayManager } from '../agent-hooks/wsl-hook-relay-manager'
+import { ensureWslHookRelayForReattach } from '../agent-hooks/wsl-hook-relay-reattach'
 import { isAgentStatusHooksEnabled } from '../agent-hooks/managed-agent-hook-controls'
 import { piTitlebarExtensionService } from '../pi/titlebar-extension-service'
 import { isPiCompatibleAgentType, type PiAgentKind } from '../../shared/pi-agent-kind'
@@ -3991,6 +3992,7 @@ export function registerPtyHandlers(
               sequenceBeforeProviderSpawn
             )
           }
+          ensureWslHookRelayForReattach(result, args.connectionId)
           runtime?.preparePtyExecutionContext?.(
             result.id,
             args.connectionId
@@ -4284,7 +4286,15 @@ export function registerPtyHandlers(
         return false
       }
       try {
-        await provider.attach(ptyId)
+        const sequenceBeforeProviderAttach = runtime?.getPtyOutputSequence?.(ptyId) ?? 0
+        const attachResult = await provider.attach(ptyId)
+        if (attachResult?.providerSequence) {
+          runtime?.synchronizePtyOutputSequenceFromProvider?.(
+            ptyId,
+            attachResult.providerSequence,
+            sequenceBeforeProviderAttach
+          )
+        }
         return true
       } catch {
         return false
@@ -5152,6 +5162,7 @@ export function registerPtyHandlers(
               sequenceBeforeProviderSpawn
             )
           }
+          ensureWslHookRelayForReattach(result, args.connectionId)
           runtime?.preparePtyExecutionContext?.(
             result.id,
             args.connectionId

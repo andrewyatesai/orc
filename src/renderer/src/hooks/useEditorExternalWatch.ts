@@ -3,7 +3,12 @@ import { useEffect, useRef } from 'react'
 import { useAppStore, type AppState } from '@/store'
 import { basename, joinPath } from '@/lib/path'
 import { getExternalFileChangeRelativePath } from '@/components/right-sidebar/useFileExplorerWatch'
-import { normalizeRuntimePathForComparison } from '../../../shared/cross-platform-path'
+import {
+  isWindowsAbsolutePathLike,
+  normalizeRuntimePathForComparison
+} from '../../../shared/cross-platform-path'
+import { isLocalWindowsDesktopClient } from '@/lib/desktop-window-chrome'
+import { parseExecutionHostId } from '../../../shared/execution-host'
 import {
   canAutoSaveOpenFile,
   getOpenFilesForExternalFileChange,
@@ -52,6 +57,7 @@ function scheduleDebouncedExternalReload(notification: {
   worktreePath: string
   relativePath: string
   runtimeEnvironmentId: string | null
+  allowLocalWindowsWslAliases?: true
 }): void {
   const key = `${notification.worktreeId}::${notification.runtimeEnvironmentId ?? 'client'}::${notification.relativePath}`
   const existing = pendingExternalReloadTimers.get(key)
@@ -70,6 +76,7 @@ type WatchedTarget = {
   worktreePath: string
   connectionId: string | undefined
   runtimeEnvironmentId: string | null
+  allowLocalWindowsWslAliases?: true
 }
 
 type ExternalWatchNotification = {
@@ -77,6 +84,49 @@ type ExternalWatchNotification = {
   worktreePath: string
   relativePath: string
   runtimeEnvironmentId: string | null
+  allowLocalWindowsWslAliases?: true
+}
+
+function localWslAliasOption(
+  target: Pick<WatchedTarget, 'allowLocalWindowsWslAliases'>
+): Pick<ExternalWatchNotification, 'allowLocalWindowsWslAliases'> {
+  return isLocalWindowsDesktopClient() && target.allowLocalWindowsWslAliases === true
+    ? { allowLocalWindowsWslAliases: true }
+    : {}
+}
+
+// Why: an absent/blank host stamp is legacy local metadata; only a parsed non-local kind proves a remote owner.
+function isLocalHostStamp(value: string | null | undefined): boolean {
+  if (!value?.trim()) {
+    return true
+  }
+  return parseExecutionHostId(value)?.kind === 'local'
+}
+
+// Why: WSL alias folding must be gated to a worktree the local Windows host truly
+// owns — a Windows drive/UNC path, no SSH connection, no runtime owner, and no
+// remote host stamp on either the worktree or its repo.
+function canWatchLocalWindowsWslAliases(args: {
+  worktreePath: string
+  runtimeEnvironmentId: string | null
+  connectionId: string | null | undefined
+  worktree: AppState['worktreesByRepo'][string][number] | undefined
+  repo: AppState['repos'][number] | undefined
+}): boolean {
+  if (
+    args.runtimeEnvironmentId !== null ||
+    (args.connectionId ?? null) !== null ||
+    !isWindowsAbsolutePathLike(args.worktreePath)
+  ) {
+    return false
+  }
+  return (
+    !!args.worktree &&
+    !!args.repo &&
+    !args.worktree.runtimeOwnerEnvironmentId?.trim() &&
+    isLocalHostStamp(args.worktree.hostId) &&
+    isLocalHostStamp(args.repo.executionHostId)
+  )
 }
 
 type WatchedTargetsSnapshot = {
@@ -112,7 +162,7 @@ let cachedWatchedTargetsSnapshot: WatchedTargetsSnapshot = { targets: [], target
 
 export function getWatchedTargetKey(target: WatchedTarget): string {
   // Why: include connectionId so a local placeholder watch is replaced by the real SSH watch once an SSH worktree's provider metadata hydrates.
-  return `${target.worktreeId}::${target.worktreePath}::${target.connectionId ?? 'local'}::${target.runtimeEnvironmentId ?? 'client'}`
+  return `${target.worktreeId}::${target.worktreePath}::${target.connectionId ?? 'local'}::${target.runtimeEnvironmentId ?? 'client'}::${target.allowLocalWindowsWslAliases === true ? 'wsl-aliases' : 'literal'}`
 }
 
 function openFileRuntimeOwner(file: Pick<OpenFile, 'runtimeEnvironmentId'>): string | null {
@@ -188,15 +238,25 @@ export function getEditorExternalWatchTargets(
       continue
     }
     const repo = state.repos.find((r) => r.id === wt.repoId)
+    const connectionId = repo?.connectionId ?? null
     const owners = Array.from(targetOwnersByWorktreeId.get(id) ?? []).sort((a, b) =>
       (a ?? '').localeCompare(b ?? '')
     )
     for (const owner of owners) {
-      const target = {
+      const target: WatchedTarget = {
         worktreeId: id,
         worktreePath: wt.path,
-        connectionId: repo?.connectionId ?? undefined,
-        runtimeEnvironmentId: owner
+        connectionId: connectionId ?? undefined,
+        runtimeEnvironmentId: owner,
+        ...(canWatchLocalWindowsWslAliases({
+          worktreePath: wt.path,
+          runtimeEnvironmentId: owner,
+          connectionId,
+          worktree: wt,
+          repo
+        })
+          ? { allowLocalWindowsWslAliases: true as const }
+          : {})
       }
       nextTargets.push(target)
       parts.push(getWatchedTargetKey(target))
@@ -552,7 +612,8 @@ export function createExternalWatchEventHandler(
         worktreeId: target.worktreeId,
         worktreePath: target.worktreePath,
         relativePath,
-        runtimeEnvironmentId: target.runtimeEnvironmentId
+        runtimeEnvironmentId: target.runtimeEnvironmentId,
+        ...localWslAliasOption(target)
       }
       const absolutePath = joinPath(notification.worktreePath, notification.relativePath)
       const matching = getOpenFilesForExternalFileChange(openFilesSnapshot, notification)
@@ -875,7 +936,9 @@ function hasCleanExternalReloadTarget(notification: ExternalWatchNotification): 
 
 export function getOverflowExternalReloadTargets(
   target: Pick<WatchedTarget, 'worktreeId' | 'worktreePath'> & {
+    connectionId?: string
     runtimeEnvironmentId?: string | null
+    allowLocalWindowsWslAliases?: true
   }
 ): ExternalWatchNotification[] {
   const state = useAppStore.getState()
@@ -898,7 +961,10 @@ export function getOverflowExternalReloadTargets(
       worktreeId: target.worktreeId,
       worktreePath: target.worktreePath,
       relativePath: file.relativePath,
-      runtimeEnvironmentId: target.runtimeEnvironmentId ?? null
+      runtimeEnvironmentId: target.runtimeEnvironmentId ?? null,
+      ...localWslAliasOption({
+        allowLocalWindowsWslAliases: target.allowLocalWindowsWslAliases
+      })
     })
   }
 

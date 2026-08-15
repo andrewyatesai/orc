@@ -1,4 +1,4 @@
-import { isWslUncPath } from './wsl-paths'
+import { isWslUncPath, parseWslUncPath, toWindowsWslPath } from './wsl-paths'
 
 const SLASH_CHAR_CODE = '/'.charCodeAt(0)
 
@@ -54,6 +54,31 @@ export function normalizeRuntimePathForComparison(rawValue: string): string {
     return `//wsl/${wslUnc[1].toLowerCase()}${wslUnc[2] ?? ''}`
   }
   return isWindowsPath ? normalized.toLowerCase() : normalized
+}
+
+/**
+ * Whether two paths are the SAME local-Windows file reached through WSL aliases.
+ *
+ * Only the case-insensitive WSL surface — the \\wsl$ / \\wsl.localhost share, the
+ * distro, and any /mnt/<drive> drvfs tail — is folded here. The Linux path tail
+ * stays case-sensitive: `//wsl.localhost/Ubuntu/home/Alice` and
+ * `\\wsl.localhost\Ubuntu\home\alice` are DISTINCT files, so this returns false.
+ * At least one side must actually be a WSL UNC alias; two plain UNC shares
+ * (`//server/share` vs `\\server\share`) are never treated as WSL aliases.
+ */
+export function areLocalWindowsWslPathAliases(left: string, right: string): boolean {
+  const leftWslPath = parseWslUncPath(left)
+  const rightWslPath = parseWslUncPath(right)
+  if (!leftWslPath && !rightWslPath) {
+    return false
+  }
+  const normalize = (value: string): string => {
+    const wslPath = parseWslUncPath(value)
+    return normalizeRuntimePathForComparison(
+      wslPath ? toWindowsWslPath(wslPath.linuxPath, wslPath.distro) : value
+    )
+  }
+  return normalize(left) === normalize(right)
 }
 
 export function isRuntimePathAbsolute(

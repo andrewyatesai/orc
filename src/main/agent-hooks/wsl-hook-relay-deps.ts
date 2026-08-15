@@ -4,10 +4,12 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 
+import { isAgentStatusHooksEnabled } from './managed-agent-hook-controls'
 import { agentHookServer } from './server'
 import { installRemoteManagedAgentHooks } from './remote-managed-hook-installers'
 import { getOpenCodePluginSource } from '../opencode/hook-service'
 import type { PluginSources } from '../../relay/plugin-overlay'
+import type { GlobalSettings } from '../../shared/types'
 import {
   isWslDistroRunning,
   resolveWslHookRelayBundle,
@@ -59,10 +61,22 @@ export type WslHookRelayManagerDeps = {
   waitForSentinel: typeof waitForWslRelaySentinel
   ingest: (envelope: Record<string, unknown>, connectionId: string) => void
   installHooks: typeof installRemoteManagedAgentHooks
+  /** Live agent-status-hooks setting so every relay start reads the toggle now, not at each call site. */
+  managedHookSettings: () => Partial<Pick<GlobalSettings, 'agentStatusHooksEnabled'>> | null
   /** Plugin source strings shipped to the guest relay so an Orca update needn't redeploy the relay bundle. */
   pluginSources: () => PluginSources
   warn: (message: string) => void
   transientRetryDelayMs: number
+}
+
+/** Every relay start — spawn, PTY reattach, crash recovery — funnels through this gate,
+ *  so the user's agent-status-hooks switch is read live instead of at each call site. */
+export function isWslHookRelayAllowed(deps: WslHookRelayManagerDeps): boolean {
+  return (
+    deps.platform() === 'win32' &&
+    deps.remoteHooksEnabled() &&
+    isAgentStatusHooksEnabled(deps.managedHookSettings())
+  )
 }
 
 export const defaultWslHookRelayDeps: WslHookRelayManagerDeps = {
@@ -89,6 +103,9 @@ export const defaultWslHookRelayDeps: WslHookRelayManagerDeps = {
       connectionId
     ),
   installHooks: installRemoteManagedAgentHooks,
+  // Why null default: the singleton is constructed before the store exists; index.ts installs the
+  // real resolver via setManagedHookSettingsResolver, and null reads as enabled ("off only when off").
+  managedHookSettings: () => null,
   // Why: only OpenCode is in scope for WSL now; the payload shape stays identical to SSH so Pi/OMP are additive later.
   pluginSources: () => ({ opencodePluginSource: getOpenCodePluginSource() }),
   warn: (message) => console.warn(message),

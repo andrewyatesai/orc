@@ -1075,6 +1075,95 @@ describe('createEditorSlice openDiff', () => {
   })
 })
 
+describe('createEditorSlice openFile local WSL aliases', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('reuses a restored local WSL alias without folding the Linux path tail', () => {
+    vi.stubGlobal('navigator', { userAgent: 'Windows' })
+    const store = createEditorStore()
+    const restoredPath = '//wsl.localhost/Ubuntu/home/Alice/repo/file.ts'
+    store.setState({
+      openFiles: [
+        {
+          id: restoredPath,
+          filePath: restoredPath,
+          relativePath: 'file.ts',
+          worktreeId: 'wt-1',
+          runtimeEnvironmentId: null,
+          language: 'typescript',
+          isDirty: false,
+          mode: 'edit'
+        }
+      ]
+    } as Partial<AppState>)
+
+    // The backslash UNC alias folds onto the restored forward-slash tab.
+    expect(
+      store.getState().openFile(
+        {
+          filePath: '\\\\wsl.localhost\\ubuntu\\home\\Alice\\repo\\file.ts',
+          relativePath: 'file.ts',
+          worktreeId: 'wt-1',
+          runtimeEnvironmentId: null,
+          language: 'typescript',
+          mode: 'edit'
+        },
+        { suppressActiveRuntimeFallback: true }
+      )
+    ).toBe(restoredPath)
+    expect(store.getState().openFiles).toHaveLength(1)
+
+    // A case-different Linux tail is a distinct file, so it opens a second tab.
+    store.getState().openFile(
+      {
+        filePath: '\\\\wsl.localhost\\Ubuntu\\home\\alice\\repo\\file.ts',
+        relativePath: 'file.ts',
+        worktreeId: 'wt-1',
+        runtimeEnvironmentId: null,
+        language: 'typescript',
+        mode: 'edit'
+      },
+      { suppressActiveRuntimeFallback: true }
+    )
+    expect(store.getState().openFiles).toHaveLength(2)
+  })
+
+  it('keeps local WSL-looking aliases distinct on POSIX clients', () => {
+    vi.stubGlobal('navigator', { userAgent: 'Linux' })
+    const store = createEditorStore()
+    store.setState({
+      openFiles: [
+        {
+          id: 'forward',
+          filePath: '//wsl.localhost/Ubuntu/repo/file.ts',
+          relativePath: 'file.ts',
+          worktreeId: 'wt-1',
+          runtimeEnvironmentId: null,
+          language: 'typescript',
+          isDirty: false,
+          mode: 'edit'
+        }
+      ]
+    } as Partial<AppState>)
+
+    store.getState().openFile(
+      {
+        filePath: '\\\\wsl.localhost\\Ubuntu\\repo\\file.ts',
+        relativePath: 'file.ts',
+        worktreeId: 'wt-1',
+        runtimeEnvironmentId: null,
+        language: 'typescript',
+        mode: 'edit'
+      },
+      { suppressActiveRuntimeFallback: true }
+    )
+
+    expect(store.getState().openFiles).toHaveLength(2)
+  })
+})
+
 describe('createEditorSlice floating editor activation', () => {
   it('creates a visible floating editor tab when the floating workspace is empty', () => {
     const store = createEditorTabsStore()

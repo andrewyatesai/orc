@@ -27,8 +27,8 @@ import { WebSocketTransport } from './rpc/ws-transport'
 import { DeviceRegistry } from './device-registry'
 import { DEVICE_REGISTRY_FILENAME, E2EE_KEYPAIR_FILENAME } from './mobile-pairing-files'
 
-vi.mock('../git/worktree', () => ({
-  listWorktrees: vi.fn().mockResolvedValue([
+vi.mock('../git/worktree', () => {
+  const worktrees = [
     {
       path: '/tmp/worktree-a',
       head: 'abc',
@@ -36,9 +36,12 @@ vi.mock('../git/worktree', () => ({
       isBare: false,
       isMainWorktree: false
     }
-  ]),
-  listWorktreesStrict: vi.fn().mockResolvedValue([])
-}))
+  ]
+  return {
+    listWorktrees: vi.fn().mockResolvedValue(worktrees),
+    listWorktreesStrict: vi.fn().mockResolvedValue(worktrees)
+  }
+})
 
 async function sendRequest(
   endpoint: string,

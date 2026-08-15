@@ -2088,6 +2088,9 @@ app.whenReady().then(async () => {
   )
   // Why: apply initial fallback WSL distro from store settings for global git/CLI calls.
   setDefaultWslDistroOverride(store.getSettings().terminalWindowsWslDistro ?? null)
+  // Why: the manager singleton is built before the store exists; hand it a live reader so its
+  // relay gate reflects the current agent-status-hooks toggle instead of the null default.
+  wslHookRelayManager.setManagedHookSettingsResolver(() => store?.getSettings() ?? null)
   store.onSettingsChanged((updates, settings) => {
     if ('terminalWindowsWslDistro' in updates) {
       // Why: synchronize fallback WSL distro updates to runner.
@@ -2099,6 +2102,16 @@ app.whenReady().then(async () => {
     }
     if ('autoFetchEnabled' in updates || 'autoFetchIntervalMinutes' in updates) {
       gitAutoFetchScheduler?.configure(resolveGitAutoFetchSettings(settings))
+    }
+    if ('agentStatusHooksEnabled' in updates) {
+      // Why both directions: the ensure gate only blocks NEW relays, so off must stop the running
+      // guest process and timers, and on must restart them — otherwise open WSL panes report no
+      // status until their next spawn.
+      if (isAgentStatusHooksEnabled(settings)) {
+        wslHookRelayManager.resumeStoppedRelays()
+      } else {
+        wslHookRelayManager.disposeAll({ permanent: false })
+      }
     }
   })
   {

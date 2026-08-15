@@ -9,7 +9,10 @@ import {
 import type { RecentlyClosedTabPosition } from './recently-closed-tabs'
 import { joinPath } from '@/lib/path'
 import { toast } from 'sonner'
-import { isPathInsideOrEqual } from '../../../../shared/cross-platform-path'
+import {
+  areLocalWindowsWslPathAliases,
+  isPathInsideOrEqual
+} from '../../../../shared/cross-platform-path'
 import { resolveMarkdownLinkTarget } from '@/components/editor/markdown-internal-links'
 import {
   buildCheckRunDetailsTabId,
@@ -89,6 +92,7 @@ import {
   captureEditorFileOperationProvenance,
   getEditorFileOperationContext
 } from '@/lib/editor-file-operation-owner'
+import { isLocalWindowsDesktopClient } from '@/lib/desktop-window-chrome'
 
 export type {
   ActiveRightSidebarTab,
@@ -1003,6 +1007,28 @@ function isSameEditorOwner(
   )
 }
 
+// Why: a restored tab keeps the forward-slash UNC spelling a terminal link
+// minted, while a fresh open arrives as the backslash UNC form the watcher/host
+// uses. Reuse them as one tab only when a proven local Windows client owns the
+// share and neither side is SSH/runtime-owned — otherwise a same-looking remote
+// path would wrongly collapse onto a local tab.
+function canReuseLocalWslAlias(
+  state: AppState,
+  existing: OpenFile,
+  file: Pick<OpenFile, 'filePath' | 'worktreeId' | 'runtimeEnvironmentId' | 'externalSshTargetId'>,
+  runtimeEnvironmentId: string | null | undefined
+): boolean {
+  return (
+    isLocalWindowsDesktopClient() &&
+    runtimeOwnerKey(runtimeEnvironmentId) === null &&
+    !existing.externalSshTargetId?.trim() &&
+    !file.externalSshTargetId?.trim() &&
+    getConnectionIdForFileFromState(state, file.worktreeId, file.filePath) === null &&
+    getConnectionIdForFileFromState(state, existing.worktreeId, existing.filePath) === null &&
+    areLocalWindowsWslPathAliases(existing.filePath, file.filePath)
+  )
+}
+
 export function buildOwnedEditorFileId(
   filePath: string,
   worktreeId: string,
@@ -1673,9 +1699,9 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
       const reusableOpenFileModes = getReusableOpenFileModes(file.mode)
       const existing = s.openFiles.find(
         (f) =>
-          f.filePath === file.filePath &&
           matchesEditorMode(f, reusableOpenFileModes) &&
-          isSameEditorOwner(f, worktreeId, runtimeEnvironmentId)
+          isSameEditorOwner(f, worktreeId, runtimeEnvironmentId) &&
+          (f.filePath === file.filePath || canReuseLocalWslAlias(s, f, file, runtimeEnvironmentId))
       )
       // Why: a snapshot's reopenId can be a stale shape — the same path is bare in whichever worktree opened it first and namespaced elsewhere — so honoring it while this owner's tab is already open would strand activeFileId and the unified tab on an id no OpenFile has.
       const id = existing

@@ -102,6 +102,67 @@ describe('getEditorExternalWatchTargets', () => {
     ])
   })
 
+  it('enables WSL aliases for a proven-local Windows drive watcher', () => {
+    const repo = makeRepo('repo-local-drive')
+    const worktree = makeWorktree(repo.id, 'wt-local-drive')
+    worktree.path = 'C:\\repo'
+
+    expect(
+      getEditorExternalWatchTargets(
+        makeState({ repo, worktree, openFiles: [makeOpenFile(worktree.id)] })
+      ).targets
+    ).toEqual([
+      {
+        worktreeId: 'wt-local-drive',
+        worktreePath: 'C:\\repo',
+        connectionId: undefined,
+        runtimeEnvironmentId: null,
+        allowLocalWindowsWslAliases: true
+      }
+    ])
+  })
+
+  it('withholds WSL aliases for an SSH-connected Windows drive watcher', () => {
+    const repo = makeRepo('repo-ssh-drive', 'ssh-1')
+    const worktree = makeWorktree(repo.id, 'wt-ssh-drive')
+    worktree.path = 'C:\\repo'
+
+    const target = getEditorExternalWatchTargets(
+      makeState({
+        repo,
+        worktree,
+        openFiles: [makeOpenFile(worktree.id)],
+        sshConnectionStates: new Map([
+          [
+            'ssh-1',
+            {
+              targetId: 'ssh-1',
+              status: 'connected',
+              error: null,
+              reconnectAttempt: 0,
+              connectionGeneration: 1
+            }
+          ]
+        ]) as EditorExternalWatchTargetState['sshConnectionStates']
+      })
+    ).targets[0]
+
+    expect(target).not.toHaveProperty('allowLocalWindowsWslAliases')
+  })
+
+  it('withholds WSL aliases for a remote host stamp on the worktree', () => {
+    const repo = makeRepo('repo-remote-stamp')
+    const worktree = makeWorktree(repo.id, 'wt-remote-stamp')
+    worktree.path = 'C:\\repo'
+    worktree.hostId = 'ssh:builder' as never
+
+    const target = getEditorExternalWatchTargets(
+      makeState({ repo, worktree, openFiles: [makeOpenFile(worktree.id)] })
+    ).targets[0]
+
+    expect(target).not.toHaveProperty('allowLocalWindowsWslAliases')
+  })
+
   it('does not watch the active worktree while the sidebar is hidden', () => {
     const repo = makeRepo('repo-active')
     const worktree = makeWorktree(repo.id, 'wt-active')

@@ -258,4 +258,47 @@ describe('getOpenFilesForExternalFileChange', () => {
       }).map((file) => file.id)
     ).toEqual(['runtime-edit', 'runtime-diff'])
   })
+
+  it('folds a restored WSL alias only for a proven local Windows watcher', () => {
+    const terminalLinkTab = makeOpenFile({
+      id: '//wsl.localhost/Ubuntu/workspace/repo/file.ts',
+      filePath: '//wsl.localhost/Ubuntu/workspace/repo/file.ts'
+    })
+    const backslashWatcher = {
+      worktreeId: 'wt-1',
+      worktreePath: '\\\\wsl.localhost\\Ubuntu\\workspace\\repo',
+      relativePath: 'file.ts',
+      runtimeEnvironmentId: null
+    }
+
+    vi.stubGlobal('navigator', { userAgent: 'Windows' })
+    expect(
+      getOpenFilesForExternalFileChange([terminalLinkTab], {
+        ...backslashWatcher,
+        allowLocalWindowsWslAliases: true
+      }).map((file) => file.id)
+    ).toEqual(['//wsl.localhost/Ubuntu/workspace/repo/file.ts'])
+
+    // Without the opt-in flag the aliases stay distinct even on Windows.
+    expect(getOpenFilesForExternalFileChange([terminalLinkTab], backslashWatcher)).toEqual([])
+
+    // A POSIX desktop client never folds the aliases.
+    vi.stubGlobal('navigator', { userAgent: 'Linux' })
+    expect(
+      getOpenFilesForExternalFileChange([terminalLinkTab], {
+        ...backslashWatcher,
+        allowLocalWindowsWslAliases: true
+      })
+    ).toEqual([])
+
+    // A paired web client is never the local share owner, even on Windows.
+    vi.stubGlobal('navigator', { userAgent: 'Windows' })
+    vi.stubGlobal('__ORCA_WEB_CLIENT__', true)
+    expect(
+      getOpenFilesForExternalFileChange([terminalLinkTab], {
+        ...backslashWatcher,
+        allowLocalWindowsWslAliases: true
+      })
+    ).toEqual([])
+  })
 })

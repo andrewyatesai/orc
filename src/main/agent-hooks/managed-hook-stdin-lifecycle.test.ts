@@ -272,13 +272,18 @@ describe('Windows managed hook stdin structure', () => {
         )
       }
 
+      // Why (#11549 class): the Windows-local copilot .ps1 and kimi .sh now guard before
+      // owning stdin — the caller may abandon the pipe, and the payload is discarded on
+      // this path anyway. (.cmd keeps the fork's shared more.com drain epilogue above.)
       const copilot = readFileSync(join(hooksDir, 'copilot-hook.ps1'), 'utf8')
-      expect(copilot.indexOf('[Console]::In.ReadToEnd()')).toBeLessThan(
-        copilot.indexOf('if (-not $env:ORCA_AGENT_HOOK_PORT')
+      expect(copilot.indexOf('if (-not $env:ORCA_AGENT_HOOK_PORT')).toBeGreaterThan(-1)
+      expect(copilot.indexOf('if (-not $env:ORCA_AGENT_HOOK_PORT')).toBeLessThan(
+        copilot.indexOf('[Console]::In.ReadToEnd()')
       )
       const kimi = readFileSync(join(hooksDir, 'kimi-hook.sh'), 'utf8')
-      expect(kimi.indexOf(`payload=$(${POSIX_HOOK_STDIN_READER})`)).toBeLessThan(
-        kimi.indexOf('exit 0')
+      expect(kimi.indexOf('if [ -z "$ORCA_AGENT_HOOK_PORT" ]')).toBeGreaterThan(-1)
+      expect(kimi.indexOf('if [ -z "$ORCA_AGENT_HOOK_PORT" ]')).toBeLessThan(
+        kimi.indexOf(`payload=$(${POSIX_HOOK_STDIN_READER})`)
       )
     } finally {
       homedirMock.mockImplementation(() => process.env.HOME ?? tmpdir())
@@ -297,7 +302,7 @@ describe('Windows managed hook stdin structure', () => {
   })
 
   it.skipIf(process.platform !== 'win32')(
-    'executes every local script and missing-script launcher without a broken writer',
+    'executes every local script and missing-script launcher, breaking the writer only without Orca env',
     async () => {
       const home = mkdtempSync(join(tmpdir(), 'orca-hook-stdin-windows-live-'))
       homedirMock.mockReturnValue(home)
@@ -335,7 +340,15 @@ describe('Windows managed hook stdin structure', () => {
               : [scriptPath]
           const result = await runHookProcess(executable, args, hookEnvironment())
           expect(result.exitCode, `${fileName} exit code`).toBe(0)
-          expect(result.stdinErrors, `${fileName} stdin errors`).toHaveLength(0)
+          // Why (#11549 class): copilot .ps1 and kimi .sh now guard before owning stdin,
+          // so on the missing-env path their writer may break — EPIPE, or ECONNRESET when
+          // Windows tears the pipe down first. The fork's .cmd hooks drain via more.com and
+          // stay error-free (loop body skipped). hookEnvironment() strips every ORCA_* var,
+          // so this relaxation only ever covers the missing-env path — a happy-path case
+          // added to this loop must not reuse it.
+          for (const error of result.stdinErrors) {
+            expect(['EPIPE', 'ECONNRESET'], `${fileName} stdin error`).toContain(error.code)
+          }
         }
 
         const missingScript = 'C:\\missing\\orca-hook.cmd'

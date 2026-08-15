@@ -588,6 +588,20 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
       )
       warn.mockRestore()
     })
+
+    it('keeps legacy attach behavior when no output sequence is available', async () => {
+      stubClientRequests({
+        getSize: () => ({ size: { cols: 100, rows: 30 } }),
+        createOrAttach: () => ({
+          isNew: false,
+          snapshot: null,
+          pid: 4321,
+          shellState: 'unsupported'
+        })
+      })
+
+      await expect(adapter.attach('legacy-session')).resolves.toBeUndefined()
+    })
   })
 
   describe('write', () => {
@@ -1584,6 +1598,20 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
       expect(result.isReattach).toBe(true)
       expect(result.snapshot).toContain('\x1b[?2004h')
       expect(result.snapshot).toContain('prompt$')
+    })
+
+    it('returns the preserved sequence from attach-only adoption', async () => {
+      const sessionId = 'attach-sequence-handoff'
+      await adapter.spawn({ cols: 80, rows: 24, sessionId })
+      lastSubprocess._simulateData('preserved output')
+      await new Promise((r) => setTimeout(r, 50))
+
+      await expect(adapter.attach(sessionId)).resolves.toEqual({
+        providerSequence: {
+          value: 'preserved output'.length,
+          generation: 'continued'
+        }
+      })
     })
 
     it('returns plain result for new sessionId', async () => {

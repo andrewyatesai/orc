@@ -165,9 +165,22 @@
         "+100 on orca-runtime.ts from the delta-b2 batch-2 parity port, stacked on delta-b1 (36723). All attach-kind edits to existing OrcaRuntimeService methods and module-level title detectors. Two named ports account for it: 970696a008 (sidebar Cursor title-resolution, #10258) threads TerminalTitleFactMeta through applyTrackedPtyTitle for the identity-only cursor-agent literal (records no status/management title, tracker keeps it for display) plus three instance-coupled private helpers (isLiveCursorNativeTitle, getTrackedDisplayTitleForPty, getUnpersistedTrackedTitleForPty) and the mobile-tab trackerOnlyTitle preference; a81224614a (detect a live OpenCode pane from its native `OC | ` marker) adds isOpenCodeNativeTitle guards across the isTerminalRunningAgent paths, detectExplicitIdleStatusFromTitle, and the presence-only marker corroboration against process evidence; plus the permission-required blocked-sentinel regex/decision-count block in findTerminalWaitBlockedSignal.",
         "Accepted: every piece edits existing method bodies over private this-state (ptysById/leaves/ptyTitleTrackersByPtyId) or module-level detectors and is not extractable without exporting that internal surface. pty.ts held flat at 6364 and shimWholeFileLoc held flat at 2813 across the batch \u2014 the delivery-reliability shim this ratchet watches did not move, which is the number that would have justified refusing. Decomposition of orca-runtime.ts remains owed; the next movement should be down."
       ]
+    },
+    {
+      "date": "2026-08-14",
+      "head": "delta-b4",
+      "from": {
+        "src/main/ipc/pty.ts": 6364,
+        "src/main/runtime/orca-runtime.ts": 36823,
+        "shimWholeFileLoc": 2813
+      },
+      "why": [
+        "pty.ts +11 (6364->6375) from fresh-delta batch 4 attach-kind ports: fc8441194c (synchronizePtyOutputSequenceFromProvider on the attach path) + 982570648a (ensureWslHookRelayForReattach call-sites; the reusable half already extracted to the new module wsl-hook-relay-reattach.ts). Accepted attach-kind: the extractable piece landed in its own module, only the pty.ts wiring remains.",
+        "orca-runtime.ts TIGHTENED 36823->36393 and shimWholeFileLoc TIGHTENED 2813->2812: the god object NET SHRANK across delta batches 4+6 via named-module extraction (b6's larger extraction + b4's wsl-hook-relay-reattach). Pulling the ratchet in so the freed headroom cannot hide future drift. The delivery-reliability shim this ratchet watches shrank by 1 with no manifest loss."
+      ]
     }
   ],
-  "shimWholeFileLoc": 2813,
-  "src/main/runtime/orca-runtime.ts": 36823,
-  "src/main/ipc/pty.ts": 6364
+  "shimWholeFileLoc": 2812,
+  "src/main/runtime/orca-runtime.ts": 36393,
+  "src/main/ipc/pty.ts": 6375
 }

@@ -29,6 +29,7 @@ import { parsePaneKey } from '../../shared/stable-pane-id'
 import { setTrayAttention } from '../tray/system-tray'
 import { isMainWindowVisible } from '../window/main-window-visibility'
 import { getDevInstanceIdentity } from '../startup/dev-instance-identity'
+import { getTrustedUIRendererWindow } from './ui'
 
 const NOTIFICATION_COOLDOWN_MS = 5000
 const MAX_RECENT_NOTIFICATION_KEYS = 50
@@ -523,8 +524,9 @@ export function registerNotificationHandlers(store: Store, runtime?: OrcaRuntime
           const repoId = getRepoIdFromWorktreeId(args.worktreeId)
           clickHandler = () => {
             release()
-            const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
-            if (!win) {
+            // Why: route to the main window's renderer, not the topmost window — with the Agent Dashboard popped out, getAllWindows could hand back the popout, which cannot navigate worktrees.
+            const win = getTrustedUIRendererWindow()
+            if (!win || win.isDestroyed()) {
               return
             }
             if (process.platform === 'darwin') {
@@ -533,6 +535,8 @@ export function registerNotificationHandlers(store: Store, runtime?: OrcaRuntime
             if (win.isMinimized()) {
               win.restore()
             }
+            // Why: the main window may be hidden behind the popout; reveal it before focusing so the click actually surfaces it.
+            win.show()
             win.focus()
             win.webContents.send('ui:activateWorktree', {
               repoId,

@@ -61,6 +61,8 @@ export type WorktreeBasePollerOptions = {
   visibility?: WorktreePollerWindowVisibility
   /** Test hook: called whenever a full snapshot scan runs (vs. a gated skip). */
   onFullScan?: () => void
+  /** Test hook: awaited with the tick after a full scan's listings, to land a racing write. */
+  onSnapshotTaken?: (tick: number) => void | Promise<void>
 }
 
 // Why: these targets used to be recursive FSEvents subscriptions spanning the
@@ -111,6 +113,8 @@ type BaseSnapshot = {
   // dirs whose listing determines the candidate set: the root plus any
   // nested repo containers. Their stat signatures gate the next full scan.
   gateDirs: string[]
+  // index-aligned with gateDirs, each sampled *before* that dir's listing
+  gateSignatures: string[]
 }
 
 // Depth-1 worktree dirs (flat layout), plus depth-2 dirs under each nested
@@ -122,6 +126,10 @@ async function snapshotBase(
 ): Promise<BaseSnapshot> {
   const markers = new Map<string, boolean>()
   const gateDirs = [rootPath]
+  // Why: sampling the signature before the listing makes a write that races the
+  // scan look stale next tick (one redundant rescan) instead of invisible until
+  // the backstop, which is up to 15 ticks of missed creates/deletes.
+  const gateSignatures = [await dirSignature(rootPath)]
   const configs = [...repos.values()]
   const includeFlat = configs.some((config) => !config.nestWorkspaces)
   const nestedRepoNames = new Set(
@@ -136,7 +144,7 @@ async function snapshotBase(
   } catch {
     // Root vanished: an empty snapshot diffs into delete events for every
     // previously-known worktree dir, matching the old watcher's error path.
-    return { markers, gateDirs }
+    return { markers, gateDirs, gateSignatures }
   }
 
   const candidates: string[] = []
@@ -150,6 +158,7 @@ async function snapshotBase(
     }
     if (nestedRepoNames.has(normalizeRuntimePathForComparison(entry.name))) {
       gateDirs.push(entryPath)
+      gateSignatures.push(await dirSignature(entryPath))
       let subEntries
       try {
         subEntries = await readdir(entryPath, { withFileTypes: true })
@@ -167,7 +176,7 @@ async function snapshotBase(
   for (const dir of candidates) {
     markers.set(dir, await hasGitMarker(dir))
   }
-  return { markers, gateDirs }
+  return { markers, gateDirs, gateSignatures }
 }
 
 function diffBase(prev: BaseSnapshot, next: BaseSnapshot): WorktreeBasePollEvent[] {
@@ -191,13 +200,13 @@ async function startBasePoller(
   onEvents: (events: WorktreeBasePollEvent[]) => void,
   pollIntervalMs: number,
   visibility: WorktreePollerWindowVisibility,
-  onFullScan?: () => void
+  onFullScan?: () => void,
+  onSnapshotTaken?: (tick: number) => void | Promise<void>
 ): Promise<WorktreeBaseSubscription> {
   let disposed = false
   let ticking = false
   let tickCount = 0
   let snapshot = await snapshotBase(target.path, getRepos())
-  let gateSignatures = await Promise.all(snapshot.gateDirs.map(dirSignature))
   let timer: ReturnType<typeof setTimeout> | null = null
   let parkedWhileHidden = false
   // dir → tick when first seen without a `.git` marker
@@ -211,7 +220,7 @@ async function startBasePoller(
   const fullScan = async (): Promise<void> => {
     onFullScan?.()
     const next = await snapshotBase(target.path, getRepos())
-    const nextSignatures = await Promise.all(next.gateDirs.map(dirSignature))
+    await onSnapshotTaken?.(tickCount)
     if (disposed) {
       return
     }
@@ -229,7 +238,6 @@ async function startBasePoller(
       }
     }
     snapshot = next
-    gateSignatures = nextSignatures
     if (events.length > 0) {
       onEvents(events)
     }
@@ -259,8 +267,8 @@ async function startBasePoller(
     // are untouched, skip the readdir + per-candidate stat fan-out entirely.
     const signatures = await Promise.all(snapshot.gateDirs.map(dirSignature))
     const gateChanged =
-      signatures.length !== gateSignatures.length ||
-      signatures.some((sig, index) => sig !== gateSignatures[index])
+      signatures.length !== snapshot.gateSignatures.length ||
+      signatures.some((sig, index) => sig !== snapshot.gateSignatures[index])
     if (gateChanged) {
       await fullScan()
       return
@@ -352,5 +360,13 @@ export async function startWorktreeBaseDirectoryPoller(
       options.onFullScan
     )
   }
-  return startBasePoller(target, getRepos, onEvents, pollIntervalMs, visibility, options.onFullScan)
+  return startBasePoller(
+    target,
+    getRepos,
+    onEvents,
+    pollIntervalMs,
+    visibility,
+    options.onFullScan,
+    options.onSnapshotTaken
+  )
 }

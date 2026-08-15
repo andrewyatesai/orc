@@ -4,13 +4,9 @@ import { ipcMain } from 'electron'
 import { readFile, stat } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import type { Store } from '../persistence'
+import { pruneLineageForMissingRepoWorktrees } from '../worktree-lineage-pruning'
 import { isFolderRepo } from '../../shared/repo-kind'
 import { readBranchRenameFailureOutputForDisplay } from '../agent-hooks/branch-rename-failure-output'
-import {
-  isWorkspaceKey,
-  parseWorkspaceKey,
-  worktreeWorkspaceKey
-} from '../../shared/workspace-scope'
 import { inspectSetupScriptImportCandidates } from '../../shared/setup-script-imports'
 import { getProjectHostSetupWorktreeMeta } from '../../shared/project-host-setup-projection'
 import { projectResolvedWorktreeLineage } from '../../shared/resolved-worktree-lineage'
@@ -654,47 +650,6 @@ function rememberLocalWorktreeRoots(
     repo.path,
     ...gitWorktrees.map((worktree) => worktree.path)
   ])
-}
-
-function pruneLineageForMissingRepoWorktrees(
-  store: Store,
-  repo: Repo,
-  gitWorktrees: GitWorktreeInfo[]
-): void {
-  if (
-    typeof store.getAllWorktreeLineage !== 'function' ||
-    typeof store.removeWorktreeLineage !== 'function'
-  ) {
-    return
-  }
-  const liveIds = new Set(gitWorktrees.map((worktree) => `${repo.id}::${worktree.path}`))
-  const repoPrefix = `${repo.id}::`
-  for (const childWorkspaceKey of Object.keys(store.getAllWorkspaceLineage?.() ?? {})) {
-    const childScope = parseWorkspaceKey(childWorkspaceKey)
-    if (
-      childScope?.type === 'worktree' &&
-      childScope.worktreeId.startsWith(repoPrefix) &&
-      !liveIds.has(childScope.worktreeId)
-    ) {
-      if (isWorkspaceKey(childWorkspaceKey)) {
-        store.removeWorkspaceLineage?.(childWorkspaceKey)
-      }
-    }
-  }
-  for (const [childId, lineage] of Object.entries(store.getAllWorktreeLineage())) {
-    if (childId.startsWith(repoPrefix) && !liveIds.has(childId)) {
-      // Why: path-derived IDs can be reused; once a scan proves the child is gone, drop its lineage so a future same-path worktree can't inherit it.
-      store.removeWorktreeLineage(childId)
-      store.removeWorkspaceLineage?.(worktreeWorkspaceKey(childId))
-    }
-    if (lineage.parentWorktreeId.startsWith(repoPrefix) && !liveIds.has(lineage.parentWorktreeId)) {
-      const parentMeta = store.getWorktreeMeta(lineage.parentWorktreeId)
-      if (!parentMeta || parentMeta.instanceId === lineage.parentWorktreeInstanceId) {
-        // Why: keep child lineage for the "Missing parent" UI, but rotate the absent parent's identity once so a path reuse can't inherit it.
-        store.setWorktreeMeta(lineage.parentWorktreeId, { instanceId: randomUUID() })
-      }
-    }
-  }
 }
 
 type SshWorktreeMetaCandidate = {

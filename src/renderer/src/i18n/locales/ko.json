@@ -5199,6 +5199,9 @@
               }
             }
           }
+        },
+        "WorktreeListScrollToTopButton": {
+          "jumpToTop": "맨 위로 이동"
         }
       },
       "shared": {

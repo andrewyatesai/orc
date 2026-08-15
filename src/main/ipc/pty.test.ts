@@ -770,7 +770,7 @@ describe('registerPtyHandlers', () => {
     terminalHandle: 'term_recovered'
   }
 
-  function registerAgentClaimController(): {
+  function registerAgentClaimController(runtimeOverrides: Record<string, unknown> = {}): {
     spawn: (args: Record<string, unknown>) => Promise<unknown>
     write: (ptyId: string, data: string) => boolean
     resize: (ptyId: string, cols: number, rows: number) => boolean
@@ -788,7 +788,8 @@ describe('registerPtyHandlers', () => {
       }),
       createPreAllocatedTerminalHandle: vi.fn(() => 'term_recovered'),
       registerPreAllocatedHandleForPty: vi.fn(),
-      registerPty: vi.fn()
+      registerPty: vi.fn(),
+      ...runtimeOverrides
     }
     registerPtyHandlers(mainWindow as never, runtime as never)
     if (!controller) {
@@ -858,6 +859,30 @@ describe('registerPtyHandlers', () => {
     unregisterSshPtyProvider('ssh-2')
     clearPtyOwnershipForConnection('ssh-2')
     clearProviderPtyState('daemon-pty')
+  })
+
+  it('synchronizes subscriber-driven attach to the daemon snapshot sequence', async () => {
+    const daemonPtyId = 'repo-1::/tmp/wt@@sequence-handoff'
+    const providerSequence = { value: 204, generation: 'continued' as const }
+    const localProvider = createAgentClaimProvider({})
+    localProvider.attach.mockResolvedValueOnce({ providerSequence })
+    setLocalPtyProvider(localProvider as never)
+    const getPtyOutputSequence = vi.fn(() => 0)
+    const synchronizePtyOutputSequenceFromProvider = vi.fn()
+    const controller = registerAgentClaimController({
+      getPtyOutputSequence,
+      synchronizePtyOutputSequenceFromProvider
+    }) as unknown as { attach: (ptyId: string) => Promise<boolean> }
+
+    await expect(controller.attach(daemonPtyId)).resolves.toBe(true)
+
+    expect(getPtyOutputSequence).toHaveBeenCalledWith(daemonPtyId)
+    expect(synchronizePtyOutputSequenceFromProvider).toHaveBeenCalledWith(
+      daemonPtyId,
+      providerSequence,
+      0
+    )
+    clearProviderPtyState(daemonPtyId)
   })
 
   it('does not dispatch a runtime PTY spawn after its client disconnects', async () => {

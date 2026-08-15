@@ -5199,6 +5199,9 @@
               }
             }
           }
+        },
+        "WorktreeListScrollToTopButton": {
+          "jumpToTop": "先頭にジャンプ"
         }
       },
       "shared": {

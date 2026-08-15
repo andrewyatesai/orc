@@ -5199,6 +5199,9 @@
               }
             }
           }
+        },
+        "WorktreeListScrollToTopButton": {
+          "jumpToTop": "Saltar arriba"
         }
       },
       "shared": {

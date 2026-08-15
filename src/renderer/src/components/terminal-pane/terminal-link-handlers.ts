@@ -15,8 +15,10 @@ import {
 import {
   getTerminalFileContext,
   isHtmlFilePath,
+  mapTerminalFilePath,
   openDetectedFilePath,
-  shouldOpenTerminalFileWithSystemDefault
+  shouldOpenTerminalFileWithSystemDefault,
+  terminalLinkWslDistro
 } from './terminal-file-open-routing'
 import {
   buildHardWrappedPathLogicalLineCandidates,
@@ -38,7 +40,6 @@ import {
   getTerminalUrlOpenHint
 } from './terminal-link-open-hints'
 import { resolveKnownWorktreeRootPathLink } from './terminal-worktree-path-link'
-import { mapPosixPathToWslWorktreeUncPath } from '../../../../shared/wsl-paths'
 import { isTerminalLinkActivation } from './terminal-link-activation'
 import { getBufferPositionForTerminalMouseEvent } from './terminal-mouse-buffer-position'
 
@@ -58,6 +59,7 @@ export type LinkHandlerDeps = {
   pathExistsCache: TerminalPathExistsCache
   runtimeEnvironmentId?: string | null
   terminalHomePath?: string | null
+  wslDistro?: string | null
   getRuntimeEnvironmentIdForPane?: (paneId: number) => string | null
 }
 
@@ -137,18 +139,21 @@ export function createFilePathLinkProvider(
               if (!resolved) {
                 return null
               }
+              const runtimeEnvironmentId =
+                deps.getRuntimeEnvironmentIdForPane?.(paneId) ?? deps.runtimeEnvironmentId ?? null
               // Why (issue #8156): WSL terminals print POSIX paths the Windows
-              // host cannot stat; rebase onto the worktree's UNC share.
-              const absolutePath =
-                mapPosixPathToWslWorktreeUncPath(resolved.absolutePath, worktreePath) ??
-                resolved.absolutePath
+              // host cannot stat; rebase onto the worktree's UNC share, resolving
+              // the distro from the pane runtime for Windows-drive worktrees.
+              const absolutePath = mapTerminalFilePath(
+                resolved.absolutePath,
+                worktreePath,
+                terminalLinkWslDistro(deps.wslDistro, runtimeEnvironmentId)
+              )
               const range = rangeForParsedFileLink(logicalLine, parsed.startIndex, parsed.endIndex)
               if (!range) {
                 return null
               }
 
-              const runtimeEnvironmentId =
-                deps.getRuntimeEnvironmentIdForPane?.(paneId) ?? deps.runtimeEnvironmentId ?? null
               const fileContext = getTerminalFileContext(
                 worktreeId,
                 worktreePath,
@@ -197,6 +202,7 @@ export function createFilePathLinkProvider(
                       worktreeId,
                       worktreePath,
                       runtimeEnvironmentId,
+                      wslDistro: deps.wslDistro,
                       openWithSystemDefault: Boolean(event.shiftKey)
                     })
                   },
@@ -288,6 +294,7 @@ export function installFilePathLinkClickFallback(
         worktreeId: deps.worktreeId,
         worktreePath: deps.worktreePath,
         runtimeEnvironmentId,
+        wslDistro: deps.wslDistro,
         pathExistsCache: deps.pathExistsCache,
         openWithSystemDefault: Boolean(event.shiftKey)
       }

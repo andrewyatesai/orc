@@ -127,6 +127,7 @@ import {
 } from './terminal-dead-session-reconcile'
 import { getRemoteRuntimePtyEnvironmentId } from '@/runtime/runtime-terminal-stream'
 import { getConnectionId } from '@/lib/connection-context'
+import { resolvePaneWslDistro } from './terminal-pane-wsl-distro'
 import { getExecutionHostIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { isPaneReplaying, type ReplayingPanesRef } from './replay-guard'
 import { fitAndFocusPanes, fitPanes } from './pane-helpers'
@@ -708,6 +709,12 @@ export function useTerminalPaneLifecycle({
     queuedInitialCwdRef.current = initialCwdResolution.queuedInitialCwd
     const startupCwd = initialCwdResolution.startupCwd
     const terminalHomePath = resolveTerminalHomePathFromEnv(startup?.env)
+    // Why: a local WSL-runtime pane prints POSIX paths even when its worktree is
+    // on a Windows drive; resolve the distro from the runtime so file links map.
+    // SSH panes print the remote host's paths, so no local distro applies.
+    const wslDistro = getConnectionId(worktreeId)
+      ? null
+      : resolvePaneWslDistro(useAppStore.getState(), worktreeId, worktreePath)
     const getPaneLinkCwd = (paneId: number): string =>
       resolvePaneLinkCwd(paneCwdRef.current, paneId, startupCwd)
     // Why: lifecycle-scoped cache for cross-SSH/runtime existence probes; may hold temporarily stale entries.
@@ -718,6 +725,7 @@ export function useTerminalPaneLifecycle({
       startupCwd,
       getPaneLinkCwd,
       terminalHomePath,
+      wslDistro,
       managerRef,
       linkProviderDisposablesRef,
       pathExistsCache,
