@@ -3,10 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { GlobalSettings } from '../../../../shared/types'
 import type { SourceControlAiSettings } from '../../../../shared/source-control-ai-types'
-import {
-  getCommitMessageModelDiscoveryHostKey,
-  getCommitMessageModelDiscoveryHostKeyForScope
-} from '../../../../shared/commit-message-host-key'
+import { getCommitMessageModelDiscoveryHostKeyForScope } from '@/lib/git-wasm/commit-message-host-key'
 import { useAppStore } from '../../store'
 import {
   CommitMessageAiPane,
@@ -437,10 +434,13 @@ describe('CommitMessageAiPane', () => {
     ])
   })
 
+  // The connection-id form now lives in main only (src/main/rust-commit-message-host-key.ts);
+  // the renderer reaches the same Rust core through the scope shim, which answers
+  // identically for a plain connection id.
   it('keys model discovery cache by execution host', () => {
-    expect(getCommitMessageModelDiscoveryHostKey(null)).toBe('local')
-    expect(getCommitMessageModelDiscoveryHostKey('ssh-1')).toBe('ssh:ssh-1')
-    expect(getCommitMessageModelDiscoveryHostKey(undefined)).toBe('unknown')
+    expect(getCommitMessageModelDiscoveryHostKeyForScope(null)).toBe('local')
+    expect(getCommitMessageModelDiscoveryHostKeyForScope(undefined)).toBe('unknown')
+    expect(getCommitMessageModelDiscoveryHostKeyForScope('')).toBe('local')
     expect(getCommitMessageModelDiscoveryHostKeyForScope('runtime:env-1')).toBe('runtime:env-1')
     expect(getCommitMessageModelDiscoveryHostKeyForScope('ssh-1')).toBe('ssh:ssh-1')
   })

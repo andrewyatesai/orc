@@ -4,7 +4,7 @@ import type {
   TabGroupLayoutNode,
   WorkspaceSessionState
 } from '../../../../shared/types'
-import { isValidTerminalTabId } from '../../../../shared/terminal-tab-id'
+import { isValidTerminalTabId } from '@/lib/git-wasm/terminal-tab-id'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import {
   dedupeTabOrder,
@@ -73,11 +73,6 @@ function hydrateUnifiedFormat(
         .filter((tab) => tab.quickCommandLabel?.trim())
         .map((tab) => [tab.id, tab.quickCommandLabel!.trim()])
     )
-    const aiVaultTitleByTerminalId = new Map(
-      (session.tabsByWorktree[worktreeId] ?? [])
-        .filter((tab) => tab.aiVaultTitle)
-        .map((tab) => [tab.id, tab.aiVaultTitle!])
-    )
     tabsByWorktree[worktreeId] = [...tabs]
       .map((tab) => ({
         ...tab,
@@ -91,11 +86,9 @@ function hydrateUnifiedFormat(
           ? tab.quickCommandLabel.trim()
           : quickCommandLabelByTerminalId.get(tab.entityId)
         const generatedLabel = generatedTitleByTerminalId.get(tab.entityId)
-        const aiVaultTitle = tab.aiVaultTitle ?? aiVaultTitleByTerminalId.get(tab.entityId)
         return {
           ...tab,
           ...(quickCommandLabel ? { quickCommandLabel } : {}),
-          ...(aiVaultTitle ? { aiVaultTitle } : {}),
           ...(!tab.generatedLabel?.trim() && generatedLabel ? { generatedLabel } : {})
         }
       })

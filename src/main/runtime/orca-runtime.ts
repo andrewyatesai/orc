@@ -283,7 +283,7 @@ import { FIRST_PANE_ID } from '../../shared/pane-key'
 import { isTerminalLeafId, makePaneKey, parsePaneKey } from '../../shared/stable-pane-id'
 import { parseAppSshPtyId } from '../../shared/ssh-pty-id'
 import { isLeafPtyProvenAbsent } from './terminal-leaf-liveness-demotion'
-import { isValidHostTerminalTabId, isValidTerminalTabId } from '../../shared/terminal-tab-id'
+import { isValidHostTerminalTabId, isValidTerminalTabId } from '../rust-terminal-tab-id'
 import {
   applyTerminalQuickCommandMutation,
   MAX_QUICK_COMMANDS,

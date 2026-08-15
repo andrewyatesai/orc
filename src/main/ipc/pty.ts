@@ -141,7 +141,7 @@ import {
   parseLegacyNumericPaneKey,
   parsePaneKey
 } from '../../shared/stable-pane-id'
-import { isValidTerminalTabId } from '../../shared/terminal-tab-id'
+import { isValidTerminalTabId } from '../rust-terminal-tab-id'
 import {
   resolveTerminalStartupCwdForWorkspace,
   type TerminalStartupCwdMissingDirFallback

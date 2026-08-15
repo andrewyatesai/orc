@@ -1,5 +1,5 @@
 import type { AgentStatusIpcPayload } from '../../shared/agent-status-types'
-import { isValidTerminalTabId } from '../../shared/terminal-tab-id'
+import { isValidTerminalTabId } from '../rust-terminal-tab-id'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 
 export type AgentStatusRuntimeEnrichment = Pick<

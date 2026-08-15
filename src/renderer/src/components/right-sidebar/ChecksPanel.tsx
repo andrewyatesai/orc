@@ -156,7 +156,7 @@ import {
   resolveSourceControlAiForOperation,
   resolveSourceControlAiPrCreationDefaults
 } from '../../../../shared/source-control-ai'
-import { getCommitMessageModelDiscoveryHostKeyForScope } from '../../../../shared/commit-message-host-key'
+import { getCommitMessageModelDiscoveryHostKeyForScope } from '@/lib/git-wasm/commit-message-host-key'
 import type {
   SourceControlActionRecipe,
   SourceControlLaunchActionId

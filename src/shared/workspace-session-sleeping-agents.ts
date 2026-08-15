@@ -4,7 +4,7 @@ import {
   normalizeAgentProviderSession,
   RESUMABLE_TUI_AGENTS
 } from './agent-session-resume'
-import { isValidTerminalTabId } from './terminal-tab-id'
+import { isValidTerminalTabId } from './terminal-tab-id-validity'
 
 const terminalTabIdSchema = z
   .string()
@@ -97,8 +97,7 @@ const sleepingAgentSessionRecordSchema = z
     interrupted: z.boolean().optional(),
     connectionId: z.string().nullable().optional(),
     launchConfig: sleepingAgentLaunchConfigSchema.optional(),
-    origin: z.enum(['worktree-sleep', 'quit', 'live']).optional(),
-    restoreOnTabOpenOnly: z.boolean().optional()
+    origin: z.enum(['worktree-sleep', 'quit', 'live']).optional()
   })
   .refine(
     (record) => getAgentResumeArgv(record.agent, record.providerSession) !== null,

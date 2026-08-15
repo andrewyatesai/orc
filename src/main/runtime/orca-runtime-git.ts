@@ -17,7 +17,7 @@ import type {
   Worktree
 } from '../../shared/types'
 import type { CommitMessageDraftContext } from '../../shared/commit-message-generation'
-import { getCommitMessageModelDiscoveryHostKey } from '../../shared/commit-message-host-key'
+import { getCommitMessageModelDiscoveryHostKey } from '../rust-commit-message-host-key'
 import type { GitHistoryOptions, GitHistoryResult } from '../../shared/git-history'
 import {
   mergeLegacyCommitMessageAiIntoSourceControlAi,

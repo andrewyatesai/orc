@@ -70,7 +70,7 @@ import { runRemoteOrcaCli } from './ssh-remote-orca-cli'
 import { parseRemoteOrcaCliRequest } from './ssh-remote-cli-host-passthrough'
 import { toSshExecutionHostId, type ExecutionHostId } from '../../shared/execution-host'
 import { isTerminalLeafId, makePaneKey } from '../../shared/stable-pane-id'
-import { isValidTerminalTabId } from '../../shared/terminal-tab-id'
+import { isValidTerminalTabId } from '../rust-terminal-tab-id'
 
 export type RelaySessionState = 'idle' | 'deploying' | 'ready' | 'reconnecting' | 'disposed'
 
@@ -840,9 +840,6 @@ export class SshRelaySession {
         hasExplicitPrompt?: unknown
         promptInteractionKey?: unknown
         hookEventName?: unknown
-        source?: unknown
-        providerPromptId?: unknown
-        compactTrigger?: unknown
         toolUseId?: unknown
         toolAgentId?: unknown
         toolAgentType?: unknown
@@ -870,9 +867,6 @@ export class SshRelaySession {
               : undefined,
           hookEventName:
             typeof envelope.hookEventName === 'string' ? envelope.hookEventName : undefined,
-          source: envelope.source,
-          providerPromptId: envelope.providerPromptId,
-          compactTrigger: envelope.compactTrigger,
           toolUseId: typeof envelope.toolUseId === 'string' ? envelope.toolUseId : undefined,
           toolAgentId: typeof envelope.toolAgentId === 'string' ? envelope.toolAgentId : undefined,
           toolAgentType:

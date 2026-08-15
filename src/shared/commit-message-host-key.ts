@@ -1,27 +1,9 @@
+// Host-key constants for cached commit-message model discovery. The derivation
+// moved to the Rust commit_message_host_key core (orca-dispatch); callers use the
+// napi wrapper (src/main/rust-commit-message-host-key.ts) or the wasm wrapper
+// (src/renderer/src/lib/git-wasm/commit-message-host-key.ts). The constants stay
+// here because the renderer shim's pre-ready fallback and the settings resolvers
+// compare against them.
 export const LOCAL_COMMIT_MESSAGE_HOST_KEY = 'local'
 export const UNKNOWN_COMMIT_MESSAGE_HOST_KEY = 'unknown'
 export const RUNTIME_COMMIT_MESSAGE_HOST_KEY_PREFIX = 'runtime:'
-
-export function getCommitMessageModelDiscoveryHostKey(
-  connectionId: string | null | undefined
-): string {
-  if (connectionId === undefined) {
-    return UNKNOWN_COMMIT_MESSAGE_HOST_KEY
-  }
-  return connectionId ? `ssh:${connectionId}` : LOCAL_COMMIT_MESSAGE_HOST_KEY
-}
-
-export function getCommitMessageModelDiscoveryHostKeyForScope(
-  scope: string | null | undefined
-): string {
-  if (scope === undefined) {
-    return UNKNOWN_COMMIT_MESSAGE_HOST_KEY
-  }
-  if (!scope) {
-    return LOCAL_COMMIT_MESSAGE_HOST_KEY
-  }
-  if (scope.startsWith(RUNTIME_COMMIT_MESSAGE_HOST_KEY_PREFIX)) {
-    return scope
-  }
-  return getCommitMessageModelDiscoveryHostKey(scope)
-}

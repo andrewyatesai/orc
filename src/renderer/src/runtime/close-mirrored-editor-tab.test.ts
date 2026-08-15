@@ -20,7 +20,7 @@ import {
   isWebSessionCloseIntentPending,
   resetWebSessionCloseIntentForTests
 } from './web-session-close-intent'
-import { toHostSessionTabId } from '../../../shared/terminal-surface-id'
+import { toHostSessionTabId } from './web-terminal-surface-id'
 
 function buildState(overrides: Partial<MirroredEditorCloseState> = {}): MirroredEditorCloseState {
   return {

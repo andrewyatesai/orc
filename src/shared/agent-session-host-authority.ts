@@ -6,7 +6,7 @@ import {
 } from './agent-session-resume'
 import type { RuntimeTerminalCreate, RuntimeTerminalPresentation } from './runtime-types'
 import { isTerminalLeafId } from './stable-pane-id'
-import { isValidTerminalTabId } from './terminal-tab-id'
+import { isValidTerminalTabId } from './terminal-tab-id-validity'
 import type { TuiAgent } from './types'
 
 export { AGENT_SESSION_HOST_AUTHORITY_RUNTIME_CAPABILITY as AGENT_SESSION_HOST_AUTHORITY_CAPABILITY } from './protocol-version'

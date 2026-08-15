@@ -1,6 +1,6 @@
 import type { AgentType } from '../../../../shared/agent-status-types'
 import type { CatalogModel } from '../../../../shared/agent-session-option-catalog'
-import { getCommitMessageModelDiscoveryHostKeyForScope } from '../../../../shared/commit-message-host-key'
+import { getCommitMessageModelDiscoveryHostKeyForScope } from '@/lib/git-wasm/commit-message-host-key'
 import { getSettingsForAgentTabRuntimeOwner } from '@/lib/agent-paste-draft'
 import { getConnectionIdFromState } from '@/lib/connection-context'
 import {
@@ -52,9 +52,6 @@ export async function discoverNativeChatCatalogModels(
   return result.models.map((model) => ({
     id: model.id,
     label: model.label,
-    // Why: carry the CLI's own default marker so a catalog with defaultModelIsCliDefault
-    // can name the model a fresh session actually runs.
-    ...(model.isDefault ? { isDefault: true as const } : {}),
     options: []
   }))
 }

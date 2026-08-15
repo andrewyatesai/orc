@@ -23,7 +23,7 @@ import type {
   RuntimeSyncWindowGraph
 } from '../../../shared/runtime-types'
 import { isTerminalLeafId, makePaneKey } from '../../../shared/stable-pane-id'
-import { isWebTerminalSurfaceTabId } from '../../../shared/terminal-surface-id'
+import { isWebTerminalSurfaceTabId } from './web-terminal-surface-id'
 import { isClaudeManagementTitle } from '../../../shared/agent-detection'
 import type {
   Tab,
@@ -411,7 +411,6 @@ function buildRuntimeMobileTabsProjection(tabsByWorktree: AppState['tabsByWorktr
                 id: tab.id,
                 title: tab.title,
                 quickCommandLabel: tab.quickCommandLabel,
-                aiVaultTitle: tab.aiVaultTitle,
                 generatedTitle: tab.generatedTitle,
                 customTitle: tab.customTitle,
                 launchAgent: tab.launchAgent
@@ -431,10 +430,7 @@ function buildRuntimeMobileTabsProjection(tabsByWorktree: AppState['tabsByWorktr
 }
 
 function resolveRuntimeTerminalTitle(
-  tab: Pick<
-    TerminalTab,
-    'customTitle' | 'quickCommandLabel' | 'aiVaultTitle' | 'generatedTitle' | 'title'
-  >,
+  tab: Pick<TerminalTab, 'customTitle' | 'quickCommandLabel' | 'generatedTitle' | 'title'>,
   generatedTitlesEnabled: boolean,
   liveTitle = tab.title
 ): string {

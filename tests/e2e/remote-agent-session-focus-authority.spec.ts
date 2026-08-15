@@ -7,8 +7,16 @@ import {
   createRuntimeDesktopPairingOffer,
   launchPairedWebClient
 } from './helpers/paired-electron-client'
-import { toWebTerminalSurfaceTabId } from '../../src/shared/terminal-surface-id'
+import { WEB_TERMINAL_SURFACE_TAB_PREFIX } from '../../src/shared/terminal-surface-id'
 import type { RuntimeTerminalSummary } from '../../src/shared/runtime-types'
+
+// Why: the mapping now lives in the git-wasm shim, which this out-of-process
+// Playwright runner cannot import (it pulls the `?url` wasm asset), so rebuild
+// the id from the constant the twin kept — the same expression the shim's
+// pre-ready fallback and the Rust core both produce.
+function toWebTerminalSurfaceTabId(hostSurfaceId: string): string {
+  return `${WEB_TERMINAL_SURFACE_TAB_PREFIX}${encodeURIComponent(hostSurfaceId)}`
+}
 
 type ClientMirror = {
   activeTabId: string | null

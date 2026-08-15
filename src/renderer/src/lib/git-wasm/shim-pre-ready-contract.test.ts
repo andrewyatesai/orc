@@ -20,9 +20,11 @@ import { tuiAgentToAgentKind } from './agent-kind'
 import { buildAgentNotificationId } from './agent-notification-id'
 import { legacyBaseRefSearchResults } from './base-ref-search-result'
 import { sanitizeBranchSlug } from './branch-name-from-work'
+import { getCommitMessageModelDiscoveryHostKeyForScope } from './commit-message-host-key'
 import { normalizeFeatureEducationSource } from './feature-education-telemetry'
 import { buildFeatureWallTourDepthSummary } from './feature-wall-tour-depth'
 import { getPublishTargetDisplayName } from './git-publish-target-status'
+import { setOrcaDispatchBinding } from '../../../../shared/orca-dispatch-seam'
 import { resolveGitHubPRMergeMethods } from './github-pr-merge-methods'
 import { gitLabPipelineJobsToPRChecks } from './gitlab-pipeline-checks'
 import { resolveHookCommandSourcePolicy } from './hook-command-source-policy'
@@ -38,9 +40,15 @@ import { filterAvailableTaskProviders, resolveVisibleTaskProvider } from './task
 import { parseTaskQuery, withQualifier } from './task-query'
 import { normalizeTerminalFontWeight, resolveTerminalFontWeights } from './terminal-fonts'
 import {
+  isWebTerminalSurfaceTabId,
+  toHostSessionTabId,
+  toWebTerminalSurfaceTabId
+} from './terminal-surface-id'
+import {
   getTerminalQuickCommandAction,
   normalizeTerminalQuickCommands
 } from './terminal-quick-commands'
+import { isValidHostTerminalTabId, isValidTerminalTabId } from './terminal-tab-id'
 import { slugifyForWorkspaceName } from './workspace-name'
 import type { FeatureWallTourDepthInput } from '../../../../shared/feature-wall-tour-depth'
 import type {
@@ -99,6 +107,35 @@ const CASES: PreReadyCase[] = [
     contract: {
       kind: 'parity',
       why: 'the fallback rejoins remote/branch inline — the twin did nothing else, for any input'
+    }
+  },
+  // All four branches of the one exported function, because the fallback
+  // reproduces the mapping rather than a constant: a row per branch is what
+  // stops it drifting from the core. Parity is mandatory here — the result is a
+  // CACHE KEY into persisted settings (discoveredModelsByAgentByHost /
+  // selectedModelByAgentByHost), and source-control-ai.ts reads an absent key as
+  // LOCAL, so a sentinel would come back as a wrong host key instead of a signal.
+  {
+    name: 'commit-message-host-key.forScope(undefined)',
+    call: () => getCommitMessageModelDiscoveryHostKeyForScope(undefined),
+    contract: { kind: 'parity', why: "an undefined scope is 'unknown' in both states" }
+  },
+  {
+    name: 'commit-message-host-key.forScope(null)',
+    call: () => getCommitMessageModelDiscoveryHostKeyForScope(null),
+    contract: { kind: 'parity', why: "no scope is the 'local' constant the twin returned" }
+  },
+  {
+    name: 'commit-message-host-key.forScope("runtime:env-1")',
+    call: () => getCommitMessageModelDiscoveryHostKeyForScope('runtime:env-1'),
+    contract: { kind: 'parity', why: 'a runtime scope passes through unchanged in both states' }
+  },
+  {
+    name: 'commit-message-host-key.forScope("conn-1")',
+    call: () => getCommitMessageModelDiscoveryHostKeyForScope('conn-1'),
+    contract: {
+      kind: 'parity',
+      why: 'the fallback re-prefixes ssh: inline — the twin did nothing else, for any connection id'
     }
   },
   {
@@ -340,6 +377,82 @@ const CASES: PreReadyCase[] = [
       kind: 'divergence',
       consequence: 'the unsafe icon is passed through to the reducer instead of being rejected'
     }
+  },
+  {
+    name: 'terminal-surface-id.toWebTerminalSurfaceTabId',
+    call: () => toWebTerminalSurfaceTabId('host-tab-1::leaf-9'),
+    contract: {
+      kind: 'parity',
+      why: 'the fallback re-encodes inline from the kept prefix constant — required, this value keys the tab store and feeds makePaneKey()'
+    }
+  },
+  {
+    name: 'terminal-surface-id.toHostSessionTabId(wrapped)',
+    call: () => toHostSessionTabId('web-terminal-host-tab-1%3A%3Aleaf-9'),
+    contract: {
+      kind: 'parity',
+      why: 'the fallback is the twin body verbatim — orphan recovery reaps surfaces whose host key does not match, so no sentinel is survivable'
+    }
+  },
+  {
+    name: 'terminal-surface-id.toHostSessionTabId(non-prefixed)',
+    call: () => toHostSessionTabId('host-tab::leaf'),
+    contract: { kind: 'parity', why: 'a non-prefixed id passes through unchanged in both states' }
+  },
+  {
+    name: 'terminal-surface-id.isWebTerminalSurfaceTabId',
+    call: () => isWebTerminalSurfaceTabId('web-terminal-abc'),
+    contract: {
+      kind: 'parity',
+      why: 'the fallback is the prefix test itself over the kept constant, so the predicate cannot answer false pre-ready'
+    }
+  },
+  {
+    // NOT a pre-ready defect: pre-ready is the twin's answer. This pins the
+    // READY side — a port divergence already recorded as `allowDivergence` in
+    // tools/parity/vectors/terminal-surface-id.json. On a malformed escape the
+    // TS catch returned the WHOLE tabId; orca_core::terminal_surface_id returns
+    // the decoded slice. Unreachable for ids minted by
+    // toWebTerminalSurfaceTabId (encodeURIComponent output always decodes).
+    name: 'terminal-surface-id.toHostSessionTabId("web-terminal-%zz")',
+    call: () => toHostSessionTabId('web-terminal-%zz'),
+    contract: {
+      kind: 'divergence',
+      consequence:
+        'the Rust core drops the prefix ("%zz") where the twin returned "web-terminal-%zz"; both are non-matching host ids, so a malformed mirrored id is reaped by orphan recovery either way'
+    }
+  },
+  {
+    name: 'terminal-tab-id.isValidTerminalTabId("plain-tab")',
+    call: () => isValidTerminalTabId('plain-tab'),
+    contract: {
+      kind: 'parity',
+      why: 'the fallback is the twin body over the kept delimiter constant — no sentinel exists for a boolean consumed inside `&&`/`.filter`, and a wrong answer re-keys a live tab'
+    }
+  },
+  {
+    name: 'terminal-tab-id.isValidTerminalTabId("host-tab::leaf")',
+    call: () => isValidTerminalTabId('host-tab::leaf'),
+    contract: {
+      kind: 'parity',
+      why: 'the rejecting direction too: tabs-hydration must drop a colon-bearing persisted id pre-ready exactly as ready'
+    }
+  },
+  {
+    name: 'terminal-tab-id.isValidHostTerminalTabId("web-terminal-abc")',
+    call: () => isValidHostTerminalTabId('web-terminal-abc'),
+    contract: {
+      kind: 'parity',
+      why: 'the fallback composes the same prefix test — createTab must not adopt a renderer-local surface id as a host tab hint in either state'
+    }
+  },
+  {
+    name: 'terminal-tab-id.isValidHostTerminalTabId("plain-tab")',
+    call: () => isValidHostTerminalTabId('plain-tab'),
+    contract: {
+      kind: 'parity',
+      why: 'the accepting direction: a pre-ready false would make createTab mint a fresh UUID and orphan the host PTY binding'
+    }
   }
 ]
 
@@ -348,6 +461,13 @@ const CASES: PreReadyCase[] = [
 function snapshot(call: () => unknown): string {
   return JSON.stringify(call(), (_key, value) => (value instanceof Set ? [...value] : value)) ?? 'undefined'
 }
+
+// Why: config/vitest-orca-dispatch-seam.ts binds the shared seam for every test
+// file at import time, so a shim that reaches Rust through the seam (rather than
+// through this directory's isGitWasmReady/dispatchToWasmCore) would be READY
+// during the pre-ready pass and its row would pass vacuously. Unbind first;
+// beforeAll's initGitWasmForTestFromBytes → markReady rebinds it.
+setOrcaDispatchBinding(null)
 
 const PRE_READY = CASES.map((testCase) => snapshot(testCase.call))
 

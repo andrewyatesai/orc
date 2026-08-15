@@ -87,7 +87,7 @@ import {
   findKnownHugeFolderPathsToIgnore
 } from '../git/huge-folder-ignore'
 import { assertGitPushTargetShape } from '../../shared/git-push-target-validation'
-import { getCommitMessageModelDiscoveryHostKey } from '../../shared/commit-message-host-key'
+import { getCommitMessageModelDiscoveryHostKey } from '../rust-commit-message-host-key'
 import type { HostedReviewProvider } from '../../shared/hosted-review'
 import type { ResolvedSourceControlAiGenerationParams } from '../../shared/source-control-ai'
 import { withLinkedIssueDraftContext } from '../../shared/source-control-ai-action-variables'
