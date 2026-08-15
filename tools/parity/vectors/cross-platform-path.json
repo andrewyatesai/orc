@@ -263,6 +263,122 @@
         "candidatePath": "\\\\wsl.localhost\\ubuntu\\home\\alice\\repo\\src"
       },
       "expected": null
+    },
+    {
+      "function": "normalizeRuntimePathForComparison",
+      "note": "a literal backslash is an ordinary POSIX filename character, not a separator",
+      "input": { "value": "/srv/team\\repo" },
+      "expected": "/srv/team\\repo"
+    },
+    {
+      "function": "normalizeRuntimePathForComparison",
+      "note": "the same name spelled with a real separator is a different comparison key",
+      "input": { "value": "/srv/team/repo" },
+      "expected": "/srv/team/repo"
+    },
+    {
+      "function": "isPathInsideOrEqual",
+      "note": "folding a POSIX backslash would make two unrelated directories nest",
+      "input": { "rootPath": "/srv/team\\repo", "candidatePath": "/srv/team/repo/file.ts" },
+      "expected": false
+    },
+    {
+      "function": "relativePathInsideRoot",
+      "note": "a backslash inside a POSIX segment survives into the suffix",
+      "input": { "rootPath": "/srv/repo", "candidatePath": "/srv/repo/a\\b.txt" },
+      "expected": "a\\b.txt"
+    },
+    {
+      "function": "normalizeRuntimePathForComparison",
+      "note": "macOS hands over NFD; the key is the NFC one agents record (#10832)",
+      "input": { "value": "/userhome/ada/\u1111\u1173\u1105\u1169\u110c\u1166\u11a8\u1110\u1173" },
+      "expected": "/userhome/ada/\ud504\ub85c\uc81d\ud2b8"
+    },
+    {
+      "function": "normalizeRuntimePathForComparison",
+      "note": "an already-composed path keeps its NFC spelling",
+      "input": { "value": "/userhome/ada/\ud504\ub85c\uc81d\ud2b8" },
+      "expected": "/userhome/ada/\ud504\ub85c\uc81d\ud2b8"
+    },
+    {
+      "function": "isPathInsideOrEqual",
+      "note": "an NFD workspace root contains the NFC path an agent recorded",
+      "input": {
+        "rootPath": "/userhome/ada/\u1111\u1173\u1105\u1169\u110c\u1166\u11a8\u1110\u1173",
+        "candidatePath": "/userhome/ada/\ud504\ub85c\uc81d\ud2b8/src"
+      },
+      "expected": true
+    },
+    {
+      "function": "isPathInsideOrEqual",
+      "note": "and the other direction: NFC root, NFD candidate",
+      "input": {
+        "rootPath": "/userhome/ada/\ud504\ub85c\uc81d\ud2b8",
+        "candidatePath": "/userhome/ada/\u1111\u1173\u1105\u1169\u110c\u1166\u11a8\u1110\u1173/src"
+      },
+      "expected": true
+    },
+    {
+      "function": "relativePathInsideRoot",
+      "note": "NFC folding is not length-preserving, so whole segments are skipped instead",
+      "input": {
+        "rootPath": "/userhome/ada/\u1111\u1173\u1105\u1169\u110c\u1166\u11a8\u1110\u1173",
+        "candidatePath": "/userhome/ada/\ud504\ub85c\uc81d\ud2b8/src/index.ts"
+      },
+      "expected": "src/index.ts"
+    },
+    {
+      "function": "relativePathInsideRoot",
+      "note": "same suffix when the candidate is the decomposed one",
+      "input": {
+        "rootPath": "/userhome/ada/\ud504\ub85c\uc81d\ud2b8",
+        "candidatePath": "/userhome/ada/\u1111\u1173\u1105\u1169\u110c\u1166\u11a8\u1110\u1173/src/index.ts"
+      },
+      "expected": "src/index.ts"
+    },
+    {
+      "function": "normalizeRuntimePathForComparison",
+      "note": "the WSL UNC key returns before the trailing fold, so it needs NFC too",
+      "input": {
+        "value": "\\\\wsl$\\Ubuntu\\home\\ada\\\u1111\u1173\u1105\u1169\u110c\u1166\u11a8\u1110\u1173"
+      },
+      "expected": "//wsl/ubuntu/home/ada/\ud504\ub85c\uc81d\ud2b8"
+    },
+    {
+      "function": "relativePathInsideRoot",
+      "note": "a WSL suffix stays decomposed \u2014 Linux stores NFD and NFC as different files",
+      "input": {
+        "rootPath": "\\\\wsl$\\Ubuntu\\home\\ada\\repo",
+        "candidatePath": "\\\\wsl.localhost\\Ubuntu\\home\\ada\\repo\\\u1111\u1173\u1105\u1169\u110c\u1166\u11a8\u1110\u1173\\a.ts"
+      },
+      "expected": "\u1111\u1173\u1105\u1169\u110c\u1166\u11a8\u1110\u1173/a.ts"
+    },
+    {
+      "function": "relativePathInsideRoot",
+      "note": "a UNC-shaped candidate under POSIX root / is relative, never re-rooted",
+      "input": { "rootPath": "/", "candidatePath": "//server/share/x" },
+      "expected": "server/share/x"
+    },
+    {
+      "function": "relativePathInsideRoot",
+      "note": "lowercasing U+0130 adds a code point; segment slicing keeps the suffix exact",
+      "input": { "rootPath": "C:\\\u0130\u015f", "candidatePath": "C:\\\u0130\u015f\\src\\a.ts" },
+      "expected": "src/a.ts"
+    },
+    {
+      "function": "relativePathInsideRoot",
+      "note": "U+212A KELVIN SIGN folds to K, so root and candidate agree on being a drive path",
+      "input": { "rootPath": "\u212a:/a\\b", "candidatePath": "\u212a:/a\\b/c" },
+      "expected": "c"
+    },
+    {
+      "function": "relativePathInsideRoot",
+      "note": "astral characters are never cut mid-pair",
+      "input": {
+        "rootPath": "/repo/\ud83d\ude80app",
+        "candidatePath": "/repo/\ud83d\ude80app/src/\ud83c\udf89file.ts"
+      },
+      "expected": "src/\ud83c\udf89file.ts"
     }
   ]
 }

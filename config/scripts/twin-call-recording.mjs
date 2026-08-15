@@ -199,11 +199,31 @@ export default defineConfig({
   return configPath
 }
 
+/** Claim the work dir, refusing rather than stomping a run already in it.
+ *
+ *  The unconditional `rm -rf` this replaces destroyed a concurrent run's
+ *  generated replay test, config and sink mid-flight, and the victim did not
+ *  crash — it reported "0 replay calls", every function UNDERIVABLE, "0 modules
+ *  produced cases". That reads as "the tool found nothing", which is the same
+ *  shape as a clean result. A stale lock from a killed run is cleared by
+ *  deleting the directory. */
 export function prepareWorkDir(paths) {
+  const lock = path.join(paths.workDir, 'run.lock')
+  if (fs.existsSync(lock)) {
+    const owner = fs.readFileSync(lock, 'utf8').trim()
+    throw new Error(
+      `${paths.workDir} is in use by pid ${owner}. Two runs cannot share it — the ` +
+        "second would delete the first's generated files and report an empty, " +
+        `clean-looking result. Wait for it, or remove ${paths.workDir} if that pid is gone.`
+    )
+  }
   fs.rmSync(paths.workDir, { recursive: true, force: true })
   fs.mkdirSync(paths.candidateDir, { recursive: true })
+  fs.writeFileSync(lock, String(process.pid))
   fs.writeFileSync(paths.sinkFile, '')
   writeSink(paths)
+  const release = () => fs.rmSync(lock, { force: true })
+  process.on('exit', release)
 }
 
 /** Run the twin test files plus the replay under the redirect plugin, then

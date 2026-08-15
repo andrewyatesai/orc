@@ -6,8 +6,10 @@ import { maskMcpEnv } from '../../../src/shared/mcp-config'
 
 export function dispatch(fn: string, input: unknown): unknown {
   switch (fn) {
+    // `undefined` has no JSON image, so the dropped-env answer (non-object input,
+    // or an env that blew an inspection bound) is reported as null on both legs.
     case 'maskMcpEnv':
-      return maskMcpEnv(input)
+      return maskMcpEnv(input) ?? null
     default:
       throw new Error(`unknown function ${fn}`)
   }

@@ -7,6 +7,8 @@
 //! from the machine running the code. The behaviour is byte-for-byte matched to
 //! the TypeScript source so local and remote runtimes agree on containment.
 
+use crate::unicode_nfc::to_nfc;
+
 /// Whether a path string should be treated with Windows semantics, regardless of
 /// the host platform.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,8 +99,26 @@ fn split_wsl_unc_comparison(normalized: &str) -> Option<(&str, &str)> {
     after_server.split_at_checked(distro_len)
 }
 
-pub fn normalize_runtime_path_for_comparison(value: &str) -> String {
-    let normalized = trim_runtime_path_trailing_slash(&normalize_runtime_path_separators(value));
+/// Comparison key only — never return this as, or splice it into, a real path.
+///
+/// Why NFC: macOS file pickers and on-disk names yield NFD, while agents such as
+/// Claude Code record cwd and encode their project directory names in NFC. Both
+/// spell the same file, so a non-ASCII workspace otherwise never matches its own
+/// sessions (#10832). Folding here knowingly treats canonically equivalent names
+/// as one, which is exact on APFS but permissive on byte-exact Linux/SSH hosts —
+/// an acceptable trade, since only comparison keys are affected.
+pub fn normalize_runtime_path_for_comparison(raw_value: &str) -> String {
+    // Normalize before any folding so the WSL alias branch below is covered too.
+    let value = to_nfc(raw_value);
+    let is_windows_path = is_windows_absolute_path_like(&value);
+    // Why: backslash is a valid POSIX filename character; fold it only when the
+    // path itself proves Windows drive/UNC semantics.
+    let separated = if is_windows_path {
+        normalize_runtime_path_separators(&value)
+    } else {
+        collapse_slashes(&value)
+    };
+    let normalized = trim_runtime_path_trailing_slash(&separated);
     // Why: Windows exposes the same case-sensitive WSL filesystem through two UNC
     // aliases (`//wsl.localhost/<distro>` and `//wsl$/<distro>`). Fold both to one
     // key with the distro lowercased (server portion is case-insensitive) but the
@@ -107,7 +127,7 @@ pub fn normalize_runtime_path_for_comparison(value: &str) -> String {
     if let Some((distro, tail)) = split_wsl_unc_comparison(&normalized) {
         return format!("//wsl/{}{}", distro.to_lowercase(), tail);
     }
-    if is_windows_absolute_path_like(value) {
+    if is_windows_path {
         normalized.to_lowercase()
     } else {
         normalized
@@ -163,27 +183,61 @@ pub fn get_runtime_path_basename(value: &str) -> String {
         .to_string()
 }
 
-pub fn is_path_inside_or_equal(root_path: &str, candidate_path: &str) -> bool {
-    let root = normalize_runtime_path_for_comparison(root_path);
-    let candidate = normalize_runtime_path_for_comparison(candidate_path);
-    if candidate == root {
-        return true;
+/// Pre-normalizes the root so a fan-out normalizes it once, not once per candidate.
+///
+/// Why the name says "normalized": candidates must already be run through
+/// [`normalize_runtime_path_for_comparison`]. That function is not idempotent for
+/// WSL UNC paths (`//wsl.localhost/Ubuntu/A` folds to `//wsl/ubuntu/A`, which a
+/// second pass lowercases further), so a raw candidate here would silently fail
+/// to match.
+pub struct NormalizedPathInsideOrEqualMatcher {
+    root: String,
+    root_with_boundary: String,
+}
+
+impl NormalizedPathInsideOrEqualMatcher {
+    pub fn matches(&self, normalized_candidate: &str) -> bool {
+        normalized_candidate == self.root
+            || normalized_candidate.starts_with(&self.root_with_boundary)
     }
+}
+
+pub fn create_normalized_path_inside_or_equal_matcher(
+    root_path: &str,
+) -> NormalizedPathInsideOrEqualMatcher {
+    let root = normalize_runtime_path_for_comparison(root_path);
     let root_with_boundary = if root == "/" || is_drive_root(&root) {
-        root
+        root.clone()
     } else {
         format!("{}/", root.trim_end_matches('/'))
     };
-    candidate.starts_with(&root_with_boundary)
+    NormalizedPathInsideOrEqualMatcher {
+        root,
+        root_with_boundary,
+    }
+}
+
+pub fn is_path_inside_or_equal(root_path: &str, candidate_path: &str) -> bool {
+    create_normalized_path_inside_or_equal_matcher(root_path)
+        .matches(&normalize_runtime_path_for_comparison(candidate_path))
 }
 
 /// Returns the path of `candidate_path` relative to `root_path`, or `None` if it
 /// is not contained. An exact match returns `Some("")`.
 pub fn relative_path_inside_root(root_path: &str, candidate_path: &str) -> Option<String> {
-    let normalized_candidate =
-        trim_runtime_path_trailing_slash(&normalize_runtime_path_separators(candidate_path));
+    // Why: decide Windows-ness on the same NFC form the comparison key uses, or
+    // the two disagree (U+212A folds to 'K', making only one side a drive path)
+    // and the segment counts desync. Only the branch test sees NFC — the sliced
+    // string stays raw so the returned suffix remains byte-exact.
+    let separated = if is_windows_absolute_path_like(&to_nfc(candidate_path)) {
+        normalize_runtime_path_separators(candidate_path)
+    } else {
+        collapse_slashes(candidate_path)
+    };
+    let normalized_candidate = trim_runtime_path_trailing_slash(&separated);
     let comparison_root = normalize_runtime_path_for_comparison(root_path);
     let comparison_candidate = normalize_runtime_path_for_comparison(candidate_path);
+
     if comparison_candidate == comparison_root {
         return Some(String::new());
     }
@@ -196,18 +250,46 @@ pub fn relative_path_inside_root(root_path: &str, candidate_path: &str) -> Optio
     if !comparison_candidate.starts_with(&comparison_prefix) {
         return None;
     }
-    // WSL comparison keys fold the UNC alias but keep the Linux tail's case, so
-    // the suffix is aligned across aliases — slice the comparison key directly.
-    // Other roots are lowercased only for comparison, so slice the original-cased
-    // candidate by the prefix length (ASCII prefix → char-count == TS UTF-16 slice).
-    if comparison_root.starts_with("//wsl/") {
-        comparison_candidate
-            .strip_prefix(&comparison_prefix)
-            .map(str::to_string)
-    } else {
-        let skip = comparison_prefix.chars().count();
-        Some(normalized_candidate.chars().skip(skip).collect())
+    Some(slice_candidate_past_root_segments(
+        &comparison_root,
+        &normalized_candidate,
+    ))
+}
+
+/// Why: skip whole root segments rather than a character count. Comparison
+/// folding (NFC, case, UNC alias) changes length, so a folded-prefix length would
+/// cut the raw candidate mid-character and fabricate a path; segment positions
+/// survive every fold and keep the suffix byte-exact. Scanning rather than
+/// splitting keeps watcher event storms allocation-free.
+fn slice_candidate_past_root_segments(root: &str, candidate: &str) -> String {
+    // Byte scanning is exactly the TS UTF-16 scan: `/` is ASCII, so a segment
+    // boundary is always a char boundary in either encoding.
+    let mut remaining_root_segments: usize = 0;
+    let mut in_root_segment = false;
+    for byte in root.bytes() {
+        if byte == b'/' {
+            in_root_segment = false;
+        } else if !in_root_segment {
+            in_root_segment = true;
+            remaining_root_segments = remaining_root_segments.saturating_add(1);
+        }
     }
+
+    let mut in_segment = false;
+    for (index, byte) in candidate.bytes().enumerate() {
+        if byte == b'/' {
+            in_segment = false;
+            continue;
+        }
+        if !in_segment {
+            in_segment = true;
+            if remaining_root_segments == 0 {
+                return candidate.get(index..).unwrap_or("").to_string();
+            }
+            remaining_root_segments = remaining_root_segments.saturating_sub(1);
+        }
+    }
+    String::new()
 }
 
 fn normalize_runtime_path_dots(value: &str, flavor: PathFlavor) -> String {
@@ -292,7 +374,19 @@ fn split_runtime_path_root(value: &str, flavor: PathFlavor) -> (String, String) 
 mod tests {
     use super::*;
 
-    // Ported verbatim from src/shared/cross-platform-path.test.ts.
+    // Ported verbatim from src/shared/cross-platform-path.test.ts, one Rust test
+    // per `it(...)`, same order, same inputs. The Korean fixtures spell out the
+    // NFD form as jamo literals because Rust has no NFD to compute it with —
+    // `assert_ne!` below pins that they really are different strings.
+    // '/userhome/ada/내 드라이브/프로젝트' composed, then the same path decomposed.
+    const KOREAN_NFC: &str =
+        "/userhome/ada/\u{B0B4} \u{B4DC}\u{B77C}\u{C774}\u{BE0C}/\u{D504}\u{B85C}\u{C81D}\u{D2B8}";
+    const KOREAN_NFD: &str = "/userhome/ada/\u{1102}\u{1162} \u{1103}\u{1173}\u{1105}\u{1161}\
+        \u{110B}\u{1175}\u{1107}\u{1173}/\u{1111}\u{1173}\u{1105}\u{1169}\u{110C}\u{1166}\
+        \u{11A8}\u{1110}\u{1173}";
+    const PROJECT_NFC: &str = "\u{D504}\u{B85C}\u{C81D}\u{D2B8}";
+    const PROJECT_NFD: &str =
+        "\u{1111}\u{1173}\u{1105}\u{1169}\u{110C}\u{1166}\u{11A8}\u{1110}\u{1173}";
 
     #[test]
     fn keeps_posix_sibling_prefixes_outside_the_root() {
@@ -305,6 +399,26 @@ mod tests {
         assert_eq!(
             relative_path_inside_root("/repo/app/", "/repo/app/src/index.ts"),
             Some("src/index.ts".to_string())
+        );
+    }
+
+    #[test]
+    fn keeps_literal_posix_backslashes_distinct_from_separators() {
+        assert_eq!(
+            normalize_runtime_path_for_comparison("/srv/team\\repo"),
+            "/srv/team\\repo"
+        );
+        assert_eq!(
+            normalize_runtime_path_for_comparison("/srv/team/repo"),
+            "/srv/team/repo"
+        );
+        assert!(!is_path_inside_or_equal(
+            "/srv/team\\repo",
+            "/srv/team/repo/file.ts"
+        ));
+        assert_eq!(
+            relative_path_inside_root("/srv/repo", "/srv/repo/a\\b.txt"),
+            Some("a\\b.txt".to_string())
         );
     }
 
@@ -374,6 +488,94 @@ mod tests {
     }
 
     #[test]
+    fn matches_macos_nfd_paths_against_agent_recorded_nfc_paths() {
+        // Regression for #10832: macOS file pickers hand Orca decomposed (NFD)
+        // paths while Claude Code records cwd and names its project dirs in NFC,
+        // so a non-ASCII workspace never matched its own sessions.
+        assert_ne!(KOREAN_NFD, KOREAN_NFC);
+
+        assert_eq!(
+            normalize_runtime_path_for_comparison(KOREAN_NFD),
+            normalize_runtime_path_for_comparison(KOREAN_NFC)
+        );
+        assert!(is_path_inside_or_equal(
+            KOREAN_NFD,
+            &format!("{KOREAN_NFC}/src")
+        ));
+        assert!(is_path_inside_or_equal(
+            KOREAN_NFC,
+            &format!("{KOREAN_NFD}/src")
+        ));
+
+        // WSL UNC keys return before the trailing fold, so they need NFC too.
+        assert_eq!(
+            normalize_runtime_path_for_comparison(&format!(
+                "\\\\wsl$\\Ubuntu\\home\\ada\\{PROJECT_NFD}"
+            )),
+            normalize_runtime_path_for_comparison(&format!(
+                "\\\\wsl.localhost\\Ubuntu\\home\\ada\\{PROJECT_NFC}"
+            ))
+        );
+    }
+
+    #[test]
+    fn returns_a_byte_exact_suffix_when_comparison_folding_changes_length() {
+        // Comparison folding (NFC, case) is not length-preserving, so slicing the
+        // raw candidate by the folded root's length would cut mid-character and
+        // fabricate a path — callers rejoin this suffix and hit the filesystem
+        // with it.
+        let nfc = "/userhome/ada/\u{D504}\u{B85C}\u{C81D}\u{D2B8}";
+        let nfd = format!("/userhome/ada/{PROJECT_NFD}");
+        for root in [nfc, nfd.as_str()] {
+            for candidate in [nfc, nfd.as_str()] {
+                assert_eq!(
+                    relative_path_inside_root(root, &format!("{candidate}/src/index.ts")),
+                    Some("src/index.ts".to_string())
+                );
+            }
+        }
+
+        // Pre-existing over-slice: toLowerCase expands U+0130 to two UTF-16 units.
+        assert_eq!(
+            relative_path_inside_root("C:\\\u{130}\u{15F}", "C:\\\u{130}\u{15F}\\src\\a.ts"),
+            Some("src/a.ts".to_string())
+        );
+
+        // U+212A KELVIN SIGN folds to 'K', so the root and candidate must agree on
+        // Windows-ness or their segment counts desync and the suffix comes back ''.
+        assert_eq!(
+            relative_path_inside_root("\u{212A}:/a\\b", "\u{212A}:/a\\b/c"),
+            relative_path_inside_root("K:/a\\b", "K:/a\\b/c")
+        );
+
+        // Astral characters must not be cut mid-surrogate-pair.
+        assert_eq!(
+            relative_path_inside_root(
+                "/repo/\u{1F680}app",
+                "/repo/\u{1F680}app/src/\u{1F389}file.ts"
+            ),
+            Some("src/\u{1F389}file.ts".to_string())
+        );
+
+        // A UNC-shaped candidate under POSIX root '/' used to yield a leading
+        // slash, which is not a relative path.
+        assert_eq!(
+            relative_path_inside_root("/", "//server/share/x"),
+            Some("server/share/x".to_string())
+        );
+
+        // WSL suffixes must stay decomposed: they name files on a Linux
+        // filesystem, where NFD and NFC are distinct entries.
+        assert_eq!(
+            relative_path_inside_root(
+                "\\\\wsl$\\Ubuntu\\home\\ada\\repo",
+                &format!("\\\\wsl.localhost\\Ubuntu\\home\\ada\\repo\\{PROJECT_NFD}\\a.ts")
+            ),
+            Some(format!("{PROJECT_NFD}/a.ts"))
+        );
+    }
+
+    #[test]
     fn resolves_posix_relative_paths_without_using_the_process_cwd() {
         assert_eq!(
             resolve_runtime_path("/repos/app/repo", "../worktrees/feature"),
@@ -402,10 +604,34 @@ mod tests {
         ));
     }
 
+    // Beyond the twin's test file: the basename cases come from the shared parity
+    // vectors, and the matcher case pins the fan-out contract the twin documents
+    // in prose (normalize the root once, feed only pre-normalized candidates).
+
     #[test]
     fn basename_strips_trailing_separators() {
         assert_eq!(get_runtime_path_basename("/repo/app/"), "app");
         assert_eq!(get_runtime_path_basename("C:\\repo\\app\\\\"), "app");
         assert_eq!(get_runtime_path_basename(""), "");
+    }
+
+    #[test]
+    fn the_prenormalized_matcher_answers_what_is_path_inside_or_equal_answers() {
+        let matcher = create_normalized_path_inside_or_equal_matcher("\\\\wsl$\\Ubuntu\\repo");
+        for candidate in [
+            "\\\\wsl.localhost\\ubuntu\\repo\\src",
+            "\\\\wsl.localhost\\ubuntu\\repo",
+            "\\\\wsl.localhost\\ubuntu\\repo2",
+            "/elsewhere",
+        ] {
+            assert_eq!(
+                matcher.matches(&normalize_runtime_path_for_comparison(candidate)),
+                is_path_inside_or_equal("\\\\wsl$\\Ubuntu\\repo", candidate),
+                "candidate {candidate}"
+            );
+        }
+        // The documented misuse: a RAW candidate must not accidentally match,
+        // because the comparison fold is not idempotent for WSL UNC aliases.
+        assert!(!matcher.matches("\\\\wsl.localhost\\ubuntu\\repo\\src"));
     }
 }

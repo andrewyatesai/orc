@@ -26,8 +26,83 @@
     },
     {
       "function": "getSyntheticAgentTitleProfile",
+      "note": "opencode carries synthesizeTerminalTitle: false — it owns its native OSC session titles (88068f55b, #9080)",
+      "input": "opencode",
+      "expected": {
+        "workingLabel": "OpenCode",
+        "permissionLabel": "OpenCode - action required",
+        "idleLabel": "OpenCode ready",
+        "synthesizeTerminalTitle": false
+      }
+    },
+    {
+      "function": "getSyntheticAgentTitleProfile",
+      "note": "pi carries titleIdentityGroup 'pi-compatible' (agent-title-owner.ts reads it to decide title ownership)",
+      "input": "pi",
+      "expected": {
+        "workingLabel": "Pi",
+        "permissionLabel": "Pi - action required",
+        "idleLabel": "Pi ready",
+        "titleIdentityGroup": "pi-compatible"
+      }
+    },
+    {
+      "function": "getSyntheticAgentTitleProfile",
+      "note": "omp shares pi's titleIdentityGroup, so the two answer to each other's titles",
+      "input": "omp",
+      "expected": {
+        "workingLabel": "OMP",
+        "permissionLabel": "OMP - action required",
+        "idleLabel": "OMP ready",
+        "titleIdentityGroup": "pi-compatible"
+      }
+    },
+    {
+      "function": "getSyntheticAgentTitleProfile",
+      "note": "devin has a plain profile (no optional keys)",
+      "input": "devin",
+      "expected": {
+        "workingLabel": "Devin",
+        "permissionLabel": "Devin - action required",
+        "idleLabel": "Devin ready"
+      }
+    },
+    {
+      "function": "getSyntheticAgentTitleProfile",
+      "note": "droid has a plain profile (no optional keys)",
+      "input": "droid",
+      "expected": {
+        "workingLabel": "Droid",
+        "permissionLabel": "Droid - action required",
+        "idleLabel": "Droid ready"
+      }
+    },
+    {
+      "function": "getSyntheticAgentTitleProfile",
+      "note": "hermes has a plain profile (no optional keys)",
+      "input": "hermes",
+      "expected": {
+        "workingLabel": "Hermes",
+        "permissionLabel": "Hermes - action required",
+        "idleLabel": "Hermes ready"
+      }
+    },
+    {
+      "function": "getSyntheticAgentTitleProfile",
       "note": "unknown agent type has no profile",
       "input": "claude",
+      "expected": null
+    },
+    {
+      "function": "getSyntheticAgentTitleProfile",
+      "note": "an agent Orca recognizes but this module does not profile still has none",
+      "input": "gemini",
+      "expected": null
+    },
+    {
+      "function": "getSyntheticAgentTitleProfile",
+      "note": "empty agentType is falsy in TS, so it short-circuits to null",
+      "input": "",
       "expected": null
     },
     {
@@ -67,6 +142,60 @@
       "expected": null
     },
     {
+      "function": "getSyntheticAgentTerminalTitle",
+      "note": "synthesizeTerminalTitle: false — opencode done keeps its native session title, no synthetic idle label",
+      "input": { "agentType": "opencode", "state": "done" },
+      "expected": null
+    },
+    {
+      "function": "getSyntheticAgentTerminalTitle",
+      "note": "synthesizeTerminalTitle: false also suppresses the permission label",
+      "input": { "agentType": "opencode", "state": "waiting" },
+      "expected": null
+    },
+    {
+      "function": "getSyntheticAgentTerminalTitle",
+      "note": "pi done resolves to the idle label",
+      "input": { "agentType": "pi", "state": "done" },
+      "expected": "Pi ready"
+    },
+    {
+      "function": "getSyntheticAgentTerminalTitle",
+      "note": "pi waiting resolves to the permission label",
+      "input": { "agentType": "pi", "state": "waiting" },
+      "expected": "Pi - action required"
+    },
+    {
+      "function": "getSyntheticAgentTerminalTitle",
+      "note": "omp done resolves to the idle label",
+      "input": { "agentType": "omp", "state": "done" },
+      "expected": "OMP ready"
+    },
+    {
+      "function": "getSyntheticAgentTerminalTitle",
+      "note": "omp waiting resolves to the permission label",
+      "input": { "agentType": "omp", "state": "waiting" },
+      "expected": "OMP - action required"
+    },
+    {
+      "function": "getSyntheticAgentTerminalTitle",
+      "note": "devin done resolves to the idle label",
+      "input": { "agentType": "devin", "state": "done" },
+      "expected": "Devin ready"
+    },
+    {
+      "function": "getSyntheticAgentTerminalTitle",
+      "note": "devin waiting resolves to the permission label",
+      "input": { "agentType": "devin", "state": "waiting" },
+      "expected": "Devin - action required"
+    },
+    {
+      "function": "getSyntheticAgentTerminalTitle",
+      "note": "droid blocked resolves to the permission label",
+      "input": { "agentType": "droid", "state": "blocked" },
+      "expected": "Droid - action required"
+    },
+    {
       "function": "shouldDriveSyntheticAgentTitleFromHook",
       "note": "codex does not drive working titles over its native spinner",
       "input": { "agentType": "codex", "state": "working" },
@@ -89,6 +218,48 @@
       "note": "no profile means never drive from hook",
       "input": { "agentType": "claude", "state": "done" },
       "expected": false
+    },
+    {
+      "function": "shouldDriveSyntheticAgentTitleFromHook",
+      "note": "synthesizeTerminalTitle: false outranks the state — opencode never drives from hook (working)",
+      "input": { "agentType": "opencode", "state": "working" },
+      "expected": false
+    },
+    {
+      "function": "shouldDriveSyntheticAgentTitleFromHook",
+      "note": "opencode never drives from hook (done)",
+      "input": { "agentType": "opencode", "state": "done" },
+      "expected": false
+    },
+    {
+      "function": "shouldDriveSyntheticAgentTitleFromHook",
+      "note": "opencode never drives from hook (waiting)",
+      "input": { "agentType": "opencode", "state": "waiting" },
+      "expected": false
+    },
+    {
+      "function": "shouldDriveSyntheticAgentTitleFromHook",
+      "note": "pi has neither opt-out, so even the working state is hook-driven",
+      "input": { "agentType": "pi", "state": "working" },
+      "expected": true
+    },
+    {
+      "function": "shouldDriveSyntheticAgentTitleFromHook",
+      "note": "omp has neither opt-out, so even the working state is hook-driven",
+      "input": { "agentType": "omp", "state": "working" },
+      "expected": true
+    },
+    {
+      "function": "shouldDriveSyntheticAgentTitleFromHook",
+      "note": "devin has neither opt-out, so even the working state is hook-driven",
+      "input": { "agentType": "devin", "state": "working" },
+      "expected": true
+    },
+    {
+      "function": "shouldDriveSyntheticAgentTitleFromHook",
+      "note": "titleIdentityGroup alone does not gate hook driving — pi terminal states drive too",
+      "input": { "agentType": "pi", "state": "done" },
+      "expected": true
     }
   ]
 }

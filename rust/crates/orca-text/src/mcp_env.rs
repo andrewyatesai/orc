@@ -1,9 +1,20 @@
-//! MCP env masking, ported from `maskMcpEnv` in `src/shared/mcp-config.ts`.
+//! MCP env inspection, ported from `inspectMcpEnv`/`maskMcpEnv` in
+//! `src/shared/mcp-server-inspection.ts` (re-exported by `mcp-config.ts`).
 //!
-//! Masks env values whose key looks credential-ish or whose value looks like a
-//! known token shape (OpenAI `sk-…`, GitHub `ghp_…`, Slack `xox?-…`), so MCP
-//! server configs can be surfaced without leaking secrets.
+//! Two jobs, in the twin's order: BOUND the map (field count, key length, value
+//! length) and mask values whose key looks credential-ish or whose value looks
+//! like a known token shape (OpenAI `sk-…`, GitHub `ghp_…`, Slack `xox?-…`), so
+//! MCP server configs can be surfaced without leaking secrets.
+//!
+//! The bounds are not cosmetic: an oversized env is DROPPED WHOLE, which is what
+//! turns the owning server summary invalid. Callers pass values already coerced
+//! to strings the way JS `String(x)` would (see `orca_config::js_value_string`),
+//! because the twin coerces before it measures.
 
+use crate::mcp_config_inspection_limits::{
+    is_mcp_config_inspection_field_within_limit, is_mcp_config_inspection_name_within_limit,
+    MCP_CONFIG_INSPECTION_MAX_ENV_FIELDS,
+};
 use regex::Regex;
 use std::sync::OnceLock;
 
@@ -24,27 +35,58 @@ fn sensitive_value_re() -> &'static Regex {
     })
 }
 
-/// Mask sensitive env entries. `None` in → `None` out (mirrors the TS guard for
-/// a missing/non-object `env`). Input order is preserved.
+/// The TS `BoundedEnv`: a masked map, or nothing plus the reason.
+///
+/// `oversized` is the part callers cannot reconstruct from `value`: a server
+/// whose env blew a bound is INVALID, while a server with no env at all is fine.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BoundedMcpEnv {
+    pub value: Option<Vec<(String, String)>>,
+    pub oversized: bool,
+}
+
+/// `inspectMcpEnv`. `None` in (missing/non-object env) → neither value nor
+/// oversize. Input order is preserved; the first bound violation drops the
+/// whole map.
+pub fn inspect_mcp_env(env: Option<&[(&str, &str)]>) -> BoundedMcpEnv {
+    let Some(env) = env else {
+        return BoundedMcpEnv::default();
+    };
+
+    let mut masked: Vec<(String, String)> = Vec::new();
+    let mut fields: usize = 0;
+    for (key, value) in env {
+        fields = fields.saturating_add(1);
+        if fields > MCP_CONFIG_INSPECTION_MAX_ENV_FIELDS
+            || !is_mcp_config_inspection_name_within_limit(key)
+        {
+            return BoundedMcpEnv { value: None, oversized: true };
+        }
+        if !is_mcp_config_inspection_field_within_limit(value) {
+            return BoundedMcpEnv { value: None, oversized: true };
+        }
+        let text = if sensitive_key_re().is_match(key) || sensitive_value_re().is_match(value) {
+            MASK.to_string()
+        } else {
+            (*value).to_string()
+        };
+        masked.push(((*key).to_string(), text));
+    }
+    BoundedMcpEnv { value: Some(masked), oversized: false }
+}
+
+/// `maskMcpEnv`: the masked map, or nothing — which the twin answers for a
+/// missing/non-object env AND for one that blew a bound.
 pub fn mask_mcp_env(env: Option<&[(&str, &str)]>) -> Option<Vec<(String, String)>> {
-    let env = env?;
-    Some(
-        env.iter()
-            .map(|(key, value)| {
-                let masked = if sensitive_key_re().is_match(key) || sensitive_value_re().is_match(value) {
-                    MASK.to_string()
-                } else {
-                    (*value).to_string()
-                };
-                ((*key).to_string(), masked)
-            })
-            .collect(),
-    )
+    inspect_mcp_env(env).value
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mcp_config_inspection_limits::{
+        MCP_CONFIG_INSPECTION_MAX_FIELD_CODE_UNITS, MCP_CONFIG_INSPECTION_MAX_NAME_CODE_UNITS,
+    };
 
     fn masked(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
         mask_mcp_env(Some(pairs)).unwrap()
@@ -85,5 +127,39 @@ mod tests {
     #[test]
     fn none_env_returns_none() {
         assert_eq!(mask_mcp_env(None), None);
+        assert_eq!(inspect_mcp_env(None), BoundedMcpEnv { value: None, oversized: false });
+    }
+
+    #[test]
+    fn admits_the_exact_env_cardinality_and_rejects_plus_one() {
+        let keys: Vec<String> =
+            (0..MCP_CONFIG_INSPECTION_MAX_ENV_FIELDS).map(|index| format!("KEY_{index}")).collect();
+        let mut pairs: Vec<(&str, &str)> =
+            keys.iter().map(|key| (key.as_str(), "value")).collect();
+        assert_eq!(mask_mcp_env(Some(&pairs)).unwrap().len(), MCP_CONFIG_INSPECTION_MAX_ENV_FIELDS);
+
+        pairs.push(("OVERFLOW", "value"));
+        assert_eq!(
+            inspect_mcp_env(Some(&pairs)),
+            BoundedMcpEnv { value: None, oversized: true }
+        );
+        assert_eq!(mask_mcp_env(Some(&pairs)), None);
+    }
+
+    #[test]
+    fn drops_the_whole_map_when_a_key_or_value_blows_its_cap() {
+        let long_key = "K".repeat(MCP_CONFIG_INSPECTION_MAX_NAME_CODE_UNITS + 1);
+        assert!(mask_mcp_env(Some(&[("FINE", "ok"), (&long_key, "v")])).is_none());
+
+        let long_value = "v".repeat(MCP_CONFIG_INSPECTION_MAX_FIELD_CODE_UNITS + 1);
+        assert!(mask_mcp_env(Some(&[("FINE", "ok"), ("BIG", &long_value)])).is_none());
+
+        // Exactly at the caps, the map survives whole.
+        let exact_key = "K".repeat(MCP_CONFIG_INSPECTION_MAX_NAME_CODE_UNITS);
+        let exact_value = "v".repeat(MCP_CONFIG_INSPECTION_MAX_FIELD_CODE_UNITS);
+        assert_eq!(
+            mask_mcp_env(Some(&[(exact_key.as_str(), exact_value.as_str())])).unwrap().len(),
+            1
+        );
     }
 }

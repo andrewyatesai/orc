@@ -10,6 +10,7 @@
 #![cfg_attr(trust_verify, register_tool(trust))]
 
 pub mod feature_interactions;
+pub mod js_value_string;
 pub mod mcp;
 pub mod project_groups;
 pub mod repo_icon;
@@ -21,6 +22,7 @@ pub use feature_interactions::{
     FeatureInteractionDefinition, FeatureInteractionId, FeatureInteractionRecord,
     FeatureInteractionState, FEATURE_INTERACTIONS,
 };
+pub use js_value_string::{js_number_string, js_string};
 pub use mcp::{
     inspect_mcp_config_content, McpConfigInspection, McpServerStatus, McpServerSummary,
     McpServerTransport,
@@ -45,7 +47,7 @@ pub mod setup_script_import_limits;
 pub mod setup_script_imports;
 
 pub use workspace_session_schema::{parse_workspace_session, ParsedWorkspaceSession, MAX_BROWSER_HISTORY_ENTRIES};
-pub use workspace_session_terminal_buffers::{cap_terminal_scrollback_session_buffer, prune_local_terminal_scrollback_buffers, should_preserve_terminal_scrollback_buffers, RepoConnection, FLOATING_TERMINAL_WORKTREE_ID, TERMINAL_SCROLLBACK_SESSION_BUFFER_CHAR_LIMIT};
+pub use workspace_session_terminal_buffers::{cap_terminal_scrollback_session_buffer, prune_local_terminal_scrollback_buffers, should_preserve_terminal_scrollback_buffers, RepoConnection, FLOATING_TERMINAL_WORKTREE_ID, TERMINAL_SCROLLBACK_SESSION_BUFFER_BYTE_LIMIT};
 pub use feature_tips::{
     get_completed_feature_tip_ids, get_ordered_unseen_feature_tips, is_feature_tip_id,
     normalize_feature_tip_ids, CompletedFeatureTipState, FeatureTip, FeatureTipAction,

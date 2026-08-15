@@ -23,8 +23,10 @@ pub use commit_message_prompt::{
     CustomCommandPlan, CUSTOM_PROMPT_PLACEHOLDER, STAGED_DIFF_BYTE_BUDGET,
 };
 pub use agent_status_types::{
-    normalize_agent_status_payload, parse_agent_status_payload, AgentStatusState,
-    ParsedAgentStatusPayload, AGENT_STATUS_STATES,
+    agent_subagents_equal, normalize_agent_status_payload, parse_agent_status_payload,
+    started_at_to_json, AgentStatusState, AgentSubagentSnapshot, AgentSubagentState,
+    ParsedAgentStatusPayload, AGENT_STATUS_INTERACTIVE_PROMPT_MAX_LENGTH,
+    AGENT_STATUS_MAX_SUBAGENTS, AGENT_STATUS_STATES,
 };
 pub use commit_message_agent_spec::{
     get_commit_message_agent_capability, get_commit_message_agent_spec, get_commit_message_model,

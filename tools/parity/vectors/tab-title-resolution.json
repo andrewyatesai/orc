@@ -218,6 +218,423 @@
         "fallback": ""
       },
       "expected": "Fix tests"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "a native OpenCode session title outranks the generated title (#9080)",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "generatedTitle": "Refactor auth",
+          "title": "OC | Native Stable Session"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "OC | Native Stable Session"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "the OpenCode branch is not gated on the generated-titles flag",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "generatedTitle": "Refactor auth",
+          "title": "OC | Native Stable Session"
+        },
+        "generatedTitlesEnabled": false,
+        "fallback": ""
+      },
+      "expected": "OC | Native Stable Session"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "a generic OpenCode title is not native, so the generated title still wins",
+      "input": {
+        "tab": { "customTitle": null, "generatedTitle": "Refactor auth", "title": "OpenCode" },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Refactor auth"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "a bare `OC |` marker with nothing after it is not a session title",
+      "input": {
+        "tab": { "customTitle": null, "generatedTitle": "Refactor auth", "title": "OC |" },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Refactor auth"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "the OC marker is case-sensitive, so a lowercase `oc |` cwd/task title is not native",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "generatedTitle": "Refactor auth",
+          "title": "oc | Understand about the plugin"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Refactor auth"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "a mid-title OC must not steal another agent's braille/task frame",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "generatedTitle": "Refactor auth",
+          "title": "\u280b Fix foo | OC | bar"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Refactor auth"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "the optional prefix is a single token, so a multi-word frame is not native",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "generatedTitle": "Refactor auth",
+          "title": "my session | OC | task"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Refactor auth"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "a single-token multiplexer frame (`tmux | OC | …`) is still a native title",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "generatedTitle": "Refactor auth",
+          "title": "tmux | OC | ses_123"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "tmux | OC | ses_123"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "the marker tolerates no space around the pipe, and the kept title is trimmed",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "generatedTitle": "Refactor auth",
+          "title": "  OC|Session  "
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "OC|Session"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "a BOM-prefixed native title is JS-trimmed first, so it still matches",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "generatedTitle": "Refactor auth",
+          "title": "\uFEFFOC | Session"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "OC | Session"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "U+0085 is outside the JS trim set and JS \\s, so it breaks the marker",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "generatedTitle": "Refactor auth",
+          "title": "\u0085OC | Session"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Refactor auth"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "the manual title still wins over a native OpenCode title",
+      "input": {
+        "tab": {
+          "customTitle": "Manual label",
+          "quickCommandLabel": "Run tests",
+          "generatedTitle": "Refactor auth",
+          "title": "OC | Native Stable Session"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Manual label"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "the quick command label still wins over a native OpenCode title",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "quickCommandLabel": "Run tests",
+          "generatedTitle": "Refactor auth",
+          "title": "OC | Native Stable Session"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Run tests"
+    },
+    {
+      "function": "resolveUnifiedTabLabel",
+      "note": "unified labels keep a native OpenCode label ahead of the generated label",
+      "input": {
+        "tab": {
+          "customLabel": null,
+          "generatedLabel": "Fix flaky tests",
+          "label": "OC | Native Stable Session"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "OC | Native Stable Session"
+    },
+    {
+      "function": "resolveUnifiedTabLabel",
+      "note": "unified labels keep the manual label ahead of a native OpenCode label",
+      "input": {
+        "tab": {
+          "customLabel": "Manual label",
+          "quickCommandLabel": "Run build",
+          "generatedLabel": "Fix flaky tests",
+          "label": "OC | Native Stable Session"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Manual label"
+    },
+    {
+      "function": "resolveUnifiedTabLabel",
+      "note": "unified labels keep the quick command label ahead of a native OpenCode label",
+      "input": {
+        "tab": {
+          "customLabel": null,
+          "quickCommandLabel": "Run build",
+          "generatedLabel": "Fix flaky tests",
+          "label": "OC | Native Stable Session"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Run build"
+    },
+    {
+      "function": "resolveUnifiedTabLabel",
+      "note": "a generic OpenCode label is not native, so the generated label still wins",
+      "input": {
+        "tab": { "customLabel": null, "generatedLabel": "Fix flaky tests", "label": "OpenCode" },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Fix flaky tests"
+    },
+    {
+      "function": "resolveUnifiedTabLabel",
+      "note": "unified labels accept the same single-token multiplexer frame",
+      "input": {
+        "tab": {
+          "customLabel": null,
+          "generatedLabel": "Fix flaky tests",
+          "label": "tmux | OC | ses_123"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "tmux | OC | ses_123"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "twin test: tab title resolution > uses live terminal titles when generated titles are disabled",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "generatedTitle": "Refactor auth",
+          "title": "Claude working"
+        },
+        "generatedTitlesEnabled": false,
+        "fallback": ""
+      },
+      "expected": "Claude working"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "twin test: tab title resolution > places generated titles between manual and live titles when enabled",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "generatedTitle": "Refactor auth",
+          "title": "Claude working"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Refactor auth"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "twin test: tab title resolution > places generated titles between manual and live titles when enabled",
+      "input": {
+        "tab": {
+          "customTitle": "Payments",
+          "generatedTitle": "Refactor auth",
+          "title": "Claude working"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Payments"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "twin test: tab title resolution > uses meaningful native OpenCode session titles before generated titles",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "generatedTitle": "Refactor auth",
+          "title": "OC | Native Stable Session"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "OC | Native Stable Session"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "twin test: tab title resolution > keeps generated titles ahead of generic OpenCode titles",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "generatedTitle": "Refactor auth",
+          "title": "OpenCode"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Refactor auth"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "twin test: tab title resolution > places quick command labels between manual and generated titles",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "quickCommandLabel": "Run tests",
+          "generatedTitle": "Refactor auth",
+          "title": "pnpm test"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Run tests"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "twin test: tab title resolution > places quick command labels between manual and generated titles",
+      "input": {
+        "tab": {
+          "customTitle": "Manual label",
+          "quickCommandLabel": "Run tests",
+          "generatedTitle": "Refactor auth",
+          "title": "pnpm test"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Manual label"
+    },
+    {
+      "function": "resolveUnifiedTabLabel",
+      "note": "twin test: tab title resolution > uses the same priority for unified tab labels",
+      "input": {
+        "tab": {
+          "customLabel": null,
+          "generatedLabel": "Fix flaky tests",
+          "label": "Codex working"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Fix flaky tests"
+    },
+    {
+      "function": "resolveUnifiedTabLabel",
+      "note": "twin test: tab title resolution > uses quick command labels before generated unified labels",
+      "input": {
+        "tab": {
+          "customLabel": null,
+          "quickCommandLabel": "Run build",
+          "generatedLabel": "Fix flaky tests",
+          "label": "Codex working"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Run build"
+    },
+    {
+      "function": "resolveUnifiedTabLabel",
+      "note": "twin test: tab title resolution > uses meaningful native OpenCode labels before generated unified labels",
+      "input": {
+        "tab": {
+          "customLabel": null,
+          "generatedLabel": "Fix flaky tests",
+          "label": "OC | Native Stable Session"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "OC | Native Stable Session"
+    },
+    {
+      "function": "resolveUnifiedTabLabel",
+      "note": "twin test: tab title resolution > keeps manual and quick command labels ahead of native OpenCode labels",
+      "input": {
+        "tab": {
+          "customLabel": "Manual label",
+          "quickCommandLabel": "Run build",
+          "generatedLabel": "Fix flaky tests",
+          "label": "OC | Native Stable Session"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Manual label"
+    },
+    {
+      "function": "resolveUnifiedTabLabel",
+      "note": "twin test: tab title resolution > keeps manual and quick command labels ahead of native OpenCode labels",
+      "input": {
+        "tab": {
+          "customLabel": null,
+          "quickCommandLabel": "Run build",
+          "generatedLabel": "Fix flaky tests",
+          "label": "OC | Native Stable Session"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Run build"
     }
   ]
 }

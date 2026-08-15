@@ -1,18 +1,13 @@
-// TS dispatch for the git-publish-target-status parity module: maps the shared
-// vector function names to the real `src/shared/git-publish-target-status.ts`
-// exports so the harness compares the live TS reference against the Rust port.
-// Only the display-name formatter still has a TS twin — remote-ref + status
-// resolution moved fully to Rust (orca-git::publish_target_status), so their
-// goldens are pinned by Rust unit tests, not this differential corpus.
-
-import { getPublishTargetDisplayName } from '../../../src/shared/git-publish-target-status'
-import type { GitPushTarget } from '../../../src/shared/types'
+// TS dispatch for the git-publish-target-status parity module. The shared TS impl
+// was gutted (the Rust push_target / publish_target_status cores are the sole
+// impl — main drives them via napi, the relay via wasm, the renderer through
+// src/renderer/src/lib/git-wasm/git-publish-target-status.ts), so this adapter
+// drives that SAME wasm: the vectors' recorded goldens now pin that surface, and
+// the harness's TS-vs-Rust diff degenerates to wasm-vs-binary.
+import { gitWasmOracle } from './orca-git-wasm-oracle'
 
 export function dispatch(fn: string, input: unknown): unknown {
-  switch (fn) {
-    case 'getPublishTargetDisplayName':
-      return getPublishTargetDisplayName(input as GitPushTarget)
-    default:
-      throw new Error(`unknown function ${fn}`)
-  }
+  return JSON.parse(
+    gitWasmOracle().orcaDispatch('git-publish-target-status', fn, JSON.stringify(input ?? null))
+  )
 }

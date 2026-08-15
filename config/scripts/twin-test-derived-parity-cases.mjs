@@ -460,15 +460,22 @@ function main() {
   }
 
   // A vector marked `allowDivergence` is a fresh-reimplementation difference the
-  // corpus already accepts; a derived case for the same function must not be
+  // corpus already accepts, so a derived case for the SAME INPUT must not be
   // relabelled as a stale port.
+  //
+  // Keyed by input, not by function, and that distinction is the whole point:
+  // keying by function meant one `allowDivergence` case silenced every case of
+  // that function. `mcp`'s only export is `inspectMcpConfigContent`, so a single
+  // flag on case #9 moved the module's entire divergence set into `allowed` and
+  // the tool printed zero while five real divergences remained. A blanket
+  // silencer that reads as a clean result is worse than no check.
   const intendedDivergence = new Set()
   const shapeEnvelope = new Map()
   for (const moduleInfo of eligible) {
     for (const testCase of moduleInfo.cases) {
       const key = `${moduleInfo.module}::${testCase.function}`
       if (testCase.allowDivergence) {
-        intendedDivergence.add(key)
+        intendedDivergence.add(`${key}::${JSON.stringify(testCase.input)}`)
       }
       if (!shapeEnvelope.has(key)) {
         shapeEnvelope.set(key, new Set())
@@ -640,7 +647,7 @@ function main() {
       const key = `${moduleName}::${testCase.function}`
       const envelope = shapeEnvelope.get(key) ?? new Set()
       const outside = [...keyPaths(testCase.input)].filter((keyPath) => !envelope.has(keyPath))
-      if (intendedDivergence.has(key)) {
+      if (intendedDivergence.has(`${key}::${JSON.stringify(testCase.input)}`)) {
         allowed.push(divergence)
       } else if (outside.length > 0) {
         outOfShape.push({ ...divergence, outside: outside.slice(0, 6) })

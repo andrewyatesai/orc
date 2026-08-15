@@ -38,14 +38,19 @@ fn agent_type_and_state(input: &Value) -> (Option<&str>, &str) {
     (agent_type, state)
 }
 
-/// Match `JSON.stringify` of the TS `SyntheticAgentTitleProfile`: the optional
-/// `synthesizeWorkingTitle` key is omitted when `None` (undefined in TS), not
-/// emitted as `null`.
+/// Match `JSON.stringify` of the TS `SyntheticAgentTitleProfile`: each optional
+/// key is omitted when `None` (undefined in TS), not emitted as `null`.
 fn profile_to_json(profile: &SyntheticAgentTitleProfile) -> Value {
     let mut map = Map::new();
     map.insert("workingLabel".to_string(), Value::String(profile.working_label.to_string()));
     map.insert("permissionLabel".to_string(), Value::String(profile.permission_label.to_string()));
     map.insert("idleLabel".to_string(), Value::String(profile.idle_label.to_string()));
+    if let Some(group) = profile.title_identity_group {
+        map.insert("titleIdentityGroup".to_string(), Value::String(group.to_string()));
+    }
+    if let Some(synthesize) = profile.synthesize_terminal_title {
+        map.insert("synthesizeTerminalTitle".to_string(), Value::Bool(synthesize));
+    }
     if let Some(synthesize) = profile.synthesize_working_title {
         map.insert("synthesizeWorkingTitle".to_string(), Value::Bool(synthesize));
     }
