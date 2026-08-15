@@ -225,3 +225,7 @@ tests/tools/autoformalize-candidates.json
 # embed absolute home paths, so check:exported-home-paths flags them as leaks.
 trustc-ice-*.txt
 rust/trustc-ice-*.txt
+
+# Scratch for config/scripts/twin-test-derived-parity-cases.mjs: recorded twin
+# calls, the derived vector corpus and its Rust outputs. Regenerated per run.
+tools/parity/.twin-derived/

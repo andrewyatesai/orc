@@ -3,8 +3,51 @@
 Tracks the TS→Rust port at module granularity so the migration is continuable.
 Authoritative inventory of what each subsystem does lives in `functional-map.md`.
 
+## Green parity does not mean the port is faithful — check before cutting over
+
+`pnpm parity` compares each port against its twin **on the vectors that exist**.
+That is a coverage claim, not a fidelity claim, and the gap is not theoretical:
+six modules on this ledger answer differently from their twin today, on input
+production reaches, with parity green.
+
+The mechanism is always the same. A port is taken at some commit; the twin then
+grows behaviour (usually an upstream fix); the vector corpus does not grow with
+it; nothing notices. `port-provenance-attributions.md` re-pinned several of these
+under "every vector-backed module in the drift set is behaviorally in sync at
+HEAD" — true only of the vectors that exist.
+
+**`pnpm parity:twin-derived` measures it.** It records every call the twin's own
+unit tests make — real inputs, the twin's real answers — replays them through the
+Rust core, and reports the disagreements. The twin's tests are the right source
+because a twin does not grow behaviour without growing a test:
+`tab-title-resolution.test.ts` has six `OC |` cases against the vector corpus's
+zero. Run it before starting a cutover; a STALE module needs a re-port first, and
+attempting the cutover instead burns the slot.
+
+STALE at the time of writing (27 modules compared, 170 derived cases the corpus
+does not have):
+
+| Module | What the core is missing |
+| --- | --- |
+| `synthetic-agent-title` | knows 5 agents; the twin knows 8 (adds pi, omp, devin) |
+| `agent-status-types` | no dispatch-preamble compaction; drops `interactivePrompt` entirely |
+| `mcp` | none of the four inspection bounds — size, field count, key and value caps |
+| `cross-platform-path` | treats a literal `\` as a separator; no NFD/NFC folding |
+| `tab-title-resolution` | no native-OpenCode-title branch (88068f55b, #9080) |
+| `workspace-session-terminal-buffers` | caps preserved SSH scrollback in **chars**, the twin in UTF-8 **bytes** — 2× the payload for CJK or accented text |
+
+Three of the six were separately confirmed against the shipped `orca_git_wasm_bg.wasm`
+and `orca_node.node`, not just the from-source build, so this is what ships.
+
+The report also has an OUT-OF-SHAPE bucket, which is not a defect list: those
+derived cases carry input keys no vector supplies, and some ports are lean by
+design (`toDetectedWorktree` spreads its input into its output, so a richer input
+produces a richer answer than Rust was ever given). Review those; do not count
+them.
+
 ## The per-module pattern
 
+0. `pnpm parity:twin-derived` — a STALE module is re-ported, not cut over.
 1. Read the `src/shared/<mod>.ts` source **and** its `.test.ts`.
 2. Port the logic to `rust/crates/orca-core/src/<mod>.rs`, faithful to behaviour.
 3. Translate the original test cases **verbatim** into a `#[cfg(test)]` module.
