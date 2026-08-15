@@ -80,6 +80,29 @@ export const DECLARED_DISPATCH_DOORS = Object.freeze([
     why: 'the CLI loads the same orca_node.node through its own local addon type'
   },
   {
+    // Why these two exist as doors at all: the codec adoption moved every shim off a direct
+    // `orcaDispatch('module', …)` onto these wrappers, so the module-key literal now sits at the
+    // wrapper call and the raw-glue doors below stopped seeing it. Without these entries the report
+    // counted SIX already-cut-over modules as orphans — the instrument reading zero progress while
+    // the migration advanced. A cut-over module must remain visible through whatever seam it uses.
+    id: 'renderer-core-dispatch',
+    kind: 'module-exports',
+    moduleFile: 'src/renderer/src/lib/git-wasm/wasm-core-dispatch.ts',
+    keyed: ['dispatchToWasmCore'],
+    moduleArgIndex: 0,
+    perFunctionDoors: false,
+    why: 'codec-checked renderer seam; every git-wasm shim dispatches through it'
+  },
+  {
+    id: 'main-core-dispatch',
+    kind: 'module-exports',
+    moduleFile: 'src/main/rust-core-dispatch.ts',
+    keyed: ['dispatchToRustCore', 'dispatchNumericToRustCore'],
+    moduleArgIndex: 0,
+    perFunctionDoors: false,
+    why: 'codec-checked main-process seam over the napi addon'
+  },
+  {
     id: 'renderer-git-wasm',
     kind: 'module-exports',
     moduleFile: 'src/renderer/src/lib/git-wasm/orca_git_wasm.d.ts',
