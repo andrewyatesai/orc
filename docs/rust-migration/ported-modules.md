@@ -45,6 +45,55 @@ design (`toDetectedWorktree` spreads its input into its output, so a richer inpu
 produces a richer answer than Rust was ever given). Review those; do not count
 them.
 
+### A clean verdict means "nothing found", not "nothing there"
+
+Batch 5 took seven modules this tool called clean and four of them still had to
+be refused. Read a clean row as a floor, not a certificate:
+
+* **Input classes no unit test writes down.** `commit-message-models` diverges on
+  8 of 23 probes of raw agent-CLI stdout — and those outputs are the PERSISTED
+  model selection and the `--model` argv. `task-claim` diverges when a lone
+  surrogate reaches the DB as the six ASCII characters of a `\uD800` escape: the
+  codec passes it, `serde_json` rejects it, and the core answers
+  `unreadable-result` where the twin answers `mismatch` — silencing the fleet's
+  only contradicting signal, in the direction that exonerates the audited agent.
+* **Behaviour that lives in a sibling module.** `pairing` delegates all
+  validation to `mobile-relay-pairing-offer.ts`, whose tests are in a file this
+  tool never records for `pairing`. The port has none of that module's relay v1
+  sub-object; 10 of 13 probed inputs diverge.
+* **Exports with no vector at all** — now reported rather than skipped silently,
+  with whether the Rust dispatch module has an arm for them. 18 modules have at
+  least one export the corpus has never named AND no Rust route. `stable-pane-id`
+  is the cautionary one: `makePaneKey` mints the key used at
+  `TerminalPane.tsx:3221` as a React key, has ~60 importers, and both shipped
+  cores answer "unknown function makePaneKey". A shim would have thrown on every
+  pane key the moment wasm initialised.
+
+### Verify the tree you are about to COMMIT, not the one you are sitting in
+
+The maintainer's working tree carries ~1500 uncommitted files, so a green
+`pnpm typecheck:*` in the worktree says nothing about what lands. Batch 4 shipped
+four files importing names it had moved out from under them, and every one was
+invisible locally. Materialize the index and check that instead:
+
+```sh
+tree=$(git write-tree) && commit=$(git commit-tree "$tree" -p HEAD -m verify)
+git worktree add --detach /tmp/verify "$commit"
+ln -s "$PWD/node_modules" /tmp/verify/node_modules
+cd /tmp/verify && pnpm typecheck:node && pnpm typecheck:web
+```
+
+Compare against the same two commands on the commit you branched from — the
+baseline is not zero, and only NEW errors are yours.
+
+`protocol-compat` is cut over (`protocol-compat-verdict`, pre-ready `parity`);
+`worktree-id` and `nested-repo-telemetry` verified safe but are NOT landed, and
+`worktree_id.get_worktree_path_basename_from_id` carries a known divergence found
+by an adversarial sweep rather than by this tool: it trims with Rust
+`char::is_whitespace` where the twin uses JS `String.prototype.trim`, so a path
+segment containing U+0085 (Rust only) or U+FEFF (JS only) answers differently.
+The other three worktree-id functions are clean.
+
 ## The per-module pattern
 
 0. `pnpm parity:twin-derived` — a STALE module is re-ported, not cut over.

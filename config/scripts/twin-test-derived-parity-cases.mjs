@@ -45,12 +45,32 @@
 // whichever one reproduces every pair. Neither fits => UNDERIVABLE, reported,
 // never guessed at.
 //
-// WHAT IT CANNOT SEE, so a green run is not over-read:
+// WHAT IT CANNOT SEE, so a green run is not over-read. Batch 5 found all four
+// of these the expensive way — a clean verdict here, then a refusal on
+// inspection — so treat "no divergences" as "nothing found", not "nothing there":
 //   * behaviour the twin's tests do not exercise either. This widens coverage
-//     from the vector corpus to the unit corpus; it is not exhaustive.
+//     from the vector corpus to the unit corpus; it is not exhaustive. Both
+//     `commit-message-models` (raw agent-CLI stdout) and `task-claim` (a lone
+//     surrogate arriving as the six ASCII characters of a `\uD800` escape, which
+//     the codec passes and serde_json rejects) diverge on input classes no unit
+//     test writes down.
+//   * BEHAVIOUR THAT LIVES IN A SIBLING MODULE. `pairing` delegates all
+//     validation to `mobile-relay-pairing-offer.ts`, whose tests are in a
+//     different file this never records; the port is missing that module's whole
+//     relay v1 sub-object and 10 of 13 probed inputs diverge. A twin that
+//     re-exports or delegates has a surface wider than its own test file.
 //   * already cut-over modules — their twin holds no implementation to record.
 //   * calls whose arguments are not JSON round-trippable (counted, never
 //     silently dropped).
+//
+// ONE BLIND SPOT IS FIXED RATHER THAN LISTED, because it was SILENT. Functions
+// used to be enumerated from the vector corpus, so an export with no vectors was
+// not merely unchecked — it never reached the UNDERIVABLE list either, and the
+// module still reported clean. That is how `stable-pane-id` passed while
+// `makePaneKey`, its key minter with ~60 importers, had no Rust dispatch arm at
+// all and both shipped cores answered "unknown function". Exports now come from
+// the twin's SOURCE and every one without a vector is reported, with whether the
+// Rust dispatch module even has an arm for it.
 //
 // The agreeing cases are the other half of the value: they are new vectors,
 // derived rather than written, ready to widen the corpus permanently.
@@ -126,6 +146,28 @@ function normalizeOutput(value) {
   return value
 }
 
+/** Function names the module's Rust dispatch arm answers to.
+ *
+ *  Batch 5 refused `stable-pane-id` over exactly this: `makePaneKey` is the
+ *  module's key MINTER with ~60 production importers, `orca_core` implements it,
+ *  and it is NOT registered in the dispatch match — both shipped cores answer
+ *  "unknown function makePaneKey". Any shim would have thrown on every pane key
+ *  the moment wasm initialised. Nothing in the vector corpus could see it,
+ *  because the corpus has no makePaneKey case to be missing. */
+function rustDispatchArms(moduleName) {
+  const file = path.join(
+    REPO_ROOT,
+    'rust/crates/orca-dispatch/src/modules',
+    `${moduleName.replaceAll('-', '_')}.rs`
+  )
+  if (!fs.existsSync(file)) {
+    return null
+  }
+  const source = fs.readFileSync(file, 'utf8')
+  const body = source.slice(source.indexOf('match function {'))
+  return new Set([...body.matchAll(/^\s*"([A-Za-z0-9_]+)"\s*(?:=>|\|)/gm)].map((m) => m[1]))
+}
+
 function readVectorFiles() {
   const modules = []
   for (const name of fs.readdirSync(VECTORS_DIR).filter((f) => f.endsWith('.json'))) {
@@ -144,20 +186,28 @@ function readVectorFiles() {
   return modules.sort((a, b) => a.module.localeCompare(b.module))
 }
 
-/** Parameter names, in order, for each ported function still declared in a twin.
+/** Parameter names, in order, for every function a twin EXPORTS.
+ *
+ *  Enumerated from the twin's source, never from the vector corpus. Doing it the
+ *  other way is what hid `stable-pane-id`'s makePaneKey: a function with no
+ *  vectors was invisible, so its calls were dropped without even reaching the
+ *  UNDERIVABLE list — the tool reported a clean module and said nothing about
+ *  the export it had never looked at.
  *
  *  A function whose parameters are destructured or rest has no name list to zip
- *  against; it is simply absent from the map, and the `single` convention can
- *  still carry it. */
-function parameterNames(twinPath, functionNames) {
+ *  against; it is absent from the map, and the `single` convention can still
+ *  carry it. */
+function parameterNames(twinPath) {
   const text = fs.readFileSync(twinPath, 'utf8')
   const sourceFile = ts.createSourceFile(twinPath, text, ts.ScriptTarget.Latest, true)
   const byFunction = new Map()
   const declared = new Set()
-  const wanted = new Set(functionNames)
+
+  const exported = (statement) =>
+    statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false
 
   const record = (name, parameters) => {
-    if (!wanted.has(name) || declared.has(name)) {
+    if (declared.has(name)) {
       return
     }
     declared.add(name)
@@ -172,6 +222,9 @@ function parameterNames(twinPath, functionNames) {
   }
 
   for (const statement of sourceFile.statements) {
+    if (!exported(statement)) {
+      continue
+    }
     if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) {
       record(statement.name.text, statement.parameters)
       continue
@@ -281,8 +334,15 @@ function main() {
       skipped.push({ module: moduleInfo.module, why: `twin missing (${moduleInfo.source})` })
       continue
     }
-    const { byFunction, declared } = parameterNames(twinPath, moduleInfo.functions)
+    const { byFunction, declared } = parameterNames(twinPath)
     const stillImplemented = moduleInfo.functions.filter((fn) => declared.has(fn))
+    // Exports the twin still implements that NO vector names. These are the
+    // functions the corpus is blind to by construction, and the reason the tool
+    // called stable-pane-id clean while its key minter had no Rust route at all.
+    const arms = rustDispatchArms(moduleInfo.module)
+    const uncovered = [...declared]
+      .filter((fn) => !moduleInfo.functions.includes(fn))
+      .map((fn) => ({ fn, hasRustArm: arms ? arms.has(fn) : null }))
     if (stillImplemented.length === 0) {
       skipped.push({
         module: moduleInfo.module,
@@ -307,7 +367,7 @@ function main() {
     const recorderPath = writeRecorder(PATHS, moduleInfo.module, stillImplemented, twinPath)
     redirects.push([twinPath, recorderPath])
     testFiles.push(path.relative(REPO_ROOT, testPath))
-    eligible.push({ ...moduleInfo, twinPath, adapterPath, byFunction, stillImplemented })
+    eligible.push({ ...moduleInfo, twinPath, adapterPath, byFunction, stillImplemented, uncovered })
   }
 
   console.log(`[twin-derived] ${eligible.length} modules eligible, ${skipped.length} skipped`)
@@ -318,6 +378,21 @@ function main() {
   }
   for (const [reason, count] of [...reasons].sort((a, b) => b[1] - a[1])) {
     console.log(`  ${String(count).padStart(3)}  ${reason}`)
+  }
+
+  // Loud, because silence here is what let a whole export escape review.
+  const uncovered = eligible.flatMap((m) =>
+    m.uncovered.map((entry) => ({ module: m.module, ...entry }))
+  )
+  const unrouted = uncovered.filter((entry) => entry.hasRustArm === false)
+  if (uncovered.length > 0) {
+    console.log(
+      `[twin-derived] ${uncovered.length} twin exports have NO vector at all, ` +
+        `${unrouted.length} of them with no Rust dispatch arm either:`
+    )
+    for (const entry of unrouted) {
+      console.log(`    ${entry.module}::${entry.fn} — no vector, NO RUST ROUTE`)
+    }
   }
   if (eligible.length === 0) {
     return 0
@@ -587,7 +662,10 @@ function main() {
   }
 
   const reportPath = path.join(WORK_DIR, 'report.json')
-  fs.writeFileSync(reportPath, `${JSON.stringify({ report, skipped, underivable }, null, 2)}\n`)
+  fs.writeFileSync(
+    reportPath,
+    `${JSON.stringify({ report, skipped, underivable, uncovered }, null, 2)}\n`
+  )
 
   // Only a module with nothing unresolved is promotable. A stale or out-of-shape
   // module's agreeing cases may be fine, but "fine except for the part we are
