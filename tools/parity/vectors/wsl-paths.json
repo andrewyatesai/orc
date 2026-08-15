@@ -50,6 +50,12 @@
       "note": "accepts legacy wsl$ UNC path",
       "input": "\\\\wsl$\\Ubuntu\\root",
       "expected": true
+    },
+    {
+      "function": "isWslUncPath",
+      "note": "twin test: wsl path helpers > rejects ordinary Windows and POSIX paths",
+      "input": "C:\\userhome\\jin\\repo",
+      "expected": false
     }
   ]
 }

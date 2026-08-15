@@ -490,6 +490,45 @@
         "result": "{\"completedBy\":\"w1\",\"filesModified\":[\"src/a.ts\"],\"durationMs\":1e999}",
         "changedFiles": ["src/a.ts"]
       }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "twin test: reconcileTaskClaim > normalizes path shape, so ./a.ts and a.ts are one file",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"w1\",\"filesModified\":[\"./src/a.ts\"],\"completedAt\":\"now\"}",
+        "changedFiles": ["src/a.ts"]
+      },
+      "expected": {
+        "verdict": "match",
+        "claimed": ["src/a.ts"]
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "twin test: reconcileTaskClaim > degrades to unknown with no git — NEVER to mismatch",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"w1\",\"filesModified\":[\"src/a.ts\"],\"completedAt\":\"now\"}",
+        "changedFiles": null
+      },
+      "expected": {
+        "verdict": "unknown",
+        "reason": "no-git"
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "twin test: reconcileTaskClaim > is unknown for a task still running",
+      "input": {
+        "taskStatus": "dispatched",
+        "result": "{\"completedBy\":\"w1\",\"filesModified\":[],\"completedAt\":\"now\"}",
+        "changedFiles": []
+      },
+      "expected": {
+        "verdict": "unknown",
+        "reason": "not-completed"
+      }
     }
   ]
 }

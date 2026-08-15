@@ -192,6 +192,58 @@
       "note": "a present-but-unknown scope value rejects the offer (zod enum)",
       "input": "orca://pair?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6InRva2VuLWFiYyIsInB1YmxpY0tleUI2NCI6InB1YmtleS14eXoiLCJzY29wZSI6ImRlc2t0b3AifQ",
       "expected": null
+    },
+    {
+      "function": "encodePairingOffer",
+      "note": "twin test: pairing offer > preserves optional device scope metadata",
+      "input": {
+        "v": 2,
+        "endpoint": "ws://192.168.1.10:6768",
+        "deviceToken": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+        "publicKeyB64": "dGVzdC1wdWJsaWMta2V5LWJhc2U2NC1lbmNvZGVk",
+        "scope": "mobile"
+      },
+      "expected": "orca://pair?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6ImRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZiIsInB1YmxpY0tleUI2NCI6ImRHVnpkQzF3ZFdKc2FXTXRhMlY1TFdKaGMyVTJOQzFsYm1OdlpHVmsiLCJzY29wZSI6Im1vYmlsZSJ9"
+    },
+    {
+      "function": "decodePairingOffer",
+      "note": "twin test: pairing offer > preserves optional device scope metadata",
+      "input": "orca://pair?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6ImRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZiIsInB1YmxpY0tleUI2NCI6ImRHVnpkQzF3ZFdKc2FXTXRhMlY1TFdKaGMyVTJOQzFsYm1OdlpHVmsiLCJzY29wZSI6Im1vYmlsZSJ9",
+      "expected": {
+        "v": 2,
+        "endpoint": "ws://192.168.1.10:6768",
+        "deviceToken": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+        "publicKeyB64": "dGVzdC1wdWJsaWMta2V5LWJhc2U2NC1lbmNvZGVk",
+        "scope": "mobile"
+      }
+    },
+    {
+      "function": "encodePairingOffer",
+      "note": "twin test: pairing offer > round-trips a TLS reverse-proxy endpoint with an explicit port and path",
+      "input": {
+        "v": 2,
+        "endpoint": "wss://proxy.example:443/orca/runtime",
+        "deviceToken": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+        "publicKeyB64": "dGVzdC1wdWJsaWMta2V5LWJhc2U2NC1lbmNvZGVk"
+      },
+      "expected": "orca://pair?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzczovL3Byb3h5LmV4YW1wbGU6NDQzL29yY2EvcnVudGltZSIsImRldmljZVRva2VuIjoiZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmIiwicHVibGljS2V5QjY0IjoiZEdWemRDMXdkV0pzYVdNdGEyVjVMV0poYzJVMk5DMWxibU52WkdWayJ9"
+    },
+    {
+      "function": "decodePairingOffer",
+      "note": "twin test: pairing offer > round-trips a TLS reverse-proxy endpoint with an explicit port and path",
+      "input": "orca://pair?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzczovL3Byb3h5LmV4YW1wbGU6NDQzL29yY2EvcnVudGltZSIsImRldmljZVRva2VuIjoiZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmIiwicHVibGljS2V5QjY0IjoiZEdWemRDMXdkV0pzYVdNdGEyVjVMV0poYzJVMk5DMWxibU52WkdWayJ9",
+      "expected": {
+        "v": 2,
+        "endpoint": "wss://proxy.example:443/orca/runtime",
+        "deviceToken": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+        "publicKeyB64": "dGVzdC1wdWJsaWMta2V5LWJhc2U2NC1lbmNvZGVk"
+      }
+    },
+    {
+      "function": "parsePairingCode",
+      "note": "twin test: pairing offer > rejects orca URLs outside the exact pairing route",
+      "input": "orca://pairing?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6ImRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZiIsInB1YmxpY0tleUI2NCI6ImRHVnpkQzF3ZFdKc2FXTXRhMlY1TFdKaGMyVTJOQzFsYm1OdlpHVmsifQ",
+      "expected": null
     }
   ]
 }

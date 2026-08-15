@@ -177,6 +177,12 @@
       "note": "non-string is not an id",
       "input": 42,
       "expected": false
+    },
+    {
+      "function": "normalizeFeatureTipIds",
+      "note": "twin test: feature tips > normalizes persisted tip ids",
+      "input": ["feature-tour", "orca-cli", "bogus", "cmd-j-palette", "voice-dictation"],
+      "expected": ["orca-cli", "cmd-j-palette", "voice-dictation"]
     }
   ]
 }

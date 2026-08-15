@@ -243,6 +243,102 @@
         "selected_count_bucket": "2-3",
         "all_selected": true
       }
+    },
+    {
+      "function": "buildNestedRepoScanTelemetry",
+      "note": "twin test: nested repo telemetry payloads > threads one attempt id across scan, action, and result and allows a new scan id",
+      "input": {
+        "attemptId": "2fbac1e3-5094-45b4-80a6-90281e6e9e09",
+        "surface": "sidebar",
+        "runtimeKind": "local",
+        "scan": {
+          "selectedPath": "/workspace/platform",
+          "selectedPathKind": "non_git_folder",
+          "repos": [
+            {
+              "path": "/workspace/platform/apps/web",
+              "displayName": "web",
+              "depth": 2
+            },
+            {
+              "path": "/workspace/platform/services/api",
+              "displayName": "api",
+              "depth": 2
+            },
+            {
+              "path": "/workspace/platform/services/billing",
+              "displayName": "billing",
+              "depth": 2
+            }
+          ],
+          "truncated": false,
+          "timedOut": false,
+          "stopped": false,
+          "durationMs": 42,
+          "maxDepth": 3,
+          "maxRepos": 100,
+          "timeoutMs": null
+        }
+      },
+      "expected": {
+        "attempt_id": "2fbac1e3-5094-45b4-80a6-90281e6e9e09",
+        "surface": "sidebar",
+        "runtime_kind": "local",
+        "result": "review_shown",
+        "selected_path_kind": "non_git_folder",
+        "found_count": 3,
+        "found_count_bucket": "2-3",
+        "truncated": false,
+        "timed_out": false
+      }
+    },
+    {
+      "function": "buildNestedRepoScanTelemetry",
+      "note": "twin test: nested repo telemetry payloads > threads one attempt id across scan, action, and result and allows a new scan id",
+      "input": {
+        "attemptId": "d22bb9e0-b7f8-480a-8a2a-9b34f84f2c42",
+        "surface": "sidebar",
+        "runtimeKind": "local",
+        "scan": {
+          "selectedPath": "/workspace/platform",
+          "selectedPathKind": "non_git_folder",
+          "repos": [
+            {
+              "path": "/workspace/platform/apps/web",
+              "displayName": "web",
+              "depth": 2
+            },
+            {
+              "path": "/workspace/platform/services/api",
+              "displayName": "api",
+              "depth": 2
+            },
+            {
+              "path": "/workspace/platform/services/billing",
+              "displayName": "billing",
+              "depth": 2
+            }
+          ],
+          "truncated": false,
+          "timedOut": false,
+          "stopped": false,
+          "durationMs": 42,
+          "maxDepth": 3,
+          "maxRepos": 100,
+          "timeoutMs": null
+        }
+      },
+      "expected": {
+        "attempt_id": "d22bb9e0-b7f8-480a-8a2a-9b34f84f2c42",
+        "surface": "sidebar",
+        "runtime_kind": "local",
+        "result": "review_shown",
+        "selected_path_kind": "non_git_folder",
+        "found_count": 3,
+        "found_count_bucket": "2-3",
+        "truncated": false,
+        "timed_out": false
+      }
     }
   ]
 }

@@ -669,6 +669,36 @@
           ":(exclude,glob)feature\\[1\\]/**"
         ]
       }
+    },
+    {
+      "function": "shouldIncludeQuickOpenPath",
+      "note": "twin test: shouldIncludeQuickOpenPath > hides npm-global install state dir from Quick Open",
+      "input": {
+        "path": ".npm-global/bin/foo"
+      },
+      "expected": false
+    },
+    {
+      "function": "normalizeQuickOpenRgLine",
+      "note": "twin test: normalizeQuickOpenRgLine > keeps cwd-relative dot-dot-prefixed names but rejects parent escapes",
+      "input": {
+        "rawLine": "..workspace/file.ts",
+        "outputMode": {
+          "kind": "cwd-relative"
+        }
+      },
+      "expected": "..workspace/file.ts"
+    },
+    {
+      "function": "normalizeQuickOpenRgLine",
+      "note": "twin test: normalizeQuickOpenRgLine > returns null for cwd-relative parent-directory escapes",
+      "input": {
+        "rawLine": "../outside/a.ts",
+        "outputMode": {
+          "kind": "cwd-relative"
+        }
+      },
+      "expected": null
     }
   ]
 }

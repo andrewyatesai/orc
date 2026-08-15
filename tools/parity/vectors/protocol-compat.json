@@ -241,6 +241,99 @@
         "requiredServerProtocolVersion": 3
       },
       "expected": "The selected Orca server is too old for this client. Update Orca on the server. Server protocol 2, client requires server protocol 3."
+    },
+    {
+      "function": "evaluateCompat",
+      "note": "twin test: evaluateCompat > returns ok when both desktop fields are undefined and constants are wide-open",
+      "input": {
+        "mobileProtocolVersion": 1,
+        "minCompatibleDesktopVersion": 0
+      },
+      "expected": {
+        "kind": "ok"
+      }
+    },
+    {
+      "function": "evaluateCompat",
+      "note": "twin test: evaluateCompat > allows desktop protocol 3 to roll out before mobile protocol 2 updates",
+      "input": {
+        "mobileProtocolVersion": 2,
+        "minCompatibleDesktopVersion": 2,
+        "desktopProtocolVersion": 3,
+        "desktopMinCompatibleMobileVersion": 2
+      },
+      "expected": {
+        "kind": "ok"
+      }
+    },
+    {
+      "function": "evaluateCompat",
+      "note": "twin test: evaluateCompat > allows mobile protocol 3 to roll out before desktop protocol 2 updates",
+      "input": {
+        "mobileProtocolVersion": 3,
+        "minCompatibleDesktopVersion": 2,
+        "desktopProtocolVersion": 2,
+        "desktopMinCompatibleMobileVersion": 2
+      },
+      "expected": {
+        "kind": "ok"
+      }
+    },
+    {
+      "function": "evaluateCompat",
+      "note": "twin test: evaluateCompat > coerces undefined desktopVersion to 0 in the verdict payload",
+      "input": {
+        "mobileProtocolVersion": 1,
+        "minCompatibleDesktopVersion": 0,
+        "desktopMinCompatibleMobileVersion": 2
+      },
+      "expected": {
+        "kind": "blocked",
+        "reason": "mobile-too-old",
+        "desktopVersion": 0,
+        "requiredMobileVersion": 2
+      }
+    },
+    {
+      "function": "evaluateCompat",
+      "note": "twin test: evaluateCompat > with minCompatibleDesktopVersion = 0 every reported desktop passes",
+      "input": {
+        "mobileProtocolVersion": 1,
+        "minCompatibleDesktopVersion": 0,
+        "desktopProtocolVersion": 0,
+        "desktopMinCompatibleMobileVersion": 0
+      },
+      "expected": {
+        "kind": "ok"
+      }
+    },
+    {
+      "function": "evaluateCompat",
+      "note": "twin test: evaluateCompat > with minCompatibleDesktopVersion = 0 every reported desktop passes",
+      "input": {
+        "mobileProtocolVersion": 1,
+        "minCompatibleDesktopVersion": 0,
+        "desktopProtocolVersion": 2,
+        "desktopMinCompatibleMobileVersion": 0
+      },
+      "expected": {
+        "kind": "ok"
+      }
+    },
+    {
+      "function": "evaluateRuntimeCompat",
+      "note": "twin test: evaluateRuntimeCompat > treats missing server fields as protocol 0",
+      "input": {
+        "clientProtocolVersion": 3,
+        "minCompatibleServerProtocolVersion": 1
+      },
+      "expected": {
+        "kind": "blocked",
+        "reason": "server-too-old",
+        "clientProtocolVersion": 3,
+        "serverProtocolVersion": 0,
+        "requiredServerProtocolVersion": 1
+      }
     }
   ]
 }

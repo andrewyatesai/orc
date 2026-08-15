@@ -531,8 +531,17 @@ function main() {
     const divergences = []
     const allowed = []
     const outOfShape = []
+    // Cases both sides answered identically, carrying the twin's answer as the
+    // golden. These are the other half of the value: real vectors, derived
+    // rather than written, that permanently widen what `pnpm parity` can see.
+    const agreeing = []
     let compared = 0
     let unreached = 0
+    const existingInputs = new Set(
+      (eligible.find((m) => m.module === moduleName)?.cases ?? []).map(
+        (c) => `${c.function}::${JSON.stringify(c.input)}`
+      )
+    )
     for (const [index, testCase] of bucket.cases.entries()) {
       const run = rustByKey.get(`${moduleName}::${index}`)
       if (!run) {
@@ -541,6 +550,9 @@ function main() {
       }
       compared += 1
       if (semanticEqual(run.rustOutput, bucket.twinOutputs[index])) {
+        if (!existingInputs.has(`${testCase.function}::${JSON.stringify(testCase.input)}`)) {
+          agreeing.push({ ...testCase, expected: bucket.twinOutputs[index] })
+        }
         continue
       }
       const divergence = {
@@ -569,12 +581,29 @@ function main() {
       unreached,
       divergences,
       allowed,
-      outOfShape
+      outOfShape,
+      agreeing
     })
   }
 
   const reportPath = path.join(WORK_DIR, 'report.json')
   fs.writeFileSync(reportPath, `${JSON.stringify({ report, skipped, underivable }, null, 2)}\n`)
+
+  // Only a module with nothing unresolved is promotable. A stale or out-of-shape
+  // module's agreeing cases may be fine, but "fine except for the part we are
+  // still arguing about" is not a corpus to golden-check against.
+  const promotable = report
+    .filter((r) => r.divergences.length === 0 && r.outOfShape.length === 0 && r.agreeing.length > 0)
+    .map((r) => ({ module: r.module, cases: r.agreeing }))
+  fs.writeFileSync(
+    path.join(WORK_DIR, 'promotable.json'),
+    `${JSON.stringify(promotable, null, 2)}\n`
+  )
+  console.log(
+    `[twin-derived] ${promotable.reduce((sum, r) => sum + r.cases.length, 0)} cases across ` +
+      `${promotable.length} clean modules are promotable into the real corpus ` +
+      '(tools/parity/.twin-derived/promotable.json)'
+  )
 
   const stale = report.filter((r) => r.divergences.length > 0)
   console.log('')
