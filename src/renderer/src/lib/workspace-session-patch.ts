@@ -1,5 +1,5 @@
 import type { WorkspaceSessionPatch, WorkspaceSessionState } from '../../../shared/types'
-import { pruneLocalTerminalScrollbackBuffers } from '../../../shared/workspace-session-terminal-buffers'
+import { pruneLocalTerminalScrollbackBuffers } from '../../../shared/workspace-session-terminal-buffer-pruning'
 import { normalizeBrowserHistoryEntries } from '../../../shared/workspace-session-browser-history'
 import {
   buildActiveConnectionIdsAtShutdown,

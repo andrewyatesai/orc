@@ -970,6 +970,312 @@
         "activeWorktreeId": null,
         "activeTabId": null
       }
+    },
+    {
+      "function": "pruneLocalTerminalScrollbackBuffers",
+      "note": "unrelated top-level session keys survive verbatim — the shim crosses only tabsByWorktree/terminalLayoutsByTabId and re-attaches the answer",
+      "input": {
+        "session": {
+          "activeRepoId": "local-repo",
+          "browserUrlHistory": [
+            {
+              "url": "https://example.dev",
+              "visitedAt": 7
+            }
+          ],
+          "openFiles": [],
+          "tabsByWorktree": {
+            "local-repo::/local/worktree": [
+              {
+                "id": "local-tab",
+                "worktreeId": "local-repo::/local/worktree"
+              }
+            ]
+          },
+          "terminalLayoutsByTabId": {
+            "local-tab": {
+              "root": null,
+              "activeLeafId": null,
+              "expandedLeafId": null,
+              "buffersByLeafId": {
+                "pane:1": "local-scrollback"
+              },
+              "scrollbackRefsByLeafId": {
+                "pane:1": "v1-local"
+              },
+              "ptyIdsByLeafId": {
+                "pane:1": "local-pty"
+              }
+            }
+          }
+        },
+        "repos": [
+          {
+            "id": "local-repo",
+            "connectionId": null
+          }
+        ]
+      },
+      "expected": {
+        "activeRepoId": "local-repo",
+        "browserUrlHistory": [
+          {
+            "url": "https://example.dev",
+            "visitedAt": 7
+          }
+        ],
+        "openFiles": [],
+        "tabsByWorktree": {
+          "local-repo::/local/worktree": [
+            {
+              "id": "local-tab",
+              "worktreeId": "local-repo::/local/worktree"
+            }
+          ]
+        },
+        "terminalLayoutsByTabId": {
+          "local-tab": {
+            "root": null,
+            "activeLeafId": null,
+            "expandedLeafId": null,
+            "ptyIdsByLeafId": {
+              "pane:1": "local-pty"
+            }
+          }
+        }
+      }
+    },
+    {
+      "function": "pruneLocalTerminalScrollbackBuffers",
+      "note": "the exact two-field slice the shim sends: nothing else is needed to decide the prune",
+      "input": {
+        "session": {
+          "tabsByWorktree": {
+            "local-repo::/local/worktree": [
+              {
+                "id": "local-tab",
+                "worktreeId": "local-repo::/local/worktree"
+              }
+            ]
+          },
+          "terminalLayoutsByTabId": {
+            "local-tab": {
+              "root": null,
+              "buffersByLeafId": {
+                "pane:1": "local-scrollback"
+              }
+            }
+          }
+        },
+        "repos": [
+          {
+            "id": "local-repo",
+            "connectionId": null
+          }
+        ]
+      },
+      "expected": {
+        "tabsByWorktree": {
+          "local-repo::/local/worktree": [
+            {
+              "id": "local-tab",
+              "worktreeId": "local-repo::/local/worktree"
+            }
+          ]
+        },
+        "terminalLayoutsByTabId": {
+          "local-tab": {
+            "root": null
+          }
+        }
+      }
+    },
+    {
+      "function": "pruneLocalTerminalScrollbackBuffers",
+      "note": "a local layout carrying only scrollbackRefsByLeafId loses the refs too (no buffers to cap)",
+      "input": {
+        "session": {
+          "tabsByWorktree": {
+            "local-repo::/local/worktree": [
+              {
+                "id": "local-tab",
+                "worktreeId": "local-repo::/local/worktree"
+              }
+            ]
+          },
+          "terminalLayoutsByTabId": {
+            "local-tab": {
+              "root": null,
+              "scrollbackRefsByLeafId": {
+                "pane:1": "v1-x"
+              },
+              "ptyIdsByLeafId": {
+                "pane:1": "pty-x"
+              }
+            }
+          }
+        },
+        "repos": [
+          {
+            "id": "local-repo",
+            "connectionId": null
+          }
+        ]
+      },
+      "expected": {
+        "tabsByWorktree": {
+          "local-repo::/local/worktree": [
+            {
+              "id": "local-tab",
+              "worktreeId": "local-repo::/local/worktree"
+            }
+          ]
+        },
+        "terminalLayoutsByTabId": {
+          "local-tab": {
+            "root": null,
+            "ptyIdsByLeafId": {
+              "pane:1": "pty-x"
+            }
+          }
+        }
+      }
+    },
+    {
+      "function": "pruneLocalTerminalScrollbackBuffers",
+      "note": "an SSH layout carrying only scrollbackRefsByLeafId is not rewritten at all — the session comes back identical",
+      "input": {
+        "session": {
+          "tabsByWorktree": {
+            "remote-repo::/remote/worktree": [
+              {
+                "id": "remote-tab",
+                "worktreeId": "remote-repo::/remote/worktree"
+              }
+            ]
+          },
+          "terminalLayoutsByTabId": {
+            "remote-tab": {
+              "root": null,
+              "scrollbackRefsByLeafId": {
+                "pane:1": "v1-x"
+              },
+              "ptyIdsByLeafId": {
+                "pane:1": "pty-x"
+              }
+            }
+          }
+        },
+        "repos": [
+          {
+            "id": "remote-repo",
+            "connectionId": "ssh-target-1"
+          }
+        ]
+      },
+      "expected": {
+        "tabsByWorktree": {
+          "remote-repo::/remote/worktree": [
+            {
+              "id": "remote-tab",
+              "worktreeId": "remote-repo::/remote/worktree"
+            }
+          ]
+        },
+        "terminalLayoutsByTabId": {
+          "remote-tab": {
+            "root": null,
+            "scrollbackRefsByLeafId": {
+              "pane:1": "v1-x"
+            },
+            "ptyIdsByLeafId": {
+              "pane:1": "pty-x"
+            }
+          }
+        }
+      }
+    },
+    {
+      "function": "pruneLocalTerminalScrollbackBuffers",
+      "note": "per-leaf capping: one leaf over the byte budget is trimmed, the leaf already inside it is untouched",
+      "input": {
+        "session": {
+          "tabsByWorktree": {
+            "remote-repo::/remote/worktree": [
+              {
+                "id": "remote-tab",
+                "worktreeId": "remote-repo::/remote/worktree"
+              }
+            ]
+          },
+          "terminalLayoutsByTabId": {
+            "remote-tab": {
+              "buffersByLeafId": {
+                "pane:a": "ééééé",
+                "pane:b": "ok"
+              }
+            }
+          }
+        },
+        "repos": [
+          {
+            "id": "remote-repo",
+            "connectionId": "ssh-target-1"
+          }
+        ],
+        "opts": {
+          "bufferByteLimit": 4
+        }
+      },
+      "expected": {
+        "tabsByWorktree": {
+          "remote-repo::/remote/worktree": [
+            {
+              "id": "remote-tab",
+              "worktreeId": "remote-repo::/remote/worktree"
+            }
+          ]
+        },
+        "terminalLayoutsByTabId": {
+          "remote-tab": {
+            "buffersByLeafId": {
+              "pane:a": "éé",
+              "pane:b": "ok"
+            }
+          }
+        }
+      }
+    },
+    {
+      "function": "shouldPreserveTerminalScrollbackBuffers",
+      "note": "duplicate repo ids: new Map(...) keeps the LAST entry, so the local duplicate decides",
+      "input": {
+        "worktreeId": "dup-repo::/worktree",
+        "repos": [
+          {
+            "id": "dup-repo",
+            "connectionId": "ssh-target-1"
+          },
+          {
+            "id": "dup-repo",
+            "connectionId": null
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "function": "shouldPreserveTerminalScrollbackBuffers",
+      "note": "a hydrated repo with neither connectionId nor executionHostId is local, not unclassifiable",
+      "input": {
+        "worktreeId": "bare-repo::/worktree",
+        "repos": [
+          {
+            "id": "bare-repo"
+          }
+        ]
+      },
+      "expected": false
     }
   ]
 }

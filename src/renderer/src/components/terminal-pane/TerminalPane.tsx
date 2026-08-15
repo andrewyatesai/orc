@@ -100,7 +100,7 @@ import type { AgentSessionContinuationRequest } from '@/lib/agent-session-contin
 import { useNotificationDispatch } from './use-notification-dispatch'
 import { connectPanePty } from './pty-connection'
 import { resolveTerminalLayoutActiveLeafId } from './terminal-layout-leaf-ids'
-import { shouldPreserveTerminalScrollbackBuffers } from '../../../../shared/workspace-session-terminal-buffers'
+import { shouldPreserveTerminalScrollbackBuffers } from '../../../../shared/workspace-session-terminal-buffer-pruning'
 import {
   getMobileFitOverridePtyIds,
   getFitOverrideForPty

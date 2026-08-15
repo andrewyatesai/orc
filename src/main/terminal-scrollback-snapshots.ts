@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import { app } from 'electron'
 import { writeFileAtomicSync } from './atomic-file-write'
 import type { WorkspaceSessionState } from '../shared/types'
-import { capTerminalScrollbackSessionBuffer } from '../shared/workspace-session-terminal-buffers'
+import { capTerminalScrollbackSessionBuffer } from '../shared/workspace-session-terminal-buffer-pruning'
 import {
   TERMINAL_SCROLLBACK_REPLAY_BYTE_LIMIT,
   TERMINAL_SCROLLBACK_STORE_BYTE_LIMIT

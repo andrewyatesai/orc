@@ -6,7 +6,7 @@ import { getUtf8ByteLength } from './utf8-byte-limits'
 import {
   pruneLocalTerminalScrollbackBuffers,
   shouldPreserveTerminalScrollbackBuffers
-} from './workspace-session-terminal-buffers'
+} from './workspace-session-terminal-buffer-pruning'
 
 function makeSession(overrides: Partial<WorkspaceSessionState> = {}): WorkspaceSessionState {
   return {

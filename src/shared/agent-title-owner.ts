@@ -1,10 +1,7 @@
 import { detectAgentStatusFromTitle, getAgentLabel } from './agent-detection'
 import type { AgentStatusEntry, AgentType } from './agent-status-types'
-import {
-  getSyntheticAgentTitleProfile,
-  SYNTHETIC_AGENT_TITLE_PROFILES,
-  type SyntheticAgentTitleProfile
-} from './synthetic-agent-title'
+import { SYNTHETIC_AGENT_TITLE_PROFILES, type SyntheticAgentTitleProfile } from './synthetic-agent-title'
+import { getSyntheticAgentTitleProfile } from './synthetic-agent-title-resolution'
 import { isLegacyPiCompatibleTitle } from './pi-compatible-synthetic-title'
 
 type TitleProfileMatch = {

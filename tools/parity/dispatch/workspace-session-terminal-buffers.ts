@@ -1,14 +1,23 @@
-// TS dispatch for the workspace-session-terminal-buffers parity module: maps the
-// shared vector function names to the real
-// `src/shared/workspace-session-terminal-buffers.ts` exports so the harness
-// compares the live TS reference against the Rust port.
+// TS dispatch for the workspace-session-terminal-buffers parity module. The
+// shared TS impl was DELETED (`src/shared/workspace-session-terminal-buffers.ts`
+// keeps only the `RepoConnection` type) — every surface now reaches
+// `orca_config::workspace_session_terminal_buffers` through
+// `src/shared/workspace-session-terminal-buffer-pruning.ts` on the
+// orca-dispatch seam.
+//
+// Like the worktree-id adapter, this one drives the SHIM rather than the wasm
+// oracle, so the harness keeps a real TS-vs-Rust differential instead of
+// degenerating to wasm-vs-binary: config/vitest.parity.config.ts installs no
+// setup file, so the seam is unbound here and the shim answers from its
+// `parity` fallback — which is exactly the deleted body, and exactly the code
+// the renderer runs before (or without) a binding.
 
 import {
   capTerminalScrollbackSessionBuffer,
   pruneLocalTerminalScrollbackBuffers,
   shouldPreserveTerminalScrollbackBuffers,
   type RepoConnection
-} from '../../../src/shared/workspace-session-terminal-buffers'
+} from '../../../src/shared/workspace-session-terminal-buffer-pruning'
 import type { WorkspaceSessionState } from '../../../src/shared/types'
 
 /** JSON has no `undefined`, so an absent-or-null limit selects the TS default

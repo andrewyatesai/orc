@@ -150,7 +150,7 @@ import {
   setMigrationUnsupportedPtyPersistenceListener
 } from './agent-hooks/migration-unsupported-pty-state'
 import { agentHookServer } from './agent-hooks/server'
-import { pruneLocalTerminalScrollbackBuffers } from '../shared/workspace-session-terminal-buffers'
+import { pruneLocalTerminalScrollbackBuffers } from '../shared/workspace-session-terminal-buffer-pruning'
 import {
   backfillAutomationRunNumbers,
   nextAutomationRunNumber,

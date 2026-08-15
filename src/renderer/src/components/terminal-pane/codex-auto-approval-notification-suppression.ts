@@ -1,6 +1,6 @@
 import { isAskUserQuestionTool } from '../../../../shared/agent-question-answered-intent'
 import type { AgentProviderSessionMetadata } from '../../../../shared/agent-session-resume'
-import { getSyntheticAgentTitleProfile } from '../../../../shared/synthetic-agent-title'
+import { getSyntheticAgentTitleProfile } from '../../../../shared/synthetic-agent-title-resolution'
 import { resolveTuiAgentPermissionMode } from '../../../../shared/tui-agent-permissions'
 import type { AgentCompletionStatusSnapshot } from './agent-completion-coordinator-types'
 import { useAppStore } from '@/store'

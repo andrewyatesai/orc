@@ -1,5 +1,9 @@
-import type { AgentStatusState, AgentType } from './agent-status-types'
-
+// Data-only twin: the synthetic title PROFILES, whose lookups and state
+// decisions were cut over to `orca_core::synthetic_agent_title` — reach them
+// through `synthetic-agent-title-resolution.ts`. The table stays in TS because
+// `agent-title-owner.ts` and `agent-row-conversation-name.ts` iterate it
+// directly, and agent-title-owner scans it IN ORDER for the first working-label
+// match, so insertion order is load-bearing here and in the Rust mirror.
 export type SyntheticAgentTitleProfile = {
   workingLabel: string
   permissionLabel: string
@@ -57,35 +61,4 @@ export const SYNTHETIC_AGENT_TITLE_PROFILES: Record<string, SyntheticAgentTitleP
     permissionLabel: 'Devin - action required',
     idleLabel: 'Devin ready'
   }
-}
-
-export function getSyntheticAgentTitleProfile(
-  agentType: AgentType | null | undefined
-): SyntheticAgentTitleProfile | null {
-  if (!agentType) {
-    return null
-  }
-  return SYNTHETIC_AGENT_TITLE_PROFILES[agentType] ?? null
-}
-
-export function getSyntheticAgentTerminalTitle(
-  agentType: AgentType | null | undefined,
-  state: AgentStatusState
-): string | null {
-  const profile = getSyntheticAgentTitleProfile(agentType)
-  if (!profile || profile.synthesizeTerminalTitle === false || state === 'working') {
-    return null
-  }
-  return state === 'blocked' || state === 'waiting' ? profile.permissionLabel : profile.idleLabel
-}
-
-export function shouldDriveSyntheticAgentTitleFromHook(
-  agentType: AgentType | null | undefined,
-  state: AgentStatusState
-): boolean {
-  const profile = getSyntheticAgentTitleProfile(agentType)
-  if (!profile || profile.synthesizeTerminalTitle === false) {
-    return false
-  }
-  return state !== 'working' || profile.synthesizeWorkingTitle !== false
 }
