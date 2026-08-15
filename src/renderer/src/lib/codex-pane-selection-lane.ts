@@ -16,7 +16,7 @@ import { parseAppSshPtyId } from '../../../shared/ssh-pty-id'
 import { resolveTerminalStartupCwd } from '../../../shared/terminal-startup-cwd'
 import type { GlobalSettings, TerminalTab } from '../../../shared/types'
 import { parseWorkspaceKey } from '../../../shared/workspace-scope'
-import { parseWslUncPath } from '../../../shared/wsl-paths'
+import { parseWslUncPath } from '../../../shared/wsl-unc-paths'
 import { getLocalProjectExecutionRuntimeContext } from './local-preflight-context'
 import { getRendererAppPlatform } from './renderer-app-platform'
 import {

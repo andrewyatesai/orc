@@ -1,5 +1,5 @@
 import { isWindowsAbsolutePathLike } from '../../../../shared/cross-platform-path'
-import { isWslUncPath } from '../../../../shared/wsl-paths'
+import { isWslUncPath } from '../../../../shared/wsl-unc-paths'
 import { isWindowsUserAgent } from './pane-helpers'
 
 export type TerminalTargetShell = 'posix' | 'windows'

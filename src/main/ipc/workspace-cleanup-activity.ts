@@ -1,7 +1,7 @@
 import { lstat, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { Repo, Worktree } from '../../shared/types'
-import { parseWslUncPath } from '../../shared/wsl-paths'
+import { parseWslUncPath } from '../../shared/wsl-unc-paths'
 import { toWindowsWslPath } from '../wsl'
 
 type StatPath = (targetPath: string) => Promise<{ mtimeMs: number }>

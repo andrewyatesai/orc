@@ -138,7 +138,7 @@ import {
   migrateUiHostScopeSshTargetId,
   migrateWorkspaceSessionSshTargetId
 } from './ssh/ssh-target-id-migration'
-import { isWslUncPath } from '../shared/wsl-paths'
+import { isWslUncPath } from '../shared/wsl-unc-paths'
 import {
   isTerminalLeafId,
   makePaneKey,

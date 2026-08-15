@@ -1,7 +1,7 @@
 import { tuiAgentToAgentKind } from '@/lib/telemetry'
 import { createRuntimeAgentBackgroundTerminal } from '@/lib/runtime-agent-background-create'
 import { toRemoteRuntimePtyId } from '@/runtime/runtime-terminal-stream'
-import { isWslUncPath } from '../../../shared/wsl-paths'
+import { isWslUncPath } from '../../../shared/wsl-unc-paths'
 import type { AgentStartupPlan } from '@/lib/tui-agent-startup'
 import type { RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
 import type { LaunchSource } from '../../../shared/telemetry-events'

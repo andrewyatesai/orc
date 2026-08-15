@@ -10,7 +10,7 @@ import { StringDecoder } from 'node:string_decoder'
 import type { WebContents } from 'electron'
 import type { Event as WatcherEvent } from '@parcel/watcher'
 import { queueWatcherEvents } from './filesystem-watcher-event-batch'
-import { parseWslUncPath } from '../../shared/wsl-paths'
+import { parseWslUncPath } from '../../shared/wsl-unc-paths'
 import { createWslWatcherProcessExit, createWslWatcherStartup } from './wsl-watcher-process-exit'
 import { reserveWatcherChild, WatcherChildCapacityError } from './parcel-watcher-child-registry'
 

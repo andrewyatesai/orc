@@ -6,7 +6,7 @@ import {
   relativePathInsideRoot,
   resolveRuntimePath
 } from './cross-platform-path'
-import { parseWslUncPath } from './wsl-paths'
+import { parseWslUncPath } from './wsl-unc-paths'
 import {
   isAgentScratchWorktreePath,
   type AgentScratchWorktreePathMatcher

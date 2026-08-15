@@ -11,7 +11,7 @@ import type {
   UsageRateLimitMetadata,
   UsageRateLimitSource
 } from '../../shared/rate-limit-types'
-import { parseWslUncPath } from '../../shared/wsl-paths'
+import { parseWslUncPath } from '../../shared/wsl-unc-paths'
 import type { NetworkProxySettings } from '../../shared/network-proxy'
 import { fetchViaPty } from './claude-pty'
 import type { ClaudeRuntimeAuthPreparation } from '../claude-accounts/runtime-auth-service'

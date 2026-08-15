@@ -52,7 +52,7 @@ import {
   prepareSystemConfigForFreshRuntimeMirror,
   syncSystemConfigIntoManagedCodexHome
 } from '../codex/codex-config-mirror'
-import { parseWslUncPath } from '../../shared/wsl-paths'
+import { parseWslUncPath } from '../../shared/wsl-unc-paths'
 import {
   getWslSelectionKey,
   getSelectedCodexAccountIdForTarget,

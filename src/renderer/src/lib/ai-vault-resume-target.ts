@@ -9,7 +9,7 @@ import {
 import type { Repo } from '../../../shared/types'
 import { getRepoIdFromWorktreeId } from '../../../shared/worktree-id'
 import { parseWorkspaceKey } from '../../../shared/workspace-scope'
-import { isWslUncPath } from '../../../shared/wsl-paths'
+import { isWslUncPath } from '../../../shared/wsl-unc-paths'
 import type { AppState } from '@/store/types'
 import { getIndexedWorktreeMap } from '@/store/worktree-repo-index'
 import { getFolderWorkspaceCandidateRepos } from './folder-workspace-connection'

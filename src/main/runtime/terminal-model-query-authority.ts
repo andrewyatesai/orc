@@ -9,7 +9,7 @@
  * so the runtime emulator can register the DA1 override before byte zero.
  */
 import type { GlobalSettings } from '../../shared/types'
-import { isWslUncPath } from '../../shared/wsl-paths'
+import { isWslUncPath } from '../../shared/wsl-unc-paths'
 import {
   isHiddenPtyDeliveryGateEnabled,
   shouldDropHiddenRendererPtyData

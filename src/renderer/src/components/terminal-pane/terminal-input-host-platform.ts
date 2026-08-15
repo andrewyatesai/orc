@@ -1,5 +1,5 @@
 import { parseExecutionHostId } from '../../../../shared/execution-host'
-import { isWslUncPath } from '../../../../shared/wsl-paths'
+import { isWslUncPath } from '../../../../shared/wsl-unc-paths'
 import { getConnectionIdFromState } from '@/lib/connection-context'
 import {
   getExecutionHostIdForWorktree,

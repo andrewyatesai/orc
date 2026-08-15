@@ -13,7 +13,7 @@ import {
   normalizeRuntimePathForComparison,
   resolveRuntimePath
 } from '../../shared/cross-platform-path'
-import { isWslUncPath } from '../../shared/wsl-paths'
+import { isWslUncPath } from '../../shared/wsl-unc-paths'
 import { getSshFilesystemProvider } from '../providers/ssh-filesystem-dispatch'
 import {
   computeWorkspaceRoot,

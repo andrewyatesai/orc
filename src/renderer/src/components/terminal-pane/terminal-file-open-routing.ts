@@ -10,7 +10,7 @@ import {
 import { settingsForRuntimeOwner } from '@/runtime/runtime-rpc-client'
 import { useAppStore } from '@/store'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
-import { mapPosixPathToWslWorktreeUncPath } from '../../../../shared/wsl-paths'
+import { mapPosixPathToWslWorktreeUncPath } from '../../../../shared/wsl-unc-paths'
 import { resolveKnownWorktreeRootPathLink } from './terminal-worktree-path-link'
 
 type TerminalFileOpenDeps = {

@@ -1,7 +1,7 @@
 import { basename, isAbsolute, join } from 'node:path'
 import { existsSync, accessSync, statSync, chmodSync, constants as fsConstants } from 'node:fs'
 import type * as pty from 'node-pty'
-import { isWslUncPath } from '../../shared/wsl-paths'
+import { isWslUncPath } from '../../shared/wsl-unc-paths'
 import { wslUncDirectoryExists } from '../wsl'
 import { wrapShellSpawnForMacosTccAttribution } from './macos-tcc-login-shell'
 

@@ -1,5 +1,5 @@
 import type { AiVaultSession } from '../../shared/ai-vault-types'
-import { parseWslUncPath } from '../../shared/wsl-paths'
+import { parseWslUncPath } from '../../shared/wsl-unc-paths'
 import { sessionSortTime } from './session-scanner-accumulator'
 
 // Why: the session bridge and the real-home backfill hardlink one physical

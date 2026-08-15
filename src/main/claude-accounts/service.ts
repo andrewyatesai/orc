@@ -31,7 +31,7 @@ import {
 } from './keychain'
 import { beginClaudeAuthSwitch, endClaudeAuthSwitch } from './live-pty-gate'
 import { findDuplicateClaudeAccount } from './claude-duplicate-account'
-import { parseWslUncPath } from '../../shared/wsl-paths'
+import { parseWslUncPath } from '../../shared/wsl-unc-paths'
 import { toWindowsWslPath } from '../wsl'
 import { buildEncodedWslBashCommand } from '../wsl-bash-command'
 import { buildWindowsCommandInvocation } from './windows-command-invocation'

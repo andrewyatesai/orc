@@ -12,7 +12,7 @@ import {
 import { basename, dirname, join, posix as pathPosix, win32 as pathWin32 } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { renameFileWithWindowsRetry } from '../codex-accounts/fs-utils'
-import { foldWslUncPathCaseInsensitiveParts } from '../../shared/wsl-paths'
+import { foldWslUncPathCaseInsensitiveParts } from '../../shared/wsl-unc-paths'
 import { writeRollingFileBackup } from '../rolling-file-backup'
 import {
   createTomlLineScanState,

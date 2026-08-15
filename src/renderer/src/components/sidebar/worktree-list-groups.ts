@@ -42,7 +42,7 @@ import {
   toSshExecutionHostId,
   type ExecutionHostId
 } from '../../../../shared/execution-host'
-import { parseWslUncPath } from '../../../../shared/wsl-paths'
+import { parseWslUncPath } from '../../../../shared/wsl-unc-paths'
 import {
   isWindowsAbsolutePathLike,
   normalizeRuntimePathForComparison

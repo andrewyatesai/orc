@@ -7,7 +7,7 @@ import {
   normalizeRuntimePathSeparators
 } from '../../shared/cross-platform-path'
 import type { AiVaultScanIssue } from '../../shared/ai-vault-types'
-import { parseWslUncPath } from '../../shared/wsl-paths'
+import { parseWslUncPath } from '../../shared/wsl-unc-paths'
 import type { FileWithMtime } from './session-scanner-types'
 import { errorMessage, extractString, parseJsonObject } from './session-scanner-values'
 

@@ -15,7 +15,7 @@ import { assertWorktreeUnlockedForRemoval } from '../../shared/worktree-removal'
 import { requireRustGitBinding } from '../daemon/rust-git-addon'
 import { isSubmoduleWorktreeRemovalRefusal } from '../../shared/worktree-submodule-removal'
 import { parseGitRevListAheadBehindCounts } from '../../shared/git-rev-list-output'
-import { parseWslUncPath } from '../../shared/wsl-paths'
+import { parseWslUncPath } from '../../shared/wsl-unc-paths'
 import { parseWslPath, toWindowsWslPath } from '../wsl'
 import {
   moveWorktreeDirectoryToTrash,

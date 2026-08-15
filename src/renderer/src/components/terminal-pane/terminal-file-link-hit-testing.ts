@@ -8,7 +8,7 @@ import {
   type TerminalPathExistsCache
 } from './terminal-path-exists-cache'
 import { resolveKnownWorktreeRootPathLink } from './terminal-worktree-path-link'
-import { mapPosixPathToWslWorktreeUncPath } from '../../../../shared/wsl-paths'
+import { mapPosixPathToWslWorktreeUncPath } from '../../../../shared/wsl-unc-paths'
 import {
   buildHardWrappedPathLogicalLineCandidates,
   buildWrappedLogicalLine,

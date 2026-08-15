@@ -1,7 +1,7 @@
 import { CLIENT_PLATFORM } from '@/lib/new-workspace'
 import { resolveWindowsShellOverride } from '@/lib/pane-manager/windows-pty-compatibility'
 import { parseExecutionHostId } from '../../../shared/execution-host'
-import { isWslUncPath } from '../../../shared/wsl-paths'
+import { isWslUncPath } from '../../../shared/wsl-unc-paths'
 import { resolveLocalWindowsAgentStartupShell } from '../../../shared/windows-terminal-shell'
 import type { ProjectExecutionRuntimeResolution } from '../../../shared/project-execution-runtime'
 import type { AgentStartupShell } from '../../../shared/tui-agent-startup-shell'

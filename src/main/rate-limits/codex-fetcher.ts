@@ -24,7 +24,7 @@ import { startCodexStateDbBackfillRecoveryInBackground } from '../codex/codex-st
 import { withMacTailscaleDnsHint } from '../network/macos-tailscale-dns-diagnostic'
 import { getCmdExePath, getSpawnArgsForWindows } from '../win32-utils'
 import { cleanupHiddenRateLimitPty, registerHiddenRateLimitPty } from './hidden-pty-cleanup'
-import { parseWslUncPath } from '../../shared/wsl-paths'
+import { parseWslUncPath } from '../../shared/wsl-unc-paths'
 import { extractCodexAuthError, isCodexAuthError } from '../../shared/codex-auth-errors'
 import {
   buildWslLoginShellCommand,

@@ -10,7 +10,7 @@ import {
 import { dirname, join, resolve } from 'node:path'
 import { readAgentStateFileSync } from '../agent-state-file-reader'
 import { writeFileAtomically } from '../codex-accounts/fs-utils'
-import { parseWslUncPath } from '../../shared/wsl-paths'
+import { parseWslUncPath } from '../../shared/wsl-unc-paths'
 import { getOrcaManagedCodexHomePath, getSystemCodexHomePath } from './codex-home-paths'
 import {
   createTomlLineScanState,

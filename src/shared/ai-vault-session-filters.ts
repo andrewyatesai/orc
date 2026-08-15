@@ -8,7 +8,7 @@ import {
   normalizeRuntimePathSeparators
 } from './cross-platform-path'
 import { isClipboardTextByteLengthOverLimit } from './clipboard-text'
-import { parseWslUncPath } from './wsl-paths'
+import { parseWslUncPath } from './wsl-unc-paths'
 import type {
   AiVaultAgent,
   AiVaultGroup,

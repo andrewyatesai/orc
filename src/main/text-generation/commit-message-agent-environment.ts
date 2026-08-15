@@ -1,8 +1,7 @@
 import type { ClaudeRuntimeAuthPreparation } from '../claude-accounts/runtime-auth-service'
 import { applyClaudeEnvPatch } from '../claude-accounts/environment'
 import { readShellStartupEnvVar } from '../pty/shell-startup-env'
-import { parseWslUncPath } from '../../shared/wsl-paths'
-
+import { parseWslUncPath } from '../../shared/wsl-unc-paths'
 export type CommitMessageAgentEnvironmentResolvers = {
   prepareForCodexLaunch?: (target?: CommitMessageAgentRuntimeTarget) => string | null
   prepareForClaudeLaunch?: (

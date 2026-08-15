@@ -2,8 +2,7 @@ import { splitWorktreeIdForFilesystem } from '../../shared/worktree-id'
 import { isWslShellName } from '../../shared/local-windows-terminal-runtime'
 import { parseWslPath } from '../wsl'
 import { parsePtySessionId } from './pty-session-id'
-import { parseWslUncPath } from '../../shared/wsl-paths'
-
+import { parseWslUncPath } from '../../shared/wsl-unc-paths'
 export type WslSessionContext = {
   distro: string
   treatPosixCwdAsWsl: true

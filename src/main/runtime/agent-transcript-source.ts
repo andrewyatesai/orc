@@ -18,8 +18,7 @@ import {
   resolveNativeChatTranscriptAgent,
   type NativeChatTranscriptAgent
 } from '../../shared/native-chat-agent-support'
-import { toWindowsWslPath } from '../../shared/wsl-paths'
-
+import { toWindowsWslPath } from '../../shared/wsl-unc-paths'
 /** The subset of an agent hook row this resolution needs. */
 export type AgentTranscriptHookRow = {
   agentType?: string

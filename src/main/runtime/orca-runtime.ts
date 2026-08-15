@@ -331,7 +331,7 @@ import {
   normalizeRuntimePathForComparison
 } from '../../shared/cross-platform-path'
 import { resolveTerminalStartupCwd } from '../../shared/terminal-startup-cwd'
-import { isWslUncPath, parseWslUncPath } from '../../shared/wsl-paths'
+import { isWslUncPath, parseWslUncPath } from '../../shared/wsl-unc-paths'
 import {
   folderWorkspaceKey,
   isWorkspaceKey,

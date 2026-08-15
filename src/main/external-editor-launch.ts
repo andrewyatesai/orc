@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { posix, win32 } from 'node:path'
-import { parseWslUncPath } from '../shared/wsl-paths'
+import { parseWslUncPath } from '../shared/wsl-unc-paths'
 import { isVsCodeLauncherExecutable } from '../shared/vscode-remote-ssh-launcher'
 import { resolveCliCommand } from './codex-cli/command'
 import {

@@ -1,8 +1,6 @@
 import { execFile, execFileSync } from 'node:child_process'
-import { parseWslUncPath, toWindowsWslPath } from '../shared/wsl-paths'
-
-export { toWindowsWslPath } from '../shared/wsl-paths'
-
+import { parseWslUncPath, toWindowsWslPath } from '../shared/wsl-unc-paths'
+export { toWindowsWslPath } from '../shared/wsl-unc-paths'
 export type WslPathInfo = {
   distro: string
   linuxPath: string

@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { parseWslUncPath } from '../../../../shared/wsl-paths'
+import { parseWslUncPath } from '../../../../shared/wsl-unc-paths'
 import { splitWorktreeIdForFilesystem } from '../../../../shared/worktree-id'
 import {
   getRepoExecutionHostId,

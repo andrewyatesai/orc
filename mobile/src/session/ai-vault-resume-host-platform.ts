@@ -1,4 +1,4 @@
-import { parseWslUncPath } from '../../../src/shared/wsl-paths'
+import { parseWslUncPath } from '../../../src/shared/wsl-unc-paths'
 import type { MobileAiVaultResumeTargetStatus } from '../agent-history/agent-history-resume-target'
 
 const NODE_PLATFORMS = new Set<NodeJS.Platform>([
