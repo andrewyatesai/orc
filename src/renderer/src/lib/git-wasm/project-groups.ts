@@ -4,7 +4,7 @@
 // in TS.
 import type { ProjectGroup } from '../../../../shared/types'
 import { isGitWasmReady } from './git-line-stats'
-import { orcaDispatch } from './orca_git_wasm.js'
+import { dispatchToWasmCore } from './wasm-core-dispatch'
 
 export function getProjectGroupSubtreeIds(
   groups: readonly Pick<ProjectGroup, 'id' | 'parentGroupId'>[],
@@ -17,10 +17,13 @@ export function getProjectGroupSubtreeIds(
   if (!isGitWasmReady()) {
     return new Set([rootGroupId])
   }
+  // Every absence is spelled as an explicit null here, so the codec's default
+  // (reject anything JSON would mangle) applies unrelaxed.
   const nodes = groups.map((group) => ({ id: group.id, parentGroupId: group.parentGroupId ?? null }))
   // The Rust op returns a sorted array (membership is all any caller needs).
-  const ids = JSON.parse(
-    orcaDispatch('project-groups', 'getProjectGroupSubtreeIds', JSON.stringify({ groups: nodes, rootGroupId }))
-  ) as string[]
+  const ids = dispatchToWasmCore('project-groups', 'getProjectGroupSubtreeIds', {
+    groups: nodes,
+    rootGroupId
+  }) as string[]
   return new Set(ids)
 }

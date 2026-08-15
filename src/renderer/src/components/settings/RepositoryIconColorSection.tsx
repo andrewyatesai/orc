@@ -14,6 +14,10 @@ export function RepositoryIconColorSection({
   badgeColor,
   onBadgeColorChange
 }: RepositoryIconColorSectionProps): React.JSX.Element {
+  // Why: `undefined` is the colour core's not-ready signal — folding it into the
+  // neutral default only moves the selection ring; the preset buttons emit
+  // REPO_COLORS literals and ColorPicker freezes itself, so nothing derived from
+  // this value can be persisted while the core is unavailable.
   const selectedBadgeColor = normalizeRepoBadgeColor(badgeColor) ?? DEFAULT_REPO_BADGE_COLOR
   const isPresetBadgeColor = REPO_COLORS.some((color) => color === selectedBadgeColor)
 

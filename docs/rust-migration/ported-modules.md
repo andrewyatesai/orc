@@ -33,6 +33,213 @@ returned a confident wrong answer with nothing logged (measured on `task-claim`)
 * Encoder overhead vs bare `JSON.stringify`:
   `node config/scripts/dispatch-payload-codec-benchmark.mjs [--check]`.
 
+## The pre-ready fallback contract (every renderer revert was this one bug)
+
+> **The value a shim returns before the wasm is ready must be what the deleted
+> TypeScript would have returned for THAT input — or something the caller can
+> tell apart from an answer. Never a third thing that merely type-checks.**
+
+Seven renderer cut-overs were attempted; four were reverted, and all four failed
+the same way: the shim's pre-ready value was a plausible-looking value the caller
+consumed as a real answer.
+
+### The worked example — `repo-badge-color`
+
+The shim returned `null` before the wasm compiled, where the deleted TS had
+returned `DEFAULT_REPO_BADGE_COLOR`. `ColorPicker` computes
+`hasInvalidDraft = draft.trim().length > 0 && !draftColor`
+(`src/renderer/src/components/ui/color-picker.tsx:48`), so it showed "Invalid hex
+color" and `aria-invalid` against a perfectly valid colour — and `updateColor`
+then wrote default gray over the user's saved repo colour on any colour-wheel
+drag. Silent data loss on a user setting, from one word in a fallback.
+
+The instructive part is what happened next. The fix swapped `null` for
+`DEFAULT_REPO_BADGE_COLOR` — *the constant the twin used* — and **it is still
+wrong**, because `resolveRepoBadgeColor` does not return that constant for every
+input; it returns it only for an *invalid* one:
+
+```
+resolveRepoBadgeColor('#ff0000')   pre-ready '#737373'   ready '#ff0000'
+normalizeRepoBadgeColor('nope')    pre-ready '#737373'   ready null
+```
+
+`updateColor` calls `resolveRepoBadgeColor(nextColor)` and persists the result,
+so on a wasm-load failure a wheel drag *still* saves gray. Both candidate
+constants are lies because the twin's answer **depends on the input**. That is
+case 3 below, and no fallback value can rescue it.
+
+**How it was finally landed** (2026-08). Both functions return `undefined` — a
+value the ready core never produces, so it can never be read as an answer — and
+each caller is explicit about what it does with it:
+
+* `ColorPicker` subscribes with `useSyncExternalStore(subscribeGitWasmAvailability,
+  isGitWasmReady)`, **disables its trigger** while the sentinel is showing, gates
+  `hasInvalidDraft` on readiness (so a valid hex is never flagged), and returns
+  early from `updateColor` — the wheel cannot reach `onChange` at all.
+* `store/slices/repos.ts` `sanitizeRepoUpdate` (and the main-side twins) drop
+  `badgeColor` from the update exactly as for an invalid colour, so an
+  unvalidated value cannot enter the store or the persisted repo record.
+* The read-only painters (`sidebar/project-header-color.ts`,
+  `ai-vault-session-row-display.tsx`, `settings/RepositoryIcon*`) fold the
+  sentinel into the neutral default — a swatch has to be *some* colour — and each
+  one carries a WHY naming why that value is never written back.
+
+Pinned by `repo-badge-color-pre-ready.test.ts` (both wrong candidates asserted
+against by name) and `color-picker.core-unavailable.test.tsx` (no false invalid
+state, no `onChange`).
+
+### The three cases
+
+**1 — the twin returned a constant for this input → return that same constant.**
+The constant is almost always still in TS: a cut-over twin is reduced to types
+and data, so `DEFAULT_*` / catalog tables survive in `src/shared/`. Import it.
+
+```ts
+// good: the no-settings answer IS the constant the twin returned
+if (!isGitWasmReady()) {return defaultPresentation()}   // github-pr-merge-methods
+```
+
+**2 — the twin returned null/undefined *for this input* → null is correct.**
+"The twin returns null for *some* inputs" is not this case. `repo-icon`'s
+`faviconUrlFromWebsite` is commented "the original legitimately returns null, so
+null is a valid not-ready fallback" — that reasoning is invalid; the twin
+returned null for an unparseable site, not for `https://x.dev`.
+
+**3 — the twin's answer depends on the input (a predicate, a parse, a
+normalizer, a ranking) → there is no honest value, so the caller must handle
+not-ready explicitly.** Do not pick the "safe direction" and move on: `false`
+from a predicate and `''` from a slugifier are indistinguishable from real
+answers.
+
+The shape of a handled case 3 — the shim returns a signal, the caller branches
+on it, and a surface that must show something re-renders on the ready edge:
+
+```ts
+// shim: null is NOT "no checks" — it is "ask again"; ChecksPanel skips the update.
+export function gitLabPipelineJobsToPRChecks(jobs: GitLabPipelineJob[]): PRCheckDetail[] | null {
+  if (!isGitWasmReady()) {return null}
+  return dispatchToWasmCore('gitlab-pipeline-checks', 'gitLabPipelineJobsToPRChecks', jobs)
+}
+
+// caller: branch, never `?? []`
+const checks = gitLabPipelineJobsToPRChecks(jobs)
+if (checks) {setChecks(checks)}   // keep the last good panel; the next poll repopulates
+
+// caller that must render now: recompute the moment the core lands
+useSyncExternalStore(subscribeGitWasmReady, isGitWasmReady)
+```
+
+`?? []`, `?? false`, `?? ''` at the call site is the same bug moved one file
+over: it re-manufactures the indistinguishable value the shim refused to invent.
+
+**Signal at the level that has a spare state.** If the twin returned one ROW of
+a list, a per-row sentinel has nowhere to go: the caller either keeps a hole or
+drops it, and dropping every row lands on `[]` — the value that already means
+"nothing matched". A search has three answers (rows / nothing matched / could
+not search) and a row type can only carry two, so lift the shim to the list:
+`base-ref-search-result` exports `legacyBaseRefSearchResults(refNames):
+BaseRefSearchResult[] | null`, where `null` is could-not-search and both callers
+throw `BaseRefDetailsUnavailableError` on it, so the search REJECTS and the
+picker shows its failure line instead of "No matching branches".
+
+### What "explicitly" means here
+
+* **Return `null` and say who branches on it.** The shim's header comment names
+  the caller and the branch — not "callers are null-safe" but "ChecksPanel skips
+  that poll's update". `gitlab-pipeline-checks` is the model.
+* **Make the surface recompute on the ready edge.**
+  `useSyncExternalStore(subscribeGitWasmReady, isGitWasmReady)` — see
+  `QuickOpen.tsx:73` and `useDiffSectionLayoutMetrics.ts:31`.
+* **Stop scheduling when it will never be ready.** `isGitWasmUnavailable()`
+  (`git-wasm-availability.ts`) is true only after a terminal failure. A retry
+  loop or a spinner must terminate on it; the user has already been told once
+  (`git-wasm-unavailable-report.ts`).
+* **Never let a pre-ready value be written back.** If the result flows into
+  `updateSettings`, a store reducer, or an `onChange`, case 3 is not optional —
+  a wrong answer becomes persisted state. This is the difference between a
+  cosmetic degrade and the repo-badge-color incident.
+
+### Two things that are not justifications
+
+* **"The boot window is only tens of ms."** `awaitGitWasmReadyForStartupHydration()`
+  gates hydration, so a post-mount call that finds the core not-ready has found a
+  core that **failed** — the fallback is the behaviour for the whole session, not
+  a blip. Many existing shim comments still argue from the window; they are wrong
+  about the frequency and the audit below assumes the terminal case.
+* **"Main re-normalizes it anyway."** Only true for values that make the IPC
+  round trip. It says nothing about what the renderer rendered, compared, or
+  persisted locally in the meantime.
+
+### The gate
+
+`src/renderer/src/lib/git-wasm/shim-pre-ready-contract.test.ts` checks the rule
+mechanically, and soundly: because the Rust core is a parity port of the deleted
+twin, **the twin's answer is the ready answer**, so the test calls each shim
+before `initGitWasmForTestFromBytes` and again after, and compares. Every row is
+an observed fact — it cannot false-flag a legitimate null. Each row declares one
+of:
+
+* `parity` — pre-ready equals ready (cases 1 and 2);
+* `sentinel` — pre-ready is a declared not-ready signal, with `handledBy` naming
+  the caller branch (case 3, handled);
+* `divergence` — a KNOWN VIOLATION, pinned so a fix turns the row red and gets
+  re-declared rather than silently drifting back.
+
+**A cut-over adds a row per exported function.** What the gate cannot prove is
+that a `sentinel`'s caller actually branches — that stays a review obligation,
+which is why `handledBy` is a required string.
+
+### Audit of the existing shims (2026-07; 31 shims + 5 infra modules)
+
+Compliant: `gitlab-pipeline-checks`, `agent-tab-title`, `git-remote-error`
+(fail-closed on purpose: never show an unscrubbed URL), `setup-script-telemetry`,
+`commit-message-generation`, `commit-message-plan`, `pull-request-generation`,
+`tui-agent-startup`, `quick-open`, `agent-notification-id`, `git-line-stats`,
+`github-pr-merge-methods` (for the no-settings input), `repo-icon.githubAvatarIcon`
+(the fallback rebuilds the same icon inline), `git-publish-target-status`
+(same shape: the fallback rejoins `remote/branch` inline, so pre-ready equals
+ready for EVERY input — required, because the sole caller equality-compares it
+to `upstreamStatus.upstreamName` to unlock "Push linked review", and a `null`
+sentinel would read equal to an absent `upstreamName` and push at a target the
+upstream never matched), `base-ref-search-result` (case 3, handled — see below).
+
+Violations, worst first — value written back to persisted state:
+
+| Shim | Pre-ready | Twin (ready) | Consequence |
+| --- | --- | --- | --- |
+| `terminal-fonts.normalizeTerminalFontWeight` | `500` | the input weight | the settings slider commits the normalized value — any drag persists 500 |
+| `terminal-quick-commands.normalizeTerminalQuickCommands` | `[]` | the list | `store/slices/settings.ts` persists it: one unrelated settings write empties the user's quick commands (the TS twin is *still implemented* in `src/shared/terminal-quick-commands.ts` — the pre-ready answer is one import away) |
+| `network-proxy.normalizeProxyUrl` | `{ok:true, value:draft}` | `{ok:false, message}` | an unvalidated proxy URL is persisted and the error is never shown |
+| `task-providers.normalizeTaskProviderSettings` / `normalizeVisibleTaskProviders` | the raw persisted value, cast | the normalized list | unvalidated junk is typed as `TaskProvider[]` and stored |
+| `repo-icon.sanitizeRepoIcon` | the input icon | `undefined` for an unsafe `src` | a `javascript:` icon bypasses the sanitizer into the reducer |
+| `open-in-applications.normalizeOpenInApplications` | the input array | the normalized list | blank/duplicate rows enter the settings reducer un-normalized (main re-normalizes on set — see "not justifications" above) |
+
+Violations — wrong answer, not persisted:
+
+| Shim | Pre-ready | Twin (ready) | Consequence |
+| --- | --- | --- | --- |
+| `hosted-review-refs.normalize*Ref` | the ref unchanged | `refs/heads/main` → `main` | ref-vs-branch comparisons miss (`create-review-draft-title`, eligibility snapshot) |
+| `task-query.*` | empty parse / `''` / query unchanged | the parse | TaskPage shows everything unfiltered; a filter click no-ops; `stripRepoQualifiers` leaves `repo:` on cross-repo fan-out |
+| `task-providers.filterAvailableTaskProviders` / `resolveVisibleTaskProvider` | unfiltered / the preference | filtered | unavailable providers stay in the UI |
+| `branch-name-from-work.sanitizeBranchSlug` | `raw.trim().toLowerCase()` | `fix-the-bug` | the "slug" keeps spaces and punctuation — not a valid git ref |
+| `branch-name-from-work.isAutoGeneratedCreatureBranchName` / `humanizeBranchSlug` | `false` / unchanged | the real answer | auto-rename silently skipped |
+| `terminal-quick-commands` scope/action/matchesRepo/body/complete | `global` / `terminal-command` / `true` / `''` / `false` | the real answer | an agent-prompt command runs down the terminal-command branch |
+| `feature-wall-tour-depth` | `'terminal'` / all-zero counts | the real depth | telemetry emitted with a wrong step and a **missing** `furthest_step` field |
+| `agent-kind.tuiAgentToAgentKind` | `'other'` | `'claude-code'` | telemetry attributes the run to the catch-all |
+| `feature-education-telemetry` | `'unknown'` | the mapped source | same, for on-table sources |
+| `workspace-name.slugify*` / `getLinkedWorkItemSuggestedName` | `''` | the slug | `''` reads as "no usable name"; the create form seeds blank |
+| `project-groups.getProjectGroupSubtreeIds` | `{root}` | root + descendants | subtree-scoped removals/queries under-scope |
+| `workspace-cleanup` predicates | `false` | the real answer | conservative, but a dismissed candidate reappears and a queueable one is not offered |
+| `tailnet-address.isTailnetIPv4Address` | `false` | `true` | pairing picks the first interface instead of the tailnet one |
+| `hook-command-source-policy` | `'shared-only'` | `'local-only'` | fail-closed by design, but still a wrong answer for a configured user |
+| `github-pr-merge-methods` (with settings) | all three methods | the allowed subset | the dropdown offers a method the repo forbids |
+
+Five shims still reach the core through
+per-module typed wasm exports (`terminalQuickCommandOp`, `tuiAgentStartupOp`,
+`planCommitMessageGeneration`, `buildPullRequestFieldsPrompt`, the
+`workspace-name` entries) with their own `JSON.stringify`, so they too skip the
+codec's surrogate/NaN/`undefined` rejection.
+
 ## `orca-config` — project/config tier (14 modules, 113 tests, clippy clean)
 
 JSON-backed config inspection on **vendored `serde_json`** (`preserve_order`,

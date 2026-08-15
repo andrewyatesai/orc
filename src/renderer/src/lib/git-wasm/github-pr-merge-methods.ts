@@ -4,7 +4,7 @@
 // dropdown from the result, so a wasm-load FAILURE must still yield a populated
 // presentation — the fallback offers every method rather than an empty menu.
 import { isGitWasmReady } from './git-line-stats'
-import { orcaDispatch } from './orca_git_wasm.js'
+import { dispatchToWasmCore } from './wasm-core-dispatch'
 import {
   GITHUB_PR_MERGE_METHODS,
   GITHUB_PR_MERGE_METHOD_LABELS,
@@ -12,9 +12,13 @@ import {
 } from '../../../../shared/github-pr-merge-methods'
 import type { GitHubPRMergeMethodSettings } from '../../../../shared/types'
 
+// Why 'omit': the settings come off a GitHub repo response, where a missing
+// allowed-method flag arrives as undefined and must keep meaning "not stated".
 function op(fn: string, input: unknown): unknown | null {
   if (!isGitWasmReady()) {return null}
-  return JSON.parse(orcaDispatch('github-pr-merge-methods', fn, JSON.stringify(input ?? null)))
+  return dispatchToWasmCore('github-pr-merge-methods', fn, input, {
+    undefinedProperties: 'omit'
+  })
 }
 
 // Mirrors the Rust no-settings result (all methods allowed, squash default) so a

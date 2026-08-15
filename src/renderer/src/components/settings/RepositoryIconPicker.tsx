@@ -37,6 +37,8 @@ export function RepositoryIconPicker({
     selectedHost?.kind === 'runtime' ? selectedHost.environmentId : null
   const selectedLucideName = repo.repoIcon?.type === 'lucide' ? repo.repoIcon.name : null
   const selectedEmoji = repo.repoIcon?.type === 'emoji' ? repo.repoIcon.emoji : ''
+  // Why: `undefined` is the colour core's not-ready signal; it is only read back
+  // for the lucide-icon preview tint here, never written to the repo.
   const selectedBadgeColor = normalizeRepoBadgeColor(repo.badgeColor) ?? DEFAULT_REPO_BADGE_COLOR
   const initialTab =
     repo.repoIcon?.type === 'emoji' ? 'emoji' : repo.repoIcon?.type === 'lucide' ? 'icon' : 'avatar'

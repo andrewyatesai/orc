@@ -5,7 +5,7 @@
 // process re-normalizes authoritatively on set — so the pre-ready fallback
 // (input array returned unchanged) is defensive only and never persists
 // un-normalized data.
-import { orcaDispatch } from './orca_git_wasm.js'
+import { dispatchToWasmCore } from './wasm-core-dispatch'
 import { isGitWasmReady } from './git-line-stats'
 import {
   DEFAULT_OPEN_IN_APPLICATIONS,
@@ -29,11 +29,12 @@ export function normalizeOpenInApplications(
   // in sequence (one fresh id per row is an upper bound on blank-id rows).
   const createIds =
     Array.isArray(value) && options.createId ? value.map(() => options.createId!()) : undefined
-  return JSON.parse(
-    orcaDispatch(
-      'open-in-applications',
-      'normalizeOpenInApplications',
-      JSON.stringify({ value, seedDefaults: options.seedDefaults ?? false, createIds })
-    )
+  // Why 'omit': an absent `createIds` IS the no-generator case the Rust side
+  // reads as None — the key is deliberately left off, not lost.
+  return dispatchToWasmCore(
+    'open-in-applications',
+    'normalizeOpenInApplications',
+    { value, seedDefaults: options.seedDefaults ?? false, createIds },
+    { undefinedProperties: 'omit' }
   ) as OpenInApplication[]
 }

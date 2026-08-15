@@ -5,12 +5,14 @@
 // chosen to PRESERVE the user's saved proxy rather than clobber it: an empty
 // "validated" value would make the commit handler silently clear the setting.
 import { isGitWasmReady } from './git-line-stats'
-import { orcaDispatch } from './orca_git_wasm.js'
+import { dispatchToWasmCore } from './wasm-core-dispatch'
 import type { ProxyUrlValidationResult } from '../../../../shared/network-proxy'
 
+// Why 'omit': both NetworkProxySettings fields are optional, and an unset proxy
+// key is what the Rust struct reads as None.
 function op(fn: string, input: unknown): unknown | null {
   if (!isGitWasmReady()) {return null}
-  return JSON.parse(orcaDispatch('network-proxy', fn, JSON.stringify(input ?? null)))
+  return dispatchToWasmCore('network-proxy', fn, input, { undefinedProperties: 'omit' })
 }
 
 export function normalizeProxyUrl(value: unknown): ProxyUrlValidationResult {

@@ -6,6 +6,7 @@ import { AgentIcon } from '@/lib/agent-catalog'
 import type { AgentStatusState } from '../../../../shared/agent-status-types'
 import { useRepoById } from '@/store/selectors'
 import { resolveRepoBadgeColor } from '@/lib/git-wasm/repo-badge-color'
+import { DEFAULT_REPO_BADGE_COLOR } from '../../../../shared/constants'
 import { splitWorktreeIdForFilesystem } from '../../../../shared/worktree-id'
 import {
   isAiVaultSessionRecoverableEmpty,
@@ -132,7 +133,9 @@ export function SessionWorktreeLine({
       >
         <RepoBadgeLabel
           name={worktreeInfo.label}
-          color={resolveRepoBadgeColor(repo?.badgeColor)}
+          // Why: `undefined` is the colour core's not-ready signal — paint the
+          // neutral default for this read-only badge dot; nothing here persists.
+          color={resolveRepoBadgeColor(repo?.badgeColor) ?? DEFAULT_REPO_BADGE_COLOR}
           className="min-w-0 max-w-full"
           badgeClassName="size-1.5"
         />

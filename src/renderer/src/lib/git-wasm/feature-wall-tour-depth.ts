@@ -1,7 +1,7 @@
 // Renderer feature-wall depth builders driven by the Rust orca_core port in
 // orca-git wasm. Pre-ready summaries degrade to zero rather than guessing.
 import { isGitWasmReady } from './git-line-stats'
-import { orcaDispatch } from './orca_git_wasm.js'
+import { dispatchToWasmCore } from './wasm-core-dispatch'
 import type {
   FeatureWallStepId,
   FeatureWallWorkflowId
@@ -12,11 +12,15 @@ import type {
   FeatureWallTourDepthSummary
 } from '../../../../shared/feature-wall-tour-depth'
 
+// Why 'omit': `getFeatureWallTourDepthStep`'s `stepId` is optional and an absent
+// key is the workflow-level lookup the Rust port reads as None.
 function op(fn: string, input: unknown): unknown | null {
   if (!isGitWasmReady()) {
     return null
   }
-  return JSON.parse(orcaDispatch('feature-wall-tour-depth', fn, JSON.stringify(input ?? null)))
+  return dispatchToWasmCore('feature-wall-tour-depth', fn, input, {
+    undefinedProperties: 'omit'
+  })
 }
 
 export function getFeatureWallTourDepthStep(input: {
@@ -31,7 +35,8 @@ export function buildFeatureWallTourDepthSummary(
   input: FeatureWallTourDepthInput
 ): FeatureWallTourDepthSummary {
   // Why: Sets serialize as empty objects, so flatten them before the JSON-only
-  // wasm boundary used by both renderer telemetry and parity tests.
+  // wasm boundary used by both renderer telemetry and parity tests. (The codec
+  // now rejects a raw Set outright rather than letting it arrive as {}.)
   const result = op('buildFeatureWallTourDepthSummary', {
     visitedWorkflows: [...input.visitedWorkflows],
     visitedSteps: [...input.visitedSteps],

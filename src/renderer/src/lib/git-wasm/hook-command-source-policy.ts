@@ -6,12 +6,16 @@
 // value the TS returned for the "no info" case — so a load failure never grants
 // local-script execution the user never configured.
 import { isGitWasmReady } from './git-line-stats'
-import { orcaDispatch } from './orca_git_wasm.js'
+import { dispatchToWasmCore } from './wasm-core-dispatch'
 import type { HookCommandSourcePolicy } from '../../../../shared/hook-command-source-policy'
 
+// Why 'omit': an absent `policy` key IS the "setting not configured" branch the
+// Rust side reads as None — see resolveHookCommandSourcePolicy below.
 function op(fn: string, input: unknown): unknown | null {
   if (!isGitWasmReady()) {return null}
-  return JSON.parse(orcaDispatch('hook-command-source-policy', fn, JSON.stringify(input ?? null)))
+  return dispatchToWasmCore('hook-command-source-policy', fn, input, {
+    undefinedProperties: 'omit'
+  })
 }
 
 export function resolveHookCommandSourcePolicy(

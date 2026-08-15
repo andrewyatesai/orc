@@ -1,10 +1,6 @@
-import type { GitPushTarget } from './types'
-
-// The publish-target STATUS resolution now lives in Rust
-// (`rust/crates/orca-git/src/publish_target_status.rs`), driven by both A-bridges
-// (main via napi, relay via wasm) — one source of truth. What remains here is the
-// pure `remote/branch` display-name formatter the renderer still uses to compare
-// a resolved upstream name against a configured push target.
-export function getPublishTargetDisplayName(target: GitPushTarget): string {
-  return `${target.remoteName}/${target.branchName}`
-}
+// Logic moved to the Rust push_target / publish_target_status cores in orca-git:
+// the status resolution is driven by both A-bridges (main via napi, relay via
+// wasm), and the `remote/branch` display-name formatter is now reached from the
+// renderer through src/renderer/src/lib/git-wasm/git-publish-target-status.ts.
+// Nothing here was a type or a constant, so this is an import-safe stub.
+export {}

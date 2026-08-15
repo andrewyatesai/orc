@@ -5,15 +5,17 @@
 // a valid closed enum; `agentKindToTuiAgent` degrades to null, which every
 // caller already treats as "no concrete agent" (`?? undefined`).
 import { isGitWasmReady } from './git-line-stats'
-import { orcaDispatch } from './orca_git_wasm.js'
+import { dispatchToWasmCore } from './wasm-core-dispatch'
 import type { AgentKind } from '../../../../shared/telemetry-events'
 import type { TuiAgent } from '../../../../shared/types'
 
+// Why 'omit': an absent `kind` key IS the Rust None that maps to "no concrete
+// agent" — see agentKindToTuiAgent below.
 function op(fn: string, input: unknown): unknown {
   if (!isGitWasmReady()) {
     return null
   }
-  return JSON.parse(orcaDispatch('agent-kind', fn, JSON.stringify(input ?? null)))
+  return dispatchToWasmCore('agent-kind', fn, input, { undefinedProperties: 'omit' })
 }
 
 export function tuiAgentToAgentKind(agent: TuiAgent): AgentKind {

@@ -4,14 +4,18 @@
 // caller shows nothing until the wasm initialises — the authoritative generator
 // runs in the main process (napi).
 import { isGitWasmReady } from './git-line-stats'
-import { orcaDispatch } from './orca_git_wasm.js'
+import { dispatchToWasmCore } from './wasm-core-dispatch'
 import type { CommitMessageDraftContext } from '../../../../shared/commit-message-generation'
 
+// Why 'omit': `context.linkedIssue` is documented as omitted entirely when no
+// issue resolves, which the Rust struct reads as None.
 function op(fn: string, input: unknown): unknown {
   if (!isGitWasmReady()) {
     return null
   }
-  return JSON.parse(orcaDispatch('commit-message-generation', fn, JSON.stringify(input ?? null)))
+  return dispatchToWasmCore('commit-message-generation', fn, input, {
+    undefinedProperties: 'omit'
+  })
 }
 
 export function buildCommitMessagePrompt(

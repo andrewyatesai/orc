@@ -4,16 +4,19 @@
 // returns a NON-NULL fallback when the wasm hasn't loaded yet — chosen to
 // PRESERVE the user's saved providers rather than clobber the persisted list.
 import { isGitWasmReady } from './git-line-stats'
-import { orcaDispatch } from './orca_git_wasm.js'
+import { dispatchToWasmCore } from './wasm-core-dispatch'
 import {
   TASK_PROVIDERS,
   type TaskProvider,
   type TaskProviderAvailability
 } from '../../../../shared/task-providers'
 
+// Why 'omit': `preferred`/`preferredProvider` are optional-or-`unknown` off
+// persisted settings, where undefined is the "nothing stored" case Rust reads as
+// None.
 function op(fn: string, input: unknown): unknown | null {
   if (!isGitWasmReady()) {return null}
-  return JSON.parse(orcaDispatch('task-providers', fn, JSON.stringify(input ?? null)))
+  return dispatchToWasmCore('task-providers', fn, input, { undefinedProperties: 'omit' })
 }
 
 export function normalizeTaskProviderSettings(value: {

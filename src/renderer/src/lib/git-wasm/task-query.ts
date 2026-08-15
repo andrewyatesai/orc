@@ -5,7 +5,7 @@
 // unchanged / []) — never null into a sync consumer — degrading to a no-filter
 // view for the ~tens-of-ms wasm-boot window, then recomputing once wasm is ready.
 import { isGitWasmReady } from './git-line-stats'
-import { orcaDispatch } from './orca_git_wasm.js'
+import { dispatchToWasmCore } from './wasm-core-dispatch'
 import type { ParsedTaskQuery, TaskQueryFilterKey } from '../../../../shared/task-query'
 
 function emptyParsedTaskQuery(): ParsedTaskQuery {
@@ -22,9 +22,11 @@ function emptyParsedTaskQuery(): ParsedTaskQuery {
   }
 }
 
+// ParsedTaskQuery is a closed record (every field required, absences spelled
+// `null`), so no undefined-property relaxation is warranted.
 function op(fn: string, input: unknown): unknown {
   if (!isGitWasmReady()) {return null}
-  return JSON.parse(orcaDispatch('task-query', fn, JSON.stringify(input ?? null)))
+  return dispatchToWasmCore('task-query', fn, input)
 }
 
 export function tokenizeSearchQuery(rawQuery: string): string[] {

@@ -2,28 +2,63 @@
 // base_ref_search_result port in the orca-git wasm module (the shared TS impl
 // was deleted; src/shared/base-ref-search-result.ts is the type re-export only).
 //
-// `BaseRefSearchResult` is ONE row of a ref search, not a found/not-found
-// result: "nothing matched" is the caller's empty array, so this function has no
-// absent case to represent and must always return a row.
+// A ref search has THREE answers — rows found, nothing matched (`[]`), and
+// could-not-search — but `BaseRefSearchResult` is one ROW, so a per-row shim can
+// only express the first two: a not-ready row must be either invented or
+// dropped, and dropping them all lands on `[]`, which the branch picker renders
+// as "No matching branches" plus a "create branch <query>" action. Hence the
+// list shape here: `null` means could-not-search and is never `[]`.
 //
-// Why the not-ready fallback is the identity row and never null: both callers
-// reach it as `refs.map(...)` building a picker list, so a null would enter that
-// list as a hole the caller renders as a missing/blank branch, indistinguishable
-// from "the search found nothing". An unstripped refName is a real selectable
-// row — the pre-`legacyBaseRefSearchResult` behaviour, degraded but never empty.
-// Reachable while the core is `pending` AND permanently once it is `unavailable`
-// (git-wasm-availability), so this is not only a boot-window branch.
+// Why null pre-ready (contract case 3): the deleted TS returned
+// `{refName, localBranchName: deriveLegacyLocalBranchName(refName)}`, which
+// strips `origin/`/`upstream/` only when a non-empty remainder follows — the
+// answer depends on the input, so no constant is honest. The previous identity
+// fallback (`localBranchName = refName`) read as a real answer three frames on:
+// composer-branch-selection writes localBranchName into `branchNameOverride`/
+// `branchAutoName`/`name`, so picking `origin/main` created a branch literally
+// named `origin/main`, and its `refName === localBranchName` test then
+// classified that remote ref as an already-local branch.
+//
+// handledBy: `searchRuntimeRepoBaseRefDetails` (runtime/runtime-repo-client.ts)
+// and the web preload's `repos.searchBaseRefDetails` both throw
+// `BaseRefDetailsUnavailableError` on null, so the search REJECTS —
+// useCreatePullRequestDialogFields shows "Branch discovery failed." and
+// SmartWorkspaceNameField shows its branch-search failure line instead of the
+// empty-results hint. No ready-edge resubscribe: startup hydration is gated on
+// the core, so a not-ready call here has found a core that failed permanently
+// (git-wasm-availability `unavailable`), and recomputing would never help.
 import { isGitWasmReady } from './git-line-stats'
 import { dispatchToWasmCore } from './wasm-core-dispatch'
 import type { BaseRefSearchResult } from '../../../../shared/types'
 
-// Payload is a bare ref-name string, so the codec's default applies unrelaxed.
-function op(fn: string, input: unknown): unknown {
-  if (!isGitWasmReady()) {return null}
-  return dispatchToWasmCore('base-ref-search-result', fn, input, { root: 'refName' })
+/** Thrown by the two ref-search callers when the derivation core is unavailable,
+ *  so "could not search" surfaces as a failure and never as the empty array that
+ *  means "no branches matched". */
+export class BaseRefDetailsUnavailableError extends Error {
+  constructor() {
+    super('Branch details are unavailable because the git core failed to load.')
+    this.name = 'BaseRefDetailsUnavailableError'
+  }
 }
 
-export function legacyBaseRefSearchResult(refName: string): BaseRefSearchResult {
-  const r = op('legacyBaseRefSearchResult', refName) as BaseRefSearchResult | null
-  return r ?? { refName, localBranchName: refName }
+/**
+ * Derive one result row per display ref, for mixed-version runtimes that answer
+ * `repo.searchRefs` with `refs` but no `refDetails`.
+ *
+ * Returns `null` when the core cannot answer — see the header: that is
+ * could-not-search, NOT an empty result set, and callers must not `?? []` it.
+ */
+export function legacyBaseRefSearchResults(
+  refNames: readonly string[]
+): BaseRefSearchResult[] | null {
+  if (!isGitWasmReady()) {
+    return null
+  }
+  // Payload is a bare ref-name string, so the codec's default applies unrelaxed.
+  return refNames.map(
+    (refName) =>
+      dispatchToWasmCore('base-ref-search-result', 'legacyBaseRefSearchResult', refName, {
+        root: 'refName'
+      }) as BaseRefSearchResult
+  )
 }

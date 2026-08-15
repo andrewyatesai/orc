@@ -237,6 +237,9 @@ function sanitizeRepoUpdate(updates: RepoUpdate): RepoUpdate {
   const sanitized = { ...updates }
   if ('badgeColor' in sanitized) {
     const badgeColor = normalizeRepoBadgeColor(sanitized.badgeColor)
+    // Why: `undefined` is the colour core's not-ready signal — drop the field
+    // exactly as for an invalid colour, so an unvalidated value can never reach
+    // the store or the persisted repo record while the core is unavailable.
     if (!badgeColor) {
       delete sanitized.badgeColor
     } else {
@@ -1589,7 +1592,7 @@ export type RepoSlice = {
   folderWorkspaces: FolderWorkspace[]
   folderWorkspacePathStatuses: Record<string, FolderWorkspacePathStatusCacheEntry>
   activeRepoId: string | null
-  // Monotonic sequence so overlapping catalog fetches can drop stale same-host results (#7020).
+  // Monotonic sequence so an overlapping fetchRepos can drop its own stale result (#7020).
   reposFetchGeneration: number
   pendingSshRepoReadoptions: SshRepoReadoption[]
   recordSshRepoReadoptions: (readoptions: SshRepoReadoption[]) => void
@@ -1597,9 +1600,6 @@ export type RepoSlice = {
   fetchReposForAllHosts: (
     options?: AllHostCatalogFetchOptions & { prefetchedLocal?: PrefetchedLocalRepoCatalog }
   ) => Promise<void>
-  // Why: startup hydration must wait on the newest local catalog fetch so a desktop-promotion refresh
-  // can't leave repos empty when the session hydrates and PTY identities get reassigned (#11611).
-  awaitLocalRepoCatalogSettlement: () => Promise<void>
   fetchRuntimeEnvironmentRepos: (environmentId: string) => Promise<Repo[]>
   fetchProjectGroups: () => Promise<void>
   fetchProjectGroupsForAllHosts: (
@@ -1700,68 +1700,6 @@ export type RepoSlice = {
   reorderRepos: (orderedIds: string[]) => Promise<void>
 }
 
-// Why (#11611): the global reposFetchGeneration alone lets a remote refresh's bump cancel an in-flight
-// LOCAL fetch, leaving repos empty when the session hydrates — so PTYs get reassigned. These maps track
-// the newest generation PER HOST (every apply path claims from the same monotonic counter) so a fetch only
-// drops when a newer fetch for the SAME host superseded it, and expose a settlement barrier for startup.
-type LocalRepoCatalogFetchOutcome =
-  | { status: 'fulfilled' }
-  | { status: 'rejected'; reason: unknown }
-
-const latestLocalRepoCatalogFetchByStore = new WeakMap<
-  () => AppState,
-  Promise<LocalRepoCatalogFetchOutcome>
->()
-const latestRepoCatalogGenerationByHostByStore = new WeakMap<() => AppState, Map<string, number>>()
-const latestAllHostRepoCatalogGenerationByStore = new WeakMap<() => AppState, number>()
-
-function startLocalRepoCatalogFetch(
-  get: () => AppState
-): (outcome: LocalRepoCatalogFetchOutcome) => void {
-  let settle: (outcome: LocalRepoCatalogFetchOutcome) => void = () => undefined
-  const settlement = new Promise<LocalRepoCatalogFetchOutcome>((resolve) => {
-    settle = resolve
-  })
-  latestLocalRepoCatalogFetchByStore.set(get, settlement)
-  return settle
-}
-
-async function awaitLatestLocalRepoCatalogFetch(get: () => AppState): Promise<void> {
-  while (true) {
-    const pending = latestLocalRepoCatalogFetchByStore.get(get)
-    if (!pending) {
-      return
-    }
-    const outcome = await pending
-    // Why: a newer local fetch may have replaced the tracked promise while we awaited — re-read and wait on it.
-    if (latestLocalRepoCatalogFetchByStore.get(get) === pending) {
-      if (outcome.status === 'rejected') {
-        throw outcome.reason
-      }
-      return
-    }
-  }
-}
-
-function claimRepoCatalogGeneration(get: () => AppState, hostId: string, generation: number): void {
-  let generations = latestRepoCatalogGenerationByHostByStore.get(get)
-  if (!generations) {
-    generations = new Map()
-    latestRepoCatalogGenerationByHostByStore.set(get, generations)
-  }
-  if ((generations.get(hostId) ?? 0) < generation) {
-    generations.set(hostId, generation)
-  }
-}
-
-function isLatestRepoCatalogGeneration(
-  get: () => AppState,
-  hostId: string,
-  generation: number
-): boolean {
-  return latestRepoCatalogGenerationByHostByStore.get(get)?.get(hostId) === generation
-}
-
 export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, get) => ({
   repos: [],
   projects: [],
@@ -1799,23 +1737,17 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
     }),
 
   fetchRepos: async () => {
-    const target = getActiveRuntimeTarget(get().settings)
-    // Why (#11611): a local active-target fetch feeds the startup settlement barrier so hydration waits on it.
-    const settleLocalCatalog: (outcome: LocalRepoCatalogFetchOutcome) => void =
-      target.kind === 'local' ? startLocalRepoCatalogFetch(get) : () => undefined
-    let localCatalogOutcome: LocalRepoCatalogFetchOutcome = { status: 'fulfilled' }
     // Why: overlapping repos:changed fetches can resolve out of order; a stale one must not overwrite a newer result and resurrect deleted projects (#7020).
     let generation = 0
     set((s) => {
       generation = s.reposFetchGeneration + 1
       return { reposFetchGeneration: generation }
     })
-    const targetHostId = getRuntimeTargetHostId(target)
-    claimRepoCatalogGeneration(get, targetHostId, generation)
     try {
+      const target = getActiveRuntimeTarget(get().settings)
       const catalog = await fetchRepoCatalogForTarget(target)
-      // A newer same-host fetch superseded us while we awaited — drop this stale result.
-      if (!isLatestRepoCatalogGeneration(get, targetHostId, generation)) {
+      // A newer fetchRepos superseded us while we awaited — drop this stale result.
+      if (get().reposFetchGeneration !== generation) {
         return
       }
       let finalizedHostRepos: Repo[] = []
@@ -1865,10 +1797,7 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
       })
       scheduleSafeAutoForkSync(get, finalizedHostRepos)
     } catch (err) {
-      localCatalogOutcome = { status: 'rejected', reason: err }
       console.error('Failed to fetch repos:', err)
-    } finally {
-      settleLocalCatalog(localCatalogOutcome)
     }
   },
 
@@ -1877,21 +1806,11 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
     runtimeRepoFetchGenerationByEnvironment.set(environmentId, requestGeneration)
     const connectionGeneration = getEnvironmentSshStateGeneration(environmentId)
     const runtimeConnectionGeneration = getRuntimeEnvironmentConnectionGeneration(environmentId)
-    // Why (#11611): claim this env host's catalog generation from the shared counter so a concurrent
-    // all-host load for the same host reconciles by generation, and the newer response always wins.
-    let catalogGeneration = 0
-    set((s) => {
-      catalogGeneration = s.reposFetchGeneration + 1
-      return { reposFetchGeneration: catalogGeneration }
-    })
-    const target = { kind: 'environment' as const, environmentId }
-    const targetHostId = getRuntimeTargetHostId(target)
-    claimRepoCatalogGeneration(get, targetHostId, catalogGeneration)
     try {
+      const target = { kind: 'environment' as const, environmentId }
       const catalog = await fetchRepoCatalogForTarget(target)
       if (
         runtimeRepoFetchGenerationByEnvironment.get(environmentId) !== requestGeneration ||
-        !isLatestRepoCatalogGeneration(get, targetHostId, catalogGeneration) ||
         getEnvironmentSshStateGeneration(environmentId) !== connectionGeneration ||
         getRuntimeEnvironmentConnectionGeneration(environmentId) !== runtimeConnectionGeneration
       ) {
@@ -1901,7 +1820,6 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
       set((s) => {
         if (
           runtimeRepoFetchGenerationByEnvironment.get(environmentId) !== requestGeneration ||
-          !isLatestRepoCatalogGeneration(get, targetHostId, catalogGeneration) ||
           getEnvironmentSshStateGeneration(environmentId) !== connectionGeneration ||
           getRuntimeEnvironmentConnectionGeneration(environmentId) !== runtimeConnectionGeneration
         ) {
@@ -1957,23 +1875,15 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
   },
 
   fetchReposForAllHosts: async (options) => {
-    // Why (#11611): the local leg of an all-host load feeds the startup settlement barrier.
-    const settleLocalCatalog = startLocalRepoCatalogFetch(get)
     let generation = 0
     set((s) => {
       generation = s.reposFetchGeneration + 1
       return { reposFetchGeneration: generation }
     })
-    latestAllHostRepoCatalogGenerationByStore.set(get, generation)
-    claimRepoCatalogGeneration(get, LOCAL_EXECUTION_HOST_ID, generation)
     // Why: fetching only the active host hides every other host's repos ("my projects vanished"); load local + all runtime envs, each failing soft.
     const applyCatalog = (catalog: FetchedRepoCatalog): void => {
-      // Why: a concurrent all-host refresh must not let the older catalog resurrect a migrated SSH owner,
-      // and a per-host Connect refresh with a newer generation for this host must win over this one (#11611).
-      if (
-        latestAllHostRepoCatalogGenerationByStore.get(get) !== generation ||
-        !isLatestRepoCatalogGeneration(get, catalog.hostId, generation)
-      ) {
+      // Why: a concurrent all-host refresh must not let the older catalog resurrect a migrated SSH owner.
+      if (get().reposFetchGeneration !== generation) {
         return
       }
       let hostRepos: Repo[] = []
@@ -2034,7 +1944,6 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
 
     // Local first so local repos are present even if a remote fetch stalls.
     let failed = false
-    let localCatalogOutcome: LocalRepoCatalogFetchOutcome = { status: 'fulfilled' }
     try {
       // Why: snapshot-prefetched rows hydrate the local catalog with zero IPC round-trips at boot.
       applyCatalog(
@@ -2044,15 +1953,9 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
       )
     } catch (err) {
       failed = true
-      localCatalogOutcome = { status: 'rejected', reason: err }
       console.error('Failed to fetch local repos for all-host load:', err)
     }
-    // Why (#11611): startup hydration needs the newest local catalog settled, not unreachable remote hosts.
-    settleLocalCatalog(localCatalogOutcome)
-    if (
-      get().reposFetchGeneration !== generation &&
-      !isLatestRepoCatalogGeneration(get, LOCAL_EXECUTION_HOST_ID, generation)
-    ) {
+    if (get().reposFetchGeneration !== generation) {
       return
     }
     if (options?.remoteHosts === 'skip') {
@@ -2063,14 +1966,13 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
     // Why: unreachable remotes can spend the full connect timeout; merge each resolved host via the state updater so parallel loads don't clobber.
     await Promise.all(
       environments.map(async (environment) => {
-        const target = {
-          kind: 'environment' as const,
-          environmentId: environment.id
-        }
-        // Why (#11611): claim this host's generation so a stale Connect-flow response can't overwrite it.
-        claimRepoCatalogGeneration(get, getRuntimeTargetHostId(target), generation)
         try {
-          applyCatalog(await fetchRepoCatalogForTarget(target))
+          applyCatalog(
+            await fetchRepoCatalogForTarget({
+              kind: 'environment',
+              environmentId: environment.id
+            })
+          )
         } catch (err) {
           failed = true
           console.warn(`Skipped repos for runtime environment ${environment.id}:`, err)
@@ -2082,8 +1984,6 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
       validateRepoScopedUi()
     }
   },
-
-  awaitLocalRepoCatalogSettlement: () => awaitLatestLocalRepoCatalogFetch(get),
 
   fetchProjectGroups: async () => {
     try {

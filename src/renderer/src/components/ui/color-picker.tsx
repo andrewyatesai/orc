@@ -1,8 +1,10 @@
 import * as React from 'react'
 import { HexColorPicker } from 'react-colorful'
 
+import { isGitWasmReady, subscribeGitWasmAvailability } from '@/lib/git-wasm/git-wasm-availability'
 import { normalizeRepoBadgeColor, resolveRepoBadgeColor } from '@/lib/git-wasm/repo-badge-color'
 import { cn } from '@/lib/utils'
+import { DEFAULT_REPO_BADGE_COLOR } from '../../../../shared/constants'
 import { Button } from './button'
 import { Input } from './input'
 import { Label } from './label'
@@ -33,7 +35,16 @@ export function ColorPicker({
   showHexInTrigger
 }: ColorPickerProps): React.JSX.Element {
   const inputId = React.useId()
-  const currentColor = resolveRepoBadgeColor(value)
+  // Why: the colour normalizers live in the Rust core; re-render on the
+  // availability edge so the picker un-freezes the instant the wasm lands.
+  React.useSyncExternalStore(subscribeGitWasmAvailability, isGitWasmReady, isGitWasmReady)
+  const resolvedColor = resolveRepoBadgeColor(value)
+  // Why: `undefined` is the core's not-ready signal, and there is no honest colour
+  // to invent for it — resolveRepoBadgeColor returns the default ONLY for an
+  // invalid input. Paint neutral and freeze every write path; returning the
+  // default here instead is what persisted gray over saved repo colours before.
+  const isColorCoreReady = resolvedColor !== undefined
+  const currentColor = isColorCoreReady ? resolvedColor : DEFAULT_REPO_BADGE_COLOR
   const [draftState, setDraftState] = React.useState(() => ({
     syncedColor: currentColor,
     draft: currentColor,
@@ -43,9 +54,13 @@ export function ColorPicker({
     draftState.isEditing || draftState.syncedColor === currentColor
       ? draftState.draft
       : currentColor
-  const draftColor = normalizeRepoBadgeColor(draft)
+  // Why: `?? null` only folds the not-ready sentinel into "no usable draft colour"
+  // — every consumer below is already gated on isColorCoreReady or is paint-only.
+  const draftColor = normalizeRepoBadgeColor(draft) ?? null
   const swatchColor = draftColor ?? currentColor
-  const hasInvalidDraft = draft.trim().length > 0 && !draftColor
+  // Why: no draft can be judged invalid while the validator is unavailable — the
+  // reverted cut-over showed "Invalid hex color" against a perfectly valid hex.
+  const hasInvalidDraft = isColorCoreReady && draft.trim().length > 0 && !draftColor
   const shouldShowTriggerHex = showHexInTrigger ?? !triggerLabel
 
   const updateDraft = (nextDraft: string): void => {
@@ -58,6 +73,9 @@ export function ColorPicker({
 
   const updateColor = (nextColor: string): void => {
     const normalized = resolveRepoBadgeColor(nextColor)
+    if (normalized === undefined) {
+      return
+    }
     setDraftState({ syncedColor: currentColor, draft: normalized, isEditing: true })
     onChange(normalized)
   }
@@ -69,6 +87,10 @@ export function ColorPicker({
           type="button"
           variant="outline"
           size="sm"
+          // Why: with the colour core unavailable nothing here can be validated,
+          // so refuse to open rather than let a wheel drag commit a placeholder
+          // over the user's saved colour (the reverted-cutover data loss).
+          disabled={!isColorCoreReady}
           className={cn(
             'h-8 gap-2 px-2.5',
             selected ? 'ring-2 ring-foreground ring-offset-2 ring-offset-background' : null,

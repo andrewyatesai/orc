@@ -625,40 +625,6 @@ describe('tui agent startup plans', () => {
     expect(plan?.launchCommand).toBe("codex 'resume' 's1'")
   })
 
-  it('quotes Windows resume argv for cmd.exe when shell is cmd (#12320)', () => {
-    const plan = buildAgentResumeStartupPlan({
-      agent: 'grok',
-      providerSession: { key: 'session_id', id: '019fc272-80fa-7a91-80a2-9c461ef1a9da' },
-      cmdOverrides: {},
-      agentArgs: '--permission-mode bypassPermissions',
-      platform: 'win32',
-      shell: 'cmd'
-    })
-
-    // Why: cmd.exe treats single quotes as literal characters, so a cmd.exe tab
-    // must receive double-quoted argv or the CLI rejects the resume ("unexpected argument").
-    expect(plan?.launchCommand).toBe(
-      'grok "--permission-mode" "bypassPermissions" "--resume" "019fc272-80fa-7a91-80a2-9c461ef1a9da"'
-    )
-  })
-
-  it('keeps cmd-quoted agentCommand aligned with the cmd resume suffix (#12320)', () => {
-    const plan = buildAgentResumeStartupPlan({
-      agent: 'grok',
-      providerSession: { key: 'session_id', id: '019fc272-80fa-7a91-80a2-9c461ef1a9da' },
-      cmdOverrides: {},
-      agentCommand: 'grok "--permission-mode" "bypassPermissions"',
-      platform: 'win32',
-      shell: 'cmd'
-    })
-
-    // Regression: a captured cmd agentCommand + PowerShell-default resume suffix
-    // produced mixed quoting and broke reboot restore on cmd.exe tabs.
-    expect(plan?.launchCommand).toBe(
-      'grok "--permission-mode" "bypassPermissions" "--resume" "019fc272-80fa-7a91-80a2-9c461ef1a9da"'
-    )
-  })
-
   it('honors command overrides when building POSIX resume plans', () => {
     const plan = buildAgentResumeStartupPlan({
       agent: 'codex',

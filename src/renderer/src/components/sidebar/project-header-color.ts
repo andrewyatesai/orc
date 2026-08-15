@@ -6,6 +6,9 @@ const PROVIDER_PROJECT_HEADER_KEY_PREFIX = 'project:'
 
 export function resolveRepoHeaderColor(badgeColor: string | null | undefined): string {
   const normalizedBadgeColor = normalizeRepoBadgeColor(badgeColor)
+  // Why: `undefined` is the colour core's not-ready signal and `null` is a real
+  // "invalid colour"; both degrade to neutral because this value is only painted
+  // as a sidebar header swatch and is never fed back into an update.
   if (!normalizedBadgeColor) {
     return DEFAULT_REPO_BADGE_COLOR
   }

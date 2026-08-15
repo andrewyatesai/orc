@@ -6,15 +6,17 @@
 // ~tens-of-ms wasm boot window — the settings sliders and terminal theming that
 // read these synchronously in render stay valid.
 import { isGitWasmReady } from './git-line-stats'
-import { orcaDispatch } from './orca_git_wasm.js'
+import { dispatchToWasmCore } from './wasm-core-dispatch'
 import { DEFAULT_TERMINAL_FONT_WEIGHT } from '../../../../shared/terminal-fonts'
 
 function op(fn: string, fontWeight: number | null | undefined): unknown | null {
   if (!isGitWasmReady()) {
     return null
   }
-  // Single bare-number arg (Rust reads input.as_f64()); undefined -> null.
-  return JSON.parse(orcaDispatch('terminal-fonts', fn, JSON.stringify(fontWeight ?? null)))
+  // Single bare-number arg (Rust reads input.as_f64()); only undefined means
+  // "unset", so keep the `?? null` — a NaN weight is now rejected rather than
+  // silently collapsing into that same unset case.
+  return dispatchToWasmCore('terminal-fonts', fn, fontWeight ?? null, { root: 'fontWeight' })
 }
 
 export function normalizeTerminalFontWeight(fontWeight: number | null | undefined): number {

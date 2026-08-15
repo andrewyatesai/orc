@@ -5,16 +5,19 @@
 // Booleans default to `false` ("no cleanup action") — the safe direction that
 // never force-removes a workspace or hides a candidate before the core is ready.
 import { isGitWasmReady } from './git-line-stats'
-import { orcaDispatch } from './orca_git_wasm.js'
+import { dispatchToWasmCore } from './wasm-core-dispatch'
 import type {
   WorkspaceCleanupCandidate,
   WorkspaceCleanupDismissal,
   WorkspaceCleanupInactivityInput
 } from '../../../../shared/workspace-cleanup'
 
+// Why 'omit': `WorkspaceCleanupCandidate.createdAt` is optional and
+// shouldHideWorkspaceCleanupCandidate passes `dismissal: … | undefined` —
+// an absent key is the "never dismissed" case the Rust struct reads as None.
 function op(fn: string, input: unknown): unknown | null {
   if (!isGitWasmReady()) {return null}
-  return JSON.parse(orcaDispatch('workspace-cleanup', fn, JSON.stringify(input ?? null)))
+  return dispatchToWasmCore('workspace-cleanup', fn, input, { undefinedProperties: 'omit' })
 }
 
 export function canQueueWorkspaceCleanupCandidate(

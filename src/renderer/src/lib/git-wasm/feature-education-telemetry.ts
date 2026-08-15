@@ -5,17 +5,19 @@
 // boot window degrades to the same bounded 'unknown' fallback the Rust port
 // returns.
 import { isGitWasmReady } from './git-line-stats'
-import { orcaDispatch } from './orca_git_wasm.js'
+import { dispatchToWasmCore } from './wasm-core-dispatch'
 import type {
   FeatureEducationSource,
   SetupGuideSource
 } from '../../../../shared/feature-education-telemetry'
 
+// Bare source string (or null/undefined, which the codec encodes as the
+// documented no-arg call), so the default applies unrelaxed.
 function op(fn: string, input: unknown): unknown | null {
   if (!isGitWasmReady()) {
     return null
   }
-  return JSON.parse(orcaDispatch('feature-education-telemetry', fn, JSON.stringify(input ?? null)))
+  return dispatchToWasmCore('feature-education-telemetry', fn, input, { root: 'value' })
 }
 
 export function normalizeFeatureEducationSource(

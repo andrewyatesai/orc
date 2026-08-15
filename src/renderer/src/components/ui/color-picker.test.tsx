@@ -11,5 +11,10 @@ describe('ColorPicker', () => {
 
     expect(html).toContain('aria-label="Custom repo color"')
     expect(html).toContain('#abcdef')
+    // The counterpart to color-picker.core-unavailable.test.tsx: the freeze is
+    // conditional on the repo-badge-color core, not a permanent disable.
+    // (`disabled=""`, not `disabled` — the Button class list carries
+    // `disabled:pointer-events-none` variants either way.)
+    expect(html).not.toContain('disabled=""')
   })
 })

@@ -1,15 +1,17 @@
 // Renderer repo-icon sanitizer/builders, driven by the Rust repo-icon core in
 // the orca-git wasm module (the shared TS impl was gutted to types/data).
 import { isGitWasmReady } from './git-line-stats'
-import { orcaDispatch } from './orca_git_wasm.js'
+import { dispatchToWasmCore } from './wasm-core-dispatch'
 import type { RepoIcon } from '../../../../shared/repo-icon'
 
 // `sanitizeRepoIcon` is tri-state; Rust encodes JS `undefined` as this sentinel
 // string (JSON can't carry undefined), so map it back on the way out.
 const SANITIZE_UNDEFINED = '__undefined__'
 
+// Why 'omit': the sanitizer takes an `unknown` persisted icon whose optional
+// `label` may be undefined, which the Rust enum reads as an absent field.
 function dispatch(fn: string, input: unknown): unknown {
-  return JSON.parse(orcaDispatch('repo-icon', fn, JSON.stringify(input ?? null)))
+  return dispatchToWasmCore('repo-icon', fn, input, { undefinedProperties: 'omit' })
 }
 
 export function sanitizeRepoIcon(value: unknown): RepoIcon | null | undefined {
