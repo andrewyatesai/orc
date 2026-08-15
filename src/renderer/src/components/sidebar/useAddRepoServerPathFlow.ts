@@ -3,10 +3,10 @@ import { track } from '@/lib/telemetry'
 import { markOnboardingProjectAdded } from '@/lib/onboarding-project-checklist'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
 import {
-  buildNestedRepoScanTelemetry,
   createNestedRepoTelemetryAttemptId,
   type NestedRepoTelemetryRuntimeKind
 } from '../../../../shared/nested-repo-telemetry'
+import { buildNestedRepoScanTelemetry } from '../../../../shared/nested-repo-telemetry-payloads'
 import type { AddRepoExistingWorkspaceSource } from '../../../../shared/telemetry-events'
 import type { NestedRepoScanResult, Repo } from '../../../../shared/types'
 import { createNestedRepoScanId } from './add-repo-dialog-types'
@@ -115,15 +115,16 @@ export function useAddRepoServerPathFlow({
           }
           setNestedScanInProgress(false)
           setActiveNestedScanId(null)
-          track(
-            'add_repo_nested_scan_result',
-            buildNestedRepoScanTelemetry({
-              attemptId,
-              surface: 'sidebar',
-              runtimeKind,
-              scan
-            })
-          )
+          // null = Rust core not ready; drop this scan's event rather than guess one.
+          const scanTelemetry = buildNestedRepoScanTelemetry({
+            attemptId,
+            surface: 'sidebar',
+            runtimeKind,
+            scan
+          })
+          if (scanTelemetry) {
+            track('add_repo_nested_scan_result', scanTelemetry)
+          }
           if (scan?.selectedPathKind === 'non_git_folder' && scan.repos.length > 0) {
             showNestedRepoReview({
               scan,

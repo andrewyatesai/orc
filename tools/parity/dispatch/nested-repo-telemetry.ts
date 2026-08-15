@@ -1,62 +1,17 @@
-// TS dispatch for the nested-repo-telemetry parity module: maps the shared
-// vector function names to the real `src/shared/nested-repo-telemetry.ts`
-// exports so the harness compares the live TS reference against the Rust port.
-
-import {
-  buildNestedRepoImportActionTelemetry,
-  buildNestedRepoScanTelemetry,
-  bucketNestedRepoTelemetryCount,
-  capNestedRepoTelemetryCount,
-  shouldEmitNestedRepoImportSubmitTelemetry,
-  type NestedRepoImportTelemetryAction,
-  type NestedRepoTelemetryRuntimeKind,
-  type NestedRepoTelemetrySurface
-} from '../../../src/shared/nested-repo-telemetry'
-import type { NestedRepoScanResult } from '../../../src/shared/types'
+// TS dispatch for the nested-repo-telemetry parity module. Every function the
+// vectors cover was CUT OVER (`src/shared/nested-repo-telemetry.ts` keeps only
+// the types, the enum tables, the count cap and the attempt-id entropy edge —
+// the Rust orca-core `nested_repo_telemetry` port is the sole implementation,
+// reached through the shared dispatch seam from
+// src/shared/nested-repo-telemetry-payloads.ts, which serves both the renderer
+// builders and main's telemetry-events bucket check), so this adapter drives the
+// SAME wasm: the vectors' recorded goldens now pin the production surface, and
+// the harness's TS-vs-Rust diff degenerates to wasm-vs-binary (drift between the
+// two Rust entry points would still surface here).
+import { gitWasmOracle } from './orca-git-wasm-oracle'
 
 export function dispatch(fn: string, input: unknown): unknown {
-  switch (fn) {
-    case 'capNestedRepoTelemetryCount':
-      // NaN/Infinity persist to JSON as null; cap treats non-finite as 0.
-      return capNestedRepoTelemetryCount(input as number)
-    case 'bucketNestedRepoTelemetryCount':
-      return bucketNestedRepoTelemetryCount(input as number)
-    case 'shouldEmitNestedRepoImportSubmitTelemetry': {
-      const { attemptId, selectedCount, isBusy } = input as {
-        attemptId: string | null
-        selectedCount: number
-        isBusy?: boolean
-      }
-      return shouldEmitNestedRepoImportSubmitTelemetry({ attemptId, selectedCount, isBusy })
-    }
-    case 'buildNestedRepoScanTelemetry': {
-      const { attemptId, surface, runtimeKind, scan } = input as {
-        attemptId: string
-        surface: NestedRepoTelemetrySurface
-        runtimeKind: NestedRepoTelemetryRuntimeKind
-        scan: NestedRepoScanResult | null
-      }
-      return buildNestedRepoScanTelemetry({ attemptId, surface, runtimeKind, scan })
-    }
-    case 'buildNestedRepoImportActionTelemetry': {
-      const { attemptId, surface, runtimeKind, action, foundCount, selectedCount } = input as {
-        attemptId: string
-        surface: NestedRepoTelemetrySurface
-        runtimeKind: NestedRepoTelemetryRuntimeKind
-        action: NestedRepoImportTelemetryAction
-        foundCount: number
-        selectedCount: number
-      }
-      return buildNestedRepoImportActionTelemetry({
-        attemptId,
-        surface,
-        runtimeKind,
-        action,
-        foundCount,
-        selectedCount
-      })
-    }
-    default:
-      throw new Error(`unknown function ${fn}`)
-  }
+  return JSON.parse(
+    gitWasmOracle().orcaDispatch('nested-repo-telemetry', fn, JSON.stringify(input ?? null))
+  )
 }

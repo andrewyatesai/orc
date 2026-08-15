@@ -12,13 +12,15 @@ import { buildAgentPickedPayload } from './agent-picked-payload'
 import { ONBOARDING_FINAL_STEP, ONBOARDING_FLOW_VERSION } from '../../../../shared/constants'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
 import {
+  createNestedRepoTelemetryAttemptId,
+  type NestedRepoTelemetryRuntimeKind
+} from '../../../../shared/nested-repo-telemetry'
+import {
   buildNestedRepoImportActionTelemetry,
   buildNestedRepoImportResultTelemetry,
   buildNestedRepoScanTelemetry,
-  createNestedRepoTelemetryAttemptId,
-  shouldEmitNestedRepoImportSubmitTelemetry,
-  type NestedRepoTelemetryRuntimeKind
-} from '../../../../shared/nested-repo-telemetry'
+  shouldEmitNestedRepoImportSubmitTelemetry
+} from '../../../../shared/nested-repo-telemetry-payloads'
 import type { EventProps } from '../../../../shared/telemetry-events'
 import type {
   GlobalSettings,
@@ -737,15 +739,16 @@ export function useOnboardingFlow(
           if (kind === 'git') {
             const attemptId = createNestedRepoTelemetryAttemptId()
             const scan = await scanNestedRepos(path)
-            track(
-              'add_repo_nested_scan_result',
-              buildNestedRepoScanTelemetry({
-                attemptId,
-                surface: 'onboarding',
-                runtimeKind: 'runtime',
-                scan
-              })
-            )
+            // null = Rust core not ready; drop this scan's event rather than guess one.
+            const scanTelemetry = buildNestedRepoScanTelemetry({
+              attemptId,
+              surface: 'onboarding',
+              runtimeKind: 'runtime',
+              scan
+            })
+            if (scanTelemetry) {
+              track('add_repo_nested_scan_result', scanTelemetry)
+            }
             if (scan?.selectedPathKind === 'non_git_folder' && scan.repos.length > 0) {
               showNestedRepoReview(scan, attemptId, 'runtime')
               return
@@ -801,15 +804,16 @@ export function useOnboardingFlow(
           }
           nestedScanIdRef.current = null
           setNestedScanInProgress(false)
-          track(
-            'add_repo_nested_scan_result',
-            buildNestedRepoScanTelemetry({
-              attemptId,
-              surface: 'onboarding',
-              runtimeKind: 'local',
-              scan
-            })
-          )
+          // null = Rust core not ready; drop this scan's event rather than guess one.
+          const scanTelemetry = buildNestedRepoScanTelemetry({
+            attemptId,
+            surface: 'onboarding',
+            runtimeKind: 'local',
+            scan
+          })
+          if (scanTelemetry) {
+            track('add_repo_nested_scan_result', scanTelemetry)
+          }
           if (scan?.selectedPathKind === 'non_git_folder' && scan.repos.length > 0) {
             showNestedRepoReview(scan, attemptId, 'local', false, scanId)
             return
@@ -859,17 +863,18 @@ export function useOnboardingFlow(
     const runtimeKind = nestedRuntimeKind ?? onboardingNestedRepoRuntimeKind
     setError(null)
     setBusyLabel('Importing repositories…')
-    track(
-      'add_repo_nested_import_action',
-      buildNestedRepoImportActionTelemetry({
-        attemptId,
-        surface: 'onboarding',
-        runtimeKind,
-        action: 'import_separate',
-        foundCount,
-        selectedCount
-      })
-    )
+    // null = Rust core not ready; drop the funnel step, never the import.
+    const actionTelemetry = buildNestedRepoImportActionTelemetry({
+      attemptId,
+      surface: 'onboarding',
+      runtimeKind,
+      action: 'import_separate',
+      foundCount,
+      selectedCount
+    })
+    if (actionTelemetry) {
+      track('add_repo_nested_import_action', actionTelemetry)
+    }
     let resultTracked = false
     try {
       const selectedProjectPaths = getSelectedNestedRepoPathsInScanOrder(
@@ -884,6 +889,11 @@ export function useOnboardingFlow(
         ...(nestedImportScanId ? { scanId: nestedImportScanId } : {}),
         mode
       })
+      // Why before the emit: this flag means "the result step is settled for this
+      // attempt". Set after, a builder that throws would leave it false and the
+      // catch would re-emit the step as `result: null` — a second, FALSIFIED
+      // "failed" outcome for an import that actually succeeded.
+      resultTracked = true
       track(
         'add_repo_nested_import_result',
         buildNestedRepoImportResultTelemetry({
@@ -896,7 +906,6 @@ export function useOnboardingFlow(
           result
         })
       )
-      resultTracked = true
       const importedRepoIds =
         result?.projects
           .map((entry) => entry.projectId)
@@ -948,17 +957,18 @@ export function useOnboardingFlow(
 
   const trackNestedBackAndClear = useCallback(() => {
     if (nestedScan && nestedAttemptId) {
-      track(
-        'add_repo_nested_import_action',
-        buildNestedRepoImportActionTelemetry({
-          attemptId: nestedAttemptId,
-          surface: 'onboarding',
-          runtimeKind: nestedRuntimeKind ?? onboardingNestedRepoRuntimeKind,
-          action: 'back',
-          foundCount: nestedScan.repos.length,
-          selectedCount: nestedSelectedPaths.size
-        })
-      )
+      // null = Rust core not ready; drop this step rather than guess a payload.
+      const actionTelemetry = buildNestedRepoImportActionTelemetry({
+        attemptId: nestedAttemptId,
+        surface: 'onboarding',
+        runtimeKind: nestedRuntimeKind ?? onboardingNestedRepoRuntimeKind,
+        action: 'back',
+        foundCount: nestedScan.repos.length,
+        selectedCount: nestedSelectedPaths.size
+      })
+      if (actionTelemetry) {
+        track('add_repo_nested_import_action', actionTelemetry)
+      }
     }
     setNestedScan(null)
     setNestedSelectedPaths(new Set())

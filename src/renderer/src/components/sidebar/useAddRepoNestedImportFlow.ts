@@ -3,12 +3,12 @@ import { toast } from 'sonner'
 import { track } from '@/lib/telemetry'
 import { useAppStore } from '@/store'
 import { getSelectedNestedRepoPathsInScanOrder } from '@/lib/nested-repo-selected-paths'
+import type { NestedRepoTelemetryRuntimeKind } from '../../../../shared/nested-repo-telemetry'
 import {
   buildNestedRepoImportActionTelemetry,
   buildNestedRepoImportResultTelemetry,
-  shouldEmitNestedRepoImportSubmitTelemetry,
-  type NestedRepoTelemetryRuntimeKind
-} from '../../../../shared/nested-repo-telemetry'
+  shouldEmitNestedRepoImportSubmitTelemetry
+} from '../../../../shared/nested-repo-telemetry-payloads'
 import type { AddRepoExistingWorkspaceSource } from '../../../../shared/telemetry-events'
 import type { NestedRepoScanResult, ProjectGroupImportResult } from '../../../../shared/types'
 import { translate } from '@/i18n/i18n'
@@ -68,17 +68,18 @@ export function useAddRepoNestedImportFlow({
     if (!nestedScan || !nestedAttemptId) {
       return
     }
-    track(
-      'add_repo_nested_import_action',
-      buildNestedRepoImportActionTelemetry({
-        attemptId: nestedAttemptId,
-        surface: 'sidebar',
-        runtimeKind: nestedRuntimeKind ?? getNestedRepoRuntimeKind(nestedConnectionId),
-        action: 'back',
-        foundCount: nestedScan.repos.length,
-        selectedCount: nestedSelectedPaths.size
-      })
-    )
+    // null = Rust core not ready; drop this step rather than guess a payload.
+    const actionTelemetry = buildNestedRepoImportActionTelemetry({
+      attemptId: nestedAttemptId,
+      surface: 'sidebar',
+      runtimeKind: nestedRuntimeKind ?? getNestedRepoRuntimeKind(nestedConnectionId),
+      action: 'back',
+      foundCount: nestedScan.repos.length,
+      selectedCount: nestedSelectedPaths.size
+    })
+    if (actionTelemetry) {
+      track('add_repo_nested_import_action', actionTelemetry)
+    }
   }, [
     getNestedRepoRuntimeKind,
     nestedAttemptId,
@@ -110,17 +111,18 @@ export function useAddRepoNestedImportFlow({
       const runtimeKind = nestedRuntimeKind ?? getNestedRepoRuntimeKind(nestedConnectionId)
       const gen = ++nestedImportGenRef.current
       setIsAdding(true)
-      track(
-        'add_repo_nested_import_action',
-        buildNestedRepoImportActionTelemetry({
-          attemptId,
-          surface: 'sidebar',
-          runtimeKind,
-          action: mode === 'group' ? 'import_group' : 'import_separate',
-          foundCount,
-          selectedCount
-        })
-      )
+      // null = Rust core not ready; drop the funnel step, never the import.
+      const actionTelemetry = buildNestedRepoImportActionTelemetry({
+        attemptId,
+        surface: 'sidebar',
+        runtimeKind,
+        action: mode === 'group' ? 'import_group' : 'import_separate',
+        foundCount,
+        selectedCount
+      })
+      if (actionTelemetry) {
+        track('add_repo_nested_import_action', actionTelemetry)
+      }
       let resultTracked = false
       try {
         const result = await importNestedRepos({
@@ -133,6 +135,11 @@ export function useAddRepoNestedImportFlow({
           ...(nestedImportScanId ? { scanId: nestedImportScanId } : {}),
           mode
         })
+        // Why before the emit: this flag means "the result step is settled for
+        // this attempt". Set after, a builder that throws would leave it false
+        // and the `finally` would re-emit the step as `result: null` — a second,
+        // FALSIFIED "failed" outcome for an import that actually succeeded.
+        resultTracked = true
         track(
           'add_repo_nested_import_result',
           buildNestedRepoImportResultTelemetry({
@@ -145,7 +152,6 @@ export function useAddRepoNestedImportFlow({
             result
           })
         )
-        resultTracked = true
         if (!result) {
           return
         }
@@ -248,17 +254,18 @@ export function useAddRepoNestedImportFlow({
     const gen = ++nestedImportGenRef.current
     const path = nestedScan.selectedPath
     if (nestedAttemptId) {
-      track(
-        'add_repo_nested_import_action',
-        buildNestedRepoImportActionTelemetry({
-          attemptId: nestedAttemptId,
-          surface: 'sidebar',
-          runtimeKind: nestedRuntimeKind ?? getNestedRepoRuntimeKind(nestedConnectionId),
-          action: 'open_as_folder',
-          foundCount: nestedScan.repos.length,
-          selectedCount: nestedSelectedPaths.size
-        })
-      )
+      // null = Rust core not ready; drop this step rather than guess a payload.
+      const actionTelemetry = buildNestedRepoImportActionTelemetry({
+        attemptId: nestedAttemptId,
+        surface: 'sidebar',
+        runtimeKind: nestedRuntimeKind ?? getNestedRepoRuntimeKind(nestedConnectionId),
+        action: 'open_as_folder',
+        foundCount: nestedScan.repos.length,
+        selectedCount: nestedSelectedPaths.size
+      })
+      if (actionTelemetry) {
+        track('add_repo_nested_import_action', actionTelemetry)
+      }
     }
     setIsAdding(true)
     try {

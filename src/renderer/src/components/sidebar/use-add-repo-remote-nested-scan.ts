@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { track } from '@/lib/telemetry'
-import { buildNestedRepoScanTelemetry } from '../../../../shared/nested-repo-telemetry'
+import { buildNestedRepoScanTelemetry } from '../../../../shared/nested-repo-telemetry-payloads'
 import type { NestedRepoScanResult } from '../../../../shared/types'
 
 export function useAddRepoRemoteNestedScan({
@@ -43,15 +43,16 @@ export function useAddRepoRemoteNestedScan({
 
   const trackRemoteNestedScanResult = useCallback(
     (scan: NestedRepoScanResult | null, attemptId: string) => {
-      track(
-        'add_repo_nested_scan_result',
-        buildNestedRepoScanTelemetry({
-          attemptId,
-          surface: 'sidebar',
-          runtimeKind: 'ssh',
-          scan
-        })
-      )
+      // null = Rust core not ready; drop this scan's event rather than guess one.
+      const scanTelemetry = buildNestedRepoScanTelemetry({
+        attemptId,
+        surface: 'sidebar',
+        runtimeKind: 'ssh',
+        scan
+      })
+      if (scanTelemetry) {
+        track('add_repo_nested_scan_result', scanTelemetry)
+      }
     },
     []
   )

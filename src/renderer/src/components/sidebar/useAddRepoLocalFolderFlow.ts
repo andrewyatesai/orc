@@ -3,10 +3,10 @@ import { toast } from 'sonner'
 import { track } from '@/lib/telemetry'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
 import {
-  buildNestedRepoScanTelemetry,
   createNestedRepoTelemetryAttemptId,
   type NestedRepoTelemetryRuntimeKind
 } from '../../../../shared/nested-repo-telemetry'
+import { buildNestedRepoScanTelemetry } from '../../../../shared/nested-repo-telemetry-payloads'
 import type { AddRepoExistingWorkspaceSource } from '../../../../shared/telemetry-events'
 import type { NestedRepoScanResult, Repo } from '../../../../shared/types'
 import { createNestedRepoScanId } from './add-repo-dialog-types'
@@ -126,15 +126,16 @@ export function useAddRepoLocalFolderFlow({
           return { status: 'cancelled' }
         }
         clearNestedScanState()
-        track(
-          'add_repo_nested_scan_result',
-          buildNestedRepoScanTelemetry({
-            attemptId,
-            surface: 'sidebar',
-            runtimeKind: 'local',
-            scan
-          })
-        )
+        // null = Rust core not ready; drop this scan's event rather than guess one.
+        const scanTelemetry = buildNestedRepoScanTelemetry({
+          attemptId,
+          surface: 'sidebar',
+          runtimeKind: 'local',
+          scan
+        })
+        if (scanTelemetry) {
+          track('add_repo_nested_scan_result', scanTelemetry)
+        }
         if (scan?.selectedPathKind === 'non_git_folder' && mode === 'batch') {
           return { status: 'skipped' }
         }

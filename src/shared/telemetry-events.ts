@@ -50,9 +50,11 @@ import {
   NESTED_REPO_SCAN_RESULTS,
   NESTED_REPO_TELEMETRY_MAX_REPO_COUNT,
   NESTED_REPO_TELEMETRY_RUNTIME_KINDS,
-  NESTED_REPO_TELEMETRY_SURFACES,
-  bucketNestedRepoTelemetryCount
+  NESTED_REPO_TELEMETRY_SURFACES
 } from './nested-repo-telemetry'
+// Rust-backed (orca_core::nested_repo_telemetry) with a parity fallback, which
+// this superRefine requires: a not-ready signal would fail every bucket check.
+import { bucketNestedRepoTelemetryCount } from './nested-repo-telemetry-payloads'
 
 import { AGENT_HOOK_TARGETS } from './agent-hook-types'
 import type {

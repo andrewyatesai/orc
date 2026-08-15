@@ -1,8 +1,8 @@
-import type {
-  NestedRepoScanResult,
-  ProjectGroupImportMode,
-  ProjectGroupImportResult
-} from './types'
+// Types, enum tables and the count cap for the nested-repo telemetry funnel.
+// The payload logic is cut over to `orca_core::nested_repo_telemetry`; the
+// builders live in `./nested-repo-telemetry-payloads.ts`, which is what
+// production imports.
+import type { NestedRepoScanResult, ProjectGroupImportMode } from './types'
 
 export const NESTED_REPO_TELEMETRY_MAX_REPO_COUNT = 500
 
@@ -74,48 +74,10 @@ export type NestedRepoImportResultTelemetry = NestedRepoTelemetryBase & {
   all_selected: boolean
 }
 
-export function capNestedRepoTelemetryCount(count: number): number {
-  if (!Number.isFinite(count)) {
-    return 0
-  }
-  return Math.max(0, Math.min(NESTED_REPO_TELEMETRY_MAX_REPO_COUNT, Math.floor(count)))
-}
-
-function normalizeNestedRepoTelemetryCount(count: number): number {
-  if (!Number.isFinite(count)) {
-    return 0
-  }
-  return Math.max(0, Math.floor(count))
-}
-
-export function bucketNestedRepoTelemetryCount(count: number): NestedRepoCountBucket {
-  const capped = capNestedRepoTelemetryCount(count)
-  if (capped === 0) {
-    return '0'
-  }
-  if (capped === 1) {
-    return '1'
-  }
-  if (capped <= 3) {
-    return '2-3'
-  }
-  if (capped <= 7) {
-    return '4-7'
-  }
-  if (capped <= 15) {
-    return '8-15'
-  }
-  return '16+'
-}
-
-export function shouldEmitNestedRepoImportSubmitTelemetry(args: {
-  attemptId: string | null
-  selectedCount: number
-  isBusy?: boolean
-}): boolean {
-  return Boolean(args.attemptId && args.selectedCount > 0 && !args.isBusy)
-}
-
+/** The entropy EDGE, deliberately left in TypeScript: `orca_core`'s counterpart
+ *  is a pure formatter of caller-supplied bytes and `orca-dispatch` exposes no
+ *  arm for it, so routing 16 random bytes through wasm would buy no logic while
+ *  adding a not-ready failure mode to a value that gates the Import button. */
 export function createNestedRepoTelemetryAttemptId(): string {
   const cryptoApi = globalThis.crypto
   if (typeof cryptoApi?.randomUUID === 'function') {
@@ -136,98 +98,4 @@ export function createNestedRepoTelemetryAttemptId(): string {
   bytes[8] = (bytes[8] & 0x3f) | 0x80
   const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0'))
   return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10, 16).join('')}`
-}
-
-export function buildNestedRepoScanTelemetry(args: {
-  attemptId: string
-  surface: NestedRepoTelemetrySurface
-  runtimeKind: NestedRepoTelemetryRuntimeKind
-  scan: NestedRepoScanResult | null
-}): NestedRepoScanTelemetry {
-  const foundCount = capNestedRepoTelemetryCount(args.scan?.repos.length ?? 0)
-  const result: NestedRepoScanTelemetryResult =
-    args.scan === null
-      ? 'scan_failed'
-      : args.scan.selectedPathKind === 'git_repo'
-        ? 'git_repo'
-        : foundCount > 0
-          ? 'review_shown'
-          : 'no_nested_repos'
-
-  return {
-    attempt_id: args.attemptId,
-    surface: args.surface,
-    runtime_kind: args.runtimeKind,
-    result,
-    ...(args.scan ? { selected_path_kind: args.scan.selectedPathKind } : {}),
-    found_count: foundCount,
-    found_count_bucket: bucketNestedRepoTelemetryCount(foundCount),
-    truncated: args.scan?.truncated ?? false,
-    timed_out: args.scan?.timedOut ?? false
-  }
-}
-
-export function buildNestedRepoImportActionTelemetry(args: {
-  attemptId: string
-  surface: NestedRepoTelemetrySurface
-  runtimeKind: NestedRepoTelemetryRuntimeKind
-  action: NestedRepoImportTelemetryAction
-  foundCount: number
-  selectedCount: number
-}): NestedRepoImportActionTelemetry {
-  const rawFoundCount = normalizeNestedRepoTelemetryCount(args.foundCount)
-  const rawSelectedCount = normalizeNestedRepoTelemetryCount(args.selectedCount)
-  const foundCount = capNestedRepoTelemetryCount(args.foundCount)
-  const selectedCount = capNestedRepoTelemetryCount(args.selectedCount)
-  return {
-    attempt_id: args.attemptId,
-    surface: args.surface,
-    runtime_kind: args.runtimeKind,
-    action: args.action,
-    found_count: foundCount,
-    found_count_bucket: bucketNestedRepoTelemetryCount(foundCount),
-    selected_count: selectedCount,
-    selected_count_bucket: bucketNestedRepoTelemetryCount(selectedCount),
-    all_selected: rawFoundCount > 0 && rawSelectedCount === rawFoundCount
-  }
-}
-
-export function buildNestedRepoImportResultTelemetry(args: {
-  attemptId: string
-  surface: NestedRepoTelemetrySurface
-  runtimeKind: NestedRepoTelemetryRuntimeKind
-  mode: ProjectGroupImportMode
-  foundCount: number
-  selectedCount: number
-  result: ProjectGroupImportResult | null
-}): NestedRepoImportResultTelemetry {
-  const rawFoundCount = normalizeNestedRepoTelemetryCount(args.foundCount)
-  const rawSelectedCount = normalizeNestedRepoTelemetryCount(args.selectedCount)
-  const foundCount = capNestedRepoTelemetryCount(args.foundCount)
-  const selectedCount = capNestedRepoTelemetryCount(args.selectedCount)
-  const importedCount = capNestedRepoTelemetryCount(args.result?.importedCount ?? 0)
-  const alreadyKnownCount = capNestedRepoTelemetryCount(args.result?.alreadyKnownCount ?? 0)
-  const failedCount = capNestedRepoTelemetryCount(args.result?.failedCount ?? selectedCount)
-  const acceptedCount = importedCount + alreadyKnownCount
-  const outcome: NestedRepoImportTelemetryOutcome =
-    acceptedCount === 0 ? 'failed' : failedCount > 0 ? 'partial_failure' : 'success'
-
-  return {
-    attempt_id: args.attemptId,
-    surface: args.surface,
-    runtime_kind: args.runtimeKind,
-    mode: args.mode,
-    outcome,
-    found_count: foundCount,
-    found_count_bucket: bucketNestedRepoTelemetryCount(foundCount),
-    selected_count: selectedCount,
-    selected_count_bucket: bucketNestedRepoTelemetryCount(selectedCount),
-    imported_count: importedCount,
-    imported_count_bucket: bucketNestedRepoTelemetryCount(importedCount),
-    already_known_count: alreadyKnownCount,
-    already_known_count_bucket: bucketNestedRepoTelemetryCount(alreadyKnownCount),
-    failed_count: failedCount,
-    failed_count_bucket: bucketNestedRepoTelemetryCount(failedCount),
-    all_selected: rawFoundCount > 0 && rawSelectedCount === rawFoundCount
-  }
 }
