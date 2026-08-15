@@ -222,7 +222,7 @@ async function dispatchCommittingEnterChord(session: CDPSession, modifiers: numb
 async function readPromptLine(page: Page): Promise<string> {
   const content = stripTerminalControls(await getTerminalContent(page, 20_000))
   const promptIndex = content.lastIndexOf(PROMPT)
-  if (promptIndex < 0) {
+  if (promptIndex === -1) {
     return ''
   }
   return (content.slice(promptIndex + PROMPT.length).split(/\r?\n/)[0] ?? '').trimEnd()

@@ -34,7 +34,7 @@ export function redactedEndpoint(ep: string): string {
     }
     const authority = m[1]
     const at = authority.lastIndexOf('@')
-    return at >= 0 ? authority.slice(at + 1) : authority
+    return at !== -1 ? authority.slice(at + 1) : authority
   } catch {
     return 'unknown'
   }

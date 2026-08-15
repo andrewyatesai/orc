@@ -123,7 +123,7 @@ export function useAppViewPersistence(
     } else if (settings.theme === 'light') {
       applyDocumentTheme('light')
       return undefined
-    } else {
+    }
       const mq = window.matchMedia('(prefers-color-scheme: dark)')
       applyDocumentTheme('system')
       const handler = (): void => {
@@ -133,7 +133,7 @@ export function useAppViewPersistence(
       }
       mq.addEventListener('change', handler)
       return () => mq.removeEventListener('change', handler)
-    }
+    
   }, [settings])
 
   useEffect(() => {

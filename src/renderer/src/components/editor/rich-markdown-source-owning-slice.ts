@@ -1,5 +1,8 @@
 import type { Slice } from '@tiptap/pm/model'
-import { readUtf8CodePointAt } from '../../../../shared/utf8-byte-limits'
+import {
+  getUtf8ByteLengthForCodePoint,
+  readUtf8CodePointAt
+} from '../../../../shared/utf8-byte-limits'
 import {
   getRichMarkdownLeafVisibleText,
   isRichMarkdownVisibleBlockStart
@@ -91,7 +94,7 @@ function addUtf8BytesWithinLimit(
   let byteLength = current
   for (let index = 0; index < value.length; index += 1) {
     const codePoint = readUtf8CodePointAt(value, index)
-    byteLength += codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4
+    byteLength += getUtf8ByteLengthForCodePoint(codePoint)
     if (byteLength > limit) {
       return { byteLength, exceeded: true }
     }

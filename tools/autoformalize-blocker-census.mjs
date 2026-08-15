@@ -50,7 +50,7 @@ const timeoutMs = Number(argValue('--timeout-ms') ?? 60000)
 
 function argValue(flag) {
   const i = args.indexOf(flag)
-  return i >= 0 && i + 1 < args.length ? args[i + 1] : null
+  return i !== -1 && i + 1 < args.length ? args[i + 1] : null
 }
 
 function locateTrustc() {
@@ -123,7 +123,7 @@ function runW1(rsPath) {
   const unproven = []
   for (const line of out.split('\n')) {
     const i = line.indexOf('TRUST_JSON:')
-    if (i < 0) {
+    if (i === -1) {
       continue
     }
     let j

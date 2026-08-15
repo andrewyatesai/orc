@@ -1013,7 +1013,7 @@ function removeConflictingWebOverrides(
       for (const actionId of conflict.actionIds) {
         if (
           isKeybindingActionId(actionId) &&
-          Object.prototype.hasOwnProperty.call(next, actionId)
+          Object.hasOwn(next, actionId)
         ) {
           conflictingOverrides.add(actionId)
         }
@@ -1672,7 +1672,7 @@ function createWorktreesApi(): NonNullable<Partial<PreloadApi>['worktrees']> {
       }),
     updateMeta: async ({ worktreeId, updates }) => {
       const rpcUpdates =
-        Object.prototype.hasOwnProperty.call(updates, 'pushTarget') &&
+        Object.hasOwn(updates, 'pushTarget') &&
         updates.pushTarget === undefined
           ? { ...updates, pushTarget: null }
           : updates

@@ -126,7 +126,7 @@ export function getOpenFilesForExternalFileChange(
   target: EditorPathMutationTarget
 ): OpenFile[] {
   const absolutePath = joinPath(target.worktreePath, target.relativePath)
-  const hasRuntimeOwnerFilter = Object.prototype.hasOwnProperty.call(target, 'runtimeEnvironmentId')
+  const hasRuntimeOwnerFilter = Object.hasOwn(target, 'runtimeEnvironmentId')
   const targetRuntimeOwner = target.runtimeEnvironmentId?.trim() || null
   return openFiles.filter((file) => {
     if (file.worktreeId !== target.worktreeId) {

@@ -178,9 +178,19 @@
         "pty.ts +11 (6364->6375) from fresh-delta batch 4 attach-kind ports: fc8441194c (synchronizePtyOutputSequenceFromProvider on the attach path) + 982570648a (ensureWslHookRelayForReattach call-sites; the reusable half already extracted to the new module wsl-hook-relay-reattach.ts). Accepted attach-kind: the extractable piece landed in its own module, only the pty.ts wiring remains.",
         "orca-runtime.ts TIGHTENED 36823->36393 and shimWholeFileLoc TIGHTENED 2813->2812: the god object NET SHRANK across delta batches 4+6 via named-module extraction (b6's larger extraction + b4's wsl-hook-relay-reattach). Pulling the ratchet in so the freed headroom cannot hide future drift. The delivery-reliability shim this ratchet watches shrank by 1 with no manifest loss."
       ]
+    },
+    {
+      "date": "2026-08-14",
+      "head": "delta-b5",
+      "from": {
+        "src/main/ipc/pty.ts": 6375
+      },
+      "why": [
+        "pty.ts +7 (6375->6382) from fresh-delta batch 5: 4e7421d9e1 imports TerminalHostGoneError and adds its guard in normalizeNodePtySpawnError. Accepted attach-kind \u2014 the extractable classifier already lives in daemon-errors.ts, only the pty.ts call-site guard remains. orca-runtime.ts held flat at 36393 and shimWholeFileLoc flat at 2812 across the batch (the batch's usage-ipc removal + pr-comment consolidation net out on the god object)."
+      ]
     }
   ],
   "shimWholeFileLoc": 2812,
   "src/main/runtime/orca-runtime.ts": 36393,
-  "src/main/ipc/pty.ts": 6375
+  "src/main/ipc/pty.ts": 6382
 }

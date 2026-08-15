@@ -39,9 +39,9 @@ export class TerminalSessionTeardown {
     }
     if (immediate) {
       return this.forceKillPlainShellSession(sessionId, session)
-    } else {
-      session.kill()
     }
+      session.kill()
+    
   }
 
   /**

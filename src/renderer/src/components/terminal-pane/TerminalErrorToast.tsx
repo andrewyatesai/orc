@@ -15,6 +15,15 @@ const STALE_DAEMON_CWD_MARKERS = [
   "Daemon's working directory is gone",
   'node-pty: daemon_cwd failed: ENOENT'
 ]
+// Thrown by ipc/pty.ts (TerminalHostGoneError) when a resume's owning daemon has exited.
+// Why one source: the test and replace forms must match the same token, and a lone /g regex carries
+// lastIndex state across .test() calls. Capture the leading boundary so replacement can restore it.
+const TERMINAL_HOST_GONE_SOURCE = '(^|[^a-z0-9_])terminal_host_gone(?=$|[^a-z0-9_])'
+const TERMINAL_HOST_GONE_PATTERN = new RegExp(TERMINAL_HOST_GONE_SOURCE)
+const TERMINAL_HOST_GONE_REPLACE_PATTERN = new RegExp(TERMINAL_HOST_GONE_SOURCE, 'g')
+// A pre-translation build could leak the raw connect error; the daemon pipe/socket name is stable.
+const LEGACY_TERMINAL_HOST_GONE_PATTERN =
+  /(^|[^a-z])connect (?:ENOENT|ECONNREFUSED) [^\r\n]*orca-terminal-host-v[^\r\n]*/i
 
 function isSshError(error: string): boolean {
   return error.startsWith(SSH_PREFIX)
@@ -41,6 +50,39 @@ export function shouldOfferDaemonRestart(error: string): boolean {
   )
 }
 
+/** A dead terminal host is unrecoverable, so the toast can fully explain it and drop the issue link. */
+export function isExplainedTerminalError(error: string): boolean {
+  return error
+    .split('\n')
+    .some(
+      (line) =>
+        TERMINAL_HOST_GONE_PATTERN.test(line) || LEGACY_TERMINAL_HOST_GONE_PATTERN.test(line)
+    )
+}
+
+/** Swaps the raw daemon-boundary host-gone code for copy a user can act on. */
+export function humanizeTerminalError(error: string): string {
+  if (!isExplainedTerminalError(error)) {
+    return error
+  }
+  const explanation = translate(
+    'auto.components.terminal.pane.TerminalErrorToast.e16012e31e',
+    'The terminal daemon that owned this session exited, so the session and its scrollback could not be recovered. Open a new terminal to continue.'
+  )
+  return error
+    .split('\n')
+    .map((line) =>
+      line
+        .replace(TERMINAL_HOST_GONE_REPLACE_PATTERN, (_match, prefix: string) =>
+          prefix.concat(explanation)
+        )
+        .replace(LEGACY_TERMINAL_HOST_GONE_PATTERN, (_match, prefix: string) =>
+          prefix.concat(explanation)
+        )
+    )
+    .join('\n')
+}
+
 export function TerminalErrorToast({
   error,
   onDismiss,
@@ -52,6 +94,9 @@ export function TerminalErrorToast({
 }): React.JSX.Element {
   const ssh = isSshError(error)
   const showDaemonRestart = !ssh && onRestartDaemon && shouldOfferDaemonRestart(error)
+  // Restart cannot recover a session after its owning daemon exits, so Orca explains it instead.
+  const showIssueLink = !ssh && !showDaemonRestart && !isExplainedTerminalError(error)
+  const displayError = humanizeTerminalError(error)
   const [environmentFooter, setEnvironmentFooter] = useState<{
     error: string
     footer: string
@@ -96,7 +141,7 @@ export function TerminalErrorToast({
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
         <span style={{ minWidth: 0 }}>
-          {error}
+          {displayError}
           {showDaemonRestart ? (
             <>
               {'\n'}
@@ -105,7 +150,7 @@ export function TerminalErrorToast({
                 'Restart the terminal daemon from here to clear stale daemon state.'
               )}
             </>
-          ) : !ssh ? (
+          ) : showIssueLink ? (
             <>
               {'\n'}
               {translate(

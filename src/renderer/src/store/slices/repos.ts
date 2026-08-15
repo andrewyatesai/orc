@@ -47,6 +47,7 @@ import { isPathInsideOrEqual } from '../../../../shared/cross-platform-path'
 import { getRepoIdFromWorktreeId } from '../../../../shared/worktree-id'
 import { selectProjectGroupRemovalTargets } from './project-group-removal-targets'
 import { reconcileFetchedRepos } from './repo-identity-reconcile'
+import { catalogRowsUnchanged, reconcileCatalogArrayIdentity } from './catalog-array-identity'
 import {
   mergeSshRepoReadoptions,
   reconcileReadoptedSshRepoRows,
@@ -1854,7 +1855,11 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
           pendingSshRepoReadoptions: reconciliation.pendingReadoptions,
           ...reconcileReadoptedSshWorktreeState(s, s.pendingSshRepoReadoptions),
           ...mergedProjectCompatibility,
-          folderWorkspacePathStatuses: {},
+          // Why (#13770): a no-op refetch keeps every repo ref, so leave the folder path-status
+          // cache alone — clearing it would refire a per-row sweep nothing else repopulates.
+          ...(catalogRowsUnchanged(prunedRepos, s.repos)
+            ? {}
+            : { folderWorkspacePathStatuses: {} }),
           activeRepoId: s.activeRepoId && validRepoIds.has(s.activeRepoId) ? s.activeRepoId : null,
           filterRepoIds: s.filterRepoIds.filter((projectId) => validRepoIds.has(projectId)),
           setupScriptPromptDismissedRepoIds: filterSetupScriptPromptDismissalsToValidRepos(
@@ -2008,7 +2013,11 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
           pendingSshRepoReadoptions: reconciliation.pendingReadoptions,
           ...reconcileReadoptedSshWorktreeState(s, s.pendingSshRepoReadoptions),
           ...mergedProjectCompatibility,
-          folderWorkspacePathStatuses: {},
+          // Why (#13770): gate the path-status reset on a real catalog change so a no-op all-host
+          // refetch doesn't wipe the folder cache and refire a per-row sweep.
+          ...(catalogRowsUnchanged(finalizedRepos, s.repos)
+            ? {}
+            : { folderWorkspacePathStatuses: {} }),
           activeRepoId: s.activeRepoId,
           filterRepoIds: s.filterRepoIds,
           setupScriptPromptDismissedRepoIds: s.setupScriptPromptDismissedRepoIds
@@ -2088,10 +2097,20 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
   fetchProjectGroups: async () => {
     try {
       const target = getActiveRuntimeTarget(get().settings)
-      const { projectGroups } = await fetchProjectGroupsForTarget(target, [])
+      const { projectGroups: fetchedGroups } = await fetchProjectGroupsForTarget(target, [])
+      // Why (#13770): reconcile against the current array so an unchanged refetch keeps its refs
+      // (and the array itself), leaving the folder path-status cache untouched.
+      const previousGroups = get().projectGroups
+      const projectGroups = reconcileCatalogArrayIdentity(
+        previousGroups,
+        fetchedGroups,
+        (group) => group.id
+      )
       set({
         projectGroups,
-        folderWorkspacePathStatuses: {}
+        ...(catalogRowsUnchanged(projectGroups, previousGroups)
+          ? {}
+          : { folderWorkspacePathStatuses: {} })
       })
     } catch (err) {
       console.error('Failed to fetch project groups:', err)
@@ -2101,10 +2120,19 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
   fetchProjectGroupsForAllHosts: async (options) => {
     // Why: startup renders an all-host sidebar; replacing groups with only the active host leaves other hosts' repos visible but ungrouped.
     const applyCatalog = (catalog: FetchedProjectGroupCatalog): void => {
-      set((s) => ({
-        projectGroups: mergeFetchedProjectGroupCatalog(catalog, s.projectGroups).projectGroups,
-        folderWorkspacePathStatuses: {}
-      }))
+      set((s) => {
+        const projectGroups = reconcileCatalogArrayIdentity(
+          s.projectGroups,
+          mergeFetchedProjectGroupCatalog(catalog, s.projectGroups).projectGroups,
+          (group) => group.id
+        )
+        return {
+          projectGroups,
+          ...(catalogRowsUnchanged(projectGroups, s.projectGroups)
+            ? {}
+            : { folderWorkspacePathStatuses: {} })
+        }
+      })
     }
 
     try {
@@ -2150,12 +2178,19 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
           current.projectGroups
         )
       )
-      const { folderWorkspaces } = mergeFetchedFolderWorkspaceCatalog(
-        catalog,
-        [],
-        current.projectGroups
+      // Why (#13770): reconcile against the current array so an unchanged refetch keeps its refs
+      // and leaves the folder path-status cache in place.
+      const folderWorkspaces = reconcileCatalogArrayIdentity(
+        current.folderWorkspaces,
+        mergeFetchedFolderWorkspaceCatalog(catalog, [], current.projectGroups).folderWorkspaces,
+        (workspace) => workspace.id
       )
-      set({ folderWorkspaces, folderWorkspacePathStatuses: {} })
+      set({
+        folderWorkspaces,
+        ...(catalogRowsUnchanged(folderWorkspaces, current.folderWorkspaces)
+          ? {}
+          : { folderWorkspacePathStatuses: {} })
+      })
     } catch (err) {
       console.error('Failed to fetch folder workspaces:', err)
     }
@@ -2173,13 +2208,17 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
             current.projectGroups
           )
         )
+        const folderWorkspaces = reconcileCatalogArrayIdentity(
+          current.folderWorkspaces,
+          mergeFetchedFolderWorkspaceCatalog(catalog, current.folderWorkspaces, current.projectGroups)
+            .folderWorkspaces,
+          (workspace) => workspace.id
+        )
         return {
-          folderWorkspaces: mergeFetchedFolderWorkspaceCatalog(
-            catalog,
-            current.folderWorkspaces,
-            current.projectGroups
-          ).folderWorkspaces,
-          folderWorkspacePathStatuses: {}
+          folderWorkspaces,
+          ...(catalogRowsUnchanged(folderWorkspaces, current.folderWorkspaces)
+            ? {}
+            : { folderWorkspacePathStatuses: {} })
         }
       })
     }

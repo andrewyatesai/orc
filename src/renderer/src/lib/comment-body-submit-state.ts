@@ -1,4 +1,7 @@
-import { readUtf8CodePointAt } from '../../../shared/utf8-byte-limits'
+import {
+  getUtf8ByteLengthForCodePoint,
+  readUtf8CodePointAt
+} from '../../../shared/utf8-byte-limits'
 
 export const COMMENT_BODY_NONBLANK_SCAN_MAX_BYTES = 64 * 1024
 
@@ -9,19 +12,6 @@ export type CommentBodySubmitState =
 
 type CommentBodyPresence = 'empty' | 'present' | 'too-large-leading-whitespace'
 
-function getCodePointUtf8ByteLength(codePoint: number): number {
-  if (codePoint <= 0x7f) {
-    return 1
-  }
-  if (codePoint <= 0x7ff) {
-    return 2
-  }
-  if (codePoint <= 0xffff) {
-    return 3
-  }
-  return 4
-}
-
 function getCommentBodyPresence(
   body: string,
   maxScanBytes = COMMENT_BODY_NONBLANK_SCAN_MAX_BYTES
@@ -31,7 +21,7 @@ function getCommentBodyPresence(
   for (let index = 0; index < body.length; index += 1) {
     const codePoint = readUtf8CodePointAt(body, index)
     const codeUnitLength = codePoint > 0xffff ? 2 : 1
-    scannedBytes += getCodePointUtf8ByteLength(codePoint)
+    scannedBytes += getUtf8ByteLengthForCodePoint(codePoint)
     if (scannedBytes > maxScanBytes) {
       return 'too-large-leading-whitespace'
     }

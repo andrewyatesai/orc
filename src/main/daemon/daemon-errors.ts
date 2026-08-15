@@ -20,3 +20,23 @@ export class SessionNotFoundError extends Error {
     this.name = 'SessionNotFoundError'
   }
 }
+
+// Message is the stable code the toast humanizes; carries no code field so RPC maps it to runtime_error.
+export class TerminalHostGoneError extends Error {
+  constructor() {
+    super('terminal_host_gone')
+    this.name = 'TerminalHostGoneError'
+  }
+}
+
+// Connect ENOENT/ECONNREFUSED proves the endpoint is absent; open ENOENT can be a missing token file,
+// so scope to syscall='connect'. Narrower than isDaemonGoneError (that also respawns on transients).
+export function isDaemonEndpointGoneError(err: unknown): boolean {
+  const candidate = err as { code?: unknown; syscall?: unknown } | null
+  return (
+    typeof candidate === 'object' &&
+    candidate !== null &&
+    candidate.syscall === 'connect' &&
+    (candidate.code === 'ENOENT' || candidate.code === 'ECONNREFUSED')
+  )
+}

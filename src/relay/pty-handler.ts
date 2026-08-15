@@ -472,10 +472,10 @@ export class PtyHandler {
     // Pin both vars to the install target; a client-supplied value wins, and
     // envToDelete below can still strip them.
     const remoteCodexHome = join(baseEnv.HOME || process.env.HOME || homedir(), '.codex')
-    if (!rendererEnv || !Object.prototype.hasOwnProperty.call(rendererEnv, 'CODEX_HOME')) {
+    if (!rendererEnv || ! Object.hasOwn(rendererEnv, 'CODEX_HOME')) {
       baseEnv.CODEX_HOME = remoteCodexHome
     }
-    if (!rendererEnv || !Object.prototype.hasOwnProperty.call(rendererEnv, 'ORCA_CODEX_HOME')) {
+    if (!rendererEnv || ! Object.hasOwn(rendererEnv, 'ORCA_CODEX_HOME')) {
       // Why: shadow mirrors the effective CODEX_HOME so shell wrappers restore
       // the same home remote rc files may re-export over.
       baseEnv.ORCA_CODEX_HOME = baseEnv.CODEX_HOME
@@ -498,7 +498,7 @@ export class PtyHandler {
     if (
       !envToDelete.includes('TERM') &&
       rendererEnv &&
-      Object.prototype.hasOwnProperty.call(rendererEnv, 'TERM')
+      Object.hasOwn(rendererEnv, 'TERM')
     ) {
       result.TERM = rendererEnv.TERM
     }
@@ -1052,7 +1052,7 @@ export class PtyHandler {
     const explicitTerm =
       !envToDelete.includes('TERM') &&
       env &&
-      Object.prototype.hasOwnProperty.call(env, 'TERM') &&
+      Object.hasOwn(env, 'TERM') &&
       typeof env.TERM === 'string' &&
       env.TERM.length > 0
         ? env.TERM

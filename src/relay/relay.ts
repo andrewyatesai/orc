@@ -367,7 +367,7 @@ async function main(): Promise<void> {
   bindRelayOrcaDispatch()
   if (cliMode) {
     const marker = process.argv.indexOf('--orca-cli')
-    await runOrcaCliMode(sockPath, marker >= 0 ? process.argv.slice(marker + 1) : [])
+    await runOrcaCliMode(sockPath, marker !== -1 ? process.argv.slice(marker + 1) : [])
     return
   }
 

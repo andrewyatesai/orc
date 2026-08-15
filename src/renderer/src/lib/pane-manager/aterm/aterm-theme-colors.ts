@@ -185,7 +185,7 @@ const MIN_CONTRAST_RATIO = 4.5
 function relativeLuminance(rgb: number): number {
   const channel = (c: number): number => {
     const n = c / 255
-    return n <= 0.03928 ? n / 12.92 : Math.pow((n + 0.055) / 1.055, 2.4)
+    return n <= 0.03928 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4
   }
   const r = channel((rgb >> 16) & 0xff)
   const g = channel((rgb >> 8) & 0xff)

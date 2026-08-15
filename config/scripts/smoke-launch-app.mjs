@@ -31,7 +31,7 @@ const mainPath = path.join(repoRoot, 'out', 'main', 'index.js')
 
 function readArg(flag, fallback) {
   const index = process.argv.indexOf(flag)
-  if (index < 0 || !process.argv[index + 1]) {
+  if (index === -1 || !process.argv[index + 1]) {
     return fallback
   }
   const value = Number(process.argv[index + 1])
@@ -47,7 +47,7 @@ const settleMs = readArg('--settle-ms', 12000)
 // while this smoke, driving out/main/index.js, stayed green.
 function readPathArg(flag) {
   const index = process.argv.indexOf(flag)
-  return index >= 0 && process.argv[index + 1] ? process.argv[index + 1] : null
+  return index !== -1 && process.argv[index + 1] ? process.argv[index + 1] : null
 }
 const packagedApp = readPathArg('--app')
 

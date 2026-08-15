@@ -126,10 +126,12 @@ import {
 import {
   filterPRCommentsByAudience,
   getPRCommentAudienceCounts,
-  getPRCommentAudienceEmptyLabel,
-  getPrCommentAudienceFilters,
   type PRCommentAudienceFilter
-} from '@/lib/pr-comment-audience'
+} from '../../../shared/pr-comment-audience'
+import {
+  getPRCommentAudienceEmptyLabel,
+  getPrCommentAudienceFilters
+} from '@/lib/pr-comment-audience-labels'
 import { usePRBotAuthorOverrides } from '@/lib/pr-bot-author-overrides'
 import {
   getPRCommentGroupCount,
@@ -137,11 +139,13 @@ import {
   getPRCommentGroupRoot,
   groupPRComments,
   isResolvedPRCommentGroup,
+  type PRCommentGroup
+} from '../../../shared/pr-comment-groups'
+import {
   PR_COMMENT_OPEN_AUTHOR_CLASS,
   PR_COMMENT_RESOLVED_AUTHOR_CLASS,
-  PR_COMMENT_RESOLVED_CONTAINER_CLASS,
-  type PRCommentGroup
-} from '@/lib/pr-comment-groups'
+  PR_COMMENT_RESOLVED_CONTAINER_CLASS
+} from '@/lib/pr-comment-resolution-classes'
 import {
   createCommentCodeContextExpansionState,
   resolveCommentCodeContextExpansionState,
@@ -232,6 +236,7 @@ import {
   type TaskPageGitHubCloseAction
 } from '@/components/task-page-github-status-actions'
 import { sortChecksBySeverity } from '../../../shared/pr-check-severity-order'
+import { getUtf8ByteLength } from '../../../shared/utf8-byte-limits'
 
 // Why: the dialog lacks repository context, so recover its host-aware identity from the canonical item URL.
 function parseOwnerRepoFromItemUrl(url: string): GitHubOwnerRepo | null {
@@ -1578,7 +1583,7 @@ if (typeof window !== 'undefined' && window.api?.gh?.onWorkItemMutated) {
     invalidateWorkItemDetailsCacheByMatch(payload)
   })
 }
-if (typeof import.meta !== 'undefined' && import.meta.hot) {
+if (import.meta !== undefined && import.meta.hot) {
   import.meta.hot.dispose(() => {
     workItemMutatedUnsub?.()
     workItemDetailsCacheEventUnsub?.()
@@ -1597,29 +1602,6 @@ type PRFileContentCacheEntry = {
 const prFileContentCache = new Map<string, PRFileContentCacheEntry>()
 let prFileContentCacheBytes = 0
 
-function getUtf8ByteCount(value: string): number {
-  let byteCount = 0
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index)
-    if (code < 0x80) {
-      byteCount += 1
-    } else if (code < 0x800) {
-      byteCount += 2
-    } else if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
-      const next = value.charCodeAt(index + 1)
-      if (next >= 0xdc00 && next <= 0xdfff) {
-        byteCount += 4
-        index += 1
-      } else {
-        byteCount += 3
-      }
-    } else {
-      byteCount += 3
-    }
-  }
-  return byteCount
-}
-
 function isPRFileContentsTooLargeSentinel(contents: GitHubPRFileContents): boolean {
   return contents.originalTooLarge === true || contents.modifiedTooLarge === true
 }
@@ -1628,7 +1610,7 @@ function getPRFileContentsCacheByteCount(contents: GitHubPRFileContents): number
   if (isPRFileContentsTooLargeSentinel(contents)) {
     return 0
   }
-  return getUtf8ByteCount(contents.original) + getUtf8ByteCount(contents.modified)
+  return getUtf8ByteLength(contents.original) + getUtf8ByteLength(contents.modified)
 }
 
 function getRetainedPRFileContentsByteCount(contents: GitHubPRFileContents): number | null {

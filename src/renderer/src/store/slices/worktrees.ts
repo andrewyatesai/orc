@@ -1152,8 +1152,8 @@ async function listWorktreeLineageForRuntime(
     workspaceLineage?: Record<string, WorkspaceLineage>
   }
   const normalizeLineageResponse = (value: Record<string, WorktreeLineage> | LineageListResponse) =>
-    Object.prototype.hasOwnProperty.call(value, 'lineage') ||
-    Object.prototype.hasOwnProperty.call(value, 'workspaceLineage')
+    Object.hasOwn(value, 'lineage') ||
+    Object.hasOwn(value, 'workspaceLineage')
       ? {
           worktreeLineageById: (value as LineageListResponse).lineage ?? {},
           workspaceLineageByChildKey: (value as LineageListResponse).workspaceLineage ?? {}
@@ -1880,14 +1880,14 @@ function getHostedReviewLinkForMetaRefresh(
   existingWorktree: Worktree | undefined,
   key: HostedReviewLinkKey
 ): number | null {
-  return Object.prototype.hasOwnProperty.call(updates, key)
+  return Object.hasOwn(updates, key)
     ? (updates[key] ?? null)
     : (existingWorktree?.[key] ?? null)
 }
 
 function hasExplicitPushTargetClear(updates: Partial<WorktreeMeta>): boolean {
   return (
-    Object.prototype.hasOwnProperty.call(updates, 'pushTarget') && updates.pushTarget === undefined
+    Object.hasOwn(updates, 'pushTarget') && updates.pushTarget === undefined
   )
 }
 
@@ -4726,7 +4726,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     set((s) => {
       for (const [worktreeId, tabs] of Object.entries(s.tabsByWorktree)) {
         const index = tabs.findIndex((tab) => tab.id === tabId)
-        if (index < 0) {
+        if (index === -1) {
           continue
         }
         const tab = tabs[index]

@@ -84,13 +84,10 @@ function App(): React.JSX.Element {
     onboardingLoaded,
     setOnboarding,
     setOnboardingLoaded,
-    shouldRenderOnboarding,
-    onboardingSettingsDetourActive,
-    beginOnboardingSettingsDetour
+    shouldRenderOnboarding
   } = useOnboardingAndFeatureTips({
     actions,
     activeModal,
-    activeView,
     contextualToursAutoEligible: vm.contextualToursAutoEligible,
     featureInteractions: vm.featureInteractions,
     featureTipsSeenIds: vm.featureTipsSeenIds,
@@ -382,9 +379,7 @@ function App(): React.JSX.Element {
               hasSshCredentialRequest={vm.hasSshCredentialRequest}
               onboarding={onboarding}
               shouldRenderOnboarding={shouldRenderOnboarding}
-              onboardingSettingsDetourActive={onboardingSettingsDetourActive}
               onOnboardingChange={setOnboarding}
-              onSettingsDetourStart={beginOnboardingSettingsDetour}
             />
           </LinkRoutingPreferenceDialogProvider>
         </ConfirmationDialogProvider>

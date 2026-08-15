@@ -52,7 +52,7 @@ export function createSharedWorkerRafLoop(
   const flush = (): void => {
     scheduled = false
     // Swap out the queue first: a callback that re-schedules lands in the NEXT frame.
-    const run = pending.splice(0, pending.length)
+    const run = pending.splice(0)
     for (const cb of run) {
       cb()
     }

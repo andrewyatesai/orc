@@ -230,6 +230,10 @@ const CREATE_WORKSPACE_QUICK_ACTION_ITEM_ID = `quick-action:${CREATE_WORKSPACE_Q
 // Why: outlast the CommandDialog close animation (~150–200ms) so gated status maps stay live until fading rows are gone.
 const PALETTE_STATUS_INPUTS_LINGER_MS = 300
 
+// Why `jump-palette-item`: selection chrome lives in main.css — flat accent is invisible on light popovers.
+const JUMP_PALETTE_ITEM_CLASSNAME =
+  'jump-palette-item group mx-0.5 flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 text-left outline-none transition-[background-color,box-shadow]'
+
 type OpenTabPaletteItem = BrowserPaletteItem | SimulatorPaletteItem | WorkspaceTabPaletteItem
 
 // Why: while the palette is open the workspace digit chord addresses recent rows, so it labels them.
@@ -2189,7 +2193,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                     key={entry.id}
                     value={CREATE_WORKTREE_ITEM_ID}
                     onSelect={handleCreateWorktree}
-                    className="group mx-0.5 mt-1 flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 py-1.5 text-left outline-none transition-[background-color,border-color,box-shadow] data-[selected=true]:border-border data-[selected=true]:bg-accent data-[selected=true]:text-foreground"
+                    className={cn(JUMP_PALETTE_ITEM_CLASSNAME, 'mt-1 py-1.5')}
                   >
                     <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-dashed border-border/60 bg-muted/25 text-muted-foreground/70">
                       <Plus size={13} aria-hidden="true" />
@@ -2241,10 +2245,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                     value={entry.id}
                     onSelect={() => handleSelectItem(entry)}
                     data-current={isCurrentWorktree ? 'true' : undefined}
-                    className={cn(
-                      'group mx-0.5 flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left outline-none transition-[background-color,border-color,box-shadow]',
-                      'data-[selected=true]:border-border data-[selected=true]:bg-accent data-[selected=true]:text-foreground'
-                    )}
+                    className={cn(JUMP_PALETTE_ITEM_CLASSNAME, 'py-2.5')}
                   >
                     <div className="flex w-4 shrink-0 items-center justify-center self-start pt-0.5">
                       <StatusIndicator status={status} aria-hidden="true" />
@@ -2369,10 +2370,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                     key={entry.id}
                     value={entry.id}
                     onSelect={() => handleSelectItem(entry)}
-                    className={cn(
-                      'group mx-0.5 flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left outline-none transition-[background-color,border-color,box-shadow]',
-                      'data-[selected=true]:border-border data-[selected=true]:bg-accent data-[selected=true]:text-foreground'
-                    )}
+                    className={cn(JUMP_PALETTE_ITEM_CLASSNAME, 'py-2.5')}
                   >
                     <div className="flex w-4 shrink-0 items-center justify-center self-start pt-0.5 text-muted-foreground/85">
                       <FolderTree className="size-3.5" aria-hidden="true" />
@@ -2416,10 +2414,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                     key={entry.id}
                     value={entry.id}
                     onSelect={() => handleSelectItem(entry)}
-                    className={cn(
-                      'group mx-0.5 flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left outline-none transition-[background-color,border-color,box-shadow]',
-                      'data-[selected=true]:border-border data-[selected=true]:bg-accent data-[selected=true]:text-foreground'
-                    )}
+                    className={cn(JUMP_PALETTE_ITEM_CLASSNAME, 'py-2.5')}
                   >
                     <div className="flex w-4 shrink-0 items-center justify-center self-start pt-0.5 text-muted-foreground/85">
                       <Icon className="size-3.5" aria-hidden="true" />
@@ -2460,10 +2455,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                     key={entry.id}
                     value={entry.id}
                     onSelect={() => handleSelectItem(entry)}
-                    className={cn(
-                      'group mx-0.5 flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left outline-none transition-[background-color,border-color,box-shadow]',
-                      'data-[selected=true]:border-border data-[selected=true]:bg-accent data-[selected=true]:text-foreground'
-                    )}
+                    className={cn(JUMP_PALETTE_ITEM_CLASSNAME, 'py-2.5')}
                   >
                     <div className="flex w-4 shrink-0 items-center justify-center self-start pt-0.5 text-muted-foreground/85">
                       <PaletteRecentTabStatusDot
@@ -2542,10 +2534,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                     key={entry.id}
                     value={entry.id}
                     onSelect={() => handleSelectItem(entry)}
-                    className={cn(
-                      'group mx-0.5 flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left outline-none transition-[background-color,border-color,box-shadow]',
-                      'data-[selected=true]:border-border data-[selected=true]:bg-accent data-[selected=true]:text-foreground'
-                    )}
+                    className={cn(JUMP_PALETTE_ITEM_CLASSNAME, 'py-2.5')}
                   >
                     <div className="flex w-4 shrink-0 items-center justify-center self-start pt-0.5 text-muted-foreground/85">
                       <Smartphone className="size-3.5" aria-hidden="true" />
@@ -2617,10 +2606,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                   key={entry.id}
                   value={entry.id}
                   onSelect={() => handleSelectItem(entry)}
-                  className={cn(
-                    'group mx-0.5 flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left outline-none transition-[background-color,border-color,box-shadow]',
-                    'data-[selected=true]:border-border data-[selected=true]:bg-accent data-[selected=true]:text-foreground'
-                  )}
+                  className={cn(JUMP_PALETTE_ITEM_CLASSNAME, 'py-2.5')}
                 >
                   <div className="flex w-4 shrink-0 items-center justify-center self-start pt-0.5 text-muted-foreground/85">
                     <Globe className="size-3.5" aria-hidden="true" />

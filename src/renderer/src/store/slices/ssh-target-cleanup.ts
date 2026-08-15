@@ -165,7 +165,7 @@ export function buildRemovedSshTargetCleanupPatch(
   const nextTransientClearedConnections = {
     ...state.transientClearedAgentStatusConnectionIds
   }
-  const removedTransientClearBlock = Object.prototype.hasOwnProperty.call(
+  const removedTransientClearBlock = Object.hasOwn(
     nextTransientClearedConnections,
     targetId
   )
@@ -176,15 +176,15 @@ export function buildRemovedSshTargetCleanupPatch(
   const removedLabel = nextLabels.delete(targetId)
   const nextHydrated = new Set(state.remoteWorkspaceHydratedTargetIds)
   const removedHydrated = nextHydrated.delete(targetId)
-  const removedSyncStatus = Object.prototype.hasOwnProperty.call(
+  const removedSyncStatus = Object.hasOwn(
     state.remoteWorkspaceSyncStatusByTargetId,
     targetId
   )
-  const removedPortForwards = Object.prototype.hasOwnProperty.call(
+  const removedPortForwards = Object.hasOwn(
     state.portForwardsByConnection,
     targetId
   )
-  const removedDetectedPorts = Object.prototype.hasOwnProperty.call(
+  const removedDetectedPorts = Object.hasOwn(
     state.detectedPortsByConnection,
     targetId
   )

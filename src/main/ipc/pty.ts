@@ -99,6 +99,7 @@ import {
 } from '../daemon/pty-session-id'
 import { resolveWslSessionContext } from '../daemon/wsl-session-context'
 import { addNodePtyRecoveryHint } from '../daemon/node-pty-error-hints'
+import { isDaemonEndpointGoneError, TerminalHostGoneError } from '../daemon/daemon-errors'
 import { recordDaemonStreamBacklogEvent } from '../daemon/daemon-stream-backlog-probe'
 import type { ClaudeRuntimeAuthPreparation } from '../claude-accounts/runtime-auth-service'
 import type { ClaudeAccountSelectionTarget } from '../claude-accounts/runtime-selection'
@@ -663,6 +664,12 @@ function tryGetProviderForAgentSessionOwner(ptyId: string): IPtyProvider | undef
 }
 
 function normalizeNodePtySpawnError(err: unknown): Error {
+  // Why: a resume whose owning daemon exited hits a dead endpoint (connect ENOENT/ECONNREFUSED)
+  // once withDaemonRetry's respawn is exhausted or unavailable. Translate here — the first catch
+  // both the local and paired-runtime spawn paths reach — before RPC strips the socket code/syscall.
+  if (isDaemonEndpointGoneError(err)) {
+    return new TerminalHostGoneError()
+  }
   const rawMessage = err instanceof Error ? err.message : String(err)
   const hintedMessage = addNodePtyRecoveryHint(rawMessage)
   if (hintedMessage === rawMessage && err instanceof Error) {

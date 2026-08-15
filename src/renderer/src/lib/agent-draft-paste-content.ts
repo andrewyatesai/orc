@@ -1,5 +1,8 @@
 import { yieldToEventLoop } from '../../../shared/event-loop-yield'
-import { readUtf8CodePointAt } from '../../../shared/utf8-byte-limits'
+import {
+  getUtf8ByteLengthForCodePoint,
+  readUtf8CodePointAt
+} from '../../../shared/utf8-byte-limits'
 import type { GlobalSettings } from '../../../shared/types'
 import {
   BRACKETED_PASTE_END,
@@ -190,19 +193,6 @@ function getSanitizedUtf8ByteLengthForCodePoint(codePoint: number): number {
       ? AGENT_DRAFT_PASTE_INERT_ESCAPE_CODE_POINT
       : codePoint
   )
-}
-
-function getUtf8ByteLengthForCodePoint(codePoint: number): number {
-  if (codePoint <= 0x7f) {
-    return 1
-  }
-  if (codePoint <= 0x7ff) {
-    return 2
-  }
-  if (codePoint <= 0xffff) {
-    return 3
-  }
-  return 4
 }
 
 async function writeAgentDraftPtyInput(

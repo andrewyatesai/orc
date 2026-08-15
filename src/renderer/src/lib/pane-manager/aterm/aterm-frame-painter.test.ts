@@ -15,7 +15,7 @@ const BANDS_OFFSET = 4096
 
 beforeAll(() => {
   // node env has no ImageData; the painter only constructs and forwards it.
-  if (typeof globalThis.ImageData === 'undefined') {
+  if (globalThis.ImageData === undefined) {
     vi.stubGlobal(
       'ImageData',
       class {

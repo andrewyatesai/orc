@@ -173,7 +173,7 @@ import { formatCreateError } from './create-pull-request-review-copy'
 import { stripBaseRef, useCreatePullRequestDialogFields } from './useCreatePullRequestDialogFields'
 import { localizedHostedReviewCopy } from '@/i18n/hosted-review-localized-copy'
 import { translate } from '@/i18n/i18n'
-import { groupPRComments, type PRCommentGroup } from '@/lib/pr-comment-groups'
+import { groupPRComments, type PRCommentGroup } from '../../../../shared/pr-comment-groups'
 import { openChecksPanelHostedReviewUrl } from './checks-panel-hosted-review-click-routing'
 import { ChecksPanelUpdatedAtMetadata } from './checks-panel-updated-at-metadata'
 import {

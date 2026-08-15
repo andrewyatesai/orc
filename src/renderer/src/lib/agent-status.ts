@@ -137,7 +137,7 @@ export function agentTypeToIconAgent(agentType: AgentType | null | undefined): T
   if (!agentType || agentType === 'unknown') {
     return null
   }
-  return Object.prototype.hasOwnProperty.call(ICONABLE_AGENT_TYPES, agentType)
+  return Object.hasOwn(ICONABLE_AGENT_TYPES, agentType)
     ? (agentType as TuiAgent)
     : null
 }

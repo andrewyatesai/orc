@@ -359,11 +359,11 @@ function kib(n) {
 
 const args = process.argv.slice(2)
 const topIndex = args.indexOf('--top')
-const topN = topIndex >= 0 ? Number(args[topIndex + 1]) : 25
+const topN = topIndex !== -1 ? Number(args[topIndex + 1]) : 25
 const json = args.includes('--json')
 // Why the guard: indexOf returns -1 when --top is absent, and -1 + 1 === 0 would
 // silently drop the FIRST file argument.
-const topValueIndex = topIndex >= 0 ? topIndex + 1 : -1
+const topValueIndex = topIndex !== -1 ? topIndex + 1 : -1
 const files = args.filter((a, i) => !a.startsWith('--') && i !== topValueIndex)
 if (files.length === 0) {
   console.error('usage: node tools/wasm-blob-composition.mjs <file.wasm> [...] [--top N] [--json]')

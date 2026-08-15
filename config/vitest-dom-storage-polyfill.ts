@@ -35,7 +35,7 @@ function createMemoryStorage(): Storage {
 function ensureStorage(key: 'localStorage' | 'sessionStorage'): void {
   const g = globalThis as unknown as Record<string, unknown> & { document?: unknown; window?: unknown }
   // Only act in a DOM environment (happy-dom / jsdom); the node env has neither.
-  if (typeof g.document === 'undefined' && typeof g.window === 'undefined') {
+  if (g.document === undefined && g.window === undefined) {
     return
   }
   let working = false

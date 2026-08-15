@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { OnboardingState } from '../../../shared/types'
 import {
   getFeatureTipsAppOpenDecision,
@@ -25,7 +25,6 @@ type OnboardingActions = Pick<
 type OnboardingAndFeatureTipsParams = {
   actions: OnboardingActions
   activeModal: AppStoreState['activeModal']
-  activeView: AppStoreState['activeView']
   contextualToursAutoEligible: AppStoreState['contextualToursAutoEligible']
   featureInteractions: AppStoreState['featureInteractions']
   featureTipsSeenIds: AppStoreState['featureTipsSeenIds']
@@ -39,14 +38,11 @@ type OnboardingAndFeatureTips = {
   setOnboarding: (onboarding: OnboardingState) => void
   setOnboardingLoaded: (loaded: boolean) => void
   shouldRenderOnboarding: boolean
-  onboardingSettingsDetourActive: boolean
-  beginOnboardingSettingsDetour: () => void
 }
 
 export function useOnboardingAndFeatureTips({
   actions,
   activeModal,
-  activeView,
   contextualToursAutoEligible,
   featureInteractions,
   featureTipsSeenIds,
@@ -55,18 +51,11 @@ export function useOnboardingAndFeatureTips({
 }: OnboardingAndFeatureTipsParams): OnboardingAndFeatureTips {
   const [onboarding, setOnboarding] = useState<OnboardingState | null>(null)
   const [onboardingLoaded, setOnboardingLoaded] = useState(false)
-  const [onboardingSettingsDetour, setOnboardingSettingsDetour] = useState(false)
   const [featureTipCliInstalled, setFeatureTipCliInstalled] = useState<boolean | null>(null)
   const promptedThisSessionRef = useRef(false)
   const suppressedByOnboardingThisSessionRef = useRef(false)
 
   const shouldRenderOnboarding = onboarding !== null && shouldShowOnboarding(onboarding)
-  const onboardingSettingsDetourActive =
-    onboardingSettingsDetour && activeView === 'settings' && shouldRenderOnboarding
-  if (onboardingSettingsDetour && !onboardingSettingsDetourActive) {
-    // Why: the detour is valid only while Settings is onscreen; clear it during render so onboarding resumes without an extra Effect pass.
-    setOnboardingSettingsDetour(false)
-  }
 
   useEffect(() => {
     return onOnboardingReopened(setOnboarding)
@@ -150,17 +139,11 @@ export function useOnboardingAndFeatureTips({
     settings
   ])
 
-  const beginOnboardingSettingsDetour = useCallback(() => {
-    setOnboardingSettingsDetour(true)
-  }, [])
-
   return {
     onboarding,
     onboardingLoaded,
     setOnboarding,
     setOnboardingLoaded,
-    shouldRenderOnboarding,
-    onboardingSettingsDetourActive,
-    beginOnboardingSettingsDetour
+    shouldRenderOnboarding
   }
 }

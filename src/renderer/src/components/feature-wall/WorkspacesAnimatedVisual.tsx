@@ -16,8 +16,7 @@ import { AgentStateDot } from '@/components/AgentStateDot'
 import { Badge } from '@/components/ui/badge'
 import { translate } from '@/i18n/i18n'
 import { cn } from '@/lib/utils'
-import { ClaudeIcon, OpenCodeGoIcon } from '../status-bar/icons'
-import { CodexInlineIcon } from './feature-tour-preview-glyphs'
+import { ClaudeIcon, OpenAIIcon, OpenCodeGoIcon } from '../status-bar/icons'
 import {
   WorkspaceBoardPreview,
   WorkspaceRaceBranchContext,
@@ -315,7 +314,7 @@ function AgentIcon({ kind }: { kind: AgentKind }): JSX.Element {
     return <ClaudeIcon size={14} />
   }
   if (kind === 'codex') {
-    return <CodexInlineIcon />
+    return <OpenAIIcon size={14} />
   }
   return <OpenCodeGoIcon size={14} />
 }

@@ -107,7 +107,7 @@ function buildMatcher(
     let from = 0
     for (;;) {
       const idx = hay.indexOf(needle, from)
-      if (idx < 0) {
+      if (idx === -1) {
         break
       }
       spans.push({ col: idx, len: query.length })

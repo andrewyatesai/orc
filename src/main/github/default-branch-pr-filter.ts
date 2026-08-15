@@ -11,7 +11,7 @@ export function defaultBaseRefToBranchName(defaultBaseRef: string | null): strin
     return null
   }
   const slash = defaultBaseRef.indexOf('/')
-  if (slash < 0) {
+  if (slash === -1) {
     return defaultBaseRef
   }
   const branch = defaultBaseRef.slice(slash + 1)

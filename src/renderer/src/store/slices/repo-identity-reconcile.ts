@@ -1,5 +1,6 @@
 import type { Repo } from '../../../../shared/types'
 import { getRepoHostIdentity } from './repo-host-identity'
+import { areCatalogValuesEqual } from './catalog-value-equality'
 
 // Why: after a drag-reorder we optimistically set `repos`, persist, and main
 // broadcasts `repos:changed`. The renderer's own echo handler refetches, which
@@ -8,6 +9,10 @@ import { getRepoHostIdentity } from './repo-host-identity'
 // virtualizer to rebuild + re-measure a tick after the drop — the visible jump.
 // Reusing equal objects (and the whole array when nothing moved) makes the echo
 // a no-op render.
+// Why: `Repo` carries nested records (hookSettings, upstream, gitRemoteIdentity, repoIcon, path
+// arrays). IPC structured-clone rebuilds those every fetch, and main's hydrateRepo always
+// reconstructs hookSettings — so a reference compare reports every repo as changed. The shared
+// catalog-value walk compares those small sanitized records structurally.
 function areReposEqual(a: Repo, b: Repo): boolean {
   if (a === b) {
     return true
@@ -17,10 +22,10 @@ function areReposEqual(a: Repo, b: Repo): boolean {
     return false
   }
   for (const key of keys) {
-    if (!Object.prototype.hasOwnProperty.call(b, key)) {
+    if (! Object.hasOwn(b, key)) {
       return false
     }
-    if (a[key] !== b[key]) {
+    if (!areCatalogValuesEqual(a[key], b[key])) {
       return false
     }
   }

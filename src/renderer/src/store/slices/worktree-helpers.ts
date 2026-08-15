@@ -363,7 +363,7 @@ export function withoutErasedRequiredWorktreeFields(
   const erased = Object.keys(ERASURE_PROTECTED_KEYS).filter(
     (key) =>
       updates[key as keyof WorktreeMeta] === undefined &&
-      Object.prototype.hasOwnProperty.call(updates, key)
+      Object.hasOwn(updates, key)
   )
   if (erased.length === 0) {
     return updates

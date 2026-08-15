@@ -18,7 +18,7 @@ const submodule = resolve(projectDir, 'rust/aterm')
 
 function revArg() {
   const i = process.argv.indexOf('--rev')
-  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : null
+  return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : null
 }
 
 function run(cmd, args, opts = {}) {

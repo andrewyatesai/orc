@@ -232,7 +232,7 @@ async function persistHost(host: HostProfile, requireExisting: boolean): Promise
         duplicateHostIds.add(candidate.id)
       }
     }
-    if (index >= 0) {
+    if (index !== -1) {
       updatedExistingHost = true
       // Why: an authoritative save is the safe point to collapse pre-existing duplicate rows to the preserved host id.
       return hosts
@@ -310,7 +310,7 @@ export async function updateHostNameAndEndpoint(
 ): Promise<void> {
   await mutateStoredHosts((hosts) => {
     const index = hosts.findIndex((host) => host.id === hostId)
-    if (index < 0) {
+    if (index === -1) {
       throw new Error('Host not found')
     }
     const next = hosts.slice()
@@ -327,7 +327,7 @@ export async function updateLastConnected(hostId: string): Promise<void> {
   try {
     await mutateStoredHosts((hosts) => {
       const index = hosts.findIndex((h) => h.id === hostId)
-      if (index < 0) {
+      if (index === -1) {
         return hosts
       }
       const next = hosts.slice()

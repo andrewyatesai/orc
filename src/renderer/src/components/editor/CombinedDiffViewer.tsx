@@ -1229,7 +1229,7 @@ export default function CombinedDiffViewer({
       if (!detail || detail.worktreeId !== file.worktreeId) {
         return
       }
-      const hasRuntimeOwnerFilter = Object.prototype.hasOwnProperty.call(
+      const hasRuntimeOwnerFilter = Object.hasOwn(
         detail,
         'runtimeEnvironmentId'
       )

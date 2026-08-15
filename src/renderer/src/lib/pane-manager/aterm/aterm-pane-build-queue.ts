@@ -74,7 +74,7 @@ export function createAtermPaneBuildQueue(limit: number): AtermPaneBuildQueue {
         }
         const fallback = setTimeout(() => {
           const index = waiting.indexOf(entry)
-          if (index >= 0) {
+          if (index !== -1) {
             // Self-admit past the limit rather than wait on a wedged build; the
             // matching release() keeps the count consistent either way.
             waiting.splice(index, 1)

@@ -11,7 +11,7 @@ const HEX_COLOR = /^#[0-9a-f]{6}$/
 // implementation drags in the app store; the math is small enough to own here).
 function channelToLinear(byte: number): number {
   const c = byte / 255
-  return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
 }
 
 function luminance(hex: string): number {

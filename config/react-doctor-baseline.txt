@@ -60,7 +60,6 @@ src/renderer/src/components/emulator-pane/use-emulator-control-stream.ts effect-
 src/renderer/src/components/emulator-pane/use-emulator-screen-keyboard.ts no-adjust-state-on-prop-change 1
 src/renderer/src/components/emulator-pane/use-emulator-video-stream.ts effect-needs-cleanup 1
 src/renderer/src/components/feature-wall/BrowserAnimatedVisual.tsx no-array-index-as-key 1
-src/renderer/src/components/feature-wall/FeatureTourWorkspaceCard.tsx no-array-index-as-key 1
 src/renderer/src/components/feature-wall/WorkbenchAnimatedVisual.tsx no-array-index-as-key 6
 src/renderer/src/components/feature-wall/agents-orchestration/StatusesPage.tsx no-array-index-as-key 1
 src/renderer/src/components/floating-terminal/FloatingTerminalPanel.tsx no-adjust-state-on-prop-change 1

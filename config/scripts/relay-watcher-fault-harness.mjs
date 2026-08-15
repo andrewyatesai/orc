@@ -99,7 +99,7 @@ function createRelayClient(entryPath, args, env, protocol) {
     stdoutBuffer = Buffer.concat([stdoutBuffer, chunk])
     const sentinel = Buffer.from(protocol.RELAY_SENTINEL)
     const index = stdoutBuffer.indexOf(sentinel)
-    if (index < 0) {
+    if (index === -1) {
       return
     }
     ready = true

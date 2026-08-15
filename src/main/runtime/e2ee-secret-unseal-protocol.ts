@@ -26,12 +26,12 @@ export function encodeE2EESecretHelperReply(reply: E2EESecretHelperReply): strin
 
 export function decodeE2EESecretHelperReply(stdout: string): E2EESecretHelperReply | null {
   const marker = stdout.lastIndexOf(E2EE_SECRET_HELPER_RESULT_PREFIX)
-  if (marker < 0) {
+  if (marker === -1) {
     return null
   }
   const start = marker + E2EE_SECRET_HELPER_RESULT_PREFIX.length
   const end = stdout.indexOf('\n', start)
-  if (end < 0) {
+  if (end === -1) {
     return null
   }
   try {

@@ -22555,7 +22555,7 @@ export class OrcaRuntimeService {
       this.invalidateWorktreeScanCacheForRepo(worktree.repoId)
     }
     const shouldClearPushTarget =
-      Object.prototype.hasOwnProperty.call(metaUpdates, 'pushTarget') &&
+      Object.hasOwn(metaUpdates, 'pushTarget') &&
       metaUpdates.pushTarget === null
     const normalizedMetaUpdates: Partial<WorktreeMeta> = shouldClearPushTarget
       ? { ...metaUpdates, pushTarget: undefined }
@@ -26505,7 +26505,7 @@ export class OrcaRuntimeService {
           committedPtyIds,
           terminalHandlesByPtyId
         })
-        if (failedStopIndex >= 0) {
+        if (failedStopIndex !== -1) {
           const failedStop = stopResults[failedStopIndex]
           throw Object.assign(new Error('terminal_worktree_sleep_failed'), {
             ptyId: orderedLivePtyIds[failedStopIndex],
@@ -26532,7 +26532,7 @@ export class OrcaRuntimeService {
         committedPtyIds,
         terminalHandlesByPtyId
       })
-      if (failedStopIndex >= 0 && remainingLivePtyIds.size > 0) {
+      if (failedStopIndex !== -1 && remainingLivePtyIds.size > 0) {
         const failedStop = stopResults[failedStopIndex]
         console.error('[runtime] worktree terminal sleep physical stop failed', {
           worktreeId: worktree.id,
@@ -34990,12 +34990,12 @@ function applyTerminalLineControls(line: string): {
   hadControl: boolean
 } {
   const carriageIndex = line.lastIndexOf('\r')
-  const latestRedraw = carriageIndex >= 0 ? line.slice(carriageIndex + 1) : line
+  const latestRedraw = carriageIndex !== -1 ? line.slice(carriageIndex + 1) : line
   if (!latestRedraw.includes('\u0008') && !latestRedraw.includes('\u001b')) {
     return {
       text: latestRedraw,
       cursorColumn: latestRedraw.length,
-      hadControl: carriageIndex >= 0
+      hadControl: carriageIndex !== -1
     }
   }
 

@@ -45,7 +45,7 @@ export function mergeLandedImagePreviews(
   const entries = Object.entries(previous[sessionKey] ?? {})
   for (const [messageId, images] of bindings) {
     const existingIndex = entries.findIndex(([id]) => id === messageId)
-    if (existingIndex >= 0) {
+    if (existingIndex !== -1) {
       entries.splice(existingIndex, 1)
     }
     entries.push([messageId, images])

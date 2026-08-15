@@ -14,8 +14,8 @@ import { resolveDiagnosticBuildIdentity } from '../observability/diagnostic-uplo
 // is a compile-time build constant (electron-vite `define`, like
 // ORCA_POSTHOG_WRITE_KEY); builds without one return a typed
 // 'endpoint-not-configured' result instead of falling back to any hardcoded
-// host. Module-local ambient declaration because the constant is only read here.
-declare const ORCA_FEEDBACK_ENDPOINT: string | null
+// host. Declared ambiently in src/types/build-constants.d.ts alongside the
+// other CI-substituted constants.
 
 export const FEEDBACK_ENDPOINT_NOT_CONFIGURED = 'endpoint-not-configured'
 

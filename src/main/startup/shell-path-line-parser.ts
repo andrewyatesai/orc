@@ -63,7 +63,7 @@ function findPathAssignments(line: string): PathAssignment[] {
   let searchIndex = 0
   while (searchIndex < line.length) {
     const pathIndex = line.indexOf('PATH', searchIndex)
-    if (pathIndex < 0) {
+    if (pathIndex === -1) {
       break
     }
     searchIndex = pathIndex + 'PATH'.length
@@ -94,7 +94,7 @@ function findZshPathArrays(line: string): string[] {
   while (pattern.test(line)) {
     const start = pattern.lastIndex
     const end = line.indexOf(')', start)
-    if (end >= 0) {
+    if (end !== -1) {
       arrays.push(line.slice(start, end))
       pattern.lastIndex = end + 1
     }
@@ -118,7 +118,7 @@ function findCommandArguments(line: string, command: string): string[] {
   let searchIndex = 0
   while (searchIndex < line.length) {
     const commandIndex = line.indexOf(command, searchIndex)
-    if (commandIndex < 0) {
+    if (commandIndex === -1) {
       break
     }
     searchIndex = commandIndex + command.length

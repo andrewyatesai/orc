@@ -53,8 +53,10 @@ export function reconcileReadoptedSshRepoRows(
     }
   }
 
+  // Why: pruning nothing must hand back the input array, or the copy alone would defeat the
+  // referential stability reconcileFetchedRepos just established upstream in the chain.
   if (prunedOwners.size === 0) {
-    return { repos: [...repos], pendingReadoptions }
+    return { repos: repos as Repo[], pendingReadoptions }
   }
   return {
     repos: repos.filter(

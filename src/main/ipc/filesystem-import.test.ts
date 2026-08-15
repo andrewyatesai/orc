@@ -683,7 +683,7 @@ describe('fs:importExternalPaths', () => {
     )
     openMock.mockImplementation(async (p: string) => {
       const fileIndex = filePaths.indexOf(p)
-      if (fileIndex >= 0 && fileIndex < filePaths.length - 1) {
+      if (fileIndex !== -1 && fileIndex < filePaths.length - 1) {
         return {
           stat: vi.fn().mockResolvedValue({
             size: regularSize,

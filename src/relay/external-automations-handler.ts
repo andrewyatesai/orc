@@ -382,7 +382,7 @@ export class ExternalAutomationsHandler {
       (sessionRun, index) =>
         !usedSessionRunIndexes.has(index) && this.getRunKey(sessionRun) === outputRunKey
     )
-    if (exactMatchIndex >= 0) {
+    if (exactMatchIndex !== -1) {
       return exactMatchIndex
     }
 

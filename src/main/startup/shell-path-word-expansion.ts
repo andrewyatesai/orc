@@ -76,7 +76,7 @@ function expandVariable(
 ): { value: string; endIndex: number } | null {
   if (rawValue[dollarIndex + 1] === '{') {
     const endBrace = rawValue.indexOf('}', dollarIndex + 2)
-    if (endBrace < 0) {
+    if (endBrace === -1) {
       return null
     }
     const name = rawValue.slice(dollarIndex + 2, endBrace)
