@@ -17,20 +17,23 @@ export function stripImagePromptMarker(text: string): string {
   return text.replace(IMAGE_PROMPT_MARKER, '')
 }
 
+// Returns the same blocks array when the first text block carries no marker, so
+// an untouched row stays reference-stable through the live render pipeline.
 function stripFirstImagePromptMarker(blocks: readonly NativeChatBlock[]): NativeChatBlock[] {
-  let stripped = false
-  const next: NativeChatBlock[] = []
-  for (const block of blocks) {
-    if (!stripped && isTextBlock(block)) {
-      stripped = true
-      const text = stripImagePromptMarker(block.text)
-      if (text.trim().length > 0) {
-        next.push({ ...block, text })
-      }
-      continue
-    }
-    next.push(block)
+  const textIndex = blocks.findIndex(isTextBlock)
+  const block = textIndex < 0 ? undefined : blocks[textIndex]
+  if (!block || !isTextBlock(block)) {
+    return blocks as NativeChatBlock[]
   }
+  const text = stripImagePromptMarker(block.text)
+  if (text.trim().length === 0) {
+    return blocks.filter((_, index) => index !== textIndex)
+  }
+  if (text === block.text) {
+    return blocks as NativeChatBlock[]
+  }
+  const next = [...blocks]
+  next[textIndex] = { ...block, text }
   return next
 }
 
@@ -46,11 +49,13 @@ function imagePromptMarkerStartsMessage(message: NativeChatMessage): boolean {
 export function normalizeImageTranscriptMessages(
   messages: readonly NativeChatMessage[]
 ): NativeChatMessage[] {
-  const normalized: NativeChatMessage[] = []
+  // Allocate lazily: an all-untouched transcript returns the same array so the
+  // live render pipeline can reuse it by reference (the common hot path).
+  let normalized: NativeChatMessage[] | null = null
   for (let index = 0; index < messages.length; index += 1) {
     const message = messages[index]!
     if (message.role !== 'user') {
-      normalized.push(message)
+      normalized?.push(message)
       continue
     }
     const imagePath = imageSourcePathFromText(soleText(message) ?? '')
@@ -61,6 +66,7 @@ export function normalizeImageTranscriptMessages(
       next.source === message.source &&
       imagePromptMarkerStartsMessage(next)
     ) {
+      normalized ??= messages.slice(0, index)
       normalized.push({
         ...next,
         blocks: [
@@ -75,16 +81,20 @@ export function normalizeImageTranscriptMessages(
     // e.g. an image sent with no caption) still renders as an image chip rather
     // than the raw marker text.
     if (imagePath) {
+      normalized ??= messages.slice(0, index)
       normalized.push({
         ...message,
         blocks: [{ type: 'image-ref', path: imagePath }]
       })
       continue
     }
-    normalized.push({
-      ...message,
-      blocks: stripFirstImagePromptMarker(message.blocks)
-    })
+    const blocks = stripFirstImagePromptMarker(message.blocks)
+    if (blocks === message.blocks) {
+      normalized?.push(message)
+    } else {
+      normalized ??= messages.slice(0, index)
+      normalized.push({ ...message, blocks })
+    }
   }
-  return normalized
+  return normalized ?? (messages as NativeChatMessage[])
 }

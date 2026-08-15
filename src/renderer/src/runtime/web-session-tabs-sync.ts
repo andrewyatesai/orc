@@ -35,10 +35,7 @@ import { sanitizeTerminalLayoutPaneTitlesForLabels } from '@/lib/terminal-pane-t
 import { terminalLayoutEqual } from '@/lib/terminal-layout-equality'
 import { normalizeTerminalLayoutPtyOwnership } from '@/components/terminal-pane/terminal-layout-pty-ownership'
 import { isClientAuthoritativeAgentStatusPane } from '@/components/terminal-pane/renderer-owned-agent-status-registry'
-import {
-  getExplicitRuntimeEnvironmentIdForWorktree,
-  getRuntimeSessionMirrorEnvironmentIds
-} from '@/lib/worktree-runtime-owner'
+import { getExplicitRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import {
   createWebRuntimeSessionTerminal,
   HOST_TERMINAL_SURFACE_SEPARATOR,
@@ -87,6 +84,7 @@ import {
   resolveWebAgentSessionHandoff
 } from './web-agent-session-handoff'
 import { getRuntimeEnvironmentRevision } from './runtime-environment-revision'
+import { useRuntimeSessionMirrorEnvironmentKey } from './use-runtime-session-mirror-environment-key'
 import {
   installWindowVisibilitySubscriptionParking,
   type WindowVisibilitySubscriptionSpec
@@ -2961,20 +2959,7 @@ export function applyWebSessionTabsStorePatch(
 
 export function useWebSessionTabsSync(): void {
   const activeWorktreeId = useAppStore((state) => state.activeWorktreeId)
-  const runtimeSessionMirrorEnvironmentKey = useAppStore((state) =>
-    getRuntimeSessionMirrorEnvironmentIds(state)
-      .map((environmentId) => {
-        const status = state.runtimeStatusByEnvironmentId.get(environmentId)
-        const environment = state.runtimeEnvironments.find(
-          (candidate) => candidate.id === environmentId
-        )
-        const pairingRevision = environment
-          ? (environment.pairingRevision ?? environment.createdAt)
-          : ''
-        return `${environmentId}\u0001${status?.status?.runtimeId ?? ''}\u0001${status?.connectionGeneration ?? 0}\u0001${pairingRevision}`
-      })
-      .join('\u0000')
-  )
+  const runtimeSessionMirrorEnvironmentKey = useRuntimeSessionMirrorEnvironmentKey()
   const activeWorktreeRuntimeEnvironmentId = useAppStore((state) =>
     getExplicitRuntimeEnvironmentIdForWorktree(state, state.activeWorktreeId)
   )

@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- Why: repo selector, task-source controls, and task list stay co-located so their wiring reads in one place. */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import {
@@ -204,6 +204,11 @@ import {
   type TaskPageRepoSourceState
 } from '@/components/task-page-cache-selectors'
 import { shouldHideTaskPageListChrome } from '@/components/task-page-list-chrome-visibility'
+import {
+  buildTaskPageGitHubResumeContextKey,
+  taskPageGitHubResumeCache,
+  TASK_PAGE_GITHUB_RESUME_FRESH_MS
+} from '@/components/task-page-github-resume-cache'
 import {
   applyEmptyPageClamp,
   applyWindowPageLimit,
@@ -3810,6 +3815,11 @@ export default function TaskPage(): React.JSX.Element {
     CROSS_REPO_DISPLAY_LIMIT
   )
   const githubPageSize = githubPerRepoPageLimit * Math.max(1, selectedRepos.length)
+  const githubResumeContextKey = buildTaskPageGitHubResumeContextKey({
+    selectedReposKey,
+    query: appliedTaskSearch.trim(),
+    pageSize: githubPageSize
+  })
   // Why: null entries are pages not fetched yet; numbered provider pages let a high-page click load directly without reading intermediate pages.
   const [pages, setPages] = useState<(GitHubWorkItem[] | null)[]>(() => {
     const trimmed = initialTaskQuery.trim()
@@ -3845,6 +3855,67 @@ export default function TaskPage(): React.JSX.Element {
   const countedTotalPagesRef = useRef<number | null>(null)
   const fetchWorkItemsNextPage = useAppStore((s) => s.fetchWorkItemsNextPage)
   const countWorkItemsAcrossRepos = useAppStore((s) => s.countWorkItemsAcrossRepos)
+
+  // Why: synchronous mirrors of the paged state — the landing/restore effect and
+  // the resolved fetch callbacks read the latest committed value without waiting
+  // for a fresh render closure.
+  const pagesRef = useRef(pages)
+  pagesRef.current = pages
+  const currentPageRef = useRef(currentPage)
+  currentPageRef.current = currentPage
+  // Why: one-shot guard so only the first landing after mount consumes a stored position.
+  const githubResumeConsumedRef = useRef(false)
+  const githubResumeContextRef = useRef('')
+  const githubListScrollRef = useRef<HTMLDivElement>(null)
+  const githubListScrollTopRef = useRef(0)
+  const pendingGithubScrollRestoreRef = useRef<number | null>(null)
+  const taskListPositionRef = useRef<{
+    contextKey: string
+    page: number
+    scrollTop: number
+  } | null>(null)
+
+  // Why: keep every visited numbered page hot so a reopen can repaint it before the refetch lands.
+  useEffect(() => {
+    const page = pages[currentPage]
+    if (!taskResumeApplied || taskSource !== 'github' || githubMode !== 'items' || !page) {
+      return
+    }
+    taskPageGitHubResumeCache.write(githubResumeContextKey, currentPage, page)
+  }, [currentPage, githubMode, githubResumeContextKey, pages, taskResumeApplied, taskSource])
+
+  // Why: track the live page + scroll offset so unmount and detail-open can persist it.
+  useLayoutEffect(() => {
+    if (
+      taskSource !== 'github' ||
+      githubMode !== 'items' ||
+      pageData.openGitHubWorkItem ||
+      pendingGithubScrollRestoreRef.current !== null
+    ) {
+      return
+    }
+    taskListPositionRef.current = {
+      contextKey: githubResumeContextKey,
+      page: currentPage,
+      scrollTop: githubListScrollTopRef.current
+    }
+  }, [currentPage, githubMode, githubResumeContextKey, pageData.openGitHubWorkItem, taskSource])
+
+  // Why: on close, persist the last list position — but not when a detail page is the reason for the unmount.
+  useEffect(
+    () => () => {
+      const position = taskListPositionRef.current
+      const state = useAppStore.getState()
+      if (position && !state.taskPageData.openGitHubWorkItem) {
+        state.setTaskListPosition({
+          contextKey: position.contextKey,
+          page: position.page,
+          scrollTop: position.scrollTop
+        })
+      }
+    },
+    []
+  )
 
   // Why: keyed on selectedReposKey, not the selectedRepos array — a background
   // repos:changed refresh mid-flight would otherwise bump the generation and
@@ -3895,6 +3966,71 @@ export default function TaskPage(): React.JSX.Element {
   const dialogWorkItem = dialogWorkItemKey
     ? (cachedDialogWorkItem ?? githubTaskDrawerWorkItem)
     : null
+
+  // Why: after the restored page paints, drive its scroll offset back — rows settle
+  // asynchronously (lazy fonts, images), so re-apply on animation frame + resize until
+  // it sticks, then stop. A hard 5s ceiling prevents a never-settling list from pinning it.
+  useLayoutEffect(() => {
+    const scrollTop = pendingGithubScrollRestoreRef.current
+    const scrollElement = githubListScrollRef.current
+    if (scrollTop === null || !scrollElement || !pages[currentPage]) {
+      return
+    }
+    let frame: number | null = null
+    let timeout: number | null = null
+    let observer: ResizeObserver | null = null
+    const clearScheduledRestore = (): void => {
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame)
+        frame = null
+      }
+      if (timeout !== null) {
+        window.clearTimeout(timeout)
+        timeout = null
+      }
+      observer?.disconnect()
+    }
+    const restore = (): void => {
+      const committedScrollElement = githubListScrollRef.current
+      if (!committedScrollElement || pendingGithubScrollRestoreRef.current !== scrollTop) {
+        return
+      }
+      committedScrollElement.scrollTop = scrollTop
+      githubListScrollTopRef.current = scrollTop
+      taskListPositionRef.current = {
+        contextKey: githubResumeContextKey,
+        page: currentPage,
+        scrollTop
+      }
+      if (Math.abs(committedScrollElement.scrollTop - scrollTop) < 1) {
+        pendingGithubScrollRestoreRef.current = null
+        clearScheduledRestore()
+      }
+    }
+    observer = new ResizeObserver(restore)
+    for (const child of scrollElement.children) {
+      observer.observe(child)
+    }
+    restore()
+    if (pendingGithubScrollRestoreRef.current === scrollTop) {
+      frame = window.requestAnimationFrame(restore)
+      timeout = window.setTimeout(() => {
+        if (pendingGithubScrollRestoreRef.current === scrollTop) {
+          const committedScrollTop = githubListScrollRef.current?.scrollTop ?? 0
+          githubListScrollTopRef.current = committedScrollTop
+          taskListPositionRef.current = {
+            contextKey: githubResumeContextKey,
+            page: currentPage,
+            scrollTop: committedScrollTop
+          }
+          pendingGithubScrollRestoreRef.current = null
+        }
+        clearScheduledRestore()
+      }, 5_000)
+    }
+    return clearScheduledRestore
+  }, [currentPage, dialogWorkItem, githubResumeContextKey, pages])
+
   const dialogRepoPath = dialogWorkItem ? (repoMap.get(dialogWorkItem.repoId)?.path ?? null) : null
   const dialogSourceContext = useMemo(() => {
     if (!dialogWorkItem) {
@@ -3958,6 +4094,15 @@ export default function TaskPage(): React.JSX.Element {
 
   const openGitHubDetailPage = useCallback(
     (item: GitHubWorkItem, initialTab: ItemDialogTab = 'conversation') => {
+      const scrollTop = githubListScrollRef.current?.scrollTop ?? githubListScrollTopRef.current
+      githubListScrollTopRef.current = scrollTop
+      pendingGithubScrollRestoreRef.current = scrollTop
+      taskListPositionRef.current = {
+        contextKey: githubResumeContextKey,
+        page: currentPageRef.current,
+        scrollTop
+      }
+      useAppStore.getState().setTaskListPosition(taskListPositionRef.current)
       openTaskPage(
         {
           taskSource: 'github',
@@ -3969,7 +4114,7 @@ export default function TaskPage(): React.JSX.Element {
         { recordTasksInteraction: false }
       )
     },
-    [openTaskPage, repoMap]
+    [githubResumeContextKey, openTaskPage, repoMap]
   )
 
   const openGitLabDetailPage = useCallback(
@@ -6372,6 +6517,33 @@ export default function TaskPage(): React.JSX.Element {
     // Why: strip repo:owner/name qualifiers before fan-out — cross-repo they'd pin every fetch to one repo. See stripRepoQualifiers.
     const q = stripRepoQualifiers(appliedTaskSearch.trim())
     let cancelled = false
+    // Why: only the first landing after this component mounts may consume a stored
+    // position; a context change (new repos/query) lands on page 0, otherwise a
+    // re-dispatch (refresh) keeps the page the user was on.
+    const contextChanged = githubResumeContextRef.current !== githubResumeContextKey
+    githubResumeContextRef.current = githubResumeContextKey
+    const savedPosition = !githubResumeConsumedRef.current
+      ? useAppStore.getState().taskListPosition
+      : undefined
+    githubResumeConsumedRef.current = true
+    const savedPositionMatches = savedPosition?.contextKey === githubResumeContextKey
+    const targetPage = savedPositionMatches
+      ? savedPosition.page
+      : contextChanged
+        ? 0
+        : currentPageRef.current
+    const liveTargetItems = pagesRef.current[targetPage]
+    const cachedTargetPage = liveTargetItems
+      ? { items: liveTargetItems, cachedAt: Date.now() }
+      : taskPageGitHubResumeCache.read(githubResumeContextKey, targetPage)
+    const cachedTargetIsFresh =
+      cachedTargetPage !== null &&
+      Date.now() - cachedTargetPage.cachedAt < TASK_PAGE_GITHUB_RESUME_FRESH_MS
+    if (savedPositionMatches) {
+      pendingGithubScrollRestoreRef.current = savedPosition.scrollTop
+    } else if (contextChanged) {
+      pendingGithubScrollRestoreRef.current = 0
+    }
 
     // Why: paint cached rows synchronously before the fan-out so a selection change doesn't leave the prior rows on screen for a frame.
     const preMerged: GitHubWorkItem[] = []
@@ -6392,18 +6564,30 @@ export default function TaskPage(): React.JSX.Element {
         preMerged.push(...cached)
       }
     }
-    // Why: always replace — an empty preMerged clears the previous query's rows instead of leaving them under the spinner.
+    // Why: page-one metadata and the restored numbered page have independent lifecycles.
     const page0 =
       preMerged.length > 0 ? sortWorkItemsByNumber(preMerged).slice(0, githubPageSize) : []
-    setPages([page0])
-    setCurrentPage(0)
+    // Why: land on the restored numbered page directly — intervening pages stay null
+    // (unfetched) so a high-page reopen doesn't drain GitHub's Search rate bucket.
+    const landingPages: (GitHubWorkItem[] | null)[] = Array.from(
+      { length: targetPage + 1 },
+      () => null
+    )
+    landingPages[0] = page0
+    if (targetPage > 0 && cachedTargetPage) {
+      landingPages[targetPage] = cachedTargetPage.items
+    }
+    pagesRef.current = landingPages
+    currentPageRef.current = targetPage
+    setPages(landingPages)
+    setCurrentPage(targetPage)
     setCountedTotalPages(null)
     countedTotalPagesRef.current = null
     setProvenPageLimit(null)
     setTasksError(null)
     setFailedCount(0) // reset so a prior failure banner doesn't linger
     setGithubUnavailable(false)
-    setTasksLoading(anyUncached)
+    setTasksLoading(targetPage > 0 ? cachedTargetPage === null : anyUncached)
 
     // Preserve the existing nonce-gated force behavior.
     const forceRefresh = taskRefreshNonce !== lastFetchedNonceRef.current
@@ -6421,7 +6605,10 @@ export default function TaskPage(): React.JSX.Element {
     }))
     const landingRefreshKey = `${repoArgs.map((r) => `${r.repoId}:${r.path}`).join('|')}::${q}`
     const shouldProbeOnLanding =
-      !forcedFetch && anyRepoCached && !landingGitHubRefreshKeysRef.current.has(landingRefreshKey)
+      !forcedFetch &&
+      !cachedTargetIsFresh &&
+      anyRepoCached &&
+      !landingGitHubRefreshKeysRef.current.has(landingRefreshKey)
     if (shouldProbeOnLanding) {
       landingGitHubRefreshKeysRef.current = new Set([
         ...landingGitHubRefreshKeysRef.current,
@@ -6430,6 +6617,65 @@ export default function TaskPage(): React.JSX.Element {
     }
     // Why: manual refresh keeps cached rows (tasksLoading stays false), so track forced fetch separately for the toolbar spinner.
     setTasksRefreshing(forcedFetch)
+
+    // Why: a reopen on a high page needs that page's rows back — refetch it directly
+    // (single provider page, no intermediate reads) unless a fresh cache copy already
+    // painted it. Runs alongside the page-0 fan-out below.
+    if (targetPage > 0 && (!cachedTargetIsFresh || forcedFetch)) {
+      const requestGeneration = paginationGenerationRef.current
+      if (!cachedTargetPage) {
+        setPaginationLoading(true)
+        setLoadingTargetPage(targetPage)
+      }
+      void fetchWorkItemsNextPage(
+        repoArgs,
+        githubPerRepoPageLimit,
+        githubPageSize,
+        q,
+        taskPageToGitHubApiPage(targetPage)
+      )
+        .then(({ items, failedCount, errorTypes }) => {
+          if (cancelled || paginationGenerationRef.current !== requestGeneration) {
+            return
+          }
+          if (items.length === 0) {
+            const { reason } = resolveEmptyPageOutcome({
+              target: targetPage,
+              failedCount,
+              errorTypes,
+              countedTotalPages: null
+            })
+            if (reason === 'load-failed' && cachedTargetPage) {
+              return
+            }
+            pendingGithubScrollRestoreRef.current = 0
+            currentPageRef.current = 0
+            setCurrentPage(0)
+            const next = [pagesRef.current[0] ?? []]
+            pagesRef.current = next
+            setPages(next)
+            return
+          }
+          taskPageGitHubResumeCache.write(githubResumeContextKey, targetPage, items)
+          const next = [...pagesRef.current]
+          while (next.length <= targetPage) {
+            next.push(null)
+          }
+          next[targetPage] = items
+          pagesRef.current = next
+          setPages(next)
+        })
+        .catch((error) => {
+          console.error('Failed to restore GitHub task page:', error)
+        })
+        .finally(() => {
+          if (!cancelled && paginationGenerationRef.current === requestGeneration) {
+            setPaginationLoading(false)
+            setLoadingTargetPage(null)
+            setTasksLoading(false)
+          }
+        })
+    }
 
     // Why: snapshot retrying keys at dispatch so an earlier settling effect doesn't wipe a newer retry's pending source.
     const dispatchedRetrySourceKeys = retryingSourceKeys
@@ -6451,7 +6697,14 @@ export default function TaskPage(): React.JSX.Element {
         if (cancelled) {
           return
         }
-        if (shouldProbeOnLanding) {
+        if (targetPage > 0) {
+          // Why: refresh only page one's slot — the user is on a restored later page,
+          // so replacing the whole array would drop it. Page one repaints on back-nav.
+          const next = [...pagesRef.current]
+          next[0] = items
+          pagesRef.current = next
+          setPages(next)
+        } else if (shouldProbeOnLanding) {
           const replaceFirstPage = shouldReplaceTaskPageItemsAfterRefresh(page0, items)
           const resetPagination = shouldResetTaskPagePaginationAfterLandingRefresh(page0, items)
           setPages((current) => reconcileTaskPagePagesAfterLandingRefresh(current, items))
@@ -6464,7 +6717,9 @@ export default function TaskPage(): React.JSX.Element {
         }
         setFailedCount(failed)
         setGithubUnavailable(unavailable)
-        setTasksLoading(false)
+        if (targetPage === 0 || cachedTargetPage) {
+          setTasksLoading(false)
+        }
         setTasksRefreshing(false)
         setTasksFiltering(false)
       })
@@ -6487,7 +6742,9 @@ export default function TaskPage(): React.JSX.Element {
         setTasksError(err instanceof Error ? err.message : 'Failed to load GitHub work.')
         setFailedCount(0) // the per-repo banner would be misleading next to tasksError
         setGithubUnavailable(false)
-        setTasksLoading(false)
+        if (targetPage === 0 || cachedTargetPage) {
+          setTasksLoading(false)
+        }
         setTasksRefreshing(false)
         setTasksFiltering(false)
       })
@@ -9178,8 +9435,27 @@ export default function TaskPage(): React.JSX.Element {
           ) : taskSource === 'github' ? (
             <div className="flex min-h-0 min-w-0 max-h-full flex-col overflow-hidden rounded-md rounded-t-none border border-t-0 border-border/50 bg-muted/50 shadow-sm">
               <div
+                ref={githubListScrollRef}
+                data-task-list-scroll="github"
                 className="min-h-0 flex-initial overflow-auto scrollbar-sleek scrollbar-sleek-lg"
                 style={{ scrollbarGutter: 'stable' }}
+                onScroll={(event) => {
+                  const state = useAppStore.getState()
+                  if (
+                    state.activeView !== 'tasks' ||
+                    state.taskPageData.openGitHubWorkItem ||
+                    pendingGithubScrollRestoreRef.current !== null
+                  ) {
+                    return
+                  }
+                  const scrollTop = event.currentTarget.scrollTop
+                  githubListScrollTopRef.current = scrollTop
+                  taskListPositionRef.current = {
+                    contextKey: githubResumeContextKey,
+                    page: currentPageRef.current,
+                    scrollTop
+                  }
+                }}
               >
                 <div
                   // Why: z-40 must beat the rows' sticky left cells (z-20); this stacking context's z sets the whole header's level.
@@ -9737,6 +10013,13 @@ export default function TaskPage(): React.JSX.Element {
                     totalPages={totalPages}
                     loadingTarget={loadingTargetPage}
                     onPageChange={(page) => {
+                      // Why: an explicit page click starts fresh at the top — cancel any
+                      // pending scroll restore so it can't yank the new page back down.
+                      pendingGithubScrollRestoreRef.current = null
+                      githubListScrollTopRef.current = 0
+                      if (githubListScrollRef.current) {
+                        githubListScrollRef.current.scrollTop = 0
+                      }
                       if (pages[page] !== null && pages[page] !== undefined) {
                         setCurrentPage(page)
                       } else {

@@ -20,6 +20,7 @@ import {
   Workflow
 } from 'lucide-react'
 import CacheTimer, { usePromptCacheCountdownStartedAt } from './CacheTimer'
+import { useWorktreeCardCacheTtlMs } from './use-worktree-card-cache-ttl'
 import WorktreeContextMenu from './WorktreeContextMenu'
 import { SshDisconnectedDialog } from './SshDisconnectedDialog'
 import { AutoRenameFailedDialog } from './AutoRenameFailedDialog'
@@ -1176,9 +1177,9 @@ const WorktreeCard = React.memo(function WorktreeCard({
   })
   const hasPorts = showPorts && workspacePorts.length > 0
   const cacheStartedAt = usePromptCacheCountdownStartedAt(worktree.id, showAggregateCacheTimer)
-  const cacheTtlMs = useAppStore((s) =>
-    showAggregateCacheTimer ? (s.settings?.promptCacheTtlMs ?? 0) : 0
-  )
+  // Why: derived from the `settings` the card already subscribes to — a separate store
+  // subscription for this one field costs a listener per card on every store write.
+  const cacheTtlMs = useWorktreeCardCacheTtlMs(settings, showAggregateCacheTimer)
   // Why: pinned trees mix repos, so the repo icon shows regardless of groupBy's hideRepoBadge.
   const showPinnedRepoIcon = inPinnedSection && !!repo
   // Why: new card style retired the Compact/Detailed switch; repo identity uses the compact chip, not a lower pill.

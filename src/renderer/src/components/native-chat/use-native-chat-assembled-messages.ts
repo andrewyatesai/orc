@@ -6,8 +6,7 @@ import {
   type IncrementalChatAssembler,
   reset as resetAssembler
 } from './native-chat-incremental-assembler'
-import { getVerifiedNativeChatCommands } from '../../../../shared/native-chat-agent-profiles'
-import { surfaceSkillInvocationUserTurns } from '../../../../shared/native-chat-command-envelope'
+import { prepareNativeChatLiveMessages } from './native-chat-live-message-preparation'
 
 type AssemblyCache = {
   assembler: IncrementalChatAssembler
@@ -46,7 +45,7 @@ export function useNativeChatAssembledMessages(args: {
   sessionId: string | null
   baseMessages: readonly NativeChatMessage[]
   appended: NativeChatMessage[]
-}): { assembledMessages: NativeChatMessage[]; surfacedMessages: NativeChatMessage[] } {
+}): { assembledMessages: NativeChatMessage[]; preparedMessages: NativeChatMessage[] } {
   const committedCacheRef = useRef<AssemblyCache | null>(null)
   const { agent, sessionId, baseMessages, appended } = args
 
@@ -81,15 +80,11 @@ export function useNativeChatAssembledMessages(args: {
     committedCacheRef.current = assembly
   }, [assembly])
 
-  // Why: skill invocations are user turns but Claude records them as noise-filtered
-  // command envelopes, so surface them as the literal token off the status axis.
-  const surfacedMessages = useMemo(
-    () =>
-      surfaceSkillInvocationUserTurns(
-        assembly.assembledMessages,
-        new Set(getVerifiedNativeChatCommands(agent).map((command) => command.name))
-      ),
+  // Keep presentation transforms (skill surfacing, image-marker folding) off the
+  // status-only render axis so a hook-state frame reuses this array by reference.
+  const preparedMessages = useMemo(
+    () => prepareNativeChatLiveMessages(assembly.assembledMessages, agent),
     [agent, assembly.assembledMessages]
   )
-  return { assembledMessages: assembly.assembledMessages, surfacedMessages }
+  return { assembledMessages: assembly.assembledMessages, preparedMessages }
 }

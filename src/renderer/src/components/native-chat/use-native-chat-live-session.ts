@@ -304,7 +304,7 @@ export function useNativeChatLiveSession(
 
   // Computed outside the status memo so hookState churn (status-only) never re-runs the assembler.
   const baseMessages = read.phase === 'ready' ? read.messages : EMPTY_MESSAGES
-  const { surfacedMessages } = useNativeChatAssembledMessages({
+  const { assembledMessages, preparedMessages } = useNativeChatAssembledMessages({
     agent,
     sessionId,
     baseMessages,
@@ -313,12 +313,14 @@ export function useNativeChatLiveSession(
 
   return useMemo<NativeChatLiveSession>(() => {
     const session = mergeNativeChatLiveSession({
-      sources: { transcript: surfacedMessages },
+      messages: preparedMessages,
       sessionId,
       agent,
       hookState,
       stateStartedAt: hookStateStartedAt,
       transcriptLifecycle,
+      // Status inference reads the pre-normalization tail; presentation transforms must not shift the boundary.
+      statusTailMessage: assembledMessages.at(-1),
       hookHasWorkingSubagents,
       // Why: show live watcher-append content over a spinner/stale error (#8401), so overrides apply only when nothing is appended.
       loading: read.phase === 'loading' && appended.length === 0,
@@ -326,7 +328,8 @@ export function useNativeChatLiveSession(
     })
     return { ...session, hasMore, loadingEarlier, loadEarlier, readPhase: read.phase }
   }, [
-    surfacedMessages,
+    preparedMessages,
+    assembledMessages,
     read,
     sessionId,
     agent,

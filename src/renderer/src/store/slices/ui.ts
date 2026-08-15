@@ -663,6 +663,8 @@ export type UISlice = {
   }
   taskResumeState: TaskResumeState | undefined
   setTaskResumeState: (updates: Partial<TaskResumeState>) => void
+  taskListPosition: { contextKey: string; page: number; scrollTop: number } | null
+  setTaskListPosition: (position: UISlice['taskListPosition']) => void
   githubTaskDrawerWorkItem: GitHubWorkItem | null
   setGithubTaskDrawerWorkItem: (item: GitHubWorkItem | null) => void
   newWorkspaceDraft: {
@@ -1219,6 +1221,7 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
   setActiveView: (view) => set({ activeView: view }),
   taskPageData: {},
   taskResumeState: undefined,
+  taskListPosition: null,
   githubTaskDrawerWorkItem: null,
   newWorkspaceDraft: null,
   openTaskPage: (data = {}, options = {}) => {
@@ -1373,6 +1376,7 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
       window.api.ui.set({ taskResumeState: next }).catch(console.error)
       return { taskResumeState: next }
     }),
+  setTaskListPosition: (taskListPosition) => set({ taskListPosition }),
   setGithubTaskDrawerWorkItem: (item) => set({ githubTaskDrawerWorkItem: item }),
   closeTaskPage: () =>
     set((state) => {

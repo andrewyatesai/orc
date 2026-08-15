@@ -25,16 +25,8 @@ import { TerminalComposeBox } from './TerminalComposeBox'
 import type { PtyTransport } from './pty-transport'
 import type { PtyTransportRecoveryState } from './pty-transport-types'
 import { fitPanes, isWindowsUserAgent } from './pane-helpers'
-import { getConnectionId, getConnectionIdFromState } from '@/lib/connection-context'
-import {
-  getExplicitRuntimeEnvironmentIdForWorktree,
-  getRuntimeEnvironmentIdForWorktree
-} from '@/lib/worktree-runtime-owner'
-import {
-  selectRuntimeAwareSshStatus,
-  selectRuntimeAwareSshTargetLabel,
-  selectRuntimeAwareSshTargetRemoved
-} from '@/store/slices/runtime-environment-ssh'
+import { getConnectionId } from '@/lib/connection-context'
+import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { hydrateRuntimeEnvironmentSshState } from '@/runtime/runtime-environment-ssh-state'
 import { handleInternalTerminalFileDrop } from './terminal-drop-handler'
 import { recordTerminalUserInputForLeaf } from './terminal-input-activity'
@@ -114,7 +106,6 @@ import {
   resolveNativeChatLeafRoute,
   type NativeChatLeafRoute
 } from '../native-chat/native-chat-leaf-routing'
-import { isNativeChatTranscriptLocalReadable } from '@/lib/native-chat-transcript-readability'
 import { resolvePaneKeyForManager } from '@/lib/pane-manager/pane-key-resolution'
 import { safeFit, safeFitAndThen } from '@/lib/pane-manager/pane-tree-ops'
 import { clearTerminalScrollbackAndFollowOutput } from '@/lib/pane-manager/terminal-scrollback-clear'
@@ -152,7 +143,6 @@ import {
   type RemotePaneLayoutPusher
 } from './remote-pane-layout-push'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
-import { isRuntimeOwnedSshTargetId } from '../../../../shared/execution-host'
 import { getRepoIdFromWorktreeId } from '../../../../shared/worktree-id'
 import { refitAndRefreshAllTerminalPanes } from '@/lib/pane-manager/pane-manager-registry'
 import {
@@ -234,6 +224,7 @@ import {
   getCachedUnifiedTerminalTabForWorktree
 } from './terminal-unified-tab-lookup'
 import { resolveNativeChatLeafTitleAgent } from './native-chat-leaf-title-agent'
+import { selectTerminalPaneHostState } from './terminal-pane-host-state'
 import { useRepoById } from '@/store/selectors'
 import {
   isXtermHelperTextarea,
@@ -332,37 +323,14 @@ export default function TerminalPane({
   isVisibleRef.current = isRendererVisible
   const onInitialRenderSettledRef = useRef(onInitialRenderSettled)
   onInitialRenderSettledRef.current = onInitialRenderSettled
-  const sshReconnectTargetId = useAppStore((store) => {
-    const connectionId = getConnectionIdFromState(store, worktreeId)
-    // Why: runtime-owned SSH targets are internal plumbing users can't connect to, so a reconnect prompt would mislead.
-    if (!connectionId || isRuntimeOwnedSshTargetId(connectionId)) {
-      return null
-    }
-    return connectionId
-  })
-  const nativeChatTranscriptIsLocalReadable = useAppStore((store) =>
-    isNativeChatTranscriptLocalReadable(getConnectionIdFromState(store, worktreeId))
-  )
-  // Which machine's SSH store this target belongs to: a remote server's per-environment bucket, or null for this machine's local SSH maps.
-  const sshReconnectEnvironmentId = useAppStore((store) =>
-    sshReconnectTargetId ? getExplicitRuntimeEnvironmentIdForWorktree(store, worktreeId) : null
-  )
-  const sshReconnectStatus = useAppStore((store) =>
-    sshReconnectTargetId
-      ? selectRuntimeAwareSshStatus(store, sshReconnectEnvironmentId, sshReconnectTargetId)
-      : null
-  )
-  const sshReconnectTargetLabel = useAppStore((store) =>
-    sshReconnectTargetId
-      ? selectRuntimeAwareSshTargetLabel(store, sshReconnectEnvironmentId, sshReconnectTargetId)
-      : ''
-  )
-  // Why: a ghost target (removed from its host) can only fail reconnect, so the overlay offers Remove instead of Connect.
-  const sshReconnectTargetRemoved = useAppStore((store) =>
-    sshReconnectTargetId
-      ? selectRuntimeAwareSshTargetRemoved(store, sshReconnectEnvironmentId, sshReconnectTargetId)
-      : false
-  )
+  const {
+    nativeChatTranscriptIsLocalReadable,
+    sshReconnectEnvironmentId,
+    sshReconnectStatus,
+    sshReconnectTargetId,
+    sshReconnectTargetLabel,
+    sshReconnectTargetRemoved
+  } = useAppStore(useShallow((store) => selectTerminalPaneHostState(store, worktreeId)))
   useEffect(() => {
     if (!sshReconnectEnvironmentId) {
       return

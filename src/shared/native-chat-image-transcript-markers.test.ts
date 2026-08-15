@@ -35,9 +35,32 @@ describe('normalizeImageTranscriptMessages', () => {
     ])
   })
 
-  it('leaves ordinary user text untouched', () => {
-    const out = normalizeImageTranscriptMessages([userText('a', 'how about this')])
-    expect(out[0]!.blocks).toEqual([{ type: 'text', text: 'how about this' }])
+  it('leaves ordinary user text untouched and reuses the input by reference', () => {
+    const message = userText('a', 'how about this')
+    const messages = [message]
+    const out = normalizeImageTranscriptMessages(messages)
+    expect(out).toBe(messages)
+    expect(out[0]).toBe(message)
+    expect(out[0]!.blocks).toBe(message.blocks)
+  })
+
+  it('removes a whitespace-only first text block after stripping the marker', () => {
+    const out = normalizeImageTranscriptMessages([userText('a', '[Image #1]    ')])
+
+    expect(out[0]?.blocks).toEqual([])
+  })
+
+  it('preserves unaffected rows when another row needs normalization', () => {
+    const before = userText('before', 'keep this row')
+    const marker = userText('marker', '[Image: source: /tmp/image.png]')
+    const after = userText('after', 'keep this row too')
+    const messages = [before, marker, after]
+
+    const out = normalizeImageTranscriptMessages(messages)
+
+    expect(out).not.toBe(messages)
+    expect(out[0]).toBe(before)
+    expect(out.at(-1)).toBe(after)
   })
 
   it('leaves assistant messages untouched', () => {
