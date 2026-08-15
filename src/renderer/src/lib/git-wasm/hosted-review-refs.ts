@@ -4,11 +4,12 @@
 // passes the input string through unchanged rather than returning null, which
 // would throw at those callsites.
 import { isGitWasmReady } from './git-line-stats'
-import { orcaDispatch } from './orca_git_wasm.js'
+import { dispatchToWasmCore } from './wasm-core-dispatch'
 
+// Payload is a bare ref string, so the codec's default applies unrelaxed.
 function op(fn: string, input: unknown): string | null {
   if (!isGitWasmReady()) {return null}
-  return JSON.parse(orcaDispatch('hosted-review-refs', fn, JSON.stringify(input ?? null))) as string
+  return dispatchToWasmCore('hosted-review-refs', fn, input, { root: 'ref' }) as string
 }
 
 export function normalizeHostedReviewHeadRef(ref: string): string {

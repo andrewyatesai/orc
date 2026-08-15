@@ -5,6 +5,10 @@
       "rootDescription": "El shell de la aplicación no pudo terminar de renderizarse. Vuelva a intentar volver a montarlo o reinicie Orca si el error persiste.",
       "webTitle": "Orca web tuvo un error de renderizado.",
       "webDescription": "Vuelva a cargar el cliente web o vuelva a conectarse al servidor Orca vinculado."
+    },
+    "gitWasmUnavailable": {
+      "title": "Orca se está ejecutando con funciones reducidas.",
+      "description": "No se pudo cargar el motor de Git, por lo que los nombres de espacios de trabajo, los iconos de repositorio y los recuentos de líneas de diferencias usan valores básicos. Reinicie Orca para volver a intentarlo."
     }
   },
   "settings": {

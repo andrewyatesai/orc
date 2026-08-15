@@ -96,6 +96,15 @@ enums — no free-form strings can carry paths, PII, or terminal content.
 | `renderer_process_gone`    | `reason:` snake_cased Electron reason (`clean_exit`…`integrity_failure`, `unknown`)                                         | **wired** — `createMainWindow.ts` `render-process-gone` handler (window-close teardown noise excluded) |
 | `daemon_launch_failed`     | `error_class: binary_missing\|not_executable\|spawn_failed\|handshake_timeout\|socket_error\|unsupported_platform\|unknown` | **helper exported, hook pending** (below)                                                              |
 | `daemon_degraded_fallback` | `reason: launch_failed\|preserved_unhealthy\|socket_lost\|unknown`                                                          | **helper exported, hook pending** (below)                                                              |
+| `git_wasm_unavailable`     | `error_class: fetch_failed\|compile_failed\|instantiate_failed\|unsupported_runtime\|unknown`                               | **wired** — `git-wasm-unavailable-report.ts`, from the startup gate and the web entry                  |
+
+`git_wasm_unavailable` fires at most once per session. It means the orca-git
+wasm core never loaded, so every `git-wasm/*` shim is serving its null/identity
+fallback for the whole session — the app looks fine and quietly computes less.
+Treat any non-zero rate as high severity. `classifyGitWasmLoadFailure` buckets
+the rejection; a mis-served asset (a 404 answering with HTML) reports
+`fetch_failed`, not `compile_failed`, so a misconfigured host does not read as a
+bad Rust build.
 
 Emit helpers: `src/main/telemetry/fork-reliability-events.ts`
 (`trackDaemonLaunchFailed`, `trackDaemonDegradedFallback`,

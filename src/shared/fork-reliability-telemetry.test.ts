@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest'
 import {
   DAEMON_DEGRADED_FALLBACK_REASONS,
   DAEMON_LAUNCH_FAILURE_CLASSES,
+  GIT_WASM_UNAVAILABLE_CLASSES,
   RENDERER_PROCESS_GONE_REASONS,
   TERMINAL_GPU_DOWNGRADE_REASONS,
+  classifyGitWasmLoadFailure,
   daemonDegradedFallbackSchema,
   daemonLaunchFailedSchema,
+  gitWasmUnavailableSchema,
   rendererProcessGoneSchema,
   rendererProcessGoneTelemetryReason,
   terminalGpuDowngradeSchema
@@ -13,11 +16,12 @@ import {
 import { eventSchemas } from './telemetry-events'
 
 describe('fork reliability event schemas', () => {
-  it('registers all four events in the eventSchemas roster', () => {
+  it('registers every event in the eventSchemas roster', () => {
     expect(eventSchemas.daemon_launch_failed).toBe(daemonLaunchFailedSchema)
     expect(eventSchemas.daemon_degraded_fallback).toBe(daemonDegradedFallbackSchema)
     expect(eventSchemas.terminal_gpu_downgrade).toBe(terminalGpuDowngradeSchema)
     expect(eventSchemas.renderer_process_gone).toBe(rendererProcessGoneSchema)
+    expect(eventSchemas.git_wasm_unavailable).toBe(gitWasmUnavailableSchema)
   })
 
   it('accepts every declared enum value', () => {
@@ -34,6 +38,9 @@ describe('fork reliability event schemas', () => {
     }
     for (const reason of RENDERER_PROCESS_GONE_REASONS) {
       expect(rendererProcessGoneSchema.safeParse({ reason }).success).toBe(true)
+    }
+    for (const errorClass of GIT_WASM_UNAVAILABLE_CLASSES) {
+      expect(gitWasmUnavailableSchema.safeParse({ error_class: errorClass }).success).toBe(true)
     }
   })
 
@@ -77,6 +84,54 @@ describe('fork reliability event schemas', () => {
         reason: 'gpu_init_timeout'
       }).success
     ).toBe(true)
+  })
+})
+
+describe('classifyGitWasmLoadFailure', () => {
+  it('buckets a mis-served asset as a DELIVERY problem, not a bad Rust build', () => {
+    // A dev-server 404 answers with HTML; wasm-bindgen only notices at compile time.
+    expect(
+      classifyGitWasmLoadFailure(
+        new WebAssembly.CompileError('expected magic word 00 61 73 6d, found 3c 21 44 4f')
+      )
+    ).toBe('fetch_failed')
+    expect(classifyGitWasmLoadFailure(new TypeError('Failed to fetch'))).toBe('fetch_failed')
+  })
+
+  it('separates a genuine compile failure from an instantiate failure', () => {
+    expect(classifyGitWasmLoadFailure(new WebAssembly.CompileError('invalid opcode'))).toBe(
+      'compile_failed'
+    )
+    expect(classifyGitWasmLoadFailure(new WebAssembly.LinkError('import not found'))).toBe(
+      'instantiate_failed'
+    )
+    expect(classifyGitWasmLoadFailure(new WebAssembly.RuntimeError('unreachable'))).toBe(
+      'instantiate_failed'
+    )
+  })
+
+  it("reads Chromium's CSP rejection as an unsupported runtime, not a bad binary", () => {
+    expect(
+      classifyGitWasmLoadFailure(
+        new WebAssembly.CompileError(
+          "Refused to compile or instantiate WebAssembly module because 'wasm-unsafe-eval' is not an allowed source of script"
+        )
+      )
+    ).toBe('unsupported_runtime')
+  })
+
+  it('buckets anything unrecognized rather than dropping the event at the strict validator', () => {
+    const bucket = classifyGitWasmLoadFailure({ weird: true })
+    expect(bucket).toBe('unknown')
+    expect(gitWasmUnavailableSchema.safeParse({ error_class: bucket }).success).toBe(true)
+  })
+
+  it('emits only a closed-enum bucket, so no asset path can ride along', () => {
+    const bucket = classifyGitWasmLoadFailure(
+      new TypeError('Failed to fetch file:///home/someone/Orca.app/out/orca_git_wasm_bg.wasm')
+    )
+    expect(GIT_WASM_UNAVAILABLE_CLASSES).toContain(bucket)
+    expect(bucket).not.toContain('/Users/')
   })
 })
 

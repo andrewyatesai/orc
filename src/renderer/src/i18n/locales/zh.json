@@ -5,6 +5,10 @@
       "rootDescription": "应用 shell 无法完成渲染。重试以重新挂载，如果错误仍然存在，请重新启动 Orca。",
       "webTitle": "Orca Web 遇到渲染器错误。",
       "webDescription": "重试 Web 客户端或重新连接到配对的运行时。"
+    },
+    "gitWasmUnavailable": {
+      "title": "Orca 正在以精简功能运行。",
+      "description": "Git 引擎无法加载，因此工作区名称、仓库图标和 diff 行数将回退为基本值。请重新启动 Orca 重试。"
     }
   },
   "settings": {

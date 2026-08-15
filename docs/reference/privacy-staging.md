@@ -32,8 +32,8 @@ consent state is enabled:
 - **Staging reliability events** (why this cohort exists — see
   `staging-observability.md`): `daemon_launch_failed`,
   `daemon_degraded_fallback`, `terminal_gpu_downgrade`,
-  `renderer_process_gone`. All payloads are enums (failure class buckets),
-  never raw error text.
+  `renderer_process_gone`, `git_wasm_unavailable`. All payloads are enums
+  (failure class buckets), never raw error text.
 - **Product events** inherited from upstream Orca (app opened, onboarding
   steps, feature usage, agent start/error classes).
 

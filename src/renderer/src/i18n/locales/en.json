@@ -5,6 +5,10 @@
       "rootDescription": "The app shell could not finish rendering. Retry to remount it, or relaunch Orca if the error persists.",
       "webTitle": "Orca web hit a renderer error.",
       "webDescription": "Retry the web client or reconnect to the paired runtime."
+    },
+    "gitWasmUnavailable": {
+      "title": "Orca is running with reduced features.",
+      "description": "The Git engine could not load, so workspace names, repo icons, and diff line counts fall back to basic values. Relaunch Orca to try again."
     }
   },
   "settings": {

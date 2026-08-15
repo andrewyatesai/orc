@@ -1,4 +1,5 @@
 import { startGitWasm } from './git-line-stats'
+import { reportGitWasmUnavailable } from './git-wasm-unavailable-report'
 
 /** Boot gate for the orca-git wasm, awaited at the top of the startup
  *  hydration chain instead of before createRoot.
@@ -13,11 +14,17 @@ import { startGitWasm } from './git-line-stats'
  *  overlaps the snapshot fetch and mount.
  *
  *  Failure backstop mirrors the old render gate: a genuine compile failure
- *  rejects fast and is swallowed (degraded null-fallback mode), the timeout is
- *  only an anti-hang backstop for a promise that never settles. */
+ *  rejects fast and hydration proceeds in degraded null-fallback mode rather
+ *  than diverting into recovery. It is REPORTED, not swallowed — the discarded
+ *  error object is what made a dead core indistinguishable from a slow one for
+ *  the whole session. The timeout is only an anti-hang backstop for a promise
+ *  that never settles, so it deliberately does NOT report: still-pending is not
+ *  terminal, and a late resolve still flips the core to ready. */
 export function awaitGitWasmReadyForStartupHydration(timeoutMs = 10_000): Promise<void> {
   return Promise.race([
-    startGitWasm().catch(() => undefined),
+    startGitWasm().catch((error: unknown) => {
+      reportGitWasmUnavailable(error)
+    }),
     new Promise<void>((resolve) => setTimeout(resolve, timeoutMs))
   ]).then(() => undefined)
 }

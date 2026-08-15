@@ -11,42 +11,54 @@ import initGitWasm, {
 } from './orca_git_wasm.js'
 import wasmUrl from './orca_git_wasm_bg.wasm?url'
 import { setOrcaDispatchBinding } from '../../../../shared/orca-dispatch-seam'
+import {
+  isGitWasmReady as isGitWasmCoreReady,
+  markGitWasmReady,
+  markGitWasmUnavailable
+} from './git-wasm-availability'
 
 export type DiffLineStats = { added: number; removed: number }
 
-let ready = false
 let startPromise: Promise<void> | null = null
-const readyListeners = new Set<() => void>()
+
+// Readiness state and its listeners live in the dependency-free availability
+// leaf; re-exported here because ~35 shims already import them from this module.
+export {
+  isGitWasmReady,
+  subscribeGitWasmAvailability as subscribeGitWasmReady
+} from './git-wasm-availability'
 
 function markReady(): void {
-  ready = true
-  // Bind the shared dispatch seam now that wasm is initialised, so src/shared
-  // modules cut over to Rust reach the core. Before this, tryOrcaDispatch returns
-  // null and shared callers use their safe fallback. Fires in production
-  // (startGitWasm) and tests (initGitWasmForTestFromBytes).
+  // Bind the shared dispatch seam BEFORE flipping availability, so a ready
+  // listener that immediately dispatches cannot observe an unbound seam. Before
+  // this, tryOrcaDispatch returns null and shared callers use their safe
+  // fallback. Fires in production (startGitWasm) and tests
+  // (initGitWasmForTestFromBytes).
   setOrcaDispatchBinding((module, fn, inputJson) => wasmOrcaDispatch(module, fn, inputJson))
-  for (const listener of readyListeners) {
-    listener()
-  }
+  markGitWasmReady()
 }
 
 /** Kick off the async wasm init (idempotent). Called once from the renderer
- *  bootstrap so the module is compiled long before any diff section renders. */
+ *  bootstrap so the module is compiled long before any diff section renders.
+ *
+ *  Deliberately NOT retryable: the memoized promise keeps a rejection forever.
+ *  wasm-bindgen's module-level state is not re-entrant after a partial init, and
+ *  the dominant failures here (a CompileError, a mis-served asset, a CSP that
+ *  forbids wasm) are permanent for the session — a retry would re-download 1.4 MB
+ *  to fail identically. The fix for the invisible failure is the terminal
+ *  `unavailable` state below, not a retry; recovery is a relaunch. */
 export function startGitWasm(): Promise<void> {
-  startPromise ??= initGitWasm({ module_or_path: wasmUrl }).then(markReady)
-  return startPromise
-}
-
-export function isGitWasmReady(): boolean {
-  return ready
-}
-
-/** For useSyncExternalStore: re-render consumers when the wasm becomes ready. */
-export function subscribeGitWasmReady(listener: () => void): () => void {
-  readyListeners.add(listener)
-  return () => {
-    readyListeners.delete(listener)
+  if (!startPromise) {
+    startPromise = initGitWasm({ module_or_path: wasmUrl }).then(markReady, (error: unknown) => {
+      markGitWasmUnavailable(error)
+      throw error
+    })
+    // Why: main.tsx and web/main.tsx fire this as `void startGitWasm()`; without a
+    // handler attached at creation the memoized rejection is reported as an
+    // unhandledrejection long before the startup gate gets round to awaiting it.
+    void startPromise.catch(() => undefined)
   }
+  return startPromise
 }
 
 /** Test-only synchronous init from raw wasm bytes: vitest runs under Node,
@@ -68,7 +80,7 @@ export function computeLineStats(
   modified: string,
   status: string
 ): DiffLineStats | null {
-  if (!ready) {
+  if (!isGitWasmCoreReady()) {
     return null
   }
   const json = wasmComputeLineStats(original, modified, status)

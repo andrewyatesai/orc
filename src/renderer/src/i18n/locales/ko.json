@@ -5,6 +5,10 @@
       "rootDescription": "앱 셸에서 렌더링을 완료할 수 없습니다. 다시 마운트해 보거나 오류가 지속되면 Orca를 다시 시작하세요.",
       "webTitle": "Orca 웹에 렌더러 오류가 발생했습니다.",
       "webDescription": "웹 클라이언트를 다시 시도하거나 페어링된 런타임에 다시 연결하세요."
+    },
+    "gitWasmUnavailable": {
+      "title": "Orca가 축소된 기능으로 실행 중입니다.",
+      "description": "Git 엔진을 로드할 수 없어 작업 공간 이름, 리포지토리 아이콘, diff 줄 수가 기본값으로 대체됩니다. Orca를 다시 시작하여 다시 시도하세요."
     }
   },
   "settings": {

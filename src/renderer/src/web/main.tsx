@@ -20,6 +20,7 @@ import { installWebPreloadApi } from './web-preload-api'
 import { I18nProvider } from '../i18n/I18nProvider'
 import { translate } from '../i18n/i18n'
 import { startGitWasm } from '../lib/git-wasm/git-line-stats'
+import { reportGitWasmUnavailable } from '../lib/git-wasm/git-wasm-unavailable-report'
 import { startCryptoWasm } from '../lib/crypto-wasm/browser-crypto-wasm'
 
 // Compile the wasm cores eagerly, same as the desktop entry: the git wasm backs
@@ -111,9 +112,12 @@ function renderWebApp(): void {
 
 // Render once the git wasm is ready so synchronous renderer helpers never hit
 // their pre-ready null fallback and stay stuck on it. A compile FAILURE rejects
-// and is caught immediately; the long timeout is only an anti-hang backstop for
-// a promise that never settles, not a routine "render without wasm" valve.
+// and is reported (not swallowed) before rendering in degraded mode; the long
+// timeout is only an anti-hang backstop for a promise that never settles, not a
+// routine "render without wasm" valve.
 void Promise.race([
-  gitWasmReady.catch(() => undefined),
+  gitWasmReady.catch((error: unknown) => {
+    reportGitWasmUnavailable(error)
+  }),
   new Promise<void>((resolve) => setTimeout(resolve, 10000))
 ]).then(renderWebApp)

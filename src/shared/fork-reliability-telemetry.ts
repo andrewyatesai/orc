@@ -37,6 +37,21 @@ export const TERMINAL_GPU_DOWNGRADE_REASONS = [
   'gpu_init_timeout'
 ] as const
 
+// Terminal failure classes for the orca-git wasm core. The renderer runs ~35
+// shims that fall back to a null/identity result when the core is missing, so a
+// load failure degrades the app silently — this is the bucket that makes it
+// visible in the field.
+export const GIT_WASM_UNAVAILABLE_CLASSES = [
+  // The asset never arrived, or arrived as something that is not wasm (a dev
+  // server 404 that answers with HTML lands here, not in compile_failed).
+  'fetch_failed',
+  'compile_failed',
+  'instantiate_failed',
+  // The host has no WebAssembly at all, or a CSP that forbids compiling it.
+  'unsupported_runtime',
+  'unknown'
+] as const
+
 // Electron's `RenderProcessGoneDetails.reason` values, snake_cased for the
 // telemetry wire, plus an `unknown` catch-all so a future Electron enum
 // addition degrades to a bucketed value instead of a dropped event.
@@ -55,11 +70,13 @@ export const daemonLaunchFailureClassSchema = z.enum(DAEMON_LAUNCH_FAILURE_CLASS
 export const daemonDegradedFallbackReasonSchema = z.enum(DAEMON_DEGRADED_FALLBACK_REASONS)
 export const terminalGpuDowngradeReasonSchema = z.enum(TERMINAL_GPU_DOWNGRADE_REASONS)
 export const rendererProcessGoneReasonSchema = z.enum(RENDERER_PROCESS_GONE_REASONS)
+export const gitWasmUnavailableClassSchema = z.enum(GIT_WASM_UNAVAILABLE_CLASSES)
 
 export type DaemonLaunchFailureClass = z.infer<typeof daemonLaunchFailureClassSchema>
 export type DaemonDegradedFallbackReason = z.infer<typeof daemonDegradedFallbackReasonSchema>
 export type TerminalGpuDowngradeReason = z.infer<typeof terminalGpuDowngradeReasonSchema>
 export type RendererProcessGoneReason = z.infer<typeof rendererProcessGoneReasonSchema>
+export type GitWasmUnavailableClass = z.infer<typeof gitWasmUnavailableClassSchema>
 
 export const daemonLaunchFailedSchema = z
   .object({ error_class: daemonLaunchFailureClassSchema })
@@ -80,6 +97,43 @@ export const terminalGpuDowngradeSchema = z
 export const rendererProcessGoneSchema = z
   .object({ reason: rendererProcessGoneReasonSchema })
   .strict()
+
+export const gitWasmUnavailableSchema = z
+  .object({ error_class: gitWasmUnavailableClassSchema })
+  .strict()
+
+/** Bucket a wasm-init rejection into `error_class`. Only the bucket crosses the
+ *  wire — the raw error can carry an asset URL (and therefore a host/path), so
+ *  it must never reach the payload. */
+export function classifyGitWasmLoadFailure(error: unknown): GitWasmUnavailableClass {
+  if (typeof WebAssembly === 'undefined') {
+    return 'unsupported_runtime'
+  }
+  const name = error instanceof Error ? error.name : ''
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  // Why first: a 404/proxy interception answers with HTML, and wasm-bindgen only
+  // notices at compile time ("expected magic word"). That is a delivery problem,
+  // and bucketing it as compile_failed would send every misconfigured host
+  // chasing the Rust build instead of the asset path.
+  if (message.includes('magic word') || message.includes('Incorrect response MIME type')) {
+    return 'fetch_failed'
+  }
+  // Why before CompileError: Chromium reports a missing `wasm-unsafe-eval` CSP
+  // source AS a CompileError, and that is a packaging problem, not a bad binary.
+  if (name === 'SecurityError' || message.includes('Refused to compile')) {
+    return 'unsupported_runtime'
+  }
+  if (name === 'CompileError') {
+    return 'compile_failed'
+  }
+  if (name === 'LinkError' || name === 'RuntimeError') {
+    return 'instantiate_failed'
+  }
+  if (name === 'TypeError' || message.includes('fetch') || message.includes('Failed to load')) {
+    return 'fetch_failed'
+  }
+  return 'unknown'
+}
 
 /** Map Electron's hyphenated `RenderProcessGoneDetails.reason` onto the wire
  *  enum; unrecognized values bucket to `unknown` rather than dropping the
