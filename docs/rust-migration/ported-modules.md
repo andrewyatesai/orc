@@ -186,6 +186,46 @@ integration.
 Whichever way it goes, both writers must end up on the same side, and the cutover
 is downstream of that call.
 
+### `source-control-ai` — four attempts, and three of them overstated their own measurement
+
+The crash that produced the third attempt's 342 divergences is fixed (9026340f57),
+and the fourth attempt is the best-argued yet — it cuts the twin over IN PLACE so
+no importer's import line moves, closes most of the corpus hole, and fixes a real
+renderer bug on the way. It still verified PARTIAL / unsafe, and the reason is a
+pattern worth naming.
+
+**Its headline differential was false, for the third consecutive attempt.** The
+claim was "shim-BOUND == twin on 60,995 / 60,995 in the JSON image", and the shim
+header commits to it. An independent 64,341-call run found 445 byte-image, 90
+value and 753 strict mismatches. The 90 value mismatches are one class:
+
+    resolveSourceControlAiEnabled   SHIM false  !=  TWIN undefined
+
+at 15 (sourceControlAi, legacy) pairs x 6 repo shapes — any persisted
+`commitMessageAi` lacking an `enabled` key. `normalizeSourceControlAiSettings`
+leaves `enabled` own-undefined, so `repoOverrides?.enabled ?? source.enabled` is
+`undefined` while the core answers `false`.
+
+Three different agents, three different overstated counts, on the same 15-export,
+1343-line module. That is not three careless agents; it is a module whose surface
+is large enough that a self-authored differential can look exhaustive and miss a
+whole shape class. **The verifier's independent run is what caught it every
+time** — which is the argument for keeping fix and verify as separate agents with
+separate harnesses, rather than asking one agent to check its own work.
+
+Two things from that attempt are worth salvaging independently of the cutover:
+
+* **A real renderer bug**, measured and fixed there: the redundant-write dedupe at
+  `repository-source-control-ai-persist-queue.ts:40` and
+  `repository-source-control-ai-global-ux.ts:171` compares
+  `JSON.stringify(next) === JSON.stringify(getPersisted())`, and key ORDER differs
+  across the seam (`{fixChecks, pullRequest}` vs `{pullRequest, fixChecks}`, same
+  value). Post-cutover that dedupe stops deduping — a redundant repo write per
+  blur. It is latent today because both operands still come from the twin.
+* **The own-undefined-vs-absent residual**, now measured rather than asserted:
+  348 of 60,995 calls, only at `modelOverridesByOperation`, `customAgentCommand`,
+  `agentId` and `selectedModelByAgent`, and invisible in the JSON image.
+
 ### A clean verdict means "nothing found", not "nothing there"
 
 Batch 5 took seven modules this tool called clean and four of them still had to
