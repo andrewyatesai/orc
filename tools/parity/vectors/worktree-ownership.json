@@ -490,6 +490,141 @@
         "selectedCheckout": false,
         "visible": true
       }
+    },
+    {
+      "function": "buildKnownOrcaWorkspaceLayouts",
+      "note": "worktreeBasePath is trimmed with the JS trim set: a pasted U+FEFF is stripped, so the base path stays absolute",
+      "input": {
+        "settings": {
+          "nestWorkspaces": true,
+          "workspaceDirHistory": []
+        },
+        "repo": {
+          "path": "/repos/app",
+          "worktreeBasePath": "﻿/abs/base"
+        }
+      },
+      "expected": [
+        {
+          "path": "/abs/base",
+          "nestWorkspaces": true
+        }
+      ]
+    },
+    {
+      "function": "buildKnownOrcaWorkspaceLayouts",
+      "note": "worktreeBasePath keeps U+0085 (NEL is not in the JS trim set), so the layout survives instead of trimming to empty",
+      "input": {
+        "settings": {
+          "nestWorkspaces": true,
+          "workspaceDirHistory": []
+        },
+        "repo": {
+          "path": "/repos/app",
+          "worktreeBasePath": ""
+        }
+      },
+      "expected": [
+        {
+          "path": "/repos/app/",
+          "nestWorkspaces": true
+        }
+      ]
+    },
+    {
+      "function": "buildKnownOrcaWorkspaceLayouts",
+      "note": "worktreeBasePath of only ASCII whitespace trims to empty and contributes no layout",
+      "input": {
+        "settings": {
+          "nestWorkspaces": true,
+          "workspaceDirHistory": []
+        },
+        "repo": {
+          "path": "/repos/app",
+          "worktreeBasePath": "  \t "
+        }
+      },
+      "expected": []
+    },
+    {
+      "function": "classifyWorktreeOwnership",
+      "note": "createdWithAgent is a TuiAgent string, and it alone is strong Orca metadata",
+      "input": {
+        "repo": {
+          "path": "/repos/app"
+        },
+        "worktree": {
+          "path": "/scratch/manual",
+          "isMainWorktree": false
+        },
+        "meta": {
+          "createdWithAgent": "claude"
+        },
+        "knownOrcaLayouts": [
+          {
+            "path": "/orca/workspaces",
+            "nestWorkspaces": true
+          }
+        ]
+      },
+      "expected": "orca-managed"
+    },
+    {
+      "function": "classifyWorktreeOwnership",
+      "note": "pushTarget is a GitPushTarget object, and it alone is strong Orca metadata",
+      "input": {
+        "repo": {
+          "path": "/repos/app"
+        },
+        "worktree": {
+          "path": "/scratch/manual",
+          "isMainWorktree": false
+        },
+        "meta": {
+          "pushTarget": {
+            "remoteName": "origin",
+            "branchName": "main"
+          }
+        },
+        "knownOrcaLayouts": [
+          {
+            "path": "/orca/workspaces",
+            "nestWorkspaces": true
+          }
+        ]
+      },
+      "expected": "orca-managed"
+    },
+    {
+      "function": "toDetectedWorktree",
+      "note": "a row whose only Orca marker is createdWithAgent is managed, and managed rows stay visible under hide",
+      "input": {
+        "repo": {
+          "path": "/repos/app",
+          "addedAt": 1779494400001,
+          "externalWorktreeVisibility": "hide"
+        },
+        "worktree": {
+          "path": "/scratch/manual",
+          "isMainWorktree": false
+        },
+        "meta": {
+          "createdWithAgent": "codex"
+        },
+        "knownOrcaLayouts": [
+          {
+            "path": "/orca/workspaces",
+            "nestWorkspaces": true
+          }
+        ]
+      },
+      "expected": {
+        "path": "/scratch/manual",
+        "isMainWorktree": false,
+        "ownership": "orca-managed",
+        "selectedCheckout": false,
+        "visible": true
+      }
     }
   ]
 }

@@ -13,6 +13,9 @@
 //! | server cardinality + name length | 256 / 4 KiB | invalid, `servers: []` |
 //! | command / URL length | 64 KiB | that server invalid, env dropped |
 //! | env field count / key / value | 256 / 4 KiB / 64 KiB | that server invalid, env dropped |
+//!
+//! One input class cannot be ported exactly, only chosen between: config text
+//! carrying an ESCAPED lone surrogate. See `parse_past_lone_surrogate_escapes`.
 
 use crate::js_value_string::js_string;
 use orca_text::mcp_config_inspection_limits::{
@@ -69,8 +72,11 @@ pub fn inspect_mcp_config_content(content: Option<&str>, servers_path: &[&str]) 
     }
     let parsed: Value = match serde_json::from_str(content) {
         Ok(value) => value,
-        // Don't expose file contents; just note it failed to parse.
-        Err(error) => return invalid_config(&format!("Invalid JSON: {error}")),
+        Err(error) => match parse_past_lone_surrogate_escapes(content) {
+            Some(value) => value,
+            // Don't expose file contents; just note it failed to parse.
+            None => return invalid_config(&format!("Invalid JSON: {error}")),
+        },
     };
 
     let Some(servers) = extract_object_at_path(&parsed, servers_path) else {
@@ -83,6 +89,33 @@ pub fn inspect_mcp_config_content(content: Option<&str>, servers_path: &[&str]) 
 
     let servers = entries.into_iter().map(|(name, entry)| summarize_mcp_server(name, entry)).collect();
     McpConfigInspection { exists: true, status: "valid".into(), servers, error: None }
+}
+
+/// Second chance for the ONE document class `JSON.parse` accepts and
+/// `serde_json` cannot: an escaped lone surrogate (`"a\ud800b"`).
+///
+/// The twin reads that file as four healthy servers — so does every JS agent
+/// runtime that launches them — while a strict parse here answered `invalid`
+/// with an EMPTY pane, hiding servers that are actually running. Retrying with
+/// each unpaired escape rewritten to `�` restores the list.
+///
+/// RESIDUAL DIVERGENCE, deliberate and unclosable: a string that carried the
+/// surrogate now reads U+FFFD where the twin reads the unpaired code unit
+/// (`"a\u{d800}b"` vs `"a\u{fffd}b"`). Nothing here can agree — a Rust `String`
+/// cannot hold that value, and the dispatch codec refuses to carry one back to
+/// JS on purpose (src/shared/dispatch-payload-codec.ts). The choice is which
+/// failure the user gets, and one substituted character in a name beats an empty
+/// MCP pane. Two names that differ ONLY in which unpaired surrogate they hold do
+/// collide after substitution; the twin keeps them distinct.
+///
+/// Bounds are unaffected: the rewrite is length-preserving in the text, and a
+/// lone surrogate and U+FFFD measure the same on BOTH caps — 1 UTF-16 code unit
+/// (`measureUtf8ByteLength` walks `codePointAt`, which yields the bare surrogate)
+/// and 3 UTF-8 bytes.
+fn parse_past_lone_surrogate_escapes(content: &str) -> Option<Value> {
+    let repaired = crate::json_lone_surrogate_escapes::replace_lone_surrogate_escapes(content)?;
+    // Still broken for some OTHER reason: keep the original parse error.
+    serde_json::from_str(&repaired).ok()
 }
 
 fn invalid_config(error: &str) -> McpConfigInspection {
@@ -312,7 +345,7 @@ mod tests {
     use orca_text::mcp_config_inspection_limits::{
         MCP_CONFIG_INSPECTION_MAX_BYTES, MCP_CONFIG_INSPECTION_MAX_ENV_FIELDS,
         MCP_CONFIG_INSPECTION_MAX_FIELD_BYTES, MCP_CONFIG_INSPECTION_MAX_FIELD_CODE_UNITS,
-        MCP_CONFIG_INSPECTION_MAX_NAME_CODE_UNITS,
+        MCP_CONFIG_INSPECTION_MAX_NAME_BYTES, MCP_CONFIG_INSPECTION_MAX_NAME_CODE_UNITS,
     };
 
     fn summary(
@@ -596,5 +629,65 @@ mod tests {
         let result = inspect(r#"{"other": 1}"#);
         assert_eq!(result.status, "valid");
         assert!(result.servers.is_empty());
+    }
+
+    // --- the escaped-lone-surrogate class: what the twin lists, we list ---
+
+    #[test]
+    fn lists_servers_from_a_config_whose_text_carries_an_escaped_lone_surrogate() {
+        // The twin answers `valid` with both servers (JSON.parse takes the
+        // escape); a strict parse answered `invalid` with an empty pane.
+        let result = inspect(r#"{"mcpServers":{"a\ud800b":{"command":"node"},"ok":{"type":"http","url":"https://x"}}}"#);
+        assert_eq!(result.status, "valid");
+        assert_eq!(result.error, None);
+        let names: Vec<&str> = result.servers.iter().map(|server| server.name.as_str()).collect();
+        // RESIDUAL: the twin's name holds the unpaired code unit here.
+        assert_eq!(names, vec!["a\u{fffd}b", "ok"]);
+        assert_eq!(result.servers[0].status, Some(McpServerStatus::Enabled));
+        assert_eq!(result.servers[1].url.as_deref(), Some("https://x"));
+    }
+
+    #[test]
+    fn repairs_lone_surrogates_in_commands_urls_and_env_without_touching_pairs() {
+        let server = inspect_server(
+            r#"{"command":"node\ud800","env":{"K\udc00":"v\ud800","OK":"🚀"}}"#,
+        );
+        assert_eq!(server.command.as_deref(), Some("node\u{fffd}"));
+        assert_eq!(
+            server.env,
+            Some(vec![
+                ("K\u{fffd}".to_string(), "v\u{fffd}".to_string()),
+                ("OK".to_string(), "\u{1f680}".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn a_lone_surrogate_plus_a_real_syntax_error_still_reports_the_parse_failure() {
+        // The retry must not launder a document the twin also refuses.
+        let result = inspect(r#"{"mcpServers":{"a\ud800":{"command":"node"}}"#);
+        assert_eq!(result.status, "invalid");
+        assert!(result.error.as_deref().unwrap().starts_with("Invalid JSON:"));
+        assert!(result.servers.is_empty());
+    }
+
+    #[test]
+    fn a_substituted_surrogate_measures_the_same_as_the_twins_on_the_name_cap() {
+        // 1 UTF-16 code unit and 3 UTF-8 bytes either way, so the 4 KiB name cap
+        // falls on the same side of the boundary as the twin's — here the BYTE
+        // cap binds first, at 4093 ASCII + 3 bytes for the one substituted char.
+        let at_cap = format!(
+            r#"{{"mcpServers":{{"{}\ud800":{{"command":"node"}}}}}}"#,
+            "n".repeat(MCP_CONFIG_INSPECTION_MAX_NAME_BYTES - 3)
+        );
+        assert_eq!(inspect(&at_cap).servers.len(), 1);
+
+        let over_cap = format!(
+            r#"{{"mcpServers":{{"{}\ud800":{{"command":"node"}}}}}}"#,
+            "n".repeat(MCP_CONFIG_INSPECTION_MAX_NAME_BYTES - 2)
+        );
+        let result = inspect(&over_cap);
+        assert_eq!(result.status, "invalid");
+        assert_eq!(result.error.as_deref(), Some("MCP server collection exceeds the inspection limits."));
     }
 }

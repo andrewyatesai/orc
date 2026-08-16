@@ -96,6 +96,18 @@ fn bool_field(value: &Value, key: &str) -> bool {
     value.get(key).and_then(Value::as_bool).unwrap_or(false)
 }
 
+/// JS truthiness for a field the twin tests with `||`: absent, `null`, `false`,
+/// `0`, and `""` are falsy; every other JSON value is truthy.
+fn is_truthy(value: Option<&Value>) -> bool {
+    match value {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(flag)) => *flag,
+        Some(Value::Number(number)) => number.as_f64().is_some_and(|n| n != 0.0),
+        Some(Value::String(text)) => !text.is_empty(),
+        Some(_) => true,
+    }
+}
+
 fn parse_repo(value: &Value) -> Repo {
     Repo {
         path: str_field(value, "path"),
@@ -142,16 +154,18 @@ fn parse_meta(value: Option<&Value>) -> Option<WorktreeMeta> {
     let value = value.filter(|value| value.is_object())?;
     Some(WorktreeMeta {
         orca_created_at: value.get("orcaCreatedAt").and_then(Value::as_f64),
-        // TS truthiness: any present object/value counts (it is an object in TS).
-        orca_creation_workspace_layout: value
-            .get("orcaCreationWorkspaceLayout")
-            .is_some_and(|layout| !layout.is_null() && *layout != Value::Bool(false)),
+        // The core models the non-numeric markers as PRESENCE flags, and the twin
+        // reads them with `||`, so each is JS truthiness — not `as_bool`, which is
+        // `false` for every value these three fields can actually hold
+        // (`orcaCreationWorkspaceLayout` an object, `createdWithAgent` a TuiAgent
+        // string, `pushTarget` a GitPushTarget object).
+        orca_creation_workspace_layout: is_truthy(value.get("orcaCreationWorkspaceLayout")),
         created_at: value.get("createdAt").and_then(Value::as_f64),
-        created_with_agent: bool_field(value, "createdWithAgent"),
-        push_target: bool_field(value, "pushTarget"),
+        created_with_agent: is_truthy(value.get("createdWithAgent")),
+        push_target: is_truthy(value.get("pushTarget")),
         sparse_base_ref: opt_str_field(value, "sparseBaseRef"),
         sparse_preset_id: opt_str_field(value, "sparsePresetId"),
-        preserve_branch_on_delete: bool_field(value, "preserveBranchOnDelete"),
+        preserve_branch_on_delete: is_truthy(value.get("preserveBranchOnDelete")),
     })
 }
 

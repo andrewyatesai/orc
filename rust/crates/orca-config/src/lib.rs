@@ -12,6 +12,7 @@
 pub mod feature_interaction_usage_buckets;
 pub mod feature_interactions;
 pub mod js_value_string;
+pub mod json_lone_surrogate_escapes;
 pub mod mcp;
 pub mod project_groups;
 pub mod repo_icon;
@@ -28,6 +29,7 @@ pub use feature_interactions::{
     FeatureInteractionState, FeatureInteractionTelemetryBucketState, FEATURE_INTERACTIONS,
 };
 pub use js_value_string::{js_number_string, js_string};
+pub use json_lone_surrogate_escapes::replace_lone_surrogate_escapes;
 pub use mcp::{
     inspect_mcp_config_content, McpConfigInspection, McpServerStatus, McpServerSummary,
     McpServerTransport,

@@ -19,6 +19,7 @@ use crate::cross_platform_path::{
     normalize_runtime_path_for_comparison, normalize_runtime_path_separators,
     relative_path_inside_root, resolve_runtime_path, PathFlavor,
 };
+use crate::js_string::trim_js;
 use crate::wsl_paths::parse_wsl_unc_path;
 use std::collections::HashSet;
 
@@ -75,6 +76,9 @@ pub struct WorktreeMeta {
     /// created the worktree under (#7078's metadata-only ownership proof).
     pub orca_creation_workspace_layout: bool,
     pub created_at: Option<f64>,
+    /// `createdWithAgent` is a TuiAgent STRING and `pushTarget` a GitPushTarget
+    /// OBJECT in the twin; both are presence flags here, so a caller must fill
+    /// them with JS truthiness, never by reading a boolean that never exists.
     pub created_with_agent: bool,
     pub push_target: bool,
     pub sparse_base_ref: Option<String>,
@@ -173,8 +177,11 @@ pub fn build_known_orca_workspace_layouts(
         .collect()
 }
 
+/// The twin is `repo.worktreeBasePath?.trim() || undefined`, and a worktree base
+/// path is user-typed/pasted text — `str::trim` would keep a leading U+FEFF (so
+/// the path stops reading as absolute) and eat a U+0085 the twin keeps.
 fn get_repo_worktree_base_path(repo: &Repo) -> Option<String> {
-    repo.worktree_base_path.as_deref().map(str::trim).filter(|trimmed| !trimmed.is_empty()).map(str::to_string)
+    repo.worktree_base_path.as_deref().map(trim_js).filter(|trimmed| !trimmed.is_empty()).map(str::to_string)
 }
 
 fn resolve_workspace_layout_path(repo_path: &str, layout_path: &str) -> String {
@@ -509,6 +516,48 @@ mod tests {
             layouts.last().unwrap(),
             &OrcaWorkspaceLayout { path: format!("/history/workspaces-{}", COUNT - 1), nest_workspaces: false }
         );
+    }
+
+    // `worktreeBasePath` is user-typed text, and the twin trims it with JS
+    // `.trim()`. `str::trim` keeps U+FEFF (so a pasted BOM stops the path reading
+    // as absolute and it resolves under the repo instead) and strips U+0085 (so a
+    // base path the twin keeps disappears entirely).
+    #[test]
+    fn trims_the_repo_worktree_base_path_with_the_js_trim_set() {
+        let settings = WorkspaceLayoutSettings { workspace_dir: None, ..make_settings() };
+        let bom = Repo { worktree_base_path: Some("\u{FEFF}/abs/base".to_string()), ..make_repo() };
+        assert_eq!(
+            build_known_orca_workspace_layouts(&settings, Some(&bom)),
+            vec![OrcaWorkspaceLayout { path: "/abs/base".to_string(), nest_workspaces: true }]
+        );
+        let nel = Repo { worktree_base_path: Some("\u{0085}".to_string()), ..make_repo() };
+        assert_eq!(
+            build_known_orca_workspace_layouts(&settings, Some(&nel)),
+            vec![OrcaWorkspaceLayout { path: "/repos/app/\u{0085}".to_string(), nest_workspaces: true }]
+        );
+        let spaces = Repo { worktree_base_path: Some("  base \t".to_string()), ..make_repo() };
+        assert_eq!(
+            build_known_orca_workspace_layouts(&settings, Some(&spaces)),
+            vec![OrcaWorkspaceLayout { path: "/repos/app/base".to_string(), nest_workspaces: true }]
+        );
+    }
+
+    // The twin's `||` chain accepts a TuiAgent string and a GitPushTarget object,
+    // which is the whole point of those two markers existing separately from
+    // `orcaCreatedAt` (`hasLegacyOrcaCreationEvidence` names that state).
+    #[test]
+    fn treats_the_non_numeric_metadata_markers_as_strong_ownership() {
+        let repo = make_repo();
+        let layouts = build_known_orca_workspace_layouts(&make_settings(), Some(&repo));
+        for meta in [
+            WorktreeMeta { created_with_agent: true, ..Default::default() },
+            WorktreeMeta { push_target: true, ..Default::default() },
+        ] {
+            assert_eq!(
+                classify_worktree_ownership(&repo, &worktree("/scratch/manual"), Some(&meta), &layouts),
+                OrcaManaged
+            );
+        }
     }
 
     #[test]
