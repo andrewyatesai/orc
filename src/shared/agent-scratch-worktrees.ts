@@ -1,4 +1,5 @@
 import { normalizeRuntimePathForComparison } from './cross-platform-path-resolution'
+
 /** Why: agent CLIs reserve these repo-root paths for scratch; broader matches
  *  can hide legitimate user worktrees (#9388). */
 const AGENT_SCRATCH_PATH_PREFIXES: readonly (readonly string[])[] = [

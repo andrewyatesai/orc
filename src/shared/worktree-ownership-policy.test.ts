@@ -1,16 +1,19 @@
+// Moved from worktree-ownership.test.ts with the implementation: the twin's
+// cases now run against the shim, which answers from the Rust core whenever the
+// seam is bound (config/vitest-orca-dispatch-seam.ts binds it for every test
+// file) and from its parity fallback when it is not.
 import { describe, expect, it } from 'vitest'
 import type { GlobalSettings, Repo, Worktree, WorktreeMeta } from './types'
-import { createAgentScratchWorktreePathMatcher } from './agent-scratch-worktrees'
+import { buildKnownOrcaWorkspaceLayouts } from './orca-workspace-layouts'
 import {
   applyMetadataFallbackVisibility,
-  buildKnownOrcaWorkspaceLayouts,
   classifyWorktreeOwnership,
   effectiveExternalWorktreeVisibility,
   isLegacyRepoForExternalWorktreeVisibility,
   shouldShowWorktree,
-  toDetectedWorktree,
-  EXTERNAL_WORKTREE_VISIBILITY_ROLLOUT_AT
-} from './worktree-ownership'
+  toDetectedWorktree
+} from './worktree-ownership-policy'
+import { EXTERNAL_WORKTREE_VISIBILITY_ROLLOUT_AT } from './worktree-ownership'
 
 const LARGE_WORKSPACE_HISTORY_COUNT = 150_000
 
@@ -102,7 +105,6 @@ describe('worktree ownership classification', () => {
     expect(
       classifyWorktreeOwnership({
         repo,
-        settings,
         worktree: makeWorktree({ path: '/tmp/outside' }),
         meta: makeMeta({ orcaCreatedAt: 1 }),
         knownOrcaLayouts: buildKnownOrcaWorkspaceLayouts(settings, repo)
@@ -117,7 +119,6 @@ describe('worktree ownership classification', () => {
     expect(
       classifyWorktreeOwnership({
         repo,
-        settings,
         worktree: makeWorktree({ path: '/orca/workspaces/app/feature' }),
         knownOrcaLayouts: layouts
       })
@@ -125,7 +126,6 @@ describe('worktree ownership classification', () => {
     expect(
       classifyWorktreeOwnership({
         repo,
-        settings,
         worktree: makeWorktree({ path: '/orca/workspaces/other/feature' }),
         knownOrcaLayouts: layouts
       })
@@ -138,7 +138,6 @@ describe('worktree ownership classification', () => {
     expect(
       classifyWorktreeOwnership({
         repo,
-        settings,
         worktree: makeWorktree({ path: '/orca/workspaces/app/feature' }),
         meta: makeMeta({
           orcaCreationWorkspaceLayout: { path: '/orca/workspaces', nestWorkspaces: true }
@@ -153,7 +152,6 @@ describe('worktree ownership classification', () => {
     const settings = makeSettings()
     const detected = toDetectedWorktree({
       repo,
-      settings,
       worktree: makeWorktree({
         path: '/orca/workspaces/app/manual-git-worktree',
         isMainWorktree: false
@@ -170,7 +168,6 @@ describe('worktree ownership classification', () => {
     const settings = makeSettings()
     const detected = toDetectedWorktree({
       repo,
-      settings,
       worktree: makeWorktree({
         path: '/orca/workspaces/app/manual-git-worktree',
         isMainWorktree: false
@@ -188,7 +185,6 @@ describe('worktree ownership classification', () => {
     const settings = makeSettings()
     const detected = toDetectedWorktree({
       repo,
-      settings,
       worktree: makeWorktree({
         path: '/orca/workspaces/app/manual-git-worktree',
         isMainWorktree: false
@@ -208,7 +204,6 @@ describe('worktree ownership classification', () => {
     const settings = makeSettings()
     const detected = toDetectedWorktree({
       repo,
-      settings,
       worktree: makeWorktree({
         path: '/orca/workspaces/app/manual-git-worktree',
         isMainWorktree: false
@@ -226,7 +221,6 @@ describe('worktree ownership classification', () => {
     expect(
       classifyWorktreeOwnership({
         repo,
-        settings,
         worktree: makeWorktree({ path: '/orca/workspaces/feature' }),
         knownOrcaLayouts: buildKnownOrcaWorkspaceLayouts(settings, repo)
       })
@@ -242,7 +236,6 @@ describe('worktree ownership classification', () => {
     expect(
       classifyWorktreeOwnership({
         repo,
-        settings,
         worktree: makeWorktree({ path: '/orca/workspaces/feature' }),
         knownOrcaLayouts: buildKnownOrcaWorkspaceLayouts(settings, repo)
       })
@@ -258,7 +251,6 @@ describe('worktree ownership classification', () => {
     expect(
       classifyWorktreeOwnership({
         repo,
-        settings,
         worktree: makeWorktree({ path: '/old/workspaces/app/feature' }),
         knownOrcaLayouts: buildKnownOrcaWorkspaceLayouts(settings, repo)
       })
@@ -296,7 +288,6 @@ describe('worktree ownership classification', () => {
     expect(
       classifyWorktreeOwnership({
         repo,
-        settings,
         worktree: makeWorktree({
           id: 'repo-1::C:\\ORCA\\WORKSPACES\\App\\Feature',
           path: 'C:\\ORCA\\WORKSPACES\\App\\Feature',
@@ -312,7 +303,6 @@ describe('worktree ownership classification', () => {
     const settings = makeSettings()
     const selected = toDetectedWorktree({
       repo,
-      settings,
       worktree: makeWorktree({
         path: '/repos/app-linked',
         isMainWorktree: false
@@ -321,7 +311,6 @@ describe('worktree ownership classification', () => {
     })
     const gitMain = toDetectedWorktree({
       repo,
-      settings,
       worktree: makeWorktree({
         path: '/repos/app-main',
         isMainWorktree: true
@@ -435,7 +424,6 @@ describe('agent scratch worktrees', () => {
     expect(
       classifyWorktreeOwnership({
         repo,
-        settings,
         worktree: makeWorktree({ path: scratchPath, isMainWorktree: false }),
         knownOrcaLayouts: buildKnownOrcaWorkspaceLayouts(settings, repo)
       })
@@ -449,16 +437,12 @@ describe('agent scratch worktrees', () => {
     expect(
       classifyWorktreeOwnership({
         repo,
-        settings,
         worktree: makeWorktree({
           path: `${linkedCheckoutPath}/.claude/worktrees/agent-a04ccaaa`,
           isMainWorktree: false
         }),
         knownOrcaLayouts: buildKnownOrcaWorkspaceLayouts(settings, repo),
-        agentScratchWorktreePathMatcher: createAgentScratchWorktreePathMatcher([
-          repo.path,
-          linkedCheckoutPath
-        ])
+        agentScratchCheckoutPaths: [repo.path, linkedCheckoutPath]
       })
     ).toBe('agent-scratch')
   })
@@ -469,7 +453,6 @@ describe('agent scratch worktrees', () => {
     expect(
       classifyWorktreeOwnership({
         repo,
-        settings,
         worktree: makeWorktree({ path: scratchPath, isMainWorktree: false }),
         meta: makeMeta({ orcaCreatedAt: 1 }),
         knownOrcaLayouts: buildKnownOrcaWorkspaceLayouts(settings, repo)
@@ -485,7 +468,6 @@ describe('agent scratch worktrees', () => {
       const settings = makeSettings()
       const detected = toDetectedWorktree({
         repo,
-        settings,
         worktree: makeWorktree({ path: scratchPath, isMainWorktree: false }),
         knownOrcaLayouts: buildKnownOrcaWorkspaceLayouts(settings, repo)
       })
@@ -526,13 +508,11 @@ describe('agent scratch worktrees', () => {
     const layouts = buildKnownOrcaWorkspaceLayouts(settings, repo)
     const scratch = toDetectedWorktree({
       repo,
-      settings,
       worktree: makeWorktree({ path: scratchPath, isMainWorktree: false }),
       knownOrcaLayouts: layouts
     })
     const external = toDetectedWorktree({
       repo,
-      settings,
       worktree: makeWorktree({ path: '/scratch/manual', isMainWorktree: false }),
       knownOrcaLayouts: layouts
     })
@@ -555,7 +535,6 @@ describe('agent scratch worktrees', () => {
     const settings = makeSettings()
     const scratch = toDetectedWorktree({
       repo,
-      settings,
       worktree: makeWorktree({ path: scratchPath, isMainWorktree: false }),
       knownOrcaLayouts: buildKnownOrcaWorkspaceLayouts(settings, repo)
     })
@@ -571,7 +550,6 @@ describe('agent scratch worktrees', () => {
     expect(
       classifyWorktreeOwnership({
         repo,
-        settings,
         worktree: makeWorktree({
           path: '/repos/.claude/worktrees/app/manual/feature-x',
           isMainWorktree: false

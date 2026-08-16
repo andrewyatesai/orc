@@ -3,7 +3,7 @@ import type { DetectedWorktree, DetectedWorktreeListResult, Repo } from './types
 import {
   effectiveExternalWorktreeVisibility,
   isLegacyRepoForExternalWorktreeVisibility
-} from './worktree-ownership'
+} from './worktree-ownership-policy'
 
 export function normalizeExternalWorktreeInboxPath(path: string): string {
   return normalizeRuntimePathForComparison(path)

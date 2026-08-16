@@ -14,11 +14,9 @@ import {
   mergeExternalWorktreeInboxPaths,
   shouldOfferNewExternalWorktreeInbox
 } from './external-worktree-inbox'
-import {
-  buildKnownOrcaWorkspaceLayouts,
-  EXTERNAL_WORKTREE_VISIBILITY_ROLLOUT_AT,
-  toDetectedWorktree
-} from './worktree-ownership'
+import { buildKnownOrcaWorkspaceLayouts } from './orca-workspace-layouts'
+import { toDetectedWorktree } from './worktree-ownership-policy'
+import { EXTERNAL_WORKTREE_VISIBILITY_ROLLOUT_AT } from './worktree-ownership'
 
 const repo: Repo = {
   id: 'repo-1',
@@ -178,7 +176,6 @@ describe('external worktree inbox', () => {
     const settings = makeSettings()
     const manual = toDetectedWorktree({
       repo,
-      settings,
       worktree: makeGitWorktree({
         path: '/orca/workspaces/orca/manual-from-git',
         displayName: 'manual-from-git',

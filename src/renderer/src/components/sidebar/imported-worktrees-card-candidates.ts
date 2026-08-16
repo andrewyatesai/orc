@@ -1,10 +1,7 @@
 import type { DetectedWorktreeListResult, Repo, Worktree } from '../../../../shared/types'
 import { getHiddenExternalWorktrees } from '../../../../shared/external-worktree-inbox'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
-import {
-  effectiveExternalWorktreeVisibility,
-  isLegacyRepoForExternalWorktreeVisibility
-} from '../../../../shared/worktree-ownership'
+import { effectiveExternalWorktreeVisibility, isLegacyRepoForExternalWorktreeVisibility } from '../../../../shared/worktree-ownership-policy'
 import type { ImportedWorktreesCardCandidate } from './worktree-list-groups'
 
 export function getHiddenImportedWorktrees(

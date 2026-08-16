@@ -12,6 +12,7 @@ use serde_json::Value;
 pub mod agent_kind;
 pub mod agent_notification_id;
 pub mod agent_recognition;
+pub mod agent_scratch_worktrees;
 pub mod agent_status_types;
 pub mod agent_tab_title;
 pub mod base_ref_search_result;
@@ -100,6 +101,7 @@ pub fn dispatch(module: &str, function: &str, input: &Value) -> Option<Value> {
         "agent-kind" => Some(agent_kind::dispatch(function, input)),
         "agent-notification-id" => Some(agent_notification_id::dispatch(function, input)),
         "agent-recognition" => Some(agent_recognition::dispatch(function, input)),
+        "agent-scratch-worktrees" => Some(agent_scratch_worktrees::dispatch(function, input)),
         "agent-status-types" => Some(agent_status_types::dispatch(function, input)),
         "agent-tab-title" => Some(agent_tab_title::dispatch(function, input)),
         "base-ref-search-result" => Some(base_ref_search_result::dispatch(function, input)),

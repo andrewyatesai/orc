@@ -46,7 +46,13 @@ import type {
 } from '../../shared/terminal-side-effect-facts'
 import type { TerminalGitHubPRLink } from '../../shared/terminal-github-pr-link-detector'
 import { TerminalKittyKeyboardModeTracker } from '../../shared/terminal-kitty-keyboard-mode-tracker'
-import { AGENT_STATUS_STALE_AFTER_MS, type AgentStatusIpcPayload, type ParsedAgentStatusPayload, type AgentStatusOrchestrationContext, type AgentStatusEntry } from '../../shared/agent-status-types'
+import {
+  AGENT_STATUS_STALE_AFTER_MS,
+  type AgentStatusIpcPayload,
+  type ParsedAgentStatusPayload,
+  type AgentStatusOrchestrationContext,
+  type AgentStatusEntry
+} from '../../shared/agent-status-types'
 import { isFreshNonDoneAgentStatus } from '../../shared/agent-status-evaluation'
 import { indexAgentStatusRowsByPaneKey } from '../agent-hooks/agent-status-pane-index'
 import type {
@@ -340,15 +346,11 @@ import type {
 } from '../../shared/folder-workspace-path-status'
 import {
   applyMetadataFallbackVisibility,
-  buildKnownOrcaWorkspaceLayouts,
   isLegacyRepoForExternalWorktreeVisibility,
   toDetectedWorktree
-} from '../../shared/worktree-ownership'
-import {
-  createAgentScratchWorktreePathMatcher,
-  isAgentScratchRepoRootPath,
-  type AgentScratchWorktreePathMatcher
-} from '../../shared/agent-scratch-worktrees'
+} from '../../shared/worktree-ownership-policy'
+import { buildKnownOrcaWorkspaceLayouts } from '../../shared/orca-workspace-layouts'
+import { isAgentScratchRepoRootPath } from '../../shared/agent-scratch-worktrees'
 import {
   BROWSER_HEADLESS_RUNTIME_CAPABILITY,
   BROWSER_CERTIFICATE_TRUST_RUNTIME_CAPABILITY,
@@ -19983,13 +19985,12 @@ export class OrcaRuntimeService {
       checkoutPaths.push(worktree.path)
       checkoutPathsByRepoId.set(worktree.repoId, checkoutPaths)
     }
-    const agentScratchMatchersByRepoId = new Map(
+    // One array per repo, reused for every row: the classifier memoizes its
+    // scratch matcher on the array identity.
+    const agentScratchCheckoutPathsByRepoId = new Map(
       (this.store?.getRepos() ?? []).map((repo) => [
         repo.id,
-        createAgentScratchWorktreePathMatcher([
-          repo.path,
-          ...(checkoutPathsByRepoId.get(repo.id) ?? [])
-        ])
+        [repo.path, ...(checkoutPathsByRepoId.get(repo.id) ?? [])]
       ])
     )
     const worktrees = resolved.filter((worktree) => {
@@ -19998,7 +19999,7 @@ export class OrcaRuntimeService {
       }
       return this.isRuntimeWorktreeVisible(
         worktree,
-        agentScratchMatchersByRepoId.get(worktree.repoId)
+        agentScratchCheckoutPathsByRepoId.get(worktree.repoId)
       )
     })
     return {
@@ -20030,10 +20031,10 @@ export class OrcaRuntimeService {
     if (scan.ok) {
       this.pruneLineageForMissingRepoWorktrees(repo, scan.worktrees)
     }
-    const agentScratchWorktreePathMatcher = createAgentScratchWorktreePathMatcher([
+    const agentScratchCheckoutPaths = [
       repo.path,
       ...scan.worktrees.map((worktree) => worktree.path)
-    ])
+    ]
     const detected = scan.worktrees.map((gitWorktree) => {
       const worktreeId = `${repo.id}::${gitWorktree.path}`
       const meta = store.getWorktreeMeta(worktreeId)
@@ -20044,7 +20045,7 @@ export class OrcaRuntimeService {
       const detectedWorktree = this.toRuntimeDetectedWorktree(
         repo,
         worktree,
-        agentScratchWorktreePathMatcher
+        agentScratchCheckoutPaths
       )
       if (scan.ok) {
         return detectedWorktree
@@ -20061,19 +20062,19 @@ export class OrcaRuntimeService {
 
   private isRuntimeWorktreeVisible(
     worktree: Worktree,
-    agentScratchWorktreePathMatcher?: AgentScratchWorktreePathMatcher
+    agentScratchCheckoutPaths?: readonly string[]
   ): boolean {
     const repo = this.store?.getRepo(worktree.repoId)
     if (!repo || !this.store) {
       return true
     }
-    return this.toRuntimeDetectedWorktree(repo, worktree, agentScratchWorktreePathMatcher).visible
+    return this.toRuntimeDetectedWorktree(repo, worktree, agentScratchCheckoutPaths).visible
   }
 
   private toRuntimeDetectedWorktree(
     repo: Repo,
     worktree: Worktree,
-    agentScratchWorktreePathMatcher?: AgentScratchWorktreePathMatcher
+    agentScratchCheckoutPaths?: readonly string[]
   ): DetectedWorktree {
     const settings = this.store?.getSettings()
     if (!settings) {
@@ -20088,10 +20089,9 @@ export class OrcaRuntimeService {
       repo,
       worktree,
       meta: this.store?.getWorktreeMeta(worktree.id),
-      settings,
       knownOrcaLayouts: buildKnownOrcaWorkspaceLayouts(settings, repo),
       isLegacyRepoForVisibility: isLegacyRepoForExternalWorktreeVisibility(repo),
-      agentScratchWorktreePathMatcher
+      agentScratchCheckoutPaths
     })
   }
 

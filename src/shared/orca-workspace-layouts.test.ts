@@ -1,6 +1,10 @@
+// Moved from worktree-ownership-worktree-base-path.test.ts with the
+// implementation. It reads both halves of the split — the layouts a repo's own
+// `worktreeBasePath` produces, and the ownership those layouts then decide.
 import { describe, expect, it } from 'vitest'
 import type { GlobalSettings, Repo, Worktree } from './types'
-import { buildKnownOrcaWorkspaceLayouts, classifyWorktreeOwnership } from './worktree-ownership'
+import { buildKnownOrcaWorkspaceLayouts } from './orca-workspace-layouts'
+import { classifyWorktreeOwnership } from './worktree-ownership-policy'
 
 function makeRepo(overrides: Partial<Repo> = {}): Repo {
   return {
@@ -44,7 +48,6 @@ describe('repo-specific worktree ownership layouts', () => {
     expect(
       classifyWorktreeOwnership({
         repo: repoA,
-        settings,
         worktree: makeWorktree('/projects/a/worktrees/repo/feature'),
         knownOrcaLayouts: buildKnownOrcaWorkspaceLayouts(settings, repoA)
       })
@@ -52,7 +55,6 @@ describe('repo-specific worktree ownership layouts', () => {
     expect(
       classifyWorktreeOwnership({
         repo: repoB,
-        settings,
         worktree: makeWorktree('/projects/a/worktrees/repo/feature'),
         knownOrcaLayouts: buildKnownOrcaWorkspaceLayouts(settings, repoB)
       })
@@ -69,7 +71,6 @@ describe('repo-specific worktree ownership layouts', () => {
     expect(
       classifyWorktreeOwnership({
         repo,
-        settings,
         worktree: makeWorktree('C:\\projects\\App\\worktrees\\repo\\Feature'),
         knownOrcaLayouts: buildKnownOrcaWorkspaceLayouts(settings, repo)
       })

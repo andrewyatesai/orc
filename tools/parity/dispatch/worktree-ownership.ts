@@ -1,31 +1,38 @@
-// TS dispatch for the worktree-ownership parity module: maps the shared vector
-// function names to the real `src/shared/worktree-ownership.ts` exports so the
-// harness compares the live TS reference against the Rust port.
-
-import { createAgentScratchWorktreePathMatcher } from '../../../src/shared/agent-scratch-worktrees'
+// TS dispatch for the worktree-ownership parity module. The shared TS impl was
+// DELETED (`src/shared/worktree-ownership.ts` keeps only
+// `EXTERNAL_WORKTREE_VISIBILITY_ROLLOUT_AT`) — every surface now reaches
+// `orca_core::worktree_ownership` through `src/shared/worktree-ownership-policy.ts`
+// and `src/shared/orca-workspace-layouts.ts` on the orca-dispatch seam.
+//
+// Like the wsl-paths, branch-name-from-work and stable-pane-id adapters, this
+// drives the SHIMS rather than the wasm oracle, so the harness keeps a real
+// TS-vs-Rust differential instead of degenerating to wasm-vs-binary:
+// config/vitest.parity.config.ts installs no setup file, so the seam is unbound
+// here and each shim answers from its `parity` fallback — which is exactly the
+// deleted body, and exactly the code main/renderer/relay run before (or
+// without) a binding.
+//
+// `agentScratchWorktreePathMatcher` was a closure the vectors could not carry,
+// which is why the corpus has always spelled the checkout paths instead. The
+// shims now take that array directly, so the adapter forwards it verbatim: an
+// ABSENT key is the twin's absent matcher (the repo-root fallback), while `[]`
+// is a real matcher that matches nothing.
+import { buildKnownOrcaWorkspaceLayouts } from '../../../src/shared/orca-workspace-layouts'
 import {
   applyMetadataFallbackVisibility,
   areRuntimePathsEqual,
-  buildKnownOrcaWorkspaceLayouts,
   classifyWorktreeOwnership,
   effectiveExternalWorktreeVisibility,
   isLegacyRepoForExternalWorktreeVisibility,
   shouldShowWorktree,
-  toDetectedWorktree
-} from '../../../src/shared/worktree-ownership'
+  toDetectedWorktree,
+  type DetectedWorktreeInput,
+  type ShouldShowWorktreeInput,
+  type WorktreeOwnershipInput
+} from '../../../src/shared/worktree-ownership-policy'
 import type { DetectedWorktree, Repo } from '../../../src/shared/types'
 
-// `agentScratchWorktreePathMatcher` is a closure and cannot ride in a vector, so
-// the corpus carries the checkout paths production builds it from. An ABSENT key
-// leaves the matcher undefined, which is the twin's repo-root fallback; `[]` is a
-// real matcher that matches nothing.
-function agentScratchMatcher(input: unknown) {
-  const checkoutPaths = (input as { agentScratchCheckoutPaths?: string[] })
-    .agentScratchCheckoutPaths
-  return Array.isArray(checkoutPaths)
-    ? createAgentScratchWorktreePathMatcher(checkoutPaths)
-    : undefined
-}
+type ScratchCase = { agentScratchCheckoutPaths?: string[] }
 
 export function dispatch(fn: string, input: unknown): unknown {
   switch (fn) {
@@ -46,19 +53,24 @@ export function dispatch(fn: string, input: unknown): unknown {
       return buildKnownOrcaWorkspaceLayouts(settings, repo)
     }
     case 'classifyWorktreeOwnership':
-      return classifyWorktreeOwnership({
-        ...(input as Parameters<typeof classifyWorktreeOwnership>[0]),
-        agentScratchWorktreePathMatcher: agentScratchMatcher(input)
-      })
-    case 'toDetectedWorktree':
-      // Output spreads the input worktree, so vectors pass only { path, isMainWorktree }
-      // to match the lean Rust DetectedWorktree shape.
+      // The corpus predates the shim's signature and still carries the unread
+      // `settings` the twin took; only the fields the logic reads are forwarded.
+      return classifyWorktreeOwnership(
+        ownershipInput(input as WorktreeOwnershipInput & ScratchCase)
+      )
+    case 'toDetectedWorktree': {
+      // Output spreads the input worktree, so vectors pass only
+      // { path, isMainWorktree } to match the lean Rust DetectedWorktree shape.
+      const args = input as DetectedWorktreeInput & ScratchCase
       return toDetectedWorktree({
-        ...(input as Parameters<typeof toDetectedWorktree>[0]),
-        agentScratchWorktreePathMatcher: agentScratchMatcher(input)
+        ...ownershipInput(args),
+        repo: args.repo,
+        worktree: args.worktree,
+        isLegacyRepoForVisibility: args.isLegacyRepoForVisibility
       })
+    }
     case 'shouldShowWorktree':
-      return shouldShowWorktree(input as Parameters<typeof shouldShowWorktree>[0])
+      return shouldShowWorktree(input as ShouldShowWorktreeInput)
     case 'applyMetadataFallbackVisibility':
       // The single argument IS the input: a row a caller already built, whose
       // fields beyond the lean projection ride through the TS spread — so the
@@ -70,5 +82,15 @@ export function dispatch(fn: string, input: unknown): unknown {
     }
     default:
       throw new Error(`unknown function ${fn}`)
+  }
+}
+
+function ownershipInput(args: WorktreeOwnershipInput & ScratchCase): WorktreeOwnershipInput {
+  return {
+    repo: args.repo,
+    worktree: args.worktree,
+    meta: args.meta,
+    knownOrcaLayouts: args.knownOrcaLayouts,
+    agentScratchCheckoutPaths: args.agentScratchCheckoutPaths
   }
 }

@@ -184,7 +184,7 @@ import { DEFAULT_WORKSPACE_STATUS_ID } from '../shared/workspace-statuses'
 import { clampWorkspaceBoardColumnWidth, clampWorkspaceBoardOpacity, normalizePersistedWorkspaceStatuses, normalizeWorkspaceStatuses } from '../shared/workspace-status-normalization'
 import { clampMarkdownTocPanelWidth } from '../shared/markdown-toc-panel-width'
 import { clampCombinedDiffFileTreeWidth } from '../shared/combined-diff-file-tree-width'
-import { isLegacyRepoForExternalWorktreeVisibility } from '../shared/worktree-ownership'
+import { isLegacyRepoForExternalWorktreeVisibility } from '../shared/worktree-ownership-policy'
 import { sanitizeRepoIcon } from './rust-repo-icon'
 import { normalizeRepoBadgeColor } from './rust-repo-badge-color'
 import {

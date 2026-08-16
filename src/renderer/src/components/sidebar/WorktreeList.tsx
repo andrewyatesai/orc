@@ -240,10 +240,7 @@ import { ProjectGroupNameDialog } from './ProjectGroupNameDialog'
 import { ProjectGroupDeleteDialog } from './ProjectGroupDeleteDialog'
 import { selectProjectGroupRemovalTargets } from '@/store/slices/project-group-removal-targets'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
-import {
-  effectiveExternalWorktreeVisibility,
-  isLegacyRepoForExternalWorktreeVisibility
-} from '../../../../shared/worktree-ownership'
+import { effectiveExternalWorktreeVisibility, isLegacyRepoForExternalWorktreeVisibility } from '../../../../shared/worktree-ownership-policy'
 import { RepoIconGlyph } from '@/components/repo/repo-icon'
 import { RepoForkIndicator } from '@/components/repo/repo-fork-indicator'
 import ImportedWorktreesVisibilityLine from './ImportedWorktreesVisibilityLine'
