@@ -14,6 +14,7 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
             let parts = TerminalTabTitleParts {
                 custom_title: str_field(tab, "customTitle"),
                 quick_command_label: str_field(tab, "quickCommandLabel"),
+                ai_vault_title: str_field(nested(tab, "aiVaultTitle"), "title"),
                 generated_title: str_field(tab, "generatedTitle"),
                 title: str_field(tab, "title"),
             };
@@ -30,6 +31,7 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
             let parts = tab.filter(|t| !t.is_null()).map(|t| UnifiedTabLabelParts {
                 custom_label: str_field(Some(t), "customLabel"),
                 quick_command_label: str_field(Some(t), "quickCommandLabel"),
+                ai_vault_title: str_field(nested(Some(t), "aiVaultTitle"), "title"),
                 generated_label: str_field(Some(t), "generatedLabel"),
                 label: str_field(Some(t), "label"),
             });
@@ -47,6 +49,12 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
 /// TS where `null?.trim()` is falsy.
 fn str_field<'a>(obj: Option<&'a Value>, key: &str) -> Option<&'a str> {
     obj.and_then(|o| o.get(key)).and_then(Value::as_str)
+}
+
+/// One level down, for `aiVaultTitle.title`; a null/absent object reads as absent,
+/// matching the twin's `tab.aiVaultTitle?.title`.
+fn nested<'a>(obj: Option<&'a Value>, key: &str) -> Option<&'a Value> {
+    obj.and_then(|o| o.get(key)).filter(|v| !v.is_null())
 }
 
 fn generated_enabled(input: &Value) -> bool {
