@@ -7,6 +7,7 @@
 //! reversed-default-order regression. Over vendored `serde_json`; percent
 //! en/decoding for group keys via `orca-core`.
 
+use orca_core::js_string::trim_js;
 use orca_core::uri_component::{encode_uri_component, try_decode_uri_component};
 use serde_json::Value;
 use std::collections::HashSet;
@@ -140,7 +141,10 @@ fn is_known_bad_pr_reordered_default_status_payload(value: &Value) -> bool {
     is_legacy_default_status_payload(value, &WORKFLOW_IDS, default_status_visual)
 }
 
-/// The twin is `value.trim().replace(/\s+/g, ' ')`, and JS `\s` is not Rust's
+/// EVERY trim in this module is the JS one, not Rust's — the id path was missed
+/// the first time and that is where it hurt, because the id is MINTED and
+/// persisted. The twin is `value.trim().replace(/\s+/g, ' ')`, and JS `\s` is not
+/// Rust's
 /// `char::is_whitespace`: they disagree on U+FEFF (JS strips, Rust does not) and
 /// on U+0085 NEL (Rust strips, JS does not). `split_whitespace` therefore
 /// collapsed a label differently from the twin — on a PERSISTED board label.
@@ -189,7 +193,7 @@ fn replace_runs(value: &str, keep: impl Fn(char) -> bool) -> String {
 }
 
 fn slug_status_label(label: &str) -> String {
-    let slug = replace_runs(&label.trim().to_lowercase(), |c| c.is_ascii_alphanumeric());
+    let slug = replace_runs(&trim_js(label).to_lowercase(), |c| c.is_ascii_alphanumeric());
     let trimmed = slug.trim_matches('-');
     if trimmed.is_empty() { "status".to_string() } else { trimmed.to_string() }
 }
@@ -210,7 +214,7 @@ fn sanitize_status_id(value: Option<&str>, fallback_label: &str) -> String {
     let Some(value) = value else {
         return slug_status_label(fallback_label);
     };
-    let trimmed = value.trim().to_lowercase();
+    let trimmed = trim_js(value).to_lowercase();
     if trimmed.is_empty() {
         return slug_status_label(fallback_label);
     }
