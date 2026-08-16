@@ -45,6 +45,42 @@ design (`toDetectedWorktree` spreads its input into its output, so a richer inpu
 produces a richer answer than Rust was ever given). Review those; do not count
 them.
 
+### The bug class that has hit five separate cores: a Rust idiom is not a JS semantic
+
+Every stale port found this session was the same mistake wearing different
+clothes — the idiomatic Rust call was reached for where the twin's JS semantic
+was meant. Each reads correct in Rust. Each is a *different function* than the
+twin. And none of them can be caught by a vector corpus written from the same
+misunderstanding, which is why they survived to be found one cutover at a time.
+
+| Twin says | The port reached for | They differ on |
+| --- | --- | --- |
+| `.trim()`, `\s` | `char::is_whitespace`, `split_whitespace` | U+FEFF (JS strips, Rust does not) and U+0085 NEL (Rust strips, JS does not) |
+| `slice(0, n)` | `.chars().take(n)` | UTF-16 code units vs chars — astral text keeps 2× |
+| `if (value)` | `value.is_some()` | `Some("")` is truthy in Rust, falsy in JS |
+| `number` | `as_i64` | absent, `0.5` and out-of-`i64` all collapse to `0` |
+
+Where it landed: `stable_pane_id` (trim + cap), `workspace_statuses` (trim + cap,
+on both the label AND the minted id), `workspace_session_terminal_buffers` (cap —
+persisting 2× the scrollback for CJK), `git_upstream_status` (`as_i64`, so
+`{hasUpstream:true, behind:4}` answered "behind-only" where the twin says no),
+and `mcp` (`is_some`, so `command: ""` rendered a broken server as **enabled**).
+
+`orca_core::js_string::trim_js` and `is_js_trim_ws` exist for the first row, and
+a UTF-16 counter for the second. **Ports written before those helpers landed are
+where the remaining instances will be** — grepping a crate for
+`split_whitespace`, `.chars().take(`, `.is_some()` on an `Option<String>`, and
+`as_i64` on a JS `number` field costs a minute and has found five so far.
+
+Two habits that catch this class, both learned by failing at them first:
+
+* **Probe the field you did not change.** A fix to `sanitize_status_label` was
+  validated with 22 label-shaped inputs, so `sanitize_status_id` — which mints a
+  *persisted* identifier — kept the wrong trim set for another commit.
+* **Check what a change REMOVED, not only what it added.** An artifact rebuild
+  verified the OpenCode title step it had just added and missed the `aiVaultTitle`
+  step the same re-port had silently dropped, shipping an empty tab title.
+
 ### A clean verdict means "nothing found", not "nothing there"
 
 Batch 5 took seven modules this tool called clean and four of them still had to
