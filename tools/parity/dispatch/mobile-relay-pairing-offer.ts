@@ -14,12 +14,8 @@
 // that is why the Rust side takes `now_ms` as an argument instead of reading a
 // clock of its own.
 
-import {
-  decodePairingOffer,
-  encodePairingOffer,
-  parsePairingCode,
-  type PairingOffer
-} from '../../../src/shared/pairing'
+import { type PairingOffer } from '../../../src/shared/pairing'
+import { decodePairingOffer, encodePairingOffer, parsePairingCode } from '../../../src/shared/pairing-deep-link'
 import { createPairingOfferSchema } from '../../../src/shared/mobile-relay-pairing-offer'
 
 type ClockInput = {

@@ -44,7 +44,8 @@ import type {
   PairingGetEndpointsResult,
   PairingProvisionRelayParams
 } from '../../shared/mobile-relay-credential-contract'
-import { encodePairingOffer, PAIRING_OFFER_VERSION } from '../../shared/pairing'
+import { PAIRING_OFFER_VERSION } from '../../shared/pairing'
+import { encodePairingOffer } from '../../shared/pairing-deep-link'
 import { resolveAdvertisedPairingEndpoint } from './pairing-endpoint'
 import {
   decodeTerminalStreamFrame,

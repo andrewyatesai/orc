@@ -12,7 +12,7 @@ import { OrchestrationDb } from './orchestration/db'
 import * as runtimeMetadataModule from './runtime-metadata'
 import { readRuntimeMetadata, writeRuntimeMetadata } from './runtime-metadata'
 import { createRuntimeTransportMetadata, OrcaRuntimeRpcServer } from './runtime-rpc'
-import { parsePairingCode } from '../../shared/pairing'
+import { parsePairingCode } from '../../shared/pairing-deep-link'
 import { subscribeRemoteRuntimeRequest } from '../../shared/remote-runtime-client'
 import {
   TerminalStreamOpcode,

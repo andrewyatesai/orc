@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { generateKeyPair, publicKeyToBase64 } from '../../shared/e2ee-crypto'
-import { encodePairingOffer, type PairingOffer } from '../../shared/pairing'
+import { type PairingOffer } from '../../shared/pairing'
+import { encodePairingOffer } from '../../shared/pairing-deep-link'
 import { addEnvironmentFromPairingCode } from '../../shared/runtime-environment-store'
 import {
   callRuntimeEnvironment,

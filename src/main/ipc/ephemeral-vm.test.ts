@@ -2,7 +2,8 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { encodePairingOffer, PAIRING_OFFER_VERSION } from '../../shared/pairing'
+import { PAIRING_OFFER_VERSION } from '../../shared/pairing'
+import { encodePairingOffer } from '../../shared/pairing-deep-link'
 import { listEnvironments } from '../../shared/runtime-environment-store'
 
 const handlers = new Map<string, (_event: unknown, args: never) => Promise<unknown> | unknown>()

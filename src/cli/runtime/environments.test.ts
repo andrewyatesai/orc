@@ -2,7 +2,7 @@ import { mkdtempSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { encodePairingOffer } from '../../shared/pairing'
+import { encodePairingOffer } from '../../shared/pairing-deep-link'
 import {
   addEnvironmentFromPairingCode,
   getEnvironmentStorePath,

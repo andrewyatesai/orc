@@ -12,7 +12,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { CameraView, useCameraPermissions } from 'expo-camera'
 import { useRouter } from 'expo-router'
 import { ChevronLeft, Clipboard as ClipboardIcon, QrCode } from 'lucide-react-native'
-import { decodePairingUrl, parsePairingCode } from '../src/transport/pairing'
+import { decodePairingUrl } from '../src/transport/pairing'
+import { parsePairingCode } from '../src/transport/pairing-deep-link'
 import {
   startPreProfilePairing,
   type PreProfilePairingAttempt

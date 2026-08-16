@@ -10,7 +10,8 @@ import {
   publicKeyFromBase64,
   publicKeyToBase64
 } from './e2ee-crypto'
-import { encodePairingOffer, parsePairingCode, type PairingOffer } from './pairing'
+import { type PairingOffer } from './pairing'
+import { encodePairingOffer, parsePairingCode } from './pairing-deep-link'
 import {
   REMOTE_RUNTIME_MAX_PENDING_RPC_BYTES,
   retainedRemoteRuntimeJsonStringBytes,

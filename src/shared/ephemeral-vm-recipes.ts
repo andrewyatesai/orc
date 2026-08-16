@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { parsePairingCode } from './pairing'
+import { parsePairingCode } from './pairing-deep-link'
 import {
   DEFAULT_SSH_RELAY_GRACE_PERIOD_SECONDS,
   MAX_SSH_RELAY_GRACE_PERIOD_SECONDS,

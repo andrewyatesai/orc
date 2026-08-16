@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../shared/constants'
-import { parsePairingCode } from '../../shared/pairing'
+import { parsePairingCode } from '../../shared/pairing-deep-link'
 import { RemoteRuntimeRequestConnection } from '../../shared/remote-runtime-request-connection'
 import type {
   RuntimeEnsureAgentSessionResult,

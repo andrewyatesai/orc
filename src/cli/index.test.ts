@@ -112,8 +112,8 @@ import {
 import { GLOBAL_FLAGS, specPaths } from './args'
 import { RuntimeRpcFailureError } from './runtime-client'
 import { buildWorktree, okFixture, queueFixtures, worktreeListFixture } from './test-fixtures'
-import { encodePairingOffer, PAIRING_OFFER_VERSION } from '../shared/pairing'
-
+import { PAIRING_OFFER_VERSION } from '../shared/pairing'
+import { encodePairingOffer } from '../shared/pairing-deep-link'
 describe('COMMAND_SPECS collision check', () => {
   it('has no duplicate command or alias paths', () => {
     // Why: first-match resolution would silently shadow duplicate aliases.
