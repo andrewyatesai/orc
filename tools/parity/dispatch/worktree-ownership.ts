@@ -2,6 +2,7 @@
 // function names to the real `src/shared/worktree-ownership.ts` exports so the
 // harness compares the live TS reference against the Rust port.
 
+import { createAgentScratchWorktreePathMatcher } from '../../../src/shared/agent-scratch-worktrees'
 import {
   applyMetadataFallbackVisibility,
   areRuntimePathsEqual,
@@ -13,6 +14,18 @@ import {
   toDetectedWorktree
 } from '../../../src/shared/worktree-ownership'
 import type { DetectedWorktree, Repo } from '../../../src/shared/types'
+
+// `agentScratchWorktreePathMatcher` is a closure and cannot ride in a vector, so
+// the corpus carries the checkout paths production builds it from. An ABSENT key
+// leaves the matcher undefined, which is the twin's repo-root fallback; `[]` is a
+// real matcher that matches nothing.
+function agentScratchMatcher(input: unknown) {
+  const checkoutPaths = (input as { agentScratchCheckoutPaths?: string[] })
+    .agentScratchCheckoutPaths
+  return Array.isArray(checkoutPaths)
+    ? createAgentScratchWorktreePathMatcher(checkoutPaths)
+    : undefined
+}
 
 export function dispatch(fn: string, input: unknown): unknown {
   switch (fn) {
@@ -33,11 +46,17 @@ export function dispatch(fn: string, input: unknown): unknown {
       return buildKnownOrcaWorkspaceLayouts(settings, repo)
     }
     case 'classifyWorktreeOwnership':
-      return classifyWorktreeOwnership(input as Parameters<typeof classifyWorktreeOwnership>[0])
+      return classifyWorktreeOwnership({
+        ...(input as Parameters<typeof classifyWorktreeOwnership>[0]),
+        agentScratchWorktreePathMatcher: agentScratchMatcher(input)
+      })
     case 'toDetectedWorktree':
       // Output spreads the input worktree, so vectors pass only { path, isMainWorktree }
       // to match the lean Rust DetectedWorktree shape.
-      return toDetectedWorktree(input as Parameters<typeof toDetectedWorktree>[0])
+      return toDetectedWorktree({
+        ...(input as Parameters<typeof toDetectedWorktree>[0]),
+        agentScratchWorktreePathMatcher: agentScratchMatcher(input)
+      })
     case 'shouldShowWorktree':
       return shouldShowWorktree(input as Parameters<typeof shouldShowWorktree>[0])
     case 'applyMetadataFallbackVisibility':

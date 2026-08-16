@@ -3,22 +3,20 @@
 //!
 //! Decides whether a discovered git worktree is Orca-managed, an unknown legacy
 //! row, or external — and whether it should be shown — by matching its path
-//! against the known Orca workspace layouts. Composes `cross_platform_path` and
-//! `wsl_paths`. Input structs are the lean projections the logic reads.
-//!
-//! Two twin branches are NOT ported and are called out where they belong:
-//! the `agent-scratch` path matcher (`agent-scratch-worktrees.ts`) that
-//! `classifyWorktreeOwnership` consults, and the explicit-import override
-//! (`external-worktree-inbox.ts`) inside `shouldShowWorktree`. The
-//! `agent-scratch` ownership *value* is honoured throughout, so rows classified
-//! upstream keep their policy through the visibility half and the metadata
-//! fallback.
+//! against the known Orca workspace layouts. Composes `cross_platform_path`,
+//! `wsl_paths`, `agent_scratch_worktrees` (the classifier's scratch step) and
+//! `external_worktree_inbox` (the visibility half's explicit-import override).
+//! Input structs are the lean projections the logic reads.
 
+use crate::agent_scratch_worktrees::{
+    is_agent_scratch_worktree_path, AgentScratchWorktreePathMatcher,
+};
 use crate::cross_platform_path::{
     is_runtime_path_absolute, is_windows_absolute_path_like,
     normalize_runtime_path_for_comparison, normalize_runtime_path_separators,
     relative_path_inside_root, resolve_runtime_path, PathFlavor,
 };
+use crate::external_worktree_inbox::is_explicitly_imported_external_worktree_path;
 use crate::js_string::trim_js;
 use crate::wsl_paths::parse_wsl_unc_path;
 use std::collections::HashSet;
@@ -37,11 +35,9 @@ pub enum WorktreeOwnership {
     OrcaManaged,
     UnknownLegacy,
     External,
-    /// `agent-scratch` — sub-agent plumbing (`.claude/worktrees`, `.gsd-workspaces`).
-    /// `classify_worktree_ownership` never mints it: the twin's matcher lives in
-    /// the un-ported `agent-scratch-worktrees.ts`. The variant exists because the
-    /// visibility half of this module is handed rows already classified upstream,
-    /// and both `should_show_worktree` and the metadata fallback branch on it.
+    /// `agent-scratch` — sub-agent plumbing (`.claude/worktrees`, `.gsd-workspaces`),
+    /// minted by `classify_worktree_ownership` via `agent_scratch_worktrees` and
+    /// hidden unless explicitly imported or the selected checkout (#9535/#9388).
     AgentScratch,
 }
 
@@ -60,6 +56,9 @@ pub struct Repo {
     pub added_at: Option<f64>,
     pub connection_id: Option<String>,
     pub worktree_base_path: Option<String>,
+    /// `importedExternalWorktreePaths` — rows the user pulled out of the inbox by
+    /// hand. An absent list is the twin's `?? []`, so `Vec::new()` is faithful.
+    pub imported_external_worktree_paths: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -234,16 +233,29 @@ fn build_wsl_workspace_layouts(repo_path: &str, settings: &WorkspaceLayoutSettin
         .collect()
 }
 
+/// `agent_scratch_matcher` is the twin's optional
+/// `agentScratchWorktreePathMatcher`, pre-normalized over every registered
+/// checkout by the caller. `None` falls back to the repo root alone, exactly as
+/// the twin's `?? isAgentScratchWorktreePath(repo.path, …)` does — a matcher that
+/// answers `false` is an answer, not an absence.
 pub fn classify_worktree_ownership(
-    // Kept for TS-signature fidelity: the TS args object still carries `repo`
-    // though #7078 removed its only use (path-shape ownership).
-    _repo: &Repo,
+    repo: &Repo,
     worktree: &Worktree,
     meta: Option<&WorktreeMeta>,
     known_orca_layouts: &[OrcaWorkspaceLayout],
+    agent_scratch_matcher: Option<&AgentScratchWorktreePathMatcher>,
 ) -> WorktreeOwnership {
     if has_strong_orca_metadata(meta) {
         return WorktreeOwnership::OrcaManaged;
+    }
+    // Sub-agent scratch worktrees (e.g. .claude/worktrees) are tool plumbing,
+    // not workspaces; classify before the layout heuristics (#9388).
+    let is_scratch = match agent_scratch_matcher {
+        Some(matcher) => matcher.matches(&worktree.path),
+        None => is_agent_scratch_worktree_path(&repo.path, &worktree.path),
+    };
+    if is_scratch {
+        return WorktreeOwnership::AgentScratch;
     }
     // A plain `git worktree add` can target Orca's nested workspace folder —
     // only metadata proves Orca created it (#7078); path shape never does.
@@ -262,12 +274,21 @@ pub fn to_detected_worktree(
     meta: Option<&WorktreeMeta>,
     known_orca_layouts: &[OrcaWorkspaceLayout],
     is_legacy_repo_for_visibility: Option<bool>,
+    agent_scratch_matcher: Option<&AgentScratchWorktreePathMatcher>,
 ) -> DetectedWorktree {
-    let ownership = classify_worktree_ownership(repo, worktree, meta, known_orca_layouts);
+    let ownership =
+        classify_worktree_ownership(repo, worktree, meta, known_orca_layouts, agent_scratch_matcher);
     let selected_checkout = are_runtime_paths_equal(&worktree.path, &repo.path);
     let is_legacy =
         is_legacy_repo_for_visibility.unwrap_or_else(|| is_legacy_repo_for_external_worktree_visibility(repo));
-    let visible = should_show_worktree(ownership, repo, is_legacy, selected_checkout);
+    let visible = should_show_worktree(
+        &worktree.path,
+        ownership,
+        repo,
+        is_legacy,
+        selected_checkout,
+        &repo.imported_external_worktree_paths,
+    );
     DetectedWorktree {
         path: worktree.path.clone(),
         is_main_worktree: worktree.is_main_worktree,
@@ -277,22 +298,26 @@ pub fn to_detected_worktree(
     }
 }
 
-/// NOT PORTED, and the one gap in this function: the twin also returns `true`
-/// for a path in `repo.importedExternalWorktreePaths`, via
-/// `isExplicitlyImportedExternalWorktreePath` in the un-ported
-/// `external-worktree-inbox.ts`. That branch sits between "orca-managed" and
-/// "agent-scratch" below, so an explicitly imported row — scratch or not — can
-/// answer `false` here where the twin answers `true`.
+/// `importedExternalWorktreePaths` is a SEPARATE argument in the twin, not read
+/// off `repo` — `to_detected_worktree` is what forwards `repo`'s list, and other
+/// callers pass a narrower one. The override outranks the scratch rule below, so
+/// an explicitly imported scratch row stays visible.
 pub fn should_show_worktree(
+    worktree_path: &str,
     ownership: WorktreeOwnership,
     repo: &Repo,
     is_legacy_repo_for_visibility: bool,
     is_selected_checkout: bool,
+    imported_external_worktree_paths: &[String],
 ) -> bool {
     if is_selected_checkout {
         return true;
     }
     if ownership == WorktreeOwnership::OrcaManaged {
+        return true;
+    }
+    if is_explicitly_imported_external_worktree_path(worktree_path, imported_external_worktree_paths)
+    {
         return true;
     }
     // Agent scratch stays hidden even when the repo shows non-Orca worktrees;
@@ -387,9 +412,6 @@ mod tests {
 
     const SCRATCH_PATH: &str = "/repos/app/.claude/worktrees/agent-a04ccaaa55ddadb91";
 
-    /// The twin builds these rows with `toDetectedWorktree` + the un-ported agent
-    /// scratch matcher; the ported half is the decision, so the row is
-    /// constructed at the ownership the twin's classifier hands it.
     fn detected(path: &str, ownership: WorktreeOwnership, visible: bool) -> DetectedWorktree {
         DetectedWorktree {
             path: path.to_string(),
@@ -427,7 +449,7 @@ mod tests {
         let layouts = build_known_orca_workspace_layouts(&settings, Some(&repo));
         let meta = WorktreeMeta { orca_created_at: Some(1.0), ..Default::default() };
         assert_eq!(
-            classify_worktree_ownership(&repo, &worktree("/tmp/outside"), Some(&meta), &layouts),
+            classify_worktree_ownership(&repo, &worktree("/tmp/outside"), Some(&meta), &layouts, None),
             OrcaManaged
         );
     }
@@ -440,16 +462,16 @@ mod tests {
         // #7078: a plain `git worktree add` can target the nested workspace
         // folder — only metadata proves Orca created it, never path shape.
         assert_eq!(
-            classify_worktree_ownership(&repo, &worktree("/orca/workspaces/app/feature"), None, &layouts),
+            classify_worktree_ownership(&repo, &worktree("/orca/workspaces/app/feature"), None, &layouts, None),
             External
         );
         let meta = WorktreeMeta { orca_creation_workspace_layout: true, ..Default::default() };
         assert_eq!(
-            classify_worktree_ownership(&repo, &worktree("/orca/workspaces/app/feature"), Some(&meta), &layouts),
+            classify_worktree_ownership(&repo, &worktree("/orca/workspaces/app/feature"), Some(&meta), &layouts, None),
             OrcaManaged
         );
         assert_eq!(
-            classify_worktree_ownership(&repo, &worktree("/orca/workspaces/other/feature"), None, &layouts),
+            classify_worktree_ownership(&repo, &worktree("/orca/workspaces/other/feature"), None, &layouts, None),
             External
         );
     }
@@ -460,7 +482,7 @@ mod tests {
         let settings = WorkspaceLayoutSettings { nest_workspaces: false, ..make_settings() };
         let layouts = build_known_orca_workspace_layouts(&settings, Some(&repo));
         assert_eq!(
-            classify_worktree_ownership(&repo, &worktree("/orca/workspaces/feature"), None, &layouts),
+            classify_worktree_ownership(&repo, &worktree("/orca/workspaces/feature"), None, &layouts, None),
             UnknownLegacy
         );
     }
@@ -474,7 +496,7 @@ mod tests {
         };
         let layouts = build_known_orca_workspace_layouts(&settings, Some(&repo));
         assert_eq!(
-            classify_worktree_ownership(&repo, &worktree("/orca/workspaces/feature"), None, &layouts),
+            classify_worktree_ownership(&repo, &worktree("/orca/workspaces/feature"), None, &layouts, None),
             UnknownLegacy
         );
     }
@@ -491,7 +513,7 @@ mod tests {
         // Historical nested roots still classify by nest mode: metadata-free
         // descendants are external (#7078), not unknown-legacy.
         assert_eq!(
-            classify_worktree_ownership(&repo, &worktree("/old/workspaces/app/feature"), None, &layouts),
+            classify_worktree_ownership(&repo, &worktree("/old/workspaces/app/feature"), None, &layouts, None),
             External
         );
     }
@@ -554,7 +576,7 @@ mod tests {
             WorktreeMeta { push_target: true, ..Default::default() },
         ] {
             assert_eq!(
-                classify_worktree_ownership(&repo, &worktree("/scratch/manual"), Some(&meta), &layouts),
+                classify_worktree_ownership(&repo, &worktree("/scratch/manual"), Some(&meta), &layouts, None),
                 OrcaManaged
             );
         }
@@ -568,7 +590,7 @@ mod tests {
         let worktree = Worktree { path: "C:\\ORCA\\WORKSPACES\\App\\Feature".to_string(), is_main_worktree: false };
         // Nested-root descendants without metadata classify external (#7078); the
         // drive-casing/separator normalization is what keeps this off unknown-legacy.
-        assert_eq!(classify_worktree_ownership(&repo, &worktree, None, &layouts), External);
+        assert_eq!(classify_worktree_ownership(&repo, &worktree, None, &layouts, None), External);
     }
 
     #[test]
@@ -586,12 +608,14 @@ mod tests {
             None,
             &layouts,
             None,
+            None,
         );
         let git_main = to_detected_worktree(
             &repo,
             &Worktree { path: "/repos/app-main".to_string(), is_main_worktree: true },
             None,
             &layouts,
+            None,
             None,
         );
         assert!(selected.visible);
@@ -643,25 +667,216 @@ mod tests {
     }
 
     // Twin: 'hides agent scratch even when the repo shows non-Orca worktrees'.
-    // The twin asserts it through `toDetectedWorktree`, which needs the un-ported
-    // scratch matcher to reach the ownership; the ported decision is this one.
     #[test]
     fn hides_agent_scratch_even_when_the_repo_shows_non_orca_worktrees() {
         let shows_external = Repo { external_worktree_visibility: Some(Show), ..make_repo() };
-        assert!(!should_show_worktree(AgentScratch, &shows_external, false, false));
+        assert!(!should_show_worktree(SCRATCH_PATH, AgentScratch, &shows_external, false, false, &[]));
         let legacy = Repo {
             added_at: Some((EXTERNAL_WORKTREE_VISIBILITY_ROLLOUT_AT - 1) as f64),
             ..make_repo()
         };
-        assert!(!should_show_worktree(AgentScratch, &legacy, true, false));
+        assert!(!should_show_worktree(SCRATCH_PATH, AgentScratch, &legacy, true, false, &[]));
     }
 
     // Twin: 'still shows agent scratch for the selected checkout or an explicit
-    // import'. Only the selected-checkout half is portable — the explicit-import
-    // half runs through the un-ported `isExplicitlyImportedExternalWorktreePath`.
+    // import'.
     #[test]
-    fn still_shows_agent_scratch_for_the_selected_checkout() {
-        assert!(should_show_worktree(AgentScratch, &make_repo(), false, true));
+    fn still_shows_agent_scratch_for_the_selected_checkout_or_an_explicit_import() {
+        assert!(should_show_worktree(SCRATCH_PATH, AgentScratch, &make_repo(), false, true, &[]));
+        assert!(should_show_worktree(
+            SCRATCH_PATH,
+            AgentScratch,
+            &make_repo(),
+            false,
+            false,
+            &[SCRATCH_PATH.to_string()]
+        ));
+    }
+
+    // Twin: 'shows explicitly imported external worktrees while repo visibility
+    // stays hide'. The override outranks the hide policy AND the scratch rule,
+    // and it is the ONLY route by which a scratch row becomes visible without
+    // being the selected checkout.
+    #[test]
+    fn shows_explicitly_imported_rows_while_repo_visibility_stays_hide() {
+        let repo = Repo {
+            external_worktree_visibility: Some(Hide),
+            imported_external_worktree_paths: vec!["/scratch/imported".to_string()],
+            ..make_repo()
+        };
+        let layouts = build_known_orca_workspace_layouts(&make_settings(), Some(&repo));
+        let imported = to_detected_worktree(
+            &repo,
+            &Worktree { path: "/scratch/imported".to_string(), is_main_worktree: false },
+            None,
+            &layouts,
+            None,
+            None,
+        );
+        let other = to_detected_worktree(
+            &repo,
+            &Worktree { path: "/scratch/other".to_string(), is_main_worktree: false },
+            None,
+            &layouts,
+            None,
+            None,
+        );
+        assert!(imported.visible);
+        assert!(!other.visible);
+    }
+
+    // The stored path and the row's path are compared through the comparison
+    // fold, so a trailing slash, a separator flip or Windows casing all still
+    // reveal the row — but POSIX case does not.
+    #[test]
+    fn folds_the_imported_path_the_way_the_comparison_key_does() {
+        let repo = Repo { external_worktree_visibility: Some(Hide), ..make_repo() };
+        for stored in ["/scratch/imported/", "/scratch//imported"] {
+            assert!(
+                should_show_worktree(
+                    "/scratch/imported",
+                    External,
+                    &repo,
+                    false,
+                    false,
+                    &[stored.to_string()]
+                ),
+                "{stored}"
+            );
+        }
+        assert!(should_show_worktree(
+            "C:\\scratch\\Imported",
+            External,
+            &repo,
+            false,
+            false,
+            &["c:/scratch/imported".to_string()]
+        ));
+        assert!(!should_show_worktree(
+            "/scratch/imported",
+            External,
+            &repo,
+            false,
+            false,
+            &["/scratch/Imported".to_string()]
+        ));
+    }
+
+    // `classifyWorktreeOwnership` step 2. Without it every one of these rows
+    // classifies `external` and un-hides in the sidebar (#9535/#9388).
+    #[test]
+    fn classifies_sub_agent_scratch_paths_as_agent_scratch_without_metadata() {
+        let repo = make_repo();
+        let layouts = build_known_orca_workspace_layouts(&make_settings(), Some(&repo));
+        assert_eq!(
+            classify_worktree_ownership(&repo, &worktree(SCRATCH_PATH), None, &layouts, None),
+            AgentScratch
+        );
+        assert_eq!(
+            classify_worktree_ownership(
+                &repo,
+                &worktree("/repos/app/.gsd-workspaces/phase-1-subagent-2"),
+                None,
+                &layouts,
+                None
+            ),
+            AgentScratch
+        );
+        // Not anchored to a registered checkout, so it stays an ordinary row.
+        assert_eq!(
+            classify_worktree_ownership(
+                &repo,
+                &worktree("/repos/other/.claude/worktrees/agent-1"),
+                None,
+                &layouts,
+                None
+            ),
+            External
+        );
+    }
+
+    // Twin: 'classifies scratch worktrees created inside another linked checkout'.
+    // An explicit matcher REPLACES the repo-root fallback — including when it
+    // says no, which is why `??` and not `||`.
+    #[test]
+    fn uses_the_supplied_matcher_instead_of_the_repo_root_fallback() {
+        let repo = make_repo();
+        let layouts = build_known_orca_workspace_layouts(&make_settings(), Some(&repo));
+        let linked = "/orca/workspaces/app/feature-x/.claude/worktrees/agent-1";
+        let matcher = AgentScratchWorktreePathMatcher::new(&[
+            repo.path.clone(),
+            "/orca/workspaces/app/feature-x".to_string(),
+        ]);
+        assert_eq!(
+            classify_worktree_ownership(&repo, &worktree(linked), None, &layouts, Some(&matcher)),
+            AgentScratch
+        );
+        assert_eq!(
+            classify_worktree_ownership(&repo, &worktree(linked), None, &layouts, None),
+            External
+        );
+        let narrow = AgentScratchWorktreePathMatcher::new(&["/somewhere/else".to_string()]);
+        assert_eq!(
+            classify_worktree_ownership(
+                &repo,
+                &worktree(SCRATCH_PATH),
+                None,
+                &layouts,
+                Some(&narrow)
+            ),
+            External
+        );
+    }
+
+    // Twin: 'keeps strong Orca metadata authoritative over the scratch path match'
+    // — step 1 runs before step 2.
+    #[test]
+    fn keeps_strong_orca_metadata_authoritative_over_the_scratch_path_match() {
+        let repo = make_repo();
+        let layouts = build_known_orca_workspace_layouts(&make_settings(), Some(&repo));
+        let meta = WorktreeMeta { orca_created_at: Some(1.0), ..Default::default() };
+        assert_eq!(
+            classify_worktree_ownership(&repo, &worktree(SCRATCH_PATH), Some(&meta), &layouts, None),
+            OrcaManaged
+        );
+    }
+
+    // Twin: 'does not classify worktrees from a repo stored below a scratch-looking
+    // parent'. The marker must sit directly under a registered checkout, so a repo
+    // that itself lives in `.claude/worktrees` does not make its children scratch.
+    #[test]
+    fn does_not_classify_rows_of_a_repo_stored_below_a_scratch_looking_parent() {
+        let repo = Repo { path: "/repos/.claude/worktrees/app".to_string(), ..make_repo() };
+        let layouts = build_known_orca_workspace_layouts(&make_settings(), Some(&repo));
+        assert_ne!(
+            classify_worktree_ownership(
+                &repo,
+                &worktree("/repos/.claude/worktrees/app/manual/feature-x"),
+                None,
+                &layouts,
+                None
+            ),
+            AgentScratch
+        );
+    }
+
+    // Step 2 runs BEFORE the layout heuristics, so a scratch path that also sits
+    // under a flat Orca root is scratch, not unknown-legacy.
+    #[test]
+    fn classifies_scratch_ahead_of_the_flat_orca_root_heuristic() {
+        let repo = Repo { path: "/orca/workspaces".to_string(), ..make_repo() };
+        let settings = WorkspaceLayoutSettings { nest_workspaces: false, ..make_settings() };
+        let layouts = build_known_orca_workspace_layouts(&settings, Some(&repo));
+        assert_eq!(
+            classify_worktree_ownership(
+                &repo,
+                &worktree("/orca/workspaces/.claude/worktrees/agent-1"),
+                None,
+                &layouts,
+                None
+            ),
+            AgentScratch
+        );
     }
 
     // Twin: 'keeps agent scratch hidden in the metadata fallback while revealing
@@ -727,6 +942,6 @@ mod tests {
             external_worktree_visibility: Some(Hide),
             ..make_repo()
         };
-        assert!(should_show_worktree(UnknownLegacy, &repo, true, false));
+        assert!(should_show_worktree("/scratch/manual", UnknownLegacy, &repo, true, false, &[]));
     }
 }

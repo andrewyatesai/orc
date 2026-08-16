@@ -15,9 +15,28 @@
 //! | env field count / key / value | 256 / 4 KiB / 64 KiB | that server invalid, env dropped |
 //!
 //! One input class cannot be ported exactly, only chosen between: config text
-//! carrying an ESCAPED lone surrogate. See `parse_past_lone_surrogate_escapes`.
+//! carrying an ESCAPED lone surrogate (`"a\ud800b"`). `JSON.parse` takes it and
+//! the twin lists four healthy servers; a strict `from_str` answered `invalid`
+//! with an EMPTY pane, hiding servers that are actually running. So the parse
+//! goes through `parse_json_past_lone_surrogate_escapes`, which retries with
+//! each unpaired escape rewritten to `�`.
+//!
+//! RESIDUAL DIVERGENCE, deliberate and unclosable: a string that carried the
+//! surrogate reads U+FFFD here where the twin reads the unpaired code unit
+//! (`"a\u{d800}b"` vs `"a\u{fffd}b"`). Nothing can agree — a Rust `String`
+//! cannot hold that value, and the dispatch codec refuses to carry one back to
+//! JS on purpose (`src/shared/dispatch-payload-codec.ts`). The choice is which
+//! failure the user gets, and one substituted character in a name beats an empty
+//! MCP pane. Two names differing ONLY in which unpaired surrogate they hold do
+//! collide after substitution; the twin keeps them distinct.
+//!
+//! Bounds are unaffected: the rewrite is length-preserving in the text, and a
+//! lone surrogate and U+FFFD measure the same on BOTH caps — 1 UTF-16 code unit
+//! (`measureUtf8ByteLength` walks `codePointAt`, which yields the bare surrogate)
+//! and 3 UTF-8 bytes.
 
 use crate::js_value_string::js_string;
+use crate::json_lone_surrogate_escapes::parse_json_past_lone_surrogate_escapes;
 use orca_text::mcp_config_inspection_limits::{
     is_mcp_config_inspection_field_within_limit, is_mcp_config_inspection_name_within_limit,
     is_mcp_config_inspection_text_within_limit, MCP_CONFIG_INSPECTION_MAX_SERVERS,
@@ -70,13 +89,10 @@ pub fn inspect_mcp_config_content(content: Option<&str>, servers_path: &[&str]) 
     if !is_mcp_config_inspection_text_within_limit(content) {
         return invalid_config("MCP config exceeds the inspection size limit.");
     }
-    let parsed: Value = match serde_json::from_str(content) {
+    let parsed: Value = match parse_json_past_lone_surrogate_escapes(content) {
         Ok(value) => value,
-        Err(error) => match parse_past_lone_surrogate_escapes(content) {
-            Some(value) => value,
-            // Don't expose file contents; just note it failed to parse.
-            None => return invalid_config(&format!("Invalid JSON: {error}")),
-        },
+        // Don't expose file contents; just note it failed to parse.
+        Err(error) => return invalid_config(&format!("Invalid JSON: {error}")),
     };
 
     let Some(servers) = extract_object_at_path(&parsed, servers_path) else {
@@ -89,33 +105,6 @@ pub fn inspect_mcp_config_content(content: Option<&str>, servers_path: &[&str]) 
 
     let servers = entries.into_iter().map(|(name, entry)| summarize_mcp_server(name, entry)).collect();
     McpConfigInspection { exists: true, status: "valid".into(), servers, error: None }
-}
-
-/// Second chance for the ONE document class `JSON.parse` accepts and
-/// `serde_json` cannot: an escaped lone surrogate (`"a\ud800b"`).
-///
-/// The twin reads that file as four healthy servers — so does every JS agent
-/// runtime that launches them — while a strict parse here answered `invalid`
-/// with an EMPTY pane, hiding servers that are actually running. Retrying with
-/// each unpaired escape rewritten to `�` restores the list.
-///
-/// RESIDUAL DIVERGENCE, deliberate and unclosable: a string that carried the
-/// surrogate now reads U+FFFD where the twin reads the unpaired code unit
-/// (`"a\u{d800}b"` vs `"a\u{fffd}b"`). Nothing here can agree — a Rust `String`
-/// cannot hold that value, and the dispatch codec refuses to carry one back to
-/// JS on purpose (src/shared/dispatch-payload-codec.ts). The choice is which
-/// failure the user gets, and one substituted character in a name beats an empty
-/// MCP pane. Two names that differ ONLY in which unpaired surrogate they hold do
-/// collide after substitution; the twin keeps them distinct.
-///
-/// Bounds are unaffected: the rewrite is length-preserving in the text, and a
-/// lone surrogate and U+FFFD measure the same on BOTH caps — 1 UTF-16 code unit
-/// (`measureUtf8ByteLength` walks `codePointAt`, which yields the bare surrogate)
-/// and 3 UTF-8 bytes.
-fn parse_past_lone_surrogate_escapes(content: &str) -> Option<Value> {
-    let repaired = crate::json_lone_surrogate_escapes::replace_lone_surrogate_escapes(content)?;
-    // Still broken for some OTHER reason: keep the original parse error.
-    serde_json::from_str(&repaired).ok()
 }
 
 fn invalid_config(error: &str) -> McpConfigInspection {

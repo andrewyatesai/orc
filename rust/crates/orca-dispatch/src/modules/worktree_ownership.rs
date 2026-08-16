@@ -8,12 +8,18 @@
 //! `DetectedWorktree` keeps only the fields the TS spread carries from the lean
 //! `{ path, isMainWorktree }` worktree.
 //!
+//! One input has no JSON form: the twin's `agentScratchWorktreePathMatcher` is a
+//! closure. Vectors carry `agentScratchCheckoutPaths` instead — the array the
+//! production callers pass to `createAgentScratchWorktreePathMatcher` — and both
+//! adapters build the matcher from it, so the compared call is the real one.
+//!
 //! `applyMetadataFallbackVisibility` is the exception, and deliberately: its TS
 //! input is a row a caller already built, so the arm re-emits the caller's own
 //! object with the two decided keys replaced instead of rebuilding it from the
 //! lean struct. Rebuilding would drop `id`/`repoId`/`branch`/… on a function
 //! whose whole job is to hand the row back.
 
+use orca_core::agent_scratch_worktrees::AgentScratchWorktreePathMatcher;
 use orca_core::worktree_ownership::{
     apply_metadata_fallback_visibility, are_runtime_paths_equal,
     build_known_orca_workspace_layouts, classify_worktree_ownership,
@@ -48,7 +54,14 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
             let worktree = parse_worktree(field(input, "worktree"));
             let meta = parse_meta(input.get("meta"));
             let layouts = parse_layouts(input.get("knownOrcaLayouts"));
-            ownership_to_value(classify_worktree_ownership(&repo, &worktree, meta.as_ref(), &layouts))
+            let matcher = parse_agent_scratch_matcher(input);
+            ownership_to_value(classify_worktree_ownership(
+                &repo,
+                &worktree,
+                meta.as_ref(),
+                &layouts,
+                matcher.as_ref(),
+            ))
         }
         "toDetectedWorktree" => {
             let repo = parse_repo(field(input, "repo"));
@@ -56,14 +69,33 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
             let meta = parse_meta(input.get("meta"));
             let layouts = parse_layouts(input.get("knownOrcaLayouts"));
             let is_legacy = input.get("isLegacyRepoForVisibility").and_then(Value::as_bool);
-            detected_to_value(&to_detected_worktree(&repo, &worktree, meta.as_ref(), &layouts, is_legacy))
+            let matcher = parse_agent_scratch_matcher(input);
+            detected_to_value(&to_detected_worktree(
+                &repo,
+                &worktree,
+                meta.as_ref(),
+                &layouts,
+                is_legacy,
+                matcher.as_ref(),
+            ))
         }
         "shouldShowWorktree" => {
             let repo = parse_repo(field(input, "repo"));
             let ownership = parse_ownership(input.get("ownership"));
             let is_legacy = bool_field(input, "isLegacyRepoForVisibility");
             let is_selected = bool_field(input, "isSelectedCheckout");
-            Value::Bool(should_show_worktree(ownership, &repo, is_legacy, is_selected))
+            // Read off the args object, NOT `repo`: the twin takes the list as
+            // its own argument and `toDetectedWorktree` is what forwards the
+            // repo's copy, so a caller may pass a narrower list here.
+            let imported = parse_string_list(input.get("importedExternalWorktreePaths"));
+            Value::Bool(should_show_worktree(
+                &str_field(field(input, "worktree"), "path"),
+                ownership,
+                &repo,
+                is_legacy,
+                is_selected,
+                &imported,
+            ))
         }
         "applyMetadataFallbackVisibility" => match input.as_object() {
             Some(row) => spread_fallback_decision(row, &apply_metadata_fallback_visibility(&parse_detected(input))),
@@ -108,6 +140,27 @@ fn is_truthy(value: Option<&Value>) -> bool {
     }
 }
 
+/// `agentScratchWorktreePathMatcher` is a closure in the twin and cannot cross
+/// JSON, so a vector carries the checkout paths the production callers build it
+/// from (`[repo.path, ...worktree paths]`). An ABSENT key is the twin's absent
+/// matcher — the repo-root fallback — while `[]` is a real matcher that matches
+/// nothing, and the two answer differently.
+fn parse_agent_scratch_matcher(input: &Value) -> Option<AgentScratchWorktreePathMatcher> {
+    let paths = input.get("agentScratchCheckoutPaths")?.as_array()?;
+    let checkouts: Vec<String> =
+        paths.iter().map(|path| path.as_str().unwrap_or_default().to_string()).collect();
+    Some(AgentScratchWorktreePathMatcher::new(&checkouts))
+}
+
+fn parse_string_list(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| {
+            items.iter().map(|item| item.as_str().unwrap_or_default().to_string()).collect()
+        })
+        .unwrap_or_default()
+}
+
 fn parse_repo(value: &Value) -> Repo {
     Repo {
         path: str_field(value, "path"),
@@ -120,6 +173,9 @@ fn parse_repo(value: &Value) -> Repo {
         added_at: value.get("addedAt").and_then(Value::as_f64),
         connection_id: opt_str_field(value, "connectionId"),
         worktree_base_path: opt_str_field(value, "worktreeBasePath"),
+        imported_external_worktree_paths: parse_string_list(
+            value.get("importedExternalWorktreePaths"),
+        ),
     }
 }
 

@@ -2,7 +2,7 @@
   "module": "task-claim",
   "source": "src/main/runtime/orchestration/task-claim-reconciliation.ts",
   "rustCrate": "orca-policy (task_claim)",
-  "note": "The fleet's only CONTRADICTING signal. Every case below pins one distinct outcome or reason; the three `unknown` reasons are pinned separately because a supervisor acts on the REASON, and the no-git rows exist to prove the port never turns 'I could not check' into 'you lied'.",
+  "note": "The fleet's only CONTRADICTING signal. Every case below pins one distinct outcome or reason; the three `unknown` reasons are pinned separately because a supervisor acts on the REASON, and the no-git rows exist to prove the port never turns 'I could not check' into 'you lied'. The escaped-lone-surrogate rows at the end pin the reverse failure — the core turning 'you lied' into 'I could not check' — which is the direction that EXONERATES the audited agent and which any agent could trigger on purpose with one unpaired surrogate in one filename. RESIDUAL DIVERGENCE, deliberate and unclosable: a repaired string reads U+FFFD here where the twin reads the unpaired code unit, so a `filesModified` entry that CONTAINS one still compares unequal and lands in `missing`. That entry cannot be a row at all — a lone surrogate in an `expected` makes this whole vectors FILE unreadable to serde_json — so the surrogate-bearing rows below keep it out of the compared output (in an ignored key, in `completedBy`, or behind a count-only describeReconciliation). Getting from 'silently exonerates the whole claim' to 'one exotic path name compares unequal' is the win, not a closure.",
   "cases": [
     {
       "function": "reconcileTaskClaim",
@@ -528,6 +528,201 @@
       "expected": {
         "verdict": "unknown",
         "reason": "not-completed"
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "THE INCIDENT (src/shared/dispatch-payload-codec.ts cites it): `result` is JSON.stringify'd over an agent-authored claim, and JSON.stringify spells a lone UTF-16 surrogate as the SIX ASCII CHARACTERS \\ud800 — so the column is pure ASCII, stores fine, encodes fine, and nothing throws. A strict serde_json parse then rejected it at the very end and the core answered unknown/unreadable-result where the twin answers mismatch. The fleet's only CONTRADICTING signal, silenced in the direction that EXONERATES the audited agent",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"w\\ud800\",\"filesModified\":[\"src/a.ts\",\"src/b.ts\"],\"completedAt\":\"now\"}",
+        "changedFiles": ["src/b.ts"]
+      },
+      "expected": {
+        "verdict": "mismatch",
+        "claimed": ["src/a.ts", "src/b.ts"],
+        "missing": ["src/a.ts"],
+        "unclaimed": []
+      }
+    },
+    {
+      "function": "describeReconciliation",
+      "note": "the same silencing as the supervisor actually reads it: 'nothing to check yet' where the truth is a three-file discrepancy",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"w\\ud800\",\"filesModified\":[\"src/a.ts\",\"src/b.ts\"],\"completedAt\":\"now\"}",
+        "changedFiles": ["src/b.ts"]
+      },
+      "expected": "claimed 1 file(s) git does not show as changed"
+    },
+    {
+      "function": "describeReconciliation",
+      "note": "the surrogate inside a PATH rather than the handle; describeReconciliation reports counts only, so this row stays exactly comparable while the claimed list cannot be (see the module note on the residual)",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"w1\",\"filesModified\":[\"src/a\\ud800.ts\",\"src/b.ts\"],\"completedAt\":\"now\"}",
+        "changedFiles": ["src/b.ts"]
+      },
+      "expected": "claimed 1 file(s) git does not show as changed"
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "the surrogate is in completedAt — a key the claim never reads — and still took the whole verdict down: the failure is in the PARSE, not in any field the decision uses",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"w1\",\"filesModified\":[\"src/a.ts\"],\"completedAt\":\"2026-08-15T00:00:00.000Z\\ud800\"}",
+        "changedFiles": []
+      },
+      "expected": {
+        "verdict": "mismatch",
+        "claimed": ["src/a.ts"],
+        "missing": ["src/a.ts"],
+        "unclaimed": []
+      }
+    },
+    {
+      "function": "parseTaskClaim",
+      "note": "parseTaskClaim itself: a claim whose surrogate sits in an ignored key parses to a completely clean claim on the twin, and returned null here",
+      "input": {
+        "result": "{\"completedBy\":\"w1\",\"filesModified\":[\"a.ts\"],\"note\":\"x\\ud800\"}"
+      },
+      "expected": {
+        "completedBy": "w1",
+        "filesModified": ["a.ts"]
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "a REVERSED pair (low then high) is two lone surrogates, not a character; both are repaired and the claim is readable again",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"\\udc00\\ud800\",\"filesModified\":[\"src/a.ts\"],\"completedAt\":\"now\"}",
+        "changedFiles": []
+      },
+      "expected": {
+        "verdict": "mismatch",
+        "claimed": ["src/a.ts"],
+        "missing": ["src/a.ts"],
+        "unclaimed": []
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "the REASON, not just the verdict: the twin parses the claim and answers no-git, the strict core answered unreadable-result. Same word 'unknown', two different follow-ups — 'go read the row' instead of 'this is a folder workspace'",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"w\\ud800\",\"filesModified\":[\"a.ts\"]}",
+        "changedFiles": null
+      },
+      "expected": {
+        "verdict": "unknown",
+        "reason": "no-git"
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "guard: a matched pair is a real astral character and must survive untouched",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"w1\",\"filesModified\":[\"src/🚀.ts\"],\"completedAt\":\"now\"}",
+        "changedFiles": ["src/🚀.ts"]
+      },
+      "expected": {
+        "verdict": "match",
+        "claimed": ["src/🚀.ts"]
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "guard: the ESCAPED spelling of that same pair. A repair that rewrote surrogate escapes without parsing strictly FIRST would corrupt this into two replacement characters",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"w1\",\"filesModified\":[\"src/\\ud83d\\ude80.ts\"]}",
+        "changedFiles": ["src/🚀.ts"]
+      },
+      "expected": {
+        "verdict": "match",
+        "claimed": ["src/🚀.ts"]
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "guard: a literal backslash then the TEXT ud800 is a healthy document both parsers accept — strict-first is what keeps the rewrite away from it",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"w1\",\"filesModified\":[\"a\\\\ud800.ts\"]}",
+        "changedFiles": ["a\\ud800.ts"]
+      },
+      "expected": {
+        "verdict": "match",
+        "claimed": ["a\\ud800.ts"]
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "guard: the retry must not LAUNDER a document the twin also refuses — a surrogate plus a trailing comma stays unreadable-result",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"w\\ud800\",\"filesModified\":[\"a.ts\",]}",
+        "changedFiles": []
+      },
+      "expected": {
+        "verdict": "unknown",
+        "reason": "unreadable-result"
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "guard: \\ud80 is not an escape, so the rewrite finds nothing and the original parse error stands",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"completedBy\":\"w\\ud80\",\"filesModified\":[\"a.ts\"]}",
+        "changedFiles": []
+      },
+      "expected": {
+        "verdict": "unknown",
+        "reason": "unreadable-result"
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "input adapter: the twin is String(args.result), so a one-element array of the result text IS that text and parses into a real claim; as_str() answered None and silenced it",
+      "input": {
+        "taskStatus": "completed",
+        "result": ["{\"completedBy\":\"w1\",\"filesModified\":[\"a.ts\"]}"],
+        "changedFiles": ["a.ts"]
+      },
+      "expected": {
+        "verdict": "match",
+        "claimed": ["a.ts"]
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "input adapter: the twin is changedFiles.map(String). Dropping a non-string entry deleted git's own answer and invented a FALSE ACCUSATION — mismatch/missing where the twin says match",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"42\"]}",
+        "changedFiles": [42]
+      },
+      "expected": {
+        "verdict": "match",
+        "claimed": ["42"]
+      }
+    },
+    {
+      "function": "reconcileTaskClaim",
+      "note": "the same drop in the other direction, which is worse: the unclaimed file disappears and a real mismatch becomes a clean bill of health",
+      "input": {
+        "taskStatus": "completed",
+        "result": "{\"filesModified\":[\"a.ts\"]}",
+        "changedFiles": ["a.ts", 7]
+      },
+      "expected": {
+        "verdict": "mismatch",
+        "claimed": ["a.ts"],
+        "missing": [],
+        "unclaimed": ["7"]
       }
     }
   ]

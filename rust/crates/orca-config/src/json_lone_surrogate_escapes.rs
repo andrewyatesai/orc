@@ -14,7 +14,38 @@
 //! spelling to match the unescaped one.
 //!
 //! Callers run this ONLY after a strict parse has already failed, so a healthy
-//! document is never rescanned and never altered.
+//! document is never rescanned and never altered. Reach for
+//! `parse_json_past_lone_surrogate_escapes` rather than re-typing that order:
+//! the rewrite is the easy half, the ORDER is the safety argument, and the
+//! second caller is where a hand-rolled copy gets it backwards.
+
+use serde_json::Value;
+
+/// Parse JSON, giving an escaped lone surrogate a second chance — and nothing
+/// else one.
+///
+/// Strict first, always. A document `serde_json` accepts is returned by the
+/// first parse and never rescanned, so no repair can reach text the parser
+/// would have taken. Only a genuine failure earns the retry, and the ORIGINAL
+/// error comes back unchanged when the rewrite finds nothing or the retry still
+/// fails — a caller that renders the error therefore never describes a
+/// document that existed only inside this function.
+///
+/// # Errors
+/// The original `serde_json` parse error, whenever the text is unparseable for
+/// any reason this repair does not cover.
+pub fn parse_json_past_lone_surrogate_escapes(text: &str) -> Result<Value, serde_json::Error> {
+    let original = match serde_json::from_str(text) {
+        Ok(value) => return Ok(value),
+        Err(error) => error,
+    };
+    match replace_lone_surrogate_escapes(text) {
+        // Still broken for some OTHER reason: keep the original parse error, so
+        // the retry can never launder a document the twin also refuses.
+        Some(repaired) => serde_json::from_str(&repaired).map_err(|_| original),
+        None => Err(original),
+    }
+}
 
 /// Rewrite every unpaired `\uD800`–`\uDFFF` escape inside a JSON string literal
 /// to `\ufffd`; `None` when the text has none (nothing to retry).
@@ -168,5 +199,57 @@ mod tests {
         let repaired = replace_lone_surrogate_escapes(text).expect("rewritten");
         let parsed: serde_json::Value = serde_json::from_str(&repaired).expect("parses");
         assert!(parsed["mcpServers"].get("a\u{fffd}").is_some());
+    }
+
+    // --- the ORDER, which is the part a second caller gets wrong ---
+
+    #[test]
+    fn parse_recovers_a_document_only_the_lone_surrogate_broke() {
+        let parsed = parse_json_past_lone_surrogate_escapes(r#"{"completedBy":"w\ud800"}"#)
+            .expect("recovered");
+        assert_eq!(parsed["completedBy"], Value::String("w\u{fffd}".to_string()));
+    }
+
+    #[test]
+    fn parse_never_rescans_a_document_the_strict_parser_accepts() {
+        // `\\ud800` is a backslash then the TEXT ud800 — a valid document whose
+        // value a rewrite would corrupt.
+        //
+        // Measured, so the claim stays honest: with a CORRECT scanner the order
+        // is not observable at all, because "strict parse succeeds" and "an
+        // unpaired surrogate escape is present" are mutually exclusive —
+        // swapping to rewrite-first alone breaks nothing. What strict-first buys
+        // is CONTAINMENT of a scanner bug. Planting escaped-backslash blindness
+        // in `replace_lone_surrogate_escapes` fails this test under rewrite-first
+        // and passes it under strict-first, with only the scanner's own unit test
+        // still red. So the order downgrades a future rewrite bug from silent
+        // value corruption to a no-op on every document the parser accepts.
+        let parsed = parse_json_past_lone_surrogate_escapes(r#"{"a":"\\ud800"}"#).expect("valid");
+        assert_eq!(parsed["a"], Value::String("\\ud800".to_string()));
+    }
+
+    #[test]
+    fn parse_returns_the_original_error_when_the_retry_still_fails() {
+        // A lone surrogate AND a real syntax error: the message must describe
+        // the text the caller handed in, not the repaired variant.
+        let text = r#"{"a":"\ud800",}"#;
+        let original = serde_json::from_str::<Value>(text).expect_err("unparseable");
+        let error = parse_json_past_lone_surrogate_escapes(text).expect_err("still unparseable");
+        assert_eq!(error.to_string(), original.to_string());
+    }
+
+    #[test]
+    fn parse_returns_the_original_error_when_the_rewrite_changes_nothing() {
+        let text = r#"{"a":}"#;
+        let original = serde_json::from_str::<Value>(text).expect_err("unparseable");
+        let error = parse_json_past_lone_surrogate_escapes(text).expect_err("unparseable");
+        assert_eq!(error.to_string(), original.to_string());
+    }
+
+    #[test]
+    fn parse_keeps_a_matched_pair_as_its_astral_character() {
+        let parsed =
+            parse_json_past_lone_surrogate_escapes(r#"{"a":"🚀"}"#).expect("valid");
+        assert_eq!(parsed["a"], Value::String("\u{1f680}".to_string()));
     }
 }
