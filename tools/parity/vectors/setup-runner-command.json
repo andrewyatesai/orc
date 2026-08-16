@@ -137,6 +137,457 @@
       "note": "dot-relative path returns the posix fallback (not absolute, not windows-like)",
       "input": { "runnerScriptPath": "./scripts/setup-runner.sh", "fallbackPlatform": "posix" },
       "expected": "posix"
+    },
+    {
+      "function": "resolveSetupRunnerCommand",
+      "note": "Git Bash: MSYS path conversion off, POSIX-quoted .cmd, and the / spelling sequencing marks against (#6896)",
+      "input": {
+        "runnerScriptPath": "C:\\repo\\.git\\orca\\setup-runner.cmd",
+        "platform": "windows",
+        "terminalShellFamily": "posix"
+      },
+      "expected": {
+        "command": "MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' cmd.exe /d /c 'C:\\repo\\.git\\orca\\setup-runner.cmd'",
+        "runnerScriptPathForShell": "C:/repo/.git/orca/setup-runner.cmd",
+        "shell": "posix"
+      }
+    },
+    {
+      "function": "resolveSetupRunnerCommand",
+      "note": "nushell: the .cmd path is nu-escaped inside \"…\" or the typed command errors (#8928 PR4)",
+      "input": {
+        "runnerScriptPath": "C:\\repo\\.git\\orca\\setup-runner.cmd",
+        "platform": "windows",
+        "terminalShellFamily": "nushell"
+      },
+      "expected": {
+        "command": "cmd.exe /c \"C:\\\\repo\\\\.git\\\\orca\\\\setup-runner.cmd\"",
+        "runnerScriptPathForShell": "C:\\repo\\.git\\orca\\setup-runner.cmd",
+        "shell": "windows"
+      }
+    },
+    {
+      "function": "resolveSetupRunnerCommand",
+      "note": "cmd terminal keeps the plain cmd.exe delivery",
+      "input": {
+        "runnerScriptPath": "C:\\repo\\.git\\orca\\setup-runner.cmd",
+        "platform": "windows",
+        "terminalShellFamily": "cmd"
+      },
+      "expected": {
+        "command": "cmd.exe /c \"C:\\repo\\.git\\orca\\setup-runner.cmd\"",
+        "runnerScriptPathForShell": "C:\\repo\\.git\\orca\\setup-runner.cmd",
+        "shell": "windows"
+      }
+    },
+    {
+      "function": "resolveSetupRunnerCommand",
+      "note": "powershell terminal keeps the plain cmd.exe delivery",
+      "input": {
+        "runnerScriptPath": "C:\\repo\\.git\\orca\\setup-runner.cmd",
+        "platform": "windows",
+        "terminalShellFamily": "powershell"
+      },
+      "expected": {
+        "command": "cmd.exe /c \"C:\\repo\\.git\\orca\\setup-runner.cmd\"",
+        "runnerScriptPathForShell": "C:\\repo\\.git\\orca\\setup-runner.cmd",
+        "shell": "windows"
+      }
+    },
+    {
+      "function": "resolveSetupRunnerCommand",
+      "note": "no terminalShellFamily (omitted key) is the plain cmd.exe delivery",
+      "input": {
+        "runnerScriptPath": "C:\\repo\\.git\\orca\\setup-runner.cmd",
+        "platform": "windows"
+      },
+      "expected": {
+        "command": "cmd.exe /c \"C:\\repo\\.git\\orca\\setup-runner.cmd\"",
+        "runnerScriptPathForShell": "C:\\repo\\.git\\orca\\setup-runner.cmd",
+        "shell": "windows"
+      }
+    },
+    {
+      "function": "resolveSetupRunnerCommand",
+      "note": "WSL UNC wins over the shell family: bash delivery, and the marker path is the Linux one",
+      "input": {
+        "runnerScriptPath": "\\\\wsl.localhost\\Ubuntu\\home\\jin\\repo\\.git\\orca\\setup-runner.sh",
+        "platform": "windows",
+        "terminalShellFamily": "posix"
+      },
+      "expected": {
+        "command": "bash /home/jin/repo/.git/orca/setup-runner.sh",
+        "runnerScriptPathForShell": "/home/jin/repo/.git/orca/setup-runner.sh",
+        "shell": "posix"
+      }
+    },
+    {
+      "function": "resolveSetupRunnerCommand",
+      "note": "WSL UNC with only a distro resolves to /, shell family ignored",
+      "input": {
+        "runnerScriptPath": "//wsl$/Ubuntu",
+        "platform": "windows",
+        "terminalShellFamily": "nushell"
+      },
+      "expected": {
+        "command": "bash /",
+        "runnerScriptPathForShell": "/",
+        "shell": "posix"
+      }
+    },
+    {
+      "function": "resolveSetupRunnerCommand",
+      "note": "posix-style path on windows takes the bash branch before the shell family is consulted",
+      "input": {
+        "runnerScriptPath": "/mnt/c/orca/setup-runner.sh",
+        "platform": "windows",
+        "terminalShellFamily": "posix"
+      },
+      "expected": {
+        "command": "bash /mnt/c/orca/setup-runner.sh",
+        "runnerScriptPathForShell": "/mnt/c/orca/setup-runner.sh",
+        "shell": "posix"
+      }
+    },
+    {
+      "function": "resolveSetupRunnerCommand",
+      "note": "non-WSL UNC on Git Bash: MSYS wrapper, and the path is safe-char so it stays unquoted",
+      "input": {
+        "runnerScriptPath": "//server/share/repo/.git/orca/setup-runner.cmd",
+        "platform": "windows",
+        "terminalShellFamily": "posix"
+      },
+      "expected": {
+        "command": "MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' cmd.exe /d /c //server/share/repo/.git/orca/setup-runner.cmd",
+        "runnerScriptPathForShell": "//server/share/repo/.git/orca/setup-runner.cmd",
+        "shell": "posix"
+      }
+    },
+    {
+      "function": "resolveSetupRunnerCommand",
+      "note": "posix platform ignores the shell family entirely",
+      "input": {
+        "runnerScriptPath": "/home/me/my repo/setup-runner.sh",
+        "platform": "posix",
+        "terminalShellFamily": "nushell"
+      },
+      "expected": {
+        "command": "bash '/home/me/my repo/setup-runner.sh'",
+        "runnerScriptPathForShell": "/home/me/my repo/setup-runner.sh",
+        "shell": "posix"
+      }
+    },
+    {
+      "function": "resolveSetupRunnerCommand",
+      "note": "nushell escapes \" as \\\" as well as \\ as \\\\",
+      "input": {
+        "runnerScriptPath": "C:\\a\"b\\run.cmd",
+        "platform": "windows",
+        "terminalShellFamily": "nushell"
+      },
+      "expected": {
+        "command": "cmd.exe /c \"C:\\\\a\\\"b\\\\run.cmd\"",
+        "runnerScriptPathForShell": "C:\\a\"b\\run.cmd",
+        "shell": "windows"
+      }
+    },
+    {
+      "function": "resolveSetupRunnerCommand",
+      "note": "Git Bash single-quoting escapes ' as '\\'' and leaves ! alone (MSYS2_ARG_CONV_EXCL carries it)",
+      "input": {
+        "runnerScriptPath": "C:\\it's a repo\\run!.cmd",
+        "platform": "windows",
+        "terminalShellFamily": "posix"
+      },
+      "expected": {
+        "command": "MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' cmd.exe /d /c 'C:\\it'\\''s a repo\\run!.cmd'",
+        "runnerScriptPathForShell": "C:/it's a repo/run!.cmd",
+        "shell": "posix"
+      }
+    },
+    {
+      "function": "resolveSetupRunnerCommand",
+      "note": "empty runner path on Git Bash quotes to the empty POSIX arg",
+      "input": {
+        "runnerScriptPath": "",
+        "platform": "windows",
+        "terminalShellFamily": "posix"
+      },
+      "expected": {
+        "command": "MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' cmd.exe /d /c ''",
+        "runnerScriptPathForShell": "",
+        "shell": "posix"
+      }
+    },
+    {
+      "function": "resolveSetupRunnerCommand",
+      "note": "a line terminator in the WSL tail fails the twin regex, so the EXECUTED command is bash /",
+      "input": {
+        "runnerScriptPath": "//wsl$/Ubuntu/a\nb",
+        "platform": "windows",
+        "terminalShellFamily": "posix"
+      },
+      "expected": {
+        "command": "bash /",
+        "runnerScriptPathForShell": "/",
+        "shell": "posix"
+      }
+    },
+    {
+      "function": "resolveSetupRunnerCommand",
+      "note": "bare share with an empty distro is still a WSL path here, and converts to /",
+      "input": {
+        "runnerScriptPath": "//wsl.localhost/",
+        "platform": "windows"
+      },
+      "expected": {
+        "command": "bash /",
+        "runnerScriptPathForShell": "/",
+        "shell": "posix"
+      }
+    },
+    {
+      "function": "buildSetupRunnerCommand",
+      "note": "buildSetupRunnerCommand is resolve().command — Git Bash",
+      "input": {
+        "runnerScriptPath": "C:\\repo\\.git\\orca\\setup-runner.cmd",
+        "platform": "windows",
+        "terminalShellFamily": "posix"
+      },
+      "expected": "MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' cmd.exe /d /c 'C:\\repo\\.git\\orca\\setup-runner.cmd'"
+    },
+    {
+      "function": "buildSetupRunnerCommand",
+      "note": "buildSetupRunnerCommand is resolve().command — nushell",
+      "input": {
+        "runnerScriptPath": "C:\\repo\\.git\\orca\\setup-runner.cmd",
+        "platform": "windows",
+        "terminalShellFamily": "nushell"
+      },
+      "expected": "cmd.exe /c \"C:\\\\repo\\\\.git\\\\orca\\\\setup-runner.cmd\""
+    },
+    {
+      "function": "buildSetupRunnerCommand",
+      "note": "buildSetupRunnerCommand is resolve().command — cmd",
+      "input": {
+        "runnerScriptPath": "C:\\repo\\.git\\orca\\setup-runner.cmd",
+        "platform": "windows",
+        "terminalShellFamily": "cmd"
+      },
+      "expected": "cmd.exe /c \"C:\\repo\\.git\\orca\\setup-runner.cmd\""
+    },
+    {
+      "function": "buildSetupRunnerCommand",
+      "note": "buildSetupRunnerCommand is resolve().command — powershell",
+      "input": {
+        "runnerScriptPath": "C:\\repo\\.git\\orca\\setup-runner.cmd",
+        "platform": "windows",
+        "terminalShellFamily": "powershell"
+      },
+      "expected": "cmd.exe /c \"C:\\repo\\.git\\orca\\setup-runner.cmd\""
+    },
+    {
+      "function": "buildSetupRunnerCommand",
+      "note": "buildSetupRunnerCommand is resolve().command — WSL UNC under a posix terminal",
+      "input": {
+        "runnerScriptPath": "\\\\wsl.localhost\\Ubuntu\\home\\jin\\repo\\.git\\orca\\setup-runner.sh",
+        "platform": "windows",
+        "terminalShellFamily": "posix"
+      },
+      "expected": "bash /home/jin/repo/.git/orca/setup-runner.sh"
+    },
+    {
+      "function": "buildSetupRunnerCommand",
+      "note": "buildSetupRunnerCommand follows the line-terminator fallback too",
+      "input": {
+        "runnerScriptPath": "//wsl$/Ubuntu/a\nb",
+        "platform": "windows"
+      },
+      "expected": "bash /"
+    },
+    {
+      "function": "isWslUncPath",
+      "note": "backslash WSL UNC share",
+      "input": {
+        "path": "\\\\wsl.localhost\\Ubuntu\\home\\jin\\run.sh"
+      },
+      "expected": true
+    },
+    {
+      "function": "isWslUncPath",
+      "note": "forward-slash wsl$ share, host casing ignored",
+      "input": {
+        "path": "//WSL$/Ubuntu/home/x.sh"
+      },
+      "expected": true
+    },
+    {
+      "function": "isWslUncPath",
+      "note": "empty distro still satisfies THIS predicate (wsl-unc-paths.ts disagrees — see the adapter note)",
+      "input": {
+        "path": "//wsl.localhost/"
+      },
+      "expected": true
+    },
+    {
+      "function": "isWslUncPath",
+      "note": "no trailing slash after the share is not a match",
+      "input": {
+        "path": "//wsl.localhost"
+      },
+      "expected": false
+    },
+    {
+      "function": "isWslUncPath",
+      "note": "a doubled slash after the share is still a prefix match here",
+      "input": {
+        "path": "//wsl$//foo"
+      },
+      "expected": true
+    },
+    {
+      "function": "isWslUncPath",
+      "note": "a line-terminator tail is still a prefix match (only the converter regex fails)",
+      "input": {
+        "path": "//wsl$/Ubuntu/a\nb"
+      },
+      "expected": true
+    },
+    {
+      "function": "isWslUncPath",
+      "note": "three leading slashes are not the //share form",
+      "input": {
+        "path": "///wsl$/Ubuntu/x"
+      },
+      "expected": false
+    },
+    {
+      "function": "isWslUncPath",
+      "note": "plain windows drive path",
+      "input": {
+        "path": "C:\\Users\\jin\\repo"
+      },
+      "expected": false
+    },
+    {
+      "function": "isWslUncPath",
+      "note": "plain posix path",
+      "input": {
+        "path": "/home/jin/repo"
+      },
+      "expected": false
+    },
+    {
+      "function": "isWslUncPath",
+      "note": "JS /i folds ASCII only: U+017F never matches s",
+      "input": {
+        "path": "//wſl.localhost/x"
+      },
+      "expected": false
+    },
+    {
+      "function": "isWslUncPath",
+      "note": "empty string",
+      "input": {
+        "path": ""
+      },
+      "expected": false
+    },
+    {
+      "function": "wslUncToLinuxPath",
+      "note": "backslash WSL UNC, host casing ignored, rewritten to its Linux path",
+      "input": {
+        "windowsPath": "\\\\WSL.LOCALHOST\\Ubuntu\\home\\jin\\repo\\.git\\orca\\setup-runner.sh"
+      },
+      "expected": "/home/jin/repo/.git/orca/setup-runner.sh"
+    },
+    {
+      "function": "wslUncToLinuxPath",
+      "note": "forward-slash wsl$ share rewritten",
+      "input": {
+        "windowsPath": "//wsl$/Ubuntu/home/x.sh"
+      },
+      "expected": "/home/x.sh"
+    },
+    {
+      "function": "wslUncToLinuxPath",
+      "note": "distro with no tail falls back to /",
+      "input": {
+        "windowsPath": "//wsl$/Ubuntu"
+      },
+      "expected": "/"
+    },
+    {
+      "function": "wslUncToLinuxPath",
+      "note": "distro with a bare trailing slash is the distro root",
+      "input": {
+        "windowsPath": "//wsl$/Ubuntu/"
+      },
+      "expected": "/"
+    },
+    {
+      "function": "wslUncToLinuxPath",
+      "note": "empty distro: [^/]+ cannot match, so the whole regex fails to /",
+      "input": {
+        "windowsPath": "//wsl.localhost/"
+      },
+      "expected": "/"
+    },
+    {
+      "function": "wslUncToLinuxPath",
+      "note": "empty distro before a real tail also fails to /",
+      "input": {
+        "windowsPath": "//wsl$//foo"
+      },
+      "expected": "/"
+    },
+    {
+      "function": "wslUncToLinuxPath",
+      "note": "LF in the tail: JS . excludes line terminators, so the match fails to /",
+      "input": {
+        "windowsPath": "//wsl$/Ubuntu/a\nb"
+      },
+      "expected": "/"
+    },
+    {
+      "function": "wslUncToLinuxPath",
+      "note": "CR in the tail fails the same way",
+      "input": {
+        "windowsPath": "//wsl$/Ubuntu/a\rb"
+      },
+      "expected": "/"
+    },
+    {
+      "function": "wslUncToLinuxPath",
+      "note": "U+2028 in the tail fails the same way",
+      "input": {
+        "windowsPath": "//wsl$/Ubuntu/a b"
+      },
+      "expected": "/"
+    },
+    {
+      "function": "wslUncToLinuxPath",
+      "note": "a line terminator in the DISTRO is fine — [^/] matches it",
+      "input": {
+        "windowsPath": "//wsl$/Ub\nuntu/x"
+      },
+      "expected": "/x"
+    },
+    {
+      "function": "wslUncToLinuxPath",
+      "note": "a non-WSL path converts to /",
+      "input": {
+        "windowsPath": "C:\\Users\\jin\\repo"
+      },
+      "expected": "/"
+    },
+    {
+      "function": "wslUncToLinuxPath",
+      "note": "empty string converts to /",
+      "input": {
+        "windowsPath": ""
+      },
+      "expected": "/"
     }
   ]
 }

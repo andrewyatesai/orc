@@ -1,7 +1,8 @@
 //! Source Control AI settings: defaults, legacy migration/merge, defensive
-//! normalization, host-scoped model selection, and per-operation precedence —
-//! ported from `src/shared/source-control-ai.ts` (+ the type shapes from
-//! `src/shared/source-control-ai-types.ts`).
+//! normalization, host-scoped model selection, per-action recipes, and
+//! per-operation precedence — ported from `src/shared/source-control-ai.ts`
+//! (+ `src/shared/source-control-ai-types.ts` and the recipe helpers of
+//! `src/shared/source-control-ai-actions.ts`, which the twin composes inline).
 //!
 //! The defaults, migration-compatibility, and operation-resolution rules live
 //! together so the commit-message / pull-request / branch-name precedence cannot
@@ -9,13 +10,33 @@
 //! blobs arrive as `serde_json::Value` and are normalized into typed structs;
 //! the agent/model catalog comes from `orca_agents`. The JS proto-pollution
 //! guards (`__proto__`/`constructor`/`prototype`) are not memory-safety issues
-//! in Rust, but the *key filtering* they imply is observable and preserved.
+//! in Rust, but the *key filtering* they implies is observable and preserved.
+//!
+//! TWO MODELLING RULES, because the twin's types and its runtime disagree:
+//!
+//! * `Option<Option<T>>` is a JSON tri-state: `None` = the key is absent
+//!   (TS `undefined`), `Some(None)` = an explicit `null`, `Some(Some(v))` = a
+//!   value. The twin branches on all three (`item.agentArgs === null` is not
+//!   `item.agentArgs === undefined`), so collapsing them is a wrong answer.
+//! * TS `undefined` and an absent key are ONE value here. They only differ for
+//!   a persisted blob that omits a field the TS type marks required
+//!   (`enabled`, `customAgentCommand`), where the twin propagates `undefined`
+//!   through `sourceControlAiSettingsFromLegacy` and this takes the spread
+//!   default instead. No writer in the app emits such a blob.
+//!
+//! Every `.trim()` here is `trim_js`: JS trims U+FEFF and keeps U+0085, Rust's
+//! `str::trim` does the opposite, and these strings are command templates and
+//! agent ids read straight back out of persisted settings.
 
+use orca_agents::tui_agent_config::is_tui_agent;
 use orca_agents::{
-    get_commit_message_agent_spec, get_commit_message_model, is_custom_agent_id,
-    resolve_commit_message_agent_choice, CommitMessageModel, CUSTOM_AGENT_ID,
+    collapse_default_tui_agent_to_builtin, get_commit_message_agent_spec, get_commit_message_model,
+    is_custom_agent_id, list_commit_message_agent_capabilities, resolve_commit_message_agent_choice,
+    CollapsedDefaultTuiAgent, CommitMessageModel, CustomAgentProfileRef, DefaultTuiAgentPref,
+    CUSTOM_AGENT_ID,
 };
 use orca_core::commit_message_host_key::LOCAL_COMMIT_MESSAGE_HOST_KEY;
+use orca_core::js_string::trim_js;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -23,7 +44,56 @@ use std::collections::{BTreeMap, BTreeSet};
 /// catalog model, so resolution can unify across spec/discovered/derived models.
 pub type CommitMessageAiModelCapability = CommitMessageModel;
 
-/// The three Source Control AI generation operations, in their canonical order.
+/// Every Source Control action id (`SOURCE_CONTROL_ACTION_IDS`): the three text
+/// actions that generate content, then the five launch actions. Declaration
+/// order IS the canonical order, and `Ord` follows it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SourceControlActionId {
+    CommitMessage,
+    PullRequest,
+    BranchName,
+    FixCommitFailure,
+    FixPushFailure,
+    FixChecks,
+    ResolveConflicts,
+    ResolveComments,
+}
+
+impl SourceControlActionId {
+    pub const ALL: [SourceControlActionId; 8] = [
+        SourceControlActionId::CommitMessage,
+        SourceControlActionId::PullRequest,
+        SourceControlActionId::BranchName,
+        SourceControlActionId::FixCommitFailure,
+        SourceControlActionId::FixPushFailure,
+        SourceControlActionId::FixChecks,
+        SourceControlActionId::ResolveConflicts,
+        SourceControlActionId::ResolveComments,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SourceControlActionId::CommitMessage => "commitMessage",
+            SourceControlActionId::PullRequest => "pullRequest",
+            SourceControlActionId::BranchName => "branchName",
+            SourceControlActionId::FixCommitFailure => "fixCommitFailure",
+            SourceControlActionId::FixPushFailure => "fixPushFailure",
+            SourceControlActionId::FixChecks => "fixChecks",
+            SourceControlActionId::ResolveConflicts => "resolveConflicts",
+            SourceControlActionId::ResolveComments => "resolveComments",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<SourceControlActionId> {
+        SourceControlActionId::ALL
+            .into_iter()
+            .find(|action| action.as_str() == value)
+    }
+}
+
+/// The three Source Control AI generation operations, in canonical order.
+/// `SourceControlAiOperation` IS `SourceControlTextActionId` in the twin, so the
+/// two enums stay convertible rather than duplicated.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SourceControlAiOperation {
     CommitMessage,
@@ -39,10 +109,20 @@ impl SourceControlAiOperation {
     ];
 
     pub fn as_str(self) -> &'static str {
+        self.action_id().as_str()
+    }
+
+    pub fn parse(value: &str) -> Option<SourceControlAiOperation> {
+        SourceControlAiOperation::ALL
+            .into_iter()
+            .find(|operation| operation.as_str() == value)
+    }
+
+    pub fn action_id(self) -> SourceControlActionId {
         match self {
-            SourceControlAiOperation::CommitMessage => "commitMessage",
-            SourceControlAiOperation::PullRequest => "pullRequest",
-            SourceControlAiOperation::BranchName => "branchName",
+            SourceControlAiOperation::CommitMessage => SourceControlActionId::CommitMessage,
+            SourceControlAiOperation::PullRequest => SourceControlActionId::PullRequest,
+            SourceControlAiOperation::BranchName => SourceControlActionId::BranchName,
         }
     }
 
@@ -54,6 +134,31 @@ impl SourceControlAiOperation {
         }
     }
 }
+
+/// Every action's default command template is the bare `{basePrompt}`
+/// (`DEFAULT_SOURCE_CONTROL_ACTION_COMMAND_TEMPLATES`).
+pub const DEFAULT_ACTION_COMMAND_TEMPLATE: &str = "{basePrompt}";
+
+/// A global action recipe (`SourceControlActionRecipe`). `agent_id` is the
+/// tri-state; the two strings are plain optionals (the global shape has no null
+/// sentinel — only the repo override does).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SourceControlActionRecipe {
+    pub agent_id: Option<Option<String>>,
+    pub command_input_template: Option<String>,
+    pub agent_args: Option<String>,
+}
+
+impl SourceControlActionRecipe {
+    fn is_empty(&self) -> bool {
+        self.agent_id.is_none()
+            && self.command_input_template.is_none()
+            && self.agent_args.is_none()
+    }
+}
+
+/// `SourceControlAiActionDefaults`: a partial map from action id to recipe.
+pub type SourceControlAiActionDefaults = BTreeMap<SourceControlActionId, SourceControlActionRecipe>;
 
 /// Per-operation model/thinking override (`SourceControlAiModelChoice`). A field
 /// is `None` when absent, matching the optional records in the TS shape.
@@ -73,7 +178,7 @@ impl SourceControlAiModelChoice {
 }
 
 /// Global PR-creation defaults; each field absent (`None`) inherits.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SourceControlAiPrCreationDefaults {
     pub draft: Option<bool>,
     pub use_template: Option<bool>,
@@ -97,43 +202,48 @@ const DEFAULT_PR_CREATION_DEFAULTS: ResolvedPrCreationDefaults = ResolvedPrCreat
     open_after_create: false,
 };
 
-/// Legacy commit-message-only settings (`CommitMessageAiSettings`).
+/// Legacy commit-message-only settings (`CommitMessageAiSettings`). The four
+/// fields the TS type marks required are optionals here because a persisted
+/// blob can omit them and the twin then compares against `undefined`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CommitMessageAiSettings {
-    pub enabled: bool,
-    /// A TuiAgent id, the literal `"custom"`, or `None` (≙ TS `null`).
-    pub agent_id: Option<String>,
+    pub enabled: Option<bool>,
+    /// A TuiAgent id, the literal `"custom"`, an explicit `null`, or absent.
+    pub agent_id: Option<Option<String>>,
     pub selected_model_by_agent: BTreeMap<String, String>,
     pub selected_model_by_agent_by_host: Option<BTreeMap<String, BTreeMap<String, String>>>,
     pub discovered_models_by_agent: Option<BTreeMap<String, Vec<CommitMessageAiModelCapability>>>,
     pub discovered_models_by_agent_by_host:
         Option<BTreeMap<String, BTreeMap<String, Vec<CommitMessageAiModelCapability>>>>,
     pub selected_thinking_by_model: BTreeMap<String, String>,
-    pub custom_prompt: String,
-    pub custom_agent_command: String,
+    pub custom_prompt: Option<String>,
+    pub custom_agent_command: Option<String>,
 }
 
 /// The split Source Control AI settings (`SourceControlAiSettings`).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SourceControlAiSettings {
-    pub enabled: bool,
-    pub agent_id: Option<String>,
+    pub enabled: Option<bool>,
+    pub actions: Option<SourceControlAiActionDefaults>,
+    pub agent_id: Option<Option<String>>,
     pub selected_model_by_agent: BTreeMap<String, String>,
     pub selected_model_by_agent_by_host: Option<BTreeMap<String, BTreeMap<String, String>>>,
     pub discovered_models_by_agent: Option<BTreeMap<String, Vec<CommitMessageAiModelCapability>>>,
     pub discovered_models_by_agent_by_host:
         Option<BTreeMap<String, BTreeMap<String, Vec<CommitMessageAiModelCapability>>>>,
     pub selected_thinking_by_model: BTreeMap<String, String>,
-    pub custom_agent_command: String,
+    pub custom_agent_command: Option<String>,
     pub instructions_by_operation: BTreeMap<SourceControlAiOperation, String>,
     pub model_overrides_by_operation:
         Option<BTreeMap<SourceControlAiOperation, SourceControlAiModelChoice>>,
     pub pr_creation_defaults: Option<SourceControlAiPrCreationDefaults>,
+    /// Deprecated in the twin; kept for automatic migration + rollback.
+    pub launch_action_defaults: Option<SourceControlAiActionDefaults>,
 }
 
 /// Repo-level tri-state PR-creation override: `None` outer = absent (inherit),
 /// `Some(None)` = explicit null (inherit), `Some(Some(b))` = explicit boolean.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RepoPrCreationDefaults {
     pub draft: Option<Option<bool>>,
     pub use_template: Option<Option<bool>>,
@@ -165,14 +275,170 @@ impl RepoSourceControlActionOverride {
 /// `Option<String>` (`Some` = string replacement, `None` = explicit null).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RepoSourceControlAiOverrides {
+    pub enabled: Option<bool>,
+    pub custom_agent_command: Option<String>,
     pub model_overrides_by_operation:
         Option<BTreeMap<SourceControlAiOperation, SourceControlAiModelChoice>>,
     pub instructions_by_operation: Option<BTreeMap<SourceControlAiOperation, Option<String>>>,
-    /// Per-action recipe overrides, keyed by action id (the three text actions
-    /// plus the launch actions). Includes templates derived from per-operation
-    /// instructions, matching live TS.
-    pub action_overrides: Option<BTreeMap<String, RepoSourceControlActionOverride>>,
+    /// Per-action recipe overrides, including the templates derived from
+    /// per-operation instructions.
+    pub action_overrides: Option<BTreeMap<SourceControlActionId, RepoSourceControlActionOverride>>,
     pub pr_creation_defaults: Option<RepoPrCreationDefaults>,
+}
+
+impl RepoSourceControlAiOverrides {
+    fn is_empty(&self) -> bool {
+        self.enabled.is_none()
+            && self.custom_agent_command.is_none()
+            && self.model_overrides_by_operation.is_none()
+            && self.instructions_by_operation.is_none()
+            && self.action_overrides.is_none()
+            && self.pr_creation_defaults.is_none()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Command templates derived from instructions.
+// ---------------------------------------------------------------------------
+
+/// `commandTemplateFromInstruction`: an empty/blank instruction yields the bare
+/// `{basePrompt}`; otherwise the trimmed instruction is appended below it.
+fn command_template_from_instruction(instruction: Option<&str>) -> String {
+    let trimmed = trim_js(instruction.unwrap_or_default());
+    if trimmed.is_empty() {
+        DEFAULT_ACTION_COMMAND_TEMPLATE.to_string()
+    } else {
+        format!("{DEFAULT_ACTION_COMMAND_TEMPLATE}\n\n{trimmed}")
+    }
+}
+
+/// `commandTemplateFromOperationInstruction`: branch-naming instructions define
+/// naming style, so they must PRECEDE the general built-in prompt; the other
+/// operations retain their released order.
+fn command_template_from_operation_instruction(
+    operation: SourceControlAiOperation,
+    instruction: Option<&str>,
+) -> String {
+    let trimmed = trim_js(instruction.unwrap_or_default());
+    if trimmed.is_empty() {
+        return DEFAULT_ACTION_COMMAND_TEMPLATE.to_string();
+    }
+    if operation == SourceControlAiOperation::BranchName {
+        format!("{trimmed}\n\n{DEFAULT_ACTION_COMMAND_TEMPLATE}")
+    } else {
+        command_template_from_instruction(Some(trimmed))
+    }
+}
+
+/// `isLegacyBranchInstructionTemplate`: reorder only the exact template older
+/// settings derived automatically; a user-authored template stays authoritative.
+fn is_legacy_branch_instruction_template(
+    operation: SourceControlAiOperation,
+    instruction: Option<&str>,
+    template: Option<&str>,
+) -> bool {
+    operation == SourceControlAiOperation::BranchName
+        && !trim_js(instruction.unwrap_or_default()).is_empty()
+        && template == Some(command_template_from_instruction(instruction).as_str())
+}
+
+/// `legacyPromptFromCommandTemplate`: recover the instruction a command template
+/// was derived from, for the rollback projection.
+fn legacy_prompt_from_command_template(
+    template: Option<&str>,
+    fallback: Option<&str>,
+) -> String {
+    let trimmed = trim_js(template.unwrap_or_default());
+    if trimmed.is_empty() || trimmed == DEFAULT_ACTION_COMMAND_TEMPLATE {
+        return fallback.unwrap_or_default().to_string();
+    }
+    match trimmed.strip_prefix(DEFAULT_ACTION_COMMAND_TEMPLATE) {
+        Some(rest) => trim_js(rest).to_string(),
+        None => trimmed.to_string(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Action recipes (`source-control-ai-actions.ts`).
+// ---------------------------------------------------------------------------
+
+/// Drop empty and prototype-chain keys. Not a memory-safety guard in Rust, but
+/// the resulting key filtering is observable, so it is preserved.
+fn is_safe_record_key(key: &str) -> bool {
+    !key.is_empty() && key != "__proto__" && key != "constructor" && key != "prototype"
+}
+
+/// `normalizeSourceControlActionRecipe` over an already-decoded recipe: keep an
+/// `agentId` that is null / a known TuiAgent / the custom-agent id, keep the two
+/// string fields, and drop a recipe left with nothing.
+///
+/// This re-validates a TYPED value on purpose: the twin's `actions` blob is
+/// `unknown` at runtime, so an agent id that left the catalog is dropped here
+/// and not by the decoder.
+fn normalize_source_control_action_recipe(
+    recipe: &SourceControlActionRecipe,
+) -> Option<SourceControlActionRecipe> {
+    let mut normalized = SourceControlActionRecipe::default();
+    match &recipe.agent_id {
+        Some(None) => normalized.agent_id = Some(None),
+        Some(Some(agent_id)) if is_tui_agent(agent_id) || is_custom_agent_id(Some(agent_id)) => {
+            normalized.agent_id = Some(Some(agent_id.clone()));
+        }
+        _ => {}
+    }
+    normalized.command_input_template = recipe.command_input_template.clone();
+    normalized.agent_args = recipe.agent_args.clone();
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+/// `normalizeSourceControlAiActionDefaults`.
+fn normalize_source_control_ai_action_defaults(
+    value: Option<&SourceControlAiActionDefaults>,
+) -> Option<SourceControlAiActionDefaults> {
+    let value = value?;
+    let mut normalized = SourceControlAiActionDefaults::new();
+    for (action_id, recipe) in value {
+        if let Some(recipe) = normalize_source_control_action_recipe(recipe) {
+            normalized.insert(*action_id, recipe);
+        }
+    }
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+/// `readSourceControlActionDefault`: the recipe with its string fields trimmed,
+/// keys omitted when absent or not a string.
+fn read_source_control_action_default(
+    defaults: Option<&SourceControlAiActionDefaults>,
+    action_id: SourceControlActionId,
+) -> SourceControlActionRecipe {
+    let value = defaults.and_then(|defaults| defaults.get(&action_id));
+    SourceControlActionRecipe {
+        agent_id: value.and_then(|recipe| recipe.agent_id.clone()),
+        command_input_template: value
+            .and_then(|recipe| recipe.command_input_template.as_deref())
+            .map(|template| trim_js(template).to_string()),
+        agent_args: value
+            .and_then(|recipe| recipe.agent_args.as_deref())
+            .map(|args| trim_js(args).to_string()),
+    }
+}
+
+/// `resolveSourceControlActionCommandTemplate`.
+fn resolve_source_control_action_command_template(
+    defaults: Option<&SourceControlAiActionDefaults>,
+    action_id: SourceControlActionId,
+) -> String {
+    read_source_control_action_default(defaults, action_id)
+        .command_input_template
+        .unwrap_or_else(|| DEFAULT_ACTION_COMMAND_TEMPLATE.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -183,12 +449,6 @@ static NULL: Value = Value::Null;
 
 fn get<'a>(value: &'a Value, key: &str) -> &'a Value {
     value.get(key).unwrap_or(&NULL)
-}
-
-/// Drop empty and prototype-chain keys. Not a memory-safety guard in Rust, but
-/// the resulting key filtering is observable, so it is preserved.
-fn is_safe_record_key(key: &str) -> bool {
-    !key.is_empty() && key != "__proto__" && key != "constructor" && key != "prototype"
 }
 
 fn normalize_string_record(value: &Value) -> Option<BTreeMap<String, String>> {
@@ -254,7 +514,7 @@ fn normalize_operation_record<T>(
     let obj = value.as_object()?;
     let mut normalized = BTreeMap::new();
     for operation in SourceControlAiOperation::ALL {
-        // `Object.prototype.hasOwnProperty.call(value, operation)`: only own keys.
+        // `Object.prototype.hasOwnProperty.call(value, operation)`: own keys only.
         if let Some(item) = obj.get(operation.as_str()) {
             if let Some(parsed) = normalize_value(item) {
                 normalized.insert(operation, parsed);
@@ -317,84 +577,34 @@ fn normalize_repo_pr_creation_defaults(value: &Value) -> Option<RepoPrCreationDe
     }
 }
 
-/// All Source Control action ids: the three text actions plus the launch
-/// actions, in canonical order (`SOURCE_CONTROL_ACTION_IDS`).
-const SOURCE_CONTROL_ACTION_IDS: [&str; 7] = [
-    "commitMessage",
-    "pullRequest",
-    "branchName",
-    "fixCommitFailure",
-    "fixChecks",
-    "resolveConflicts",
-    "resolveComments",
-];
-
-/// `commandTemplateFromInstruction`: an empty/blank instruction yields the bare
-/// `{basePrompt}`; otherwise the trimmed instruction is appended below it.
-fn command_template_from_instruction(instruction: &str) -> String {
-    let trimmed = instruction.trim();
-    if trimmed.is_empty() {
-        "{basePrompt}".to_string()
-    } else {
-        format!("{{basePrompt}}\n\n{trimmed}")
-    }
-}
-
-/// `commandTemplateFromOperationInstruction` (upstream #9088): branch naming
-/// instructions define naming style, so they must PRECEDE the general built-in
-/// prompt; other operations retain their released order.
-fn command_template_from_operation_instruction(operation: &str, instruction: &str) -> String {
-    let trimmed = instruction.trim();
-    if trimmed.is_empty() {
-        return "{basePrompt}".to_string();
-    }
-    if operation == "branchName" {
-        format!("{trimmed}\n\n{{basePrompt}}")
-    } else {
-        command_template_from_instruction(trimmed)
-    }
-}
-
-/// `isLegacyBranchInstructionTemplate` (upstream #9088): reorder only the exact
-/// template older settings derived automatically; a user-authored command
-/// template remains authoritative.
-fn is_legacy_branch_instruction_template(
-    operation: &str,
-    instruction: &str,
-    template: Option<&str>,
-) -> bool {
-    operation == "branchName"
-        && !instruction.trim().is_empty()
-        && template == Some(command_template_from_instruction(instruction).as_str())
-}
-
-/// `normalizeSourceControlActionRecipe` + the repo-override null sentinels:
-/// `agentId` keeps null / a known TuiAgent / the custom-agent id; the two
-/// template/args fields keep a string or an explicit `null` (drop otherwise).
+/// One `actionOverrides` entry: `normalizeSourceControlActionRecipe` plus the
+/// two explicit-null inherit sentinels the repo shape allows.
+///
+/// An ABSENT key and an explicit `null` are different answers here: an absent
+/// `commandInputTemplate` lets a per-operation instruction migrate into one,
+/// a `null` blocks that migration. Reading both off `value.get(..)` and testing
+/// `is_null()` on a defaulted `Value::Null` conflates them.
 fn normalize_repo_action_override(item: &Value) -> Option<RepoSourceControlActionOverride> {
-    if !item.is_object() {
-        return None;
-    }
+    let obj = item.as_object()?;
     let mut normalized = RepoSourceControlActionOverride::default();
-    let agent_id = get(item, "agentId");
-    if agent_id.is_null() {
-        normalized.agent_id = Some(None);
-    } else if let Some(text) = agent_id.as_str() {
-        if orca_agents::tui_agent_config::is_tui_agent(text) || is_custom_agent_id(Some(text)) {
-            normalized.agent_id = Some(Some(text.to_string()));
+    match obj.get("agentId") {
+        Some(Value::Null) => normalized.agent_id = Some(None),
+        Some(Value::String(text))
+            if is_tui_agent(text) || is_custom_agent_id(Some(text.as_str())) =>
+        {
+            normalized.agent_id = Some(Some(text.clone()));
         }
+        _ => {}
     }
-    let template = get(item, "commandInputTemplate");
-    if let Some(text) = template.as_str() {
-        normalized.command_input_template = Some(Some(text.to_string()));
-    } else if template.is_null() {
-        normalized.command_input_template = Some(None);
+    match obj.get("commandInputTemplate") {
+        Some(Value::String(text)) => normalized.command_input_template = Some(Some(text.clone())),
+        Some(Value::Null) => normalized.command_input_template = Some(None),
+        _ => {}
     }
-    let args = get(item, "agentArgs");
-    if let Some(text) = args.as_str() {
-        normalized.agent_args = Some(Some(text.to_string()));
-    } else if args.is_null() {
-        normalized.agent_args = Some(None);
+    match obj.get("agentArgs") {
+        Some(Value::String(text)) => normalized.agent_args = Some(Some(text.clone())),
+        Some(Value::Null) => normalized.agent_args = Some(None),
+        _ => {}
     }
     if normalized.is_empty() {
         None
@@ -405,13 +615,13 @@ fn normalize_repo_action_override(item: &Value) -> Option<RepoSourceControlActio
 
 fn normalize_action_overrides(
     value: &Value,
-) -> Option<BTreeMap<String, RepoSourceControlActionOverride>> {
+) -> Option<BTreeMap<SourceControlActionId, RepoSourceControlActionOverride>> {
     let obj = value.as_object()?;
     let mut normalized = BTreeMap::new();
-    for action_id in SOURCE_CONTROL_ACTION_IDS {
-        if let Some(item) = obj.get(action_id) {
+    for action_id in SourceControlActionId::ALL {
+        if let Some(item) = obj.get(action_id.as_str()) {
             if let Some(parsed) = normalize_repo_action_override(item) {
-                normalized.insert(action_id.to_string(), parsed);
+                normalized.insert(action_id, parsed);
             }
         }
     }
@@ -425,75 +635,115 @@ fn normalize_action_overrides(
 pub fn normalize_repo_source_control_ai_overrides(
     value: &Value,
 ) -> Option<RepoSourceControlAiOverrides> {
+    // `isRecord`: an object that is neither null nor an array — `is_object()`
+    // is already false for both.
     if !value.is_object() {
         return None;
     }
-    let instructions_by_operation =
-        normalize_operation_record(get(value, "instructionsByOperation"), normalize_repo_instruction);
+    let mut normalized = RepoSourceControlAiOverrides {
+        enabled: get(value, "enabled").as_bool(),
+        ..RepoSourceControlAiOverrides::default()
+    };
+    if let Some(command) = get(value, "customAgentCommand").as_str() {
+        let command = trim_js(command);
+        if !command.is_empty() {
+            normalized.custom_agent_command = Some(command.to_string());
+        }
+    }
+    normalized.model_overrides_by_operation = normalize_operation_record(
+        get(value, "modelOverridesByOperation"),
+        normalize_source_control_ai_model_choice,
+    );
+    let instructions_by_operation = normalize_operation_record(
+        get(value, "instructionsByOperation"),
+        normalize_repo_instruction,
+    );
     // Why: per-operation instructions migrate into an action recipe's
     // commandInputTemplate when the recipe doesn't already carry one — but only
-    // when the template is *absent* (an explicit null sentinel must survive).
+    // when the template is ABSENT (an explicit null sentinel must survive).
     let mut action_overrides =
         normalize_action_overrides(get(value, "actionOverrides")).unwrap_or_default();
     for operation in SourceControlAiOperation::ALL {
         // `typeof instruction === 'string'`: a string migrates; null/absent skip.
-        let Some(Some(instruction)) =
-            instructions_by_operation.as_ref().and_then(|map| map.get(&operation))
+        let Some(Some(instruction)) = instructions_by_operation
+            .as_ref()
+            .and_then(|map| map.get(&operation))
         else {
             continue;
         };
-        let key = operation.as_str();
-        // Migrate when the template is absent, or when it is exactly the
-        // auto-derived legacy branch template (upstream #9088 reorder); an
-        // explicit null sentinel and user-authored templates survive.
-        let should_migrate = action_overrides.get(key).map_or(true, |entry| {
-            match &entry.command_input_template {
-                None => true,
-                Some(Some(existing)) => {
-                    is_legacy_branch_instruction_template(key, instruction, Some(existing))
-                }
-                Some(None) => false,
-            }
-        });
+        let action_id = operation.action_id();
+        let existing = action_overrides
+            .get(&action_id)
+            .and_then(|entry| entry.command_input_template.as_ref());
+        let should_migrate = match existing {
+            None => true,
+            Some(Some(template)) => is_legacy_branch_instruction_template(
+                operation,
+                Some(instruction),
+                Some(template.as_str()),
+            ),
+            Some(None) => false,
+        };
         if should_migrate {
-            action_overrides.entry(key.to_string()).or_default().command_input_template = Some(
-                Some(command_template_from_operation_instruction(key, instruction)),
-            );
+            action_overrides
+                .entry(action_id)
+                .or_default()
+                .command_input_template = Some(Some(command_template_from_operation_instruction(
+                operation,
+                Some(instruction),
+            )));
         }
     }
-    Some(RepoSourceControlAiOverrides {
-        model_overrides_by_operation: normalize_operation_record(
-            get(value, "modelOverridesByOperation"),
-            normalize_source_control_ai_model_choice,
-        ),
-        instructions_by_operation,
-        action_overrides: if action_overrides.is_empty() {
-            None
-        } else {
-            Some(action_overrides)
-        },
-        pr_creation_defaults: normalize_repo_pr_creation_defaults(get(value, "prCreationDefaults")),
-    })
+    normalized.instructions_by_operation = instructions_by_operation;
+    if !action_overrides.is_empty() {
+        normalized.action_overrides = Some(action_overrides);
+    }
+    normalized.pr_creation_defaults =
+        normalize_repo_pr_creation_defaults(get(value, "prCreationDefaults"));
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Defaults + legacy migration.
 // ---------------------------------------------------------------------------
 
+fn default_actions() -> SourceControlAiActionDefaults {
+    SourceControlActionId::ALL
+        .into_iter()
+        .map(|action_id| {
+            (
+                action_id,
+                SourceControlActionRecipe {
+                    agent_id: None,
+                    command_input_template: Some(
+                        DEFAULT_ACTION_COMMAND_TEMPLATE.to_string(),
+                    ),
+                    agent_args: None,
+                },
+            )
+        })
+        .collect()
+}
+
 pub fn get_default_source_control_ai_settings() -> SourceControlAiSettings {
-    let mut instructions = BTreeMap::new();
-    instructions.insert(SourceControlAiOperation::CommitMessage, String::new());
-    instructions.insert(SourceControlAiOperation::PullRequest, String::new());
-    instructions.insert(SourceControlAiOperation::BranchName, String::new());
+    let instructions = SourceControlAiOperation::ALL
+        .into_iter()
+        .map(|operation| (operation, String::new()))
+        .collect();
     SourceControlAiSettings {
-        enabled: true,
-        agent_id: None,
+        enabled: Some(true),
+        actions: Some(default_actions()),
+        agent_id: Some(None),
         selected_model_by_agent: BTreeMap::new(),
         selected_model_by_agent_by_host: Some(BTreeMap::new()),
         discovered_models_by_agent: Some(BTreeMap::new()),
         discovered_models_by_agent_by_host: Some(BTreeMap::new()),
         selected_thinking_by_model: BTreeMap::new(),
-        custom_agent_command: String::new(),
+        custom_agent_command: Some(String::new()),
         instructions_by_operation: instructions,
         model_overrides_by_operation: None,
         pr_creation_defaults: Some(SourceControlAiPrCreationDefaults {
@@ -502,6 +752,27 @@ pub fn get_default_source_control_ai_settings() -> SourceControlAiSettings {
             generate_details_on_open: Some(false),
             open_after_create: Some(false),
         }),
+        launch_action_defaults: Some(SourceControlAiActionDefaults::new()),
+    }
+}
+
+/// `actionRecipeFromLegacyCommitMessageAi`.
+fn action_recipe_from_legacy(legacy: &CommitMessageAiSettings) -> SourceControlActionRecipe {
+    let agent_id = match &legacy.agent_id {
+        Some(None) => Some(None),
+        Some(Some(agent_id)) if is_custom_agent_id(Some(agent_id)) => {
+            Some(Some(CUSTOM_AGENT_ID.to_string()))
+        }
+        // `legacy.agentId ? { agentId } : {}` — a falsy (empty) id is dropped.
+        Some(Some(agent_id)) if !agent_id.is_empty() => Some(Some(agent_id.clone())),
+        _ => None,
+    };
+    SourceControlActionRecipe {
+        agent_id,
+        command_input_template: Some(command_template_from_instruction(
+            legacy.custom_prompt.as_deref(),
+        )),
+        agent_args: None,
     }
 }
 
@@ -513,20 +784,29 @@ pub fn source_control_ai_settings_from_legacy(
         Some(legacy) => legacy,
         None => return defaults,
     };
+    let legacy_recipe = action_recipe_from_legacy(legacy);
+    let mut actions = defaults.actions.clone().unwrap_or_default();
+    actions.insert(SourceControlActionId::CommitMessage, legacy_recipe.clone());
+    actions.insert(
+        SourceControlActionId::BranchName,
+        SourceControlActionRecipe {
+            command_input_template: Some(command_template_from_operation_instruction(
+                SourceControlAiOperation::BranchName,
+                legacy.custom_prompt.as_deref(),
+            )),
+            ..legacy_recipe
+        },
+    );
+    let prompt = legacy.custom_prompt.clone().unwrap_or_default();
     let mut instructions = BTreeMap::new();
     // Why: the legacy prompt covered commit generation and branch auto-rename;
     // the first split must preserve that guidance for both released paths.
-    instructions.insert(
-        SourceControlAiOperation::CommitMessage,
-        legacy.custom_prompt.clone(),
-    );
+    instructions.insert(SourceControlAiOperation::CommitMessage, prompt.clone());
     instructions.insert(SourceControlAiOperation::PullRequest, String::new());
-    instructions.insert(
-        SourceControlAiOperation::BranchName,
-        legacy.custom_prompt.clone(),
-    );
+    instructions.insert(SourceControlAiOperation::BranchName, prompt);
     SourceControlAiSettings {
         enabled: legacy.enabled,
+        actions: Some(actions),
         agent_id: legacy.agent_id.clone(),
         selected_model_by_agent: legacy.selected_model_by_agent.clone(),
         selected_model_by_agent_by_host: Some(
@@ -543,7 +823,141 @@ pub fn source_control_ai_settings_from_legacy(
         instructions_by_operation: instructions,
         model_overrides_by_operation: defaults.model_overrides_by_operation,
         pr_creation_defaults: defaults.pr_creation_defaults,
+        launch_action_defaults: defaults.launch_action_defaults,
     }
+}
+
+pub fn normalize_source_control_ai_settings(
+    value: Option<&SourceControlAiSettings>,
+    legacy: Option<&CommitMessageAiSettings>,
+) -> SourceControlAiSettings {
+    let base_owned;
+    let base: &SourceControlAiSettings = match value {
+        Some(value) => value,
+        None => {
+            base_owned = source_control_ai_settings_from_legacy(legacy);
+            &base_owned
+        }
+    };
+    let defaults = get_default_source_control_ai_settings();
+
+    let normalized_launch_action_defaults =
+        normalize_source_control_ai_action_defaults(base.launch_action_defaults.as_ref());
+    let mut normalized_actions = normalized_launch_action_defaults.clone().unwrap_or_default();
+    if let Some(from_actions) = normalize_source_control_ai_action_defaults(base.actions.as_ref()) {
+        normalized_actions.extend(from_actions);
+    }
+
+    let mut actions = defaults.actions.clone().unwrap_or_default();
+    actions.extend(normalized_actions.clone());
+    for operation in SourceControlAiOperation::ALL {
+        let action_id = operation.action_id();
+        let existing = read_source_control_action_default(Some(&normalized_actions), action_id);
+        let instruction = base.instructions_by_operation.get(&operation);
+        let legacy_instruction = if operation == SourceControlAiOperation::CommitMessage {
+            legacy.and_then(|legacy| legacy.custom_prompt.as_deref())
+        } else {
+            None
+        };
+        // `instruction ?? legacyInstruction` — nullish, so an EMPTY instruction
+        // still wins over the legacy prompt.
+        let resolved_instruction = instruction.map(String::as_str).or(legacy_instruction);
+        // `instruction || legacyInstruction` — truthy, so an empty instruction
+        // with no legacy prompt derives no template at all.
+        let has_instruction = instruction.is_some_and(|value| !value.is_empty())
+            || legacy_instruction.is_some_and(|value| !value.is_empty());
+        let instruction_template = has_instruction.then(|| {
+            command_template_from_operation_instruction(operation, resolved_instruction)
+        });
+        let should_apply = instruction_template.is_some()
+            && match existing.command_input_template.as_deref() {
+                None => true,
+                Some(DEFAULT_ACTION_COMMAND_TEMPLATE) => true,
+                Some(template) => is_legacy_branch_instruction_template(
+                    operation,
+                    resolved_instruction,
+                    Some(template),
+                ),
+            };
+        let mut recipe = defaults
+            .actions
+            .as_ref()
+            .and_then(|defaults| defaults.get(&action_id))
+            .cloned()
+            .unwrap_or_default();
+        if let Some(Some(agent_id)) = base.agent_id.as_ref() {
+            if !agent_id.is_empty() && !is_custom_agent_id(Some(agent_id)) {
+                recipe.agent_id = Some(Some(agent_id.clone()));
+            }
+        }
+        if existing.agent_id.is_some() {
+            recipe.agent_id = existing.agent_id.clone();
+        }
+        if existing.command_input_template.is_some() {
+            recipe.command_input_template = existing.command_input_template.clone();
+        }
+        if existing.agent_args.is_some() {
+            recipe.agent_args = existing.agent_args.clone();
+        }
+        if let Some(template) = instruction_template.filter(|_| should_apply) {
+            recipe.command_input_template = Some(template);
+        }
+        actions.insert(action_id, recipe);
+    }
+
+    let mut selected_model_by_agent = defaults.selected_model_by_agent.clone();
+    selected_model_by_agent.extend(base.selected_model_by_agent.clone());
+    let mut selected_thinking_by_model = defaults.selected_thinking_by_model.clone();
+    selected_thinking_by_model.extend(base.selected_thinking_by_model.clone());
+    let mut instructions_by_operation = defaults.instructions_by_operation.clone();
+    instructions_by_operation.extend(base.instructions_by_operation.clone());
+
+    SourceControlAiSettings {
+        enabled: base.enabled.or(defaults.enabled),
+        actions: Some(actions),
+        agent_id: base.agent_id.clone().or(defaults.agent_id),
+        selected_model_by_agent,
+        selected_model_by_agent_by_host: base
+            .selected_model_by_agent_by_host
+            .clone()
+            .or(defaults.selected_model_by_agent_by_host),
+        discovered_models_by_agent: base
+            .discovered_models_by_agent
+            .clone()
+            .or(defaults.discovered_models_by_agent),
+        discovered_models_by_agent_by_host: base
+            .discovered_models_by_agent_by_host
+            .clone()
+            .or(defaults.discovered_models_by_agent_by_host),
+        selected_thinking_by_model,
+        custom_agent_command: base
+            .custom_agent_command
+            .clone()
+            .or(defaults.custom_agent_command),
+        instructions_by_operation,
+        model_overrides_by_operation: base.model_overrides_by_operation.clone(),
+        pr_creation_defaults: Some(merge_pr_defaults(base.pr_creation_defaults.as_ref())),
+        launch_action_defaults: normalized_launch_action_defaults
+            .or(defaults.launch_action_defaults),
+    }
+}
+
+fn merge_pr_defaults(
+    base: Option<&SourceControlAiPrCreationDefaults>,
+) -> SourceControlAiPrCreationDefaults {
+    let mut out = SourceControlAiPrCreationDefaults {
+        draft: Some(false),
+        use_template: Some(false),
+        generate_details_on_open: Some(false),
+        open_after_create: Some(false),
+    };
+    if let Some(base) = base {
+        out.draft = base.draft.or(out.draft);
+        out.use_template = base.use_template.or(out.use_template);
+        out.generate_details_on_open = base.generate_details_on_open.or(out.generate_details_on_open);
+        out.open_after_create = base.open_after_create.or(out.open_after_create);
+    }
+    out
 }
 
 fn merge_selected_model_by_agent_by_host(
@@ -553,10 +967,7 @@ fn merge_selected_model_by_agent_by_host(
     let mut merged = base.cloned().unwrap_or_default();
     if let Some(override_) = override_ {
         for (host_key, host_models) in override_ {
-            let entry = merged.entry(host_key.clone()).or_default();
-            for (agent, model) in host_models {
-                entry.insert(agent.clone(), model.clone());
-            }
+            merged.entry(host_key.clone()).or_default().extend(host_models.clone());
         }
     }
     merged
@@ -602,7 +1013,7 @@ fn merge_legacy_model_selection_delta(
     }
 }
 
-/// host id -> (operation -> model id): the SC-AI per-host model overrides.
+/// host id -> (agent -> model id).
 type HostModelSelections = BTreeMap<String, BTreeMap<String, String>>;
 
 fn merge_legacy_host_model_selection_delta(
@@ -648,14 +1059,90 @@ fn has_entries<K, V>(map: Option<&BTreeMap<K, V>>) -> bool {
     matches!(map, Some(map) if !map.is_empty())
 }
 
+/// `applyLegacyAgentToActionRecipe`.
+fn apply_legacy_agent_to_action_recipe(
+    recipe: Option<&SourceControlActionRecipe>,
+    agent_id: &Option<Option<String>>,
+) -> SourceControlActionRecipe {
+    let mut next = recipe.cloned().unwrap_or_default();
+    next.agent_id = match agent_id {
+        Some(None) => Some(None),
+        Some(Some(id)) if is_custom_agent_id(Some(id)) => Some(Some(CUSTOM_AGENT_ID.to_string())),
+        Some(Some(id)) if !id.is_empty() => Some(Some(id.clone())),
+        _ => None,
+    };
+    next
+}
+
+/// `shouldImportLegacyBranchPrompt`: stale legacy branch instructions can remain
+/// after a user customizes the new branch recipe; only recipe state can prove
+/// the two are still coupled.
+fn should_import_legacy_branch_prompt(
+    base: &SourceControlAiSettings,
+    projected_legacy: &CommitMessageAiSettings,
+) -> bool {
+    let branch_recipe =
+        read_source_control_action_default(base.actions.as_ref(), SourceControlActionId::BranchName);
+    let projected_template = command_template_from_operation_instruction(
+        SourceControlAiOperation::BranchName,
+        projected_legacy.custom_prompt.as_deref(),
+    );
+    match branch_recipe.command_input_template.as_deref() {
+        None => true,
+        Some(template) => {
+            template == DEFAULT_ACTION_COMMAND_TEMPLATE || template == projected_template
+        }
+    }
+}
+
+/// `shouldImportLegacyBranchAgent`.
+fn should_import_legacy_branch_agent(
+    base: &SourceControlAiSettings,
+    projected_legacy: &CommitMessageAiSettings,
+) -> bool {
+    let branch_recipe =
+        read_source_control_action_default(base.actions.as_ref(), SourceControlActionId::BranchName);
+    match branch_recipe.agent_id {
+        None => true,
+        Some(agent_id) => Some(agent_id) == projected_legacy.agent_id,
+    }
+}
+
 pub struct MergeLegacyOptions {
     pub pull_request_instructions_from_legacy: bool,
+}
+
+/// The four legacy fields the merge compares against its own rollback
+/// projection (`legacyCommitMessageCoreChanges`).
+struct LegacyCoreChanges {
+    enabled: bool,
+    agent_id: bool,
+    custom_prompt: bool,
+    custom_agent_command: bool,
+}
+
+impl LegacyCoreChanges {
+    fn any(&self) -> bool {
+        self.enabled || self.agent_id || self.custom_prompt || self.custom_agent_command
+    }
+}
+
+fn legacy_core_changes(
+    legacy: &CommitMessageAiSettings,
+    projected: &CommitMessageAiSettings,
+) -> LegacyCoreChanges {
+    LegacyCoreChanges {
+        enabled: legacy.enabled != projected.enabled,
+        agent_id: legacy.agent_id != projected.agent_id,
+        custom_prompt: legacy.custom_prompt != projected.custom_prompt,
+        custom_agent_command: legacy.custom_agent_command != projected.custom_agent_command,
+    }
 }
 
 pub fn merge_legacy_commit_message_ai_into_source_control_ai(
     source_control_ai: Option<&SourceControlAiSettings>,
     legacy: Option<&CommitMessageAiSettings>,
-    options: MergeLegacyOptions,
+    options: &MergeLegacyOptions,
 ) -> SourceControlAiSettings {
     // Why: older runtimes and rollback builds still write commitMessageAi; merge
     // those writes into the new shape without wiping PR-only settings.
@@ -664,172 +1151,146 @@ pub fn merge_legacy_commit_message_ai_into_source_control_ai(
         Some(legacy) => legacy,
         None => return base,
     };
+    let legacy_prompt = legacy.custom_prompt.clone().unwrap_or_default();
 
+    if source_control_ai.is_none() {
+        let mut next = base.clone();
+        next.enabled = legacy.enabled;
+        next.agent_id = legacy.agent_id.clone();
+        next.selected_model_by_agent = legacy.selected_model_by_agent.clone();
+        next.selected_model_by_agent_by_host =
+            Some(legacy.selected_model_by_agent_by_host.clone().unwrap_or_default());
+        next.discovered_models_by_agent =
+            Some(legacy.discovered_models_by_agent.clone().unwrap_or_default());
+        next.discovered_models_by_agent_by_host =
+            Some(legacy.discovered_models_by_agent_by_host.clone().unwrap_or_default());
+        next.selected_thinking_by_model = legacy.selected_thinking_by_model.clone();
+        next.custom_agent_command = legacy.custom_agent_command.clone();
+        next.instructions_by_operation
+            .insert(SourceControlAiOperation::CommitMessage, legacy_prompt.clone());
+        next.instructions_by_operation
+            .insert(SourceControlAiOperation::BranchName, legacy_prompt.clone());
+        if options.pull_request_instructions_from_legacy {
+            next.instructions_by_operation
+                .insert(SourceControlAiOperation::PullRequest, legacy_prompt);
+        }
+        return normalize_source_control_ai_settings(Some(&next), Some(legacy));
+    }
+
+    let existing_commit_choice = base
+        .model_overrides_by_operation
+        .as_ref()
+        .and_then(|overrides| overrides.get(&SourceControlAiOperation::CommitMessage));
+    let projected_legacy = project_source_control_ai_to_legacy_commit_message_ai(&base, None);
+    let (selected_model_by_agent, changed_models) = merge_legacy_model_selection_delta(
+        existing_commit_choice.and_then(|choice| choice.selected_model_by_agent.as_ref()),
+        Some(&legacy.selected_model_by_agent),
+        Some(&projected_legacy.selected_model_by_agent),
+    );
+    let (selected_model_by_agent_by_host, changed_host_models) =
+        merge_legacy_host_model_selection_delta(
+            existing_commit_choice.and_then(|choice| choice.selected_model_by_agent_by_host.as_ref()),
+            legacy.selected_model_by_agent_by_host.as_ref(),
+            projected_legacy.selected_model_by_agent_by_host.as_ref(),
+        );
+    let (selected_thinking_by_model, changed_thinking) = merge_legacy_model_selection_delta(
+        existing_commit_choice.and_then(|choice| choice.selected_thinking_by_model.as_ref()),
+        Some(&legacy.selected_thinking_by_model),
+        Some(&projected_legacy.selected_thinking_by_model),
+    );
+    let should_merge_models = changed_models || changed_host_models || changed_thinking;
+    let mut next_overrides = base.model_overrides_by_operation.clone().unwrap_or_default();
+    if should_merge_models {
+        let mut next_choice = SourceControlAiModelChoice::default();
+        if has_entries(selected_model_by_agent.as_ref()) {
+            next_choice.selected_model_by_agent = selected_model_by_agent;
+        }
+        if has_entries(selected_model_by_agent_by_host.as_ref()) {
+            next_choice.selected_model_by_agent_by_host = selected_model_by_agent_by_host;
+        }
+        if has_entries(selected_thinking_by_model.as_ref()) {
+            next_choice.selected_thinking_by_model = selected_thinking_by_model;
+        }
+        if next_choice.is_empty() {
+            next_overrides.remove(&SourceControlAiOperation::CommitMessage);
+        } else {
+            next_overrides.insert(SourceControlAiOperation::CommitMessage, next_choice);
+        }
+    }
+
+    // Why: rollback builds write commitMessageAi, while new builds project
+    // commit-message overrides there. Keep those model choices scoped to
+    // commit-message generation so PR defaults cannot drift on reload.
     let mut next = base.clone();
-    next.enabled = legacy.enabled;
-    next.agent_id = legacy.agent_id.clone();
     next.discovered_models_by_agent =
         Some(legacy.discovered_models_by_agent.clone().unwrap_or_default());
     next.discovered_models_by_agent_by_host =
         Some(legacy.discovered_models_by_agent_by_host.clone().unwrap_or_default());
-    next.custom_agent_command = legacy.custom_agent_command.clone();
-
-    if source_control_ai.is_some() {
-        let existing_commit_choice = base
-            .model_overrides_by_operation
+    let changes = legacy_core_changes(legacy, &projected_legacy);
+    let should_merge_core = changes.any();
+    if should_merge_core {
+        let should_merge_branch_prompt =
+            changes.custom_prompt && should_import_legacy_branch_prompt(&base, &projected_legacy);
+        let should_merge_branch_agent =
+            changes.agent_id && should_import_legacy_branch_agent(&base, &projected_legacy);
+        let legacy_recipe = action_recipe_from_legacy(legacy);
+        // Why: legacy commitMessageAi is also our rollback projection. Only
+        // import fields that diverged so independent action recipes survive.
+        if changes.enabled {
+            next.enabled = legacy.enabled;
+        }
+        if changes.agent_id {
+            next.agent_id = legacy.agent_id.clone();
+        }
+        if changes.custom_agent_command {
+            next.custom_agent_command = legacy.custom_agent_command.clone();
+        }
+        if changes.custom_prompt {
+            next.instructions_by_operation
+                .insert(SourceControlAiOperation::CommitMessage, legacy_prompt.clone());
+        }
+        if should_merge_branch_prompt {
+            next.instructions_by_operation
+                .insert(SourceControlAiOperation::BranchName, legacy_prompt.clone());
+        }
+        if changes.custom_prompt && options.pull_request_instructions_from_legacy {
+            next.instructions_by_operation
+                .insert(SourceControlAiOperation::PullRequest, legacy_prompt.clone());
+        }
+        let mut actions = base.actions.clone().unwrap_or_default();
+        let base_commit = base
+            .actions
             .as_ref()
-            .and_then(|overrides| overrides.get(&SourceControlAiOperation::CommitMessage));
-        let projected_legacy = project_source_control_ai_to_legacy_commit_message_ai(&base, None);
-        let (selected_model_by_agent, changed_models) = merge_legacy_model_selection_delta(
-            existing_commit_choice.and_then(|choice| choice.selected_model_by_agent.as_ref()),
-            Some(&legacy.selected_model_by_agent),
-            Some(&projected_legacy.selected_model_by_agent),
-        );
-        let (selected_model_by_agent_by_host, changed_host_models) =
-            merge_legacy_host_model_selection_delta(
-                existing_commit_choice
-                    .and_then(|choice| choice.selected_model_by_agent_by_host.as_ref()),
-                legacy.selected_model_by_agent_by_host.as_ref(),
-                projected_legacy.selected_model_by_agent_by_host.as_ref(),
-            );
-        let (selected_thinking_by_model, changed_thinking) = merge_legacy_model_selection_delta(
-            existing_commit_choice.and_then(|choice| choice.selected_thinking_by_model.as_ref()),
-            Some(&legacy.selected_thinking_by_model),
-            Some(&projected_legacy.selected_thinking_by_model),
-        );
-        let should_merge = changed_models || changed_host_models || changed_thinking;
-        let mut next_overrides = base.model_overrides_by_operation.clone().unwrap_or_default();
-        if should_merge {
-            let mut next_choice = SourceControlAiModelChoice::default();
-            if has_entries(selected_model_by_agent.as_ref()) {
-                next_choice.selected_model_by_agent = selected_model_by_agent;
-            }
-            if has_entries(selected_model_by_agent_by_host.as_ref()) {
-                next_choice.selected_model_by_agent_by_host = selected_model_by_agent_by_host;
-            }
-            if has_entries(selected_thinking_by_model.as_ref()) {
-                next_choice.selected_thinking_by_model = selected_thinking_by_model;
-            }
-            if next_choice.is_empty() {
-                next_overrides.remove(&SourceControlAiOperation::CommitMessage);
-            } else {
-                next_overrides.insert(SourceControlAiOperation::CommitMessage, next_choice);
-            }
+            .and_then(|actions| actions.get(&SourceControlActionId::CommitMessage));
+        let mut commit_recipe = if changes.agent_id {
+            apply_legacy_agent_to_action_recipe(base_commit, &legacy.agent_id)
+        } else {
+            base_commit.cloned().unwrap_or_default()
+        };
+        if changes.custom_prompt {
+            commit_recipe.command_input_template = legacy_recipe.command_input_template.clone();
         }
-        // Why: keep model choices scoped to commit-message generation so PR
-        // defaults cannot drift on reload across rollback/new builds.
-        apply_legacy_instructions(&mut next, &base, legacy, &options);
-        next.model_overrides_by_operation = Some(next_overrides);
-        return normalize_source_control_ai_settings(Some(&next), Some(legacy));
-    }
-
-    next.selected_model_by_agent = legacy.selected_model_by_agent.clone();
-    next.selected_model_by_agent_by_host =
-        Some(legacy.selected_model_by_agent_by_host.clone().unwrap_or_default());
-    next.selected_thinking_by_model = legacy.selected_thinking_by_model.clone();
-    apply_legacy_instructions(&mut next, &base, legacy, &options);
-    normalize_source_control_ai_settings(Some(&next), Some(legacy))
-}
-
-fn apply_legacy_instructions(
-    next: &mut SourceControlAiSettings,
-    base: &SourceControlAiSettings,
-    legacy: &CommitMessageAiSettings,
-    options: &MergeLegacyOptions,
-) {
-    let mut instructions = base.instructions_by_operation.clone();
-    instructions.insert(
-        SourceControlAiOperation::CommitMessage,
-        legacy.custom_prompt.clone(),
-    );
-    instructions.insert(
-        SourceControlAiOperation::BranchName,
-        legacy.custom_prompt.clone(),
-    );
-    if options.pull_request_instructions_from_legacy {
-        instructions.insert(
-            SourceControlAiOperation::PullRequest,
-            legacy.custom_prompt.clone(),
-        );
-    }
-    next.instructions_by_operation = instructions;
-}
-
-pub fn normalize_source_control_ai_settings(
-    value: Option<&SourceControlAiSettings>,
-    legacy: Option<&CommitMessageAiSettings>,
-) -> SourceControlAiSettings {
-    let base_owned;
-    let base: &SourceControlAiSettings = match value {
-        Some(value) => value,
-        None => {
-            base_owned = source_control_ai_settings_from_legacy(legacy);
-            &base_owned
+        actions.insert(SourceControlActionId::CommitMessage, commit_recipe);
+        let base_branch = base
+            .actions
+            .as_ref()
+            .and_then(|actions| actions.get(&SourceControlActionId::BranchName));
+        let mut branch_recipe = if should_merge_branch_agent {
+            apply_legacy_agent_to_action_recipe(base_branch, &legacy.agent_id)
+        } else {
+            base_branch.cloned().unwrap_or_default()
+        };
+        if should_merge_branch_prompt {
+            branch_recipe.command_input_template = Some(command_template_from_operation_instruction(
+                SourceControlAiOperation::BranchName,
+                legacy.custom_prompt.as_deref(),
+            ));
         }
-    };
-    let defaults = get_default_source_control_ai_settings();
-
-    let mut selected_model_by_agent = defaults.selected_model_by_agent.clone();
-    for (key, value) in &base.selected_model_by_agent {
-        selected_model_by_agent.insert(key.clone(), value.clone());
+        actions.insert(SourceControlActionId::BranchName, branch_recipe);
+        next.actions = Some(actions);
     }
-    let mut selected_thinking_by_model = defaults.selected_thinking_by_model.clone();
-    for (key, value) in &base.selected_thinking_by_model {
-        selected_thinking_by_model.insert(key.clone(), value.clone());
-    }
-    let mut instructions_by_operation = defaults.instructions_by_operation.clone();
-    for (key, value) in &base.instructions_by_operation {
-        instructions_by_operation.insert(*key, value.clone());
-    }
-
-    SourceControlAiSettings {
-        enabled: base.enabled,
-        agent_id: base.agent_id.clone(),
-        selected_model_by_agent,
-        selected_model_by_agent_by_host: base
-            .selected_model_by_agent_by_host
-            .clone()
-            .or(defaults.selected_model_by_agent_by_host),
-        discovered_models_by_agent: base
-            .discovered_models_by_agent
-            .clone()
-            .or(defaults.discovered_models_by_agent),
-        discovered_models_by_agent_by_host: base
-            .discovered_models_by_agent_by_host
-            .clone()
-            .or(defaults.discovered_models_by_agent_by_host),
-        selected_thinking_by_model,
-        custom_agent_command: base.custom_agent_command.clone(),
-        instructions_by_operation,
-        model_overrides_by_operation: base.model_overrides_by_operation.clone(),
-        pr_creation_defaults: Some(merge_pr_defaults(base.pr_creation_defaults.as_ref())),
-    }
-}
-
-fn merge_pr_defaults(
-    base: Option<&SourceControlAiPrCreationDefaults>,
-) -> SourceControlAiPrCreationDefaults {
-    let mut out = SourceControlAiPrCreationDefaults {
-        draft: Some(false),
-        use_template: Some(false),
-        generate_details_on_open: Some(false),
-        open_after_create: Some(false),
-    };
-    if let Some(base) = base {
-        if base.draft.is_some() {
-            out.draft = base.draft;
-        }
-        if base.use_template.is_some() {
-            out.use_template = base.use_template;
-        }
-        if base.generate_details_on_open.is_some() {
-            out.generate_details_on_open = base.generate_details_on_open;
-        }
-        if base.open_after_create.is_some() {
-            out.open_after_create = base.open_after_create;
-        }
-    }
-    out
+    next.model_overrides_by_operation = Some(next_overrides);
+    normalize_source_control_ai_settings(Some(&next), should_merge_core.then_some(legacy))
 }
 
 // ---------------------------------------------------------------------------
@@ -879,11 +1340,7 @@ pub fn select_source_control_ai_model_choice_for_host(
     let mut by_host = choice
         .and_then(|choice| choice.selected_model_by_agent_by_host.clone())
         .unwrap_or_default();
-    let mut host_selected = choice
-        .and_then(|choice| choice.selected_model_by_agent_by_host.as_ref())
-        .and_then(|by_host| by_host.get(host_key))
-        .cloned()
-        .unwrap_or_default();
+    let mut host_selected = by_host.get(host_key).cloned().unwrap_or_default();
     host_selected.insert(agent_id.to_string(), model_id.to_string());
     by_host.insert(host_key.to_string(), host_selected);
     result.selected_model_by_agent_by_host = Some(by_host);
@@ -898,8 +1355,7 @@ pub fn clear_source_control_ai_model_choice_for_host(
     let choice = choice?;
     // Why: model choices are host-scoped; clearing one "Use global" selector
     // must not erase a different SSH/runtime host's override.
-    let mut selected_model_by_agent =
-        choice.selected_model_by_agent.clone().unwrap_or_default();
+    let mut selected_model_by_agent = choice.selected_model_by_agent.clone().unwrap_or_default();
     if host_key == LOCAL_COMMIT_MESSAGE_HOST_KEY {
         selected_model_by_agent.remove(agent_id);
     }
@@ -926,16 +1382,15 @@ pub fn clear_source_control_ai_model_choice_for_host(
     }
     let has_model_selection = next_choice.selected_model_by_agent.is_some()
         || next_choice.selected_model_by_agent_by_host.is_some();
-    if has_model_selection {
-        if let Some(thinking) = choice.selected_thinking_by_model.as_ref() {
-            if !thinking.is_empty() {
-                next_choice.selected_thinking_by_model = Some(thinking.clone());
-            }
-        }
-        Some(next_choice)
-    } else {
-        None
+    if !has_model_selection {
+        return None;
     }
+    if let Some(thinking) = choice.selected_thinking_by_model.as_ref() {
+        if !thinking.is_empty() {
+            next_choice.selected_thinking_by_model = Some(thinking.clone());
+        }
+    }
+    Some(next_choice)
 }
 
 pub fn project_source_control_ai_to_legacy_commit_message_ai(
@@ -946,32 +1401,32 @@ pub fn project_source_control_ai_to_legacy_commit_message_ai(
         .model_overrides_by_operation
         .as_ref()
         .and_then(|overrides| overrides.get(&SourceControlAiOperation::CommitMessage));
+    let commit_recipe = read_source_control_action_default(
+        source_control_ai.actions.as_ref(),
+        SourceControlActionId::CommitMessage,
+    );
 
     let mut selected_model_by_agent = source_control_ai.selected_model_by_agent.clone();
-    if let Some(by_agent) = commit_choice.and_then(|choice| choice.selected_model_by_agent.as_ref())
-    {
-        for (key, value) in by_agent {
-            selected_model_by_agent.insert(key.clone(), value.clone());
-        }
+    if let Some(by_agent) = commit_choice.and_then(|choice| choice.selected_model_by_agent.clone()) {
+        selected_model_by_agent.extend(by_agent);
     }
     let mut selected_thinking_by_model = source_control_ai.selected_thinking_by_model.clone();
-    if let Some(by_model) =
-        commit_choice.and_then(|choice| choice.selected_thinking_by_model.as_ref())
+    if let Some(by_model) = commit_choice.and_then(|choice| choice.selected_thinking_by_model.clone())
     {
-        for (key, value) in by_model {
-            selected_thinking_by_model.insert(key.clone(), value.clone());
-        }
+        selected_thinking_by_model.extend(by_model);
     }
-    let custom_prompt = source_control_ai
+    let fallback_prompt = source_control_ai
         .instructions_by_operation
         .get(&SourceControlAiOperation::CommitMessage)
-        .cloned()
-        .or_else(|| previous_legacy.map(|legacy| legacy.custom_prompt.clone()))
-        .unwrap_or_default();
+        .map(String::as_str)
+        .or_else(|| previous_legacy.and_then(|legacy| legacy.custom_prompt.as_deref()));
 
     CommitMessageAiSettings {
         enabled: source_control_ai.enabled,
-        agent_id: source_control_ai.agent_id.clone(),
+        agent_id: commit_recipe
+            .agent_id
+            .clone()
+            .or_else(|| source_control_ai.agent_id.clone()),
         selected_model_by_agent,
         selected_model_by_agent_by_host: Some(merge_selected_model_by_agent_by_host(
             source_control_ai.selected_model_by_agent_by_host.as_ref(),
@@ -984,7 +1439,10 @@ pub fn project_source_control_ai_to_legacy_commit_message_ai(
             source_control_ai.discovered_models_by_agent_by_host.clone().unwrap_or_default(),
         ),
         selected_thinking_by_model,
-        custom_prompt,
+        custom_prompt: Some(legacy_prompt_from_command_template(
+            commit_recipe.command_input_template.as_deref(),
+            fallback_prompt,
+        )),
         custom_agent_command: source_control_ai.custom_agent_command.clone(),
     }
 }
@@ -999,6 +1457,8 @@ pub struct ResolvedSourceControlAiGenerationParams {
     pub model: String,
     pub thinking_level: Option<String>,
     pub custom_prompt: Option<String>,
+    pub command_input_template: Option<String>,
+    pub agent_args: Option<String>,
     pub custom_agent_command: Option<String>,
     pub agent_command_override: Option<String>,
 }
@@ -1016,14 +1476,67 @@ pub enum ResolveSourceControlAiResult {
     Err(String),
 }
 
+/// A saved `defaultTuiAgent` preference, owned (the borrowing form lives in
+/// `orca_agents`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum DefaultTuiAgentPreference {
+    /// The setting was never written.
+    #[default]
+    Undefined,
+    /// The explicit "auto" choice.
+    Null,
+    /// A built-in agent id, or `"blank"`.
+    Builtin(String),
+    /// `{ kind: 'custom', id }`.
+    Custom { id: Option<String> },
+}
+
+/// The two `CustomAgentProfile` fields the default-agent collapse reads.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CustomAgentProfile {
+    pub id: Option<String>,
+    pub base_agent: Option<String>,
+}
+
 /// The slice of `GlobalSettings` the resolvers actually read.
 #[derive(Clone, Debug, Default)]
 pub struct GlobalSettingsSlice {
-    pub default_tui_agent: Option<String>,
+    pub default_tui_agent: DefaultTuiAgentPreference,
+    pub custom_agents: Vec<CustomAgentProfile>,
     pub agent_cmd_overrides: BTreeMap<String, String>,
     pub commit_message_ai: Option<CommitMessageAiSettings>,
     pub source_control_ai: Option<SourceControlAiSettings>,
     pub disabled_tui_agents: Vec<String>,
+}
+
+impl GlobalSettingsSlice {
+    /// `collapseDefaultTuiAgentToBuiltin(settings.defaultTuiAgent, settings.customAgents)`.
+    fn collapsed_default_tui_agent(&self) -> Option<&str> {
+        let pref = match &self.default_tui_agent {
+            DefaultTuiAgentPreference::Undefined => DefaultTuiAgentPref::Undefined,
+            DefaultTuiAgentPreference::Null => DefaultTuiAgentPref::Null,
+            DefaultTuiAgentPreference::Builtin(agent) => DefaultTuiAgentPref::Builtin(agent),
+            DefaultTuiAgentPreference::Custom { id } => {
+                DefaultTuiAgentPref::Custom { id: id.as_deref() }
+            }
+        };
+        let roster: Vec<CustomAgentProfileRef<'_>> = self
+            .custom_agents
+            .iter()
+            .map(|profile| CustomAgentProfileRef {
+                id: profile.id.as_deref(),
+                base_agent: profile.base_agent.as_deref(),
+            })
+            .collect();
+        match collapse_default_tui_agent_to_builtin(pref, &roster) {
+            CollapsedDefaultTuiAgent::Builtin(agent) => Some(agent),
+            CollapsedDefaultTuiAgent::Null | CollapsedDefaultTuiAgent::Undefined => None,
+        }
+    }
+
+    fn disabled(&self) -> Vec<&str> {
+        self.disabled_tui_agents.iter().map(String::as_str).collect()
+    }
 }
 
 pub struct ResolveSourceControlAiInput<'a> {
@@ -1034,6 +1547,14 @@ pub struct ResolveSourceControlAiInput<'a> {
     pub operation: SourceControlAiOperation,
     pub discovery_host_key: Option<&'a str>,
     pub pr_creation_product_defaults: Option<&'a SourceControlAiPrCreationDefaults>,
+}
+
+fn supported_source_control_ai_agent_summary() -> String {
+    let labels: Vec<String> = list_commit_message_agent_capabilities()
+        .into_iter()
+        .map(|capability| capability.label)
+        .collect();
+    format!("Supported agents: {}, or Custom command.", labels.join(", "))
 }
 
 fn read_default_selected_model_id(
@@ -1168,19 +1689,42 @@ fn resolve_thinking_level(
     }
 }
 
+/// `readRepoInstructionOverride`: present-and-string is the override;
+/// present-and-null or absent inherits.
 fn read_repo_instruction_override(
     overrides: Option<&RepoSourceControlAiOverrides>,
     operation: SourceControlAiOperation,
 ) -> Option<String> {
     let instructions = overrides?.instructions_by_operation.as_ref()?;
-    // Present-and-string → the override; present-and-null or absent → inherit.
     match instructions.get(&operation) {
         Some(Some(instruction)) => Some(instruction.clone()),
         _ => None,
     }
 }
 
-#[cfg_attr(trust_verify, trust::ensures(|out: &String| out.trim().len() == out.len()))]
+/// `resolveInstructionsFromNormalized`: callers that already normalized settings
+/// and repo overrides reuse this instead of re-normalizing per lookup.
+fn resolve_instructions_from_normalized(
+    source: &SourceControlAiSettings,
+    repo_overrides: Option<&RepoSourceControlAiOverrides>,
+    operation: SourceControlAiOperation,
+    legacy_custom_prompt: Option<&str>,
+) -> String {
+    if let Some(instruction) = read_repo_instruction_override(repo_overrides, operation) {
+        return trim_js(&instruction).to_string();
+    }
+    if let Some(global) = source.instructions_by_operation.get(&operation) {
+        return trim_js(global).to_string();
+    }
+    if operation == SourceControlAiOperation::CommitMessage {
+        return trim_js(legacy_custom_prompt.unwrap_or_default()).to_string();
+    }
+    String::new()
+}
+
+// The answer is always JS-trimmed. `str::trim` would be the wrong postcondition:
+// it strips U+0085, which `trim_js` (and the twin) deliberately keep.
+#[cfg_attr(trust_verify, trust::ensures(|out: &String| trim_js(out).len() == out.len()))]
 pub fn resolve_source_control_ai_instructions(
     settings: &GlobalSettingsSlice,
     repo_source_control_ai: Option<&Value>,
@@ -1192,22 +1736,15 @@ pub fn resolve_source_control_ai_instructions(
     );
     let repo_overrides =
         normalize_repo_source_control_ai_overrides(repo_source_control_ai.unwrap_or(&NULL));
-    if let Some(instruction) = read_repo_instruction_override(repo_overrides.as_ref(), operation) {
-        return instruction.trim().to_string();
-    }
-    if let Some(global) = source.instructions_by_operation.get(&operation) {
-        return global.trim().to_string();
-    }
-    if operation == SourceControlAiOperation::CommitMessage {
-        return settings
+    resolve_instructions_from_normalized(
+        &source,
+        repo_overrides.as_ref(),
+        operation,
+        settings
             .commit_message_ai
             .as_ref()
-            .map(|legacy| legacy.custom_prompt.as_str())
-            .unwrap_or("")
-            .trim()
-            .to_string();
-    }
-    String::new()
+            .and_then(|legacy| legacy.custom_prompt.as_deref()),
+    )
 }
 
 pub fn has_configured_source_control_ai_instructions(
@@ -1235,11 +1772,11 @@ fn resolve_pr_creation_defaults(
     if let Some(source_defaults) = source.pr_creation_defaults.as_ref() {
         overlay_pr_defaults(&mut base, source_defaults);
     }
-    let repo_defaults = match repo_overrides.and_then(|overrides| overrides.pr_creation_defaults.as_ref())
-    {
-        Some(repo_defaults) => repo_defaults,
-        None => return base,
-    };
+    let repo_defaults =
+        match repo_overrides.and_then(|overrides| overrides.pr_creation_defaults.as_ref()) {
+            Some(repo_defaults) => repo_defaults,
+            None => return base,
+        };
     ResolvedPrCreationDefaults {
         draft: flatten_repo_default(repo_defaults.draft, base.draft),
         use_template: flatten_repo_default(repo_defaults.use_template, base.use_template),
@@ -1254,7 +1791,10 @@ fn resolve_pr_creation_defaults(
     }
 }
 
-fn overlay_pr_defaults(base: &mut ResolvedPrCreationDefaults, overlay: &SourceControlAiPrCreationDefaults) {
+fn overlay_pr_defaults(
+    base: &mut ResolvedPrCreationDefaults,
+    overlay: &SourceControlAiPrCreationDefaults,
+) {
     if let Some(draft) = overlay.draft {
         base.draft = draft;
     }
@@ -1290,52 +1830,167 @@ pub fn resolve_source_control_ai_pr_creation_defaults(
     resolve_pr_creation_defaults(&source, repo_overrides.as_ref(), product_defaults)
 }
 
+/// `resolveSourceControlAiEnabled`: the repo switch wins over the global one.
+pub fn resolve_source_control_ai_enabled(
+    settings: Option<&GlobalSettingsSlice>,
+    repo_source_control_ai: Option<&Value>,
+) -> bool {
+    let empty = GlobalSettingsSlice::default();
+    let settings = settings.unwrap_or(&empty);
+    let source = normalize_source_control_ai_settings(
+        settings.source_control_ai.as_ref(),
+        settings.commit_message_ai.as_ref(),
+    );
+    let repo_overrides =
+        normalize_repo_source_control_ai_overrides(repo_source_control_ai.unwrap_or(&NULL));
+    repo_overrides
+        .and_then(|overrides| overrides.enabled)
+        .or(source.enabled)
+        .unwrap_or_default()
+}
+
+/// `resolveSourceControlActionRecipe`: the global recipe with the repo override
+/// applied, for ANY action id (the launch actions included).
+pub fn resolve_source_control_action_recipe(
+    settings: Option<&GlobalSettingsSlice>,
+    repo_source_control_ai: Option<&Value>,
+    action_id: SourceControlActionId,
+) -> SourceControlActionRecipe {
+    let empty = GlobalSettingsSlice::default();
+    let settings = settings.unwrap_or(&empty);
+    let source = normalize_source_control_ai_settings(
+        settings.source_control_ai.as_ref(),
+        settings.commit_message_ai.as_ref(),
+    );
+    let mut recipe = read_source_control_action_default(source.actions.as_ref(), action_id);
+    recipe.command_input_template = Some(resolve_source_control_action_command_template(
+        source.actions.as_ref(),
+        action_id,
+    ));
+    let repo_overrides =
+        normalize_repo_source_control_ai_overrides(repo_source_control_ai.unwrap_or(&NULL));
+    let repo_recipe = repo_overrides
+        .as_ref()
+        .and_then(|overrides| overrides.action_overrides.as_ref())
+        .and_then(|by_action| by_action.get(&action_id));
+    let repo_recipe = match repo_recipe {
+        Some(repo_recipe) => repo_recipe,
+        None => return recipe,
+    };
+    if repo_recipe.agent_id.is_some() {
+        recipe.agent_id = repo_recipe.agent_id.clone();
+    }
+    if let Some(Some(template)) = repo_recipe.command_input_template.as_ref() {
+        recipe.command_input_template = Some(trim_js(template).to_string());
+    }
+    match repo_recipe.agent_args.as_ref() {
+        Some(Some(args)) => recipe.agent_args = Some(trim_js(args).to_string()),
+        Some(None) => recipe.agent_args = Some(String::new()),
+        None => {}
+    }
+    recipe
+}
+
+/// `resolveActionRecipeForTextOperation`: the recipe one generation operation
+/// runs with. `commandInputTemplate` is always present.
+fn resolve_action_recipe_for_text_operation(
+    source: &SourceControlAiSettings,
+    repo_overrides: Option<&RepoSourceControlAiOverrides>,
+    operation: SourceControlAiOperation,
+) -> SourceControlActionRecipe {
+    let action_id = operation.action_id();
+    let global_recipe = read_source_control_action_default(source.actions.as_ref(), action_id);
+    let repo_recipe = repo_overrides
+        .and_then(|overrides| overrides.action_overrides.as_ref())
+        .and_then(|by_action| by_action.get(&action_id));
+    let repo_instruction = read_repo_instruction_override(repo_overrides, operation);
+    let fallback_template = match repo_instruction.as_deref() {
+        Some(instruction) => {
+            command_template_from_operation_instruction(operation, Some(instruction))
+        }
+        None => resolve_source_control_action_command_template(source.actions.as_ref(), action_id),
+    };
+    let repo_template = repo_recipe
+        .and_then(|recipe| recipe.command_input_template.as_ref())
+        .and_then(|template| template.as_deref())
+        .map(|template| trim_js(template).to_string());
+    let repo_agent_args = match repo_recipe.and_then(|recipe| recipe.agent_args.as_ref()) {
+        Some(Some(args)) => Some(trim_js(args).to_string()),
+        Some(None) => Some(String::new()),
+        None => None,
+    };
+    SourceControlActionRecipe {
+        agent_id: repo_recipe
+            .and_then(|recipe| recipe.agent_id.clone())
+            .or_else(|| global_recipe.agent_id.clone()),
+        agent_args: repo_agent_args.or_else(|| global_recipe.agent_args.clone()),
+        command_input_template: Some(
+            repo_template
+                .or_else(|| global_recipe.command_input_template.clone())
+                .unwrap_or(fallback_template),
+        ),
+    }
+}
+
 pub fn resolve_source_control_ai_for_operation(
     input: &ResolveSourceControlAiInput,
 ) -> ResolveSourceControlAiResult {
     let legacy = input.settings.commit_message_ai.as_ref();
     let source =
         normalize_source_control_ai_settings(input.settings.source_control_ai.as_ref(), legacy);
-    if !source.enabled {
-        return ResolveSourceControlAiResult::Err("Enable Git AI Author in Settings -> Git.".to_string());
-    }
-
-    // Why: a normalized null means "use the current default agent"; stale legacy
-    // commitMessageAi should not make that choice sticky again.
-    let disabled: Vec<&str> = input
-        .settings
-        .disabled_tui_agents
-        .iter()
-        .map(String::as_str)
-        .collect();
-    let agent_choice = match resolve_commit_message_agent_choice(
-        source.agent_id.as_deref(),
-        input.settings.default_tui_agent.as_deref(),
-        &disabled,
-    ) {
-        Some(agent_choice) => agent_choice,
-        None => {
-            return ResolveSourceControlAiResult::Err(format!(
-                "Default agent \"{}\" does not support Git AI Author. Choose Claude, Codex, or Custom in Settings -> Git -> Git AI Author.",
-                input.settings.default_tui_agent.as_deref().unwrap_or("null")
-            ));
-        }
-    };
-
     let repo_overrides = normalize_repo_source_control_ai_overrides(
         input.repo_source_control_ai.unwrap_or(&NULL),
     );
+
     let pr_creation_defaults = resolve_pr_creation_defaults(
         &source,
         repo_overrides.as_ref(),
         input.pr_creation_product_defaults,
     );
+    let action_recipe =
+        resolve_action_recipe_for_text_operation(&source, repo_overrides.as_ref(), input.operation);
+    let command_input_template = action_recipe.command_input_template.clone().unwrap_or_default();
+    if trim_js(&command_input_template).is_empty() {
+        return ResolveSourceControlAiResult::Err(format!(
+            "Command template is empty for {}.",
+            input.operation.label()
+        ));
+    }
+    // Why: action recipes own the new customization model. The legacy global
+    // agent remains a fallback so existing users migrate without losing intent.
+    let preferred_agent = match action_recipe.agent_id.clone() {
+        Some(agent_id) => agent_id,
+        None => source.agent_id.clone().flatten(),
+    };
+    let collapsed_default = input.settings.collapsed_default_tui_agent();
+    let disabled = input.settings.disabled();
+    let agent_choice = match resolve_commit_message_agent_choice(
+        preferred_agent.as_deref(),
+        collapsed_default,
+        &disabled,
+    ) {
+        Some(agent_choice) => agent_choice,
+        None => {
+            return ResolveSourceControlAiResult::Err(format!(
+                "Choose a supported Source Control AI agent for this action in Settings -> Git -> Source Control AI. {}",
+                supported_source_control_ai_agent_summary()
+            ));
+        }
+    };
+
+    let repo_custom_command = repo_overrides
+        .as_ref()
+        .and_then(|overrides| overrides.custom_agent_command.as_deref())
+        .map(trim_js)
+        .filter(|command| !command.is_empty());
+    let source_custom_command = source.custom_agent_command.as_deref().unwrap_or_default();
+    let custom_agent_command = repo_custom_command.unwrap_or(trim_js(source_custom_command));
 
     if is_custom_agent_id(Some(agent_choice.as_str())) {
-        let custom_agent_command = source.custom_agent_command.trim();
         if custom_agent_command.is_empty() {
             return ResolveSourceControlAiResult::Err(
-                "Custom command is empty. Add one in Settings -> Git -> Git AI Author.".to_string(),
+                "Custom command is empty. Add one in Settings -> Git -> Source Control AI."
+                    .to_string(),
             );
         }
         return ResolveSourceControlAiResult::Ok(ResolvedSourceControlAiOperation {
@@ -1344,11 +1999,14 @@ pub fn resolve_source_control_ai_for_operation(
                 agent_id: CUSTOM_AGENT_ID.to_string(),
                 model: String::new(),
                 thinking_level: None,
-                custom_prompt: Some(resolve_source_control_ai_instructions(
-                    input.settings,
-                    input.repo_source_control_ai,
+                custom_prompt: Some(resolve_instructions_from_normalized(
+                    &source,
+                    repo_overrides.as_ref(),
                     input.operation,
+                    legacy.and_then(|legacy| legacy.custom_prompt.as_deref()),
                 )),
+                command_input_template: Some(command_input_template),
+                agent_args: action_recipe.agent_args.clone(),
                 custom_agent_command: Some(custom_agent_command.to_string()),
                 agent_command_override: None,
             },
@@ -1356,14 +2014,39 @@ pub fn resolve_source_control_ai_for_operation(
         });
     }
 
-    let agent_id = agent_choice;
-    let spec = match get_commit_message_agent_spec(&agent_id) {
+    // `actionRecipe.agentId ?? agentId`: an explicit repo/global null falls back
+    // to the resolved choice, and only a DIFFERENT id is re-resolved.
+    let action_agent_id = action_recipe
+        .agent_id
+        .clone()
+        .flatten()
+        .unwrap_or_else(|| agent_choice.clone());
+    let resolved_action_agent_id = if action_agent_id == agent_choice {
+        Some(agent_choice.clone())
+    } else {
+        resolve_commit_message_agent_choice(
+            Some(action_agent_id.as_str()),
+            collapsed_default,
+            &disabled,
+        )
+    };
+    let resolved_action_agent_id = match resolved_action_agent_id {
+        Some(agent_id) if !is_custom_agent_id(Some(agent_id.as_str())) => agent_id,
+        _ => {
+            return ResolveSourceControlAiResult::Err(format!(
+                "Choose a supported Source Control AI agent for this action. {}",
+                supported_source_control_ai_agent_summary()
+            ));
+        }
+    };
+    let spec = match get_commit_message_agent_spec(&resolved_action_agent_id) {
         Some(spec) => spec,
         None => {
             return ResolveSourceControlAiResult::Err(format!(
-                "Agent \"{}\" does not support Git AI Author {}.",
-                agent_id,
-                input.operation.label()
+                "Agent \"{}\" does not support Source Control AI {}. {}",
+                resolved_action_agent_id,
+                input.operation.label(),
+                supported_source_control_ai_agent_summary()
             ));
         }
     };
@@ -1375,10 +2058,11 @@ pub fn resolve_source_control_ai_for_operation(
         repo_overrides.as_ref(),
         input.operation,
         host_key,
-        &agent_id,
+        &resolved_action_agent_id,
         spec.default_model_id,
     );
-    let discovered_models = get_discovered_models(&source, legacy, host_key, &agent_id);
+    let discovered_models =
+        get_discovered_models(&source, legacy, host_key, &resolved_action_agent_id);
     let model = spec
         .models
         .iter()
@@ -1390,7 +2074,7 @@ pub fn resolve_source_control_ai_for_operation(
                 .find(|candidate| candidate.id == persisted_model_id)
                 .cloned()
         })
-        .or_else(|| get_commit_message_model(&agent_id, spec.default_model_id));
+        .or_else(|| get_commit_message_model(&resolved_action_agent_id, spec.default_model_id));
     let model = match model {
         Some(model) => model,
         None => {
@@ -1401,27 +2085,36 @@ pub fn resolve_source_control_ai_for_operation(
         }
     };
 
-    let thinking_level =
-        resolve_thinking_level(&model, &source, legacy, repo_overrides.as_ref(), input.operation);
+    let thinking_level = resolve_thinking_level(
+        &model,
+        &source,
+        legacy,
+        repo_overrides.as_ref(),
+        input.operation,
+    );
     let agent_command_override = input
         .settings
         .agent_cmd_overrides
-        .get(&agent_id)
-        .map(|command| command.trim().to_string())
+        .get(&resolved_action_agent_id)
+        .map(|command| trim_js(command).to_string())
         .filter(|command| !command.is_empty());
 
     ResolveSourceControlAiResult::Ok(ResolvedSourceControlAiOperation {
         enabled: true,
         params: ResolvedSourceControlAiGenerationParams {
-            agent_id,
+            agent_id: resolved_action_agent_id,
             model: model.id.clone(),
             thinking_level,
-            custom_prompt: Some(resolve_source_control_ai_instructions(
-                input.settings,
-                input.repo_source_control_ai,
+            custom_prompt: Some(resolve_instructions_from_normalized(
+                &source,
+                repo_overrides.as_ref(),
                 input.operation,
+                legacy.and_then(|legacy| legacy.custom_prompt.as_deref()),
             )),
-            custom_agent_command: None,
+            command_input_template: Some(command_input_template),
+            agent_args: action_recipe.agent_args.clone(),
+            custom_agent_command: (!custom_agent_command.is_empty())
+                .then(|| custom_agent_command.to_string()),
             agent_command_override,
         },
         pr_creation_defaults,
@@ -1429,788 +2122,4 @@ pub fn resolve_source_control_ai_for_operation(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::SourceControlAiOperation::{BranchName, CommitMessage, PullRequest};
-    use super::*;
-    use serde_json::json;
-
-    fn smap(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(key, value)| (key.to_string(), value.to_string())).collect()
-    }
-
-    fn host_map(pairs: &[(&str, &[(&str, &str)])]) -> BTreeMap<String, BTreeMap<String, String>> {
-        pairs.iter().map(|(host, models)| (host.to_string(), smap(models))).collect()
-    }
-
-    fn instr(pairs: &[(SourceControlAiOperation, &str)]) -> BTreeMap<SourceControlAiOperation, String> {
-        pairs.iter().map(|(op, value)| (*op, value.to_string())).collect()
-    }
-
-    fn default_commit_message_ai() -> CommitMessageAiSettings {
-        CommitMessageAiSettings {
-            enabled: true,
-            agent_id: None,
-            selected_model_by_agent: BTreeMap::new(),
-            selected_model_by_agent_by_host: Some(BTreeMap::new()),
-            discovered_models_by_agent: Some(BTreeMap::new()),
-            discovered_models_by_agent_by_host: Some(BTreeMap::new()),
-            selected_thinking_by_model: BTreeMap::new(),
-            custom_prompt: String::new(),
-            custom_agent_command: String::new(),
-        }
-    }
-
-    fn settings() -> GlobalSettingsSlice {
-        let mut source = get_default_source_control_ai_settings();
-        source.enabled = true;
-        source.agent_id = Some("codex".to_string());
-        source.selected_model_by_agent = smap(&[("codex", "gpt-5.5")]);
-        source.selected_thinking_by_model = smap(&[("gpt-5.5", "medium"), ("gpt-5.4", "high")]);
-        source.instructions_by_operation = instr(&[
-            (CommitMessage, "Global commit style"),
-            (PullRequest, "Global PR style"),
-            (BranchName, "Global branch style"),
-        ]);
-        GlobalSettingsSlice {
-            default_tui_agent: Some("codex".to_string()),
-            agent_cmd_overrides: BTreeMap::new(),
-            commit_message_ai: Some(default_commit_message_ai()),
-            source_control_ai: Some(source),
-            disabled_tui_agents: Vec::new(),
-        }
-    }
-
-    fn resolve(
-        operation: SourceControlAiOperation,
-        overrides: Option<&Value>,
-    ) -> ResolvedSourceControlAiOperation {
-        let settings = settings();
-        let product = SourceControlAiPrCreationDefaults {
-            draft: Some(false),
-            use_template: Some(false),
-            generate_details_on_open: Some(false),
-            open_after_create: Some(false),
-        };
-        let input = ResolveSourceControlAiInput {
-            settings: &settings,
-            repo_source_control_ai: overrides,
-            operation,
-            discovery_host_key: Some("local"),
-            pr_creation_product_defaults: Some(&product),
-        };
-        match resolve_source_control_ai_for_operation(&input) {
-            ResolveSourceControlAiResult::Ok(value) => value,
-            ResolveSourceControlAiResult::Err(error) => panic!("{error}"),
-        }
-    }
-
-    #[test]
-    fn uses_the_global_default_model_for_every_operation() {
-        assert_eq!(resolve(CommitMessage, None).params.model, "gpt-5.5");
-        assert_eq!(resolve(PullRequest, None).params.model, "gpt-5.5");
-        assert_eq!(resolve(BranchName, None).params.model, "gpt-5.5");
-    }
-
-    #[test]
-    fn resolves_pr_defaults_even_when_generation_is_disabled() {
-        let mut base = settings();
-        let mut source = base.source_control_ai.clone().unwrap();
-        source.enabled = false;
-        source.pr_creation_defaults = Some(SourceControlAiPrCreationDefaults {
-            draft: Some(true),
-            use_template: Some(true),
-            generate_details_on_open: Some(false),
-            open_after_create: Some(false),
-        });
-        base.source_control_ai = Some(source);
-
-        let input = ResolveSourceControlAiInput {
-            settings: &base,
-            repo_source_control_ai: None,
-            operation: PullRequest,
-            discovery_host_key: None,
-            pr_creation_product_defaults: None,
-        };
-        assert!(matches!(
-            resolve_source_control_ai_for_operation(&input),
-            ResolveSourceControlAiResult::Err(_)
-        ));
-
-        let repo = json!({
-            "prCreationDefaults": { "draft": null, "generateDetailsOnOpen": true, "openAfterCreate": true }
-        });
-        let product = SourceControlAiPrCreationDefaults {
-            draft: Some(false),
-            use_template: Some(false),
-            generate_details_on_open: Some(false),
-            open_after_create: Some(false),
-        };
-        assert_eq!(
-            resolve_source_control_ai_pr_creation_defaults(&base, Some(&repo), Some(&product)),
-            ResolvedPrCreationDefaults {
-                draft: true,
-                use_template: true,
-                generate_details_on_open: true,
-                open_after_create: true,
-            }
-        );
-    }
-
-    #[test]
-    fn resolves_pr_defaults_even_when_generation_config_is_invalid() {
-        let mut base = settings();
-        let mut source = base.source_control_ai.clone().unwrap();
-        source.agent_id = Some("custom".to_string());
-        source.custom_agent_command = String::new();
-        source.pr_creation_defaults = Some(SourceControlAiPrCreationDefaults {
-            draft: Some(false),
-            use_template: Some(true),
-            generate_details_on_open: Some(true),
-            open_after_create: Some(false),
-        });
-        base.source_control_ai = Some(source);
-
-        let input = ResolveSourceControlAiInput {
-            settings: &base,
-            repo_source_control_ai: None,
-            operation: PullRequest,
-            discovery_host_key: None,
-            pr_creation_product_defaults: None,
-        };
-        assert!(matches!(
-            resolve_source_control_ai_for_operation(&input),
-            ResolveSourceControlAiResult::Err(_)
-        ));
-
-        let repo = json!({ "prCreationDefaults": { "draft": true } });
-        assert_eq!(
-            resolve_source_control_ai_pr_creation_defaults(&base, Some(&repo), None),
-            ResolvedPrCreationDefaults {
-                draft: true,
-                use_template: true,
-                generate_details_on_open: true,
-                open_after_create: false,
-            }
-        );
-    }
-
-    #[test]
-    fn treats_a_normalized_null_agent_as_default_instead_of_stale_legacy() {
-        let mut base = settings();
-        base.default_tui_agent = Some("codex".to_string());
-        base.commit_message_ai = Some(CommitMessageAiSettings {
-            agent_id: Some("claude".to_string()),
-            selected_model_by_agent: smap(&[("claude", "opus")]),
-            selected_thinking_by_model: smap(&[("opus", "max")]),
-            ..default_commit_message_ai()
-        });
-        let mut source = base.source_control_ai.clone().unwrap();
-        source.agent_id = None;
-        source.selected_model_by_agent = smap(&[("codex", "gpt-5.4")]);
-        base.source_control_ai = Some(source);
-
-        let input = ResolveSourceControlAiInput {
-            settings: &base,
-            repo_source_control_ai: None,
-            operation: CommitMessage,
-            discovery_host_key: Some("local"),
-            pr_creation_product_defaults: None,
-        };
-        match resolve_source_control_ai_for_operation(&input) {
-            ResolveSourceControlAiResult::Ok(value) => {
-                assert_eq!(value.params.agent_id, "codex");
-                assert_eq!(value.params.model, "gpt-5.4");
-            }
-            ResolveSourceControlAiResult::Err(error) => panic!("{error}"),
-        }
-    }
-
-    #[test]
-    fn lets_a_global_operation_model_override_win_over_the_global_default() {
-        let mut base = settings();
-        let mut source = base.source_control_ai.clone().unwrap();
-        let mut overrides = BTreeMap::new();
-        overrides.insert(
-            PullRequest,
-            SourceControlAiModelChoice {
-                selected_model_by_agent: Some(smap(&[("codex", "gpt-5.4")])),
-                ..Default::default()
-            },
-        );
-        source.model_overrides_by_operation = Some(overrides);
-        base.source_control_ai = Some(source);
-
-        let input = ResolveSourceControlAiInput {
-            settings: &base,
-            repo_source_control_ai: None,
-            operation: PullRequest,
-            discovery_host_key: Some("local"),
-            pr_creation_product_defaults: None,
-        };
-        match resolve_source_control_ai_for_operation(&input) {
-            ResolveSourceControlAiResult::Ok(value) => assert_eq!(value.params.model, "gpt-5.4"),
-            ResolveSourceControlAiResult::Err(error) => panic!("{error}"),
-        }
-    }
-
-    #[test]
-    fn lets_a_repo_operation_model_override_win_over_global_operation_override() {
-        let mut base = settings();
-        let mut source = base.source_control_ai.clone().unwrap();
-        let mut overrides = BTreeMap::new();
-        overrides.insert(
-            CommitMessage,
-            SourceControlAiModelChoice {
-                selected_model_by_agent: Some(smap(&[("codex", "gpt-5.4")])),
-                ..Default::default()
-            },
-        );
-        source.model_overrides_by_operation = Some(overrides);
-        base.source_control_ai = Some(source);
-
-        let repo = json!({
-            "modelOverridesByOperation": { "commitMessage": { "selectedModelByAgent": { "codex": "gpt-5.4-mini" } } }
-        });
-        let input = ResolveSourceControlAiInput {
-            settings: &base,
-            repo_source_control_ai: Some(&repo),
-            operation: CommitMessage,
-            discovery_host_key: Some("local"),
-            pr_creation_product_defaults: None,
-        };
-        match resolve_source_control_ai_for_operation(&input) {
-            ResolveSourceControlAiResult::Ok(value) => assert_eq!(value.params.model, "gpt-5.4-mini"),
-            ResolveSourceControlAiResult::Err(error) => panic!("{error}"),
-        }
-    }
-
-    #[test]
-    fn resolves_thinking_effort_with_override_precedence_and_model_default_fallback() {
-        assert_eq!(resolve(CommitMessage, None).params.thinking_level.as_deref(), Some("medium"));
-
-        let overrides = json!({
-            "modelOverridesByOperation": {
-                "commitMessage": {
-                    "selectedModelByAgent": { "codex": "gpt-5.4" },
-                    "selectedThinkingByModel": { "gpt-5.4": "xhigh" }
-                }
-            }
-        });
-        assert_eq!(resolve(CommitMessage, Some(&overrides)).params.thinking_level.as_deref(), Some("xhigh"));
-
-        let mut base = settings();
-        let mut source = base.source_control_ai.clone().unwrap();
-        source.selected_thinking_by_model = smap(&[("gpt-5.5", "unsupported")]);
-        base.source_control_ai = Some(source);
-        let input = ResolveSourceControlAiInput {
-            settings: &base,
-            repo_source_control_ai: None,
-            operation: CommitMessage,
-            discovery_host_key: Some("local"),
-            pr_creation_product_defaults: None,
-        };
-        match resolve_source_control_ai_for_operation(&input) {
-            ResolveSourceControlAiResult::Ok(value) => {
-                assert_eq!(value.params.thinking_level.as_deref(), Some("low"))
-            }
-            ResolveSourceControlAiResult::Err(error) => panic!("{error}"),
-        }
-    }
-
-    #[test]
-    fn resolves_repo_instructions_as_replacement_overrides_including_explicit_empty() {
-        assert_eq!(resolve(CommitMessage, None).params.custom_prompt.as_deref(), Some("Global commit style"));
-        let null_override = json!({ "instructionsByOperation": { "commitMessage": null } });
-        assert_eq!(
-            resolve(CommitMessage, Some(&null_override)).params.custom_prompt.as_deref(),
-            Some("Global commit style")
-        );
-        let empty_override = json!({ "instructionsByOperation": { "commitMessage": "" } });
-        assert_eq!(resolve(CommitMessage, Some(&empty_override)).params.custom_prompt.as_deref(), Some(""));
-        let repo_override = json!({ "instructionsByOperation": { "commitMessage": "Repo commit style" } });
-        assert_eq!(
-            resolve(CommitMessage, Some(&repo_override)).params.custom_prompt.as_deref(),
-            Some("Repo commit style")
-        );
-        assert_eq!(resolve(BranchName, None).params.custom_prompt.as_deref(), Some("Global branch style"));
-        let branch_override = json!({ "instructionsByOperation": { "branchName": "Repo branch style" } });
-        assert_eq!(
-            resolve(BranchName, Some(&branch_override)).params.custom_prompt.as_deref(),
-            Some("Repo branch style")
-        );
-    }
-
-    #[test]
-    fn does_not_treat_null_repo_instructions_as_configured_overrides() {
-        let mut base = settings();
-        let mut source = base.source_control_ai.clone().unwrap();
-        source.instructions_by_operation =
-            instr(&[(CommitMessage, ""), (PullRequest, ""), (BranchName, "")]);
-        base.source_control_ai = Some(source);
-
-        let null_override = json!({ "instructionsByOperation": { "commitMessage": null } });
-        assert!(!has_configured_source_control_ai_instructions(
-            &base,
-            Some(&null_override),
-            CommitMessage
-        ));
-        let empty_override = json!({ "instructionsByOperation": { "commitMessage": "" } });
-        assert!(has_configured_source_control_ai_instructions(
-            &base,
-            Some(&empty_override),
-            CommitMessage
-        ));
-    }
-
-    #[test]
-    fn resolves_repo_tri_state_pr_defaults_through_inherit_on_and_off() {
-        assert!(!resolve(PullRequest, None).pr_creation_defaults.draft);
-        let overrides = json!({ "prCreationDefaults": { "draft": true, "openAfterCreate": false } });
-        let pr = resolve(PullRequest, Some(&overrides)).pr_creation_defaults;
-        assert!(pr.draft);
-        assert!(!pr.open_after_create);
-    }
-
-    #[test]
-    fn maps_legacy_custom_prompt_to_released_split_instructions() {
-        let migrated = source_control_ai_settings_from_legacy(Some(&CommitMessageAiSettings {
-            enabled: true,
-            agent_id: Some("codex".to_string()),
-            selected_model_by_agent: smap(&[("codex", "gpt-5.5")]),
-            selected_thinking_by_model: BTreeMap::new(),
-            custom_prompt: "Legacy commit prompt".to_string(),
-            custom_agent_command: String::new(),
-            ..Default::default()
-        }));
-        assert_eq!(migrated.instructions_by_operation.get(&CommitMessage).unwrap(), "Legacy commit prompt");
-        assert_eq!(migrated.instructions_by_operation.get(&PullRequest).unwrap(), "");
-        assert_eq!(migrated.instructions_by_operation.get(&BranchName).unwrap(), "Legacy commit prompt");
-    }
-
-    #[test]
-    fn merges_legacy_commit_message_updates_without_wiping_pr_only_settings() {
-        let base = settings().source_control_ai.clone().unwrap();
-        let merged = merge_legacy_commit_message_ai_into_source_control_ai(
-            Some(&base),
-            Some(&CommitMessageAiSettings {
-                enabled: false,
-                agent_id: Some("claude".to_string()),
-                selected_model_by_agent: smap(&[("claude", "sonnet")]),
-                selected_thinking_by_model: smap(&[("sonnet", "medium")]),
-                custom_prompt: "Legacy commit prompt".to_string(),
-                custom_agent_command: "claude".to_string(),
-                ..Default::default()
-            }),
-            MergeLegacyOptions { pull_request_instructions_from_legacy: false },
-        );
-
-        assert!(!merged.enabled);
-        assert_eq!(merged.agent_id.as_deref(), Some("claude"));
-        assert_eq!(merged.selected_model_by_agent, smap(&[("codex", "gpt-5.5")]));
-        assert_eq!(
-            merged.selected_thinking_by_model,
-            smap(&[("gpt-5.5", "medium"), ("gpt-5.4", "high")])
-        );
-        assert_eq!(merged.custom_agent_command, "claude");
-        assert_eq!(merged.instructions_by_operation.get(&CommitMessage).unwrap(), "Legacy commit prompt");
-        assert_eq!(merged.instructions_by_operation.get(&PullRequest).unwrap(), "Global PR style");
-        assert_eq!(merged.instructions_by_operation.get(&BranchName).unwrap(), "Legacy commit prompt");
-        assert_eq!(
-            *merged
-                .model_overrides_by_operation
-                .as_ref()
-                .unwrap()
-                .get(&CommitMessage)
-                .unwrap(),
-            SourceControlAiModelChoice {
-                selected_model_by_agent: Some(smap(&[("claude", "sonnet")])),
-                selected_model_by_agent_by_host: None,
-                selected_thinking_by_model: Some(smap(&[("sonnet", "medium")])),
-            }
-        );
-    }
-
-    #[test]
-    fn can_map_explicit_legacy_pr_generation_instructions_for_old_runtime_callers() {
-        let merged = merge_legacy_commit_message_ai_into_source_control_ai(
-            None,
-            Some(&CommitMessageAiSettings {
-                enabled: true,
-                agent_id: Some("codex".to_string()),
-                selected_model_by_agent: smap(&[("codex", "gpt-5.5")]),
-                selected_thinking_by_model: BTreeMap::new(),
-                custom_prompt: "Legacy PR prompt".to_string(),
-                custom_agent_command: String::new(),
-                ..Default::default()
-            }),
-            MergeLegacyOptions { pull_request_instructions_from_legacy: true },
-        );
-
-        assert_eq!(merged.instructions_by_operation.get(&PullRequest).unwrap(), "Legacy PR prompt");
-    }
-
-    #[test]
-    fn projects_commit_message_operation_model_overrides_into_legacy_settings() {
-        let mut source = settings().source_control_ai.clone().unwrap();
-        source.selected_model_by_agent = smap(&[("codex", "gpt-5.5"), ("claude", "sonnet")]);
-        source.selected_model_by_agent_by_host = Some(host_map(&[
-            ("local", &[("codex", "gpt-5.5")]),
-            ("ssh:conn-1", &[("codex", "gpt-5.5"), ("claude", "sonnet")]),
-        ]));
-        source.selected_thinking_by_model = smap(&[("gpt-5.4", "high"), ("gpt-5.5", "medium")]);
-        let mut overrides = BTreeMap::new();
-        overrides.insert(
-            CommitMessage,
-            SourceControlAiModelChoice {
-                selected_model_by_agent: Some(smap(&[("codex", "gpt-5.4")])),
-                selected_model_by_agent_by_host: Some(host_map(&[
-                    ("local", &[("codex", "gpt-5.4")]),
-                    ("ssh:conn-1", &[("codex", "gpt-5.4-mini")]),
-                ])),
-                selected_thinking_by_model: Some(smap(&[
-                    ("gpt-5.4", "xhigh"),
-                    ("gpt-5.4-mini", "medium"),
-                ])),
-            },
-        );
-        overrides.insert(
-            PullRequest,
-            SourceControlAiModelChoice {
-                selected_model_by_agent: Some(smap(&[("codex", "gpt-5.2")])),
-                selected_model_by_agent_by_host: None,
-                selected_thinking_by_model: Some(smap(&[("gpt-5.2", "low")])),
-            },
-        );
-        source.model_overrides_by_operation = Some(overrides);
-
-        let legacy = project_source_control_ai_to_legacy_commit_message_ai(&source, None);
-        assert_eq!(legacy.selected_model_by_agent.get("codex").map(String::as_str), Some("gpt-5.4"));
-        assert_eq!(legacy.selected_model_by_agent.get("claude").map(String::as_str), Some("sonnet"));
-        let by_host = legacy.selected_model_by_agent_by_host.as_ref().unwrap();
-        assert_eq!(by_host.get("local").unwrap().get("codex").map(String::as_str), Some("gpt-5.4"));
-        assert_eq!(by_host.get("ssh:conn-1").unwrap().get("codex").map(String::as_str), Some("gpt-5.4-mini"));
-        assert_eq!(by_host.get("ssh:conn-1").unwrap().get("claude").map(String::as_str), Some("sonnet"));
-        assert_eq!(legacy.selected_thinking_by_model.get("gpt-5.4").map(String::as_str), Some("xhigh"));
-        assert_eq!(legacy.selected_thinking_by_model.get("gpt-5.4-mini").map(String::as_str), Some("medium"));
-        assert_eq!(legacy.selected_thinking_by_model.get("gpt-5.5").map(String::as_str), Some("medium"));
-        assert_eq!(legacy.selected_thinking_by_model.get("gpt-5.2"), None);
-    }
-
-    #[test]
-    fn merges_projected_legacy_commit_message_models_without_changing_pr_defaults() {
-        let mut source = settings().source_control_ai.clone().unwrap();
-        source.selected_model_by_agent = smap(&[("codex", "gpt-5.5")]);
-        source.selected_thinking_by_model = smap(&[("gpt-5.5", "medium")]);
-        let mut overrides = BTreeMap::new();
-        overrides.insert(
-            CommitMessage,
-            SourceControlAiModelChoice {
-                selected_model_by_agent: Some(smap(&[("codex", "gpt-5.4")])),
-                selected_model_by_agent_by_host: None,
-                selected_thinking_by_model: Some(smap(&[("gpt-5.4", "high")])),
-            },
-        );
-        source.model_overrides_by_operation = Some(overrides);
-
-        let legacy = project_source_control_ai_to_legacy_commit_message_ai(&source, None);
-        let merged = merge_legacy_commit_message_ai_into_source_control_ai(
-            Some(&source),
-            Some(&legacy),
-            MergeLegacyOptions { pull_request_instructions_from_legacy: false },
-        );
-
-        assert_eq!(merged.selected_model_by_agent.get("codex").map(String::as_str), Some("gpt-5.5"));
-        assert_eq!(
-            merged
-                .model_overrides_by_operation
-                .as_ref()
-                .and_then(|by_op| by_op.get(&CommitMessage))
-                .and_then(|choice| choice.selected_model_by_agent.as_ref())
-                .and_then(|by_agent| by_agent.get("codex"))
-                .map(String::as_str),
-            Some("gpt-5.4")
-        );
-
-        let mut base = settings();
-        base.source_control_ai = Some(merged);
-        let commit_input = ResolveSourceControlAiInput {
-            settings: &base,
-            repo_source_control_ai: None,
-            operation: CommitMessage,
-            discovery_host_key: Some("local"),
-            pr_creation_product_defaults: None,
-        };
-        match resolve_source_control_ai_for_operation(&commit_input) {
-            ResolveSourceControlAiResult::Ok(value) => assert_eq!(value.params.model, "gpt-5.4"),
-            ResolveSourceControlAiResult::Err(error) => panic!("{error}"),
-        }
-        let pr_input = ResolveSourceControlAiInput {
-            settings: &base,
-            repo_source_control_ai: None,
-            operation: PullRequest,
-            discovery_host_key: Some("local"),
-            pr_creation_product_defaults: None,
-        };
-        match resolve_source_control_ai_for_operation(&pr_input) {
-            ResolveSourceControlAiResult::Ok(value) => assert_eq!(value.params.model, "gpt-5.5"),
-            ResolveSourceControlAiResult::Err(error) => panic!("{error}"),
-        }
-    }
-
-    #[test]
-    fn does_not_synthesize_a_commit_message_override_from_projected_global_defaults() {
-        let mut source = settings().source_control_ai.clone().unwrap();
-        source.selected_model_by_agent = smap(&[("codex", "gpt-5.5")]);
-        source.selected_thinking_by_model = smap(&[("gpt-5.5", "medium")]);
-        source.model_overrides_by_operation = None;
-
-        let legacy = project_source_control_ai_to_legacy_commit_message_ai(&source, None);
-        let merged = merge_legacy_commit_message_ai_into_source_control_ai(
-            Some(&source),
-            Some(&legacy),
-            MergeLegacyOptions { pull_request_instructions_from_legacy: false },
-        );
-
-        assert_eq!(merged.selected_model_by_agent.get("codex").map(String::as_str), Some("gpt-5.5"));
-        assert!(merged
-            .model_overrides_by_operation
-            .as_ref()
-            .and_then(|by_op| by_op.get(&CommitMessage))
-            .is_none());
-    }
-
-    #[test]
-    fn merges_only_rollback_legacy_model_deltas_into_commit_message_overrides() {
-        let mut source = settings().source_control_ai.clone().unwrap();
-        source.selected_model_by_agent = smap(&[("codex", "gpt-5.5"), ("claude", "sonnet")]);
-        source.selected_model_by_agent_by_host =
-            Some(host_map(&[("local", &[("codex", "gpt-5.5"), ("claude", "sonnet")])]));
-        source.selected_thinking_by_model = smap(&[("gpt-5.5", "medium"), ("sonnet", "high")]);
-        source.model_overrides_by_operation = None;
-
-        let mut legacy = project_source_control_ai_to_legacy_commit_message_ai(&source, None);
-        legacy.selected_model_by_agent.insert("codex".to_string(), "gpt-5.4".to_string());
-        {
-            let by_host = legacy.selected_model_by_agent_by_host.get_or_insert_with(BTreeMap::new);
-            let local = by_host.entry("local".to_string()).or_default();
-            local.insert("codex".to_string(), "gpt-5.4".to_string());
-        }
-
-        let merged = merge_legacy_commit_message_ai_into_source_control_ai(
-            Some(&source),
-            Some(&legacy),
-            MergeLegacyOptions { pull_request_instructions_from_legacy: false },
-        );
-
-        assert_eq!(merged.selected_model_by_agent, smap(&[("codex", "gpt-5.5"), ("claude", "sonnet")]));
-        assert_eq!(
-            *merged
-                .model_overrides_by_operation
-                .as_ref()
-                .unwrap()
-                .get(&CommitMessage)
-                .unwrap(),
-            SourceControlAiModelChoice {
-                selected_model_by_agent: Some(smap(&[("codex", "gpt-5.4")])),
-                selected_model_by_agent_by_host: Some(host_map(&[("local", &[("codex", "gpt-5.4")])])),
-                selected_thinking_by_model: None,
-            }
-        );
-    }
-
-    #[test]
-    fn removes_projected_commit_message_overrides_cleared_by_legacy_settings() {
-        let mut source = settings().source_control_ai.clone().unwrap();
-        source.selected_model_by_agent = smap(&[("codex", "gpt-5.5")]);
-        source.selected_thinking_by_model = smap(&[("gpt-5.5", "medium")]);
-        let mut overrides = BTreeMap::new();
-        overrides.insert(
-            CommitMessage,
-            SourceControlAiModelChoice {
-                selected_model_by_agent: Some(smap(&[("codex", "gpt-5.4")])),
-                selected_model_by_agent_by_host: None,
-                selected_thinking_by_model: Some(smap(&[("gpt-5.4", "high")])),
-            },
-        );
-        source.model_overrides_by_operation = Some(overrides);
-
-        let mut legacy = project_source_control_ai_to_legacy_commit_message_ai(&source, None);
-        legacy.selected_model_by_agent.remove("codex");
-        legacy.selected_thinking_by_model.remove("gpt-5.4");
-
-        let merged = merge_legacy_commit_message_ai_into_source_control_ai(
-            Some(&source),
-            Some(&legacy),
-            MergeLegacyOptions { pull_request_instructions_from_legacy: false },
-        );
-
-        assert!(merged
-            .model_overrides_by_operation
-            .as_ref()
-            .and_then(|by_op| by_op.get(&CommitMessage))
-            .is_none());
-    }
-
-    #[test]
-    fn reads_and_selects_host_scoped_model_choices_with_local_fallback_rules() {
-        let local_choice =
-            select_source_control_ai_model_choice_for_host(None, "local", "codex", "gpt-5.4");
-        assert_eq!(
-            local_choice,
-            SourceControlAiModelChoice {
-                selected_model_by_agent: Some(smap(&[("codex", "gpt-5.4")])),
-                selected_model_by_agent_by_host: Some(host_map(&[("local", &[("codex", "gpt-5.4")])])),
-                selected_thinking_by_model: None,
-            }
-        );
-
-        let remote_choice = select_source_control_ai_model_choice_for_host(
-            Some(&local_choice),
-            "ssh:conn-1",
-            "codex",
-            "remote-model",
-        );
-        assert_eq!(
-            read_source_control_ai_model_choice_for_host(Some(&remote_choice), "local", "codex").as_deref(),
-            Some("gpt-5.4")
-        );
-        assert_eq!(
-            read_source_control_ai_model_choice_for_host(Some(&remote_choice), "ssh:conn-1", "codex")
-                .as_deref(),
-            Some("remote-model")
-        );
-        assert_eq!(
-            read_source_control_ai_model_choice_for_host(Some(&remote_choice), "ssh:conn-2", "codex"),
-            None
-        );
-        let global_only = SourceControlAiModelChoice {
-            selected_model_by_agent: Some(smap(&[("codex", "global-model")])),
-            ..Default::default()
-        };
-        assert_eq!(
-            read_source_control_ai_model_choice_for_host(Some(&global_only), "local", "codex").as_deref(),
-            Some("global-model")
-        );
-    }
-
-    #[test]
-    fn clears_only_the_selected_host_model_override_when_inheriting() {
-        let choice = SourceControlAiModelChoice {
-            selected_model_by_agent: Some(smap(&[("codex", "local-model")])),
-            selected_model_by_agent_by_host: Some(host_map(&[
-                ("local", &[("codex", "local-model")]),
-                ("ssh:conn-1", &[("codex", "remote-model")]),
-            ])),
-            selected_thinking_by_model: Some(smap(&[("remote-model", "high")])),
-        };
-        let cleared = clear_source_control_ai_model_choice_for_host(Some(&choice), "local", "codex");
-        assert_eq!(
-            cleared,
-            Some(SourceControlAiModelChoice {
-                selected_model_by_agent: None,
-                selected_model_by_agent_by_host: Some(host_map(&[("ssh:conn-1", &[("codex", "remote-model")])])),
-                selected_thinking_by_model: Some(smap(&[("remote-model", "high")])),
-            })
-        );
-    }
-
-    #[test]
-    fn normalizes_repo_overrides_defensively_and_preserves_explicit_inherit_sentinels() {
-        let input = json!({
-            "modelOverridesByOperation": {
-                "commitMessage": {
-                    "selectedModelByAgent": { "codex": "gpt-5.4", "claude": 42, "constructor": "polluted" },
-                    "selectedModelByAgentByHost": {
-                        "local": { "codex": "gpt-5.4" },
-                        "ssh:conn-1": { "codex": "remote-model", "claude": false },
-                        "malformed": "not-a-record",
-                        "prototype": { "codex": "polluted" }
-                    },
-                    "selectedThinkingByModel": {
-                        "gpt-5.4": "xhigh",
-                        "remote-model": "high",
-                        "bad": true,
-                        "constructor": "polluted"
-                    }
-                },
-                "pullRequest": { "selectedModelByAgent": [] },
-                "branchName": { "selectedModelByAgent": { "codex": "gpt-5.4" } },
-                "unknown": { "selectedModelByAgent": { "codex": "ignored" } }
-            },
-            "instructionsByOperation": {
-                "commitMessage": null,
-                "pullRequest": "",
-                "branchName": "branch style",
-                "unknown": "ignored"
-            },
-            "prCreationDefaults": {
-                "draft": true,
-                "useTemplate": null,
-                "generateDetailsOnOpen": "yes",
-                "openAfterCreate": false
-            }
-        });
-
-        let normalized = normalize_repo_source_control_ai_overrides(&input).unwrap();
-
-        let mut model_overrides = BTreeMap::new();
-        model_overrides.insert(
-            CommitMessage,
-            SourceControlAiModelChoice {
-                selected_model_by_agent: Some(smap(&[("codex", "gpt-5.4")])),
-                selected_model_by_agent_by_host: Some(host_map(&[
-                    ("local", &[("codex", "gpt-5.4")]),
-                    ("ssh:conn-1", &[("codex", "remote-model")]),
-                ])),
-                selected_thinking_by_model: Some(smap(&[("gpt-5.4", "xhigh"), ("remote-model", "high")])),
-            },
-        );
-        model_overrides.insert(
-            BranchName,
-            SourceControlAiModelChoice {
-                selected_model_by_agent: Some(smap(&[("codex", "gpt-5.4")])),
-                ..Default::default()
-            },
-        );
-        let mut instructions = BTreeMap::new();
-        instructions.insert(CommitMessage, None);
-        instructions.insert(PullRequest, Some(String::new()));
-        instructions.insert(BranchName, Some("branch style".to_string()));
-
-        // A null commit instruction skips migration; the "" PR instruction yields
-        // the bare {basePrompt}; the branch instruction LEADS the built-in
-        // prompt (naming style owns the prompt — upstream #9088).
-        let mut action_overrides = BTreeMap::new();
-        action_overrides.insert(
-            "pullRequest".to_string(),
-            RepoSourceControlActionOverride {
-                command_input_template: Some(Some("{basePrompt}".to_string())),
-                ..Default::default()
-            },
-        );
-        action_overrides.insert(
-            "branchName".to_string(),
-            RepoSourceControlActionOverride {
-                command_input_template: Some(Some("branch style\n\n{basePrompt}".to_string())),
-                ..Default::default()
-            },
-        );
-
-        assert_eq!(
-            normalized,
-            RepoSourceControlAiOverrides {
-                model_overrides_by_operation: Some(model_overrides),
-                instructions_by_operation: Some(instructions),
-                action_overrides: Some(action_overrides),
-                pr_creation_defaults: Some(RepoPrCreationDefaults {
-                    draft: Some(Some(true)),
-                    use_template: Some(None),
-                    generate_details_on_open: None,
-                    open_after_create: Some(Some(false)),
-                }),
-            }
-        );
-        assert!(normalize_repo_source_control_ai_overrides(&Value::Null).is_none());
-        assert!(normalize_repo_source_control_ai_overrides(&json!([])).is_none());
-    }
-}
+mod tests;
