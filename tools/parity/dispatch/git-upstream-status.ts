@@ -2,7 +2,10 @@
 // function names to the real `src/shared/git-upstream-status.ts` exports so the
 // harness compares the live TS reference against the Rust port.
 
-import { shouldForcePushWithLeaseForUpstream } from '../../../src/shared/git-upstream-status'
+import {
+  isBehindOnlyUpstream,
+  shouldForcePushWithLeaseForUpstream
+} from '../../../src/shared/git-upstream-status'
 import type { GitUpstreamStatus } from '../../../src/shared/git-status-types'
 
 export function dispatch(fn: string, input: unknown): unknown {
@@ -10,6 +13,9 @@ export function dispatch(fn: string, input: unknown): unknown {
     case 'shouldForcePushWithLeaseForUpstream':
       // Single-arg `status`: null/undefined inputs short-circuit via optional chaining.
       return shouldForcePushWithLeaseForUpstream(input as GitUpstreamStatus | undefined)
+    case 'isBehindOnlyUpstream':
+      // Same single-arg `status` encoding; the twin is a total predicate, never throws.
+      return isBehindOnlyUpstream(input as GitUpstreamStatus | undefined)
     default:
       throw new Error(`unknown function ${fn}`)
   }

@@ -84,6 +84,113 @@
         "behindCommitsArePatchEquivalent": false
       },
       "expected": false
+    },
+    {
+      "function": "isBehindOnlyUpstream",
+      "note": "twin test: isBehindOnlyUpstream > is true only when the branch tracks upstream and is purely behind",
+      "input": {
+        "hasUpstream": true,
+        "ahead": 0,
+        "behind": 3
+      },
+      "expected": true
+    },
+    {
+      "function": "isBehindOnlyUpstream",
+      "note": "twin test: isBehindOnlyUpstream > is true only when the branch tracks upstream and is purely behind",
+      "input": {
+        "hasUpstream": true,
+        "ahead": 1,
+        "behind": 2
+      },
+      "expected": false
+    },
+    {
+      "function": "isBehindOnlyUpstream",
+      "note": "twin test: isBehindOnlyUpstream > is true only when the branch tracks upstream and is purely behind",
+      "input": {
+        "hasUpstream": true,
+        "ahead": 0,
+        "behind": 0
+      },
+      "expected": false
+    },
+    {
+      "function": "isBehindOnlyUpstream",
+      "note": "twin test: isBehindOnlyUpstream > is true only when the branch tracks upstream and is purely behind",
+      "input": {
+        "hasUpstream": false,
+        "ahead": 0,
+        "behind": 3
+      },
+      "expected": false
+    },
+    {
+      "function": "isBehindOnlyUpstream",
+      "note": "twin test: isBehindOnlyUpstream(undefined) — persisted as null, short-circuits via optional chaining",
+      "input": null,
+      "expected": false
+    },
+    {
+      "function": "isBehindOnlyUpstream",
+      "note": "boundary: behind === 1 is the smallest strictly-positive behind that still fast-forwards",
+      "input": {
+        "hasUpstream": true,
+        "ahead": 0,
+        "behind": 1
+      },
+      "expected": true
+    },
+    {
+      "function": "isBehindOnlyUpstream",
+      "note": "boundary: absent hasUpstream (undefined) fails the strict === true check even when purely behind",
+      "input": {
+        "ahead": 0,
+        "behind": 4
+      },
+      "expected": false
+    },
+    {
+      "function": "isBehindOnlyUpstream",
+      "note": "boundary: absent counters read as the 0/0 no-op status, so not behind-only",
+      "input": {
+        "hasUpstream": true
+      },
+      "expected": false
+    },
+    {
+      "function": "isBehindOnlyUpstream",
+      "note": "boundary: an unfetched explicit push target has no upstream to fast-forward from",
+      "input": {
+        "hasUpstream": false,
+        "ahead": 0,
+        "behind": 0,
+        "hasConfiguredPushTarget": true
+      },
+      "expected": false
+    },
+    {
+      "function": "isBehindOnlyUpstream",
+      "note": "boundary: behind-only is orthogonal to patch-equivalence — the force-push predicate's flag must not leak into this one",
+      "input": {
+        "hasUpstream": true,
+        "ahead": 0,
+        "behind": 2,
+        "upstreamName": "origin/main",
+        "behindCommitsArePatchEquivalent": true
+      },
+      "expected": true
+    },
+    {
+      "function": "isBehindOnlyUpstream",
+      "note": "boundary: diverged (ahead and behind) is the force-push case, never the fast-forward one — the two predicates are mutually exclusive here",
+      "input": {
+        "hasUpstream": true,
+        "ahead": 2,
+        "behind": 3,
+        "behindCommitsArePatchEquivalent": true
+      },
+      "expected": false
     }
   ]
 }

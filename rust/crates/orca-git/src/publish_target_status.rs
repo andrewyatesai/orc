@@ -47,8 +47,8 @@ pub fn get_publish_target_status<R: GitRunner>(
         return Ok(GitUpstreamStatus {
             has_upstream: false,
             upstream_name: Some(upstream_name),
-            ahead: 0,
-            behind: 0,
+            ahead: 0.0,
+            behind: 0.0,
             // The tracking ref isn't fetched yet, but the branch can still be
             // published — the TS missing-ref branch sets this flag for the UI.
             has_configured_push_target: Some(true),
@@ -68,8 +68,8 @@ pub fn get_publish_target_status<R: GitRunner>(
     Ok(GitUpstreamStatus {
         has_upstream: true,
         upstream_name: Some(upstream_name),
-        ahead,
-        behind,
+        ahead: ahead as f64,
+        behind: behind as f64,
         has_configured_push_target: None,
         behind_commits_are_patch_equivalent,
     })
@@ -95,8 +95,8 @@ pub async fn get_publish_target_status_async<R: AsyncGitRunner>(
         return Ok(GitUpstreamStatus {
             has_upstream: false,
             upstream_name: Some(upstream_name),
-            ahead: 0,
-            behind: 0,
+            ahead: 0.0,
+            behind: 0.0,
             has_configured_push_target: Some(true),
             behind_commits_are_patch_equivalent: None,
         });
@@ -126,8 +126,8 @@ pub async fn get_publish_target_status_async<R: AsyncGitRunner>(
     Ok(GitUpstreamStatus {
         has_upstream: true,
         upstream_name: Some(upstream_name),
-        ahead,
-        behind,
+        ahead: ahead as f64,
+        behind: behind as f64,
         has_configured_push_target: None,
         behind_commits_are_patch_equivalent,
     })

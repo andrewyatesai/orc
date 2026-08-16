@@ -2,7 +2,7 @@
 //! `src/shared/git-upstream-status.ts`.
 
 use orca_core::git_upstream_status::{
-    should_force_push_with_lease_for_upstream, GitUpstreamStatus,
+    is_behind_only_upstream, should_force_push_with_lease_for_upstream, GitUpstreamStatus,
 };
 use serde_json::{json, Value};
 
@@ -13,6 +13,10 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
             // optional chain short-circuits to false.
             let status = parse_status(input);
             Value::Bool(should_force_push_with_lease_for_upstream(status.as_ref()))
+        }
+        "isBehindOnlyUpstream" => {
+            let status = parse_status(input);
+            Value::Bool(is_behind_only_upstream(status.as_ref()))
         }
         other => json!({ "__parity_error__": format!("unknown function {other}") }),
     }
@@ -31,8 +35,12 @@ fn parse_status(input: &Value) -> Option<GitUpstreamStatus> {
             .get("upstreamName")
             .and_then(Value::as_str)
             .map(str::to_string),
-        ahead: obj.get("ahead").and_then(Value::as_i64).unwrap_or(0),
-        behind: obj.get("behind").and_then(Value::as_i64).unwrap_or(0),
+        // NaN is the faithful stand-in for the twin's `undefined`: `undefined === 0`
+        // and `undefined > 0` are both false, and so is every NaN comparison.
+        // `as_f64` also carries 0.5 and out-of-i64 values, which `as_i64`
+        // silently turned into 0.
+        ahead: obj.get("ahead").and_then(Value::as_f64).unwrap_or(f64::NAN),
+        behind: obj.get("behind").and_then(Value::as_f64).unwrap_or(f64::NAN),
         has_configured_push_target: obj
             .get("hasConfiguredPushTarget")
             .and_then(Value::as_bool),

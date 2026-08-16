@@ -74,8 +74,8 @@ fn finalize_upstream_status(
         Err(error) if is_no_upstream_error(Some(&error.message)) => Ok(GitUpstreamStatus {
             has_upstream: false,
             upstream_name: None,
-            ahead: 0,
-            behind: 0,
+            ahead: 0.0,
+            behind: 0.0,
             has_configured_push_target: None,
             behind_commits_are_patch_equivalent: None,
         }),
@@ -145,8 +145,8 @@ mod tests {
         GitUpstreamStatus {
             has_upstream: has,
             upstream_name: name.map(str::to_string),
-            ahead,
-            behind,
+            ahead: ahead as f64,
+            behind: behind as f64,
             has_configured_push_target: None,
             behind_commits_are_patch_equivalent: bce,
         }
