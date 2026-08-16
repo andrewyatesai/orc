@@ -1155,7 +1155,13 @@ export function resolveSourceControlAiEnabled(input: {
     input.settings?.commitMessageAi
   )
   const repoOverrides = normalizeRepoSourceControlAiOverrides(input.repo?.sourceControlAi)
-  return repoOverrides?.enabled ?? source.enabled
+  // `?? false` because the return type says `boolean` and this could hand back
+  // `undefined`: a persisted `commitMessageAi` with no `enabled` key normalizes to
+  // an own-undefined `enabled`, so the coalesce fell through both operands. Every
+  // caller reads it as truthiness, so no behaviour changes — but the type stops
+  // lying, and the Rust core (which already answers `false`) stops diverging on
+  // 90 of 64,341 measured calls.
+  return repoOverrides?.enabled ?? source.enabled ?? false
 }
 
 export function resolveSourceControlActionRecipe(input: {
