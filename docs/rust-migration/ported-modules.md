@@ -158,10 +158,33 @@ twin (needed for the unbound surfaces to keep working) and the core (needed for
 
 **A pre-existing bug the measurement exposed, which is the real bug here.** The
 two writers of `linkedLinearIssueOrganizationUrlKey` ALREADY disagree at HEAD for
-the same URL: `parseLinearIssueInput` decodes, `getLinearOrganizationUrlKeyFromIssueUrl`
-does not. Only one of them can ever match a connected workspace. That wants
-fixing on its own merits, in TypeScript, before any cutover — and once the two
-writers agree, the `parity` obstacle above may dissolve with it.
+the same URL: `parseLinearIssueInput` decodes,
+`getLinearOrganizationUrlKeyFromIssueUrl` does not.
+
+    https://linear.app/caf%C3%A9/issue/ENG-1
+      getLinearOrganizationUrlKeyFromIssueUrl -> "caf%C3%A9"   (persisted)
+      parseLinearIssueInput                   -> "café"        (persisted)
+
+Only one can ever match `workspace.organizationUrlKey` in
+`resolveLegacyLinearLinkWorkspace`'s `===`, so one of the two write paths is
+already selecting no token at all.
+
+**Making them agree is a PRODUCT decision, not a refactor — do not just do it.**
+I tried: teaching the non-decoding writer to decode makes the two agree and
+aligns the twin with the core, and `pnpm parity` stays green at 3573/3661. Then
+`linear-links.test.ts` went red on a guard a previous agent had written for
+exactly this, in as many words — *"wiring this to the core turns these red
+instead of silently changing a persisted `linkedLinearIssueOrganizationUrlKey`."*
+
+It is right to stop there. Decoding is almost certainly the CORRECT answer (the
+Linear API returns the decoded url key, so the decoded spelling is the one that
+matches), but flipping it rewrites what new records persist while existing
+records keep the encoded spelling, and nothing migrates them. That is a data
+decision with a migration attached, and it belongs to whoever owns the Linear
+integration.
+
+Whichever way it goes, both writers must end up on the same side, and the cutover
+is downstream of that call.
 
 ### A clean verdict means "nothing found", not "nothing there"
 
