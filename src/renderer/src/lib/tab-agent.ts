@@ -1,6 +1,6 @@
 import type { AgentStatusEntry } from '../../../shared/agent-status-types'
 import type { TerminalLayoutSnapshot, TuiAgent } from '../../../shared/types'
-import { isTerminalLeafId, makePaneKey } from '../../../shared/stable-pane-id'
+import { isTerminalLeafId, makePaneKey } from '../../../shared/stable-pane-identity'
 import { agentTypeToIconAgent } from './agent-status'
 import {
   firstTabAgentExcludingLeaf,

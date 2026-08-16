@@ -4,7 +4,7 @@ import type { MessageRow, TaskRow, CoordinatorStatus } from './types'
 import { buildDispatchPreamble } from './preamble'
 import { reconcileLifecycleMessage } from './lifecycle-reconciliation'
 import { decideUnattendedAgentDispatch } from '../../../shared/unattended-agent-dispatch'
-import { parsePaneKey } from '../../../shared/stable-pane-id'
+import { parsePaneKey } from '../../../shared/stable-pane-identity'
 import type { TuiAgent } from '../../../shared/types'
 
 export type CoordinatorRuntime = {

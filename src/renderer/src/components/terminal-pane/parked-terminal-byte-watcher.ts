@@ -3,7 +3,7 @@
  * Why: parking unmounts TerminalPane, so this replays its bell/title/agent-completion/PR-link side effects while parked.
  */
 import { isClaudeAgent } from '../../../../shared/agent-detection'
-import { makePaneKey } from '../../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../../shared/stable-pane-identity'
 import { useAppStore } from '@/store'
 import {
   mode2031SequenceFor,

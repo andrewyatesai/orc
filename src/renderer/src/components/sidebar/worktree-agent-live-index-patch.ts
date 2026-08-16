@@ -1,7 +1,6 @@
 import type { AppState } from '@/store/types'
 import type { AgentStatusEntry } from '../../../../shared/agent-status-types'
-import { parsePaneKey } from '../../../../shared/stable-pane-id'
-
+import { parsePaneKey } from '../../../../shared/stable-pane-identity'
 export type LiveEntriesByWorktreeCache = {
   tabsByWorktree: AppState['tabsByWorktree']
   agentStatusByPaneKey: AppState['agentStatusByPaneKey']

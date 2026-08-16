@@ -6,7 +6,7 @@ import {
 import type { TerminalLayoutSnapshot, TerminalTab } from '../../../../shared/types'
 import type { RetainedAgentEntry } from '@/store/slices/agent-status'
 import { applyAgentRowLineage } from '@/components/dashboard/agent-row-lineage'
-import { makePaneKey } from '../../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../../shared/stable-pane-identity'
 import { comparePaneKeysOrdinal } from './worktree-agent-row-order'
 import { buildWorktreeAgentRows } from './worktree-agent-rows'
 

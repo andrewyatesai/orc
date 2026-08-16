@@ -28,7 +28,7 @@ import type {
   WorkspaceLineage,
   WorkspaceSessionState
 } from '../shared/types'
-import { isTerminalLeafId, makePaneKey } from '../shared/stable-pane-id'
+import { isTerminalLeafId, makePaneKey } from '../shared/stable-pane-identity'
 import { TERMINAL_SCROLLBACK_REPLAY_BYTE_LIMIT } from '../shared/terminal-scrollback-limits'
 import { MAX_BROWSER_HISTORY_ENTRIES } from '../shared/workspace-session-browser-history'
 import {

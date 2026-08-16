@@ -135,12 +135,7 @@ import { isRemoteAgentHooksEnabled } from '../../shared/agent-hook-relay'
 import { createTerminalSessionStateSaveFailureMessage } from '../../shared/terminal-session-state-save-failure'
 import { RendererTerminalSerializerReadiness } from './renderer-terminal-serializer-readiness'
 import { readShellStartupEnvVar } from '../pty/shell-startup-env'
-import {
-  isTerminalLeafId,
-  makePaneKey,
-  parseLegacyNumericPaneKey,
-  parsePaneKey
-} from '../../shared/stable-pane-id'
+import { isTerminalLeafId, makePaneKey, parseLegacyNumericPaneKey, parsePaneKey } from '../../shared/stable-pane-identity'
 import { isValidTerminalTabId } from '../rust-terminal-tab-id'
 import {
   resolveTerminalStartupCwdForWorkspace,

@@ -4,7 +4,7 @@ import {
   AGENT_STATUS_STALE_AFTER_MS,
   type AgentStatusEntry
 } from '../../../../shared/agent-status-types'
-import { parseLegacyNumericPaneKey, parsePaneKey } from '../../../../shared/stable-pane-id'
+import { parseLegacyNumericPaneKey, parsePaneKey } from '../../../../shared/stable-pane-identity'
 import type { TerminalLayoutSnapshot, TerminalTab } from '../../../../shared/types'
 
 // Why: a terminal tab is a container of panes, exactly like a worktree card is

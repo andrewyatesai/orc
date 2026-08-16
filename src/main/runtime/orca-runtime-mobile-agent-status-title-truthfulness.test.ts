@@ -11,8 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrcaRuntimeService } from './orca-runtime'
 import type { AgentStatusIpcPayload } from '../../shared/agent-status-types'
-import { makePaneKey } from '../../shared/stable-pane-id'
-
+import { makePaneKey } from '../../shared/stable-pane-identity'
 vi.mock('electron', () => ({
   BrowserWindow: { fromId: vi.fn(() => null) },
   webContents: { fromId: vi.fn(() => null) },

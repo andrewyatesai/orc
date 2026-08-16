@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { makePaneKey } from '../../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../../shared/stable-pane-identity'
 import { getDefaultWorkspaceSession } from '../../../../shared/constants'
 import {
   resetAgentPaneAuthorityAliasesForTests,

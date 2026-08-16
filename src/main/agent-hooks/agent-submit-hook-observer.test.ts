@@ -2,7 +2,7 @@
 // recorded as it lands (never re-derived from a poll), and a cumulative drop ledger must not read
 // as a fresh drop on a reused pane.
 import { describe, expect, it } from 'vitest'
-import { makePaneKey } from '../../shared/stable-pane-id'
+import { makePaneKey } from '../../shared/stable-pane-identity'
 import type { AgentHookSource } from '../../shared/agent-hook-relay'
 import type { AgentStatusState, AgentType } from '../../shared/agent-status-types'
 import { agentSubmitCertification } from '../runtime/agent-submit-evidence'

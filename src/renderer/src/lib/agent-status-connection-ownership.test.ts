@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { toAppSshPtyId } from '../../../shared/ssh-pty-id'
-import { makePaneKey } from '../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../shared/stable-pane-identity'
 import {
   resolveAgentStatusConnectionRouting,
   resolveLiveAgentStatusConnectionRouting

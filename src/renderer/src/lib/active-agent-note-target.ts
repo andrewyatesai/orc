@@ -12,7 +12,7 @@ import {
   type WorktreeRuntimeOwnerState
 } from '@/lib/worktree-runtime-owner'
 import { toRuntimeWorktreeSelector } from '@/runtime/runtime-worktree-selector'
-import { isTerminalLeafId, makePaneKey } from '../../../shared/stable-pane-id'
+import { isTerminalLeafId, makePaneKey } from '../../../shared/stable-pane-identity'
 import type { TerminalLayoutSnapshot } from '../../../shared/types'
 import {
   classifyTitleActivity,

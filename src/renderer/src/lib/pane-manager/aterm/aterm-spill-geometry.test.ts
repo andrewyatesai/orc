@@ -3,7 +3,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SYNC_FIT_PANES_EVENT } from '@/constants/terminal'
-import { makePaneKey } from '../../../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../../../shared/stable-pane-identity'
 import { registerTabPaneManager, unregisterTabPaneManager } from '../pane-manager-registry'
 import {
   chromeFrameOrigin,

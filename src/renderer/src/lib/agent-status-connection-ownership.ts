@@ -1,5 +1,5 @@
 import { parseAppSshPtyId } from '../../../shared/ssh-pty-id'
-import { parsePaneKey } from '../../../shared/stable-pane-id'
+import { parsePaneKey } from '../../../shared/stable-pane-identity'
 import { parseRemoteRuntimePtyId } from '@/runtime/runtime-terminal-stream'
 
 export type AgentStatusConnectionRouting = { connectionId: string | null }

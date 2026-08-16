@@ -60,7 +60,7 @@ import {
   extractAgentProviderSession,
   type AgentProviderSessionMetadata
 } from './agent-session-resume'
-import { parsePaneKey } from './stable-pane-id'
+import { parsePaneKey } from './stable-pane-identity'
 import {
   isCompactContinuationUserTurnText,
   isKnownHarnessInjectedUserTurnText

@@ -5,7 +5,7 @@ import {
   isResumableTuiAgent,
   type SleepingAgentSessionRecord
 } from '../../../shared/agent-session-resume'
-import { parsePaneKey } from '../../../shared/stable-pane-id'
+import { parsePaneKey } from '../../../shared/stable-pane-identity'
 import { lastInputBlocksHibernation } from './agent-hibernation-input-guard'
 import { isCompletedPiCompatibleAgentWithLiveRecoveryRecord } from './pi-compatible-live-recovery-record'
 import type { GlobalSettings, TerminalLayoutSnapshot, TerminalTab } from '../../../shared/types'

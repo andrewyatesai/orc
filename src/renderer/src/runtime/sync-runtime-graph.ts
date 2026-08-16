@@ -22,7 +22,7 @@ import type {
   RuntimeMobileSessionTabsSnapshot,
   RuntimeSyncWindowGraph
 } from '../../../shared/runtime-types'
-import { isTerminalLeafId, makePaneKey } from '../../../shared/stable-pane-id'
+import { isTerminalLeafId, makePaneKey } from '../../../shared/stable-pane-identity'
 import { isWebTerminalSurfaceTabId } from './web-terminal-surface-id'
 import { isClaudeManagementTitle } from '../../../shared/agent-detection'
 import type {

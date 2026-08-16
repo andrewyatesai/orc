@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { AppState } from '@/store/types'
 import type { AgentStatusEntry, AgentStatusState } from '../../../shared/agent-status-types'
 import type { TerminalTab } from '../../../shared/types'
-import { makePaneKey } from '../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../shared/stable-pane-identity'
 import {
   deriveRunningAgentSendTargets,
   resolveRunningAgentSendTarget

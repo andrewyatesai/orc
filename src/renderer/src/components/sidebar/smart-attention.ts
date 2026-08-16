@@ -10,8 +10,7 @@ import {
   type AgentStatusEntry,
   type MigrationUnsupportedPtyEntry
 } from '../../../../shared/agent-status-types'
-import { parsePaneKey } from '../../../../shared/stable-pane-id'
-
+import { parsePaneKey } from '../../../../shared/stable-pane-identity'
 /**
  * Ordinal class for the "Smart" sort. Lower number = more attention-demanding.
  *   1 — Needs you (`blocked` / `waiting`)

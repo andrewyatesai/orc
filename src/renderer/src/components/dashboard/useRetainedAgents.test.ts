@@ -3,7 +3,7 @@ import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { useAppStore } from '@/store'
 import type { AgentStatusEntry, AgentStatusState } from '../../../../shared/agent-status-types'
-import { makePaneKey } from '../../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../../shared/stable-pane-identity'
 import type { Repo, Worktree } from '../../../../shared/types'
 import { collectRetainedAgentsOnDisappear, useRetainedAgentsSync } from './useRetainedAgents'
 

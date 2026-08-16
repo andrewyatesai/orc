@@ -5,7 +5,7 @@ import type {
   AgentStatusOrchestrationContext,
   MigrationUnsupportedPtyEntry
 } from '../../../../shared/agent-status-types'
-import { parsePaneKey } from '../../../../shared/stable-pane-id'
+import { parsePaneKey } from '../../../../shared/stable-pane-identity'
 import {
   type LiveEntriesByWorktreeCache,
   liveEntryWorktreeId,

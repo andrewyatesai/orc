@@ -5,7 +5,7 @@ import type {
   TerminalPaneLayoutNode,
   TerminalTab
 } from '../../../shared/types'
-import { parseLegacyNumericPaneKey, parsePaneKey } from '../../../shared/stable-pane-id'
+import { parseLegacyNumericPaneKey, parsePaneKey } from '../../../shared/stable-pane-identity'
 import { isWebTerminalSurfaceTabId } from '../../../shared/terminal-surface-id'
 
 type AppStoreState = ReturnType<typeof useAppStore.getState>

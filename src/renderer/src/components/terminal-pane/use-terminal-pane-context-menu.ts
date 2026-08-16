@@ -29,7 +29,7 @@ import {
   REQUEST_ACTIVE_TERMINAL_PANE_SPLIT_EVENT,
   type RequestActiveTerminalPaneSplitDetail
 } from '@/constants/terminal'
-import { makePaneKey } from '../../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../../shared/stable-pane-identity'
 import { runQuickCommandInNewTab } from '@/lib/run-quick-command-in-new-tab'
 import {
   copyAgentSessionContextFromPane,

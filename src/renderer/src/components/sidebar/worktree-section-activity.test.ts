@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentStatusEntry } from '../../../../shared/agent-status-types'
-import { makePaneKey } from '../../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../../shared/stable-pane-identity'
 import type { ProjectGroup, Repo, TerminalTab, Worktree } from '../../../../shared/types'
 import {
   getProjectGroupHeaderKey,

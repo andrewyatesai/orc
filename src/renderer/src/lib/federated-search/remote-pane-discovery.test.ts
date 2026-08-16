@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { useAppStore } from '@/store'
-import { makePaneKey } from '../../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../../shared/stable-pane-identity'
 import type { ReplayedSearchGeometry } from '../../components/terminal-pane/pty-transport-types'
 import { discoverRemoteFederatedPanes } from './remote-pane-discovery'
 import {

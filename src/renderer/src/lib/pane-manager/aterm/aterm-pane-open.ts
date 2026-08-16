@@ -11,7 +11,7 @@ import { resolveCursorAgentImeAnchor } from '../terminal-ime-anchor'
 import { createAtermPaneController, type AtermLinkContext } from './aterm-pane-renderer'
 import { ATERM_RENDERER_FONT_PX } from './aterm-pane-controller-types'
 import { flushPendingAtermRainPulsesAtControllerAttach } from './aterm-rain-pulse-delivery'
-import { makePaneKey } from '../../../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../../../shared/stable-pane-identity'
 import { getRegisteredTabIdsForController } from '../pane-manager-registry'
 import { engineColorToCss } from '../../terminal-themes/engine-color-css'
 import {

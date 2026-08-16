@@ -1,7 +1,6 @@
 import { useAppStore } from '@/store'
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
-import { makePaneKey } from '../../../../shared/stable-pane-id'
-
+import { makePaneKey } from '../../../../shared/stable-pane-identity'
 type TerminalPaneAttentionListener = () => void
 
 type TerminalPaneAttentionState = ReturnType<typeof useAppStore.getState>

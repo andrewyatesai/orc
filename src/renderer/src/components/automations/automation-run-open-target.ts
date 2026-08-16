@@ -1,5 +1,5 @@
 import type { AutomationRun } from '../../../../shared/automations-types'
-import { parsePaneKey } from '../../../../shared/stable-pane-id'
+import { parsePaneKey } from '../../../../shared/stable-pane-identity'
 import type { TerminalLayoutSnapshot, TerminalPaneLayoutNode } from '../../../../shared/types'
 
 export type AutomationRunPaneTarget = {

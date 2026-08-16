@@ -5,7 +5,7 @@
  * under test, and a mocked lease would test nothing.
  */
 import { describe, expect, it } from 'vitest'
-import { makePaneKey } from '../../shared/stable-pane-id'
+import { makePaneKey } from '../../shared/stable-pane-identity'
 import { AGENT_PROMPT_SUBMIT } from '../../shared/agent-prompt-injection'
 import type { AgentStatusState, AgentType } from '../../shared/agent-status-types'
 import type { SuppressedClosedPaneHookRecord } from '../agent-hooks/closed-pane-hook-suppression'

@@ -1,7 +1,7 @@
 import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
 import type { TerminalTab } from '../../../shared/types'
-import { parsePaneKey } from '../../../shared/stable-pane-id'
+import { parsePaneKey } from '../../../shared/stable-pane-identity'
 import { singlePaneLayoutSnapshot } from '@/store/slices/terminal-helpers'
 import { readLastTerminalInputAt } from './terminal-input-activity-coalescing'
 

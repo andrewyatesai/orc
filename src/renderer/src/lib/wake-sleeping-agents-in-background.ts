@@ -5,7 +5,7 @@ import {
 import { requestBackgroundTerminalWorktreeMount } from '@/components/terminal/background-terminal-worktree-mount'
 import { useAppStore } from '@/store'
 import type { SleepingAgentSessionRecord } from '../../../shared/agent-session-resume'
-import { parseLegacyNumericPaneKey, parsePaneKey } from '../../../shared/stable-pane-id'
+import { parseLegacyNumericPaneKey, parsePaneKey } from '../../../shared/stable-pane-identity'
 import { resumeSleepingAgentSessionsForWorktree } from './resume-sleeping-agent-session'
 import {
   getProviderSessionClaimKey,

@@ -44,7 +44,7 @@ import {
   serializePaneFontSizeDeltas,
   serializeTerminalLayout
 } from './layout-serialization'
-import { makePaneKey } from '../../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../../shared/stable-pane-identity'
 import type { TerminalKittyKeyboardModeTracker } from '../../../../shared/terminal-kitty-keyboard-mode-tracker'
 import {
   applyExpandedLayoutTo,

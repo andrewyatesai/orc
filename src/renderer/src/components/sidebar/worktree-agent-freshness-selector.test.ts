@@ -3,7 +3,7 @@ import {
   AGENT_STATUS_STALE_AFTER_MS,
   type AgentStatusEntry
 } from '../../../../shared/agent-status-types'
-import { makePaneKey } from '../../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../../shared/stable-pane-identity'
 import type { TerminalTab } from '../../../../shared/types'
 import { createWorktreeAgentFreshnessSelector } from './worktree-agent-freshness-selector'
 

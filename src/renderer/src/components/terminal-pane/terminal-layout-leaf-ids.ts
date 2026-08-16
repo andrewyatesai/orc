@@ -1,5 +1,6 @@
 import type { TerminalLayoutSnapshot, TerminalPaneLayoutNode } from '../../../../shared/types'
-import { isTerminalLeafId, type TerminalLeafId } from '../../../../shared/stable-pane-id'
+import { type TerminalLeafId } from '../../../../shared/stable-pane-id'
+import { isTerminalLeafId } from '../../../../shared/stable-pane-identity'
 import { mintStablePaneId } from '@/lib/pane-manager/mint-stable-pane-id'
 import { normalizeTerminalLayoutPtyOwnership } from './terminal-layout-pty-ownership'
 

@@ -69,7 +69,7 @@ import {
   type AgentType,
   type MigrationUnsupportedPtyEntry
 } from '../../../../shared/agent-status-types'
-import { parsePaneKey } from '../../../../shared/stable-pane-id'
+import { parsePaneKey } from '../../../../shared/stable-pane-identity'
 import { isClipboardTextByteLengthOverLimit } from '../../../../shared/clipboard-text'
 import { migrationUnsupportedToAgentStatusEntry } from '@/lib/migration-unsupported-agent-entry'
 import { translate } from '@/i18n/i18n'

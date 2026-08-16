@@ -3,7 +3,7 @@ import { renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { useAppStore } from '@/store'
 import type { AgentStatusEntry } from '../../../../shared/agent-status-types'
-import { makePaneKey } from '../../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../../shared/stable-pane-identity'
 import type { GlobalSettings, Repo, TerminalTab, Worktree } from '../../../../shared/types'
 import { useLiveDashboardSnapshot } from './useLiveDashboardSnapshot'
 

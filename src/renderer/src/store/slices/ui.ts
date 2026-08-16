@@ -125,7 +125,7 @@ import {
   resolveRunningAgentSendTarget
 } from '../../lib/running-agent-targets'
 import { buildAgentNotificationId } from '../../lib/git-wasm/agent-notification-id'
-import { parsePaneKey } from '../../../../shared/stable-pane-id'
+import { parsePaneKey } from '../../../../shared/stable-pane-identity'
 import { translate } from '@/i18n/i18n'
 
 export type PendingSidebarWorktreeReveal = {

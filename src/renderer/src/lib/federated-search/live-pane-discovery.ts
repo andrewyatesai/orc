@@ -8,7 +8,7 @@ import {
   getLivePaneManagersForTab,
   getRegisteredTabPaneManagerTabIds
 } from '../pane-manager/pane-manager-registry'
-import { isTerminalLeafId, makePaneKey } from '../../../../shared/stable-pane-id'
+import { isTerminalLeafId, makePaneKey } from '../../../../shared/stable-pane-identity'
 import { useAppStore } from '@/store'
 import type { AtermFederatedSearchTarget } from '../pane-manager/aterm/aterm-federated-search-target'
 import type { DiscoveredLivePane } from './live-pane-search-adapter'

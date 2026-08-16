@@ -10,7 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAppStore } from '@/store'
-import { makePaneKey } from '../../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../../shared/stable-pane-identity'
 import type { ReplayedSearchGeometry } from '../../components/terminal-pane/pty-transport-types'
 import { createFederatedSearchController } from './federated-search-controller'
 import { createRemotePaneSearchAdapter, type RemoteSearchCall } from './remote-pane-search-adapter'

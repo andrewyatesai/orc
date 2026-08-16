@@ -18,7 +18,7 @@ import { createSettingsSearchState } from './settings-search-state'
 import type { AppState } from '../types'
 import type { ContextualTourId } from '../../../../shared/contextual-tours'
 import type { FeatureInteractionState } from '../../../../shared/feature-interactions'
-import { makePaneKey } from '../../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../../shared/stable-pane-identity'
 // Init the orca-git wasm so the wasm-backed buildAgentNotificationId (used by
 // both the slice under test and the expected-id computation below) returns real
 // ids instead of its pre-ready null.

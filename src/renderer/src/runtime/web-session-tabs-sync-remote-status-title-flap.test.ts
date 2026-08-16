@@ -41,7 +41,7 @@ import {
   AGENT_STATUS_STALE_AFTER_MS,
   type AgentStatusEntry
 } from '../../../shared/agent-status-types'
-import { makePaneKey } from '../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../shared/stable-pane-identity'
 import { toWebTerminalSurfaceTabId } from '../../../shared/terminal-surface-id'
 import { deriveGeneratedTabTitle } from '../lib/git-wasm/agent-tab-title'
 import { getDefaultSettings } from '../../../shared/constants'

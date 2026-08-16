@@ -5,7 +5,7 @@ import type {
 } from '../../../../shared/agent-status-types'
 import type { RetainedAgentEntry } from '@/store/slices/agent-status'
 import type { TerminalTab } from '../../../../shared/types'
-import { makePaneKey, parsePaneKey } from '../../../../shared/stable-pane-id'
+import { makePaneKey, parsePaneKey } from '../../../../shared/stable-pane-identity'
 import {
   EMPTY_WORKTREE_AGENT_ORCHESTRATION,
   releaseWorktreeAgentOrchestrationIndexCache,

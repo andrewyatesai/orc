@@ -6,7 +6,7 @@ import {
   resolveSiblingTabAgent
 } from './tab-agent'
 import { agentTypeToIconAgent } from './agent-status'
-import { isTerminalLeafId, parsePaneKey } from '../../../shared/stable-pane-id'
+import { isTerminalLeafId, parsePaneKey } from '../../../shared/stable-pane-identity'
 import type {
   AgentStatusEntry,
   AgentStatusState,

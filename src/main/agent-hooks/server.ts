@@ -68,7 +68,7 @@ import {
   isAskUserQuestionTool,
   type AgentQuestionAnsweredInferenceRequest
 } from '../../shared/agent-question-answered-intent'
-import { parseLegacyNumericPaneKey, parsePaneKey } from '../../shared/stable-pane-id'
+import { parseLegacyNumericPaneKey, parsePaneKey } from '../../shared/stable-pane-identity'
 import type { LegacyPaneKeyAliasEntry } from '../../shared/types'
 import {
   getAgentResumeArgv,

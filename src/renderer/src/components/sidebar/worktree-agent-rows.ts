@@ -7,11 +7,7 @@ import {
   type AgentStatusEntry,
   type AgentStatusOrchestrationContext
 } from '../../../../shared/agent-status-types'
-import {
-  makePaneKey,
-  parseLegacyNumericPaneKey,
-  parsePaneKey
-} from '../../../../shared/stable-pane-id'
+import { makePaneKey, parseLegacyNumericPaneKey, parsePaneKey } from '../../../../shared/stable-pane-identity'
 import type {
   TerminalLayoutSnapshot,
   TerminalPaneLayoutNode,

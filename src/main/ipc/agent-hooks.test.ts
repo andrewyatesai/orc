@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type * as AgentHookServerModule from '../agent-hooks/server'
-import { makePaneKey } from '../../shared/stable-pane-id'
-
+import { makePaneKey } from '../../shared/stable-pane-identity'
 // Why: cover the agentStatus:drop IPC handler — it must propagate the
 // renderer dismissal to dropStatusEntry so the on-disk last-status file
 // evicts the entry.

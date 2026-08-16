@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { endpointDirForRelaySocket, RelayAgentHookServer } from './agent-hook-server'
 import type { AgentHookRelayEnvelope } from '../shared/agent-hook-relay'
-import { makePaneKey } from '../shared/stable-pane-id'
+import { makePaneKey } from '../shared/stable-pane-identity'
 import * as agentHookListener from '../shared/agent-hook-listener'
 
 const LEAF_ID = '11111111-1111-4111-8111-111111111111'

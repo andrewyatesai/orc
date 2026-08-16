@@ -139,12 +139,7 @@ import {
   migrateWorkspaceSessionSshTargetId
 } from './ssh/ssh-target-id-migration'
 import { isWslUncPath } from '../shared/wsl-unc-paths'
-import {
-  isTerminalLeafId,
-  makePaneKey,
-  parseLegacyNumericPaneKey,
-  parsePaneKey
-} from '../shared/stable-pane-id'
+import { isTerminalLeafId, makePaneKey, parseLegacyNumericPaneKey, parsePaneKey } from '../shared/stable-pane-identity'
 import {
   setMigrationUnsupportedPty,
   setMigrationUnsupportedPtyPersistenceListener

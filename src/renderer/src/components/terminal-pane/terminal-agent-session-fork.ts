@@ -8,7 +8,7 @@ import {
 } from '@/lib/agent-session-fork-context'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { useAppStore } from '@/store'
-import { makePaneKey } from '../../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../../shared/stable-pane-identity'
 import { TUI_AGENT_CONFIG } from '../../../../shared/tui-agent-config'
 import { slugifyForWorkspaceName } from '@/lib/git-wasm/workspace-name'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'

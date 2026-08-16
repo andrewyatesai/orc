@@ -278,7 +278,7 @@ import {
 } from '../../shared/setup-agent-sequencing'
 import { TASK_PROVIDERS } from '../../shared/task-providers'
 import { FIRST_PANE_ID } from '../../shared/pane-key'
-import { isTerminalLeafId, makePaneKey, parsePaneKey } from '../../shared/stable-pane-id'
+import { isTerminalLeafId, makePaneKey, parsePaneKey } from '../../shared/stable-pane-identity'
 import { parseAppSshPtyId } from '../../shared/ssh-pty-id'
 import { isLeafPtyProvenAbsent } from './terminal-leaf-liveness-demotion'
 import { isValidHostTerminalTabId, isValidTerminalTabId } from '../rust-terminal-tab-id'

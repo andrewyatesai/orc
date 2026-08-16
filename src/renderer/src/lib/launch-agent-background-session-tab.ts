@@ -1,7 +1,8 @@
 import type { useAppStore } from '@/store'
 import type { TuiAgent } from '../../../shared/types'
 import type { SleepingAgentLaunchConfig } from '../../../shared/agent-session-resume'
-import { makePaneKey, type PaneKey } from '../../../shared/stable-pane-id'
+import { type PaneKey } from '../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../shared/stable-pane-identity'
 import { singlePaneLayoutSnapshot } from '@/store/slices/terminal-helpers'
 
 type AppStore = ReturnType<typeof useAppStore.getState>

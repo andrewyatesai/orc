@@ -1,8 +1,5 @@
-import {
-  isTerminalLeafId,
-  parsePaneKey,
-  type TerminalLeafId
-} from '../../../../shared/stable-pane-id'
+import { type TerminalLeafId } from '../../../../shared/stable-pane-id'
+import { isTerminalLeafId, parsePaneKey } from '../../../../shared/stable-pane-identity'
 import type { ManagedPane } from './pane-manager-types'
 
 export type PaneKeyUnresolvedReason = 'confirmed-missing' | 'ownership-mismatch' | 'invalid'

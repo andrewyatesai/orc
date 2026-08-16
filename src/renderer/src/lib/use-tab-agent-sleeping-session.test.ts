@@ -8,7 +8,7 @@ import type {
   ResumableTuiAgent,
   SleepingAgentSessionRecord
 } from '../../../shared/agent-session-resume'
-import { makePaneKey } from '../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../shared/stable-pane-identity'
 import type { TerminalTab, TuiAgent } from '../../../shared/types'
 import { resolveTabAgentFromSignals, useTabAgent } from './use-tab-agent'
 

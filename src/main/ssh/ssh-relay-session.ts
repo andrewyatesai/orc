@@ -69,7 +69,7 @@ import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import { runRemoteOrcaCli } from './ssh-remote-orca-cli'
 import { parseRemoteOrcaCliRequest } from './ssh-remote-cli-host-passthrough'
 import { toSshExecutionHostId, type ExecutionHostId } from '../../shared/execution-host'
-import { isTerminalLeafId, makePaneKey } from '../../shared/stable-pane-id'
+import { isTerminalLeafId, makePaneKey } from '../../shared/stable-pane-identity'
 import { isValidTerminalTabId } from '../rust-terminal-tab-id'
 
 export type RelaySessionState = 'idle' | 'deploying' | 'ready' | 'reconnecting' | 'disposed'

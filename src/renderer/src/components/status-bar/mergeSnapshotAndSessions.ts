@@ -19,7 +19,7 @@
 
 import type { MemorySnapshot, SessionMemory, WorktreeMemory } from '../../../../shared/types'
 import { parsePtySessionId } from '../../../../shared/pty-session-id-format'
-import { parsePaneKey as parseStablePaneKey } from '../../../../shared/stable-pane-id'
+import { parsePaneKey as parseStablePaneKey } from '../../../../shared/stable-pane-identity'
 import {
   getRepoIdFromWorktreeId,
   getWorktreePathBasenameFromId

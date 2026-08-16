@@ -3,7 +3,7 @@ import { useAppStore } from '@/store'
 import { isShellProcess } from '../../../shared/agent-detection'
 import { worktreeUsesRemoteConnection } from '@/store/slices/terminals'
 import { parseRemoteRuntimePtyId } from '@/runtime/runtime-terminal-stream'
-import { isTerminalLeafId, makePaneKey } from '../../../shared/stable-pane-id'
+import { isTerminalLeafId, makePaneKey } from '../../../shared/stable-pane-identity'
 import {
   resolveFocusedCompletedTabAgent,
   resolveFocusedTabAgent,

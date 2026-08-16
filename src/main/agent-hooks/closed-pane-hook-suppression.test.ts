@@ -1,7 +1,7 @@
 // Why: locks the observability contract for closed-pane drops — a suppressed hook must stay
 // suppressed and still answer 204, but must no longer vanish without a trace.
 import { describe, expect, it } from 'vitest'
-import { makePaneKey } from '../../shared/stable-pane-id'
+import { makePaneKey } from '../../shared/stable-pane-identity'
 import { AgentHookServer } from './server'
 import {
   ClosedPaneHookSuppressionLog,

@@ -9,7 +9,7 @@ import type {
   AgentStatusState,
   AgentType
 } from '../../../../shared/agent-status-types'
-import { isTerminalLeafId, makePaneKey } from '../../../../shared/stable-pane-id'
+import { isTerminalLeafId, makePaneKey } from '../../../../shared/stable-pane-identity'
 import type {
   TerminalLayoutSnapshot,
   TerminalPaneLayoutNode,

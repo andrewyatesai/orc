@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { makePaneKey } from '../../shared/stable-pane-id'
+import { makePaneKey } from '../../shared/stable-pane-identity'
 import { AgentHookServer, PANE_KEY_ALIASES_MAX } from './server'
 
 const SOURCE = makePaneKey('tab-source', '11111111-1111-4111-8111-111111111111')

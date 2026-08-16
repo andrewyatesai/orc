@@ -29,8 +29,7 @@ import {
   normalizeHookPayload,
   type HookListenerState
 } from '../../shared/agent-hook-listener'
-import { makePaneKey } from '../../shared/stable-pane-id'
-
+import { makePaneKey } from '../../shared/stable-pane-identity'
 const { getCohortAtEmitMock, trackMock } = vi.hoisted(() => ({
   getCohortAtEmitMock: vi.fn(),
   trackMock: vi.fn()

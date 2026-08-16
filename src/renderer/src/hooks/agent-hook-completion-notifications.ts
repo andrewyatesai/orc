@@ -1,5 +1,5 @@
 import { useAppStore } from '@/store'
-import { parsePaneKey } from '../../../shared/stable-pane-id'
+import { parsePaneKey } from '../../../shared/stable-pane-identity'
 import { createAgentCompletionCoordinator } from '@/components/terminal-pane/agent-completion-coordinator'
 import type {
   AgentCompletionCoordinator,

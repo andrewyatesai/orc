@@ -88,7 +88,7 @@ import { scheduleTerminalInitialRenderSettled } from './terminal-initial-render-
 import { resolveTerminalLayoutActiveLeafId } from './terminal-layout-leaf-ids'
 import { pruneUnboundTerminalLayoutLeaves } from './terminal-layout-unbound-leaf-prune'
 import { isHostAuthoritativeLayout } from './terminal-live-layout-reconciliation'
-import { makePaneKey } from '../../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../../shared/stable-pane-identity'
 import { applyExpandedLayoutTo, restoreExpandedLayoutFrom } from './expand-collapse'
 import { applyTerminalAppearance } from './terminal-appearance'
 import { createOsc52OscHandler } from './osc52-clipboard'

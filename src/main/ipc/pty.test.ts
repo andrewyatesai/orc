@@ -247,7 +247,7 @@ vi.mock('../codex/codex-pane-account-registry', () => ({
   forgetCodexPaneAccount: forgetCodexPaneAccountMock
 }))
 import { LocalPtyProvider } from '../providers/local-pty-provider'
-import { makePaneKey } from '../../shared/stable-pane-id'
+import { makePaneKey } from '../../shared/stable-pane-identity'
 import { SETUP_AGENT_SEQUENCE_STARTUP_COMMAND_ENV } from '../../shared/setup-agent-sequencing'
 import {
   registerPtyHandlers,

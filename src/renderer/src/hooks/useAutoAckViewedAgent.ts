@@ -3,8 +3,7 @@ import { useAppStore } from '@/store'
 import type { AgentStatusEntry } from '../../../shared/agent-status-types'
 import type { RetainedAgentEntry } from '@/store/slices/agent-status'
 import type { TerminalLayoutSnapshot } from '../../../shared/types'
-import { isTerminalLeafId, makePaneKey, parsePaneKey } from '../../../shared/stable-pane-id'
-
+import { isTerminalLeafId, makePaneKey, parsePaneKey } from '../../../shared/stable-pane-identity'
 function resolveActiveLeafId(
   state: { terminalLayoutsByTabId: Record<string, TerminalLayoutSnapshot> },
   activeTabId: string

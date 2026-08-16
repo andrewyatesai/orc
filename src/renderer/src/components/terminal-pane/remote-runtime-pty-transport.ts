@@ -33,7 +33,7 @@ import type {
   ReplayedSearchGeometry
 } from './pty-transport-types'
 import { createPtyOutputProcessor } from './pty-transport'
-import { isTerminalLeafId, makePaneKey } from '../../../../shared/stable-pane-id'
+import { isTerminalLeafId, makePaneKey } from '../../../../shared/stable-pane-identity'
 import { registerRemoteFederatedPane } from '@/lib/federated-search/remote-federated-pane-registry'
 import { RuntimeRpcCallError, unwrapRuntimeRpcResult } from '../../runtime/runtime-rpc-client'
 import {

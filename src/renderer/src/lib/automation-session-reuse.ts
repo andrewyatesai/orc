@@ -1,7 +1,7 @@
 import type { AgentStatusEntry } from '../../../shared/agent-status-types'
 import type { AutomationRun } from '../../../shared/automations-types'
 import type { TuiAgent } from '../../../shared/types'
-import { parsePaneKey } from '../../../shared/stable-pane-id'
+import { parsePaneKey } from '../../../shared/stable-pane-identity'
 import type { AppState } from '@/store/types'
 
 export type ReusableAutomationSession = {

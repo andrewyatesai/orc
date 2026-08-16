@@ -5,7 +5,7 @@ import {
   type AtermRainPulse,
   type AtermRainPulseBuffer
 } from '../../../../../shared/aterm-rain-signal'
-import { parsePaneKey } from '../../../../../shared/stable-pane-id'
+import { parsePaneKey } from '../../../../../shared/stable-pane-identity'
 import {
   getLivePaneManagersForTab,
   getRegisteredTabIdsForController,

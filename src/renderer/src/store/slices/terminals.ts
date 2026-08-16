@@ -28,11 +28,7 @@ import {
 } from '../../../../shared/workspace-scope'
 import { deriveGeneratedTabTitle } from '../../lib/git-wasm/agent-tab-title'
 import { isDecorativeAgentTitleFrameChange } from '../../../../shared/agent-decorative-title-signature'
-import {
-  makePaneKey,
-  parseLegacyNumericPaneKey,
-  parsePaneKey
-} from '../../../../shared/stable-pane-id'
+import { makePaneKey, parseLegacyNumericPaneKey, parsePaneKey } from '../../../../shared/stable-pane-identity'
 import { isValidHostTerminalTabId, isValidTerminalTabId } from '@/lib/git-wasm/terminal-tab-id'
 import { buildByIdIndex, buildWorktreeByIdIndex } from './worktree-by-id-index'
 import { isSameCodexRestartNoticeAccount } from './codex-restart-notice-account-identity'

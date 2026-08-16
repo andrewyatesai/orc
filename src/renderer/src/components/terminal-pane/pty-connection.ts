@@ -178,7 +178,7 @@ import {
 } from '@/lib/pane-manager/terminal-scroll-intent-rebuild'
 import { createTerminalStructuralReplayCoordinator } from '@/lib/pane-manager/terminal-structural-replay-coordinator'
 import { createBrowserUuid } from '@/lib/browser-uuid'
-import { makePaneKey, parseLegacyNumericPaneKey } from '../../../../shared/stable-pane-id'
+import { makePaneKey, parseLegacyNumericPaneKey } from '../../../../shared/stable-pane-identity'
 import {
   getProviderSessionClaimKey,
   isPassiveCompletedHibernationEvidence

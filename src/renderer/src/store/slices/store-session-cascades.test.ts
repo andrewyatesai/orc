@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type * as AgentStatusModule from '@/lib/agent-status'
 import type { BrowserTab, DetectedWorktreeListResult, Worktree } from '../../../../shared/types'
-import { isTerminalLeafId } from '../../../../shared/stable-pane-id'
+import { isTerminalLeafId } from '../../../../shared/stable-pane-identity'
 import {
   FLOATING_TERMINAL_WORKTREE_ID,
   getDefaultWorkspaceSession

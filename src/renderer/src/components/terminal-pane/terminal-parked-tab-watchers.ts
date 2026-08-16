@@ -5,7 +5,7 @@
  * parsers. This module runs a pane-less byte watcher per PTY while parked and
  * disposes them on reveal, tab close, PTY exit, or worktree teardown.
  */
-import { isTerminalLeafId } from '../../../../shared/stable-pane-id'
+import { isTerminalLeafId } from '../../../../shared/stable-pane-identity'
 import type { TerminalTab } from '../../../../shared/types'
 import { useAppStore } from '@/store'
 import { closeTerminalTab } from '../terminal/terminal-tab-actions'

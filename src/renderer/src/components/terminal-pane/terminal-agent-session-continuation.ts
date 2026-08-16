@@ -5,7 +5,7 @@ import {
   type AgentSessionContinuationRequest
 } from '@/lib/agent-session-continuation'
 import { useAppStore } from '@/store'
-import { makePaneKey } from '../../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../../shared/stable-pane-identity'
 import { isTuiAgent } from '../../../../shared/tui-agent-config'
 import type { TuiAgent } from '../../../../shared/types'
 import { translate } from '@/i18n/i18n'

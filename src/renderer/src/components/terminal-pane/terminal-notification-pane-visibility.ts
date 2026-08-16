@@ -1,4 +1,4 @@
-import { parsePaneKey } from '../../../../shared/stable-pane-id'
+import { parsePaneKey } from '../../../../shared/stable-pane-identity'
 import type { TerminalLayoutSnapshot } from '../../../../shared/types'
 
 type NotificationPaneVisibilityState = {

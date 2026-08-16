@@ -1,4 +1,4 @@
-import { makePaneKey } from '../../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../../shared/stable-pane-identity'
 import { useAppStore } from '@/store'
 
 export function recordTerminalUserInputForLeaf(tabId: string, leafId: string): void {

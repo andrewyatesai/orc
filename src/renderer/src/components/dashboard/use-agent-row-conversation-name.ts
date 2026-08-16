@@ -1,5 +1,5 @@
 import { getAgentRowConversationName } from '../../../../shared/agent-row-conversation-name'
-import { parsePaneKey } from '../../../../shared/stable-pane-id'
+import { parsePaneKey } from '../../../../shared/stable-pane-identity'
 import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
 import type { DashboardAgentRow } from './useDashboardData'

@@ -24,7 +24,7 @@ import {
 import type { SleepingAgentLaunchConfig } from '../../../shared/agent-session-resume'
 import type { AgentStatusClearIpcPayload } from '../../../shared/agent-status-types'
 import type { TuiAgent } from '../../../shared/types'
-import { makePaneKey } from '../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../shared/stable-pane-identity'
 import { YOLO_TUI_AGENT_ARGS } from '../../../shared/tui-agent-permissions'
 
 const { closeTerminalTabMock } = vi.hoisted(() => ({

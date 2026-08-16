@@ -5,7 +5,7 @@ import {
   type ResumableTuiAgent
 } from './agent-session-resume'
 import type { RuntimeTerminalCreate, RuntimeTerminalPresentation } from './runtime-types'
-import { isTerminalLeafId } from './stable-pane-id'
+import { isTerminalLeafId } from './stable-pane-identity'
 import { isValidTerminalTabId } from './terminal-tab-id-validity'
 import type { TuiAgent } from './types'
 

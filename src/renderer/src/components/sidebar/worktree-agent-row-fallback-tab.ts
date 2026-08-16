@@ -1,5 +1,5 @@
 import type { AgentStatusEntry } from '../../../../shared/agent-status-types'
-import { parsePaneKey } from '../../../../shared/stable-pane-id'
+import { parsePaneKey } from '../../../../shared/stable-pane-identity'
 import type { TerminalTab } from '../../../../shared/types'
 
 export function effectiveWorktreeAgentRowStartedAt(entry: AgentStatusEntry): number {

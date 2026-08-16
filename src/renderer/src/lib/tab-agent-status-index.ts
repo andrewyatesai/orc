@@ -1,6 +1,6 @@
 import type { AgentStatusEntry } from '../../../shared/agent-status-types'
 import type { TuiAgent } from '../../../shared/types'
-import { parsePaneKey } from '../../../shared/stable-pane-id'
+import { parsePaneKey } from '../../../shared/stable-pane-identity'
 import { agentTypeToIconAgent } from './agent-status'
 
 /**

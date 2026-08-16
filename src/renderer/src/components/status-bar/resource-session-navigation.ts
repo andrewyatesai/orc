@@ -1,5 +1,4 @@
-import { parsePaneKey } from '../../../../shared/stable-pane-id'
-
+import { parsePaneKey } from '../../../../shared/stable-pane-identity'
 type TabLookup = Record<string, { id: string }[]>
 
 export type ResourceSessionNavigationDeps = {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { makePaneKey } from '../../../../shared/stable-pane-id'
+import { makePaneKey } from '../../../../shared/stable-pane-identity'
 import { collectRetainedAgentsOnDisappear } from '@/components/dashboard/useRetainedAgents'
 import { createTestStore, makeTab, makeWorktree, seedStore } from './store-test-helpers'
 import type { AgentStatusEntry } from '../../../../shared/agent-status-types'
