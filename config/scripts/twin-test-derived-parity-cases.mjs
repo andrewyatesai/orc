@@ -81,6 +81,7 @@ import path from 'node:path'
 
 import ts from 'typescript-api'
 
+import { rustDispatchArms } from './rust-dispatch-arm-inventory.mjs'
 import { prepareWorkDir, runRecording, writeRecorder } from './twin-call-recording.mjs'
 import { REPO_ROOT } from './typescript-symbol-resolution.mjs'
 const VECTORS_DIR = path.join(REPO_ROOT, 'tools', 'parity', 'vectors')
@@ -144,28 +145,6 @@ function normalizeOutput(value) {
     )
   }
   return value
-}
-
-/** Function names the module's Rust dispatch arm answers to.
- *
- *  Batch 5 refused `stable-pane-id` over exactly this: `makePaneKey` is the
- *  module's key MINTER with ~60 production importers, `orca_core` implements it,
- *  and it is NOT registered in the dispatch match — both shipped cores answer
- *  "unknown function makePaneKey". Any shim would have thrown on every pane key
- *  the moment wasm initialised. Nothing in the vector corpus could see it,
- *  because the corpus has no makePaneKey case to be missing. */
-function rustDispatchArms(moduleName) {
-  const file = path.join(
-    REPO_ROOT,
-    'rust/crates/orca-dispatch/src/modules',
-    `${moduleName.replaceAll('-', '_')}.rs`
-  )
-  if (!fs.existsSync(file)) {
-    return null
-  }
-  const source = fs.readFileSync(file, 'utf8')
-  const body = source.slice(source.indexOf('match function {'))
-  return new Set([...body.matchAll(/^\s*"([A-Za-z0-9_]+)"\s*(?:=>|\|)/gm)].map((m) => m[1]))
 }
 
 function readVectorFiles() {
@@ -305,11 +284,54 @@ function keyPaths(value, prefix = '', into = new Set()) {
   return into
 }
 
+/** A lone surrogate is not a Unicode scalar value. `JSON.stringify` still emits
+ *  it (well-formed stringify writes `\ud800`) and `JSON.parse` still reads it
+ *  back, so it looks round-trippable from here — but serde_json refuses the
+ *  escape and fails the WHOLE candidate file, taking every other module's cases
+ *  down with it. Found by routing `normalizeAgentStatusPayload`, whose twin test
+ *  table carries a lone-surrogate row as a raw object argument (the string entry
+ *  point escapes it to six harmless ASCII characters, which is why this was
+ *  invisible until an object-argument export was routed). */
+function hasLoneSurrogate(text) {
+  for (let index = 0; index < text.length; index += 1) {
+    const unit = text.charCodeAt(index)
+    if (unit >= 0xdc00 && unit <= 0xdfff) {
+      return true
+    }
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = text.charCodeAt(index + 1)
+      if (!(next >= 0xdc00 && next <= 0xdfff)) {
+        return true
+      }
+      index += 1
+    }
+  }
+  return false
+}
+
+function containsLoneSurrogate(value) {
+  if (typeof value === 'string') {
+    return hasLoneSurrogate(value)
+  }
+  if (Array.isArray(value)) {
+    return value.some(containsLoneSurrogate)
+  }
+  if (value && typeof value === 'object') {
+    return Object.entries(value).some(
+      ([key, entry]) => hasLoneSurrogate(key) || containsLoneSurrogate(entry)
+    )
+  }
+  return false
+}
+
 function jsonSafe(value) {
   try {
     const text = JSON.stringify(value)
     if (text === undefined) {
       return { ok: false }
+    }
+    if (containsLoneSurrogate(value)) {
+      return { ok: false, loneSurrogate: true }
     }
     return { ok: true, value: JSON.parse(text), text }
   } catch {
@@ -339,7 +361,10 @@ function main() {
     // Exports the twin still implements that NO vector names. These are the
     // functions the corpus is blind to by construction, and the reason the tool
     // called stable-pane-id clean while its key minter had no Rust route at all.
-    const arms = rustDispatchArms(moduleInfo.module)
+    const sharingThisTwin = modules
+      .filter((other) => other.module !== moduleInfo.module && other.source === moduleInfo.source)
+      .map((other) => other.module)
+    const arms = rustDispatchArms(moduleInfo.module, sharingThisTwin)
     const uncovered = [...declared]
       .filter((fn) => !moduleInfo.functions.includes(fn))
       .map((fn) => ({ fn, hasRustArm: arms ? arms.has(fn) : null }))
@@ -496,6 +521,7 @@ function main() {
 
   const byModule = new Map()
   let unserializable = 0
+  let loneSurrogate = 0
   for (const call of twinCalls) {
     const convention = conventions.get(`${call.module}::${call.fn}`)
     if (!convention || convention.kind === 'none') {
@@ -516,6 +542,9 @@ function main() {
     const safeOutput = jsonSafe(normalizeOutput(call.result))
     if (!safeInput.ok || !safeOutput.ok) {
       unserializable += 1
+      if (safeInput.loneSurrogate || safeOutput.loneSurrogate) {
+        loneSurrogate += 1
+      }
       continue
     }
     if (!byModule.has(call.module)) {
@@ -561,7 +590,8 @@ function main() {
     )
   }
   console.log(
-    `[twin-derived] ${byModule.size} modules produced cases (${unserializable} calls not JSON round-trippable)`
+    `[twin-derived] ${byModule.size} modules produced cases (${unserializable} calls not JSON round-trippable` +
+      `${loneSurrogate > 0 ? `, ${loneSurrogate} of them carrying a lone surrogate no Rust reader accepts` : ''})`
   )
 
   // The real Rust core over the derived corpus, the same way `pnpm parity` does:
