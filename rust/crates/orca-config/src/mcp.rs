@@ -194,10 +194,10 @@ fn summarize_mcp_server(name: &str, entry: &Value) -> McpServerSummary {
         McpServerTransport::Unknown => {
             invalid_server(name, "Missing command or URL.", env.value, McpServerTransport::Unknown)
         }
-        McpServerTransport::Http if url.value.is_none() => {
+        McpServerTransport::Http if !url.value.as_deref().is_some_and(|v| !v.is_empty()) => {
             invalid_server(name, "Missing URL.", env.value, transport)
         }
-        McpServerTransport::Stdio if command.value.is_none() => {
+        McpServerTransport::Stdio if !command.value.as_deref().is_some_and(|v| !v.is_empty()) => {
             invalid_server(name, "Missing command.", env.value, transport)
         }
         _ => McpServerSummary {
@@ -266,10 +266,16 @@ fn resolve_transport(
     command: &Option<String>,
     url: &Option<String>,
 ) -> McpServerTransport {
+    // The twin branches on JS TRUTHINESS (`|| url`, `|| command`), so an EMPTY
+    // string is falsy there and `is_some()` is not the same test: `{command:""}`
+    // resolved to stdio here and came back "enabled", where the twin answers
+    // unknown and reports "Missing command or URL." — a misconfiguration the pane
+    // exists to surface, rendered as a healthy server.
+    let truthy = |value: &Option<String>| value.as_deref().is_some_and(|v| !v.is_empty());
     let type_field = raw.get("type").and_then(Value::as_str);
-    if matches!(type_field, Some("http") | Some("remote")) || url.is_some() {
+    if matches!(type_field, Some("http") | Some("remote")) || truthy(url) {
         McpServerTransport::Http
-    } else if type_field == Some("local") || command.is_some() {
+    } else if type_field == Some("local") || truthy(command) {
         McpServerTransport::Stdio
     } else {
         McpServerTransport::Unknown
