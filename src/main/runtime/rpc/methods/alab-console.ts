@@ -18,7 +18,7 @@ import { countRunTasks } from '../../orchestration/run-progress'
 import { getStatus } from '../../../git/status'
 import { splitWorktreeIdForFilesystem } from '../../../../shared/worktree-id'
 import {
-  describeReconciliation,
+  describeTaskClaimReconciliation,
   reconcileTaskClaim
 } from '../../orchestration/task-claim-reconciliation'
 import { getCoordinatorRunWorktreeId, isCoordinatorRunLive } from './orchestration-gates'
@@ -210,15 +210,15 @@ export const ALAB_CONSOLE_METHODS: RpcAnyMethod[] = [
         // never to `mismatch`. That distinction is the whole reason a supervisor
         // can trust this row.
         reconciliations: tasks.map((task) => {
-          const verdict = reconcileTaskClaim({
+          const claim = {
             taskStatus: task.status,
             result: task.result,
             changedFiles: changedFilesForRun(task.run_id)
-          })
+          }
           return {
             taskId: task.id,
-            verdict: verdict.verdict,
-            summary: describeReconciliation(verdict)
+            verdict: reconcileTaskClaim(claim).verdict,
+            summary: describeTaskClaimReconciliation(claim)
           }
         }),
         takenAt: now
