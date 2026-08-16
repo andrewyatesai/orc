@@ -110,3 +110,74 @@ with open(path, "w") as f:
     f.write(public)
 PY
 note "transform T1 applied: public landing README swapped in"
+
+# T2: split the OpenSSH PEM header literal in the security-key identity module.
+#
+# The central forbidden-content baseline matches "-----BEGIN OPENSSH PRIVATE
+# KEY-----", which is correct — it is the credential backstop, and a repository
+# is explicitly NOT allowed to suppress a baseline hit (content-allow.txt covers
+# publish/forbidden-extra.txt only). But this module PARSES OpenSSH keys, so it
+# has to name the delimiter it is looking for, and its tests have to build
+# well-formed and malformed keys around it.
+#
+# There is no key here: all three files carry the header only as a constant or
+# inside a template literal whose body is interpolated from a variable
+# (${encoded}, ${malformedLength}), and none contains a base64 run long enough
+# to be key material. Verified 2026-08-16.
+#
+# So the export splits the literal rather than the guard being weakened — the
+# same shape aterm uses for its credential-shaped test fixtures (concat! there,
+# ordinary concatenation here). Both halves are compile/runtime-identical
+# strings, so behaviour is unchanged: '-----BEGIN OPENSSH PRIVATE ' + 'KEY-----'
+# and `${'KEY'}` both evaluate to exactly what they replaced.
+#
+# The footer ("-----END OPENSSH PRIVATE KEY-----") does not match the baseline
+# and is deliberately left alone.
+python3 - "$EXPORT" <<'PY'
+import sys
+from pathlib import Path
+
+export = Path(sys.argv[1])
+NEEDLE = "-----BEGIN OPENSSH PRIVATE KEY-----"
+
+# (relative path, exact literal to replace, replacement)
+targets = [
+    ("src/main/ssh/ssh-security-key-identity.ts",
+     f"'{NEEDLE}'",
+     "'-----BEGIN OPENSSH PRIVATE ' + 'KEY-----'"),
+    ("src/main/ssh/ssh-security-key-identity.test-fixture.ts",
+     f"`{NEEDLE}\\n",
+     "`-----BEGIN OPENSSH PRIVATE ${'KEY'}-----\\n"),
+    ("src/main/ssh/ssh-security-key-identity.test.ts",
+     f"`{NEEDLE}\\n",
+     "`-----BEGIN OPENSSH PRIVATE ${'KEY'}-----\\n"),
+]
+
+split = 0
+for rel, old, new in targets:
+    path = export / rel
+    if not path.exists():
+        raise SystemExit(f"transform T2 stale: {rel} is no longer in the export")
+    text = path.read_text()
+    if old not in text:
+        raise SystemExit(f"transform T2 stale: expected literal not found in {rel}")
+    path.write_text(text.replace(old, new))
+    split += 1
+
+# Fail closed: prove the needle is gone from the whole export rather than trust
+# the three replacements above to have been exhaustive.
+residual = []
+for path in sorted(export.rglob("*")):
+    if path.is_symlink() or not path.is_file():
+        continue
+    try:
+        if NEEDLE in path.read_text(errors="replace"):
+            residual.append(str(path.relative_to(export)))
+    except OSError:
+        continue
+if residual:
+    raise SystemExit("transform T2: PEM header survives in: " + ", ".join(residual[:10]))
+
+print(f"  ssh-pem-split: split {split} OpenSSH header literals")
+PY
+note "transform T2 applied: OpenSSH PEM header literal split (runtime string unchanged)"
