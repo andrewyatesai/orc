@@ -4,15 +4,32 @@ Companion to [TAILING-SYSTEM.md](./TAILING-SYSTEM.md) (the process). This is the
 current *state*: where the fork sits against upstream, and what remains a human
 decision rather than a port. Update the top block on each sync.
 
-## At parity as of upstream `c991bb27d3`
-The full ledger from base `4dc777f707` (v1.4.143) through `c991bb27d3` — 848 upstream
-commits — is dispositioned, and every mechanically-portable item is on `main`. Ported
-across the 2026-08 sync: 2 orchestration grafts (capability tokens, mutation receipts),
-all 11 high-impact items, the entire medium tier (290), and the entire low tier (246).
+## At parity as of upstream `09ec516ae5`  _(2026-08-15)_
+The ledger from base `4dc777f707` (v1.4.143) through `09ec516ae5` is fully dispositioned,
+and every mechanically-portable *missing* item is on `main`. Two syncs got us here:
 
-**Open delta:** upstream advanced to `09ec516ae5` (+322 commits) during the sync. That
-fresh delta is the next cadence run; its ledger disposition was started (partial) and
-resumes per the playbook.
+- **First sync** (through `c991bb27d3`, 848 commits): 2 orchestration grafts (capability
+  tokens, mutation receipts), all 11 high-impact items, the entire medium tier (290) and
+  low tier (246).
+- **Fresh-delta sync** (`c991bb27d3..09ec516ae5`, +322 commits): 235 *missing* items
+  classified into 8 batches of ~30 and fanned out via the port pipeline. **155 ported**
+  and pushed across 8 batch commits (`083ade30e7`→`b3ae6d6b23`): b1 20, b2 16, b3 19,
+  b4 19, b5 21, b6 18, b7 23, b8 19. The rest dispositioned as superseded (aterm/Rust
+  surface), n/a, large-feature, or collides. Census re-baselined knowingly per batch
+  (pty.ts 6364→6382 attach-kind growth; orca-runtime.ts tightened 36823→36393 as
+  extraction shrank it; shim 2812) — every increment attributed in `_rebaselines`.
+
+Re-derivation-in-spirit held throughout: hook-command and output-snapshot conflicts
+between two upstream commits touching one file were reconciled against upstream's own
+already-reconciled tip, not blindly one-sided. The b5 usage-tracking removal, b6
+`hosted-review-gitlab` deletion, and the IME/WSL/PTY attach-path work all landed on the
+fork's superseded surface without regressing it.
+
+**Deferred this sync (human decisions, below):** 1 credential-surface item
+(`2249330acf`, cookie diag sink), 7 large-features, 7 orchestration-collides.
+
+**Open delta:** none as of `09ec516ae5`. Upstream keeps moving; the next cadence run
+starts from this sha per the playbook — sync small and often.
 
 ## The named backlog — decisions, not ports
 These are deliberately *not* auto-ported. Each is a product/architecture call.
@@ -48,7 +65,23 @@ boards, account-backed artifact sharing, kanban/Linear view persistence, macOS T
 - A few **ai-vault** items need a prerequisite feature the fork lacks (e.g. the session-
   delete surface); port the prerequisite first or leave.
 
+### Fresh-delta deferrals (`09ec516ae5` sync — concrete shas for the human triage)
+- **Credential-surface:** `2249330acf` (cookie-preservation) touches the
+  `browser-cookie-import.ts` diag sink flagged `named [cookies] in payload` and orphans
+  review notes → needs a **human credential review**, never an auto-port.
+- **Large-features:** `25f7870c58` (stacked PRs), `394e4bf1c0`, `9f0bf39b04`,
+  `abd160fadd`, `d6362deb04`, `5e3a2d25f7`, `665e0ead83`.
+- **Orchestration-collides** (fork v9 + grafts vs upstream Run/capability vs fleet):
+  `8da362919e`, `0824351fe0`, `686f5dca1a`, `09c8597fb7`, `158b575680`, `84e7ca5212`,
+  `991a3fe963`.
+
 ## Not-mine red gates (parallel-session state, do not fix blind)
+- Full-repo `oxlint` is red on `main` (4 errors) in files on the **credential/account
+  forbidden surface** — `codex-accounts/service.ts`, `codex-accounts/runtime-home-service.ts`,
+  `browser-cookie-import.ts` (3 of 4), plus `native-chat-image-transcript-markers.ts`. All
+  pre-existing on base, all `<0`→`===-1` / `hasOwnProperty`→`hasOwn` nits; the credential
+  three can only be fixed by their surface owner. Every ported batch's own diff is
+  oxlint-clean.
 - `report-credential-writes` is red on `main` from a parallel **encrypt-at-rest** fix
   (`integration-credential-file.ts::upgradeStoredCredentialToCiphertext`) that added a
   write site without a review note. The owner must reconcile the note.
