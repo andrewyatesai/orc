@@ -30,6 +30,18 @@ pub const AGENT_TYPE_MAX_LENGTH: usize = 40;
 pub const AGENT_MODEL_MAX_LENGTH: usize = 120;
 pub const AGENT_STATUS_MAX_SUBAGENTS: usize = 32;
 const AGENT_SUBAGENT_ID_MAX_LENGTH: usize = 64;
+pub const AGENT_STATE_HISTORY_MAX: usize = 20;
+/// `30 * 60 * 1000`, held as `f64` because the twin compares it against a JS
+/// millisecond subtraction.
+pub const AGENT_STATUS_STALE_AFTER_MS: f64 = 30.0 * 60.0 * 1000.0;
+
+/// Dispatch lifecycle states that mean the work is finished and the pane is
+/// safe to sleep (`SETTLED_DISPATCH_STATUSES`).
+pub const SETTLED_DISPATCH_STATUSES: [&str; 3] = ["completed", "failed", "circuit_broken"];
+
+/// The six fields `agentSubagentsEqual` compares, in the twin's order.
+const SUBAGENT_EQUALITY_FIELDS: [&str; 6] =
+    ["id", "state", "startedAt", "agentType", "model", "description"];
 
 /// Pre-parse guard bounds (`AGENT_STATUS_JSON_STRUCTURE_LIMITS`).
 pub const AGENT_STATUS_JSON_STRUCTURAL_TOKEN_LIMIT: usize = 4096;
@@ -220,6 +232,136 @@ fn truncate_preserving_surrogates(units: &[u16], max_length: usize) -> Vec<u16> 
         end -= 1;
     }
     units.get(..end).unwrap_or(units).to_vec()
+}
+
+// ─── JS value semantics for the predicate half of the twin ──────────────────
+//
+// `hasUnsettledOrUnknownDispatch`, `isFreshNonDoneAgentStatus` and
+// `agentSubagentsEqual` take *unvalidated* objects: no state allow-list, no
+// field normalization, just JS truthiness, `-`/`<=` numeric coercion and `!==`.
+// Modelling those three operators is what keeps the port from answering `false`
+// where the twin answers `true` on a field the type says cannot be missing but
+// a hook payload omits anyway.
+
+/// JS truthiness of a decoded JSON value. `undefined` is the caller's `None`,
+/// which is falsy everywhere below.
+fn is_js_truthy(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(flag) => *flag,
+        // JSON cannot carry NaN, so 0/-0 is the only falsy number.
+        Value::Number(number) => number.as_f64().is_some_and(|number| number != 0.0),
+        Value::String(text) => !text.is_empty(),
+        Value::Array(_) | Value::Object(_) => true,
+    }
+}
+
+fn is_ecma_trim_whitespace_char(character: char) -> bool {
+    u16::try_from(character as u32).is_ok_and(is_ecma_trim_whitespace)
+}
+
+/// `ToNumber` over a *radix-prefixed* `StringNumericLiteral` body (`0x`/`0o`/`0b`).
+fn radix_literal_to_number(digits: &str, radix: u32) -> f64 {
+    if digits.is_empty() {
+        return f64::NAN;
+    }
+    let mut value = 0.0_f64;
+    for character in digits.chars() {
+        let Some(digit) = character.to_digit(radix) else {
+            return f64::NAN;
+        };
+        value = value * f64::from(radix) + f64::from(digit);
+    }
+    value
+}
+
+/// JS `ToNumber(string)`. Rust's own `f64` parser is close but not the same
+/// grammar — it accepts `inf`, `infinity` and `nan`, which JS rejects — so the
+/// literal is charset-gated before it is handed over.
+fn js_string_to_number(text: &str) -> f64 {
+    let body = text.trim_matches(is_ecma_trim_whitespace_char);
+    if body.is_empty() {
+        return 0.0;
+    }
+    match body {
+        "Infinity" | "+Infinity" => return f64::INFINITY,
+        "-Infinity" => return f64::NEG_INFINITY,
+        _ => {}
+    }
+    for (prefix, radix) in [("0x", 16), ("0X", 16), ("0o", 8), ("0O", 8), ("0b", 2), ("0B", 2)] {
+        if let Some(digits) = body.strip_prefix(prefix) {
+            return radix_literal_to_number(digits, radix);
+        }
+    }
+    if !body
+        .chars()
+        .all(|character| character.is_ascii_digit() || matches!(character, 'e' | 'E' | '+' | '-' | '.'))
+    {
+        return f64::NAN;
+    }
+    body.parse::<f64>().unwrap_or(f64::NAN)
+}
+
+/// `Array.prototype.join(',')` — `null` elements stringify to the empty string
+/// there, unlike `String(null)`.
+fn js_array_to_string(items: &[Value]) -> String {
+    items
+        .iter()
+        .map(|item| match item {
+            Value::Null => String::new(),
+            other => js_value_to_string(other),
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn js_value_to_string(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        Value::Bool(flag) => flag.to_string(),
+        // Rust's shortest-round-trip `Display` differs from JS's exponent
+        // spelling only in ways that re-read as the same number, and this text
+        // is always fed straight back into `ToNumber`.
+        Value::Number(number) => number.as_f64().map(|number| number.to_string()).unwrap_or_default(),
+        Value::String(text) => text.clone(),
+        Value::Array(items) => js_array_to_string(items),
+        Value::Object(_) => "[object Object]".to_string(),
+    }
+}
+
+/// JS `ToNumber` for an operand of `-` or `<=`. `None` is `undefined` → NaN,
+/// which is what makes every comparison against a missing timestamp false.
+fn js_to_number(value: Option<&Value>) -> f64 {
+    match value {
+        None => f64::NAN,
+        Some(Value::Null) => 0.0,
+        Some(Value::Bool(flag)) => f64::from(u8::from(*flag)),
+        Some(Value::Number(number)) => number.as_f64().unwrap_or(f64::NAN),
+        Some(Value::String(text)) => js_string_to_number(text),
+        Some(Value::Array(items)) => js_string_to_number(&js_array_to_string(items)),
+        // `ToPrimitive({})` is "[object Object]".
+        Some(Value::Object(_)) => f64::NAN,
+    }
+}
+
+/// JS `===` for two decoded JSON values, `None` standing for `undefined`.
+/// Objects and arrays compare by *reference* there; two values decoded from
+/// JSON are never the same reference, so they are never strictly equal.
+fn js_strict_equals(left: Option<&Value>, right: Option<&Value>) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (None, _) | (_, None) => false,
+        (Some(Value::Null), Some(Value::Null)) => true,
+        (Some(Value::Bool(left)), Some(Value::Bool(right))) => left == right,
+        (Some(Value::Number(left)), Some(Value::Number(right))) => {
+            match (left.as_f64(), right.as_f64()) {
+                (Some(left), Some(right)) => left == right,
+                _ => false,
+            }
+        }
+        (Some(Value::String(left)), Some(Value::String(right))) => left == right,
+        _ => false,
+    }
 }
 
 // ─── Field normalizers (agent-status-field-normalization.ts) ────────────────
@@ -587,6 +729,96 @@ pub fn agent_subagents_equal(
         (None, None) => true,
         _ => false,
     }
+}
+
+/// The same comparison over the values as they arrive, before any
+/// normalization. THIS is the twin's contract, and it is not the same question
+/// as [`agent_subagents_equal`]: the twin never coerces, so a snapshot whose
+/// `startedAt` is absent is unequal to one whose `startedAt` is `0`, while the
+/// normalizer folds both to `0`. Comparing normalized snapshots would answer
+/// "equal" and suppress a fanout the twin performs.
+///
+/// `None` means "the twin does something no JSON value can reproduce here, and
+/// this port declines to guess". Exactly two shapes reach it, both outside the
+/// declared `AgentSubagentSnapshot[] | undefined` type:
+///   * a truthy non-array operand — the twin reads `.length` and `[i]` off it,
+///     so answering would mean modelling strings, plain objects and array-likes
+///     as indexable collections;
+///   * a `null` element the twin actually reaches — it dereferences `null.id`
+///     and throws. Elements the twin never reaches (past a length mismatch, or
+///     after an earlier pair already decided the answer) are not refused.
+pub fn agent_subagents_equal_values(a: Option<&Value>, b: Option<&Value>) -> Option<bool> {
+    let left_truthy = a.is_some_and(is_js_truthy);
+    let right_truthy = b.is_some_and(is_js_truthy);
+    // `if (!a || !b || a.length !== b.length) return !a && !b`
+    if !left_truthy || !right_truthy {
+        return Some(!left_truthy && !right_truthy);
+    }
+    let (Some(left), Some(right)) = (a.and_then(Value::as_array), b.and_then(Value::as_array))
+    else {
+        return None;
+    };
+    if left.len() != right.len() {
+        return Some(false);
+    }
+    // Walked in the twin's own order so a refusal happens only where the twin
+    // would actually throw, not merely where a null exists somewhere.
+    for (x, y) in left.iter().zip(right.iter()) {
+        if x.is_null() || y.is_null() {
+            return None;
+        }
+        let equal = SUBAGENT_EQUALITY_FIELDS
+            .iter()
+            .all(|field| js_strict_equals(x.get(field), y.get(field)));
+        if !equal {
+            return Some(false);
+        }
+    }
+    Some(true)
+}
+
+// ─── Status predicates ──────────────────────────────────────────────────────
+
+/// Provider `done` hooks can fire mid-Dispatch, so only runtime-confirmed
+/// settlement makes sleeping a pane safe. An ABSENT `dispatchStatus` counts as
+/// unsettled on purpose — a hook-only context proves nothing about the dispatch
+/// — which is why this cannot be written as "is one of the unsettled ids".
+pub fn has_unsettled_or_unknown_dispatch(entry: &Value) -> bool {
+    // `if (!entry.orchestration) return false` — falsy, not merely absent.
+    let Some(orchestration) = entry.get("orchestration").filter(|value| is_js_truthy(value)) else {
+        return false;
+    };
+    let status = orchestration.get("dispatchStatus").and_then(Value::as_str);
+    !SETTLED_DISPATCH_STATUSES
+        .iter()
+        .any(|settled| status == Some(*settled))
+}
+
+/// `Boolean(entry && entry.state !== 'done' && now - entry.updatedAt <= staleAfterMs)`.
+///
+/// `now` is required rather than defaulted: the twin's default is `Date.now()`,
+/// a clock read, and a port that invented one would answer a different question
+/// on every call. `stale_after_ms` IS defaulted, because its default is a
+/// constant — and `Some(Value::Null)` is not the same as absent there, exactly
+/// as an explicit `null` argument skips a JS default parameter.
+pub fn is_fresh_non_done_agent_status(
+    entry: Option<&Value>,
+    now: &Value,
+    stale_after_ms: Option<&Value>,
+) -> bool {
+    let Some(entry) = entry.filter(|value| is_js_truthy(value)) else {
+        return false;
+    };
+    if entry.get("state").and_then(Value::as_str) == Some("done") {
+        return false;
+    }
+    let stale_after_ms = match stale_after_ms {
+        None => AGENT_STATUS_STALE_AFTER_MS,
+        Some(value) => js_to_number(Some(value)),
+    };
+    // A missing/non-numeric `updatedAt` yields NaN, and every NaN comparison is
+    // false — the twin's answer for a row that never reported a timestamp.
+    js_to_number(Some(now)) - js_to_number(entry.get("updatedAt")) <= stale_after_ms
 }
 
 /// A `startedAt` back on the wire the way `JSON.stringify` would print it:
@@ -1386,5 +1618,343 @@ mod tests {
         assert_eq!(started_at_to_json(100.0), json!(100));
         assert_eq!(started_at_to_json(0.0), json!(0));
         assert_eq!(started_at_to_json(1.5), json!(1.5));
+    }
+
+    // ─── agentSubagentsEqual over raw payload values ────────────────────────
+
+    #[test]
+    fn compares_raw_subagent_lists_structurally() {
+        // The twin's own `agentSubagentsEqual` case table, assertion for
+        // assertion, over the values as they arrive rather than snapshots.
+        let snapshot = json!({ "id": "a1", "state": "working", "startedAt": 1 });
+        let one = json!([snapshot]);
+        let copy = json!([{ "id": "a1", "state": "working", "startedAt": 1 }]);
+        let idle = json!([{ "id": "a1", "state": "idle", "startedAt": 1 }]);
+        let with_model =
+            json!([{ "id": "a1", "state": "working", "startedAt": 1, "model": "gpt-5.4-mini" }]);
+        let two = json!([snapshot, { "id": "b", "state": "working", "startedAt": 1 }]);
+
+        assert_eq!(agent_subagents_equal_values(None, None), Some(true));
+        assert_eq!(
+            agent_subagents_equal_values(Some(&one), Some(&copy)),
+            Some(true)
+        );
+        assert_eq!(
+            agent_subagents_equal_values(Some(&one), Some(&idle)),
+            Some(false)
+        );
+        assert_eq!(
+            agent_subagents_equal_values(Some(&one), Some(&with_model)),
+            Some(false)
+        );
+        assert_eq!(agent_subagents_equal_values(Some(&one), None), Some(false));
+        assert_eq!(agent_subagents_equal_values(None, Some(&one)), Some(false));
+        assert_eq!(
+            agent_subagents_equal_values(Some(&one), Some(&two)),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn treats_a_missing_started_at_as_distinct_from_an_explicit_zero() {
+        // Why: this is the whole reason the raw comparison exists. The
+        // normalizer coerces a missing `startedAt` to 0, so comparing NORMALIZED
+        // snapshots would answer `true` here and suppress a fanout the twin
+        // performs.
+        let missing = json!([{ "id": "a1", "state": "working" }]);
+        let zero = json!([{ "id": "a1", "state": "working", "startedAt": 0 }]);
+        assert_eq!(
+            agent_subagents_equal_values(Some(&missing), Some(&zero)),
+            Some(false)
+        );
+        assert_eq!(
+            agent_subagents_equal_values(Some(&missing), Some(&missing.clone())),
+            Some(true)
+        );
+        // `undefined !== null` too, and both differ from an absent key.
+        let null_type = json!([{ "id": "a1", "state": "working", "agentType": null }]);
+        assert_eq!(
+            agent_subagents_equal_values(Some(&missing), Some(&null_type)),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn compares_raw_subagent_fields_with_javascript_strict_equality() {
+        let number = json!([{ "id": "a1", "startedAt": 1 }]);
+        let float = json!([{ "id": "a1", "startedAt": 1.0 }]);
+        let text = json!([{ "id": "a1", "startedAt": "1" }]);
+        assert_eq!(
+            agent_subagents_equal_values(Some(&number), Some(&float)),
+            Some(true)
+        );
+        assert_eq!(
+            agent_subagents_equal_values(Some(&number), Some(&text)),
+            Some(false)
+        );
+        // Object/array field values are compared by reference in the twin, and
+        // two decoded JSON values are never the same reference.
+        let object_field = json!([{ "id": {} }]);
+        assert_eq!(
+            agent_subagents_equal_values(Some(&object_field), Some(&object_field.clone())),
+            Some(false)
+        );
+        // Unlisted keys are not part of the comparison.
+        let extra = json!([{ "id": "a1", "startedAt": 1, "unlisted": 7 }]);
+        assert_eq!(
+            agent_subagents_equal_values(Some(&number), Some(&extra)),
+            Some(true)
+        );
+        // An empty array is truthy, so it is NOT equal to an absent list.
+        let empty = json!([]);
+        assert_eq!(agent_subagents_equal_values(Some(&empty), None), Some(false));
+        assert_eq!(
+            agent_subagents_equal_values(Some(&empty), Some(&Value::Null)),
+            Some(false)
+        );
+        assert_eq!(
+            agent_subagents_equal_values(Some(&Value::Null), None),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn refuses_only_the_subagent_shapes_the_twin_duck_types_or_throws_on() {
+        // Truthy non-arrays: the twin reads `.length` and `[i]` off them.
+        for (a, b) in [
+            (json!("abc"), json!("abd")),
+            (json!(5), json!(5)),
+            (json!(true), json!(true)),
+            (json!({}), json!({})),
+            (json!({ "length": 1 }), json!({ "length": 1 })),
+        ] {
+            assert_eq!(agent_subagents_equal_values(Some(&a), Some(&b)), None);
+        }
+        // A `null` element the twin REACHES (it throws on `null.id`).
+        let nulls = json!([Value::Null]);
+        assert_eq!(
+            agent_subagents_equal_values(Some(&nulls), Some(&nulls.clone())),
+            None
+        );
+        // …but not one it never reaches: the length check short-circuits first,
+        // and an earlier unequal pair decides the answer before the null.
+        let empty = json!([]);
+        assert_eq!(
+            agent_subagents_equal_values(Some(&nulls), Some(&empty)),
+            Some(false)
+        );
+        let left = json!([{ "id": "a" }, Value::Null]);
+        let right = json!([{ "id": "b" }, Value::Null]);
+        assert_eq!(
+            agent_subagents_equal_values(Some(&left), Some(&right)),
+            Some(false)
+        );
+    }
+
+    // ─── hasUnsettledOrUnknownDispatch ──────────────────────────────────────
+
+    #[test]
+    fn reports_unsettled_dispatch_for_every_in_flight_lifecycle_state() {
+        // The case table of src/renderer/src/lib/agent-hibernation-in-flight-work.test.ts,
+        // which is where the twin's behaviour is pinned (the planner is the only
+        // caller). `waiting_gate` is the fork-only state upstream's literal list
+        // would have slept.
+        for status in ["pending", "dispatched", "waiting_gate"] {
+            assert!(has_unsettled_or_unknown_dispatch(&json!({
+                "orchestration": { "taskId": "task-1", "dispatchId": "dispatch-1", "dispatchStatus": status }
+            })));
+        }
+        for status in SETTLED_DISPATCH_STATUSES {
+            assert!(!has_unsettled_or_unknown_dispatch(&json!({
+                "orchestration": { "taskId": "task-1", "dispatchId": "dispatch-1", "dispatchStatus": status }
+            })));
+        }
+    }
+
+    #[test]
+    fn treats_an_absent_dispatch_status_as_unsettled_and_no_orchestration_as_settled() {
+        // A hook-only context carries no runtime status; calling "unknown"
+        // settled is exactly the mistake that loses work.
+        assert!(has_unsettled_or_unknown_dispatch(&json!({
+            "orchestration": { "taskId": "task-1", "dispatchId": "dispatch-1" }
+        })));
+        // No orchestration at all is not a dispatch, so there is nothing unsettled.
+        assert!(!has_unsettled_or_unknown_dispatch(&json!({})));
+        assert!(!has_unsettled_or_unknown_dispatch(&json!({ "state": "done" })));
+        for falsy in [json!(null), json!(0), json!(""), json!(false)] {
+            assert!(!has_unsettled_or_unknown_dispatch(
+                &json!({ "orchestration": falsy })
+            ));
+        }
+    }
+
+    #[test]
+    fn matches_the_settled_dispatch_ids_exactly() {
+        for near_miss in [
+            json!("Completed"),
+            json!("completed "),
+            json!(" completed"),
+            json!("circuit-broken"),
+            json!(""),
+            json!(0),
+            json!(true),
+            json!(["completed"]),
+        ] {
+            assert!(has_unsettled_or_unknown_dispatch(&json!({
+                "orchestration": { "dispatchStatus": near_miss }
+            })));
+        }
+    }
+
+    // ─── isFreshNonDoneAgentStatus ──────────────────────────────────────────
+
+    #[test]
+    fn reports_freshness_only_for_non_done_rows_inside_the_window() {
+        let now = json!(1_700_000_000_000_i64);
+        let fresh = json!({ "state": "working", "updatedAt": 1_700_000_000_000_i64 });
+        assert!(is_fresh_non_done_agent_status(Some(&fresh), &now, None));
+        for state in ["working", "blocked", "waiting"] {
+            let entry = json!({ "state": state, "updatedAt": 1_700_000_000_000_i64 });
+            assert!(is_fresh_non_done_agent_status(Some(&entry), &now, None));
+        }
+        let done = json!({ "state": "done", "updatedAt": 1_700_000_000_000_i64 });
+        assert!(!is_fresh_non_done_agent_status(Some(&done), &now, None));
+        // A non-`done` state id is anything that is not the literal "done".
+        for state in [json!("Done"), json!("done "), json!(42), json!(null)] {
+            let entry = json!({ "state": state, "updatedAt": 1_700_000_000_000_i64 });
+            assert!(is_fresh_non_done_agent_status(Some(&entry), &now, None));
+        }
+    }
+
+    #[test]
+    fn treats_the_stale_bound_as_inclusive_and_defaults_it_to_the_constant() {
+        let now_ms = 1_700_000_000_000_i64;
+        let now = json!(now_ms);
+        let stale = AGENT_STATUS_STALE_AFTER_MS as i64;
+        let at_bound = json!({ "state": "working", "updatedAt": now_ms - stale });
+        let past_bound = json!({ "state": "working", "updatedAt": now_ms - stale - 1 });
+        assert!(is_fresh_non_done_agent_status(Some(&at_bound), &now, None));
+        assert!(!is_fresh_non_done_agent_status(Some(&past_bound), &now, None));
+        // The default only fires for an ABSENT argument; an explicit `null`
+        // coerces to 0 the way a JS default parameter does not fire for `null`.
+        assert!(!is_fresh_non_done_agent_status(
+            Some(&at_bound),
+            &now,
+            Some(&Value::Null)
+        ));
+        let same_instant = json!({ "state": "working", "updatedAt": now_ms });
+        assert!(is_fresh_non_done_agent_status(
+            Some(&same_instant),
+            &now,
+            Some(&Value::Null)
+        ));
+        assert_eq!(AGENT_STATUS_STALE_AFTER_MS, 1_800_000.0);
+    }
+
+    #[test]
+    fn reports_stale_when_the_entry_is_absent_or_carries_no_timestamp() {
+        let now = json!(1_000);
+        assert!(!is_fresh_non_done_agent_status(None, &now, None));
+        assert!(!is_fresh_non_done_agent_status(
+            Some(&Value::Null),
+            &now,
+            None
+        ));
+        // A missing `updatedAt` is NaN, not 0 — coercing it to 0 would report a
+        // row that never reported a timestamp as fresh.
+        let no_timestamp = json!({ "state": "working" });
+        assert!(!is_fresh_non_done_agent_status(
+            Some(&no_timestamp),
+            &now,
+            None
+        ));
+        for falsy in [json!(0), json!(""), json!(false)] {
+            assert!(!is_fresh_non_done_agent_status(Some(&falsy), &now, None));
+        }
+    }
+
+    #[test]
+    fn coerces_freshness_operands_the_way_the_minus_operator_does() {
+        let now = json!(1_000);
+        let with = |updated_at: Value| json!({ "state": "working", "updatedAt": updated_at });
+        // `null` is 0, booleans are 0/1, numeric strings parse, junk is NaN.
+        assert!(is_fresh_non_done_agent_status(
+            Some(&with(json!(null))),
+            &now,
+            None
+        ));
+        assert!(is_fresh_non_done_agent_status(
+            Some(&with(json!("  900  "))),
+            &now,
+            None
+        ));
+        assert!(is_fresh_non_done_agent_status(
+            Some(&with(json!("0x10"))),
+            &now,
+            None
+        ));
+        assert!(!is_fresh_non_done_agent_status(
+            Some(&with(json!("abc"))),
+            &now,
+            None
+        ));
+        // Rust's own float parser accepts these spellings; JS does not.
+        for junk in ["infinity", "nan", "1_000"] {
+            assert!(!is_fresh_non_done_agent_status(
+                Some(&with(json!(junk))),
+                &now,
+                None
+            ));
+        }
+        // `1000 - Infinity` is -Infinity (inside any window); `1000 - -Infinity`
+        // is +Infinity (outside every window).
+        assert!(is_fresh_non_done_agent_status(
+            Some(&with(json!("Infinity"))),
+            &now,
+            None
+        ));
+        assert!(!is_fresh_non_done_agent_status(
+            Some(&with(json!("-Infinity"))),
+            &now,
+            None
+        ));
+        // `ToPrimitive` on an array joins it; `[900]` is 900, `[1,2]` is NaN.
+        assert!(is_fresh_non_done_agent_status(
+            Some(&with(json!([900]))),
+            &now,
+            None
+        ));
+        assert!(is_fresh_non_done_agent_status(
+            Some(&with(json!([]))),
+            &now,
+            None
+        ));
+        assert!(!is_fresh_non_done_agent_status(
+            Some(&with(json!([1, 2]))),
+            &now,
+            None
+        ));
+        assert!(!is_fresh_non_done_agent_status(
+            Some(&with(json!({}))),
+            &now,
+            None
+        ));
+    }
+
+    #[test]
+    fn normalize_skips_the_pre_parse_structure_guard_the_string_entry_point_runs() {
+        // Why: `normalizeAgentStatusPayload` takes an already-deserialized
+        // object, so the token/depth guard that rejects the JSON TEXT never runs
+        // — the two entry points are not interchangeable on this input class.
+        let mut deep = json!({ "leaf": true });
+        for _ in 0..AGENT_STATUS_JSON_NESTING_DEPTH_LIMIT + 8 {
+            deep = json!({ "deep": deep });
+        }
+        let payload = json!({ "state": "working", "prompt": "p", "extra": deep });
+        assert_eq!(
+            normalize_agent_status_payload(&payload).map(|parsed| parsed.prompt),
+            Some("p".to_string())
+        );
+        assert_eq!(parse_agent_status_payload(&payload.to_string()), None);
     }
 }

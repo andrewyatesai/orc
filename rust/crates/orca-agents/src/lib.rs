@@ -14,6 +14,7 @@ pub mod commit_message_generation;
 pub mod commit_message_models;
 pub mod commit_message_plan;
 pub mod commit_message_prompt;
+mod json_text_structure_limit;
 pub mod pull_request_generation;
 pub mod tui_agent_selection;
 
@@ -23,10 +24,12 @@ pub use commit_message_prompt::{
     CustomCommandPlan, CUSTOM_PROMPT_PLACEHOLDER, STAGED_DIFF_BYTE_BUDGET,
 };
 pub use agent_status_types::{
-    agent_subagents_equal, normalize_agent_status_payload, parse_agent_status_payload,
+    agent_subagents_equal, agent_subagents_equal_values, has_unsettled_or_unknown_dispatch,
+    is_fresh_non_done_agent_status, normalize_agent_status_payload, parse_agent_status_payload,
     started_at_to_json, AgentStatusState, AgentSubagentSnapshot, AgentSubagentState,
-    ParsedAgentStatusPayload, AGENT_STATUS_INTERACTIVE_PROMPT_MAX_LENGTH,
-    AGENT_STATUS_MAX_SUBAGENTS, AGENT_STATUS_STATES,
+    ParsedAgentStatusPayload, AGENT_STATE_HISTORY_MAX,
+    AGENT_STATUS_INTERACTIVE_PROMPT_MAX_LENGTH, AGENT_STATUS_MAX_SUBAGENTS, AGENT_STATUS_STATES,
+    AGENT_STATUS_STALE_AFTER_MS, SETTLED_DISPATCH_STATUSES,
 };
 pub use commit_message_agent_spec::{
     get_commit_message_agent_capability, get_commit_message_agent_spec, get_commit_message_model,

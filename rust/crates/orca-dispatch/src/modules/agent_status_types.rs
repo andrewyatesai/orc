@@ -2,7 +2,9 @@
 //! `src/shared/agent-status-types.ts`.
 
 use orca_agents::{
-    parse_agent_status_payload, started_at_to_json, AgentSubagentSnapshot, ParsedAgentStatusPayload,
+    agent_subagents_equal_values, has_unsettled_or_unknown_dispatch,
+    is_fresh_non_done_agent_status, normalize_agent_status_payload, parse_agent_status_payload,
+    started_at_to_json, AgentSubagentSnapshot, ParsedAgentStatusPayload,
 };
 use serde_json::{json, Map, Value};
 
@@ -14,8 +16,43 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
             Some(parsed) => payload_to_json(&parsed),
             None => Value::Null,
         },
-        other => json!({ "__parity_error__": format!("unknown function {other}") }),
+        // Single arg: the already-deserialized payload object, skipping the
+        // JSON round trip. Same normalizer, same `null` for a malformed shape.
+        "normalizeAgentStatusPayload" => match normalize_agent_status_payload(input) {
+            Some(parsed) => payload_to_json(&parsed),
+            None => Value::Null,
+        },
+        // Single arg: the status entry. Only `entry.orchestration` is read, so
+        // a bare `{}` is the hook-only context that answers false.
+        "hasUnsettledOrUnknownDispatch" => Value::Bool(has_unsettled_or_unknown_dispatch(input)),
+        "isFreshNonDoneAgentStatus" => match input.get("now") {
+            Some(now) => Value::Bool(is_fresh_non_done_agent_status(
+                input.get("entry"),
+                now,
+                input.get("staleAfterMs"),
+            )),
+            // The twin defaults `now` to `Date.now()`. A clock read is not a
+            // value this side can reproduce, so it is refused loudly instead of
+            // being answered against some other instant. See the module note in
+            // tools/parity/dispatch/agent-status-types.ts.
+            None => parity_error(
+                "isFreshNonDoneAgentStatus requires an explicit `now`; the twin's Date.now() default is a clock read",
+            ),
+        },
+        "agentSubagentsEqual" => {
+            match agent_subagents_equal_values(input.get("a"), input.get("b")) {
+                Some(equal) => Value::Bool(equal),
+                None => parity_error(
+                    "agentSubagentsEqual operands must be arrays (or absent/null) with no null element; the twin duck-types `.length` and throws on a null entry",
+                ),
+            }
+        }
+        other => parity_error(&format!("unknown function {other}")),
     }
+}
+
+fn parity_error(message: &str) -> Value {
+    json!({ "__parity_error__": message })
 }
 
 /// Match `JSON.stringify` of the TS `ParsedAgentStatusPayload`: `state` as its
