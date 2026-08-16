@@ -1,6 +1,19 @@
-// TS dispatch for the fleet-exceptions parity module: drives the LIVE
-// src/renderer/src/components/alab/fleet-exceptions.ts against the Rust port
+// TS dispatch for the fleet-exceptions parity module, against the Rust port
 // (orca_core::fleet_exceptions).
+//
+// The renderer twin was CUT OVER: src/renderer/src/components/alab/fleet-exceptions.ts
+// keeps the row types, EXCEPTION_SEVERITY and EXCEPTION_SOURCE_STATUS as data,
+// and the reducer now lives behind src/renderer/src/lib/git-wasm/fleet-exception-queue.ts.
+// This adapter drives that SHIM rather than the wasm oracle, exactly as the
+// wsl-paths adapter does: config/vitest.parity.config.ts never marks the core
+// ready, so the shim answers from its `parity` fallback — which is the deleted
+// body, and the code the renderer runs whenever the wasm has failed. The harness
+// therefore keeps a real TS-vs-Rust differential instead of degenerating to
+// wasm-vs-binary, and the fallback is the half that most needs one.
+//
+// `exceptionSourceStatuses` still reads the TS table directly, because the table
+// is the data the twin kept: that case is what fails when the TS and Rust copies
+// drift, which is the one drift a cut-over could otherwise hide.
 //
 // The decision under test is the COLLAPSE KEY. An earlier bug keyed the collapse
 // on the run instead of the task, so a run with twelve stuck tasks rendered as
@@ -8,13 +21,15 @@
 // carries several exceptions from one run across different tasks precisely so a
 // re-introduction of that key shows up on both sides at once.
 //
-// The module is pure and imports nothing from React, so the live source is
-// imported directly — no component harness, no DOM.
+// Both modules are pure and import nothing from React, so they are imported
+// directly — no component harness, no DOM.
 
 import {
-  EXCEPTION_SOURCE_STATUS,
   collapseExceptionsByTask,
-  unwiredExceptionSources,
+  unwiredExceptionSources
+} from '../../../src/renderer/src/lib/git-wasm/fleet-exception-queue'
+import {
+  EXCEPTION_SOURCE_STATUS,
   type FleetException,
   type FleetExceptionKind
 } from '../../../src/renderer/src/components/alab/fleet-exceptions'

@@ -19,7 +19,7 @@ import {
   DEFAULT_SOURCE_CONTROL_ACTION_COMMAND_TEMPLATES,
   renderSourceControlActionCommandTemplate
 } from '../../../shared/source-control-ai-actions'
-import { isTuiAgentEnabled } from '../../../shared/tui-agent-selection'
+import { isTuiAgentEnabled } from '../../../shared/tui-agent-selection-resolution'
 import type {
   GitHubWorkItem,
   TuiAgent,

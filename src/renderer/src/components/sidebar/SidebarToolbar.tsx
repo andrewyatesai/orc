@@ -8,8 +8,7 @@ import { SidebarSettingsHelpMenu } from './SidebarSettingsHelpMenu'
 import { OrcaProfileSwitcher } from '../orca-profiles/OrcaProfileSwitcher'
 import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
-import { hasFeatureInteraction } from '../../../../shared/feature-interactions'
-
+import { hasFeatureInteraction } from '../../../../shared/feature-interaction-state'
 const WORKSPACE_BOARD_MOVED_HINT_STORAGE_KEY = 'orca.workspaceBoardMovedHintSeen.v1'
 const WORKSPACE_BOARD_MOVED_HINT_DURATION_MS = 12000
 

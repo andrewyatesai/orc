@@ -72,7 +72,7 @@ import {
 } from '../../../shared/execution-host'
 import { toRuntimeWorktreeSelector } from '../runtime/runtime-worktree-selector'
 import { callAbortableRuntimeEnvironment } from '../runtime/abortable-runtime-environment-call'
-import { normalizeDisabledTuiAgents } from '../../../shared/tui-agent-selection'
+import { normalizeDisabledTuiAgents } from '../../../shared/tui-agent-selection-resolution'
 import {
   normalizeTuiAgentArgsRecord,
   normalizeTuiAgentEnvRecord
@@ -131,11 +131,8 @@ import {
 } from '../../../shared/clipboard-image'
 import { sanitizeWebRuntimeWorkspaceSession } from './web-workspace-session'
 import { GIT_REMOTE_OPERATION_RPC_TIMEOUT_MS } from '../../../shared/git-remote-operation-timeout'
-import {
-  normalizeFeatureInteractions,
-  type FeatureInteractionId,
-  type FeatureInteractionState
-} from '../../../shared/feature-interactions'
+import { type FeatureInteractionId, type FeatureInteractionState } from '../../../shared/feature-interactions'
+import { normalizeFeatureInteractions } from '../../../shared/feature-interaction-state'
 import { normalizeContextualTourIds, type ContextualTourId } from '../../../shared/contextual-tours'
 import { translate } from '@/i18n/i18n'
 import { getDefaultCreateProjectParent } from '@/components/sidebar/create-project-defaults'

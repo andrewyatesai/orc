@@ -30,7 +30,7 @@ import {
   launchAgentSessionContinuation
 } from '@/lib/launch-agent-session-continuation'
 import { useAppStore } from '@/store'
-import { isTuiAgentEnabled } from '../../../../shared/tui-agent-selection'
+import { isTuiAgentEnabled } from '../../../../shared/tui-agent-selection-resolution'
 import type { TuiAgent } from '../../../../shared/types'
 import { chooseInitialContinuationAgent } from './agent-session-continuation-selection'
 

@@ -7,7 +7,7 @@ import {
 import { useAppStore } from '@/store'
 import { useRepoById } from '@/store/selectors'
 import { renderSourceControlActionCommandTemplate } from '../../../../shared/source-control-ai-actions'
-import { isTuiAgentEnabled } from '../../../../shared/tui-agent-selection'
+import { isTuiAgentEnabled } from '../../../../shared/tui-agent-selection-resolution'
 import type { TuiAgent } from '../../../../shared/types'
 import type { SourceControlAgentActionDialogProps } from './SourceControlAgentActionDialog'
 import type { UseSourceControlAgentActionDialogResult } from './source-control-agent-action-dialog-result'

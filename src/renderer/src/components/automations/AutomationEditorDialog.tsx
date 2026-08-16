@@ -1,7 +1,7 @@
 import React from 'react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { getAgentCatalog } from '@/lib/agent-catalog'
-import { filterEnabledTuiAgents } from '../../../../shared/tui-agent-selection'
+import { filterEnabledTuiAgents } from '../../../../shared/tui-agent-selection-resolution'
 import type {
   AutomationSchedulePreset,
   AutomationWorkspaceMode

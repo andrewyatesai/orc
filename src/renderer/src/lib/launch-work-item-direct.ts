@@ -3,7 +3,7 @@ import { useAppStore } from '@/store'
 import { planAgentCliArgsSuffix } from '@/lib/tui-agent-startup'
 import { resolveDefaultTuiAgentPreference } from '@/lib/custom-agent-resolve'
 import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
-import { isTuiAgentEnabled, pickTuiAgent } from '../../../shared/tui-agent-selection'
+import { isTuiAgentEnabled, pickTuiAgent } from '../../../shared/tui-agent-selection-resolution'
 import {
   buildPersonalizedAgentPrompt,
   resolveAgentPersonalizationPrompt

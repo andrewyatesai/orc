@@ -1,7 +1,7 @@
 /* eslint-disable max-lines -- Why: defaults, migration compatibility, and
    operation resolution stay together so source-control AI precedence rules
    cannot drift across commit-message, PR, repo, local, SSH, and runtime paths. */
-import { collapseDefaultTuiAgentToBuiltin } from './tui-agent-selection'
+import { collapseDefaultTuiAgentToBuiltin } from './tui-agent-selection-resolution'
 import {
   CUSTOM_AGENT_ID,
   getCommitMessageAgentSpec,

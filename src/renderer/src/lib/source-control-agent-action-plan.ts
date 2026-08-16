@@ -6,7 +6,7 @@ import {
 } from '@/lib/tui-agent-startup'
 import { CLIENT_PLATFORM } from '@/lib/new-workspace'
 import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
-import { isTuiAgentEnabled } from '../../../shared/tui-agent-selection'
+import { isTuiAgentEnabled } from '../../../shared/tui-agent-selection-resolution'
 import type { TuiAgent } from '../../../shared/types'
 import { translate } from '@/i18n/i18n'
 import { resolveLocalAgentStartupShell } from '../../../shared/local-agent-startup-shell'

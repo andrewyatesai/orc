@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { collapseDefaultTuiAgentToBuiltin } from '../../../../shared/tui-agent-selection'
+import { collapseDefaultTuiAgentToBuiltin } from '../../../../shared/tui-agent-selection-resolution'
 import type { CommitMessageAiSettings, TuiAgent } from '../../../../shared/types'
 import {
   CUSTOM_AGENT_ID,

@@ -15,11 +15,7 @@ import {
   X
 } from 'lucide-react'
 import { toast } from 'sonner'
-import {
-  collapseDefaultTuiAgentToBuiltin,
-  filterEnabledTuiAgents,
-  isTuiAgentEnabled
-} from '../../../../shared/tui-agent-selection'
+import { collapseDefaultTuiAgentToBuiltin, filterEnabledTuiAgents, isTuiAgentEnabled } from '../../../../shared/tui-agent-selection-resolution'
 import type { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { installWindowVisibilityInterval } from '@/lib/window-visibility-interval'

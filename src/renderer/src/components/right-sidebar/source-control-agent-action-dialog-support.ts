@@ -1,5 +1,5 @@
 import { getAgentCatalog } from '@/lib/agent-catalog'
-import { isTuiAgentEnabled } from '../../../../shared/tui-agent-selection'
+import { isTuiAgentEnabled } from '../../../../shared/tui-agent-selection-resolution'
 import type { TuiAgent } from '../../../../shared/types'
 import type { SourceControlAiWriteTarget } from '../../../../shared/source-control-ai-recipe-save'
 import { translate } from '@/i18n/i18n'

@@ -300,7 +300,7 @@ import {
   isExpectedAgentProcess,
   recognizeAgentProcess
 } from '../../shared/agent-process-recognition'
-import { isTuiAgentEnabled, pickTuiAgent } from '../../shared/tui-agent-selection'
+import { isTuiAgentEnabled, pickTuiAgent } from '../../shared/tui-agent-selection-resolution'
 import {
   resolveTuiAgentLaunchArgs,
   resolveTuiAgentLaunchEnv

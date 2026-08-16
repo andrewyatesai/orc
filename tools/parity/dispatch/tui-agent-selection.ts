@@ -1,6 +1,14 @@
-// TS dispatch for the tui-agent-selection parity module: maps the shared vector
-// function names to the real `src/shared/tui-agent-selection.ts` exports so the
-// harness compares the live TS reference against the Rust port.
+// TS dispatch for the tui-agent-selection parity module. The shared TS impl was
+// DELETED (`src/shared/tui-agent-selection.ts` keeps only the catalog data —
+// TUI_AGENT_AUTO_PICK_ORDER and DEFAULT_DISABLED_TUI_AGENTS) and every surface
+// now reaches `orca_agents::tui_agent_selection` through
+// `src/shared/tui-agent-selection-resolution.ts` on the orca-dispatch seam.
+//
+// Like the wsl-paths adapter, this drives the SHIM rather than the wasm oracle,
+// so the harness keeps a real TS-vs-Rust differential instead of degenerating to
+// wasm-vs-binary: config/vitest.parity.config.ts installs no setup file, so the
+// seam is unbound here and the shim answers from its `parity` fallback — which
+// is the deleted body, and the code the renderer runs before wasm init.
 
 import {
   collapseDefaultTuiAgentToBuiltin,
@@ -8,7 +16,7 @@ import {
   isTuiAgentEnabled,
   normalizeDisabledTuiAgents,
   pickTuiAgent
-} from '../../../src/shared/tui-agent-selection'
+} from '../../../src/shared/tui-agent-selection-resolution'
 import type { CustomAgentProfile, TuiAgent } from '../../../src/shared/types'
 
 /** `undefined` has no JSON image, and this collapse must keep it distinct from
@@ -39,11 +47,17 @@ export function dispatch(fn: string, input: unknown): unknown {
     case 'normalizeDisabledTuiAgents':
       return normalizeDisabledTuiAgents(input)
     case 'isTuiAgentEnabled': {
-      const { agent, disabled } = input as { agent: TuiAgent; disabled?: unknown[] | null }
+      const { agent, disabled } = input as {
+        agent: TuiAgent
+        disabled?: unknown[] | null
+      }
       return isTuiAgentEnabled(agent, disabled)
     }
     case 'filterEnabledTuiAgents': {
-      const { agents, disabled } = input as { agents: TuiAgent[]; disabled?: unknown[] | null }
+      const { agents, disabled } = input as {
+        agents: TuiAgent[]
+        disabled?: unknown[] | null
+      }
       return filterEnabledTuiAgents(agents, disabled)
     }
     default:

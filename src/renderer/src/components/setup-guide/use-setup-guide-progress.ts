@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useAppStore } from '@/store'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
-import { hasFeatureInteraction } from '../../../../shared/feature-interactions'
+import { hasFeatureInteraction } from '../../../../shared/feature-interaction-state'
 import { checkRuntimeHooks } from '@/runtime/runtime-hooks-client'
 import { getLocalPreflightContext, localPreflightContextKey } from '@/lib/local-preflight-context'
 import { hasEffectiveSetupCommand } from '@/lib/setup-script-status'

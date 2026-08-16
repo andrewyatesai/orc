@@ -1,8 +1,10 @@
-import { FEATURE_INTERACTION_IDS, type FeatureInteractionId } from './feature-interaction-catalog'
-import {
-  isFeatureInteractionUsageBucket,
-  type FeatureInteractionUsageBucket
-} from './feature-interaction-usage-buckets'
+// Types and data for the feature-interaction catalog. The four query/normalizer
+// bodies that used to live here were CUT OVER to `orca_config::feature_interactions`
+// and now ship from `./feature-interaction-state.ts` on the orca-dispatch seam;
+// this file stays the barrel over the catalog, category and usage-bucket tables,
+// which the shim's pre-ready fallback reads so there is one source of ids.
+import type { FeatureInteractionId } from './feature-interaction-catalog'
+import type { FeatureInteractionUsageBucket } from './feature-interaction-usage-buckets'
 
 export {
   FEATURE_INTERACTIONS,
@@ -39,73 +41,3 @@ export type FeatureInteractionState = Partial<
 export type FeatureInteractionTelemetryBucketState = Partial<
   Record<FeatureInteractionId, FeatureInteractionUsageBucket>
 >
-
-export function isFeatureInteractionId(value: unknown): value is FeatureInteractionId {
-  return (
-    typeof value === 'string' && FEATURE_INTERACTION_IDS.includes(value as FeatureInteractionId)
-  )
-}
-
-export function hasFeatureInteraction(
-  state: FeatureInteractionState | null | undefined,
-  id: FeatureInteractionId
-): boolean {
-  return normalizeFeatureInteractionRecord(state?.[id]) !== null
-}
-
-export function normalizeFeatureInteractionTelemetryBuckets(
-  value: unknown
-): FeatureInteractionTelemetryBucketState {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    return {}
-  }
-
-  const input = value as Record<string, unknown>
-  const out: FeatureInteractionTelemetryBucketState = {}
-  for (const id of FEATURE_INTERACTION_IDS) {
-    const bucket = input[id]
-    if (isFeatureInteractionUsageBucket(bucket)) {
-      out[id] = bucket
-    }
-  }
-  return out
-}
-
-export function normalizeFeatureInteractions(value: unknown): FeatureInteractionState {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    return {}
-  }
-
-  const input = value as Record<string, unknown>
-  const out: FeatureInteractionState = {}
-  for (const id of FEATURE_INTERACTION_IDS) {
-    const record = normalizeFeatureInteractionRecord(input[id])
-    if (record) {
-      out[id] = record
-    }
-  }
-  return out
-}
-
-function normalizeFeatureInteractionRecord(value: unknown): FeatureInteractionRecord | null {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    return null
-  }
-  const input = value as Record<string, unknown>
-  const firstInteractedAt = input.firstInteractedAt
-  if (
-    typeof firstInteractedAt !== 'number' ||
-    !Number.isFinite(firstInteractedAt) ||
-    firstInteractedAt < 0
-  ) {
-    return null
-  }
-  const rawInteractionCount = input.interactionCount
-  const interactionCount =
-    typeof rawInteractionCount === 'number' &&
-    Number.isInteger(rawInteractionCount) &&
-    rawInteractionCount > 0
-      ? rawInteractionCount
-      : 1
-  return { firstInteractedAt, interactionCount }
-}

@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { collapseDefaultTuiAgentToBuiltin } from '../../../../shared/tui-agent-selection'
+import { collapseDefaultTuiAgentToBuiltin } from '../../../../shared/tui-agent-selection-resolution'
 import type React from 'react'
 import type { Repo } from '../../../../shared/types'
 import { normalizeSourceControlAiSettings } from '../../../../shared/source-control-ai'

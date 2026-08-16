@@ -179,16 +179,10 @@ import {
   legacyTerminalScrollbackBytesToRows,
   normalizeDesktopTerminalScrollbackRows
 } from '../shared/terminal-scrollback-policy'
-import {
-  compareFeatureInteractionUsageBuckets,
-  getFeatureInteractionCategory,
-  getFeatureInteractionUsageBucket,
-  normalizeFeatureInteractions,
-  normalizeFeatureInteractionTelemetryBuckets,
-  type FeatureInteractionId
-} from '../shared/feature-interactions'
+import { compareFeatureInteractionUsageBuckets, getFeatureInteractionCategory, getFeatureInteractionUsageBucket, type FeatureInteractionId } from '../shared/feature-interactions'
+import { normalizeFeatureInteractions, normalizeFeatureInteractionTelemetryBuckets } from '../shared/feature-interaction-state'
 import { normalizeContextualTourIds } from '../shared/contextual-tours'
-import { normalizeFeatureTipIds } from '../shared/feature-tips'
+import { normalizeFeatureTipIds } from '../shared/feature-tip-selection'
 import {
   parseCodexResetCreditAttemptLedger,
   type CodexResetCreditAttemptLedger
@@ -226,7 +220,7 @@ import {
   DEFAULT_SOURCE_CONTROL_ACTION_COMMAND_TEMPLATES,
   SOURCE_CONTROL_TEXT_ACTION_IDS
 } from '../shared/source-control-ai-actions'
-import { normalizeDisabledTuiAgents } from '../shared/tui-agent-selection'
+import { normalizeDisabledTuiAgents } from '../shared/tui-agent-selection-resolution'
 import {
   DEFAULT_TUI_AGENT_ARGS,
   DEFAULT_TUI_AGENT_ENV,

@@ -1,16 +1,14 @@
 import { z } from 'zod'
-import {
-  isFeatureInteractionId,
-  type FeatureInteractionId
-} from '../../../../shared/feature-interactions'
-import { isFeatureTipId } from '../../../../shared/feature-tips'
+import { type FeatureInteractionId } from '../../../../shared/feature-interactions'
+import { isFeatureInteractionId } from '../../../../shared/feature-interaction-state'
+import { isFeatureTipId } from '../../../../shared/feature-tip-selection'
 import {
   normalizeTuiAgentArgsRecord,
   normalizeTuiAgentEnvRecord
 } from '../../../../shared/tui-agent-launch-defaults'
 import { isTuiAgent } from '../../../../shared/tui-agent-config'
 import { isTaskProvider } from '../../../rust-task-providers'
-import { normalizeDisabledTuiAgents } from '../../../../shared/tui-agent-selection'
+import { normalizeDisabledTuiAgents } from '../../../../shared/tui-agent-selection-resolution'
 import { normalizePRBotAuthorOverrides } from '../../../../shared/pr-bot-author-overrides'
 import { normalizeWorktreeCardProperties } from '../../../../shared/worktree-card-properties'
 import type { PersistedUIState, TaskProvider } from '../../../../shared/types'

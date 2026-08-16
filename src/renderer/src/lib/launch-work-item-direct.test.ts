@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppState } from '@/store'
-import type * as TuiAgentSelectionModule from '../../../shared/tui-agent-selection'
+import type * as TuiAgentSelectionModule from '../../../shared/tui-agent-selection-resolution'
 import type * as TuiAgentStartupModule from '@/lib/tui-agent-startup'
 import { initGitWasmForTestFromBytes } from '@/lib/git-wasm/git-line-stats'
 
@@ -114,9 +114,9 @@ vi.mock('@/lib/tui-agent-startup', async () => {
   }
 })
 
-vi.mock('../../../shared/tui-agent-selection', async () => {
+vi.mock('../../../shared/tui-agent-selection-resolution', async () => {
   const actual = await vi.importActual<typeof TuiAgentSelectionModule>(
-    '../../../shared/tui-agent-selection'
+    '../../../shared/tui-agent-selection-resolution'
   )
   return {
     ...actual,
@@ -127,8 +127,7 @@ vi.mock('../../../shared/tui-agent-selection', async () => {
 import { launchWorkItemDirect } from './launch-work-item-direct'
 import { pasteDraftWhenAgentReady } from '@/lib/agent-paste-draft'
 import { buildAgentDraftLaunchPlan, buildAgentStartupPlan } from '@/lib/tui-agent-startup'
-import { pickTuiAgent } from '../../../shared/tui-agent-selection'
-
+import { pickTuiAgent } from '../../../shared/tui-agent-selection-resolution'
 const mockApi = {
   worktrees: {
     resolvePrBase: mocks.resolvePrBase

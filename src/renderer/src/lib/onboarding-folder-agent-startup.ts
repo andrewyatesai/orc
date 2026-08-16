@@ -1,6 +1,6 @@
 import { buildAgentStartupPlan } from '@/lib/tui-agent-startup'
 import { tuiAgentToAgentKind } from '@/lib/telemetry'
-import { isTuiAgentEnabled } from '../../../shared/tui-agent-selection'
+import { isTuiAgentEnabled } from '../../../shared/tui-agent-selection-resolution'
 import {
   resolveTuiAgentLaunchArgs,
   resolveTuiAgentLaunchEnv

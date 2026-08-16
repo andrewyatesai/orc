@@ -44,7 +44,7 @@ import {
 } from '@/lib/text-control-paste'
 import { getScreenSubmitModifierLabel } from '@/lib/screen-submit-shortcut'
 import { useContextualTour } from '@/components/contextual-tours/use-contextual-tour'
-import { filterEnabledTuiAgents } from '../../../shared/tui-agent-selection'
+import { filterEnabledTuiAgents } from '../../../shared/tui-agent-selection-resolution'
 import type {
   GitHubWorkItem,
   GitLabWorkItem,

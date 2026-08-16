@@ -1,6 +1,6 @@
 /* eslint-disable max-lines -- Why: single orchestrator for every onboarding-step transition; splitting would scatter ordering across hooks and lose the controller-shape contract OnboardingFlow.tsx consumes. */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { collapseDefaultTuiAgentToBuiltin } from '../../../../shared/tui-agent-selection'
+import { collapseDefaultTuiAgentToBuiltin } from '../../../../shared/tui-agent-selection-resolution'
 import { toast } from 'sonner'
 import { getAgentCatalog } from '@/lib/agent-catalog'
 import { useAppStore } from '@/store'

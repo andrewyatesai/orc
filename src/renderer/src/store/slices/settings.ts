@@ -14,7 +14,7 @@ import { normalizeTerminalCustomThemes } from '../../../../shared/terminal-custo
 import { normalizeTaskProviderSettings } from '@/lib/git-wasm/task-providers'
 import { normalizeOpenInApplications } from '@/lib/git-wasm/open-in-applications'
 import { createSettingsSearchState, type SettingsSearchState } from './settings-search-state'
-import { normalizeDisabledTuiAgents } from '../../../../shared/tui-agent-selection'
+import { normalizeDisabledTuiAgents } from '../../../../shared/tui-agent-selection-resolution'
 import {
   normalizeTuiAgentArgsRecord,
   normalizeTuiAgentEnvRecord

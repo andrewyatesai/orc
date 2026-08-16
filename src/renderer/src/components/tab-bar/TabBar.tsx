@@ -68,7 +68,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Button } from '@/components/ui/button'
 import type { TabCreateEntryArgs } from './tab-create-entry-action'
 import { buildTabAgentLaunchOptions, orderTabLaunchAgents } from './tab-agent-launch-options'
-import { collapseDefaultTuiAgentToBuiltin } from '../../../../shared/tui-agent-selection'
+import { collapseDefaultTuiAgentToBuiltin } from '../../../../shared/tui-agent-selection-resolution'
 import { buildTabCreateMenuOptions, type TabCreateMenuOption } from './tab-create-menu-options'
 import { MobileEmulatorTabIntroCallout } from '../emulator-pane/MobileEmulatorTabIntroCallout'
 import { shouldShowMobileEmulatorTabIntro } from '../emulator-pane/mobile-emulator-tab-intro-visibility'

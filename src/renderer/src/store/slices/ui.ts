@@ -53,13 +53,10 @@ import {
   WORKSPACE_CLEANUP_CLASSIFIER_VERSION,
   type WorkspaceCleanupDismissal
 } from '../../../../shared/workspace-cleanup'
-import { normalizeFeatureTipIds, type FeatureTipId } from '../../../../shared/feature-tips'
-import {
-  hasFeatureInteraction,
-  normalizeFeatureInteractions,
-  type FeatureInteractionId,
-  type FeatureInteractionState
-} from '../../../../shared/feature-interactions'
+import { type FeatureTipId } from '../../../../shared/feature-tips'
+import { normalizeFeatureTipIds } from '../../../../shared/feature-tip-selection'
+import { type FeatureInteractionId, type FeatureInteractionState } from '../../../../shared/feature-interactions'
+import { hasFeatureInteraction, normalizeFeatureInteractions } from '../../../../shared/feature-interaction-state'
 import {
   getContextualTour,
   normalizeContextualTourIds,

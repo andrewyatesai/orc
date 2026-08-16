@@ -6,7 +6,7 @@ import {
 } from '@/lib/tui-agent-startup'
 import { resolveQuickCreateLinkedWorkItemPrompt } from '@/lib/linked-work-item-context'
 import { pickQuickWorkspaceAgent } from '@/lib/quick-workspace-agent-selection'
-import { collapseDefaultTuiAgentToBuiltin } from '../../../shared/tui-agent-selection'
+import { collapseDefaultTuiAgentToBuiltin } from '../../../shared/tui-agent-selection-resolution'
 import type {
   PendingWorktreeCreation,
   WorktreeCreationRequest

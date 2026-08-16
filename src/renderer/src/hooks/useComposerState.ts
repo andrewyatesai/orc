@@ -17,7 +17,7 @@ import { activateAndRevealWorktree, type AgentStartedTelemetry } from '@/lib/wor
 import { runBackgroundWorktreeCreation } from '@/lib/worktree-creation-flow'
 import type { WorktreeCreationRequest } from '@/lib/pending-worktree-creation'
 import { buildAgentDraftLaunchPlan, buildAgentStartupPlan } from '@/lib/tui-agent-startup'
-import { filterEnabledTuiAgents, isTuiAgentEnabled } from '../../../shared/tui-agent-selection'
+import { filterEnabledTuiAgents, isTuiAgentEnabled } from '../../../shared/tui-agent-selection-resolution'
 import {
   buildPersonalizedAgentPrompt,
   resolveAgentPersonalizationPrompt

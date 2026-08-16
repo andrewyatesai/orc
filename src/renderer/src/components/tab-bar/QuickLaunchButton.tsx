@@ -10,7 +10,7 @@ import { useOptionalShortcutLabel } from '@/hooks/useShortcutLabel'
 import { launchAgentInNewTab } from '@/lib/launch-agent-in-new-tab'
 import type { TuiAgent } from '../../../../shared/types'
 import type { LaunchSource } from '../../../../shared/telemetry-events'
-import { filterEnabledTuiAgents } from '../../../../shared/tui-agent-selection'
+import { filterEnabledTuiAgents } from '../../../../shared/tui-agent-selection-resolution'
 import { translate } from '@/i18n/i18n'
 
 export type QuickLaunchAgentMenuItemsProps = {

@@ -1,7 +1,7 @@
 /* eslint-disable max-lines */
 
 import React, { useEffect, useCallback, useMemo, useRef, useState, Suspense } from 'react'
-import { collapseDefaultTuiAgentToBuiltin } from '../../../shared/tui-agent-selection'
+import { collapseDefaultTuiAgentToBuiltin } from '../../../shared/tui-agent-selection-resolution'
 import { lazyWithRetry as lazy } from '@/lib/lazy-with-retry'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
@@ -38,7 +38,7 @@ import { isIntentionalAppRestartInProgress } from '@/lib/updater-beforeunload'
 import { preventUnloadAndScheduleShutdownCheckpointReset } from '@/lib/shutdown-checkpoint-guard'
 import EditorAutosaveController from './editor/EditorAutosaveController'
 import type { Tab, TabContentType, TabGroupLayoutNode, TuiAgent } from '../../../shared/types'
-import { hasFeatureInteraction } from '../../../shared/feature-interactions'
+import { hasFeatureInteraction } from '../../../shared/feature-interaction-state'
 import BrowserPane from './browser-pane/BrowserPane'
 import { RetainedBrowserPaneOverlayLayer } from './browser-pane/BrowserPaneOverlayLayer'
 import EmulatorPaneOverlayLayer from './emulator-pane/EmulatorPaneOverlayLayer'

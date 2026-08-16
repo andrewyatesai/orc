@@ -1,5 +1,5 @@
 import type { TuiAgent } from './types'
-import { isTuiAgentEnabled } from './tui-agent-selection'
+import { isTuiAgentEnabled } from './tui-agent-selection-resolution'
 import { assertJsonTextStructureWithinLimits } from './json-text-structure-limit'
 import { labelFromModelId } from './model-id-label'
 

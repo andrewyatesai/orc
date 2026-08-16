@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
-import { collapseDefaultTuiAgentToBuiltin } from '../../../../shared/tui-agent-selection'
+import { collapseDefaultTuiAgentToBuiltin } from '../../../../shared/tui-agent-selection-resolution'
 import { toast } from 'sonner'
 import { useAppStore } from '@/store'
 import {

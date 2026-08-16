@@ -7,9 +7,6 @@ import {
   FEATURE_INTERACTION_CATEGORY_BY_ID,
   FEATURE_INTERACTION_USAGE_BUCKETS,
   getFeatureInteractionUsageBucket,
-  hasFeatureInteraction,
-  normalizeFeatureInteractionTelemetryBuckets,
-  normalizeFeatureInteractions,
   type FeatureInteractionId
 } from './feature-interactions'
 
@@ -22,6 +19,9 @@ const SOURCE_ROOTS = ['src/main', 'src/renderer/src', 'src/preload']
 const PRODUCTION_FILE_PATTERN = /\.(ts|tsx)$/
 const TEST_FILE_PATTERN = /(?:^|\.)(test|spec)\.(ts|tsx)$/
 
+// The normalizer/predicate cases moved with the implementation to
+// feature-interaction-state.test.ts; what stays here is the catalog, category
+// and usage-bucket DATA this file still owns.
 describe('feature interactions', () => {
   it('defines local interaction semantics for product education features', () => {
     const catalogMatchesPublicUnion: [
@@ -93,39 +93,6 @@ describe('feature interactions', () => {
     }
   })
 
-  it('normalizes persisted records by removing unknown ids and malformed values', () => {
-    expect(
-      normalizeFeatureInteractions({
-        tasks: { firstInteractedAt: 100 },
-        browser: { firstInteractedAt: Number.NaN },
-        automations: { firstInteractedAt: 200, interactionCount: 3 },
-        'browser-grab': { firstInteractedAt: 250, interactionCount: 0 },
-        unknown: { firstInteractedAt: 200 },
-        'voice-dictation': { firstInteractedAt: 300 }
-      })
-    ).toEqual({
-      tasks: { firstInteractedAt: 100, interactionCount: 1 },
-      automations: { firstInteractedAt: 200, interactionCount: 3 },
-      'browser-grab': { firstInteractedAt: 250, interactionCount: 1 },
-      'voice-dictation': { firstInteractedAt: 300, interactionCount: 1 }
-    })
-  })
-
-  it('treats only valid known records as interacted', () => {
-    expect(
-      hasFeatureInteraction({ tasks: { firstInteractedAt: 100, interactionCount: 1 } }, 'tasks')
-    ).toBe(true)
-    expect(
-      hasFeatureInteraction({ tasks: { firstInteractedAt: 100, interactionCount: 1 } }, 'browser')
-    ).toBe(false)
-    expect(
-      hasFeatureInteraction(
-        { tasks: { firstInteractedAt: Number.POSITIVE_INFINITY, interactionCount: 1 } },
-        'tasks'
-      )
-    ).toBe(false)
-  })
-
   it('maps interaction counts to the exact top-coded telemetry buckets', () => {
     expect(FEATURE_INTERACTION_USAGE_BUCKETS).toEqual([
       'count_1',
@@ -181,21 +148,6 @@ describe('feature interactions', () => {
     expect(FEATURE_INTERACTION_CATEGORY_BY_ID['voice-dictation']).toBe('voice')
     expect(FEATURE_INTERACTION_CATEGORY_BY_ID['ai-commit-generation']).toBe('source_control')
     expect(FEATURE_INTERACTION_CATEGORY_BY_ID['resource-manager']).toBe('resource_management')
-  })
-
-  it('normalizes persisted telemetry bucket markers by removing unknown ids and buckets', () => {
-    expect(
-      normalizeFeatureInteractionTelemetryBuckets({
-        tasks: 'count_1',
-        browser: 'count_1000_plus',
-        automations: 'count_4',
-        unknown: 'count_1',
-        'voice-dictation': null
-      })
-    ).toEqual({
-      tasks: 'count_1',
-      browser: 'count_1000_plus'
-    })
   })
 
   it('keeps every catalog id wired to a production writer', () => {

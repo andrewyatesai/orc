@@ -1,10 +1,23 @@
+// The twin's own cases, moved with the implementation and now run against the
+// READY wasm core — the path the app takes — so they assert the Rust port, not a
+// TypeScript body that no longer exists. `fleet-exception-queue-pre-ready.test.ts`
+// holds the other half: that the not-ready fallback answers identically.
+import './init-git-wasm-for-test'
 import { describe, expect, it } from 'vitest'
+import { collapseExceptionsByTask, unwiredExceptionSources } from './fleet-exception-queue'
+import { getGitWasmAvailability } from './git-wasm-availability'
 import {
   EXCEPTION_SOURCE_STATUS,
-  collapseExceptionsByTask,
-  unwiredExceptionSources,
   type FleetException
-} from './fleet-exceptions'
+} from '../../components/alab/fleet-exceptions'
+
+// Without this the whole file would silently re-test the pre-ready fallback and
+// prove nothing about the port.
+describe('the core these cases run against', () => {
+  it('is the ready wasm, not the fallback', () => {
+    expect(getGitWasmAvailability()).toBe('ready')
+  })
+})
 
 function exception(overrides: Partial<FleetException> = {}): FleetException {
   return {

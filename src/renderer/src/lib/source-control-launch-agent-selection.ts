@@ -8,10 +8,7 @@ import type {
   SourceControlActionId,
   SourceControlActionRecipe
 } from '../../../shared/source-control-ai-actions'
-import {
-  collapseDefaultTuiAgentToBuiltin,
-  filterEnabledTuiAgents
-} from '../../../shared/tui-agent-selection'
+import { collapseDefaultTuiAgentToBuiltin, filterEnabledTuiAgents } from '../../../shared/tui-agent-selection-resolution'
 import type { GlobalSettings, Repo, TuiAgent } from '../../../shared/types'
 
 export function readSourceControlLaunchRecipeAgentId(
