@@ -2,39 +2,39 @@
   "schema": 1,
   "crate": "orca-git-wasm",
   "sourceSha256": "a146920440f7d9d94e5d8cdcd6fa8341d0542383c811379eeb05b9ac7c311b05",
-  "wasmSha256": "0b5aa58bab0a87a2470e3bc59fe159b2b2ba937e541e3deee24728c2d06e89f9",
+  "wasmSha256": "5b3c1da03e9688aa0b173b080bb9fe0a77895bd68c4706e598f691d10e0c8381",
   "artifacts": {
     "src/relay/wasm/orca_git_wasm.js": {
       "bytes": 56341,
-      "sha256": "5d72a7e8bd312a49c5070cfc8153b74f3fd02eb85a32e544a6da641665af51ac"
+      "sha256": "7f204edbbb2a7b6cc2df7d9c5affef1077789cb28d405527d75e845682ad6f03"
     },
     "src/relay/wasm/orca_git_wasm.d.ts": {
       "bytes": 17866,
-      "sha256": "4b99589fc8893b0409c4d8d3635b163a8be98cccc17c1b210f97573971ebe730"
+      "sha256": "7e9a54301bd64612a8f3bd7d7b6e1381f40dbea43598b86ad544e653eba983c4"
     },
     "src/relay/wasm/orca_git_wasm_bg.wasm.base64.ts": {
-      "bytes": 2003232,
-      "sha256": "3bf047a7174931c3c15334d6c71958f5b0c9bad202b1234c01db45a1d40a13b0"
+      "bytes": 2019812,
+      "sha256": "fd84cfc7ffba0dff529134634c1fde51b54c79022ed3a433ec62cab7b393a70d"
     },
     "src/relay/wasm/orca_git_wasm_bg.wasm.d.ts": {
       "bytes": 4164,
-      "sha256": "6bb48f37a474f345b9491fc7be647a9fe5ddfade2c88c35a86f47ea506ee5d02"
+      "sha256": "c97ff3431b402b74b4e7b48f817f15fb2305255316053c6bcc969db5e295953d"
     },
     "src/renderer/src/lib/git-wasm/orca_git_wasm.js": {
       "bytes": 56341,
-      "sha256": "5d72a7e8bd312a49c5070cfc8153b74f3fd02eb85a32e544a6da641665af51ac"
+      "sha256": "7f204edbbb2a7b6cc2df7d9c5affef1077789cb28d405527d75e845682ad6f03"
     },
     "src/renderer/src/lib/git-wasm/orca_git_wasm.d.ts": {
       "bytes": 17866,
-      "sha256": "4b99589fc8893b0409c4d8d3635b163a8be98cccc17c1b210f97573971ebe730"
+      "sha256": "7e9a54301bd64612a8f3bd7d7b6e1381f40dbea43598b86ad544e653eba983c4"
     },
     "src/renderer/src/lib/git-wasm/orca_git_wasm_bg.wasm": {
-      "bytes": 1502274,
-      "sha256": "0b5aa58bab0a87a2470e3bc59fe159b2b2ba937e541e3deee24728c2d06e89f9"
+      "bytes": 1514708,
+      "sha256": "5b3c1da03e9688aa0b173b080bb9fe0a77895bd68c4706e598f691d10e0c8381"
     },
     "src/renderer/src/lib/git-wasm/orca_git_wasm_bg.wasm.d.ts": {
       "bytes": 4164,
-      "sha256": "6bb48f37a474f345b9491fc7be647a9fe5ddfade2c88c35a86f47ea506ee5d02"
+      "sha256": "c97ff3431b402b74b4e7b48f817f15fb2305255316053c6bcc969db5e295953d"
     }
   }
 }
