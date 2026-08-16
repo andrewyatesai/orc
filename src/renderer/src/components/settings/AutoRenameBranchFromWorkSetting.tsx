@@ -5,7 +5,7 @@ import type {
   SourceControlAiSettingsPatch,
   SourceControlAiSettings
 } from '../../../../shared/source-control-ai-types'
-import { buildBranchNamePrompt } from '../../../../shared/branch-name-from-work'
+import { buildBranchNamePrompt } from '../../../../shared/branch-leaf-naming'
 import { normalizeSourceControlAiSettings } from '../../../../shared/source-control-ai'
 import {
   resolveSourceControlActionCommandTemplate,

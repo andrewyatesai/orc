@@ -14,7 +14,7 @@ import {
 import type { SourceControlTextActionId } from '../../../../shared/source-control-ai-actions'
 import type { GlobalSettings, Repo } from '../../../../shared/types'
 import type { SourceControlAiWriteTarget } from '../../../../shared/source-control-ai-recipe-save'
-import { buildBranchNamePrompt } from '../../../../shared/branch-name-from-work'
+import { buildBranchNamePrompt } from '../../../../shared/branch-leaf-naming'
 import { buildCommitMessagePrompt } from '@/lib/git-wasm/commit-message-generation'
 import { buildPullRequestFieldsPrompt } from '@/lib/git-wasm/pull-request-generation'
 import { isGitWasmReady, subscribeGitWasmReady } from '@/lib/git-wasm/git-line-stats'

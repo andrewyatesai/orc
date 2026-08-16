@@ -1,9 +1,8 @@
+// The three scanner-argument suites moved to quick-open-listing-arguments.test.ts
+// with the bodies they cover. What is left is the four functions that stay TS.
 import { describe, expect, it } from 'vitest'
 import {
   buildExcludePathPrefixes,
-  buildGitLsFilesArgsForQuickOpen,
-  buildHiddenDirExcludeGlobs,
-  buildRgArgsForQuickOpen,
   HIDDEN_DIR_BLOCKLIST,
   normalizeQuickOpenRgLine,
   shouldExcludeQuickOpenRelPath,
@@ -113,68 +112,6 @@ describe('shouldExcludeQuickOpenRelPath', () => {
   })
 })
 
-describe('buildHiddenDirExcludeGlobs', () => {
-  it('includes node_modules plus blocklist as directory-match globs', () => {
-    const globs = buildHiddenDirExcludeGlobs()
-    expect(globs).toContain('!**/node_modules')
-    expect(globs).toContain('!**/.git')
-    expect(globs).toContain('!**/.cache')
-    expect(globs).toContain('!**/.local/share')
-    // Directory-match form (not contents form) — contents form lets rg still
-    // descend into the directory.
-    expect(globs).not.toContain('!**/node_modules/**')
-  })
-})
-
-describe('buildRgArgsForQuickOpen', () => {
-  it('primary pass includes --files, --hidden, hidden-dir excludes, no --follow', () => {
-    const { primary } = buildRgArgsForQuickOpen({
-      searchRoot: '/root',
-      excludePathPrefixes: [],
-      forceSlashSeparator: false
-    })
-    expect(primary).toContain('--files')
-    expect(primary).toContain('--hidden')
-    expect(primary).toContain('!**/node_modules')
-    expect(primary).not.toContain('--follow')
-  })
-
-  it('ignored pass includes --no-ignore-vcs without .env* whitelist globs, no --follow', () => {
-    const { ignoredPass } = buildRgArgsForQuickOpen({
-      searchRoot: '/root',
-      excludePathPrefixes: [],
-      forceSlashSeparator: false
-    })
-    expect(ignoredPass).toContain('--no-ignore-vcs')
-    expect(ignoredPass).not.toContain('.env*')
-    expect(ignoredPass).not.toContain('**/.env*')
-    expect(ignoredPass).not.toContain('--follow')
-  })
-
-  it('forceSlashSeparator emits --path-separator /', () => {
-    const { primary } = buildRgArgsForQuickOpen({
-      searchRoot: '/r',
-      excludePathPrefixes: [],
-      forceSlashSeparator: true
-    })
-    const idx = primary.indexOf('--path-separator')
-    expect(idx).toBeGreaterThanOrEqual(0)
-    expect(primary[idx + 1]).toBe('/')
-  })
-
-  it('excludePathPrefixes are escaped as directory-match globs', () => {
-    const { primary } = buildRgArgsForQuickOpen({
-      searchRoot: '/r',
-      excludePathPrefixes: ['packages/app', 'feature[1]'],
-      forceSlashSeparator: false
-    })
-    expect(primary).toContain('!packages/app')
-    expect(primary).toContain('!packages/app/**')
-    // Glob metacharacters in a literal name must be escaped.
-    expect(primary).toContain('!feature\\[1\\]')
-  })
-})
-
 describe('normalizeQuickOpenRgLine', () => {
   it('strips absolute root prefix', () => {
     expect(
@@ -236,55 +173,5 @@ describe('normalizeQuickOpenRgLine', () => {
   it('returns null for cwd-relative parent-directory escapes', () => {
     expect(normalizeQuickOpenRgLine('../outside/a.ts', { kind: 'cwd-relative' })).toBeNull()
     expect(normalizeQuickOpenRgLine('./../outside/a.ts', { kind: 'cwd-relative' })).toBeNull()
-  })
-})
-
-describe('buildGitLsFilesArgsForQuickOpen', () => {
-  it('primary pass is --cached --others --exclude-standard', () => {
-    const { primary } = buildGitLsFilesArgsForQuickOpen()
-    expect(primary).toEqual([
-      '-z',
-      '-s',
-      '--cached',
-      '--others',
-      '--exclude-standard',
-      '--directory',
-      '--no-empty-directory'
-    ])
-  })
-
-  it('ignored pass surfaces ignored files without .env* pathspec whitelist', () => {
-    const { ignoredPass } = buildGitLsFilesArgsForQuickOpen()
-    expect(ignoredPass).toEqual([
-      '-z',
-      '-s',
-      '--others',
-      '--ignored',
-      '--exclude-standard',
-      '--directory',
-      '--no-empty-directory'
-    ])
-    expect(ignoredPass).not.toContain('.env*')
-    expect(ignoredPass).not.toContain(':(glob)**/.env*')
-  })
-
-  it('collapses untracked directories in both passes without generated pathspec churn', () => {
-    const { primary, ignoredPass } = buildGitLsFilesArgsForQuickOpen()
-    expect(primary).toContain('--directory')
-    expect(ignoredPass).toContain('--directory')
-    expect(ignoredPass).toContain('--no-empty-directory')
-    expect([...primary, ...ignoredPass]).not.toContain(':(exclude,glob)**/node_modules/**')
-  })
-
-  it('exclude prefixes prepend positive "." pathspec', () => {
-    const { primary, ignoredPass } = buildGitLsFilesArgsForQuickOpen(['packages/app'])
-    const dashDashIdx = primary.indexOf('--')
-    expect(dashDashIdx).toBeGreaterThanOrEqual(0)
-    // Positive pathspec must appear before any exclude pathspec.
-    expect(primary[dashDashIdx + 1]).toBe('.')
-    expect(primary).toContain(':(exclude,glob)packages/app')
-    expect(primary).toContain(':(exclude,glob)packages/app/**')
-    expect(ignoredPass).toContain(':(exclude,glob)packages/app')
-    expect(ignoredPass).toContain(':(exclude,glob)packages/app/**')
   })
 })

@@ -1,28 +1,43 @@
-// TS dispatch for the quick-open-filter parity module. buildGitLsFilesArgsForQuickOpen
-// was cut over to the Rust core (main via napi, relay via wasm through the
-// dispatch seam), so this adapter drives the SAME wasm for it — the diff
-// degenerates to wasm-vs-binary and the goldens pin correctness. Everything else
-// stays live TS (still the production impl), compared against Rust for real
-// parity — including buildExcludePathPrefixes, which leans on node:path's OS-aware
-// relative() semantics the zero-dep Rust port can't reproduce.
+// TS dispatch for the quick-open-filter parity module. The three scanner-argument
+// builders are cut over to `orca_core::quick_open_filter`; their TS bodies live in
+// `src/shared/quick-open-listing-arguments.ts` as that shim's `parity` fallback.
+//
+// Like the branch-name-from-work, wsl-paths, worktree-id and stable-pane-id
+// adapters, this drives the SHIM rather than the wasm oracle, so the harness keeps
+// a real TS-vs-Rust differential instead of degenerating to wasm-vs-binary:
+// config/vitest.parity.config.ts installs no setup file, so the seam is unbound
+// here and the shim answers from that fallback — which is exactly the deleted body,
+// and exactly the code main and the relay run before (or without) a binding.
+// buildGitLsFilesArgsForQuickOpen used to go through the oracle for want of such a
+// fallback; it no longer has to.
+//
+// The four remaining functions are still live TS (still the production impl),
+// compared against Rust for real parity — including buildExcludePathPrefixes, which
+// leans on node:path's cwd-resolving, case-insensitive win32/UNC relative()
+// semantics the zero-dep Rust port cannot reproduce (see the twin's header).
 import {
   buildExcludePathPrefixes,
-  buildHiddenDirExcludeGlobs,
-  buildRgArgsForQuickOpen,
   normalizeQuickOpenRgLine,
   shouldExcludeQuickOpenRelPath,
   shouldIncludeQuickOpenPath,
-  type RgArgsOptions,
   type RgOutputMode
 } from '../../../src/shared/quick-open-filter'
-import { gitWasmOracle } from './orca-git-wasm-oracle'
+import {
+  buildGitLsFilesArgsForQuickOpen,
+  buildHiddenDirExcludeGlobs,
+  buildRgArgsForQuickOpen,
+  type RgArgsOptions
+} from '../../../src/shared/quick-open-listing-arguments'
 
 export function dispatch(fn: string, input: unknown): unknown {
   switch (fn) {
-    case 'buildGitLsFilesArgsForQuickOpen':
-      return JSON.parse(
-        gitWasmOracle().orcaDispatch('quick-open-filter', fn, JSON.stringify(input ?? null))
-      )
+    case 'buildGitLsFilesArgsForQuickOpen': {
+      const { excludePathPrefixes } = (input ?? {}) as { excludePathPrefixes?: readonly string[] }
+      // The twin's default parameter, not an empty list the caller passed.
+      return excludePathPrefixes === undefined
+        ? buildGitLsFilesArgsForQuickOpen()
+        : buildGitLsFilesArgsForQuickOpen(excludePathPrefixes)
+    }
     case 'shouldIncludeQuickOpenPath': {
       const { path } = input as { path: string }
       return shouldIncludeQuickOpenPath(path)

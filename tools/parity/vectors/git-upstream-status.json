@@ -191,6 +191,47 @@
         "behindCommitsArePatchEquivalent": true
       },
       "expected": false
+    },
+    {
+      "function": "isBehindOnlyUpstream",
+      "note": "counter domain (25d68c0562): TS types ahead/behind as `number`, so a fractional behind is strictly positive — the pre-fix as_i64 core read 0.5 as 0 and answered false",
+      "input": {
+        "hasUpstream": true,
+        "ahead": 0,
+        "behind": 0.5
+      },
+      "expected": true
+    },
+    {
+      "function": "isBehindOnlyUpstream",
+      "note": "counter domain: a fractional ahead is not `=== 0`, which the pre-fix as_i64 core could not express",
+      "input": {
+        "hasUpstream": true,
+        "ahead": 0.5,
+        "behind": 3
+      },
+      "expected": false
+    },
+    {
+      "function": "isBehindOnlyUpstream",
+      "note": "counter domain: an explicit null ahead is NOT a zero — `null === 0` is false, where as_i64().unwrap_or(0) made it indistinguishable from one",
+      "input": {
+        "hasUpstream": true,
+        "ahead": null,
+        "behind": 3
+      },
+      "expected": false
+    },
+    {
+      "function": "shouldForcePushWithLeaseForUpstream",
+      "note": "counter domain: a behind count past i64 is still strictly positive; as_i64 returned None for it and the force push was withheld",
+      "input": {
+        "hasUpstream": true,
+        "ahead": 2,
+        "behind": 9223372036854775808,
+        "behindCommitsArePatchEquivalent": true
+      },
+      "expected": true
     }
   ]
 }

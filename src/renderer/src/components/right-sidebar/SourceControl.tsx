@@ -198,10 +198,7 @@ import { GitHistoryPanel, type GitHistoryPanelState } from './GitHistoryPanel'
 import { useGitHistoryCommitActions } from './useGitHistoryCommitActions'
 // Fork: hosted-review ref normalizers live in the Rust core via the wasm wrapper.
 import { normalizeHostedReviewHeadRef } from '@/lib/git-wasm/hosted-review-refs'
-import {
-  isBehindOnlyUpstream,
-  shouldForcePushWithLeaseForUpstream
-} from '../../../../shared/git-upstream-status'
+import { isBehindOnlyUpstream, shouldForcePushWithLeaseForUpstream } from '../../../../shared/git-upstream-reconciliation'
 import type {
   DiffComment,
   GitBranchChangeEntry,

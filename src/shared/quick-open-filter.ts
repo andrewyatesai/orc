@@ -7,24 +7,35 @@
  * timeouts, and buffering. See docs/design/share-quick-open-file-listing.md.
  */
 import { posix, win32 } from 'node:path'
-import { requireOrcaDispatch } from './orca-dispatch-seam'
 
-// buildGitLsFilesArgsForQuickOpen is cut over to the Rust quick-open-filter core
-// through the dispatch seam (main via napi, relay via wasm — both always-ready,
-// so requireOrcaDispatch never falls back). What stays in TS and why:
-//   - the hot per-file predicates (shouldIncludeQuickOpenPath,
-//     shouldExcludeQuickOpenRelPath, normalizeQuickOpenRgLine — called once per
-//     listed file across ~100k files): a per-file JSON round-trip is the wrong
-//     boundary;
-//   - the blocklist-coupled rg builders (buildHiddenDirExcludeGlobs,
-//     buildRgArgsForQuickOpen): splitting HIDDEN_DIR_BLOCKLIST across TS + Rust
-//     would risk drift;
-//   - buildExcludePathPrefixes: it leans on node:path's OS-aware, case-insensitive
-//     win32/UNC `relative()` semantics that the zero-dep Rust port can't
-//     faithfully reproduce (a mixed-case UNC root diverges).
-function dispatch(fn: string, input: unknown): unknown {
-  return requireOrcaDispatch('quick-open-filter', fn, input)
-}
+// The three scanner-argument builders are CUT OVER to the Rust
+// `orca_core::quick_open_filter` core and now ship from
+// `quick-open-listing-arguments.ts` on the dispatch seam. This file keeps the
+// blocklist data both halves read, the shared types, and four bodies that must
+// NOT cross, each for a measured reason:
+//
+//   - buildExcludePathPrefixes. `node:path`'s `relative()` resolves its operands
+//     against `process.cwd()` and folds Windows UNC roots case-insensitively;
+//     the zero-dep Rust port reproduces neither (`orca_core`'s `path_flavor` has
+//     no `//` UNC branch at all). 864 comparisons against both shipped
+//     artifacts, 42 disagreements — including
+//     buildExcludePathPrefixes('//Server/Share/Repo',
+//     ['//server/share/repo/packages/app']), which is `['packages/app']` here
+//     and `[]` in Rust, i.e. a nested worktree that stops being excluded. That
+//     input is what `quick-open-file-list.ts` builds for a UNC workspace, and it
+//     is asserted in this module's own test; the parity corpus has no `//` root,
+//     which is why `pnpm parity` is green over it.
+//   - shouldIncludeQuickOpenPath / shouldExcludeQuickOpenRelPath /
+//     normalizeQuickOpenRgLine. All three run ONCE PER LISTED FILE (and per
+//     directory entry in `quick-open-readdir-walk.ts`), and
+//     `orca-runtime-files.ts` lists with no maxResults. Measured through the
+//     real codec: 265ns here against 929ns dispatched, so the three together
+//     cost ~2ms per 1,000 files — ~1s added to an uncapped $HOME scan, on the
+//     path whose 10s-timeout bug this blocklist exists for. They are clean
+//     against both artifacts (0 divergences in 101,348 comparisons); what
+//     unblocks them is a BATCHED dispatch arm that crosses once per rg chunk
+//     instead of once per line, which needs a Rust change and an artifact
+//     rebuild.
 
 // ─── Hidden-dir blocklist ────────────────────────────────────────────
 
@@ -50,10 +61,12 @@ export const HIDDEN_DIR_BLOCKLIST: ReadonlySet<string> = new Set([
 ])
 
 // `.local` may hold user files; block only the generated `.local/share` runtime subtree.
-const HIDDEN_PATH_BLOCKLIST: readonly string[] = ['.local/share']
+// Exported as data because `quick-open-listing-arguments.ts` builds its pre-ready
+// globs from the same three tables the segment walk below reads.
+export const HIDDEN_PATH_BLOCKLIST: readonly string[] = ['.local/share']
 
 // Separate from HIDDEN_DIR_BLOCKLIST: node_modules isn't a dotdir but must still be pruned.
-const NON_DOTTED_PRUNE = 'node_modules'
+export const NON_DOTTED_PRUNE = 'node_modules'
 
 function containsBlockedRelPath(path: string, blockedPath: string): boolean {
   return (
@@ -169,50 +182,12 @@ export function shouldExcludeQuickOpenRelPath(
   return false
 }
 
-// ─── Glob escaping ───────────────────────────────────────────────────
-
-// rg/git glob metacharacters; escape embedded dir names so a dir named `feature[1]` doesn't exclude `feature1`.
-const GLOB_META = new Set<string>(['*', '?', '[', ']', '{', '}', '\\'])
-
-function escapeGlob(segment: string): string {
-  let out = ''
-  for (let i = 0; i < segment.length; i++) {
-    const ch = segment[i]
-    out += GLOB_META.has(ch) ? `\\${ch}` : ch
-  }
-  return out
-}
-
-function escapeGlobPath(relPath: string): string {
-  // Split on '/' so the separators are not themselves escaped.
-  return relPath.split('/').map(escapeGlob).join('/')
-}
-
 function isParentRelativePath(relPath: string): boolean {
   // Why: `..name` is a valid child path; only `..` and `../...` escape.
   return relPath === '..' || relPath.startsWith('../')
 }
 
-// ─── rg traversal-pruning globs ──────────────────────────────────────
-
-/**
- * Build the hidden-dir traversal-pruning glob args for rg (includes `node_modules`).
- * Uses directory-match form `!**\/name` not contents form `!**\/name/**`: rg still descends into a
- * dir matched only by the contents form, so only the directory form actually prunes traversal.
- */
-export function buildHiddenDirExcludeGlobs(): string[] {
-  const names = [NON_DOTTED_PRUNE, ...HIDDEN_DIR_BLOCKLIST]
-  const out: string[] = []
-  for (const name of names) {
-    out.push('--glob', `!**/${escapeGlob(name)}`)
-  }
-  for (const blockedPath of HIDDEN_PATH_BLOCKLIST) {
-    out.push('--glob', `!**/${escapeGlobPath(blockedPath)}`)
-  }
-  return out
-}
-
-// ─── rg arg builder ──────────────────────────────────────────────────
+// ─── rg arg shapes (builders live in quick-open-listing-arguments.ts) ─
 
 export type RgArgsOptions = {
   /** rg positional search target: absolute root (strip prefix from output) or `.` (cwd-relative); both need cwd: rootPath. */
@@ -228,44 +203,6 @@ export type RgArgs = {
   primary: string[]
   /** Second pass: ignored files, hidden dotfiles included. */
   ignoredPass: string[]
-}
-
-/**
- * Build the two rg arg arrays for Quick Open. Caller must spawn with `cwd: rootPath` — root-relative
- * globs are evaluated against rg's cwd, so omitting it silently breaks nested-worktree exclusions.
- * Deliberately omits `--follow` so symlinks can't escape the authorized root or cause traversal loops.
- */
-export function buildRgArgsForQuickOpen(opts: RgArgsOptions): RgArgs {
-  const sepArgs = opts.forceSlashSeparator ? ['--path-separator', '/'] : []
-  const hiddenDirGlobs = buildHiddenDirExcludeGlobs()
-  const excludeGlobs: string[] = []
-  for (const prefix of opts.excludePathPrefixes) {
-    // Directory-match form so rg prunes the nested worktree's traversal, not just its listed files.
-    excludeGlobs.push('--glob', `!${escapeGlobPath(prefix)}`)
-    excludeGlobs.push('--glob', `!${escapeGlobPath(prefix)}/**`)
-  }
-
-  const primary = [
-    '--files',
-    '--hidden',
-    ...sepArgs,
-    ...hiddenDirGlobs,
-    ...excludeGlobs,
-    opts.searchRoot
-  ]
-
-  // Ignored pass: --no-ignore-vcs broadens to gitignored/parent/global ignored files; blocklist globs still guard.
-  const ignoredPass = [
-    '--files',
-    '--hidden',
-    '--no-ignore-vcs',
-    ...sepArgs,
-    ...hiddenDirGlobs,
-    ...excludeGlobs,
-    opts.searchRoot
-  ]
-
-  return { primary, ignoredPass }
 }
 
 // ─── rg stdout line normalization ────────────────────────────────────
@@ -316,21 +253,9 @@ export function normalizeQuickOpenRgLine(rawLine: string, outputMode: RgOutputMo
   return null
 }
 
-// ─── git ls-files arg builder ────────────────────────────────────────
+// ─── git ls-files arg shape (builder lives in quick-open-listing-arguments.ts) ─
 
 export type GitLsFilesArgs = {
   primary: string[]
   ignoredPass: string[]
-}
-
-/**
- * Build the two `git ls-files` arg arrays for Quick Open (dispatched to the Rust
- * core). Exclude prefixes are encoded as `:(exclude,glob)` pathspecs with a
- * positive `.` pathspec prepended; the ignored pass asks git for ignored
- * untracked files. Non-git roots keep their non-git fallback limits in callers.
- */
-export function buildGitLsFilesArgsForQuickOpen(
-  excludePathPrefixes: readonly string[] = []
-): GitLsFilesArgs {
-  return dispatch('buildGitLsFilesArgsForQuickOpen', { excludePathPrefixes }) as GitLsFilesArgs
 }

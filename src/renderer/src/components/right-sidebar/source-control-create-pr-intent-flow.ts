@@ -1,7 +1,4 @@
-import {
-  isBehindOnlyUpstream,
-  shouldForcePushWithLeaseForUpstream
-} from '../../../../shared/git-upstream-status'
+import { isBehindOnlyUpstream, shouldForcePushWithLeaseForUpstream } from '../../../../shared/git-upstream-reconciliation'
 import type { HostedReviewCreationEligibility } from '../../../../shared/hosted-review'
 import {
   normalizeHostedReviewBaseRef,

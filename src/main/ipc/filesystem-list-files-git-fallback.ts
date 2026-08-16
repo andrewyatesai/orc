@@ -1,10 +1,7 @@
 import type { ChildProcess } from 'node:child_process'
 import { gitSpawn } from '../git/runner'
-import {
-  buildGitLsFilesArgsForQuickOpen,
-  shouldExcludeQuickOpenRelPath,
-  shouldIncludeQuickOpenPath
-} from '../../shared/quick-open-filter'
+import { shouldExcludeQuickOpenRelPath, shouldIncludeQuickOpenPath } from '../../shared/quick-open-filter'
+import { buildGitLsFilesArgsForQuickOpen } from '../../shared/quick-open-listing-arguments'
 import {
   createQuickOpenReaddirBudget,
   expandQuickOpenGitFileListing,

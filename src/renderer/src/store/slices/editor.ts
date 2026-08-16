@@ -56,7 +56,7 @@ import {
   markSyncPushStageError,
   resolveRemoteOperationErrorMessage
 } from '@/lib/source-control-remote-error'
-import { shouldForcePushWithLeaseForUpstream } from '../../../../shared/git-upstream-status'
+import { shouldForcePushWithLeaseForUpstream } from '../../../../shared/git-upstream-reconciliation'
 import {
   fastForwardRuntimeGit,
   fetchRuntimeGit,

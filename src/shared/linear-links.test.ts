@@ -1,46 +1,15 @@
+// The two URL PARSERS. The builder suites moved to `linear-app-urls.test.ts`
+// with the cut-over; `getLinearOrganizationUrlKeyFromIssueUrl` is still
+// TypeScript on purpose (see its header), so its cases stay here.
 import { describe, expect, it } from 'vitest'
 
-import {
-  buildLinearPersonalApiKeySettingsUrl,
-  buildLinearTeamUrl,
-  buildLinearWorkspaceApiSettingsUrl,
-  getLinearOrganizationUrlKeyFromIssueUrl,
-  parseLinearIssueInput
-} from './linear-links'
+import { getLinearOrganizationUrlKeyFromIssueUrl, parseLinearIssueInput } from './linear-links'
 
 describe('linear links', () => {
-  it('builds team URLs from workspace and team keys', () => {
-    expect(buildLinearTeamUrl({ organizationUrlKey: 'acme', teamKey: 'ENG' })).toBe(
-      'https://linear.app/acme/team/ENG/all'
-    )
-  })
-
-  it('encodes URL path segments', () => {
-    expect(buildLinearTeamUrl({ organizationUrlKey: 'acme inc', teamKey: 'A/B' })).toBe(
-      'https://linear.app/acme%20inc/team/A%2FB/all'
-    )
-  })
-
   it('extracts the workspace URL key from Linear issue URLs', () => {
     expect(getLinearOrganizationUrlKeyFromIssueUrl('https://linear.app/acme/issue/ENG-1')).toBe(
       'acme'
     )
-  })
-
-  it('builds organization-scoped API key settings URLs', () => {
-    expect(buildLinearPersonalApiKeySettingsUrl('acme inc')).toBe(
-      'https://linear.app/acme%20inc/settings/account/security'
-    )
-    expect(buildLinearWorkspaceApiSettingsUrl('acme/inc')).toBe(
-      'https://linear.app/acme%2Finc/settings/api'
-    )
-  })
-
-  it('falls back to global API settings URLs when no organization slug is available', () => {
-    expect(buildLinearPersonalApiKeySettingsUrl()).toBe(
-      'https://linear.app/settings/account/security'
-    )
-    expect(buildLinearWorkspaceApiSettingsUrl('   ')).toBe('https://linear.app/settings/api')
   })
 
   it('parses bare Linear issue identifiers', () => {
@@ -61,5 +30,19 @@ describe('linear links', () => {
   it('rejects non-Linear issue input', () => {
     expect(parseLinearIssueInput('https://example.com/acme/issue/ENG-123')).toBeNull()
     expect(parseLinearIssueInput('not an issue')).toBeNull()
+  })
+
+  // Pins the refusal recorded on the function: `new URL` re-encodes the pathname
+  // and IDNA-maps the host, and `orca_core::linear_links::parse_absolute_url`
+  // does neither — so wiring this to the core turns these red instead of
+  // silently changing a persisted `linkedLinearIssueOrganizationUrlKey`.
+  it('keeps the WHATWG-normalized answer the Rust parse does not reproduce', () => {
+    expect(getLinearOrganizationUrlKeyFromIssueUrl('https://linear.app/acme inc/issue/ENG-1')).toBe(
+      'acme%20inc'
+    )
+    expect(getLinearOrganizationUrlKeyFromIssueUrl('https://linear%2eapp/acme/issue/ENG-1')).toBe(
+      'acme'
+    )
+    expect(getLinearOrganizationUrlKeyFromIssueUrl('foo://LINEAR.APP/evil/issue/ENG-1')).toBeNull()
   })
 })

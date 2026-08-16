@@ -235,6 +235,48 @@
       "note": "trailing U+0085 (NEL) is NOT JS-trimmed, so it is not a recognized creature name",
       "input": "Nautilus\u0085",
       "expected": false
+    },
+    {
+      "function": "buildBranchNamePrompt",
+      "note": "edge: U+FEFF is in the JS trim set but not in Rust char::is_whitespace, so a BOM-wrapped prompt trims to the bare text",
+      "input": { "context": { "firstPrompt": "\ufeff  Add a logout button  \ufeff" } },
+      "expected": "Generate a short git branch name that summarizes the coding task described below.\nOutput ONLY the branch name on a single line, nothing else.\n\nUser request:\nAdd a logout button"
+    },
+    {
+      "function": "buildBranchNamePrompt",
+      "note": "edge: U+0085 (NEL) is in Rust char::is_whitespace but not in the JS trim set, so it survives in the user request",
+      "input": { "context": { "firstPrompt": "\u0085Add a logout button\u0085" } },
+      "expected": "Generate a short git branch name that summarizes the coding task described below.\nOutput ONLY the branch name on a single line, nothing else.\n\nUser request:\n\u0085Add a logout button\u0085"
+    },
+    {
+      "function": "buildBranchNamePrompt",
+      "note": "edge: an assistantMessage of only U+0085 stays truthy under JS trim, so the response section is emitted",
+      "input": { "context": { "firstPrompt": "Add a logout button", "assistantMessage": "\u0085" } },
+      "expected": "Generate a short git branch name that summarizes the coding task described below.\nOutput ONLY the branch name on a single line, nothing else.\n\nUser request:\nAdd a logout button\n\nAgent's initial response:\n\u0085"
+    },
+    {
+      "function": "buildBranchNamePrompt",
+      "note": "edge: a customPrompt of only U+0085 stays truthy under JS trim, so it leads and selects the non-short variant",
+      "input": { "context": { "firstPrompt": "Add a logout button" }, "customPrompt": "\u0085" },
+      "expected": "\u0085\n\nGenerate a git branch name that summarizes the coding task described below.\nOutput ONLY the branch name on a single line, nothing else.\n\nUser request:\nAdd a logout button"
+    },
+    {
+      "function": "buildBranchNamePrompt",
+      "note": "edge: a customPrompt of BOM + space is empty under JS trim, so the short variant leads",
+      "input": { "context": { "firstPrompt": "Add a logout button" }, "customPrompt": "\ufeff \ufeff" },
+      "expected": "Generate a short git branch name that summarizes the coding task described below.\nOutput ONLY the branch name on a single line, nothing else.\n\nUser request:\nAdd a logout button"
+    },
+    {
+      "function": "buildBranchNamePrompt",
+      "note": "edge: a null assistantMessage is omitted like an absent one",
+      "input": { "context": { "firstPrompt": "Add a logout button", "assistantMessage": null } },
+      "expected": "Generate a short git branch name that summarizes the coding task described below.\nOutput ONLY the branch name on a single line, nothing else.\n\nUser request:\nAdd a logout button"
+    },
+    {
+      "function": "buildBranchNamePrompt",
+      "note": "edge: an empty firstPrompt still emits the User request header with nothing under it",
+      "input": { "context": { "firstPrompt": "" } },
+      "expected": "Generate a short git branch name that summarizes the coding task described below.\nOutput ONLY the branch name on a single line, nothing else.\n\nUser request:\n"
     }
   ]
 }

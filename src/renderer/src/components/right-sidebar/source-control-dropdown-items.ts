@@ -4,7 +4,7 @@
 import type { PrimaryActionInputs } from './source-control-primary-action'
 import { canSubmitCommit, resolveCommitDisabledReason } from './source-control-commit-eligibility'
 import type { GitConflictOperation } from '../../../../shared/types'
-import { shouldForcePushWithLeaseForUpstream } from '../../../../shared/git-upstream-status'
+import { shouldForcePushWithLeaseForUpstream } from '../../../../shared/git-upstream-reconciliation'
 import { supportsHostedReviewCreation } from '../../../../shared/hosted-review-creation-providers'
 import { translate } from '@/i18n/i18n'
 import {

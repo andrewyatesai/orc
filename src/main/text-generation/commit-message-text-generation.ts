@@ -27,10 +27,8 @@ import {
   captureAgentGenerationFailureOutput,
   type AgentGenerationFailureOutput
 } from './agent-failure-output'
-import {
-  buildBranchNamePrompt,
-  type BranchNameWorkContext
-} from '../../shared/branch-name-from-work'
+import { type BranchNameWorkContext } from '../../shared/branch-name-from-work'
+import { buildBranchNamePrompt } from '../../shared/branch-leaf-naming'
 import { sanitizeBranchSlug } from '../../shared/branch-leaf-naming'
 import type {
   CommitMessageAgentCapability,

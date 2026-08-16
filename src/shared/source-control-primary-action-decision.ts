@@ -1,4 +1,4 @@
-import { shouldForcePushWithLeaseForUpstream } from './git-upstream-status'
+import { shouldForcePushWithLeaseForUpstream } from './git-upstream-reconciliation'
 import { supportsHostedReviewCreation } from './hosted-review-creation-providers'
 import { resolveCreateReviewIntentEligibility } from './source-control-create-review-intent'
 import { resolveSourceControlPrimaryActionDuringRemoteOp } from './source-control-primary-action-in-flight'

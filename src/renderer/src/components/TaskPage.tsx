@@ -125,10 +125,8 @@ import {
 } from '@/components/linear-state-pill-style'
 import { parseTaskQuery, stripRepoQualifiers, withQualifier } from '../lib/git-wasm/task-query'
 import { githubProjectHost } from '../../../shared/github-project-identity'
-import {
-  buildLinearTeamUrl,
-  getLinearOrganizationUrlKeyFromIssueUrl
-} from '../../../shared/linear-links'
+import { getLinearOrganizationUrlKeyFromIssueUrl } from '../../../shared/linear-links'
+import { buildLinearTeamUrl } from '../../../shared/linear-app-urls'
 import PRFilterDropdowns, { type PRFilterChange } from '@/components/github/PRFilterDropdowns'
 import { GitHubMarkdownComposer } from '@/components/github/GitHubMarkdownComposer'
 import { GitHubUserAvatar } from '@/components/github/github-user-avatar'

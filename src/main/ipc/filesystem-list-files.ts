@@ -6,14 +6,8 @@ import { checkRgAvailable } from './rg-availability'
 import { wslAwareSpawn } from '../git/runner'
 import { parseWslPath, toWindowsWslPath } from '../wsl'
 import { getLocalGitOptionsForRegisteredWorktree } from './local-worktree-runtime-options'
-import {
-  buildExcludePathPrefixes,
-  buildRgArgsForQuickOpen,
-  normalizeQuickOpenRgLine,
-  type RgOutputMode,
-  shouldExcludeQuickOpenRelPath,
-  shouldIncludeQuickOpenPath
-} from '../../shared/quick-open-filter'
+import { buildExcludePathPrefixes, normalizeQuickOpenRgLine, type RgOutputMode, shouldExcludeQuickOpenRelPath, shouldIncludeQuickOpenPath } from '../../shared/quick-open-filter'
+import { buildRgArgsForQuickOpen } from '../../shared/quick-open-listing-arguments'
 import { isQuickOpenReaddirBudgetError } from '../../shared/quick-open-readdir-walk'
 import { buildInstallRgMessage } from '../../shared/quick-open-install-rg'
 import { listFilesWithGit } from './filesystem-list-files-git-fallback'
