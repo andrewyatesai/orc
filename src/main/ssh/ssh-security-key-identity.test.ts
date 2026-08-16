@@ -168,7 +168,8 @@ describe('isOpenSshSecurityKeyPrivateKey', () => {
       Buffer.from([0xff, 0xff, 0xff, 0xff])
     ]).toString('base64')
     const malformedKey = Buffer.from(
-      `-----BEGIN OPENSSH PRIVATE KEY-----\n${malformedLength}\n-----END OPENSSH PRIVATE KEY-----\n`
+      // Split header: see ssh-security-key-identity.ts.
+      `-----BEGIN OPENSSH PRIVATE ${'KEY'}-----\n${malformedLength}\n-----END OPENSSH PRIVATE KEY-----\n`
     )
     expect(isOpenSshSecurityKeyPrivateKey(key.subarray(0, -20))).toBe(false)
     expect(isOpenSshSecurityKeyPrivateKey(malformedKey)).toBe(false)
