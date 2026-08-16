@@ -37,6 +37,7 @@ import { dispatch as keepTail } from './keep-tail'
 import { dispatch as linearLinks } from './linear-links'
 import { dispatch as mcp } from './mcp'
 import { dispatch as mcpEnv } from './mcp-env'
+import { dispatch as mobileRelayPairingOffer } from './mobile-relay-pairing-offer'
 import { dispatch as naclBox } from './nacl-box'
 import { dispatch as nativeFileDrop } from './native-file-drop'
 import { dispatch as nestedRepoTelemetry } from './nested-repo-telemetry'
@@ -126,6 +127,7 @@ export const DISPATCH: Record<string, Dispatcher> = {
   'linear-links': linearLinks,
   mcp: mcp,
   'mcp-env': mcpEnv,
+  'mobile-relay-pairing-offer': mobileRelayPairingOffer,
   'nacl-box': naclBox,
   'native-file-drop': nativeFileDrop,
   'nested-repo-telemetry': nestedRepoTelemetry,

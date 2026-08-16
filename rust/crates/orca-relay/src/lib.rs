@@ -13,19 +13,27 @@
 #![cfg_attr(trust_verify, register_tool(trust))]
 
 mod base64;
+pub mod canonical_https_origin;
 // The encrypted-channel reducer is the only crypto consumer; behind the default
 // `e2ee` feature so pure dependents (aggregate dispatch → relay/renderer wasm)
 // opt out and keep the NaCl-box stack out of a crypto-free artifact.
 #[cfg(feature = "e2ee")]
 pub mod e2ee_channel;
 pub mod pairing;
+pub mod pairing_offer_schema;
 pub mod terminal_stream;
 
 #[cfg(feature = "e2ee")]
 pub use e2ee_channel::{E2eeChannel, E2eeEffect, RawMessage, HANDSHAKE_TIMEOUT_MS, MAX_BINARY_BUFFERED_AMOUNT};
 pub use pairing::{
-    decode_pairing_offer, encode_pairing_offer, parse_pairing_code, PairingOffer, PairingScope,
-    PAIRING_OFFER_VERSION,
+    decode_pairing_offer, encode_pairing_offer, parse_pairing_code, PairingOffer, PairingRelay,
+    PairingScope,
+};
+pub use pairing_offer_schema::{
+    is_canonical_base64_key, pairing_offer_to_json, validate_pairing_offer,
+    PAIRING_CODE_MAX_CHARACTERS, PAIRING_DEVICE_TOKEN_MAX_CHARACTERS,
+    PAIRING_ENDPOINT_MAX_CHARACTERS, PAIRING_INPUT_MAX_CHARACTERS, PAIRING_OFFER_VERSION,
+    PAIRING_PUBLIC_KEY_MAX_CHARACTERS,
 };
 pub use terminal_stream::{
     decode_terminal_stream_frame, decode_terminal_stream_json, decode_terminal_stream_text,

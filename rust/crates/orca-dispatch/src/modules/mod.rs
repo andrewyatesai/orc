@@ -47,6 +47,7 @@ pub mod keep_tail;
 pub mod linear_links;
 pub mod mcp;
 pub mod mcp_env;
+pub mod mobile_relay_pairing_offer;
 pub mod native_file_drop;
 pub mod nested_repo_telemetry;
 pub mod network_proxy;
@@ -138,6 +139,9 @@ pub fn dispatch(module: &str, function: &str, input: &Value) -> Option<Value> {
         "nested-repo-telemetry" => Some(nested_repo_telemetry::dispatch(function, input)),
         "network-proxy" => Some(network_proxy::dispatch(function, input)),
         "open-in-applications" => Some(open_in_applications::dispatch(function, input)),
+        "mobile-relay-pairing-offer" => {
+            Some(mobile_relay_pairing_offer::dispatch(function, input))
+        }
         "pairing" => Some(pairing::dispatch(function, input)),
         "pi-agent-kind" => Some(pi_agent_kind::dispatch(function, input)),
         "policy" => Some(policy::dispatch(function, input)),
