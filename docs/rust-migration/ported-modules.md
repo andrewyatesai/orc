@@ -160,8 +160,22 @@ every pending-data change.
 **Open judgement calls.** `worktree-id` is cut over in the working tree and
 verified safe, but costs 19x-65x per call on the ready path
 (`getRepoIdFromWorktreeId` 9ns -> 581ns wasm / 346ns napi), reaching a leaf sweep
-the repo's own tests build at 2,773 elements. `worktree-ownership` is a lean port
-by design and its 15 "divergences" are passthrough fields Rust was never handed.
+the repo's own tests build at 2,773 elements. That one is a real budget call.
+
+`worktree-ownership` was listed here too, and that was WRONG — a correction worth
+keeping because the mistake is instructive. Its 15 flagged divergences really are
+passthrough fields of a lean-by-design output shape, so the corpus signal was
+noise. But reading the module to settle that found the actual blocker on the
+INPUT side, where nothing had flagged anything: `classify_worktree_ownership`
+implements the twin's steps 1, 3 and 4 and NOT step 2, so `AgentScratch` is a
+variant it can never return, and the explicit-import visibility override is
+unported. Cutting over would un-hide every `.claude/worktrees/agent-*` row —
+the regression #9535 and #9388 fixed.
+
+Finishing a port so the core answers what the twin answers is never a judgement
+call; it is the work. What is a judgement call is whether to cut over with a gap
+still open. Filing the first as the second is how a module sits in an "open
+questions" list instead of a queue.
 
 ## The per-module pattern
 
