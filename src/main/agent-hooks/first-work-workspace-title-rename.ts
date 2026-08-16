@@ -1,4 +1,4 @@
-import { humanizeBranchSlug } from '../rust-branch-name-from-work'
+import { humanizeBranchSlug } from '../../shared/branch-leaf-naming'
 import {
   generateBranchNameFromContext,
   resolveTextGenerationParams

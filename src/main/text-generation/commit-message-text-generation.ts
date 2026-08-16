@@ -31,7 +31,7 @@ import {
   buildBranchNamePrompt,
   type BranchNameWorkContext
 } from '../../shared/branch-name-from-work'
-import { sanitizeBranchSlug } from '../rust-branch-name-from-work'
+import { sanitizeBranchSlug } from '../../shared/branch-leaf-naming'
 import type {
   CommitMessageAgentCapability,
   CommitMessageModelCapability

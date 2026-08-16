@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { buildBranchNamePrompt } from './branch-name-from-work'
 
-// The 4 string helpers moved to the Rust branch-name-from-work core; their
-// behavior is now covered by the parity harness. Only buildBranchNamePrompt
+// The 4 string helpers moved to the Rust branch-name-from-work core; their test
+// cases moved with them to `branch-leaf-naming.test.ts`, which runs each one
+// against both the shim's fallback and the core. Only buildBranchNamePrompt
 // stays in TS, so only its cases remain here.
 describe('buildBranchNamePrompt', () => {
   it('includes the user prompt and omits the assistant section when absent', () => {

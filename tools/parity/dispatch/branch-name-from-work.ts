@@ -1,10 +1,10 @@
 // TS dispatch for the branch-name-from-work parity module (a PARTIAL cutover).
 // The 4 string helpers had their shared TS impls DELETED (the Rust orca-core is
-// the sole impl — main via napi, renderer via wasm), so this adapter drives the
-// SAME wasm for them: their TS-vs-Rust diff degenerates to wasm-vs-binary (drift
-// between the two Rust entry points would still surface). buildBranchNamePrompt
-// stays in TS (a module-load prompt-copy template), so it keeps comparing the
-// live TS reference against the Rust port to catch prompt-copy drift.
+// the sole impl, reached through the seam shim src/shared/branch-leaf-naming.ts),
+// so this adapter drives the SAME wasm for them: their TS-vs-Rust diff degenerates
+// to wasm-vs-binary (drift between the two Rust entry points would still surface).
+// buildBranchNamePrompt stays in TS, so it keeps comparing the live TS reference
+// against the Rust port — the module's last real prompt-copy drift check.
 import { gitWasmOracle } from './orca-git-wasm-oracle'
 import {
   buildBranchNamePrompt,

@@ -19,7 +19,7 @@ import { deriveGeneratedTabTitle } from './agent-tab-title'
 import { tuiAgentToAgentKind } from './agent-kind'
 import { buildAgentNotificationId } from './agent-notification-id'
 import { legacyBaseRefSearchResults } from './base-ref-search-result'
-import { sanitizeBranchSlug } from './branch-name-from-work'
+import { sanitizeBranchSlug } from '../../../../shared/branch-leaf-naming'
 import {
   browserViewportPresetToOverride,
   getBrowserViewportPreset
@@ -401,8 +401,8 @@ const CASES: PreReadyCase[] = [
     name: 'branch-name-from-work.sanitizeBranchSlug',
     call: () => sanitizeBranchSlug('Fix The Bug!!'),
     contract: {
-      kind: 'divergence',
-      consequence: 'the "slug" keeps spaces and punctuation — not a valid git ref'
+      kind: 'parity',
+      why: 'was a declared divergence — the per-surface shim answered the raw string pre-ready, so the "slug" kept spaces and punctuation and was not a valid git ref. The shared branch-leaf-naming shim recomputes the twin body, so pre-ready is the ready answer'
     }
   },
   {
