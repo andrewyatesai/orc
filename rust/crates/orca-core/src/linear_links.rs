@@ -228,12 +228,52 @@ fn parse_absolute_url(input: &str) -> Option<(String, Vec<String>)> {
     let (path, _) = path.split_at_checked(path_end)?;
     // `\` is a path separator only for special schemes (`https://host\a\b`).
     let separators: &[char] = if special { &['/', '\\'] } else { &['/'] };
-    let segments = path
-        .split(separators)
-        .filter(|segment| !segment.is_empty())
-        .map(str::to_string)
-        .collect();
+    let segments = remove_dot_segments(
+        path.split(separators).filter(|segment| !segment.is_empty()),
+    );
     Some((hostname, segments))
+}
+
+/// WHATWG "double-dot / single-dot path segment" handling, which `new URL`
+/// applies before exposing `pathname`.
+///
+/// Omitting it was a WRONG-WORKSPACE bug, not a cosmetic gap:
+/// `https://linear.app/a/../evil/issue/ENG-1` has pathname `/evil/issue/ENG-1`
+/// in the twin, so the org key is `evil`, while taking raw segment 0 gives `a`.
+/// That key is persisted as `linkedLinearIssueOrganizationUrlKey` and then
+/// equality-matched to choose a connected org's API token, so a user with both
+/// workspaces connected got the wrong one's token. It is not fail-closed — it
+/// substitutes a different plausible slug.
+///
+/// The percent-encoded spellings count too: the spec compares the segment after
+/// decoding `%2e`, so `%2E%2e` is `..`.
+fn remove_dot_segments<'a>(segments: impl Iterator<Item = &'a str>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for segment in segments {
+        match dot_segment_kind(segment) {
+            DotSegment::Single => {}
+            DotSegment::Double => {
+                out.pop();
+            }
+            DotSegment::Normal => out.push(segment.to_string()),
+        }
+    }
+    out
+}
+
+enum DotSegment {
+    Single,
+    Double,
+    Normal,
+}
+
+fn dot_segment_kind(segment: &str) -> DotSegment {
+    let decoded = segment.replace("%2e", ".").replace("%2E", ".");
+    match decoded.as_str() {
+        "." => DotSegment::Single,
+        ".." => DotSegment::Double,
+        _ => DotSegment::Normal,
+    }
 }
 
 /// Parse a bare Linear identifier (`ENG-123`) or a `linear.app` issue URL into a
