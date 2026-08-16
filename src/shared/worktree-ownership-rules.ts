@@ -7,16 +7,22 @@
 //
 // They are the twin VERBATIM, over data that also stayed in TypeScript:
 // `EXTERNAL_WORKTREE_VISIBILITY_ROLLOUT_AT` in `worktree-ownership.ts`, the
-// scratch prefixes in `agent-scratch-worktrees.ts`, the explicit-import override
-// in `external-worktree-inbox.ts`. Editing one side only is caught by
+// scratch prefix table in `agent-scratch-worktrees.ts`, the explicit-import
+// override in `external-worktree-inbox.ts`. Editing one side only is caught by
 // `pnpm parity`, which drives the shim seam-unbound and therefore compares
 // exactly this code against Rust.
+//
+// The two agent-scratch WORKTREE matchers moved here bodily when that module was
+// cut over, because this file was their only consumer and shimming them would
+// have made this fallback dispatch. Their ready path is unaffected: the policy
+// shim sends `agentScratchCheckoutPaths` and the Rust core builds the same
+// matcher. `isAgentScratchRepoRootPath` is not here — it had a caller outside
+// this fallback and did become a shim, in `agent-scratch-repo-roots.ts`.
 //
 // It lives in its own file because the shim plus these bodies do not fit
 // `max-lines`, and a `max-lines` disable is forbidden.
 import {
-  createAgentScratchWorktreePathMatcher,
-  isAgentScratchWorktreePath,
+  AGENT_SCRATCH_PATH_PREFIXES,
   type AgentScratchWorktreePathMatcher
 } from './agent-scratch-worktrees'
 import {
@@ -83,9 +89,45 @@ export function agentScratchMatcher(
   if (cached) {
     return cached
   }
-  const matcher = createAgentScratchWorktreePathMatcher(checkoutPaths)
+  const matcher = legacyAgentScratchWorktreePathMatcher(checkoutPaths)
   MATCHERS_BY_CHECKOUT_PATHS.set(checkoutPaths, matcher)
   return matcher
+}
+
+/** The deleted `createAgentScratchWorktreePathMatcher`, verbatim over the kept
+ *  prefix table. The closure is the twin's shape: a fan-out normalizes each
+ *  checkout once, not once per candidate. */
+export function legacyAgentScratchWorktreePathMatcher(
+  checkoutPaths: readonly string[]
+): AgentScratchWorktreePathMatcher {
+  const checkoutPathKeys = new Set(checkoutPaths.map(normalizeRuntimePathForComparison))
+  return (worktreePath) => {
+    const segments = normalizeRuntimePathForComparison(worktreePath).split('/')
+    for (const prefix of AGENT_SCRATCH_PATH_PREFIXES) {
+      // Strict `<`: the marker must have a descendant, so the container itself
+      // (`<repo>/.gsd-workspaces`) is not a scratch worktree.
+      for (let index = 0; index + prefix.length < segments.length; index += 1) {
+        if (!prefix.every((segment, offset) => segments[index + offset] === segment)) {
+          continue
+        }
+        const checkoutPath = segments.slice(0, index).join('/')
+        // Why: splitting strips the separator from filesystem roots, but normalized checkout keys retain it.
+        const checkoutPathKey = /^[a-z]:$/i.test(checkoutPath)
+          ? `${checkoutPath}/`
+          : checkoutPath || '/'
+        if (checkoutPathKeys.has(checkoutPathKey)) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+}
+
+/** The deleted `isAgentScratchWorktreePath`, verbatim: only the repo root counts
+ *  as a registered checkout. */
+export function legacyIsAgentScratchWorktreePath(repoPath: string, worktreePath: string): boolean {
+  return legacyAgentScratchWorktreePathMatcher([repoPath])(worktreePath)
 }
 
 /** The deleted twin's body, verbatim over the kept rollout constant. */
@@ -123,7 +165,7 @@ export function legacyClassifyWorktreeOwnership(args: WorktreeOwnershipInput): W
   // plumbing, not workspaces; classify before layout heuristics (#9388).
   if (
     agentScratchMatcher(args.agentScratchCheckoutPaths)?.(args.worktree.path) ??
-    isAgentScratchWorktreePath(args.repo.path, args.worktree.path)
+    legacyIsAgentScratchWorktreePath(args.repo.path, args.worktree.path)
   ) {
     return 'agent-scratch'
   }

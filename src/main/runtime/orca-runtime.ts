@@ -350,7 +350,7 @@ import {
   toDetectedWorktree
 } from '../../shared/worktree-ownership-policy'
 import { buildKnownOrcaWorkspaceLayouts } from '../../shared/orca-workspace-layouts'
-import { isAgentScratchRepoRootPath } from '../../shared/agent-scratch-worktrees'
+import { isAgentScratchRepoRootPath } from '../../shared/agent-scratch-repo-roots'
 import {
   BROWSER_HEADLESS_RUNTIME_CAPABILITY,
   BROWSER_CERTIFICATE_TRUST_RUNTIME_CAPABILITY,

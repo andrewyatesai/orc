@@ -2,6 +2,7 @@
 import { dispatch as agentKind } from './agent-kind'
 import { dispatch as agentNotificationId } from './agent-notification-id'
 import { dispatch as agentRecognition } from './agent-recognition'
+import { dispatch as agentScratchWorktrees } from './agent-scratch-worktrees'
 import { dispatch as agentStatusTypes } from './agent-status-types'
 import { dispatch as agentTabTitle } from './agent-tab-title'
 import { dispatch as baseRefSearchResult } from './base-ref-search-result'
@@ -92,6 +93,7 @@ export const DISPATCH: Record<string, Dispatcher> = {
   'agent-kind': agentKind,
   'agent-notification-id': agentNotificationId,
   'agent-recognition': agentRecognition,
+  'agent-scratch-worktrees': agentScratchWorktrees,
   'agent-status-types': agentStatusTypes,
   'agent-tab-title': agentTabTitle,
   'base-ref-search-result': baseRefSearchResult,

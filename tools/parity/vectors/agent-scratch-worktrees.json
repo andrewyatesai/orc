@@ -1,0 +1,321 @@
+{
+  "module": "agent-scratch-worktrees",
+  "source": "src/shared/agent-scratch-worktrees.ts",
+  "rustCrate": "orca-core::agent_scratch_worktrees",
+  "cases": [
+    {
+      "function": "isAgentScratchWorktreePath",
+      "note": "matches Claude Code sub-agent worktrees",
+      "input": {
+        "repoPath": "/userhome/dev/app",
+        "worktreePath": "/userhome/dev/app/.claude/worktrees/agent-a04ccaaa55ddadb91"
+      },
+      "expected": true
+    },
+    {
+      "function": "isAgentScratchWorktreePath",
+      "note": "matches gsd parallel-agent workspaces",
+      "input": {
+        "repoPath": "/userhome/dev/app",
+        "worktreePath": "/userhome/dev/app/.gsd-workspaces/phase-1-subagent-2"
+      },
+      "expected": true
+    },
+    {
+      "function": "isAgentScratchWorktreePath",
+      "note": "matches Windows path separators and casing",
+      "input": {
+        "repoPath": "C:\\userhome\\dev\\app",
+        "worktreePath": "c:\\USERHOME\\dev\\app\\.Claude\\Worktrees\\agent-a04ccaaa"
+      },
+      "expected": true
+    },
+    {
+      "function": "isAgentScratchWorktreePath",
+      "note": "matches WSL UNC paths across the wsl$ / wsl.localhost aliases",
+      "input": {
+        "repoPath": "//wsl$/Ubuntu/home/dev/app",
+        "worktreePath": "//wsl.localhost/Ubuntu/home/dev/app/.claude/worktrees/agent-a04ccaaa"
+      },
+      "expected": true
+    },
+    {
+      "function": "isAgentScratchWorktreePath",
+      "note": "preserves case-sensitive POSIX tool segments",
+      "input": {
+        "repoPath": "/userhome/dev/app",
+        "worktreePath": "/userhome/dev/app/.Claude/Worktrees/agent-a04ccaaa"
+      },
+      "expected": false
+    },
+    {
+      "function": "isAgentScratchWorktreePath",
+      "note": "preserves the case-sensitive WSL Linux tail while the distro folds",
+      "input": {
+        "repoPath": "//wsl.localhost/Ubuntu/home/dev/app",
+        "worktreePath": "//wsl.localhost/ubuntu/home/dev/app/.Claude/Worktrees/agent-a04ccaaa"
+      },
+      "expected": false
+    },
+    {
+      "function": "isAgentScratchWorktreePath",
+      "note": "requires the tool directory directly at a registered checkout",
+      "input": {
+        "repoPath": "/userhome/dev/app",
+        "worktreePath": "/userhome/dev/app/.claude/other/worktrees/agent-1"
+      },
+      "expected": false
+    },
+    {
+      "function": "isAgentScratchWorktreePath",
+      "note": "a nested package directory is not a registered checkout",
+      "input": {
+        "repoPath": "/userhome/dev/app",
+        "worktreePath": "/userhome/dev/app/packages/demo/.claude/worktrees/agent-1"
+      },
+      "expected": false
+    },
+    {
+      "function": "isAgentScratchWorktreePath",
+      "note": "the container itself has no descendant, so it is not a scratch worktree",
+      "input": {
+        "repoPath": "/userhome/dev/app",
+        "worktreePath": "/userhome/dev/app/.gsd-workspaces"
+      },
+      "expected": false
+    },
+    {
+      "function": "isAgentScratchWorktreePath",
+      "note": "does not match undotted claude directories",
+      "input": {
+        "repoPath": "/userhome/dev/app",
+        "worktreePath": "/userhome/dev/app/claude/worktrees/agent-1"
+      },
+      "expected": false
+    },
+    {
+      "function": "isAgentScratchWorktreePath",
+      "note": "does not inherit a scratch classification from the repo parent path",
+      "input": {
+        "repoPath": "/userhome/dev/.claude/worktrees/app",
+        "worktreePath": "/userhome/dev/.claude/worktrees/app/manual/feature-x"
+      },
+      "expected": false
+    },
+    {
+      "function": "isAgentScratchWorktreePath",
+      "note": "does not match user worktree conventions",
+      "input": {
+        "repoPath": "/userhome/dev/app",
+        "worktreePath": "/userhome/dev/app/.worktrees/feature-x"
+      },
+      "expected": false
+    },
+    {
+      "function": "isAgentScratchWorktreePath",
+      "note": "a superset directory name is not the marker",
+      "input": {
+        "repoPath": "/userhome/dev/app",
+        "worktreePath": "/userhome/dev/.superset/worktrees/app/fix-notes"
+      },
+      "expected": false
+    },
+    {
+      "function": "isAgentScratchWorktreePath",
+      "note": "an ordinary Orca workspace row is not scratch",
+      "input": {
+        "repoPath": "/userhome/dev/app",
+        "worktreePath": "/orca/workspaces/app/feature"
+      },
+      "expected": false
+    },
+    {
+      "function": "isAgentScratchWorktreePath",
+      "note": "POSIX root checkout: joining the empty prefix must regrow the separator",
+      "input": {
+        "repoPath": "/",
+        "worktreePath": "/.claude/worktrees/agent-1"
+      },
+      "expected": true
+    },
+    {
+      "function": "isAgentScratchWorktreePath",
+      "note": "Windows drive root checkout: the bare c: segment must regrow its slash",
+      "input": {
+        "repoPath": "C:\\",
+        "worktreePath": "C:\\.claude\\worktrees\\agent-1"
+      },
+      "expected": true
+    },
+    {
+      "function": "isAgentScratchWorktreePath",
+      "note": "a different drive root is a different checkout",
+      "input": {
+        "repoPath": "D:\\",
+        "worktreePath": "C:\\.claude\\worktrees\\agent-1"
+      },
+      "expected": false
+    },
+    {
+      "function": "isAgentScratchWorktreePath",
+      "note": "the drive test is ASCII-only, so a two-character non-ASCII segment keeps its key verbatim",
+      "input": {
+        "repoPath": "é:",
+        "worktreePath": "é:/.claude/worktrees/agent-1"
+      },
+      "expected": true
+    },
+    {
+      "function": "isAgentScratchWorktreePath",
+      "note": "duplicate separators collapse before segmentation",
+      "input": {
+        "repoPath": "/userhome/dev/app",
+        "worktreePath": "/userhome/dev/app/.claude//worktrees//agent-1"
+      },
+      "expected": true
+    },
+    {
+      "function": "createAgentScratchWorktreePathMatcher",
+      "note": "matches scratch worktrees created from a linked checkout",
+      "input": {
+        "checkoutPaths": [
+          "/userhome/dev/app",
+          "/userhome/dev/orca/workspaces/app/feature-x"
+        ],
+        "worktreePath": "/userhome/dev/orca/workspaces/app/feature-x/.claude/worktrees/agent-a04ccaaa"
+      },
+      "expected": true
+    },
+    {
+      "function": "createAgentScratchWorktreePathMatcher",
+      "note": "an unregistered parent checkout does not match",
+      "input": {
+        "checkoutPaths": [
+          "/userhome/dev/app",
+          "/userhome/dev/orca/workspaces/app/feature-x"
+        ],
+        "worktreePath": "/userhome/dev/other/feature-x/.claude/worktrees/agent-a04ccaaa"
+      },
+      "expected": false
+    },
+    {
+      "function": "createAgentScratchWorktreePathMatcher",
+      "note": "an empty checkout list matches nothing",
+      "input": {
+        "checkoutPaths": [],
+        "worktreePath": "/userhome/dev/app/.claude/worktrees/agent-1"
+      },
+      "expected": false
+    },
+    {
+      "function": "createAgentScratchWorktreePathMatcher",
+      "note": "scratch nested inside scratch matches at the inner registered checkout",
+      "input": {
+        "checkoutPaths": [
+          "/userhome/dev/app/.claude/worktrees/agent-1"
+        ],
+        "worktreePath": "/userhome/dev/app/.claude/worktrees/agent-1/.claude/worktrees/nested"
+      },
+      "expected": true
+    },
+    {
+      "function": "createAgentScratchWorktreePathMatcher",
+      "note": "a checkout key stored under the other WSL alias still matches",
+      "input": {
+        "checkoutPaths": [
+          "//wsl$/Ubuntu/home/d/app"
+        ],
+        "worktreePath": "//wsl.localhost/Ubuntu/home/d/app/.claude/worktrees/a"
+      },
+      "expected": true
+    },
+    {
+      "function": "isAgentScratchRepoRootPath",
+      "note": "matches codex scratch capsule repos",
+      "input": {
+        "repoPath": "/userhome/dev/.codex-tmp/foragent-capsule-b1-repo-zP9Az6"
+      },
+      "expected": true
+    },
+    {
+      "function": "isAgentScratchRepoRootPath",
+      "note": "matches codex vendor imports",
+      "input": {
+        "repoPath": "/userhome/dev/.codex/vendor_imports/skills"
+      },
+      "expected": true
+    },
+    {
+      "function": "isAgentScratchRepoRootPath",
+      "note": "matches claude skills containers",
+      "input": {
+        "repoPath": "/userhome/dev/.claude/skills/obsidian-second-brain"
+      },
+      "expected": true
+    },
+    {
+      "function": "isAgentScratchRepoRootPath",
+      "note": "matches a repo registered at the scratch container itself",
+      "input": {
+        "repoPath": "/userhome/dev/.codex-tmp"
+      },
+      "expected": true
+    },
+    {
+      "function": "isAgentScratchRepoRootPath",
+      "note": "matches a scratch worktree container used as a repo root",
+      "input": {
+        "repoPath": "/userhome/dev/app/.claude/worktrees/agent-a04ccaaa"
+      },
+      "expected": true
+    },
+    {
+      "function": "isAgentScratchRepoRootPath",
+      "note": "matches Windows separators and casing",
+      "input": {
+        "repoPath": "C:\\userhome\\Dev\\.Claude\\Skills\\foo"
+      },
+      "expected": true
+    },
+    {
+      "function": "isAgentScratchRepoRootPath",
+      "note": "does not match ordinary user repos",
+      "input": {
+        "repoPath": "/userhome/dev/projects/app"
+      },
+      "expected": false
+    },
+    {
+      "function": "isAgentScratchRepoRootPath",
+      "note": "an undotted container is not the marker",
+      "input": {
+        "repoPath": "/userhome/dev/codex-tmp/app"
+      },
+      "expected": false
+    },
+    {
+      "function": "isAgentScratchRepoRootPath",
+      "note": "does not match partial multi-segment markers",
+      "input": {
+        "repoPath": "/userhome/dev/.claude/config"
+      },
+      "expected": false
+    },
+    {
+      "function": "isAgentScratchRepoRootPath",
+      "note": "the second half of a two-segment marker alone is not a match",
+      "input": {
+        "repoPath": "/userhome/dev/vendor_imports/app"
+      },
+      "expected": false
+    },
+    {
+      "function": "isAgentScratchRepoRootPath",
+      "note": "POSIX casing is significant for the repo-root markers too",
+      "input": {
+        "repoPath": "/userhome/dev/.CODEX-TMP/x"
+      },
+      "expected": false
+    }
+  ]
+}

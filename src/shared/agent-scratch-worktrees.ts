@@ -1,63 +1,45 @@
-import { normalizeRuntimePathForComparison } from './cross-platform-path-resolution'
+// CUT OVER to the Rust `orca_core::agent_scratch_worktrees` core. This file
+// keeps the marker tables and the matcher's type; every body moved out.
+//
+// ONLY ONE of the three exports became a seam shim, and the split is the point
+// of the cutover rather than an accident of it.
+//
+// `isAgentScratchRepoRootPath` had a real production caller —
+// `resolveWorktreeScanCacheTtlMs` in `src/main/runtime/orca-runtime.ts`, which
+// drops the worktree-scan TTL from 30s to 5min for agent-internal repos — so it
+// moved to `src/shared/agent-scratch-repo-roots.ts` on `orca-dispatch-seam`.
+//
+// `createAgentScratchWorktreePathMatcher` and `isAgentScratchWorktreePath` are
+// NOT shims and must not become them. Their only consumer at HEAD was
+// `worktree-ownership-rules.ts`, which is by contract the NON-DISPATCHING
+// pre-ready fallback of the already-cut-over `worktree-ownership-policy.ts`: a
+// shim whose fallback dispatches is not a fallback, and routing these two would
+// also turn the 60 worktree-ownership parity vectors into a Rust-vs-Rust
+// self-comparison for the scratch half of the classification. Their ready path
+// already runs in Rust — the policy shim sends `agentScratchCheckoutPaths` and
+// `orca_core::worktree_ownership` builds the same matcher — so the bodies moved
+// INTO that fallback as `legacyAgentScratchWorktreePathMatcher` /
+// `legacyIsAgentScratchWorktreePath`, reading the tables below. This is the same
+// call `cross-platform-path-resolution.ts` makes about `isWindowsAbsolutePathLike`.
+//
+// Both tables are matched against `normalizeRuntimePathForComparison` keys, so
+// they are spelled lowercase: that fold lowercases Windows and UNC paths and
+// leaves POSIX and the WSL Linux tail case-SENSITIVE.
 
 /** Why: agent CLIs reserve these repo-root paths for scratch; broader matches
  *  can hide legitimate user worktrees (#9388). */
-const AGENT_SCRATCH_PATH_PREFIXES: readonly (readonly string[])[] = [
+export const AGENT_SCRATCH_PATH_PREFIXES: readonly (readonly string[])[] = [
   ['.claude', 'worktrees'],
   ['.gsd-workspaces']
 ]
 
-export type AgentScratchWorktreePathMatcher = (worktreePath: string) => boolean
-
-export function createAgentScratchWorktreePathMatcher(
-  checkoutPaths: readonly string[]
-): AgentScratchWorktreePathMatcher {
-  const checkoutPathKeys = new Set(checkoutPaths.map(normalizeRuntimePathForComparison))
-  return (worktreePath) => {
-    const segments = normalizeRuntimePathForComparison(worktreePath).split('/')
-    for (const prefix of AGENT_SCRATCH_PATH_PREFIXES) {
-      for (let index = 0; index + prefix.length < segments.length; index += 1) {
-        if (!prefix.every((segment, offset) => segments[index + offset] === segment)) {
-          continue
-        }
-        const checkoutPath = segments.slice(0, index).join('/')
-        // Why: splitting strips the separator from filesystem roots, but normalized checkout keys retain it.
-        const checkoutPathKey = /^[a-z]:$/i.test(checkoutPath)
-          ? `${checkoutPath}/`
-          : checkoutPath || '/'
-        if (checkoutPathKeys.has(checkoutPathKey)) {
-          return true
-        }
-      }
-    }
-    return false
-  }
-}
-
-export function isAgentScratchWorktreePath(repoPath: string, worktreePath: string): boolean {
-  return createAgentScratchWorktreePathMatcher([repoPath])(worktreePath)
-}
-
 /** Why: agent CLIs also mint whole scratch *repos* under these containers; a
  *  repo registered at such a root is agent-internal, not a user project (#9388). */
-const AGENT_SCRATCH_REPO_ROOT_SEGMENTS: readonly (readonly string[])[] = [
+export const AGENT_SCRATCH_REPO_ROOT_SEGMENTS: readonly (readonly string[])[] = [
   ['.codex-tmp'],
   ['.codex', 'vendor_imports'],
   ['.claude', 'skills'],
   ...AGENT_SCRATCH_PATH_PREFIXES
 ]
 
-export function isAgentScratchRepoRootPath(repoPath: string): boolean {
-  const segments = normalizeRuntimePathForComparison(repoPath).split('/')
-  for (const marker of AGENT_SCRATCH_REPO_ROOT_SEGMENTS) {
-    // Why: match the marker anywhere above the repo root (the repo lives at or
-    // under the scratch container), unlike worktree matching which anchors to a
-    // registered checkout path.
-    for (let index = 0; index + marker.length <= segments.length; index += 1) {
-      if (marker.every((segment, offset) => segments[index + offset] === segment)) {
-        return true
-      }
-    }
-  }
-  return false
-}
+export type AgentScratchWorktreePathMatcher = (worktreePath: string) => boolean
