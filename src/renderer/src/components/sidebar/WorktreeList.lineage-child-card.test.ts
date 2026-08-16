@@ -11,8 +11,7 @@ import type {
 } from '../../../../shared/types'
 import { folderWorkspaceKey } from '../../../../shared/workspace-scope'
 import type * as WorktreeListModule from './WorktreeList'
-import { cloneDefaultWorkspaceStatuses } from '../../../../shared/workspace-statuses'
-
+import { cloneDefaultWorkspaceStatuses } from '../../../../shared/workspace-status-normalization'
 const mockStore = vi.hoisted(() => ({
   state: {} as Record<string, unknown>
 }))

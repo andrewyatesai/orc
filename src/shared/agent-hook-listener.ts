@@ -17,13 +17,8 @@ import {
 } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 
-import {
-  AGENT_MODEL_MAX_LENGTH,
-  normalizeAgentStatusPayload,
-  type AgentStatusState,
-  type AgentSubagentSnapshot,
-  type ParsedAgentStatusPayload
-} from './agent-status-types'
+import { AGENT_MODEL_MAX_LENGTH, type AgentStatusState, type AgentSubagentSnapshot, type ParsedAgentStatusPayload } from './agent-status-types'
+import { normalizeAgentStatusPayload } from './agent-status-evaluation'
 import { normalizeOptionalField } from './agent-status-field-normalization'
 import { isAskUserQuestionTool } from './agent-question-answered-intent'
 import {

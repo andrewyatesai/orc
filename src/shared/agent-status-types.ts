@@ -1,16 +1,15 @@
 // ─── Explicit agent status (reported via native agent hooks → IPC) ──────────
 // Why: status comes from hooks (Claude, Codex, etc.) — never inferred from terminal titles;
 // a narrow interrupt fallback synthesizes a final `done` when an agent misses its cancellation hook.
+//
+// Shapes, caps and tables only. The five behavioural exports that lived here —
+// parseAgentStatusPayload, normalizeAgentStatusPayload, agentSubagentsEqual,
+// hasUnsettledOrUnknownDispatch, isFreshNonDoneAgentStatus — are cut over to the
+// Rust `orca_agents::agent_status_types` core and now ship from
+// `agent-status-evaluation.ts`, which reads the constants below.
 
 import type { AgentProviderSessionMetadata } from './agent-session-resume'
 import type { AtermRainPulse } from './aterm-rain-signal'
-import {
-  normalizeInteractivePromptField,
-  normalizeOptionalField,
-  normalizeOptionalMultilineField,
-  normalizePromptField
-} from './agent-status-field-normalization'
-import { assertJsonTextStructureWithinLimits } from './json-text-structure-limit'
 
 export { AGENT_STATUS_MAX_FIELD_LENGTH } from './agent-status-field-normalization'
 
@@ -76,22 +75,6 @@ export const SETTLED_DISPATCH_STATUSES: readonly DispatchStatus[] = [
   'failed',
   'circuit_broken'
 ]
-
-/**
- * Why: provider done hooks can fire mid-Dispatch, so only runtime-confirmed
- * settlement makes sleeping a pane safe. An absent status counts as unsettled on
- * purpose — a hook-only context proves nothing about the dispatch.
- */
-export function hasUnsettledOrUnknownDispatch(entry: {
-  orchestration?: AgentStatusOrchestrationContext
-}): boolean {
-  if (!entry.orchestration) {
-    return false
-  }
-  return !SETTLED_DISPATCH_STATUSES.some(
-    (settled) => settled === entry.orchestration?.dispatchStatus
-  )
-}
 
 export type AgentStatusOrchestrationContext = {
   taskId: string
@@ -278,16 +261,6 @@ export const AGENT_STATUS_INTERACTIVE_PROMPT_MAX_LENGTH = 16000
  */
 export const AGENT_STATUS_STALE_AFTER_MS = 30 * 60 * 1000
 
-export function isFreshNonDoneAgentStatus(
-  entry: Pick<AgentStatusEntry, 'state' | 'updatedAt'> | undefined,
-  now = Date.now(),
-  staleAfterMs = AGENT_STATUS_STALE_AFTER_MS
-): boolean {
-  return Boolean(entry && entry.state !== 'done' && now - entry.updatedAt <= staleAfterMs)
-}
-
-// Why: ReadonlySet<string> so .has() accepts any string without a cast here; the narrowing cast stays on the return line where it's proven safe.
-const VALID_STATES: ReadonlySet<string> = new Set<string>(AGENT_STATUS_STATES)
 /** Maximum character length for the agentType label. Truncated on parse. */
 export const AGENT_TYPE_MAX_LENGTH = 40
 export const AGENT_MODEL_MAX_LENGTH = 120
@@ -299,146 +272,5 @@ export const AGENT_STATUS_JSON_STRUCTURE_LIMITS = {
   structuralTokens: 4096,
   nestingDepth: 16
 } as const
-const AGENT_SUBAGENT_ID_MAX_LENGTH = 64
-
-function normalizeSubagentSnapshot(value: unknown): AgentSubagentSnapshot | null {
-  if (typeof value !== 'object' || value === null) {
-    return null
-  }
-  const obj = value as Record<string, unknown>
-  if (typeof obj.id !== 'string') {
-    return null
-  }
-  const id = obj.id.trim()
-  if (id.length === 0 || id.length > AGENT_SUBAGENT_ID_MAX_LENGTH) {
-    return null
-  }
-  if (
-    obj.state !== 'working' &&
-    obj.state !== 'blocked' &&
-    obj.state !== 'waiting' &&
-    obj.state !== 'idle'
-  ) {
-    return null
-  }
-  return {
-    id,
-    state: obj.state,
-    startedAt:
-      typeof obj.startedAt === 'number' && Number.isFinite(obj.startedAt) ? obj.startedAt : 0,
-    agentType: normalizeOptionalField(obj.agentType, AGENT_TYPE_MAX_LENGTH),
-    model: normalizeOptionalField(obj.model, AGENT_MODEL_MAX_LENGTH),
-    description: normalizeOptionalField(obj.description, AGENT_STATUS_TOOL_INPUT_MAX_LENGTH)
-  }
-}
-
-function normalizeSubagentsField(value: unknown): AgentSubagentSnapshot[] | undefined {
-  if (!Array.isArray(value) || value.length === 0) {
-    return undefined
-  }
-  const normalized: AgentSubagentSnapshot[] = []
-  for (const item of value) {
-    const snapshot = normalizeSubagentSnapshot(item)
-    if (snapshot) {
-      normalized.push(snapshot)
-      if (normalized.length >= AGENT_STATUS_MAX_SUBAGENTS) {
-        break
-      }
-    }
-  }
-  return normalized.length > 0 ? normalized : undefined
-}
-
-/** Structural equality for subagent lists so stores can reuse the previous
- *  array reference (and skip fanout) when nothing actually changed. */
-export function agentSubagentsEqual(
-  a: AgentSubagentSnapshot[] | undefined,
-  b: AgentSubagentSnapshot[] | undefined
-): boolean {
-  if (a === b) {
-    return true
-  }
-  if (!a || !b || a.length !== b.length) {
-    return !a && !b
-  }
-  for (let i = 0; i < a.length; i++) {
-    const x = a[i]
-    const y = b[i]
-    if (
-      x.id !== y.id ||
-      x.state !== y.state ||
-      x.startedAt !== y.startedAt ||
-      x.agentType !== y.agentType ||
-      x.model !== y.model ||
-      x.description !== y.description
-    ) {
-      return false
-    }
-  }
-  return true
-}
-
-/**
- * Normalize and validate an already-parsed agent status object. Shared by the
- * JSON string entry point (`parseAgentStatusPayload`) and the object entry
- * point (`normalizeAgentStatusPayload`) so both paths enforce identical field
- * rules. Returns null when the payload is malformed or the state is invalid.
- */
-function normalizeAgentStatusObject(parsed: unknown): ParsedAgentStatusPayload | null {
-  if (typeof parsed !== 'object' || parsed === null) {
-    return null
-  }
-  const obj = parsed as Record<string, unknown>
-  // Why: explicit typeof guard rejects non-string values instead of leaning on Set.has to return false for mismatched types.
-  if (typeof obj.state !== 'string') {
-    return null
-  }
-  const state = obj.state
-  if (!VALID_STATES.has(state)) {
-    return null
-  }
-  return {
-    state: state as AgentStatusState,
-    prompt: normalizePromptField(obj.prompt),
-    // Why: normalize like the other single-line fields so embedded newlines (e.g. `agentType: "claude\nrogue"`) can't break single-line UI and equality checks.
-    agentType: normalizeOptionalField(obj.agentType, AGENT_TYPE_MAX_LENGTH),
-    model: normalizeOptionalField(obj.model, AGENT_MODEL_MAX_LENGTH),
-    toolName: normalizeOptionalField(obj.toolName, AGENT_STATUS_TOOL_NAME_MAX_LENGTH),
-    toolInput: normalizeOptionalField(obj.toolInput, AGENT_STATUS_TOOL_INPUT_MAX_LENGTH),
-    interactivePrompt: normalizeInteractivePromptField(
-      obj.interactivePrompt,
-      AGENT_STATUS_INTERACTIVE_PROMPT_MAX_LENGTH
-    ),
-    lastAssistantMessage: normalizeOptionalMultilineField(
-      obj.lastAssistantMessage,
-      AGENT_STATUS_ASSISTANT_MESSAGE_MAX_LENGTH
-    ),
-    // Why: only meaningful on `done`; coerce to undefined elsewhere so it can't leak stale truth across transitions.
-    interrupted: obj.interrupted === true && state === 'done' ? true : undefined,
-    launchFailed: obj.launchFailed === true && state === 'done' ? true : undefined,
-    subagents: normalizeSubagentsField(obj.subagents)
-  }
-}
-
-/**
- * Normalize an already-structured agent status object (e.g. from IPC, already
- * deserialized by Electron). Skips the JSON round-trip parseAgentStatusPayload
- * needs — hook events can fire many times per second during a tool-use run.
- */
-export function normalizeAgentStatusPayload(payload: unknown): ParsedAgentStatusPayload | null {
-  return normalizeAgentStatusObject(payload)
-}
-
-/**
- * Parse and validate an agent status JSON payload received from explicit
- * hook integrations or OSC 9999. Returns null if the payload is malformed or
- * has an invalid state.
- */
-export function parseAgentStatusPayload(json: string): ParsedAgentStatusPayload | null {
-  try {
-    assertJsonTextStructureWithinLimits(json, AGENT_STATUS_JSON_STRUCTURE_LIMITS)
-    return normalizeAgentStatusObject(JSON.parse(json))
-  } catch {
-    return null
-  }
-}
+/** Maximum character length for a subagent's provider-assigned id. */
+export const AGENT_SUBAGENT_ID_MAX_LENGTH = 64

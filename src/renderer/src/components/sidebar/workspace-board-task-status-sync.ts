@@ -12,8 +12,7 @@ import type {
   WorkspaceStatusDefinition,
   Worktree
 } from '../../../../shared/types'
-import { getWorkspaceStatus } from '../../../../shared/workspace-statuses'
-
+import { getWorkspaceStatus } from '../../../../shared/workspace-status-normalization'
 export type WorkspaceBoardTaskStatusSyncResult = {
   updated: number
   skipped: number

@@ -42,7 +42,7 @@ import {
   type WorktreeDragGroup
 } from './worktree-manual-order'
 import type { WorkspaceStatus, Worktree, WorktreeMeta } from '../../../../shared/types'
-import { makeWorkspaceStatusId } from '../../../../shared/workspace-statuses'
+import { makeWorkspaceStatusId } from '../../../../shared/workspace-status-normalization'
 import { STATUS_BAR_RESERVE_HEIGHT, WORKSPACE_TOP_CHROME_HEIGHT } from './workspace-chrome-metrics'
 import { useContextualTour } from '@/components/contextual-tours/use-contextual-tour'
 import { translate } from '@/i18n/i18n'

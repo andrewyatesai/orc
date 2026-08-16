@@ -29,7 +29,7 @@ import {
   getEffectiveProjectGroupManualRank,
   UNGROUPED_PROJECT_GROUP_KEY
 } from '../../../../shared/project-groups'
-import { cloneDefaultWorkspaceStatuses } from '../../../../shared/workspace-statuses'
+import { cloneDefaultWorkspaceStatuses } from '../../../../shared/workspace-status-normalization'
 import type { AppState } from '../../store/types'
 import { getGitHubPRCacheKey, getLegacyGitHubPRCacheKey } from '../../store/slices/github-cache-key'
 import { getRepoDisplayLabelKey, getRepoDisplayLabelsByPath } from '@/lib/repo-display-labels'

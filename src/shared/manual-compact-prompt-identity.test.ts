@@ -7,8 +7,8 @@ import {
   type AgentHookEventPayload
 } from './agent-hook-listener'
 import type { AgentProviderSessionMetadata } from './agent-session-resume'
-import { normalizeAgentStatusPayload, type ParsedAgentStatusPayload } from './agent-status-types'
-
+import { type ParsedAgentStatusPayload } from './agent-status-types'
+import { normalizeAgentStatusPayload } from './agent-status-evaluation'
 const SESSION: AgentProviderSessionMetadata = { key: 'session_id', id: 'sess-abc' }
 const OTHER_SESSION: AgentProviderSessionMetadata = { key: 'session_id', id: 'sess-xyz' }
 const TURN_PROMPT_ID = '11111111-1111-4111-8111-111111111111'

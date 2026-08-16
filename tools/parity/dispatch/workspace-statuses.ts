@@ -1,6 +1,16 @@
-// TS dispatch for the workspace-statuses parity module: maps the shared vector
-// function names to the real `src/shared/workspace-statuses.ts` exports so the
-// harness compares the live TS reference against the Rust port.
+// TS dispatch for the workspace-statuses parity module. The shared TS impl was
+// DELETED (`src/shared/workspace-statuses.ts` keeps only the types, bounds and
+// catalogs) — every surface now reaches `orca_config::workspace_statuses`
+// through `src/shared/workspace-status-normalization.ts` on the orca-dispatch
+// seam.
+//
+// Like the branch-name-from-work, wsl-paths, worktree-id and stable-pane-id
+// adapters, this drives the SHIM rather than a wasm oracle, so the harness keeps
+// a real TS-vs-Rust differential instead of degenerating to wasm-vs-binary:
+// config/vitest.parity.config.ts installs no setup file, so the seam is unbound
+// here and the shim answers from its `parity` fallback — which is the deleted
+// body, and exactly the code main/renderer/relay run before (or without) a
+// binding.
 
 import {
   clampWorkspaceBoardColumnWidth,
@@ -14,7 +24,7 @@ import {
   makeWorkspaceStatusId,
   normalizePersistedWorkspaceStatuses,
   normalizeWorkspaceStatuses
-} from '../../../src/shared/workspace-statuses'
+} from '../../../src/shared/workspace-status-normalization'
 import type { Worktree, WorkspaceStatusDefinition } from '../../../src/shared/types'
 
 type StatusList = readonly WorkspaceStatusDefinition[]

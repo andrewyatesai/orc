@@ -1,5 +1,5 @@
 import type { AgentStatusEntry } from '../../../shared/agent-status-types'
-import { hasUnsettledOrUnknownDispatch } from '../../../shared/agent-status-types'
+import { hasUnsettledOrUnknownDispatch } from '../../../shared/agent-status-evaluation'
 import {
   getAgentResumeArgv,
   isResumableTuiAgent,

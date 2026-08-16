@@ -1,16 +1,28 @@
-// TS dispatch for the agent-status-types parity module: maps the shared vector
-// function names to the real `src/shared/agent-status-types.ts` exports so the
-// harness compares the live TS reference against the Rust port.
+// TS dispatch for the agent-status-types parity module. The shared TS impl was
+// DELETED (`src/shared/agent-status-types.ts` keeps only the payload/entry
+// shapes and the caps) — every surface now reaches
+// `orca_agents::agent_status_types` through
+// `src/shared/agent-status-evaluation.ts` on the orca-dispatch seam.
+//
+// Like the wsl-paths, worktree-id, stable-pane-id, branch-name-from-work and
+// tab-title-resolution adapters, this drives the SHIM rather than the wasm
+// oracle, and the harness keeps a real TS-vs-Rust differential instead of
+// degenerating to wasm-vs-binary: config/vitest.parity.config.ts installs no
+// setup file, so the seam is unbound here and the shim answers from its
+// `parity` fallback — which is exactly the deleted body, and exactly the code
+// every renderer caller runs before (or without) a wasm binding.
 
 import {
   agentSubagentsEqual,
   hasUnsettledOrUnknownDispatch,
   isFreshNonDoneAgentStatus,
   normalizeAgentStatusPayload,
-  parseAgentStatusPayload,
-  type AgentStatusEntry,
-  type AgentStatusOrchestrationContext,
-  type AgentSubagentSnapshot
+  parseAgentStatusPayload
+} from '../../../src/shared/agent-status-evaluation'
+import type {
+  AgentStatusEntry,
+  AgentStatusOrchestrationContext,
+  AgentSubagentSnapshot
 } from '../../../src/shared/agent-status-types'
 
 type FreshnessInput = {

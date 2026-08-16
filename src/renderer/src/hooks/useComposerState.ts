@@ -58,7 +58,7 @@ import type {
   ProjectGroup
 } from '../../../shared/types'
 import { githubRepoIdentityKey } from '../../../shared/github-repository-identity-key'
-import { isWorkspaceStatusId } from '../../../shared/workspace-statuses'
+import { isWorkspaceStatusId } from '../../../shared/workspace-status-normalization'
 import {
   CLIENT_PLATFORM,
   DEFAULT_ISSUE_COMMAND_TEMPLATE,

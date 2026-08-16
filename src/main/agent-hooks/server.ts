@@ -47,15 +47,8 @@ import {
   parseClaudeStatusLineBody,
   type ClaudeStatusLineRateLimits
 } from '../../shared/claude-statusline-rate-limits'
-import {
-  AGENT_STATUS_STALE_AFTER_MS,
-  type AgentStatusClearIpcPayload,
-  type AgentStatusIpcPayload,
-  type AgentType,
-  type AgentStatusState,
-  type ParsedAgentStatusPayload,
-  normalizeAgentStatusPayload
-} from '../../shared/agent-status-types'
+import { AGENT_STATUS_STALE_AFTER_MS, type AgentStatusClearIpcPayload, type AgentStatusIpcPayload, type AgentType, type AgentStatusState, type ParsedAgentStatusPayload } from '../../shared/agent-status-types'
+import { normalizeAgentStatusPayload } from '../../shared/agent-status-evaluation'
 import {
   resolveAgentStatusIdentity,
   shouldSuppressInheritedTerminalStatus

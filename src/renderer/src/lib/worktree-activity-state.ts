@@ -1,9 +1,7 @@
 import { tabHasLivePty } from '@/lib/tab-has-live-pty'
 import type { TerminalTab } from '../../../shared/types'
-import {
-  isFreshNonDoneAgentStatus,
-  type AgentStatusEntry
-} from '../../../shared/agent-status-types'
+import { type AgentStatusEntry } from '../../../shared/agent-status-types'
+import { isFreshNonDoneAgentStatus } from '../../../shared/agent-status-evaluation'
 import { resolveAgentStatusWorktreeId } from './agent-status-worktree-attribution'
 
 type TerminalLikeTab = Pick<TerminalTab, 'id'>

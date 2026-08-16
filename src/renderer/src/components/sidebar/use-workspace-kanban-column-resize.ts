@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type React from 'react'
-import {
-  WORKSPACE_BOARD_COLUMN_WIDTH_STEP,
-  clampWorkspaceBoardColumnWidth
-} from '../../../../shared/workspace-statuses'
-
+import { WORKSPACE_BOARD_COLUMN_WIDTH_STEP } from '../../../../shared/workspace-statuses'
+import { clampWorkspaceBoardColumnWidth } from '../../../../shared/workspace-status-normalization'
 type UseWorkspaceKanbanColumnResizeResult = {
   columnWidth: number
   isResizingColumn: boolean

@@ -14,7 +14,7 @@ import { EMPTY_CODEX_RESET_CREDIT_ATTEMPT_LEDGER } from './codex-reset-credit-at
 import { DEFAULT_STATUS_BAR_ITEMS } from './status-bar-defaults'
 import { DEFAULT_TERMINAL_FONT_WEIGHT } from './terminal-fonts'
 import type { VoiceSettings } from './speech-types'
-import { cloneDefaultWorkspaceStatuses } from './workspace-statuses'
+import { cloneDefaultWorkspaceStatuses } from './workspace-status-normalization'
 import { TASK_PROVIDERS } from './task-providers'
 import { DEFAULT_WORKTREE_CARD_PROPERTIES } from './worktree-card-properties'
 import { getDefaultSourceControlAiSettings } from './source-control-ai'

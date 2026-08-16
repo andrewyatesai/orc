@@ -1,10 +1,5 @@
-import {
-  AGENT_STATUS_STALE_AFTER_MS,
-  isFreshNonDoneAgentStatus,
-  type AgentStatusState,
-  type AgentType
-} from './agent-status-types'
-
+import { AGENT_STATUS_STALE_AFTER_MS, type AgentStatusState, type AgentType } from './agent-status-types'
+import { isFreshNonDoneAgentStatus } from './agent-status-evaluation'
 type ExistingAgentIdentity = {
   agentType?: AgentType
   state: AgentStatusState

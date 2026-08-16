@@ -191,11 +191,8 @@ import { parseAppSshPtyId } from '../../../../shared/ssh-pty-id'
 import { resolveSshPaneConnectGate } from './ssh-pane-connect-gate'
 import { dispatchTerminalCommandFinishedEvent } from '@/hooks/terminal-command-finished-event'
 import { e2eConfig } from '@/lib/e2e-config'
-import {
-  isFreshNonDoneAgentStatus,
-  type AgentStatusEntry,
-  type AgentType
-} from '../../../../shared/agent-status-types'
+import { type AgentStatusEntry, type AgentType } from '../../../../shared/agent-status-types'
+import { isFreshNonDoneAgentStatus } from '../../../../shared/agent-status-evaluation'
 import { isWebTerminalSurfaceTabId } from '@/runtime/web-terminal-surface-id'
 import {
   createAgentInterruptInference,

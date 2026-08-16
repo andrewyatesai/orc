@@ -62,12 +62,8 @@ import {
   isManualSimulatorLaunchPending,
   rememberPrelaunchedSimulatorSession
 } from '@/lib/simulator-launch-coordination'
-import {
-  normalizeAgentStatusPayload,
-  type AgentStatusClearIpcPayload,
-  type AgentStatusIpcPayload,
-  type ParsedAgentStatusPayload
-} from '../../../shared/agent-status-types'
+import { type AgentStatusClearIpcPayload, type AgentStatusIpcPayload, type ParsedAgentStatusPayload } from '../../../shared/agent-status-types'
+import { normalizeAgentStatusPayload } from '../../../shared/agent-status-evaluation'
 import {
   resolveAgentStatusIdentity,
   shouldSuppressInheritedTerminalStatus

@@ -89,13 +89,8 @@ import {
   normalizeVisibleExecutionHostIds,
   type ExecutionHostId
 } from '../../../../shared/execution-host'
-import {
-  WORKSPACE_BOARD_COLUMN_WIDTH_DEFAULT,
-  clampWorkspaceBoardColumnWidth,
-  clampWorkspaceBoardOpacity,
-  cloneDefaultWorkspaceStatuses,
-  normalizeWorkspaceStatuses
-} from '../../../../shared/workspace-statuses'
+import { WORKSPACE_BOARD_COLUMN_WIDTH_DEFAULT } from '../../../../shared/workspace-statuses'
+import { clampWorkspaceBoardColumnWidth, clampWorkspaceBoardOpacity, cloneDefaultWorkspaceStatuses, normalizeWorkspaceStatuses } from '../../../../shared/workspace-status-normalization'
 import { clampMarkdownTocPanelWidth } from '../../../../shared/markdown-toc-panel-width'
 import { clampCombinedDiffFileTreeWidth } from '../../../../shared/combined-diff-file-tree-width'
 import { normalizeKagiSessionLink } from '../../../../shared/browser-url'

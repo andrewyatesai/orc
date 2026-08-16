@@ -46,14 +46,8 @@ import type {
 } from '../../shared/terminal-side-effect-facts'
 import type { TerminalGitHubPRLink } from '../../shared/terminal-github-pr-link-detector'
 import { TerminalKittyKeyboardModeTracker } from '../../shared/terminal-kitty-keyboard-mode-tracker'
-import {
-  AGENT_STATUS_STALE_AFTER_MS,
-  isFreshNonDoneAgentStatus,
-  type AgentStatusIpcPayload,
-  type ParsedAgentStatusPayload,
-  type AgentStatusOrchestrationContext,
-  type AgentStatusEntry
-} from '../../shared/agent-status-types'
+import { AGENT_STATUS_STALE_AFTER_MS, type AgentStatusIpcPayload, type ParsedAgentStatusPayload, type AgentStatusOrchestrationContext, type AgentStatusEntry } from '../../shared/agent-status-types'
+import { isFreshNonDoneAgentStatus } from '../../shared/agent-status-evaluation'
 import { indexAgentStatusRowsByPaneKey } from '../agent-hooks/agent-status-pane-index'
 import type {
   AgentSessionClaimedSpawnResult,
