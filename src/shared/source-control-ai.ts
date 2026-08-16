@@ -1228,8 +1228,13 @@ export function resolveSourceControlAiForOperation(
     }
   }
 
+  // Both operands optional-chain. `sourceControlAiSettingsFromLegacy` produces an
+  // OWN `customAgentCommand: undefined` for a legacy blob that has none — the
+  // shape persistence.ts:3286 builds — so the unguarded `.trim()` threw
+  // "Cannot read properties of undefined" for a settings object the app itself
+  // creates. The repoOverrides operand on this same line was already guarded.
   const customAgentCommand =
-    repoOverrides?.customAgentCommand?.trim() || source.customAgentCommand.trim()
+    repoOverrides?.customAgentCommand?.trim() || (source.customAgentCommand?.trim() ?? '')
   if (isCustomAgentId(agentChoice)) {
     if (!customAgentCommand) {
       return {
