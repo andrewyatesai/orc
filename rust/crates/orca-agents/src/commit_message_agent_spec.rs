@@ -7,9 +7,11 @@
 //! (parsers + label/thinking helpers) and `tui_agent_selection` (enablement).
 
 use crate::commit_message_models::{
-    label_from_model_id, openai_thinking_levels, parse_codex_models, parse_cursor_models,
-    parse_line_models, parse_pi_models, with_openai_thinking, CommitMessageModel, ThinkingLevel,
+    label_from_model_id, model_output_lines, openai_thinking_levels, parse_codex_models,
+    parse_cursor_models, parse_line_models, parse_pi_models, with_openai_thinking,
+    CommitMessageModel, ThinkingLevel,
 };
+use orca_core::js_string::trim_js;
 use crate::tui_agent_selection::is_tui_agent_enabled;
 use std::sync::OnceLock;
 
@@ -195,8 +197,10 @@ fn antigravity_build_args(params: &BuildArgsParams) -> Vec<String> {
 pub fn parse_antigravity_models(stdout: &str) -> Vec<CommitMessageModel> {
     let mut models: Vec<CommitMessageModel> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for raw_line in stdout.split(['\n', '\r']) {
-        let id = raw_line.trim();
+    for raw_line in model_output_lines(stdout) {
+        // `trim_js`, not `str::trim`: a BOM-prefixed id is trimmed by the twin
+        // and kept by Rust, and the id IS the persisted `--model` argument.
+        let id = trim_js(raw_line);
         if id.is_empty() || !seen.insert(id.to_string()) {
             continue;
         }
@@ -392,7 +396,11 @@ pub fn get_commit_message_model(agent_id: &str, model_id: &str) -> Option<Commit
     if let Some(model) = spec.models.iter().find(|model| model.id == model_id) {
         return Some(model.clone());
     }
-    if spec.model_source != ModelSource::Dynamic || model_id.trim().is_empty() {
+    // `trim_js`, not `str::trim`: the twin's `modelId.trim().length === 0` strips
+    // U+FEFF and keeps U+0085, and this decides whether a PERSISTED selection
+    // resolves to a model at all — a BOM-prefixed id synthesized one model here
+    // and none in the twin.
+    if spec.model_source != ModelSource::Dynamic || trim_js(model_id).is_empty() {
         return None;
     }
     let (thinking_levels, default_thinking_level) = with_openai_thinking(model_id);
@@ -511,6 +519,28 @@ mod tests {
         let haiku = get_commit_message_model("claude", "haiku").unwrap();
         assert!(haiku.thinking_levels.is_none());
         assert!(haiku.default_thinking_level.is_none());
+    }
+
+    /// `modelId.trim().length === 0` is the JS trim set, and the id it gates is
+    /// the PERSISTED selection. Goldens are what the HEAD twin answers.
+    #[test]
+    fn the_dynamic_model_gate_uses_the_js_trim_set() {
+        // U+FEFF: JS trims it, `str::trim` does not — the twin answers undefined.
+        assert_eq!(get_commit_message_model("codex", "\u{FEFF}"), None);
+        assert_eq!(get_commit_message_model("codex", "\u{3000}"), None);
+        // U+0085 (NEL): `str::trim` strips it, JS does not — the twin synthesizes.
+        let nel = get_commit_message_model("codex", "\u{0085}").expect("NEL is not JS whitespace");
+        assert_eq!(nel.id, "\u{0085}");
+        assert_eq!(nel.label, "\u{0085}");
+        // U+200B (ZWSP) is whitespace to neither, so both synthesize.
+        assert_eq!(get_commit_message_model("codex", "\u{200B}").map(|m| m.id), Some("\u{200B}".to_string()));
+        // A BOM-prefixed id is non-blank for both and still synthesizes.
+        assert_eq!(
+            get_commit_message_model("codex", "\u{FEFF}gpt-5.5").map(|m| m.label),
+            Some("\u{FEFF}gpt 5.5".to_string())
+        );
+        // A static agent never synthesizes, whatever the trim set says.
+        assert_eq!(get_commit_message_model("claude", "\u{0085}"), None);
     }
 
     #[test]

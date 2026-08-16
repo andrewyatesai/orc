@@ -37,7 +37,9 @@ pub fn build_linear_workspace_api_settings_url(organization_url_key: Option<&str
 /// `None` for a non-Linear host or an unparseable URL.
 pub fn get_linear_organization_url_key_from_issue_url(issue_url: Option<&str>) -> Option<String> {
     let (hostname, segments) = parse_absolute_url(issue_url?)?;
-    if !hostname.eq_ignore_ascii_case("linear.app") {
+    // EXACT, like the twin's `parsed.hostname !== LINEAR_APP_HOSTNAME`. The case
+    // fold belongs to `parse_host`, which applies it only where `new URL` does.
+    if hostname != "linear.app" {
         return None;
     }
     segments.into_iter().next()
@@ -69,41 +71,169 @@ fn matches_linear_identifier_pattern(value: &str) -> bool {
     bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
-/// Minimal `new URL` stand-in: the (case-insensitive) hostname and the non-empty
-/// path segments, or `None` when the input isn't an absolute URL (the TS
-/// `new URL` throw path). Query/hash are excluded, matching `URL.pathname`.
-/// The WHATWG "special" schemes, for which `new URL` normalizes `\` to `/`.
+/// The WHATWG "special" schemes. Takes an ALREADY-lowercased scheme — `new URL`
+/// ASCII-lowercases the scheme, so `HTTPS` is special and `FOO` is not.
 fn is_special_scheme(scheme: &str) -> bool {
-    matches!(scheme.to_ascii_lowercase().as_str(), "http" | "https" | "ws" | "wss" | "ftp" | "file")
+    matches!(scheme, "http" | "https" | "ws" | "wss" | "ftp" | "file")
 }
 
-fn parse_absolute_url(input: &str) -> Option<(String, Vec<String>)> {
-    let (scheme, rest) = input.split_once("://")?;
-    if scheme.is_empty() {
+/// `new URL`'s two input-cleaning steps, in spec order: strip leading/trailing
+/// C0-control-or-space, then remove EVERY tab/LF/CR. Both are exact — without
+/// them the scheme check below would refuse `ht<TAB>tps://…`, which the twin
+/// parses as `https:` after the removal.
+fn clean_url_input(input: &str) -> String {
+    input
+        .trim_matches(|c: char| c <= '\u{1f}' || c == ' ')
+        .chars()
+        .filter(|c| !matches!(c, '\u{9}' | '\u{a}' | '\u{d}'))
+        .collect()
+}
+
+/// The lowercased scheme and the text after its `:`, or `None` when the input
+/// has no scheme matching `[A-Za-z][A-Za-z0-9+\-.]*:` — which `new URL` throws
+/// on (there is no base URL here). `:` is outside the scheme class, so the first
+/// `:` is where the WHATWG scheme scan would stop.
+fn split_scheme(input: &str) -> Option<(String, &str)> {
+    let colon = input.find(':')?;
+    let (scheme, rest) = input.split_at_checked(colon)?;
+    let mut bytes = scheme.bytes();
+    if !bytes.next().is_some_and(|b| b.is_ascii_alphabetic()) {
         return None;
     }
-    // WHATWG special schemes treat `\` as `/` throughout the authority + path, so
-    // `new URL` parses `https://host\a\b` as host + `/a/b`; mirror that.
-    let normalized: std::borrow::Cow<str> = if is_special_scheme(scheme) {
-        std::borrow::Cow::Owned(rest.replace('\\', "/"))
+    if !bytes.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.')) {
+        return None;
+    }
+    Some((scheme.to_ascii_lowercase(), rest.get(1..)?))
+}
+
+/// The authority text (`None` when this URL shape has no host component) and the
+/// path text after it. The three scheme kinds reach an authority differently and
+/// the difference is load-bearing: `https:linear.app/x` HAS host `linear.app`
+/// (special schemes skip any run of slashes, `\` included) while `file:/x` and
+/// `foo:/x` do NOT — file needs exactly two leading slashes, opaque exactly `//`.
+fn split_authority<'a>(scheme: &str, special: bool, rest: &'a str) -> (Option<&'a str>, &'a str) {
+    let after = if scheme == "file" {
+        let bytes = rest.as_bytes();
+        // A THIRD slash puts everything back on the path (`file:///x` has no host).
+        if bytes.len() < 2 || !matches!(bytes.first(), Some(b'/' | b'\\')) || !matches!(bytes.get(1), Some(b'/' | b'\\')) {
+            return (None, rest);
+        }
+        let Some((_, after)) = rest.split_at_checked(2) else {
+            return (None, rest);
+        };
+        after
+    } else if special {
+        rest.trim_start_matches(['/', '\\'])
     } else {
-        std::borrow::Cow::Borrowed(rest)
+        let Some(after) = rest.strip_prefix("//") else {
+            // Non-special without `//` is an opaque path — no host at all.
+            return (None, rest);
+        };
+        after
     };
-    let rest: &str = normalized.as_ref();
-    // `split_at_checked` is total, so the two cuts generate no bounds obligation;
-    // both offsets come from `find`/`len` and are always boundaries.
-    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let (authority, after_authority) = rest.split_at_checked(authority_end)?;
-    let host = authority.rsplit('@').next().unwrap_or(authority);
-    let hostname = host.split(':').next().unwrap_or(host);
-    let path_end = after_authority.find(['?', '#']).unwrap_or(after_authority.len());
-    let (path, _) = after_authority.split_at_checked(path_end)?;
+    // `\` terminates the authority only for special schemes; for an opaque host it
+    // is a forbidden code point, which `parse_host` rejects.
+    let terminators: &[char] = if special { &['/', '\\', '?', '#'] } else { &['/', '?', '#'] };
+    let end = after.find(terminators).unwrap_or(after.len());
+    match after.split_at_checked(end) {
+        Some((authority, path)) => (Some(authority), path),
+        None => (None, rest),
+    }
+}
+
+/// WHATWG "forbidden host code point" — any of these makes `new URL` throw.
+fn is_forbidden_host_byte(byte: u8) -> bool {
+    matches!(byte, 0x00 | 0x09 | 0x0a | 0x0d | b' ' | b'#' | b'/' | b':' | b'<' | b'>' | b'?' | b'@' | b'[' | b'\\' | b']' | b'^' | b'|')
+}
+
+/// A port `new URL` accepts: empty, or ASCII digits that fit in 16 bits (leading
+/// zeros are allowed and dropped). Anything else throws, which is a `None` here —
+/// the pre-fix core read `https://linear.app:abc/…` as host `linear.app`.
+fn is_valid_port(port: &str) -> bool {
+    if port.is_empty() {
+        return true;
+    }
+    if !port.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    port.trim_start_matches('0').len() <= 5 && port.parse::<u32>().is_ok_and(|value| value <= 65_535)
+}
+
+/// The `URL.hostname` for an authority, or `None` where `new URL` would throw /
+/// where this port cannot answer faithfully.
+///
+/// The case rule is the whole point: a SPECIAL scheme's host goes through
+/// domain-to-ASCII, which lowercases, so `https://LINEAR.APP/…` is `linear.app`;
+/// an OPAQUE host is taken verbatim, so `foo://LINEAR.APP/…` stays `LINEAR.APP`
+/// and is NOT linear.app. A blanket `eq_ignore_ascii_case` at the call site read
+/// the second as Linear and handed its first path segment to the org-key.
+fn parse_host(authority: &str, scheme: &str, special: bool) -> Option<String> {
+    // Credentials end at the LAST `@`: `https://linear.app@evil.com/` is evil.com.
+    let (has_credentials, host_and_port) = match authority.rfind('@') {
+        Some(at) => (true, authority.get(at.saturating_add(1)..)?),
+        None => (false, authority),
+    };
+    let (host, port) = match host_and_port.split_once(':') {
+        Some((host, port)) => (host, Some(port)),
+        None => (host_and_port, None),
+    };
+    // A file URL may carry neither credentials nor a port; `new URL` throws on both.
+    if scheme == "file" && (has_credentials || port.is_some()) {
+        return None;
+    }
+    if port.is_some_and(|port| !is_valid_port(port)) {
+        return None;
+    }
+    if host.is_empty() {
+        return Some(String::new());
+    }
+    if host.bytes().any(is_forbidden_host_byte) {
+        return None;
+    }
+    if !special {
+        // Opaque host: no percent-decoding, no IDNA, NO case folding.
+        return Some(host.to_string());
+    }
+    // Domain-to-ASCII is percent-decode + IDNA + lowercase. Only the lowercase is
+    // ported, so refuse any host the other two would rewrite (`linear%2eapp`,
+    // `linear。app`) rather than compare a half-mapped one — that refusal is the
+    // module's documented residual gap, and it fails CLOSED.
+    if !host.is_ascii() || host.contains('%') || host.bytes().any(|b| b < 0x20 || b == 0x7f) {
+        return None;
+    }
+    Some(host.to_ascii_lowercase())
+}
+
+/// `new URL` stand-in: `URL.hostname` plus the non-empty `URL.pathname` segments,
+/// or `None` on the TS `new URL` throw path. Query/hash are excluded, matching
+/// `URL.pathname`.
+///
+/// NOT a full WHATWG port — the residual is percent-decoding + IDNA of a special
+/// scheme's host and percent-ENCODING of the pathname. Both are refusals or
+/// under-decodings, i.e. this parser accepts a STRICT SUBSET of what `new URL`
+/// accepts; it must never accept a host `new URL` would not, because the caller
+/// turns "this is linear.app" into a persisted workspace-token selector.
+fn parse_absolute_url(input: &str) -> Option<(String, Vec<String>)> {
+    let cleaned = clean_url_input(input);
+    let (scheme, rest) = split_scheme(&cleaned)?;
+    let special = is_special_scheme(&scheme);
+    let (authority, path) = split_authority(&scheme, special, rest);
+    let hostname = match authority {
+        Some(authority) => parse_host(authority, &scheme, special)?,
+        None => String::new(),
+    };
+    // `split_at_checked` is total, so the cut generates no bounds obligation; the
+    // offset comes from `find`/`len` and is always a boundary.
+    let path_end = path.find(['?', '#']).unwrap_or(path.len());
+    let (path, _) = path.split_at_checked(path_end)?;
+    // `\` is a path separator only for special schemes (`https://host\a\b`).
+    let separators: &[char] = if special { &['/', '\\'] } else { &['/'] };
     let segments = path
-        .split('/')
+        .split(separators)
         .filter(|segment| !segment.is_empty())
         .map(str::to_string)
         .collect();
-    Some((hostname.to_string(), segments))
+    Some((hostname, segments))
 }
 
 /// Parse a bare Linear identifier (`ENG-123`) or a `linear.app` issue URL into a
@@ -121,7 +251,10 @@ pub fn parse_linear_issue_input(input: &str) -> Option<ParsedLinearIssueInput> {
         });
     }
     let (hostname, segments) = parse_absolute_url(trimmed)?;
-    if !hostname.eq_ignore_ascii_case("linear.app") {
+    // EXACT — see `get_linear_organization_url_key_from_issue_url`. The org key
+    // below is persisted and equality-compared to pick a Linear API token, so a
+    // widened host check here selects another workspace's token.
+    if hostname != "linear.app" {
         return None;
     }
     let organization_url_key = segments.first()?;
@@ -239,5 +372,91 @@ mod tests {
         // Bare-looking but invalid identifiers aren't URLs either.
         assert_eq!(parse_linear_issue_input("ENG-"), None);
         assert_eq!(parse_linear_issue_input("ENG-1-2"), None);
+    }
+
+    /// The org key these return is PERSISTED and equality-compared to pick a
+    /// Linear API token, so every case here is a wrong-workspace outcome, not a
+    /// cosmetic parse difference. Each was ACCEPTED by the pre-2026-08-16 core.
+    #[test]
+    fn refuses_every_host_the_twin_refuses() {
+        for input in [
+            // Text before the URL is not a scheme; `new URL` throws.
+            "see https://linear.app/evil/issue/ENG-1",
+            "1https://linear.app/evil/issue/ENG-1",
+            "h_ttps://linear.app/evil/issue/ENG-1",
+            // Opaque (non-special) hosts are NOT case-folded by `new URL`.
+            "foo://LINEAR.APP/evil/issue/ENG-1",
+            "FOO://Linear.App/evil/issue/ENG-1",
+            // A file URL may carry neither a port nor credentials.
+            "file://linear.app:443/evil/issue/ENG-1",
+            "file://user@linear.app/evil/issue/ENG-1",
+            // An unparseable or out-of-range port throws.
+            "https://linear.app:abc/evil/issue/ENG-1",
+            "https://linear.app:65536/evil/issue/ENG-1",
+            // Credentials end at the LAST `@`, so the host here is evil.com.
+            "https://linear.app@evil.com/evil/issue/ENG-1",
+            // `\` is a forbidden opaque-host code point and not a separator.
+            "foo://linear.app\\evil\\issue\\ENG-1",
+            // A third slash leaves a file URL with an empty host.
+            "file:///linear.app/evil/issue/ENG-1",
+            // A non-special scheme needs exactly `//` to reach a host.
+            "foo:/linear.app/evil/issue/ENG-1",
+        ] {
+            assert_eq!(parse_linear_issue_input(input), None, "must refuse {input:?}");
+            assert_eq!(
+                get_linear_organization_url_key_from_issue_url(Some(input)),
+                None,
+                "must refuse {input:?}"
+            );
+        }
+    }
+
+    /// The other side of the same rule — narrowing the host check must not cost
+    /// any shape `new URL` really does read as linear.app.
+    #[test]
+    fn still_accepts_every_host_the_twin_accepts() {
+        for input in [
+            // Special schemes lowercase the host, and reach it through ANY run of
+            // slashes (backslashes included) — or none at all.
+            "HTTPS://LINEAR.APP/acme/issue/ENG-1",
+            "https:linear.app/acme/issue/ENG-1",
+            "https:////linear.app/acme/issue/ENG-1",
+            "https:/\\linear.app/acme/issue/ENG-1",
+            "https://linear.app:65535/acme/issue/ENG-1",
+            "https://evil.com@linear.app/acme/issue/ENG-1",
+            "file://linear.app/acme/issue/ENG-1",
+            // A lowercase opaque host IS linear.app, port and all.
+            "foo://linear.app/acme/issue/ENG-1",
+            "foo://linear.app:80/acme/issue/ENG-1",
+            // `new URL` removes tab/LF/CR anywhere and strips leading C0 controls,
+            // both BEFORE the scheme is read.
+            "ht\ttps://linear.app/acme/issue/ENG-1",
+            "\u{1}https://linear.app/acme/issue/ENG-1",
+            "https://lin\rear.app/acme/issue/ENG-1",
+        ] {
+            assert_eq!(
+                parse_linear_issue_input(input),
+                Some(ParsedLinearIssueInput {
+                    identifier: "ENG-1".to_string(),
+                    organization_url_key: Some("acme".to_string()),
+                }),
+                "must accept {input:?}"
+            );
+            assert_eq!(
+                get_linear_organization_url_key_from_issue_url(Some(input)),
+                Some("acme".to_string()),
+                "must accept {input:?}"
+            );
+        }
+    }
+
+    /// The residual: domain-to-ASCII is percent-decode + IDNA + lowercase and only
+    /// the lowercase is ported, so a host the other two would rewrite is REFUSED
+    /// rather than guessed at. Pinned so the direction stays fail-closed — a
+    /// future IDNA port turns these into accepts, never the reverse.
+    #[test]
+    fn refuses_hosts_that_need_domain_to_ascii_rather_than_guessing() {
+        assert_eq!(parse_linear_issue_input("https://linear%2eapp/evil/issue/ENG-1"), None);
+        assert_eq!(parse_linear_issue_input("https://linear\u{3002}app/evil/issue/ENG-1"), None);
     }
 }

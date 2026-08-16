@@ -15651,6 +15651,657 @@
         "agentId": "codex"
       },
       "expected": "remote-model"
+    },
+    {
+      "function": "mergeLegacyCommitMessageAiIntoSourceControlAi",
+      "note": "LEDGER REPRO: legacy omits customAgentCommand, so the delta merge writes an own undefined over 'keep-me'",
+      "input": {
+        "sourceControlAi": {
+          "enabled": true,
+          "agentId": null,
+          "selectedModelByAgent": {},
+          "selectedThinkingByModel": {},
+          "customAgentCommand": "keep-me",
+          "instructionsByOperation": {}
+        },
+        "legacy": {
+          "enabled": false,
+          "agentId": "codex",
+          "model": "x"
+        }
+      },
+      "expected": {
+        "enabled": false,
+        "actions": {
+          "commitMessage": {
+            "commandInputTemplate": "{basePrompt}",
+            "agentId": "codex"
+          },
+          "pullRequest": {
+            "commandInputTemplate": "{basePrompt}",
+            "agentId": "codex"
+          },
+          "branchName": {
+            "commandInputTemplate": "{basePrompt}",
+            "agentId": "codex"
+          },
+          "fixCommitFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixPushFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixChecks": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveConflicts": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveComments": {
+            "commandInputTemplate": "{basePrompt}"
+          }
+        },
+        "agentId": "codex",
+        "selectedModelByAgent": {},
+        "selectedModelByAgentByHost": {},
+        "discoveredModelsByAgent": {},
+        "discoveredModelsByAgentByHost": {},
+        "selectedThinkingByModel": {},
+        "instructionsByOperation": {
+          "commitMessage": "",
+          "pullRequest": "",
+          "branchName": ""
+        },
+        "prCreationDefaults": {
+          "draft": false,
+          "useTemplate": false,
+          "generateDetailsOnOpen": false,
+          "openAfterCreate": false
+        },
+        "launchActionDefaults": {},
+        "modelOverridesByOperation": {}
+      }
+    },
+    {
+      "function": "mergeLegacyCommitMessageAiIntoSourceControlAi",
+      "note": "ISOLATED agentId: only agentId diverges from the rollback projection, and legacy omits it",
+      "input": {
+        "sourceControlAi": {
+          "enabled": true,
+          "agentId": null,
+          "selectedModelByAgent": {},
+          "selectedThinkingByModel": {},
+          "customAgentCommand": "keep-me",
+          "instructionsByOperation": {}
+        },
+        "legacy": {
+          "enabled": true,
+          "customAgentCommand": "keep-me"
+        }
+      },
+      "expected": {
+        "enabled": true,
+        "actions": {
+          "commitMessage": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "pullRequest": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "branchName": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixCommitFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixPushFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixChecks": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveConflicts": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveComments": {
+            "commandInputTemplate": "{basePrompt}"
+          }
+        },
+        "selectedModelByAgent": {},
+        "selectedModelByAgentByHost": {},
+        "discoveredModelsByAgent": {},
+        "discoveredModelsByAgentByHost": {},
+        "selectedThinkingByModel": {},
+        "customAgentCommand": "keep-me",
+        "instructionsByOperation": {
+          "commitMessage": "",
+          "pullRequest": "",
+          "branchName": ""
+        },
+        "prCreationDefaults": {
+          "draft": false,
+          "useTemplate": false,
+          "generateDetailsOnOpen": false,
+          "openAfterCreate": false
+        },
+        "launchActionDefaults": {},
+        "modelOverridesByOperation": {}
+      }
+    },
+    {
+      "function": "mergeLegacyCommitMessageAiIntoSourceControlAi",
+      "note": "ISOLATED enabled: legacy omits enabled while agentId/customAgentCommand match the projection",
+      "input": {
+        "sourceControlAi": {
+          "enabled": true,
+          "agentId": null,
+          "selectedModelByAgent": {},
+          "selectedThinkingByModel": {},
+          "customAgentCommand": "keep-me",
+          "instructionsByOperation": {}
+        },
+        "legacy": {
+          "agentId": null,
+          "customAgentCommand": "keep-me"
+        }
+      },
+      "expected": {
+        "actions": {
+          "commitMessage": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "pullRequest": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "branchName": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixCommitFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixPushFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixChecks": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveConflicts": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveComments": {
+            "commandInputTemplate": "{basePrompt}"
+          }
+        },
+        "agentId": null,
+        "selectedModelByAgent": {},
+        "selectedModelByAgentByHost": {},
+        "discoveredModelsByAgent": {},
+        "discoveredModelsByAgentByHost": {},
+        "selectedThinkingByModel": {},
+        "customAgentCommand": "keep-me",
+        "instructionsByOperation": {
+          "commitMessage": "",
+          "pullRequest": "",
+          "branchName": ""
+        },
+        "prCreationDefaults": {
+          "draft": false,
+          "useTemplate": false,
+          "generateDetailsOnOpen": false,
+          "openAfterCreate": false
+        },
+        "launchActionDefaults": {},
+        "modelOverridesByOperation": {}
+      }
+    },
+    {
+      "function": "mergeLegacyCommitMessageAiIntoSourceControlAi",
+      "note": "no sourceControlAi: the legacy-only arm copies all three slots straight off an empty legacy",
+      "input": {
+        "sourceControlAi": null,
+        "legacy": {}
+      },
+      "expected": {
+        "actions": {
+          "commitMessage": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "pullRequest": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "branchName": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixCommitFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixPushFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixChecks": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveConflicts": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveComments": {
+            "commandInputTemplate": "{basePrompt}"
+          }
+        },
+        "selectedModelByAgent": {},
+        "selectedModelByAgentByHost": {},
+        "discoveredModelsByAgent": {},
+        "discoveredModelsByAgentByHost": {},
+        "selectedThinkingByModel": {},
+        "instructionsByOperation": {
+          "commitMessage": "",
+          "pullRequest": "",
+          "branchName": ""
+        },
+        "prCreationDefaults": {
+          "draft": false,
+          "useTemplate": false,
+          "generateDetailsOnOpen": false,
+          "openAfterCreate": false
+        },
+        "launchActionDefaults": {}
+      }
+    },
+    {
+      "function": "sourceControlAiSettingsFromLegacy",
+      "note": "empty legacy: enabled/agentId/customAgentCommand are own undefined keys",
+      "input": {},
+      "expected": {
+        "actions": {
+          "commitMessage": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "pullRequest": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "branchName": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixCommitFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixPushFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixChecks": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveConflicts": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveComments": {
+            "commandInputTemplate": "{basePrompt}"
+          }
+        },
+        "selectedModelByAgent": {},
+        "selectedModelByAgentByHost": {},
+        "discoveredModelsByAgent": {},
+        "discoveredModelsByAgentByHost": {},
+        "selectedThinkingByModel": {},
+        "instructionsByOperation": {
+          "commitMessage": "",
+          "pullRequest": "",
+          "branchName": ""
+        },
+        "prCreationDefaults": {
+          "draft": false,
+          "useTemplate": false,
+          "generateDetailsOnOpen": false,
+          "openAfterCreate": false
+        },
+        "launchActionDefaults": {}
+      }
+    },
+    {
+      "function": "normalizeSourceControlAiSettings",
+      "note": "null value + empty legacy: normalization runs over the from-legacy projection",
+      "input": {
+        "value": null,
+        "legacy": {}
+      },
+      "expected": {
+        "actions": {
+          "commitMessage": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "pullRequest": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "branchName": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixCommitFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixPushFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixChecks": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveConflicts": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveComments": {
+            "commandInputTemplate": "{basePrompt}"
+          }
+        },
+        "selectedModelByAgent": {},
+        "selectedModelByAgentByHost": {},
+        "discoveredModelsByAgent": {},
+        "discoveredModelsByAgentByHost": {},
+        "selectedThinkingByModel": {},
+        "instructionsByOperation": {
+          "commitMessage": "",
+          "pullRequest": "",
+          "branchName": ""
+        },
+        "prCreationDefaults": {
+          "draft": false,
+          "useTemplate": false,
+          "generateDetailsOnOpen": false,
+          "openAfterCreate": false
+        },
+        "launchActionDefaults": {}
+      }
+    },
+    {
+      "function": "mergeLegacyCommitMessageAiIntoSourceControlAi",
+      "note": "CONTROL: legacy specifies every core field, so nothing is undefined",
+      "input": {
+        "sourceControlAi": {
+          "enabled": true,
+          "agentId": null,
+          "selectedModelByAgent": {},
+          "selectedThinkingByModel": {},
+          "customAgentCommand": "keep-me",
+          "instructionsByOperation": {}
+        },
+        "legacy": {
+          "enabled": false,
+          "agentId": "codex",
+          "customPrompt": "legacy prompt",
+          "customAgentCommand": "legacy-cmd"
+        }
+      },
+      "expected": {
+        "enabled": false,
+        "actions": {
+          "commitMessage": {
+            "commandInputTemplate": "{basePrompt}\n\nlegacy prompt",
+            "agentId": "codex"
+          },
+          "pullRequest": {
+            "commandInputTemplate": "{basePrompt}",
+            "agentId": "codex"
+          },
+          "branchName": {
+            "commandInputTemplate": "{basePrompt}",
+            "agentId": "codex"
+          },
+          "fixCommitFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixPushFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixChecks": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveConflicts": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveComments": {
+            "commandInputTemplate": "{basePrompt}"
+          }
+        },
+        "agentId": "codex",
+        "selectedModelByAgent": {},
+        "selectedModelByAgentByHost": {},
+        "discoveredModelsByAgent": {},
+        "discoveredModelsByAgentByHost": {},
+        "selectedThinkingByModel": {},
+        "customAgentCommand": "legacy-cmd",
+        "instructionsByOperation": {
+          "commitMessage": "",
+          "pullRequest": "",
+          "branchName": ""
+        },
+        "prCreationDefaults": {
+          "draft": false,
+          "useTemplate": false,
+          "generateDetailsOnOpen": false,
+          "openAfterCreate": false
+        },
+        "launchActionDefaults": {},
+        "modelOverridesByOperation": {}
+      }
+    },
+    {
+      "function": "normalizeSourceControlAiSettings",
+      "note": "CONTROL: an ABSENT customAgentCommand on a decoded input still inherits the '' default",
+      "input": {
+        "value": {
+          "enabled": true
+        }
+      },
+      "expected": {
+        "enabled": true,
+        "actions": {
+          "commitMessage": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "pullRequest": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "branchName": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixCommitFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixPushFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixChecks": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveConflicts": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveComments": {
+            "commandInputTemplate": "{basePrompt}"
+          }
+        },
+        "agentId": null,
+        "selectedModelByAgent": {},
+        "selectedModelByAgentByHost": {},
+        "discoveredModelsByAgent": {},
+        "discoveredModelsByAgentByHost": {},
+        "selectedThinkingByModel": {},
+        "customAgentCommand": "",
+        "instructionsByOperation": {
+          "commitMessage": "",
+          "pullRequest": "",
+          "branchName": ""
+        },
+        "prCreationDefaults": {
+          "draft": false,
+          "useTemplate": false,
+          "generateDetailsOnOpen": false,
+          "openAfterCreate": false
+        },
+        "launchActionDefaults": {}
+      }
+    },
+    {
+      "function": "projectSourceControlAiToLegacyCommitMessageAi",
+      "note": "CONTROL: projection of a settings blob with no customAgentCommand omits the key on both sides",
+      "input": {
+        "sourceControlAi": {
+          "enabled": true,
+          "instructionsByOperation": {}
+        }
+      },
+      "expected": {
+        "enabled": true,
+        "selectedModelByAgent": {},
+        "selectedModelByAgentByHost": {},
+        "discoveredModelsByAgent": {},
+        "discoveredModelsByAgentByHost": {},
+        "selectedThinkingByModel": {},
+        "customPrompt": ""
+      }
+    },
+    {
+      "function": "mergeLegacyCommitMessageAiIntoSourceControlAi",
+      "note": "CANARY: legacy customAgentCommand is a real string, so both sides MUST emit it",
+      "input": {
+        "sourceControlAi": {
+          "enabled": true,
+          "agentId": null,
+          "selectedModelByAgent": {},
+          "selectedThinkingByModel": {},
+          "customAgentCommand": "keep-me",
+          "instructionsByOperation": {}
+        },
+        "legacy": {
+          "enabled": false,
+          "customAgentCommand": "rollback-wrote-this"
+        }
+      },
+      "expected": {
+        "enabled": false,
+        "actions": {
+          "commitMessage": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "pullRequest": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "branchName": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixCommitFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixPushFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixChecks": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveConflicts": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveComments": {
+            "commandInputTemplate": "{basePrompt}"
+          }
+        },
+        "selectedModelByAgent": {},
+        "selectedModelByAgentByHost": {},
+        "discoveredModelsByAgent": {},
+        "discoveredModelsByAgentByHost": {},
+        "selectedThinkingByModel": {},
+        "customAgentCommand": "rollback-wrote-this",
+        "instructionsByOperation": {
+          "commitMessage": "",
+          "pullRequest": "",
+          "branchName": ""
+        },
+        "prCreationDefaults": {
+          "draft": false,
+          "useTemplate": false,
+          "generateDetailsOnOpen": false,
+          "openAfterCreate": false
+        },
+        "launchActionDefaults": {},
+        "modelOverridesByOperation": {}
+      }
+    },
+    {
+      "function": "resolveSourceControlAiEnabled",
+      "note": "PROBE CONTROL: legacy-only settings with enabled:false",
+      "input": {
+        "settings": {
+          "commitMessageAi": {
+            "enabled": false
+          }
+        }
+      },
+      "expected": false
+    },
+    {
+      "function": "resolveSourceControlAiPrCreationDefaults",
+      "note": "PROBE: legacy-only settings, absent core fields",
+      "input": {
+        "settings": {
+          "commitMessageAi": {}
+        }
+      },
+      "expected": {
+        "draft": false,
+        "useTemplate": false,
+        "generateDetailsOnOpen": false,
+        "openAfterCreate": false
+      }
+    },
+    {
+      "function": "resolveSourceControlActionRecipe",
+      "note": "PROBE: legacy-only settings, absent agentId",
+      "input": {
+        "settings": {
+          "commitMessageAi": {}
+        },
+        "actionId": "commitMessage"
+      },
+      "expected": {
+        "commandInputTemplate": "{basePrompt}"
+      }
+    },
+    {
+      "function": "resolveSourceControlAiInstructions",
+      "note": "PROBE: legacy-only settings, absent customPrompt",
+      "input": {
+        "settings": {
+          "commitMessageAi": {}
+        },
+        "operation": "commitMessage"
+      },
+      "expected": ""
+    },
+    {
+      "function": "hasConfiguredSourceControlAiInstructions",
+      "note": "PROBE: legacy-only settings, absent customPrompt",
+      "input": {
+        "settings": {
+          "commitMessageAi": {}
+        },
+        "operation": "commitMessage"
+      },
+      "expected": false
+    },
+    {
+      "function": "projectSourceControlAiToLegacyCommitMessageAi",
+      "note": "PROBE: round-trip a settings blob that omits enabled/agentId/customAgentCommand",
+      "input": {
+        "sourceControlAi": {
+          "instructionsByOperation": {}
+        }
+      },
+      "expected": {
+        "selectedModelByAgent": {},
+        "selectedModelByAgentByHost": {},
+        "discoveredModelsByAgent": {},
+        "discoveredModelsByAgentByHost": {},
+        "selectedThinkingByModel": {},
+        "customPrompt": ""
+      }
     }
   ]
 }

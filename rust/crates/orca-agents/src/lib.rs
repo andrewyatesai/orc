@@ -44,8 +44,8 @@ pub use commit_message_generation::{
     GeneratedCommitMessage,
 };
 pub use commit_message_models::{
-    parse_codex_models, parse_cursor_models, parse_line_models, parse_pi_models,
-    CommitMessageModel, ThinkingLevel,
+    parse_codex_models, parse_codex_models_value, parse_cursor_models, parse_line_models,
+    parse_pi_models, CommitMessageModel, ThinkingLevel,
 };
 pub use commit_message_plan::{
     plan_agent_binary, plan_commit_message_generation, CommitMessagePlan, CommitMessagePlanInput,

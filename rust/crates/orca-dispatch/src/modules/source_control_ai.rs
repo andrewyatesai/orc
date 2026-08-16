@@ -34,7 +34,7 @@ use orca_git::source_control_ai::{
     ResolvedSourceControlAiGenerationParams, ResolvedSourceControlAiOperation,
     SourceControlActionId, SourceControlActionRecipe, SourceControlAiActionDefaults,
     SourceControlAiModelChoice, SourceControlAiOperation, SourceControlAiPrCreationDefaults,
-    SourceControlAiSettings,
+    SourceControlAiSettings, SourceControlAiUndefinedKeys,
 };
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
@@ -419,6 +419,9 @@ fn decode_settings(value: &Value) -> SourceControlAiSettings {
         ),
         pr_creation_defaults: decode_pr_creation_defaults(value.get("prCreationDefaults")),
         launch_action_defaults: decode_action_defaults(value.get("launchActionDefaults")),
+        // JSON has no `undefined`, and the payload encoder omits own-`undefined`
+        // properties, so a crossed blob never carries a present-`undefined` key.
+        undefined_keys: SourceControlAiUndefinedKeys::default(),
     }
 }
 

@@ -1220,3 +1220,164 @@ fn resolve_instructions_falls_back_to_the_legacy_prompt_for_commit_messages() {
         ""
     );
 }
+
+// ---------------------------------------------------------------------------
+// The rollback bridge's own-`undefined` slots.
+//
+// `normalizeSourceControlAiSettings` merges with `{ ...defaults, ...base }`, so
+// a legacy field the rollback build never wrote arrives as a key holding
+// `undefined` and SHADOWS the product default — `JSON.stringify` then omits it
+// and persistence writes nothing. Substituting `""` / `null` / `true` here
+// persists a custom command, an agent choice and an enabled flag the user never
+// made. Goldens are the committed twin's own answers
+// (`git show HEAD:src/shared/source-control-ai.ts`), read through
+// `JSON.parse(JSON.stringify(...))` so an own-`undefined` shows up as absent.
+// ---------------------------------------------------------------------------
+
+/// The rollback repro's stored blob: `{ enabled: true, agentId: null,
+/// selectedModelByAgent: {}, selectedThinkingByModel: {}, customAgentCommand,
+/// instructionsByOperation: {} }`.
+fn stored_settings(custom_agent_command: &str) -> SourceControlAiSettings {
+    SourceControlAiSettings {
+        enabled: Some(true),
+        agent_id: Some(None),
+        custom_agent_command: Some(custom_agent_command.to_string()),
+        ..SourceControlAiSettings::default()
+    }
+}
+
+fn merge_legacy(
+    source: Option<&SourceControlAiSettings>,
+    legacy: &CommitMessageAiSettings,
+) -> SourceControlAiSettings {
+    merge_legacy_commit_message_ai_into_source_control_ai(
+        source,
+        Some(legacy),
+        &MergeLegacyOptions {
+            pull_request_instructions_from_legacy: false,
+        },
+    )
+}
+
+#[test]
+fn rollback_merge_records_no_custom_command_when_legacy_omits_one() {
+    let base = stored_settings("keep-me");
+    let merged = merge_legacy(
+        Some(&base),
+        &CommitMessageAiSettings {
+            enabled: Some(false),
+            agent_id: Some(Some("codex".to_string())),
+            ..CommitMessageAiSettings::default()
+        },
+    );
+
+    assert_eq!(merged.custom_agent_command, None);
+    assert_eq!(merged.enabled, Some(false));
+    assert_eq!(merged.agent_id, Some(Some("codex".to_string())));
+}
+
+#[test]
+fn rollback_merge_records_no_agent_when_legacy_omits_one() {
+    let base = stored_settings("keep-me");
+    let merged = merge_legacy(
+        Some(&base),
+        &CommitMessageAiSettings {
+            enabled: Some(true),
+            custom_agent_command: Some("keep-me".to_string()),
+            ..CommitMessageAiSettings::default()
+        },
+    );
+
+    assert_eq!(merged.agent_id, None);
+    assert_eq!(merged.enabled, Some(true));
+    assert_eq!(merged.custom_agent_command.as_deref(), Some("keep-me"));
+}
+
+#[test]
+fn rollback_merge_records_no_enabled_flag_when_legacy_omits_one() {
+    let base = stored_settings("keep-me");
+    let merged = merge_legacy(
+        Some(&base),
+        &CommitMessageAiSettings {
+            agent_id: Some(None),
+            custom_agent_command: Some("keep-me".to_string()),
+            ..CommitMessageAiSettings::default()
+        },
+    );
+
+    assert_eq!(merged.enabled, None);
+    assert_eq!(merged.agent_id, Some(None));
+    assert_eq!(merged.custom_agent_command.as_deref(), Some("keep-me"));
+}
+
+#[test]
+fn legacy_only_merge_records_none_of_the_three_core_slots_from_an_empty_blob() {
+    let merged = merge_legacy(None, &CommitMessageAiSettings::default());
+
+    assert_eq!(merged.enabled, None);
+    assert_eq!(merged.agent_id, None);
+    assert_eq!(merged.custom_agent_command, None);
+    assert_eq!(
+        merged.instructions_by_operation,
+        instr(&[(CommitMessage, ""), (PullRequest, ""), (BranchName, "")])
+    );
+}
+
+#[test]
+fn normalizing_a_from_legacy_projection_keeps_the_unwritten_slots_unset() {
+    let normalized = normalize_source_control_ai_settings(
+        None,
+        Some(&CommitMessageAiSettings::default()),
+    );
+
+    assert_eq!(normalized.enabled, None);
+    assert_eq!(normalized.agent_id, None);
+    assert_eq!(normalized.custom_agent_command, None);
+}
+
+#[test]
+fn re_normalizing_a_merged_result_does_not_resurrect_the_defaults() {
+    // Why: the twin's spread copies the own `undefined` through, and
+    // persistence normalizes what it just merged.
+    let merged = merge_legacy(None, &CommitMessageAiSettings::default());
+    let again = normalize_source_control_ai_settings(Some(&merged), None);
+
+    assert_eq!(again.enabled, None);
+    assert_eq!(again.agent_id, None);
+    assert_eq!(again.custom_agent_command, None);
+}
+
+#[test]
+fn an_absent_key_on_a_decoded_blob_still_inherits_the_product_default() {
+    // The other half of the contract: JSON cannot carry `undefined`, so a blob
+    // that simply lacks the key takes the spread default, as the twin does.
+    let normalized = normalize_source_control_ai_settings(
+        Some(&SourceControlAiSettings {
+            enabled: Some(true),
+            ..SourceControlAiSettings::default()
+        }),
+        None,
+    );
+
+    assert_eq!(normalized.enabled, Some(true));
+    assert_eq!(normalized.agent_id, Some(None));
+    assert_eq!(normalized.custom_agent_command.as_deref(), Some(""));
+}
+
+#[test]
+fn rollback_merge_keeps_a_custom_command_the_legacy_blob_did_write() {
+    let base = stored_settings("keep-me");
+    let merged = merge_legacy(
+        Some(&base),
+        &CommitMessageAiSettings {
+            enabled: Some(false),
+            custom_agent_command: Some("rollback-wrote-this".to_string()),
+            ..CommitMessageAiSettings::default()
+        },
+    );
+
+    assert_eq!(
+        merged.custom_agent_command.as_deref(),
+        Some("rollback-wrote-this")
+    );
+}

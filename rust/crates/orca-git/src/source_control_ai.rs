@@ -18,11 +18,14 @@
 //!   (TS `undefined`), `Some(None)` = an explicit `null`, `Some(Some(v))` = a
 //!   value. The twin branches on all three (`item.agentArgs === null` is not
 //!   `item.agentArgs === undefined`), so collapsing them is a wrong answer.
-//! * TS `undefined` and an absent key are ONE value here. They only differ for
-//!   a persisted blob that omits a field the TS type marks required
-//!   (`enabled`, `customAgentCommand`), where the twin propagates `undefined`
-//!   through `sourceControlAiSettingsFromLegacy` and this takes the spread
-//!   default instead. No writer in the app emits such a blob.
+//! * TS `undefined` and an absent key are ONE value for a DECODED blob, because
+//!   JSON has no `undefined`. They are two values once this module SYNTHESIZES a
+//!   settings object from a legacy one: `normalizeSourceControlAiSettings`
+//!   merges with object spread (`{...defaults, ...base}`), so a key present
+//!   holding `undefined` SHADOWS the default instead of inheriting it, and
+//!   `JSON.stringify` then drops the key. `SourceControlAiUndefinedKeys` carries
+//!   that distinction for the three keys the twin resolves by spread alone —
+//!   `enabled`, `agentId`, `customAgentCommand`.
 //!
 //! Every `.trim()` here is `trim_js`: JS trims U+FEFF and keeps U+0085, Rust's
 //! `str::trim` does the opposite, and these strings are command templates and
@@ -220,6 +223,22 @@ pub struct CommitMessageAiSettings {
     pub custom_agent_command: Option<String>,
 }
 
+/// The three `SourceControlAiSettings` keys `normalizeSourceControlAiSettings`
+/// resolves by OBJECT SPREAD (`{...defaults, ...base}`) rather than `??`: a key
+/// present holding `undefined` shadows the default, and `JSON.stringify` then
+/// omits it. `Option::None` alone cannot say whether the key was absent (inherit
+/// the default) or present-`undefined` (omit), and guessing writes a substituted
+/// `""` / `null` / `true` into settings that are persisted per repo.
+///
+/// Only the legacy `commitMessageAi` bridge sets these — a decoded JSON blob
+/// cannot carry `undefined`, so it leaves them all `false`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SourceControlAiUndefinedKeys {
+    pub enabled: bool,
+    pub agent_id: bool,
+    pub custom_agent_command: bool,
+}
+
 /// The split Source Control AI settings (`SourceControlAiSettings`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SourceControlAiSettings {
@@ -239,6 +258,9 @@ pub struct SourceControlAiSettings {
     pub pr_creation_defaults: Option<SourceControlAiPrCreationDefaults>,
     /// Deprecated in the twin; kept for automatic migration + rollback.
     pub launch_action_defaults: Option<SourceControlAiActionDefaults>,
+    /// Which of `enabled` / `agent_id` / `custom_agent_command` are present
+    /// holding `undefined` rather than absent.
+    pub undefined_keys: SourceControlAiUndefinedKeys,
 }
 
 /// Repo-level tri-state PR-creation override: `None` outer = absent (inherit),
@@ -753,6 +775,7 @@ pub fn get_default_source_control_ai_settings() -> SourceControlAiSettings {
             open_after_create: Some(false),
         }),
         launch_action_defaults: Some(SourceControlAiActionDefaults::new()),
+        undefined_keys: SourceControlAiUndefinedKeys::default(),
     }
 }
 
@@ -824,6 +847,20 @@ pub fn source_control_ai_settings_from_legacy(
         model_overrides_by_operation: defaults.model_overrides_by_operation,
         pr_creation_defaults: defaults.pr_creation_defaults,
         launch_action_defaults: defaults.launch_action_defaults,
+        // These three are written as own keys off `legacy`, so an absent legacy
+        // field lands as a present `undefined`, not as the spread default.
+        undefined_keys: legacy_undefined_keys(legacy),
+    }
+}
+
+/// Which of the three spread-only keys a `{ ...defaults, enabled: legacy.enabled,
+/// agentId: legacy.agentId, customAgentCommand: legacy.customAgentCommand }`
+/// write leaves holding `undefined`.
+fn legacy_undefined_keys(legacy: &CommitMessageAiSettings) -> SourceControlAiUndefinedKeys {
+    SourceControlAiUndefinedKeys {
+        enabled: legacy.enabled.is_none(),
+        agent_id: legacy.agent_id.is_none(),
+        custom_agent_command: legacy.custom_agent_command.is_none(),
     }
 }
 
@@ -912,10 +949,20 @@ pub fn normalize_source_control_ai_settings(
     let mut instructions_by_operation = defaults.instructions_by_operation.clone();
     instructions_by_operation.extend(base.instructions_by_operation.clone());
 
+    // `{ ...defaults, ...base }`: a key `base` holds as `undefined` shadows the
+    // default rather than inheriting it, and is then dropped by JSON.stringify.
     SourceControlAiSettings {
-        enabled: base.enabled.or(defaults.enabled),
+        enabled: if base.undefined_keys.enabled {
+            None
+        } else {
+            base.enabled.or(defaults.enabled)
+        },
         actions: Some(actions),
-        agent_id: base.agent_id.clone().or(defaults.agent_id),
+        agent_id: if base.undefined_keys.agent_id {
+            None
+        } else {
+            base.agent_id.clone().or(defaults.agent_id)
+        },
         selected_model_by_agent,
         selected_model_by_agent_by_host: base
             .selected_model_by_agent_by_host
@@ -930,15 +977,21 @@ pub fn normalize_source_control_ai_settings(
             .clone()
             .or(defaults.discovered_models_by_agent_by_host),
         selected_thinking_by_model,
-        custom_agent_command: base
-            .custom_agent_command
-            .clone()
-            .or(defaults.custom_agent_command),
+        custom_agent_command: if base.undefined_keys.custom_agent_command {
+            None
+        } else {
+            base.custom_agent_command
+                .clone()
+                .or(defaults.custom_agent_command)
+        },
         instructions_by_operation,
         model_overrides_by_operation: base.model_overrides_by_operation.clone(),
         pr_creation_defaults: Some(merge_pr_defaults(base.pr_creation_defaults.as_ref())),
         launch_action_defaults: normalized_launch_action_defaults
             .or(defaults.launch_action_defaults),
+        // The spread copies the own `undefined` through, so re-normalizing the
+        // result must not resurrect the default either.
+        undefined_keys: base.undefined_keys,
     }
 }
 
@@ -1166,6 +1219,7 @@ pub fn merge_legacy_commit_message_ai_into_source_control_ai(
             Some(legacy.discovered_models_by_agent_by_host.clone().unwrap_or_default());
         next.selected_thinking_by_model = legacy.selected_thinking_by_model.clone();
         next.custom_agent_command = legacy.custom_agent_command.clone();
+        next.undefined_keys = legacy_undefined_keys(legacy);
         next.instructions_by_operation
             .insert(SourceControlAiOperation::CommitMessage, legacy_prompt.clone());
         next.instructions_by_operation
@@ -1236,14 +1290,20 @@ pub fn merge_legacy_commit_message_ai_into_source_control_ai(
         let legacy_recipe = action_recipe_from_legacy(legacy);
         // Why: legacy commitMessageAi is also our rollback projection. Only
         // import fields that diverged so independent action recipes survive.
+        // Each import writes an OWN key, so an absent legacy field lands as a
+        // present `undefined` — no recorded value, and none to be invented.
+        let legacy_undefined = legacy_undefined_keys(legacy);
         if changes.enabled {
             next.enabled = legacy.enabled;
+            next.undefined_keys.enabled = legacy_undefined.enabled;
         }
         if changes.agent_id {
             next.agent_id = legacy.agent_id.clone();
+            next.undefined_keys.agent_id = legacy_undefined.agent_id;
         }
         if changes.custom_agent_command {
             next.custom_agent_command = legacy.custom_agent_command.clone();
+            next.undefined_keys.custom_agent_command = legacy_undefined.custom_agent_command;
         }
         if changes.custom_prompt {
             next.instructions_by_operation

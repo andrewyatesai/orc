@@ -7,7 +7,7 @@
 //! rather than emitting `null`.
 
 use orca_agents::{
-    parse_antigravity_models, parse_codex_models, parse_cursor_models, parse_line_models,
+    parse_antigravity_models, parse_codex_models_value, parse_cursor_models, parse_line_models,
     parse_pi_models, CommitMessageModel,
 };
 use serde_json::{json, Map, Value};
@@ -16,7 +16,11 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
     // Vectors carry the single `stdout` arg as a bare JSON string.
     let stdout = input.as_str().unwrap_or("");
     match function {
-        "parseCodexModels" => models_to_json(&parse_codex_models(stdout)),
+        // The untyped value, NOT the typed narrowing: `codex debug models` output
+        // is unchecked JSON and the twin copies `slug`/`display_name`/
+        // `default_reasoning_level` through verbatim, so `id`/`label`/
+        // `defaultThinkingLevel` are not always strings.
+        "parseCodexModels" => parse_codex_models_value(stdout),
         "parseLineModels" => models_to_json(&parse_line_models(stdout)),
         "parsePiModels" => models_to_json(&parse_pi_models(stdout)),
         "parseCursorModels" => models_to_json(&parse_cursor_models(stdout)),

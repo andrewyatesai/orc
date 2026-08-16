@@ -52,46 +52,218 @@
       "expected": "https://linear.app/settings/api"
     },
     {
-      "function": "getLinearOrganizationUrlKeyFromIssueUrl",
-      "note": "extracts the first path segment from a linear.app issue URL",
-      "input": "https://linear.app/acme/issue/ENG-1",
-      "expected": "acme"
+      "function": "parseLinearIssueInput",
+      "note": "text before a URL is not a scheme — `new URL` throws on `see https`, so the whole input is refused (core read the host out of it)",
+      "input": "see https://linear.app/evil/issue/ENG-1",
+      "expected": null
     },
     {
-      "function": "getLinearOrganizationUrlKeyFromIssueUrl",
-      "note": "non-Linear host yields null",
-      "input": "https://github.com/acme/repo",
+      "function": "parseLinearIssueInput",
+      "note": "a non-special scheme has an OPAQUE host, which `new URL` does not case-fold, so LINEAR.APP is not linear.app (core folded it)",
+      "input": "foo://LINEAR.APP/evil/issue/ENG-1",
+      "expected": null
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "a file URL may not carry a port — `new URL` throws (core split the port off and matched the host)",
+      "input": "file://linear.app:443/evil/issue/ENG-1",
+      "expected": null
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "a file URL may not carry credentials — `new URL` throws (core stripped them and matched the host)",
+      "input": "file://user@linear.app/evil/issue/ENG-1",
+      "expected": null
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "a non-numeric port makes `new URL` throw (core ignored everything after the colon)",
+      "input": "https://linear.app:abc/evil/issue/ENG-1",
+      "expected": null
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "a port above 65535 makes `new URL` throw (core ignored the port entirely)",
+      "input": "https://linear.app:65536/evil/issue/ENG-1",
+      "expected": null
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "a scheme must start with a letter — `new URL` throws",
+      "input": "1https://linear.app/evil/issue/ENG-1",
+      "expected": null
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "underscore is outside the scheme grammar — `new URL` throws",
+      "input": "h_ttps://linear.app/evil/issue/ENG-1",
+      "expected": null
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "credentials end at the LAST @, so the host is evil.com",
+      "input": "https://linear.app@evil.com/acme/issue/ENG-1",
+      "expected": null
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "CONTROL for the opaque-host case: a lowercase opaque host IS linear.app to `new URL`, so this still parses",
+      "input": "foo://linear.app/evil/issue/ENG-1",
+      "expected": {
+        "identifier": "ENG-1",
+        "organizationUrlKey": "evil"
+      }
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "CONTROL: a SPECIAL scheme host goes through domain-to-ASCII, which lowercases, so the uppercase form still parses",
+      "input": "HTTPS://LINEAR.APP/acme/issue/ENG-1",
+      "expected": {
+        "identifier": "ENG-1",
+        "organizationUrlKey": "acme"
+      }
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "CONTROL: a file URL with a bare host still parses",
+      "input": "file://linear.app/acme/issue/ENG-1",
+      "expected": {
+        "identifier": "ENG-1",
+        "organizationUrlKey": "acme"
+      }
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "CONTROL: the largest legal port still parses",
+      "input": "https://linear.app:65535/acme/issue/ENG-1",
+      "expected": {
+        "identifier": "ENG-1",
+        "organizationUrlKey": "acme"
+      }
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "CONTROL: userinfo that looks like a host is discarded; the real host is linear.app",
+      "input": "https://evil.com@linear.app/acme/issue/ENG-1",
+      "expected": {
+        "identifier": "ENG-1",
+        "organizationUrlKey": "acme"
+      }
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "CONTROL: a non-special scheme may carry a valid port",
+      "input": "foo://linear.app:80/evil/issue/ENG-1",
+      "expected": {
+        "identifier": "ENG-1",
+        "organizationUrlKey": "evil"
+      }
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "a special scheme reaches its host with NO slashes at all; the core used to require `://`",
+      "input": "https:linear.app/acme/issue/ENG-1",
+      "expected": {
+        "identifier": "ENG-1",
+        "organizationUrlKey": "acme"
+      }
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "a special scheme skips any run of slashes, backslashes included",
+      "input": "https:////linear.app/acme/issue/ENG-1",
+      "expected": {
+        "identifier": "ENG-1",
+        "organizationUrlKey": "acme"
+      }
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "mixed slash/backslash run before a special-scheme host",
+      "input": "https:/\\linear.app/acme/issue/ENG-1",
+      "expected": {
+        "identifier": "ENG-1",
+        "organizationUrlKey": "acme"
+      }
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "a THIRD slash gives a file URL an EMPTY host — linear.app is a path segment, not the host",
+      "input": "file:///linear.app/acme/issue/ENG-1",
+      "expected": null
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "a non-special scheme needs exactly `//` for an authority; one slash is an opaque path, so there is no host",
+      "input": "foo:/linear.app/acme/issue/ENG-1",
+      "expected": null
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "`new URL` removes every tab/LF/CR before parsing, so this IS https (guards the input-cleaning step the scheme check depends on)",
+      "input": "ht\ttps://linear.app/acme/issue/ENG-1",
+      "expected": {
+        "identifier": "ENG-1",
+        "organizationUrlKey": "acme"
+      }
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "`new URL` strips leading C0 controls that JS trim leaves behind",
+      "input": "\u0001https://linear.app/acme/issue/ENG-1",
+      "expected": {
+        "identifier": "ENG-1",
+        "organizationUrlKey": "acme"
+      }
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "backslash is a forbidden opaque-host code point (and not a separator), so `new URL` throws",
+      "input": "foo://linear.app\\evil\\issue\\ENG-1",
       "expected": null
     },
     {
       "function": "parseLinearIssueInput",
       "note": "bare identifier is uppercased; no organization key",
       "input": "eng-123",
-      "expected": { "identifier": "ENG-123" }
+      "expected": {
+        "identifier": "ENG-123"
+      }
     },
     {
       "function": "parseLinearIssueInput",
       "note": "bare identifier with underscores in the prefix",
       "input": "ENG_TEAM-45",
-      "expected": { "identifier": "ENG_TEAM-45" }
+      "expected": {
+        "identifier": "ENG_TEAM-45"
+      }
     },
     {
       "function": "parseLinearIssueInput",
       "note": "full issue URL with a trailing slug yields identifier and org key",
       "input": "https://linear.app/acme/issue/eng-123/fix-auth",
-      "expected": { "identifier": "ENG-123", "organizationUrlKey": "acme" }
+      "expected": {
+        "identifier": "ENG-123",
+        "organizationUrlKey": "acme"
+      }
     },
     {
       "function": "parseLinearIssueInput",
-      "note": "issue URL without a trailing slug",
+      "note": "issue URL with a trailing slug",
       "input": "https://linear.app/stably/issue/STA-335/test-issue",
-      "expected": { "identifier": "STA-335", "organizationUrlKey": "stably" }
+      "expected": {
+        "identifier": "STA-335",
+        "organizationUrlKey": "stably"
+      }
     },
     {
       "function": "parseLinearIssueInput",
       "note": "organization url-key is percent-decoded",
       "input": "https://linear.app/acme%20inc/issue/ENG-9",
-      "expected": { "identifier": "ENG-9", "organizationUrlKey": "acme inc" }
+      "expected": {
+        "identifier": "ENG-9",
+        "organizationUrlKey": "acme inc"
+      }
     },
     {
       "function": "parseLinearIssueInput",
@@ -126,7 +298,7 @@
     {
       "function": "parseLinearIssueInput",
       "note": "leading BOM (U+FEFF) is stripped by JS trim, so a BOM-prefixed bare identifier still parses (guards trim_js vs str::trim)",
-      "input": "\uFEFFeng-1",
+      "input": "\ufeffeng-1",
       "expected": {
         "identifier": "ENG-1"
       }
@@ -148,9 +320,63 @@
     },
     {
       "function": "getLinearOrganizationUrlKeyFromIssueUrl",
+      "note": "extracts the first path segment from a linear.app issue URL",
+      "input": "https://linear.app/acme/issue/ENG-1",
+      "expected": "acme"
+    },
+    {
+      "function": "getLinearOrganizationUrlKeyFromIssueUrl",
+      "note": "non-Linear host yields null",
+      "input": "https://github.com/acme/repo",
+      "expected": null
+    },
+    {
+      "function": "getLinearOrganizationUrlKeyFromIssueUrl",
       "note": "backslash issue URL: WHATWG special-scheme normalization still extracts the org key",
       "input": "https://linear.app\\acme\\issue\\ENG-1",
       "expected": "acme"
+    },
+    {
+      "function": "getLinearOrganizationUrlKeyFromIssueUrl",
+      "note": "the SAME host widening on the other parser: an opaque host is not case-folded, so this is not linear.app",
+      "input": "foo://LINEAR.APP/evil/issue/ENG-1",
+      "expected": null
+    },
+    {
+      "function": "getLinearOrganizationUrlKeyFromIssueUrl",
+      "note": "the SAME scheme widening on the other parser: `see https` is not a scheme",
+      "input": "see https://linear.app/evil/issue/ENG-1",
+      "expected": null
+    },
+    {
+      "function": "getLinearOrganizationUrlKeyFromIssueUrl",
+      "note": "invalid port makes `new URL` throw here too",
+      "input": "https://linear.app:abc/evil/issue/ENG-1",
+      "expected": null
+    },
+    {
+      "function": "getLinearOrganizationUrlKeyFromIssueUrl",
+      "note": "special scheme with no slashes still has host linear.app",
+      "input": "https:linear.app/acme/issue/ENG-1",
+      "expected": "acme"
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "domain-to-ASCII percent-decodes a special-scheme host, so `new URL` reads this as linear.app",
+      "input": "https://linear%2eapp/evil/issue/ENG-1",
+      "allowDivergence": "percent-decoding of a special-scheme host is part of domain-to-ASCII, which the port does not model; it refuses a %-bearing host rather than guessing (fails CLOSED)"
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "IDNA maps U+3002 to a label separator, so `new URL` reads this as linear.app",
+      "input": "https://linear\u3002app/evil/issue/ENG-1",
+      "allowDivergence": "IDNA/unicode host mapping is not modeled by the port, which refuses a non-ASCII host rather than guessing (fails CLOSED)"
+    },
+    {
+      "function": "getLinearOrganizationUrlKeyFromIssueUrl",
+      "note": "`URL.pathname` percent-ENCODES the segment; the port returns it raw",
+      "input": "https://linear.app/acme inc/issue/ENG-9",
+      "allowDivergence": "`URL.pathname` percent-encodes; the port returns the raw segment. Only reachable through this parser, which is NOT cut over — `parseLinearIssueInput` decodes, so the two agree there"
     }
   ]
 }
