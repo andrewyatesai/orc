@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AiVaultAgent, AiVaultListResult, AiVaultSession } from '../../../shared/ai-vault-types'
-import { resolveTerminalTabTitle } from '../../../shared/tab-title-resolution'
+import { resolveTerminalTabTitle } from '../../../shared/tab-title-ladder'
 import type { TerminalTab } from '../../../shared/types'
 import {
   collectAiVaultTitleRequests,

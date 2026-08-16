@@ -32,7 +32,7 @@ import type {
   TerminalLayoutSnapshot,
   TerminalTab
 } from '../../../shared/types'
-import { resolveTerminalTabTitle } from '../../../shared/tab-title-resolution'
+import { resolveTerminalTabTitle } from '../../../shared/tab-title-ladder'
 import {
   getActiveTabNavOrder,
   getGroupVisibleTabOrder,

@@ -63,7 +63,7 @@ import {
   toModifierDoubleTapEvent
 } from '../../../../shared/modifier-double-tap-detector'
 import type { BrowserTab as BrowserTabState, Tab, TerminalTab } from '../../../../shared/types'
-import { resolveUnifiedTabLabel } from '../../../../shared/tab-title-resolution'
+import { resolveUnifiedTabLabel } from '../../../../shared/tab-title-ladder'
 import { FloatingBrowserSlot } from './FloatingBrowserSlot'
 import { FloatingTerminalOrchestrationDialog } from './FloatingTerminalOrchestrationDialog'
 import { FloatingTerminalResizeHandles } from './FloatingTerminalResizeHandles'

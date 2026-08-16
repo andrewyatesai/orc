@@ -1,5 +1,5 @@
 import { useAppStore } from '@/store'
-import { resolveUnifiedTabLabel } from '../../../shared/tab-title-resolution'
+import { resolveUnifiedTabLabel } from '../../../shared/tab-title-ladder'
 import type { AppState } from './types'
 
 /** Resolves the displayed tab-strip label for the destructive confirmation. */

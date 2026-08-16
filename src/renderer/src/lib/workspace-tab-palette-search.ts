@@ -1,9 +1,6 @@
 import { getEditorDisplayLabel } from '@/components/editor/editor-labels'
 import type { OpenFile } from '@/store/slices/editor'
-import {
-  resolveTerminalTabTitle,
-  resolveUnifiedTabLabel
-} from '../../../shared/tab-title-resolution'
+import { resolveTerminalTabTitle, resolveUnifiedTabLabel } from '../../../shared/tab-title-ladder'
 import type { Tab, TabContentType, TabGroup, TerminalTab, Worktree } from '../../../shared/types'
 import {
   collectAgentMetadataForTerminal,

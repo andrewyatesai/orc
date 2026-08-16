@@ -13,7 +13,7 @@ beforeAll(() => {
 })
 import { getDefaultSettings } from '../../../../shared/constants'
 import { makePaneKey } from '../../../../shared/stable-pane-identity'
-import { resolveTerminalTabTitle } from '../../../../shared/tab-title-resolution'
+import { resolveTerminalTabTitle } from '../../../../shared/tab-title-ladder'
 import { createTestStore, makeWorktree, seedStore } from './store-test-helpers'
 
 const WORKTREE_ID = 'repo1::/path/wt1'
