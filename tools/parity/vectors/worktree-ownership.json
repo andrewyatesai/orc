@@ -308,6 +308,188 @@
         "knownOrcaLayouts": []
       },
       "expected": "orca-managed"
+    },
+    {
+      "function": "shouldShowWorktree",
+      "note": "agent scratch stays hidden even when the repo shows non-Orca worktrees (#9388)",
+      "input": {
+        "repo": {
+          "externalWorktreeVisibility": "show"
+        },
+        "worktree": {
+          "path": "/repos/app/.claude/worktrees/agent-a04ccaaa55ddadb91"
+        },
+        "ownership": "agent-scratch",
+        "isLegacyRepoForVisibility": false,
+        "isSelectedCheckout": false
+      },
+      "expected": false
+    },
+    {
+      "function": "shouldShowWorktree",
+      "note": "agent scratch is still shown when it is the selected checkout",
+      "input": {
+        "repo": {
+          "externalWorktreeVisibility": "hide"
+        },
+        "worktree": {
+          "path": "/repos/app/.claude/worktrees/agent-a04ccaaa55ddadb91"
+        },
+        "ownership": "agent-scratch",
+        "isLegacyRepoForVisibility": false,
+        "isSelectedCheckout": true
+      },
+      "expected": true
+    },
+    {
+      "function": "applyMetadataFallbackVisibility",
+      "note": "hidden agent scratch keeps its policy through the metadata fallback",
+      "input": {
+        "path": "/repos/app/.claude/worktrees/agent-a04ccaaa55ddadb91",
+        "isMainWorktree": false,
+        "ownership": "agent-scratch",
+        "selectedCheckout": false,
+        "visible": false
+      },
+      "expected": {
+        "path": "/repos/app/.claude/worktrees/agent-a04ccaaa55ddadb91",
+        "isMainWorktree": false,
+        "ownership": "agent-scratch",
+        "selectedCheckout": false,
+        "visible": false
+      }
+    },
+    {
+      "function": "applyMetadataFallbackVisibility",
+      "note": "an explicitly imported scratch row stays visible — the fallback hands it back untouched",
+      "input": {
+        "path": "/repos/app/.claude/worktrees/agent-a04ccaaa55ddadb91",
+        "isMainWorktree": false,
+        "ownership": "agent-scratch",
+        "selectedCheckout": false,
+        "visible": true
+      },
+      "expected": {
+        "path": "/repos/app/.claude/worktrees/agent-a04ccaaa55ddadb91",
+        "isMainWorktree": false,
+        "ownership": "agent-scratch",
+        "selectedCheckout": false,
+        "visible": true
+      }
+    },
+    {
+      "function": "applyMetadataFallbackVisibility",
+      "note": "external is demoted to unknown-legacy and revealed once the git scan is gone",
+      "input": {
+        "path": "/scratch/manual",
+        "isMainWorktree": false,
+        "ownership": "external",
+        "selectedCheckout": false,
+        "visible": false
+      },
+      "expected": {
+        "path": "/scratch/manual",
+        "isMainWorktree": false,
+        "ownership": "unknown-legacy",
+        "selectedCheckout": false,
+        "visible": true
+      }
+    },
+    {
+      "function": "applyMetadataFallbackVisibility",
+      "note": "orca-managed keeps its ownership while the fallback forces visible",
+      "input": {
+        "path": "/orca/workspaces/app/feature",
+        "isMainWorktree": false,
+        "ownership": "orca-managed",
+        "selectedCheckout": false,
+        "visible": false
+      },
+      "expected": {
+        "path": "/orca/workspaces/app/feature",
+        "isMainWorktree": false,
+        "ownership": "orca-managed",
+        "selectedCheckout": false,
+        "visible": true
+      }
+    },
+    {
+      "function": "applyMetadataFallbackVisibility",
+      "note": "an already-visible unknown-legacy row is unchanged, selectedCheckout included",
+      "input": {
+        "path": "/repos/app",
+        "isMainWorktree": true,
+        "ownership": "unknown-legacy",
+        "selectedCheckout": true,
+        "visible": true
+      },
+      "expected": {
+        "path": "/repos/app",
+        "isMainWorktree": true,
+        "ownership": "unknown-legacy",
+        "selectedCheckout": true,
+        "visible": true
+      }
+    },
+    {
+      "function": "applyMetadataFallbackVisibility",
+      "note": "boundary: the real caller shape — every field outside the lean projection rides the TS spread through",
+      "input": {
+        "id": "repo-1::/scratch/manual",
+        "repoId": "repo-1",
+        "path": "/scratch/manual",
+        "head": "abc",
+        "branch": "refs/heads/main",
+        "isBare": false,
+        "isMainWorktree": false,
+        "displayName": "main",
+        "comment": "",
+        "linkedIssue": null,
+        "isArchived": false,
+        "sortOrder": 0,
+        "lastActivityAt": 0,
+        "workspaceStatus": "todo",
+        "ownership": "external",
+        "selectedCheckout": false,
+        "visible": false
+      },
+      "expected": {
+        "id": "repo-1::/scratch/manual",
+        "repoId": "repo-1",
+        "path": "/scratch/manual",
+        "head": "abc",
+        "branch": "refs/heads/main",
+        "isBare": false,
+        "isMainWorktree": false,
+        "displayName": "main",
+        "comment": "",
+        "linkedIssue": null,
+        "isArchived": false,
+        "sortOrder": 0,
+        "lastActivityAt": 0,
+        "workspaceStatus": "todo",
+        "ownership": "unknown-legacy",
+        "selectedCheckout": false,
+        "visible": true
+      }
+    },
+    {
+      "function": "applyMetadataFallbackVisibility",
+      "note": "boundary: an off-union ownership string lands on unknown-legacy, same as the TS ternary",
+      "input": {
+        "path": "/scratch/manual",
+        "isMainWorktree": false,
+        "ownership": "not-a-real-ownership",
+        "selectedCheckout": false,
+        "visible": false
+      },
+      "expected": {
+        "path": "/scratch/manual",
+        "isMainWorktree": false,
+        "ownership": "unknown-legacy",
+        "selectedCheckout": false,
+        "visible": true
+      }
     }
   ]
 }

@@ -2,14 +2,18 @@
 //! `src/shared/feature-interactions.ts`.
 
 use orca_config::{
-    has_feature_interaction, is_feature_interaction_id, normalize_feature_interactions,
-    FeatureInteractionId, FeatureInteractionState,
+    has_feature_interaction, is_feature_interaction_id,
+    normalize_feature_interaction_telemetry_buckets, normalize_feature_interactions,
+    FeatureInteractionId, FeatureInteractionState, FeatureInteractionTelemetryBucketState,
 };
 use serde_json::{json, Map, Value};
 
 pub fn dispatch(function: &str, input: &Value) -> Value {
     match function {
         "normalizeFeatureInteractions" => state_to_json(&normalize_feature_interactions(input)),
+        "normalizeFeatureInteractionTelemetryBuckets" => {
+            bucket_state_to_json(&normalize_feature_interaction_telemetry_buckets(input))
+        }
         "hasFeatureInteraction" => match input.get("id").and_then(Value::as_str).and_then(FeatureInteractionId::from_id) {
             Some(id) => Value::Bool(has_feature_interaction(input.get("state"), id)),
             // Vectors only carry known ids; an unknown one is a vector bug, not a port divergence.
@@ -31,6 +35,16 @@ fn state_to_json(state: &FeatureInteractionState) -> Value {
                 "interactionCount": record.interaction_count,
             }),
         );
+    }
+    Value::Object(map)
+}
+
+/// Match `JSON.stringify` of the TS `FeatureInteractionTelemetryBucketState`:
+/// a flat id → bucket-label map.
+fn bucket_state_to_json(state: &FeatureInteractionTelemetryBucketState) -> Value {
+    let mut map = Map::new();
+    for (id, bucket) in state {
+        map.insert(id.as_str().to_string(), Value::String(bucket.as_str().to_string()));
     }
     Value::Object(map)
 }

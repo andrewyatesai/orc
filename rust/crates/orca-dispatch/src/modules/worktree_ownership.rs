@@ -4,17 +4,25 @@
 //! Inputs carry the lean field projections the logic reads (camelCase, matching
 //! the TS vectors). Outputs are shaped by hand to match `JSON.stringify` of the
 //! TS return: enums become their TS string ids (`show`/`hide`,
-//! `orca-managed`/`unknown-legacy`/`external`), `DetectedWorktree` keeps only the
-//! fields the TS spread carries from the lean `{ path, isMainWorktree }` worktree.
+//! `orca-managed`/`unknown-legacy`/`external`/`agent-scratch`),
+//! `DetectedWorktree` keeps only the fields the TS spread carries from the lean
+//! `{ path, isMainWorktree }` worktree.
+//!
+//! `applyMetadataFallbackVisibility` is the exception, and deliberately: its TS
+//! input is a row a caller already built, so the arm re-emits the caller's own
+//! object with the two decided keys replaced instead of rebuilding it from the
+//! lean struct. Rebuilding would drop `id`/`repoId`/`branch`/… on a function
+//! whose whole job is to hand the row back.
 
 use orca_core::worktree_ownership::{
-    are_runtime_paths_equal, build_known_orca_workspace_layouts, classify_worktree_ownership,
+    apply_metadata_fallback_visibility, are_runtime_paths_equal,
+    build_known_orca_workspace_layouts, classify_worktree_ownership,
     effective_external_worktree_visibility, is_legacy_repo_for_external_worktree_visibility,
     should_show_worktree, to_detected_worktree,
     DetectedWorktree, ExternalWorktreeVisibility, OrcaWorkspaceLayout, Repo, WorkspaceLayoutSettings,
     Worktree, WorktreeMeta, WorktreeOwnership,
 };
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 pub fn dispatch(function: &str, input: &Value) -> Value {
     match function {
@@ -57,6 +65,13 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
             let is_selected = bool_field(input, "isSelectedCheckout");
             Value::Bool(should_show_worktree(ownership, &repo, is_legacy, is_selected))
         }
+        "applyMetadataFallbackVisibility" => match input.as_object() {
+            Some(row) => spread_fallback_decision(row, &apply_metadata_fallback_visibility(&parse_detected(input))),
+            // The TS reads `detected.ownership` and throws a TypeError on a
+            // non-object; no caller catches it, so the harness only records that
+            // this input has no answer rather than inventing an empty row.
+            None => json!({ "__parity_error__": "applyMetadataFallbackVisibility expects a DetectedWorktree object" }),
+        },
         "areRuntimePathsEqual" => {
             Value::Bool(are_runtime_paths_equal(&str_field(input, "leftPath"), &str_field(input, "rightPath")))
         }
@@ -101,6 +116,26 @@ fn parse_worktree(value: &Value) -> Worktree {
         path: str_field(value, "path"),
         is_main_worktree: bool_field(value, "isMainWorktree"),
     }
+}
+
+fn parse_detected(value: &Value) -> DetectedWorktree {
+    DetectedWorktree {
+        path: str_field(value, "path"),
+        is_main_worktree: bool_field(value, "isMainWorktree"),
+        ownership: parse_ownership(value.get("ownership")),
+        selected_checkout: bool_field(value, "selectedCheckout"),
+        visible: bool_field(value, "visible"),
+    }
+}
+
+/// `{ ...detected, visible, ownership }`: overwriting an existing key keeps its
+/// position (serde_json `preserve_order`), so the emitted object matches the TS
+/// spread key-for-key, extra caller fields included.
+fn spread_fallback_decision(row: &Map<String, Value>, decided: &DetectedWorktree) -> Value {
+    let mut spread = row.clone();
+    spread.insert("ownership".to_string(), ownership_to_value(decided.ownership));
+    spread.insert("visible".to_string(), Value::Bool(decided.visible));
+    Value::Object(spread)
 }
 
 fn parse_meta(value: Option<&Value>) -> Option<WorktreeMeta> {
@@ -150,10 +185,13 @@ fn parse_visibility(value: Option<&Value>) -> Option<ExternalWorktreeVisibility>
     }
 }
 
+/// Anything unrecognized lands on `unknown-legacy`, which is also where the TS
+/// ternary in `applyMetadataFallbackVisibility` sends an off-union string.
 fn parse_ownership(value: Option<&Value>) -> WorktreeOwnership {
     match value.and_then(Value::as_str) {
         Some("orca-managed") => WorktreeOwnership::OrcaManaged,
         Some("external") => WorktreeOwnership::External,
+        Some("agent-scratch") => WorktreeOwnership::AgentScratch,
         _ => WorktreeOwnership::UnknownLegacy,
     }
 }
@@ -174,6 +212,7 @@ fn ownership_to_value(ownership: WorktreeOwnership) -> Value {
             WorktreeOwnership::OrcaManaged => "orca-managed",
             WorktreeOwnership::UnknownLegacy => "unknown-legacy",
             WorktreeOwnership::External => "external",
+            WorktreeOwnership::AgentScratch => "agent-scratch",
         }
         .to_string(),
     )

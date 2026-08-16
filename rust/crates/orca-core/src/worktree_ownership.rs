@@ -5,6 +5,14 @@
 //! row, or external — and whether it should be shown — by matching its path
 //! against the known Orca workspace layouts. Composes `cross_platform_path` and
 //! `wsl_paths`. Input structs are the lean projections the logic reads.
+//!
+//! Two twin branches are NOT ported and are called out where they belong:
+//! the `agent-scratch` path matcher (`agent-scratch-worktrees.ts`) that
+//! `classifyWorktreeOwnership` consults, and the explicit-import override
+//! (`external-worktree-inbox.ts`) inside `shouldShowWorktree`. The
+//! `agent-scratch` ownership *value* is honoured throughout, so rows classified
+//! upstream keep their policy through the visibility half and the metadata
+//! fallback.
 
 use crate::cross_platform_path::{
     is_runtime_path_absolute, is_windows_absolute_path_like,
@@ -28,6 +36,12 @@ pub enum WorktreeOwnership {
     OrcaManaged,
     UnknownLegacy,
     External,
+    /// `agent-scratch` — sub-agent plumbing (`.claude/worktrees`, `.gsd-workspaces`).
+    /// `classify_worktree_ownership` never mints it: the twin's matcher lives in
+    /// the un-ported `agent-scratch-worktrees.ts`. The variant exists because the
+    /// visibility half of this module is handed rows already classified upstream,
+    /// and both `should_show_worktree` and the metadata fallback branch on it.
+    AgentScratch,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -256,6 +270,12 @@ pub fn to_detected_worktree(
     }
 }
 
+/// NOT PORTED, and the one gap in this function: the twin also returns `true`
+/// for a path in `repo.importedExternalWorktreePaths`, via
+/// `isExplicitlyImportedExternalWorktreePath` in the un-ported
+/// `external-worktree-inbox.ts`. That branch sits between "orca-managed" and
+/// "agent-scratch" below, so an explicitly imported row — scratch or not — can
+/// answer `false` here where the twin answers `true`.
 pub fn should_show_worktree(
     ownership: WorktreeOwnership,
     repo: &Repo,
@@ -268,11 +288,41 @@ pub fn should_show_worktree(
     if ownership == WorktreeOwnership::OrcaManaged {
         return true;
     }
+    // Agent scratch stays hidden even when the repo shows non-Orca worktrees;
+    // only an explicit import or the selected checkout reveals it (#9388).
+    if ownership == WorktreeOwnership::AgentScratch {
+        return false;
+    }
     if ownership == WorktreeOwnership::UnknownLegacy && is_legacy_repo_for_visibility {
         return true;
     }
     effective_external_worktree_visibility(repo.external_worktree_visibility, is_legacy_repo_for_visibility)
         == ExternalWorktreeVisibility::Show
+}
+
+/// `applyMetadataFallbackVisibility` — the git scan failed, so metadata is the
+/// only evidence left. Fail open: reveal the row and demote any non-managed
+/// ownership to `unknown-legacy`, because a path-shape guess is worthless
+/// without the scan. Agent scratch is returned untouched — its policy (hidden
+/// unless explicitly imported or selected) must survive the fallback.
+///
+/// The twin returns the very same object for the scratch case and the caller
+/// asserts identity; this returns a value-equal clone. No production caller
+/// depends on the reference — both (`src/main/ipc/worktrees.ts`,
+/// `src/main/runtime/orca-runtime.ts`) push the result straight into an array.
+pub fn apply_metadata_fallback_visibility(detected: &DetectedWorktree) -> DetectedWorktree {
+    if detected.ownership == WorktreeOwnership::AgentScratch {
+        return detected.clone();
+    }
+    DetectedWorktree {
+        visible: true,
+        ownership: if detected.ownership == WorktreeOwnership::OrcaManaged {
+            WorktreeOwnership::OrcaManaged
+        } else {
+            WorktreeOwnership::UnknownLegacy
+        },
+        ..detected.clone()
+    }
 }
 
 pub fn are_runtime_paths_equal(left_path: &str, right_path: &str) -> bool {
@@ -326,7 +376,22 @@ fn can_classify_as_external(worktree_path: &str, known_orca_layouts: &[OrcaWorks
 mod tests {
     use super::*;
     use ExternalWorktreeVisibility::{Hide, Show};
-    use WorktreeOwnership::{External, OrcaManaged, UnknownLegacy};
+    use WorktreeOwnership::{AgentScratch, External, OrcaManaged, UnknownLegacy};
+
+    const SCRATCH_PATH: &str = "/repos/app/.claude/worktrees/agent-a04ccaaa55ddadb91";
+
+    /// The twin builds these rows with `toDetectedWorktree` + the un-ported agent
+    /// scratch matcher; the ported half is the decision, so the row is
+    /// constructed at the ownership the twin's classifier hands it.
+    fn detected(path: &str, ownership: WorktreeOwnership, visible: bool) -> DetectedWorktree {
+        DetectedWorktree {
+            path: path.to_string(),
+            is_main_worktree: false,
+            ownership,
+            selected_checkout: false,
+            visible,
+        }
+    }
 
     fn make_repo() -> Repo {
         Repo {
@@ -526,6 +591,84 @@ mod tests {
     fn treats_repos_without_a_valid_added_at_as_legacy() {
         assert!(is_legacy_repo_for_external_worktree_visibility(&Repo { added_at: None, ..make_repo() }));
         assert!(is_legacy_repo_for_external_worktree_visibility(&Repo { added_at: Some(f64::NAN), ..make_repo() }));
+    }
+
+    // Twin: 'hides agent scratch even when the repo shows non-Orca worktrees'.
+    // The twin asserts it through `toDetectedWorktree`, which needs the un-ported
+    // scratch matcher to reach the ownership; the ported decision is this one.
+    #[test]
+    fn hides_agent_scratch_even_when_the_repo_shows_non_orca_worktrees() {
+        let shows_external = Repo { external_worktree_visibility: Some(Show), ..make_repo() };
+        assert!(!should_show_worktree(AgentScratch, &shows_external, false, false));
+        let legacy = Repo {
+            added_at: Some((EXTERNAL_WORKTREE_VISIBILITY_ROLLOUT_AT - 1) as f64),
+            ..make_repo()
+        };
+        assert!(!should_show_worktree(AgentScratch, &legacy, true, false));
+    }
+
+    // Twin: 'still shows agent scratch for the selected checkout or an explicit
+    // import'. Only the selected-checkout half is portable — the explicit-import
+    // half runs through the un-ported `isExplicitlyImportedExternalWorktreePath`.
+    #[test]
+    fn still_shows_agent_scratch_for_the_selected_checkout() {
+        assert!(should_show_worktree(AgentScratch, &make_repo(), false, true));
+    }
+
+    // Twin: 'keeps agent scratch hidden in the metadata fallback while revealing
+    // the rest'.
+    #[test]
+    fn keeps_agent_scratch_hidden_in_the_metadata_fallback_while_revealing_the_rest() {
+        let scratch = detected(SCRATCH_PATH, AgentScratch, false);
+        let external = detected("/scratch/manual", External, true);
+
+        let scratch_fallback = apply_metadata_fallback_visibility(&scratch);
+        assert!(!scratch_fallback.visible);
+        assert_eq!(scratch_fallback.ownership, AgentScratch);
+
+        let external_fallback = apply_metadata_fallback_visibility(&external);
+        assert!(external_fallback.visible);
+        assert_eq!(external_fallback.ownership, UnknownLegacy);
+    }
+
+    // Twin: 'preserves an explicit scratch import in the metadata fallback' —
+    // there the row is visible because it was imported, and the twin asserts the
+    // fallback hands back the SAME object (`toBe`). Value equality is the
+    // portable half of that contract.
+    #[test]
+    fn preserves_an_explicit_scratch_import_in_the_metadata_fallback() {
+        let scratch = detected(SCRATCH_PATH, AgentScratch, true);
+        assert_eq!(apply_metadata_fallback_visibility(&scratch), scratch);
+    }
+
+    // Boundary the twin's tests leave to the ternary: managed rows keep their
+    // ownership through the fallback, every other non-scratch row is demoted.
+    #[test]
+    fn metadata_fallback_keeps_managed_ownership_and_demotes_the_rest() {
+        let managed = apply_metadata_fallback_visibility(&detected("/tmp/outside", OrcaManaged, false));
+        assert_eq!(managed.ownership, OrcaManaged);
+        assert!(managed.visible);
+        for ownership in [External, UnknownLegacy] {
+            let row = apply_metadata_fallback_visibility(&detected("/tmp/outside", ownership, false));
+            assert_eq!(row.ownership, UnknownLegacy);
+            assert!(row.visible);
+        }
+    }
+
+    // The fallback decides two fields and touches nothing else.
+    #[test]
+    fn metadata_fallback_leaves_the_rest_of_the_row_alone() {
+        let selected = DetectedWorktree {
+            path: "/repos/app".to_string(),
+            is_main_worktree: true,
+            ownership: External,
+            selected_checkout: true,
+            visible: true,
+        };
+        let fallback = apply_metadata_fallback_visibility(&selected);
+        assert_eq!(fallback.path, selected.path);
+        assert_eq!(fallback.is_main_worktree, selected.is_main_worktree);
+        assert_eq!(fallback.selected_checkout, selected.selected_checkout);
     }
 
     #[test]

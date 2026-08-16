@@ -9,6 +9,7 @@
 #![cfg_attr(trust_verify, feature(register_tool))]
 #![cfg_attr(trust_verify, register_tool(trust))]
 
+pub mod feature_interaction_usage_buckets;
 pub mod feature_interactions;
 pub mod js_value_string;
 pub mod mcp;
@@ -17,10 +18,14 @@ pub mod repo_icon;
 pub mod setup_script_package_manager;
 pub mod workspace_statuses;
 
+pub use feature_interaction_usage_buckets::{
+    FeatureInteractionUsageBucket, FEATURE_INTERACTION_USAGE_BUCKETS,
+};
 pub use feature_interactions::{
-    has_feature_interaction, is_feature_interaction_id, normalize_feature_interactions,
+    has_feature_interaction, is_feature_interaction_id,
+    normalize_feature_interaction_telemetry_buckets, normalize_feature_interactions,
     FeatureInteractionDefinition, FeatureInteractionId, FeatureInteractionRecord,
-    FeatureInteractionState, FEATURE_INTERACTIONS,
+    FeatureInteractionState, FeatureInteractionTelemetryBucketState, FEATURE_INTERACTIONS,
 };
 pub use js_value_string::{js_number_string, js_string};
 pub use mcp::{

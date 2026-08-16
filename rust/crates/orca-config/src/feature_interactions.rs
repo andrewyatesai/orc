@@ -7,6 +7,7 @@
 //! `serde_json::Value` — hence this lives in `orca-config` (the persisted-JSON
 //! tier), not zero-dep `orca-core`.
 
+use crate::feature_interaction_usage_buckets::FeatureInteractionUsageBucket;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -15,18 +16,33 @@ pub enum FeatureInteractionId {
     WorkspaceBoard,
     WorkspaceAgentSessions,
     WorkspaceBoardActions,
+    CmdJ,
+    CmdJWorkspaceOpen,
+    CmdJBrowserPageOpen,
+    CmdJSettingsOpen,
+    CmdJQuickAction,
+    CmdJCreateWorkspace,
     Browser,
+    BrowserTabCreated,
     Tasks,
+    GithubTasks,
+    GitlabTasks,
+    LinearTasks,
+    JiraTasks,
     Automations,
     AutomationCreated,
     AutomationRun,
     BrowserAnnotations,
+    BrowserAnnotationsSentToAgent,
     BrowserGrab,
+    MarkdownFileCreated,
     WorkspaceCreation,
     AgentBrowserSetup,
     AgentBrowserUse,
+    EphemeralVmSetup,
     AgentOrchestrationSetup,
     AgentOrchestration,
+    MobileEmulatorAgentSetup,
     AiCommitGeneration,
     AiPrGeneration,
     ClaudeAccountSwitching,
@@ -35,6 +51,7 @@ pub enum FeatureInteractionId {
     CodexAccountSwitching,
     CookieImport,
     FloatingWorkspace,
+    FloatingWorkspaceHidden,
     MobilePairing,
     Notifications,
     Ports,
@@ -49,6 +66,7 @@ pub enum FeatureInteractionId {
     UsageTracking,
     VoiceDictation,
     WorkspaceCleanup,
+
 }
 
 impl FeatureInteractionId {
@@ -57,18 +75,33 @@ impl FeatureInteractionId {
             FeatureInteractionId::WorkspaceBoard => "workspace-board",
             FeatureInteractionId::WorkspaceAgentSessions => "workspace-agent-sessions",
             FeatureInteractionId::WorkspaceBoardActions => "workspace-board-actions",
+            FeatureInteractionId::CmdJ => "cmd-j",
+            FeatureInteractionId::CmdJWorkspaceOpen => "cmd-j-workspace-open",
+            FeatureInteractionId::CmdJBrowserPageOpen => "cmd-j-browser-page-open",
+            FeatureInteractionId::CmdJSettingsOpen => "cmd-j-settings-open",
+            FeatureInteractionId::CmdJQuickAction => "cmd-j-quick-action",
+            FeatureInteractionId::CmdJCreateWorkspace => "cmd-j-create-workspace",
             FeatureInteractionId::Browser => "browser",
+            FeatureInteractionId::BrowserTabCreated => "browser-tab-created",
             FeatureInteractionId::Tasks => "tasks",
+            FeatureInteractionId::GithubTasks => "github-tasks",
+            FeatureInteractionId::GitlabTasks => "gitlab-tasks",
+            FeatureInteractionId::LinearTasks => "linear-tasks",
+            FeatureInteractionId::JiraTasks => "jira-tasks",
             FeatureInteractionId::Automations => "automations",
             FeatureInteractionId::AutomationCreated => "automation-created",
             FeatureInteractionId::AutomationRun => "automation-run",
             FeatureInteractionId::BrowserAnnotations => "browser-annotations",
+            FeatureInteractionId::BrowserAnnotationsSentToAgent => "browser-annotations-sent-to-agent",
             FeatureInteractionId::BrowserGrab => "browser-grab",
+            FeatureInteractionId::MarkdownFileCreated => "markdown-file-created",
             FeatureInteractionId::WorkspaceCreation => "workspace-creation",
             FeatureInteractionId::AgentBrowserSetup => "agent-browser-setup",
             FeatureInteractionId::AgentBrowserUse => "agent-browser-use",
+            FeatureInteractionId::EphemeralVmSetup => "ephemeral-vm-setup",
             FeatureInteractionId::AgentOrchestrationSetup => "agent-orchestration-setup",
             FeatureInteractionId::AgentOrchestration => "agent-orchestration",
+            FeatureInteractionId::MobileEmulatorAgentSetup => "mobile-emulator-agent-setup",
             FeatureInteractionId::AiCommitGeneration => "ai-commit-generation",
             FeatureInteractionId::AiPrGeneration => "ai-pr-generation",
             FeatureInteractionId::ClaudeAccountSwitching => "claude-account-switching",
@@ -77,6 +110,7 @@ impl FeatureInteractionId {
             FeatureInteractionId::CodexAccountSwitching => "codex-account-switching",
             FeatureInteractionId::CookieImport => "cookie-import",
             FeatureInteractionId::FloatingWorkspace => "floating-workspace",
+            FeatureInteractionId::FloatingWorkspaceHidden => "floating-workspace-hidden",
             FeatureInteractionId::MobilePairing => "mobile-pairing",
             FeatureInteractionId::Notifications => "notifications",
             FeatureInteractionId::Ports => "ports",
@@ -91,6 +125,7 @@ impl FeatureInteractionId {
             FeatureInteractionId::UsageTracking => "usage-tracking",
             FeatureInteractionId::VoiceDictation => "voice-dictation",
             FeatureInteractionId::WorkspaceCleanup => "workspace-cleanup",
+
         }
     }
 
@@ -116,24 +151,43 @@ pub struct FeatureInteractionRecord {
 
 pub type FeatureInteractionState = BTreeMap<FeatureInteractionId, FeatureInteractionRecord>;
 
+/// The last usage bucket emitted per feature, so a bucket is reported once.
+pub type FeatureInteractionTelemetryBucketState =
+    BTreeMap<FeatureInteractionId, FeatureInteractionUsageBucket>;
+
 // Why: these ids become persisted product state; see
 // docs/reference/feature-discovery-interaction-tracking.md before changing them.
-pub const FEATURE_INTERACTIONS: [FeatureInteractionDefinition; 37] = [
+pub const FEATURE_INTERACTIONS: [FeatureInteractionDefinition; 53] = [
     FeatureInteractionDefinition { id: FeatureInteractionId::WorkspaceBoard, interaction: "workspace board opened" },
     FeatureInteractionDefinition { id: FeatureInteractionId::WorkspaceAgentSessions, interaction: "workspace agent-session surface opened" },
     FeatureInteractionDefinition { id: FeatureInteractionId::WorkspaceBoardActions, interaction: "workspace board card, lane, density, or status action used" },
-    FeatureInteractionDefinition { id: FeatureInteractionId::Browser, interaction: "non-blank browser page viewed" },
+    FeatureInteractionDefinition { id: FeatureInteractionId::CmdJ, interaction: "Cmd+J palette opened" },
+    FeatureInteractionDefinition { id: FeatureInteractionId::CmdJWorkspaceOpen, interaction: "workspace opened from Cmd+J" },
+    FeatureInteractionDefinition { id: FeatureInteractionId::CmdJBrowserPageOpen, interaction: "browser page opened from Cmd+J" },
+    FeatureInteractionDefinition { id: FeatureInteractionId::CmdJSettingsOpen, interaction: "settings opened from Cmd+J" },
+    FeatureInteractionDefinition { id: FeatureInteractionId::CmdJQuickAction, interaction: "quick action run from Cmd+J" },
+    FeatureInteractionDefinition { id: FeatureInteractionId::CmdJCreateWorkspace, interaction: "workspace creation started from Cmd+J" },
+    FeatureInteractionDefinition { id: FeatureInteractionId::Browser, interaction: "in-app browser opened" },
+    FeatureInteractionDefinition { id: FeatureInteractionId::BrowserTabCreated, interaction: "browser tab explicitly created" },
     FeatureInteractionDefinition { id: FeatureInteractionId::Tasks, interaction: "Tasks page opened" },
+    FeatureInteractionDefinition { id: FeatureInteractionId::GithubTasks, interaction: "GitHub task item workflow used" },
+    FeatureInteractionDefinition { id: FeatureInteractionId::GitlabTasks, interaction: "GitLab task item workflow used" },
+    FeatureInteractionDefinition { id: FeatureInteractionId::LinearTasks, interaction: "Linear task item workflow used" },
+    FeatureInteractionDefinition { id: FeatureInteractionId::JiraTasks, interaction: "Jira task item workflow used" },
     FeatureInteractionDefinition { id: FeatureInteractionId::Automations, interaction: "Automations page opened" },
     FeatureInteractionDefinition { id: FeatureInteractionId::AutomationCreated, interaction: "automation created" },
     FeatureInteractionDefinition { id: FeatureInteractionId::AutomationRun, interaction: "automation run queued" },
     FeatureInteractionDefinition { id: FeatureInteractionId::BrowserAnnotations, interaction: "browser annotation added, copied, or cleared" },
+    FeatureInteractionDefinition { id: FeatureInteractionId::BrowserAnnotationsSentToAgent, interaction: "browser annotations sent to an agent" },
     FeatureInteractionDefinition { id: FeatureInteractionId::BrowserGrab, interaction: "browser element grab or screenshot used" },
+    FeatureInteractionDefinition { id: FeatureInteractionId::MarkdownFileCreated, interaction: "untitled markdown file explicitly created" },
     FeatureInteractionDefinition { id: FeatureInteractionId::WorkspaceCreation, interaction: "workspace creation flow opened" },
     FeatureInteractionDefinition { id: FeatureInteractionId::AgentBrowserSetup, interaction: "Agent Browser Use setup enabled or opened" },
     FeatureInteractionDefinition { id: FeatureInteractionId::AgentBrowserUse, interaction: "agent browser runtime method used" },
+    FeatureInteractionDefinition { id: FeatureInteractionId::EphemeralVmSetup, interaction: "Ephemeral VMs setup opened or scaffold prompt copied" },
     FeatureInteractionDefinition { id: FeatureInteractionId::AgentOrchestrationSetup, interaction: "Agent Orchestration setup enabled or opened" },
     FeatureInteractionDefinition { id: FeatureInteractionId::AgentOrchestration, interaction: "agent orchestration runtime method used" },
+    FeatureInteractionDefinition { id: FeatureInteractionId::MobileEmulatorAgentSetup, interaction: "Mobile Emulator agent CLI or skill setup opened" },
     FeatureInteractionDefinition { id: FeatureInteractionId::AiCommitGeneration, interaction: "AI commit message generation enabled or used" },
     FeatureInteractionDefinition { id: FeatureInteractionId::AiPrGeneration, interaction: "AI pull request generation used" },
     FeatureInteractionDefinition { id: FeatureInteractionId::ClaudeAccountSwitching, interaction: "Claude managed account added, selected, reauthenticated, or removed" },
@@ -142,6 +196,7 @@ pub const FEATURE_INTERACTIONS: [FeatureInteractionDefinition; 37] = [
     FeatureInteractionDefinition { id: FeatureInteractionId::CodexAccountSwitching, interaction: "Codex managed account added, selected, reauthenticated, or removed" },
     FeatureInteractionDefinition { id: FeatureInteractionId::CookieImport, interaction: "browser cookies imported or cleared" },
     FeatureInteractionDefinition { id: FeatureInteractionId::FloatingWorkspace, interaction: "Floating Workspace opened or configured" },
+    FeatureInteractionDefinition { id: FeatureInteractionId::FloatingWorkspaceHidden, interaction: "Floating Workspace explicitly hidden or disabled" },
     FeatureInteractionDefinition { id: FeatureInteractionId::MobilePairing, interaction: "mobile pairing enabled or QR code generated" },
     FeatureInteractionDefinition { id: FeatureInteractionId::Notifications, interaction: "desktop notifications enabled or tested" },
     FeatureInteractionDefinition { id: FeatureInteractionId::Ports, interaction: "Ports popover opened, configured, or port action used" },
@@ -181,6 +236,28 @@ pub fn normalize_feature_interactions(value: &Value) -> FeatureInteractionState 
     out
 }
 
+pub fn normalize_feature_interaction_telemetry_buckets(
+    value: &Value,
+) -> FeatureInteractionTelemetryBucketState {
+    // Same object guard as normalize_feature_interactions: null / array / primitive → {}.
+    let Some(object) = value.as_object() else {
+        return BTreeMap::new();
+    };
+    let mut out = FeatureInteractionTelemetryBucketState::new();
+    for def in FEATURE_INTERACTIONS {
+        // `isFeatureInteractionUsageBucket` in two steps: non-strings (null,
+        // numbers, nested objects) fail `as_str`, unknown labels fail `from_id`.
+        if let Some(bucket) = object
+            .get(def.id.as_str())
+            .and_then(Value::as_str)
+            .and_then(FeatureInteractionUsageBucket::from_id)
+        {
+            out.insert(def.id, bucket);
+        }
+    }
+    out
+}
+
 fn normalize_feature_interaction_record(value: Option<&Value>) -> Option<FeatureInteractionRecord> {
     let object = value?.as_object()?;
     let first_interacted_at = match object.get("firstInteractedAt").and_then(Value::as_f64) {
@@ -215,18 +292,33 @@ mod tests {
                 FeatureInteractionId::WorkspaceBoard,
                 FeatureInteractionId::WorkspaceAgentSessions,
                 FeatureInteractionId::WorkspaceBoardActions,
+                FeatureInteractionId::CmdJ,
+                FeatureInteractionId::CmdJWorkspaceOpen,
+                FeatureInteractionId::CmdJBrowserPageOpen,
+                FeatureInteractionId::CmdJSettingsOpen,
+                FeatureInteractionId::CmdJQuickAction,
+                FeatureInteractionId::CmdJCreateWorkspace,
                 FeatureInteractionId::Browser,
+                FeatureInteractionId::BrowserTabCreated,
                 FeatureInteractionId::Tasks,
+                FeatureInteractionId::GithubTasks,
+                FeatureInteractionId::GitlabTasks,
+                FeatureInteractionId::LinearTasks,
+                FeatureInteractionId::JiraTasks,
                 FeatureInteractionId::Automations,
                 FeatureInteractionId::AutomationCreated,
                 FeatureInteractionId::AutomationRun,
                 FeatureInteractionId::BrowserAnnotations,
+                FeatureInteractionId::BrowserAnnotationsSentToAgent,
                 FeatureInteractionId::BrowserGrab,
+                FeatureInteractionId::MarkdownFileCreated,
                 FeatureInteractionId::WorkspaceCreation,
                 FeatureInteractionId::AgentBrowserSetup,
                 FeatureInteractionId::AgentBrowserUse,
+                FeatureInteractionId::EphemeralVmSetup,
                 FeatureInteractionId::AgentOrchestrationSetup,
                 FeatureInteractionId::AgentOrchestration,
+                FeatureInteractionId::MobileEmulatorAgentSetup,
                 FeatureInteractionId::AiCommitGeneration,
                 FeatureInteractionId::AiPrGeneration,
                 FeatureInteractionId::ClaudeAccountSwitching,
@@ -235,6 +327,7 @@ mod tests {
                 FeatureInteractionId::CodexAccountSwitching,
                 FeatureInteractionId::CookieImport,
                 FeatureInteractionId::FloatingWorkspace,
+                FeatureInteractionId::FloatingWorkspaceHidden,
                 FeatureInteractionId::MobilePairing,
                 FeatureInteractionId::Notifications,
                 FeatureInteractionId::Ports,
@@ -284,5 +377,57 @@ mod tests {
         // `Number.POSITIVE_INFINITY` persists as JSON `null` and is rejected.
         let non_finite = json!({ "tasks": { "firstInteractedAt": null, "interactionCount": 1 } });
         assert!(!has_feature_interaction(Some(&non_finite), Tasks));
+    }
+
+    #[test]
+    fn normalizes_persisted_telemetry_bucket_markers_by_removing_unknown_ids_and_buckets() {
+        // Verbatim from the twin's
+        // "normalizes persisted telemetry bucket markers by removing unknown ids and buckets".
+        let input = json!({
+            "tasks": "count_1",
+            "browser": "count_1000_plus",
+            "automations": "count_4",
+            "unknown": "count_1",
+            "voice-dictation": null
+        });
+        let mut expected = FeatureInteractionTelemetryBucketState::new();
+        expected.insert(Tasks, FeatureInteractionUsageBucket::Count1);
+        expected.insert(Browser, FeatureInteractionUsageBucket::Count1000Plus);
+        assert_eq!(normalize_feature_interaction_telemetry_buckets(&input), expected);
+    }
+
+    #[test]
+    fn accepts_every_bucket_label_and_only_bucket_labels() {
+        // Both ends of the vocabulary plus the near-miss labels around them:
+        // "count_0" is below the first bucket, "count_3" and "count_4" name
+        // counts inside count_3_4's range but are not bucket names, and
+        // "count_1000" is one short of the top-coded label.
+        let input = json!({
+            "workspace-board": "count_0",
+            "cmd-j": "count_1",
+            "browser": "count_3",
+            "tasks": "count_3_4",
+            "ports": "count_4",
+            "ssh": "count_1000",
+            "workspace-cleanup": "count_1000_plus"
+        });
+        let mut expected = FeatureInteractionTelemetryBucketState::new();
+        expected.insert(FeatureInteractionId::CmdJ, FeatureInteractionUsageBucket::Count1);
+        expected.insert(Tasks, FeatureInteractionUsageBucket::Count3To4);
+        expected.insert(
+            FeatureInteractionId::WorkspaceCleanup,
+            FeatureInteractionUsageBucket::Count1000Plus,
+        );
+        assert_eq!(normalize_feature_interaction_telemetry_buckets(&input), expected);
+    }
+
+    #[test]
+    fn treats_non_objects_as_an_empty_telemetry_bucket_state() {
+        for input in [json!(null), json!("count_1"), json!(7), json!(["count_1"])] {
+            assert_eq!(
+                normalize_feature_interaction_telemetry_buckets(&input),
+                FeatureInteractionTelemetryBucketState::new()
+            );
+        }
     }
 }

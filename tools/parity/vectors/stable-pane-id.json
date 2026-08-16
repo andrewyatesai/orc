@@ -124,6 +124,240 @@
       "note": "twin test: stable pane ids > rejects ambiguous or legacy pane-key inputs when parsing",
       "input": "tab-1:",
       "expected": null
+    },
+    {
+      "function": "makePaneKey",
+      "note": "twin test: stable pane ids > builds and parses pane keys using the tab id and UUID leaf id",
+      "input": {
+        "tabId": "tab-1",
+        "stableLeafId": "11111111-1111-4111-8111-111111111111"
+      },
+      "expected": "tab-1:11111111-1111-4111-8111-111111111111"
+    },
+    {
+      "function": "makePaneKey",
+      "note": "twin test: rejects an empty tab id — the twin THROWS, so the message is the compared answer",
+      "input": {
+        "tabId": "",
+        "stableLeafId": "11111111-1111-4111-8111-111111111111"
+      },
+      "expected": {
+        "__parity_error__": "tabId must be non-empty and must not contain \":\""
+      }
+    },
+    {
+      "function": "makePaneKey",
+      "note": "twin test: rejects a colon-bearing tab id (it would make the key ambiguous to parse)",
+      "input": {
+        "tabId": "tab:1",
+        "stableLeafId": "11111111-1111-4111-8111-111111111111"
+      },
+      "expected": {
+        "__parity_error__": "tabId must be non-empty and must not contain \":\""
+      }
+    },
+    {
+      "function": "makePaneKey",
+      "note": "twin test: rejects a legacy numeric leaf id",
+      "input": {
+        "tabId": "tab-1",
+        "stableLeafId": "1"
+      },
+      "expected": {
+        "__parity_error__": "stableLeafId must be a UUID"
+      }
+    },
+    {
+      "function": "makePaneKey",
+      "note": "the tab id is checked before the leaf, so a doubly-invalid call reports tabId",
+      "input": {
+        "tabId": "",
+        "stableLeafId": "1"
+      },
+      "expected": {
+        "__parity_error__": "tabId must be non-empty and must not contain \":\""
+      }
+    },
+    {
+      "function": "makePaneKey",
+      "note": "a bare colon is a non-empty tab id but still colon-bearing",
+      "input": {
+        "tabId": ":",
+        "stableLeafId": "11111111-1111-4111-8111-111111111111"
+      },
+      "expected": {
+        "__parity_error__": "tabId must be non-empty and must not contain \":\""
+      }
+    },
+    {
+      "function": "makePaneKey",
+      "note": "empty leaf id is not a UUID",
+      "input": {
+        "tabId": "tab-1",
+        "stableLeafId": ""
+      },
+      "expected": {
+        "__parity_error__": "stableLeafId must be a UUID"
+      }
+    },
+    {
+      "function": "makePaneKey",
+      "note": "an uppercase UUID is rejected — the twin's regex has no `i` flag",
+      "input": {
+        "tabId": "tab-1",
+        "stableLeafId": "11111111-1111-4111-8111-11111111111A"
+      },
+      "expected": {
+        "__parity_error__": "stableLeafId must be a UUID"
+      }
+    },
+    {
+      "function": "makePaneKey",
+      "note": "a UUID with surrounding whitespace is rejected (the minter never trims)",
+      "input": {
+        "tabId": "tab-1",
+        "stableLeafId": " 11111111-1111-4111-8111-111111111111"
+      },
+      "expected": {
+        "__parity_error__": "stableLeafId must be a UUID"
+      }
+    },
+    {
+      "function": "makePaneKey",
+      "note": "version boundary: v5 is the highest accepted UUID version",
+      "input": {
+        "tabId": "tab-1",
+        "stableLeafId": "11111111-1111-5111-b111-111111111111"
+      },
+      "expected": "tab-1:11111111-1111-5111-b111-111111111111"
+    },
+    {
+      "function": "makePaneKey",
+      "note": "version boundary: v6 is rejected",
+      "input": {
+        "tabId": "tab-1",
+        "stableLeafId": "11111111-1111-6111-8111-111111111111"
+      },
+      "expected": {
+        "__parity_error__": "stableLeafId must be a UUID"
+      }
+    },
+    {
+      "function": "makePaneKey",
+      "note": "variant boundary: `c` is outside 8/9/a/b",
+      "input": {
+        "tabId": "tab-1",
+        "stableLeafId": "11111111-1111-4111-c111-111111111111"
+      },
+      "expected": {
+        "__parity_error__": "stableLeafId must be a UUID"
+      }
+    },
+    {
+      "function": "makePaneKey",
+      "note": "a whitespace-only tab id is non-empty and colon-free, so it mints a key",
+      "input": {
+        "tabId": " ",
+        "stableLeafId": "11111111-1111-4111-8111-111111111111"
+      },
+      "expected": " :11111111-1111-4111-8111-111111111111"
+    },
+    {
+      "function": "makePaneKey",
+      "note": "a non-ASCII tab id is passed through verbatim (no normalization)",
+      "input": {
+        "tabId": "タブ-😀",
+        "stableLeafId": "11111111-1111-4111-8111-111111111111"
+      },
+      "expected": "タブ-😀:11111111-1111-4111-8111-111111111111"
+    },
+    {
+      "function": "makePaneKey",
+      "note": "shape guard: a missing argument is a malformed vector, not a twin error — both legs say so identically",
+      "input": {
+        "tabId": "tab-1"
+      },
+      "expected": {
+        "__parity_error__": "makePaneKey expects { tabId: string, stableLeafId: string }"
+      }
+    },
+    {
+      "function": "parseLegacyNumericPaneKey",
+      "note": "U+FEFF is in the ECMAScript trim set but not Rust's `char::is_whitespace` — JS strips it",
+      "input": "\uFEFFtab-1:12\uFEFF",
+      "expected": {
+        "tabId": "tab-1",
+        "numericPaneId": "12",
+        "paneKey": "tab-1:12"
+      }
+    },
+    {
+      "function": "parseLegacyNumericPaneKey",
+      "note": "a leading-only U+FEFF is stripped too",
+      "input": "\uFEFFtab-1:12",
+      "expected": {
+        "tabId": "tab-1",
+        "numericPaneId": "12",
+        "paneKey": "tab-1:12"
+      }
+    },
+    {
+      "function": "parseLegacyNumericPaneKey",
+      "note": "U+0085 (NEL) is Rust whitespace but NOT JS whitespace: a trailing one keeps the numeric tail non-numeric",
+      "input": "tab-1:12\u0085",
+      "expected": null
+    },
+    {
+      "function": "parseLegacyNumericPaneKey",
+      "note": "a leading U+0085 survives into the tab id instead of being trimmed away",
+      "input": "\u0085tab-1:12",
+      "expected": {
+        "tabId": "\u0085tab-1",
+        "numericPaneId": "12",
+        "paneKey": "\u0085tab-1:12"
+      }
+    },
+    {
+      "function": "parseLegacyNumericPaneKey",
+      "note": "the 256 cap counts UTF-16 units: 200 x U+00E9 is 203 units (under) but 403 bytes (a byte cap would reject)",
+      "input": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé:12",
+      "expected": {
+        "tabId": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "numericPaneId": "12",
+        "paneKey": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé:12"
+      }
+    },
+    {
+      "function": "parseLegacyNumericPaneKey",
+      "note": "astral tab id: 100 x U+1F600 is 200 UTF-16 units (under the cap) but 400 bytes",
+      "input": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀:12",
+      "expected": {
+        "tabId": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+        "numericPaneId": "12",
+        "paneKey": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀:12"
+      }
+    },
+    {
+      "function": "parseLegacyNumericPaneKey",
+      "note": "cap boundary: exactly 256 UTF-16 units is accepted",
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:12",
+      "expected": {
+        "tabId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "numericPaneId": "12",
+        "paneKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:12"
+      }
+    },
+    {
+      "function": "parseLegacyNumericPaneKey",
+      "note": "cap boundary: 257 UTF-16 units is rejected",
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:12",
+      "expected": null
+    },
+    {
+      "function": "parseLegacyNumericPaneKey",
+      "note": "the cap is applied to the UNTRIMMED input, so a short key behind 300 spaces is still rejected",
+      "input": "                                                                                                                                                                                                                                                                                                            tab-1:12",
+      "expected": null
     }
   ]
 }

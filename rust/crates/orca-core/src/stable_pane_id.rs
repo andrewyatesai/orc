@@ -5,6 +5,8 @@
 //! UUID, never the renderer-local numeric pane id. Validation is strict so a
 //! legacy numeric key can't masquerade as a stable one.
 
+use crate::js_string::trim_js;
+
 /// `^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`
 /// (lowercase only — uppercase UUIDs are rejected, matching the un-flagged regex).
 fn all_hex_lower(bytes: &[u8]) -> bool {
@@ -95,12 +97,26 @@ pub struct LegacyNumericPaneKey {
     pub pane_key: String,
 }
 
+/// TS `paneKey.length > 256`, so the unit is a UTF-16 code unit.
+const MAX_LEGACY_PANE_KEY_UTF16_UNITS: usize = 256;
+
+/// `String.prototype.length`, stopping at `limit + 1` — enough to answer "over
+/// the cap?" without scanning an attacker-sized string.
+fn utf16_len_capped(value: &str, limit: usize) -> usize {
+    value.encode_utf16().take(limit.saturating_add(1)).count()
+}
+
 /// Parses a legacy `<tabId>:<numeric>` key (migration aliases only).
 pub fn parse_legacy_numeric_pane_key(pane_key: &str) -> Option<LegacyNumericPaneKey> {
-    if pane_key.len() > 256 {
+    // UTF-16 units, not `str::len` bytes: a 200-char accented tab id is 203
+    // units (TS accepts) but 403 bytes (a byte cap would reject).
+    if utf16_len_capped(pane_key, MAX_LEGACY_PANE_KEY_UTF16_UNITS) > MAX_LEGACY_PANE_KEY_UTF16_UNITS
+    {
         return None;
     }
-    let trimmed = pane_key.trim();
+    // `trim_js`, not `str::trim`: JS strips U+FEFF and keeps U+0085, Rust the
+    // reverse, and a persisted pane key can carry either.
+    let trimmed = trim_js(pane_key);
     let (tab_id, numeric) = trimmed.split_once(':')?;
     if tab_id.is_empty() || numeric.is_empty() || numeric.contains(':') {
         return None;
@@ -153,6 +169,81 @@ mod tests {
         assert!(make_pane_key("", LEAF_ID).unwrap_err().contains("tabId"));
         assert!(make_pane_key("tab:1", LEAF_ID).unwrap_err().contains("tabId"));
         assert!(make_pane_key("tab-1", "1").unwrap_err().contains("UUID"));
+    }
+
+    /// The Err string is dispatched to the parity harness as the twin's thrown
+    /// `Error.message`, so the text is contract, not diagnostics.
+    #[test]
+    fn build_errors_match_the_twins_thrown_messages_verbatim() {
+        const TAB: &str = "tabId must be non-empty and must not contain \":\"";
+        const LEAF: &str = "stableLeafId must be a UUID";
+        assert_eq!(make_pane_key("", LEAF_ID), Err(TAB.to_string()));
+        assert_eq!(make_pane_key("tab:1", LEAF_ID), Err(TAB.to_string()));
+        assert_eq!(make_pane_key(":", LEAF_ID), Err(TAB.to_string()));
+        assert_eq!(make_pane_key("tab-1", "1"), Err(LEAF.to_string()));
+        assert_eq!(make_pane_key("tab-1", ""), Err(LEAF.to_string()));
+        // An uppercase UUID is not a leaf id (the twin's regex has no `i` flag).
+        assert_eq!(
+            make_pane_key("tab-1", "11111111-1111-4111-8111-11111111111A"),
+            Err(LEAF.to_string())
+        );
+        // Empty tab id is checked BEFORE the leaf, same order as the twin.
+        assert_eq!(make_pane_key("", "1"), Err(TAB.to_string()));
+    }
+
+    /// `.trim()` in the twin is ECMAScript's trim set, which is NOT Rust's
+    /// `char::is_whitespace`. A byte cap and `str::trim` made this module
+    /// disagree with its twin on 160 of 40000 fuzzed inputs.
+    #[test]
+    fn legacy_trim_follows_js_not_rust_whitespace() {
+        // U+FEFF: JS strips it, `str::trim` does not.
+        assert_eq!(
+            parse_legacy_numeric_pane_key("\u{FEFF}tab-1:12\u{FEFF}"),
+            Some(LegacyNumericPaneKey {
+                tab_id: "tab-1".to_string(),
+                numeric_pane_id: "12".to_string(),
+                pane_key: "tab-1:12".to_string(),
+            })
+        );
+        // U+0085: `str::trim` strips it, JS does not — so the numeric tail keeps
+        // the NEL, fails `^\d+$`, and the whole key is rejected.
+        assert_eq!(parse_legacy_numeric_pane_key("tab-1:12\u{0085}"), None);
+        // A leading NEL survives into the tab id rather than being trimmed away.
+        assert_eq!(
+            parse_legacy_numeric_pane_key("\u{0085}tab-1:12"),
+            Some(LegacyNumericPaneKey {
+                tab_id: "\u{0085}tab-1".to_string(),
+                numeric_pane_id: "12".to_string(),
+                pane_key: "\u{0085}tab-1:12".to_string(),
+            })
+        );
+    }
+
+    /// The 256 cap counts UTF-16 code units (`String.prototype.length`), not
+    /// UTF-8 bytes.
+    #[test]
+    fn legacy_length_cap_counts_utf16_units_not_bytes() {
+        // 200 x U+00E9 = 200 units / 400 bytes: under the cap for the twin, over
+        // it for a byte count.
+        let two_byte = format!("{}:12", "é".repeat(200));
+        assert_eq!(utf16_len_capped(&two_byte, 256), 203);
+        assert_eq!(two_byte.len(), 403);
+        assert_eq!(
+            parse_legacy_numeric_pane_key(&two_byte).map(|p| p.numeric_pane_id),
+            Some("12".to_string())
+        );
+        // Astral: 2 units / 4 bytes each.
+        let astral = format!("{}:12", "\u{1F600}".repeat(100));
+        assert_eq!(utf16_len_capped(&astral, 256), 203);
+        assert_eq!(astral.len(), 403);
+        assert!(parse_legacy_numeric_pane_key(&astral).is_some());
+        // 100 astral chars = 200 units of tab id; 127 = 254 units, +":12" = 258.
+        assert!(parse_legacy_numeric_pane_key(&format!("{}:12", "\u{1F600}".repeat(127))).is_none());
+        // Exact boundary in units: 256 passes, 257 does not.
+        assert!(parse_legacy_numeric_pane_key(&format!("{}:12", "a".repeat(253))).is_some());
+        assert!(parse_legacy_numeric_pane_key(&format!("{}:12", "a".repeat(254))).is_none());
+        // The cap is applied to the UNTRIMMED input, so padding past it rejects.
+        assert!(parse_legacy_numeric_pane_key(&format!("{}tab-1:12", " ".repeat(300))).is_none());
     }
 
     #[test]

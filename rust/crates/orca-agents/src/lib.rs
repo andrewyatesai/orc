@@ -52,8 +52,9 @@ pub use pull_request_generation::{
     GeneratedPullRequestFields, PullRequestDraftContext,
 };
 pub use tui_agent_selection::{
-    filter_enabled_tui_agents, is_tui_agent, is_tui_agent_enabled, normalize_disabled_tui_agents,
-    pick_tui_agent, TUI_AGENT_AUTO_PICK_ORDER,
+    collapse_default_tui_agent_to_builtin, filter_enabled_tui_agents, is_tui_agent,
+    is_tui_agent_enabled, normalize_disabled_tui_agents, pick_tui_agent, CollapsedDefaultTuiAgent,
+    CustomAgentProfileRef, DefaultTuiAgentPref, TUI_AGENT_AUTO_PICK_ORDER,
 };
 
 

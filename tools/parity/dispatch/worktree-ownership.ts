@@ -3,6 +3,7 @@
 // harness compares the live TS reference against the Rust port.
 
 import {
+  applyMetadataFallbackVisibility,
   areRuntimePathsEqual,
   buildKnownOrcaWorkspaceLayouts,
   classifyWorktreeOwnership,
@@ -11,7 +12,7 @@ import {
   shouldShowWorktree,
   toDetectedWorktree
 } from '../../../src/shared/worktree-ownership'
-import type { Repo } from '../../../src/shared/types'
+import type { DetectedWorktree, Repo } from '../../../src/shared/types'
 
 export function dispatch(fn: string, input: unknown): unknown {
   switch (fn) {
@@ -39,6 +40,11 @@ export function dispatch(fn: string, input: unknown): unknown {
       return toDetectedWorktree(input as Parameters<typeof toDetectedWorktree>[0])
     case 'shouldShowWorktree':
       return shouldShowWorktree(input as Parameters<typeof shouldShowWorktree>[0])
+    case 'applyMetadataFallbackVisibility':
+      // The single argument IS the input: a row a caller already built, whose
+      // fields beyond the lean projection ride through the TS spread — so the
+      // Rust arm re-emits them too instead of rebuilding the lean shape.
+      return applyMetadataFallbackVisibility(input as DetectedWorktree)
     case 'areRuntimePathsEqual': {
       const { leftPath, rightPath } = input as { leftPath: string; rightPath: string }
       return areRuntimePathsEqual(leftPath, rightPath)

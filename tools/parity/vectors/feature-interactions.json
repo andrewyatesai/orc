@@ -45,6 +45,160 @@
       }
     },
     {
+      "function": "normalizeFeatureInteractions",
+      "note": "ids added to the catalog after the first port (cmd-j family, provider tasks, markdown-file-created) must survive",
+      "input": {
+        "cmd-j": { "firstInteractedAt": 1, "interactionCount": 9 },
+        "cmd-j-create-workspace": { "firstInteractedAt": 2 },
+        "github-tasks": { "firstInteractedAt": 3 },
+        "jira-tasks": { "firstInteractedAt": 4 },
+        "markdown-file-created": { "firstInteractedAt": 5 },
+        "ephemeral-vm-setup": { "firstInteractedAt": 6 },
+        "mobile-emulator-agent-setup": { "firstInteractedAt": 7 },
+        "floating-workspace-hidden": { "firstInteractedAt": 8 },
+        "browser-annotations-sent-to-agent": { "firstInteractedAt": 9 },
+        "browser-tab-created": { "firstInteractedAt": 10 }
+      },
+      "expected": {
+        "cmd-j": { "firstInteractedAt": 1, "interactionCount": 9 },
+        "cmd-j-create-workspace": {
+          "firstInteractedAt": 2,
+          "interactionCount": 1
+        },
+        "github-tasks": { "firstInteractedAt": 3, "interactionCount": 1 },
+        "jira-tasks": { "firstInteractedAt": 4, "interactionCount": 1 },
+        "markdown-file-created": {
+          "firstInteractedAt": 5,
+          "interactionCount": 1
+        },
+        "ephemeral-vm-setup": { "firstInteractedAt": 6, "interactionCount": 1 },
+        "mobile-emulator-agent-setup": {
+          "firstInteractedAt": 7,
+          "interactionCount": 1
+        },
+        "floating-workspace-hidden": {
+          "firstInteractedAt": 8,
+          "interactionCount": 1
+        },
+        "browser-annotations-sent-to-agent": {
+          "firstInteractedAt": 9,
+          "interactionCount": 1
+        },
+        "browser-tab-created": {
+          "firstInteractedAt": 10,
+          "interactionCount": 1
+        }
+      }
+    },
+    {
+      "function": "normalizeFeatureInteractionTelemetryBuckets",
+      "note": "twin test: removes unknown ids and unknown buckets",
+      "input": {
+        "tasks": "count_1",
+        "browser": "count_1000_plus",
+        "automations": "count_4",
+        "unknown": "count_1",
+        "voice-dictation": null
+      },
+      "expected": { "tasks": "count_1", "browser": "count_1000_plus" }
+    },
+    {
+      "function": "normalizeFeatureInteractionTelemetryBuckets",
+      "note": "every bucket label in the vocabulary is accepted, in catalog order",
+      "input": {
+        "workspace-board": "count_1",
+        "workspace-agent-sessions": "count_2",
+        "workspace-board-actions": "count_3_4",
+        "cmd-j": "count_5_9",
+        "cmd-j-workspace-open": "count_10_19",
+        "cmd-j-browser-page-open": "count_20_49",
+        "cmd-j-settings-open": "count_50_99",
+        "cmd-j-quick-action": "count_100_199",
+        "cmd-j-create-workspace": "count_200_499",
+        "browser": "count_500_999",
+        "browser-tab-created": "count_1000_plus"
+      },
+      "expected": {
+        "workspace-board": "count_1",
+        "workspace-agent-sessions": "count_2",
+        "workspace-board-actions": "count_3_4",
+        "cmd-j": "count_5_9",
+        "cmd-j-workspace-open": "count_10_19",
+        "cmd-j-browser-page-open": "count_20_49",
+        "cmd-j-settings-open": "count_50_99",
+        "cmd-j-quick-action": "count_100_199",
+        "cmd-j-create-workspace": "count_200_499",
+        "browser": "count_500_999",
+        "browser-tab-created": "count_1000_plus"
+      }
+    },
+    {
+      "function": "normalizeFeatureInteractionTelemetryBuckets",
+      "note": "bucket-edge near misses: labels naming a count inside a bucket's range are not bucket names",
+      "input": {
+        "workspace-board": "count_0",
+        "browser": "count_3",
+        "tasks": "count_3_4",
+        "ports": "count_4",
+        "ssh": "count_5",
+        "notifications": "count_999",
+        "quick-commands": "count_1000",
+        "workspace-cleanup": "count_1000_plus"
+      },
+      "expected": {
+        "tasks": "count_3_4",
+        "workspace-cleanup": "count_1000_plus"
+      }
+    },
+    {
+      "function": "normalizeFeatureInteractionTelemetryBuckets",
+      "note": "non-string bucket values of every JSON type are dropped",
+      "input": {
+        "tasks": 1,
+        "browser": true,
+        "ports": ["count_1"],
+        "ssh": { "bucket": "count_1" },
+        "notifications": null,
+        "automations": "count_2"
+      },
+      "expected": { "automations": "count_2" }
+    },
+    {
+      "function": "normalizeFeatureInteractionTelemetryBuckets",
+      "note": "case and whitespace are not normalized away",
+      "input": {
+        "tasks": "COUNT_1",
+        "browser": " count_1",
+        "ports": "count_1 ",
+        "ssh": ""
+      },
+      "expected": {}
+    },
+    {
+      "function": "normalizeFeatureInteractionTelemetryBuckets",
+      "note": "non-object input yields empty bucket state",
+      "input": "count_1",
+      "expected": {}
+    },
+    {
+      "function": "normalizeFeatureInteractionTelemetryBuckets",
+      "note": "null input yields empty bucket state",
+      "input": null,
+      "expected": {}
+    },
+    {
+      "function": "normalizeFeatureInteractionTelemetryBuckets",
+      "note": "array input yields empty bucket state",
+      "input": ["count_1"],
+      "expected": {}
+    },
+    {
+      "function": "normalizeFeatureInteractionTelemetryBuckets",
+      "note": "empty object yields empty bucket state",
+      "input": {},
+      "expected": {}
+    },
+    {
       "function": "hasFeatureInteraction",
       "note": "valid known record is interacted",
       "input": { "state": { "tasks": { "firstInteractedAt": 100, "interactionCount": 1 } }, "id": "tasks" },

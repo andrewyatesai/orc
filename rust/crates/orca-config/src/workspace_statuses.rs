@@ -7,7 +7,7 @@
 //! reversed-default-order regression. Over vendored `serde_json`; percent
 //! en/decoding for group keys via `orca-core`.
 
-use orca_core::uri_component::{decode_uri_component, encode_uri_component};
+use orca_core::uri_component::{encode_uri_component, try_decode_uri_component};
 use serde_json::Value;
 use std::collections::HashSet;
 
@@ -317,7 +317,9 @@ pub fn get_default_workspace_status_id(statuses: &[WorkspaceStatusDefinition]) -
 
 pub fn get_workspace_status(workspace_status: Option<&str>, statuses: &[WorkspaceStatusDefinition]) -> String {
     match workspace_status {
-        Some(status) if is_workspace_status_id(status, statuses) => status.to_string(),
+        // `!is_empty()` is the TS `worktree.workspaceStatus &&` guard: an empty
+        // id is falsy there and never consulted, even if a column carries it.
+        Some(status) if !status.is_empty() && is_workspace_status_id(status, statuses) => status.to_string(),
         _ => get_default_workspace_status_id(statuses),
     }
 }
@@ -328,7 +330,10 @@ pub fn get_workspace_status_group_key(status: &str) -> String {
 
 pub fn get_workspace_status_from_group_key(group_key: &str, statuses: &[WorkspaceStatusDefinition]) -> Option<String> {
     let encoded = group_key.strip_prefix(WORKSPACE_STATUS_GROUP_PREFIX)?;
-    let status = decode_uri_component(encoded);
+    // Fails CLOSED: the TS wraps decodeURIComponent in try/catch and returns null
+    // on a malformed escape. The lenient decoder passes the raw text through, so a
+    // column whose id is literally "%" answered "%" where the twin answers null.
+    let status = try_decode_uri_component(encoded)?;
     is_workspace_status_id(&status, statuses).then_some(status)
 }
 
@@ -438,6 +443,20 @@ mod tests {
     }
 
     #[test]
+    fn repairs_the_exact_reordered_default_status_payload_with_the_done_label() {
+        let statuses = normalize_persisted_workspace_statuses(
+            &json!([
+                { "id": "completed", "label": "Done", "color": "conductor-done", "icon": "conductor-done" },
+                { "id": "in-review", "label": "In review", "color": "conductor-review", "icon": "conductor-review" },
+                { "id": "in-progress", "label": "In progress", "color": "conductor-progress", "icon": "conductor-progress" },
+                { "id": "todo", "label": "Todo", "color": "neutral", "icon": "circle" }
+            ]),
+            WorkspaceStatusNormalizeOptions { repair_reordered_default_statuses: true, ..Default::default() },
+        );
+        assert_eq!(statuses, clone_default_workspace_statuses());
+    }
+
+    #[test]
     fn does_not_repair_reordered_statuses_with_a_different_raw_shape() {
         let statuses = normalize_persisted_workspace_statuses(
             &json!([
@@ -499,5 +518,56 @@ mod tests {
         assert_eq!(clamp_workspace_board_column_width(Some(100.0)), WORKSPACE_BOARD_COLUMN_WIDTH_MIN);
         assert_eq!(clamp_workspace_board_column_width(Some(321.6)), 322);
         assert_eq!(clamp_workspace_board_column_width(Some(900.0)), WORKSPACE_BOARD_COLUMN_WIDTH_MAX);
+    }
+
+    #[test]
+    fn clamps_workspace_board_opacity_between_a_fifth_and_fully_opaque() {
+        assert_eq!(clamp_workspace_board_opacity(None), 1.0);
+        assert_eq!(clamp_workspace_board_opacity(Some(0.5)), 0.5);
+        assert_eq!(clamp_workspace_board_opacity(Some(0.0)), 0.2);
+        assert_eq!(clamp_workspace_board_opacity(Some(-5.0)), 0.2);
+        assert_eq!(clamp_workspace_board_opacity(Some(2.0)), 1.0);
+        assert_eq!(clamp_workspace_board_opacity(Some(0.456)), 0.46);
+        assert_eq!(clamp_workspace_board_opacity(Some(0.999)), 1.0);
+        assert_eq!(clamp_workspace_board_opacity(Some(f64::NAN)), 1.0);
+        assert_eq!(clamp_workspace_board_opacity(Some(f64::INFINITY)), 1.0);
+    }
+
+    #[test]
+    fn mints_a_status_id_from_the_label_and_dedupes_against_the_board() {
+        let taken = |ids: &[&str]| ids.iter().map(|id| status(id, id, "neutral", "circle")).collect::<Vec<_>>();
+        assert_eq!(make_workspace_status_id("In Review", &[]), "in-review");
+        assert_eq!(make_workspace_status_id("Todo", &taken(&["todo"])), "todo-2");
+        assert_eq!(make_workspace_status_id("Todo", &taken(&["todo", "todo-2", "todo-3"])), "todo-4");
+        assert_eq!(make_workspace_status_id("Blocked / Waiting!", &[]), "blocked-waiting");
+        assert_eq!(make_workspace_status_id("--Hold On--", &[]), "hold-on");
+        assert_eq!(make_workspace_status_id("  ***  ", &[]), "status");
+        assert_eq!(make_workspace_status_id("***", &taken(&["status"])), "status-2");
+        assert_eq!(make_workspace_status_id("Todo", &taken(&["in-progress", "done"])), "todo");
+    }
+
+    #[test]
+    fn a_malformed_group_key_escape_is_null_not_the_raw_text() {
+        let statuses = [status("%", "Percent", "neutral", "circle"), status("a b", "A B", "neutral", "circle")];
+        // decodeURIComponent throws here and the twin's catch returns null.
+        assert_eq!(get_workspace_status_from_group_key("workspace-status:%", &statuses), None);
+        assert_eq!(get_workspace_status_from_group_key("workspace-status:%E0%A4%A", &statuses), None);
+        // A well-formed escape still round-trips through the minter.
+        assert_eq!(
+            get_workspace_status_from_group_key(&get_workspace_status_group_key("a b"), &statuses),
+            Some("a b".to_string())
+        );
+    }
+
+    #[test]
+    fn resolves_a_worktrees_status_against_the_board() {
+        let statuses = clone_default_workspace_statuses();
+        assert_eq!(get_workspace_status(Some("in-review"), &statuses), "in-review");
+        assert_eq!(get_workspace_status(Some("nope"), &statuses), "in-progress");
+        assert_eq!(get_workspace_status(None, &statuses), "in-progress");
+        assert_eq!(get_workspace_status(Some("nope"), &[]), DEFAULT_WORKSPACE_STATUS_ID);
+        let with_blank = [vec![status("", "Blank", "neutral", "circle")], statuses].concat();
+        // The TS guard is `worktree.workspaceStatus &&`, so "" never matches.
+        assert_eq!(get_workspace_status(Some(""), &with_blank), "in-progress");
     }
 }

@@ -8,7 +8,12 @@
       "note": "non-array input falls back to the default workflow columns",
       "input": "nope",
       "expected": [
-        { "id": "todo", "label": "Todo", "color": "neutral", "icon": "circle" },
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        },
         {
           "id": "in-progress",
           "label": "In progress",
@@ -21,7 +26,12 @@
           "color": "conductor-review",
           "icon": "conductor-review"
         },
-        { "id": "completed", "label": "Done", "color": "conductor-done", "icon": "conductor-done" }
+        {
+          "id": "completed",
+          "label": "Done",
+          "color": "conductor-done",
+          "icon": "conductor-done"
+        }
       ]
     },
     {
@@ -29,7 +39,12 @@
       "note": "empty array yields no valid statuses, so the defaults are restored",
       "input": [],
       "expected": [
-        { "id": "todo", "label": "Todo", "color": "neutral", "icon": "circle" },
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        },
         {
           "id": "in-progress",
           "label": "In progress",
@@ -42,73 +57,180 @@
           "color": "conductor-review",
           "icon": "conductor-review"
         },
-        { "id": "completed", "label": "Done", "color": "conductor-done", "icon": "conductor-done" }
+        {
+          "id": "completed",
+          "label": "Done",
+          "color": "conductor-done",
+          "icon": "conductor-done"
+        }
       ]
     },
     {
       "function": "normalizeWorkspaceStatuses",
       "note": "preserves valid legacy visuals for default-label statuses at runtime (no migration)",
       "input": [
-        { "id": "in-progress", "label": "In progress", "color": "blue", "icon": "circle-dot" }
+        {
+          "id": "in-progress",
+          "label": "In progress",
+          "color": "blue",
+          "icon": "circle-dot"
+        }
       ],
       "expected": [
-        { "id": "in-progress", "label": "In progress", "color": "blue", "icon": "circle-dot" }
+        {
+          "id": "in-progress",
+          "label": "In progress",
+          "color": "blue",
+          "icon": "circle-dot"
+        }
       ]
     },
     {
       "function": "normalizeWorkspaceStatuses",
       "note": "keeps intentional custom in-progress visuals",
-      "input": [{ "id": "in-progress", "label": "Doing", "color": "blue", "icon": "circle-dot" }],
-      "expected": [{ "id": "in-progress", "label": "Doing", "color": "blue", "icon": "circle-dot" }]
+      "input": [
+        {
+          "id": "in-progress",
+          "label": "Doing",
+          "color": "blue",
+          "icon": "circle-dot"
+        }
+      ],
+      "expected": [
+        {
+          "id": "in-progress",
+          "label": "Doing",
+          "color": "blue",
+          "icon": "circle-dot"
+        }
+      ]
     },
     {
       "function": "normalizeWorkspaceStatuses",
       "note": "invalid color/icon for a known default id fall back to that id's default visuals",
-      "input": [{ "id": "todo", "label": "Todo", "color": "bogus", "icon": "bogus" }],
-      "expected": [{ "id": "todo", "label": "Todo", "color": "neutral", "icon": "circle" }]
+      "input": [
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "bogus",
+          "icon": "bogus"
+        }
+      ],
+      "expected": [
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        }
+      ]
     },
     {
       "function": "normalizeWorkspaceStatuses",
       "note": "unknown id with invalid color uses the index-based color and the circle-dot icon default",
-      "input": [{ "id": "custom", "label": "Custom", "color": "bogus", "icon": "bogus" }],
-      "expected": [{ "id": "custom", "label": "Custom", "color": "neutral", "icon": "circle-dot" }]
+      "input": [
+        {
+          "id": "custom",
+          "label": "Custom",
+          "color": "bogus",
+          "icon": "bogus"
+        }
+      ],
+      "expected": [
+        {
+          "id": "custom",
+          "label": "Custom",
+          "color": "neutral",
+          "icon": "circle-dot"
+        }
+      ]
     },
     {
       "function": "normalizeWorkspaceStatuses",
       "note": "missing id and label use the Status N fallback label, slugged into the id",
       "input": [{}],
       "expected": [
-        { "id": "status-1", "label": "Status 1", "color": "neutral", "icon": "circle-dot" }
+        {
+          "id": "status-1",
+          "label": "Status 1",
+          "color": "neutral",
+          "icon": "circle-dot"
+        }
       ]
     },
     {
       "function": "normalizeWorkspaceStatuses",
       "note": "duplicate ids are de-duplicated by re-deriving the second id from its label",
       "input": [
-        { "id": "dup", "label": "First" },
-        { "id": "dup", "label": "Second" }
+        {
+          "id": "dup",
+          "label": "First"
+        },
+        {
+          "id": "dup",
+          "label": "Second"
+        }
       ],
       "expected": [
-        { "id": "dup", "label": "First", "color": "neutral", "icon": "circle-dot" },
-        { "id": "second", "label": "Second", "color": "blue", "icon": "circle-dot" }
+        {
+          "id": "dup",
+          "label": "First",
+          "color": "neutral",
+          "icon": "circle-dot"
+        },
+        {
+          "id": "second",
+          "label": "Second",
+          "color": "blue",
+          "icon": "circle-dot"
+        }
       ]
     },
     {
       "function": "normalizeWorkspaceStatuses",
       "note": "id is lowercased, non-id chars collapse to dashes, and edge dashes are trimmed",
-      "input": [{ "id": "  My ID!! ", "label": "Hi" }],
-      "expected": [{ "id": "my-id", "label": "Hi", "color": "neutral", "icon": "circle-dot" }]
+      "input": [
+        {
+          "id": "  My ID!! ",
+          "label": "Hi"
+        }
+      ],
+      "expected": [
+        {
+          "id": "my-id",
+          "label": "Hi",
+          "color": "neutral",
+          "icon": "circle-dot"
+        }
+      ]
     },
     {
       "function": "normalizeWorkspaceStatuses",
       "note": "label is trimmed and internal whitespace runs collapse to single spaces",
-      "input": [{ "id": "x", "label": "  Hello   World  " }],
-      "expected": [{ "id": "x", "label": "Hello World", "color": "neutral", "icon": "circle-dot" }]
+      "input": [
+        {
+          "id": "x",
+          "label": "  Hello   World  "
+        }
+      ],
+      "expected": [
+        {
+          "id": "x",
+          "label": "Hello World",
+          "color": "neutral",
+          "icon": "circle-dot"
+        }
+      ]
     },
     {
       "function": "normalizeWorkspaceStatuses",
       "note": "label longer than 32 chars is truncated to 32",
-      "input": [{ "id": "k", "label": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJ" }],
+      "input": [
+        {
+          "id": "k",
+          "label": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"
+        }
+      ],
       "expected": [
         {
           "id": "k",
@@ -121,8 +243,24 @@
     {
       "function": "normalizeWorkspaceStatuses",
       "note": "non-object entries (null, number, string, nested array) are skipped",
-      "input": [null, 5, "str", [], { "id": "ok", "label": "OK" }],
-      "expected": [{ "id": "ok", "label": "OK", "color": "neutral", "icon": "circle-dot" }]
+      "input": [
+        null,
+        5,
+        "str",
+        [],
+        {
+          "id": "ok",
+          "label": "OK"
+        }
+      ],
+      "expected": [
+        {
+          "id": "ok",
+          "label": "OK",
+          "color": "neutral",
+          "icon": "circle-dot"
+        }
+      ]
     },
     {
       "function": "isWorkspaceStatusId",
@@ -130,10 +268,18 @@
       "input": {
         "value": "completed",
         "statuses": [
-          { "id": "completed" },
-          { "id": "in-review" },
-          { "id": "in-progress" },
-          { "id": "todo" }
+          {
+            "id": "completed"
+          },
+          {
+            "id": "in-review"
+          },
+          {
+            "id": "in-progress"
+          },
+          {
+            "id": "todo"
+          }
         ]
       },
       "expected": true
@@ -144,10 +290,18 @@
       "input": {
         "value": "nope",
         "statuses": [
-          { "id": "completed" },
-          { "id": "in-review" },
-          { "id": "in-progress" },
-          { "id": "todo" }
+          {
+            "id": "completed"
+          },
+          {
+            "id": "in-review"
+          },
+          {
+            "id": "in-progress"
+          },
+          {
+            "id": "todo"
+          }
         ]
       },
       "expected": false
@@ -155,30 +309,55 @@
     {
       "function": "isWorkspaceStatusId",
       "note": "empty status set never matches",
-      "input": { "value": "todo", "statuses": [] },
+      "input": {
+        "value": "todo",
+        "statuses": []
+      },
       "expected": false
     },
     {
       "function": "isWorkspaceStatusId",
       "note": "matches a single custom status id",
-      "input": { "value": "custom", "statuses": [{ "id": "custom" }] },
+      "input": {
+        "value": "custom",
+        "statuses": [
+          {
+            "id": "custom"
+          }
+        ]
+      },
       "expected": true
     },
     {
       "function": "getDefaultWorkspaceStatusId",
       "note": "default columns include in-progress, which is the preferred default",
       "input": [
-        { "id": "completed" },
-        { "id": "in-review" },
-        { "id": "in-progress" },
-        { "id": "todo" }
+        {
+          "id": "completed"
+        },
+        {
+          "id": "in-review"
+        },
+        {
+          "id": "in-progress"
+        },
+        {
+          "id": "todo"
+        }
       ],
       "expected": "in-progress"
     },
     {
       "function": "getDefaultWorkspaceStatusId",
       "note": "without in-progress, falls back to the first status id",
-      "input": [{ "id": "todo" }, { "id": "done" }],
+      "input": [
+        {
+          "id": "todo"
+        },
+        {
+          "id": "done"
+        }
+      ],
       "expected": "todo"
     },
     {
@@ -190,7 +369,17 @@
     {
       "function": "getDefaultWorkspaceStatusId",
       "note": "in-progress anywhere in the set wins over the first status",
-      "input": [{ "id": "alpha" }, { "id": "in-progress" }, { "id": "beta" }],
+      "input": [
+        {
+          "id": "alpha"
+        },
+        {
+          "id": "in-progress"
+        },
+        {
+          "id": "beta"
+        }
+      ],
       "expected": "in-progress"
     },
     {
@@ -229,10 +418,18 @@
       "input": {
         "groupKey": "workspace-status:completed",
         "statuses": [
-          { "id": "completed" },
-          { "id": "in-review" },
-          { "id": "in-progress" },
-          { "id": "todo" }
+          {
+            "id": "completed"
+          },
+          {
+            "id": "in-review"
+          },
+          {
+            "id": "in-progress"
+          },
+          {
+            "id": "todo"
+          }
         ]
       },
       "expected": "completed"
@@ -243,10 +440,18 @@
       "input": {
         "groupKey": "workspace-status:nope",
         "statuses": [
-          { "id": "completed" },
-          { "id": "in-review" },
-          { "id": "in-progress" },
-          { "id": "todo" }
+          {
+            "id": "completed"
+          },
+          {
+            "id": "in-review"
+          },
+          {
+            "id": "in-progress"
+          },
+          {
+            "id": "todo"
+          }
         ]
       },
       "expected": null
@@ -257,10 +462,18 @@
       "input": {
         "groupKey": "status:completed",
         "statuses": [
-          { "id": "completed" },
-          { "id": "in-review" },
-          { "id": "in-progress" },
-          { "id": "todo" }
+          {
+            "id": "completed"
+          },
+          {
+            "id": "in-review"
+          },
+          {
+            "id": "in-progress"
+          },
+          {
+            "id": "todo"
+          }
         ]
       },
       "expected": null
@@ -271,10 +484,18 @@
       "input": {
         "groupKey": "workspace-status:in-progress",
         "statuses": [
-          { "id": "completed" },
-          { "id": "in-review" },
-          { "id": "in-progress" },
-          { "id": "todo" }
+          {
+            "id": "completed"
+          },
+          {
+            "id": "in-review"
+          },
+          {
+            "id": "in-progress"
+          },
+          {
+            "id": "todo"
+          }
         ]
       },
       "expected": "in-progress"
@@ -284,7 +505,14 @@
       "note": "percent-encoded segment decodes and matches a status id containing a space",
       "input": {
         "groupKey": "workspace-status:a%20b",
-        "statuses": [{ "id": "a b", "label": "AB", "color": "neutral", "icon": "circle" }]
+        "statuses": [
+          {
+            "id": "a b",
+            "label": "AB",
+            "color": "neutral",
+            "icon": "circle"
+          }
+        ]
       },
       "expected": "a b"
     },
@@ -294,13 +522,1893 @@
       "input": {
         "groupKey": "workspace-status:%",
         "statuses": [
-          { "id": "completed" },
-          { "id": "in-review" },
-          { "id": "in-progress" },
-          { "id": "todo" }
+          {
+            "id": "completed"
+          },
+          {
+            "id": "in-review"
+          },
+          {
+            "id": "in-progress"
+          },
+          {
+            "id": "todo"
+          }
         ]
       },
       "expected": null
+    },
+    {
+      "function": "cloneDefaultWorkspaceStatuses",
+      "note": "no-arg: the input object carries no parameters; returns the default workflow columns",
+      "input": {},
+      "expected": [
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        },
+        {
+          "id": "in-progress",
+          "label": "In progress",
+          "color": "conductor-progress",
+          "icon": "conductor-progress"
+        },
+        {
+          "id": "in-review",
+          "label": "In review",
+          "color": "conductor-review",
+          "icon": "conductor-review"
+        },
+        {
+          "id": "completed",
+          "label": "Done",
+          "color": "conductor-done",
+          "icon": "conductor-done"
+        }
+      ]
+    },
+    {
+      "function": "makeWorkspaceStatusId",
+      "note": "slugs the label when nothing collides",
+      "input": {
+        "label": "In Review",
+        "existingStatuses": []
+      },
+      "expected": "in-review"
+    },
+    {
+      "function": "makeWorkspaceStatusId",
+      "note": "first collision takes the -2 suffix",
+      "input": {
+        "label": "Todo",
+        "existingStatuses": [
+          {
+            "id": "todo",
+            "label": "todo",
+            "color": "neutral",
+            "icon": "circle"
+          }
+        ]
+      },
+      "expected": "todo-2"
+    },
+    {
+      "function": "makeWorkspaceStatusId",
+      "note": "walks past every taken suffix",
+      "input": {
+        "label": "Todo",
+        "existingStatuses": [
+          {
+            "id": "todo",
+            "label": "todo",
+            "color": "neutral",
+            "icon": "circle"
+          },
+          {
+            "id": "todo-2",
+            "label": "todo-2",
+            "color": "neutral",
+            "icon": "circle"
+          },
+          {
+            "id": "todo-3",
+            "label": "todo-3",
+            "color": "neutral",
+            "icon": "circle"
+          }
+        ]
+      },
+      "expected": "todo-4"
+    },
+    {
+      "function": "makeWorkspaceStatusId",
+      "note": "punctuation and repeated separators collapse to single dashes",
+      "input": {
+        "label": "Blocked / Waiting!",
+        "existingStatuses": []
+      },
+      "expected": "blocked-waiting"
+    },
+    {
+      "function": "makeWorkspaceStatusId",
+      "note": "leading and trailing separators are stripped",
+      "input": {
+        "label": "--Hold On--",
+        "existingStatuses": []
+      },
+      "expected": "hold-on"
+    },
+    {
+      "function": "makeWorkspaceStatusId",
+      "note": "a label with no alphanumerics falls back to \"status\"",
+      "input": {
+        "label": "  ***  ",
+        "existingStatuses": []
+      },
+      "expected": "status"
+    },
+    {
+      "function": "makeWorkspaceStatusId",
+      "note": "the \"status\" fallback dedupes like any other base",
+      "input": {
+        "label": "***",
+        "existingStatuses": [
+          {
+            "id": "status",
+            "label": "status",
+            "color": "neutral",
+            "icon": "circle"
+          }
+        ]
+      },
+      "expected": "status-2"
+    },
+    {
+      "function": "makeWorkspaceStatusId",
+      "note": "the slug is not truncated at the 32-char label cap",
+      "input": {
+        "label": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "existingStatuses": []
+      },
+      "expected": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "function": "makeWorkspaceStatusId",
+      "note": "an existing id that is not the base is ignored",
+      "input": {
+        "label": "Todo",
+        "existingStatuses": [
+          {
+            "id": "in-progress",
+            "label": "in-progress",
+            "color": "neutral",
+            "icon": "circle"
+          },
+          {
+            "id": "done",
+            "label": "done",
+            "color": "neutral",
+            "icon": "circle"
+          }
+        ]
+      },
+      "expected": "todo"
+    },
+    {
+      "function": "makeWorkspaceStatusId",
+      "note": "uppercase and mixed spacing slug identically",
+      "input": {
+        "label": "  IN   PROGRESS  ",
+        "existingStatuses": []
+      },
+      "expected": "in-progress"
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "a non-array payload restores the defaults",
+      "input": {
+        "value": null,
+        "options": {}
+      },
+      "expected": [
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        },
+        {
+          "id": "in-progress",
+          "label": "In progress",
+          "color": "conductor-progress",
+          "icon": "conductor-progress"
+        },
+        {
+          "id": "in-review",
+          "label": "In review",
+          "color": "conductor-review",
+          "icon": "conductor-review"
+        },
+        {
+          "id": "completed",
+          "label": "Done",
+          "color": "conductor-done",
+          "icon": "conductor-done"
+        }
+      ]
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "an empty array restores the defaults",
+      "input": {
+        "value": [],
+        "options": {}
+      },
+      "expected": [
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        },
+        {
+          "id": "in-progress",
+          "label": "In progress",
+          "color": "conductor-progress",
+          "icon": "conductor-progress"
+        },
+        {
+          "id": "in-review",
+          "label": "In review",
+          "color": "conductor-review",
+          "icon": "conductor-review"
+        },
+        {
+          "id": "completed",
+          "label": "Done",
+          "color": "conductor-done",
+          "icon": "conductor-done"
+        }
+      ]
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "migrates legacy default statuses to the default workflow order",
+      "input": {
+        "value": [
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle"
+          },
+          {
+            "id": "in-progress",
+            "label": "In progress",
+            "color": "conductor-progress",
+            "icon": "conductor-progress"
+          },
+          {
+            "id": "in-review",
+            "label": "In review",
+            "color": "conductor-review",
+            "icon": "conductor-review"
+          },
+          {
+            "id": "completed",
+            "label": "Completed",
+            "color": "conductor-done",
+            "icon": "conductor-done"
+          }
+        ],
+        "options": {
+          "migrateDefaultWorkflowStatuses": true
+        }
+      },
+      "expected": [
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        },
+        {
+          "id": "in-progress",
+          "label": "In progress",
+          "color": "conductor-progress",
+          "icon": "conductor-progress"
+        },
+        {
+          "id": "in-review",
+          "label": "In review",
+          "color": "conductor-review",
+          "icon": "conductor-review"
+        },
+        {
+          "id": "completed",
+          "label": "Done",
+          "color": "conductor-done",
+          "icon": "conductor-done"
+        }
+      ]
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "migrates the legacy todo-first payload written with the old visuals",
+      "input": {
+        "value": [
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle"
+          },
+          {
+            "id": "in-progress",
+            "label": "In progress",
+            "color": "blue",
+            "icon": "circle-dot"
+          },
+          {
+            "id": "in-review",
+            "label": "In review",
+            "color": "violet",
+            "icon": "git-pull-request"
+          },
+          {
+            "id": "completed",
+            "label": "Completed",
+            "color": "emerald",
+            "icon": "circle-check"
+          }
+        ],
+        "options": {
+          "migrateDefaultWorkflowStatuses": true
+        }
+      },
+      "expected": [
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        },
+        {
+          "id": "in-progress",
+          "label": "In progress",
+          "color": "conductor-progress",
+          "icon": "conductor-progress"
+        },
+        {
+          "id": "in-review",
+          "label": "In review",
+          "color": "conductor-review",
+          "icon": "conductor-review"
+        },
+        {
+          "id": "completed",
+          "label": "Done",
+          "color": "conductor-done",
+          "icon": "conductor-done"
+        }
+      ]
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "migrates the old default status visuals without reordering the board",
+      "input": {
+        "value": [
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle"
+          },
+          {
+            "id": "in-progress",
+            "label": "In progress",
+            "color": "blue",
+            "icon": "circle-dot"
+          },
+          {
+            "id": "in-review",
+            "label": "In review",
+            "color": "violet",
+            "icon": "git-pull-request"
+          },
+          {
+            "id": "completed",
+            "label": "Completed",
+            "color": "emerald",
+            "icon": "circle-check"
+          }
+        ],
+        "options": {
+          "migrateLegacyDefaultStatusVisuals": true
+        }
+      },
+      "expected": [
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        },
+        {
+          "id": "in-progress",
+          "label": "In progress",
+          "color": "conductor-progress",
+          "icon": "conductor-progress"
+        },
+        {
+          "id": "in-review",
+          "label": "In review",
+          "color": "conductor-review",
+          "icon": "conductor-review"
+        },
+        {
+          "id": "completed",
+          "label": "Completed",
+          "color": "conductor-done",
+          "icon": "conductor-done"
+        }
+      ]
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "preserves explicit status order while migrating default visuals",
+      "input": {
+        "value": [
+          {
+            "id": "completed",
+            "label": "Completed",
+            "color": "emerald",
+            "icon": "circle-check"
+          },
+          {
+            "id": "in-review",
+            "label": "In review",
+            "color": "violet",
+            "icon": "git-pull-request"
+          },
+          {
+            "id": "in-progress",
+            "label": "In progress",
+            "color": "blue",
+            "icon": "circle-dot"
+          },
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle"
+          }
+        ],
+        "options": {
+          "migrateLegacyDefaultStatusVisuals": true
+        }
+      },
+      "expected": [
+        {
+          "id": "completed",
+          "label": "Completed",
+          "color": "conductor-done",
+          "icon": "conductor-done"
+        },
+        {
+          "id": "in-review",
+          "label": "In review",
+          "color": "conductor-review",
+          "icon": "conductor-review"
+        },
+        {
+          "id": "in-progress",
+          "label": "In progress",
+          "color": "conductor-progress",
+          "icon": "conductor-progress"
+        },
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        }
+      ]
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "preserves default-label reordered statuses unless a migration is requested",
+      "input": {
+        "value": [
+          {
+            "id": "completed",
+            "label": "Completed",
+            "color": "conductor-done",
+            "icon": "conductor-done"
+          },
+          {
+            "id": "in-review",
+            "label": "In review",
+            "color": "conductor-review",
+            "icon": "conductor-review"
+          },
+          {
+            "id": "in-progress",
+            "label": "In progress",
+            "color": "conductor-progress",
+            "icon": "conductor-progress"
+          },
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle"
+          }
+        ],
+        "options": {}
+      },
+      "expected": [
+        {
+          "id": "completed",
+          "label": "Completed",
+          "color": "conductor-done",
+          "icon": "conductor-done"
+        },
+        {
+          "id": "in-review",
+          "label": "In review",
+          "color": "conductor-review",
+          "icon": "conductor-review"
+        },
+        {
+          "id": "in-progress",
+          "label": "In progress",
+          "color": "conductor-progress",
+          "icon": "conductor-progress"
+        },
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        }
+      ]
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "migrates exact reordered default statuses when requested",
+      "input": {
+        "value": [
+          {
+            "id": "completed",
+            "label": "Completed",
+            "color": "conductor-done",
+            "icon": "conductor-done"
+          },
+          {
+            "id": "in-review",
+            "label": "In review",
+            "color": "conductor-review",
+            "icon": "conductor-review"
+          },
+          {
+            "id": "in-progress",
+            "label": "In progress",
+            "color": "conductor-progress",
+            "icon": "conductor-progress"
+          },
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle"
+          }
+        ],
+        "options": {
+          "migrateDefaultWorkflowStatuses": true
+        }
+      },
+      "expected": [
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        },
+        {
+          "id": "in-progress",
+          "label": "In progress",
+          "color": "conductor-progress",
+          "icon": "conductor-progress"
+        },
+        {
+          "id": "in-review",
+          "label": "In review",
+          "color": "conductor-review",
+          "icon": "conductor-review"
+        },
+        {
+          "id": "completed",
+          "label": "Done",
+          "color": "conductor-done",
+          "icon": "conductor-done"
+        }
+      ]
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "repairs the exact PR-introduced default status reorder when migration-gated",
+      "input": {
+        "value": [
+          {
+            "id": "completed",
+            "label": "Completed",
+            "color": "conductor-done",
+            "icon": "conductor-done"
+          },
+          {
+            "id": "in-review",
+            "label": "In review",
+            "color": "conductor-review",
+            "icon": "conductor-review"
+          },
+          {
+            "id": "in-progress",
+            "label": "In progress",
+            "color": "conductor-progress",
+            "icon": "conductor-progress"
+          },
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle"
+          }
+        ],
+        "options": {
+          "repairReorderedDefaultStatuses": true
+        }
+      },
+      "expected": [
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        },
+        {
+          "id": "in-progress",
+          "label": "In progress",
+          "color": "conductor-progress",
+          "icon": "conductor-progress"
+        },
+        {
+          "id": "in-review",
+          "label": "In review",
+          "color": "conductor-review",
+          "icon": "conductor-review"
+        },
+        {
+          "id": "completed",
+          "label": "Done",
+          "color": "conductor-done",
+          "icon": "conductor-done"
+        }
+      ]
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "repairs the exact reordered default status payload with the Done label",
+      "input": {
+        "value": [
+          {
+            "id": "completed",
+            "label": "Done",
+            "color": "conductor-done",
+            "icon": "conductor-done"
+          },
+          {
+            "id": "in-review",
+            "label": "In review",
+            "color": "conductor-review",
+            "icon": "conductor-review"
+          },
+          {
+            "id": "in-progress",
+            "label": "In progress",
+            "color": "conductor-progress",
+            "icon": "conductor-progress"
+          },
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle"
+          }
+        ],
+        "options": {
+          "repairReorderedDefaultStatuses": true
+        }
+      },
+      "expected": [
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        },
+        {
+          "id": "in-progress",
+          "label": "In progress",
+          "color": "conductor-progress",
+          "icon": "conductor-progress"
+        },
+        {
+          "id": "in-review",
+          "label": "In review",
+          "color": "conductor-review",
+          "icon": "conductor-review"
+        },
+        {
+          "id": "completed",
+          "label": "Done",
+          "color": "conductor-done",
+          "icon": "conductor-done"
+        }
+      ]
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "does not repair reordered default-label statuses with a different raw shape",
+      "input": {
+        "value": [
+          {
+            "id": "completed",
+            "label": "Completed",
+            "color": "emerald",
+            "icon": "circle-check"
+          },
+          {
+            "id": "in-review",
+            "label": "In review",
+            "color": "violet",
+            "icon": "git-pull-request"
+          },
+          {
+            "id": "in-progress",
+            "label": "In progress",
+            "color": "blue",
+            "icon": "circle-dot"
+          },
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle"
+          }
+        ],
+        "options": {
+          "repairReorderedDefaultStatuses": true
+        }
+      },
+      "expected": [
+        {
+          "id": "completed",
+          "label": "Completed",
+          "color": "emerald",
+          "icon": "circle-check"
+        },
+        {
+          "id": "in-review",
+          "label": "In review",
+          "color": "violet",
+          "icon": "git-pull-request"
+        },
+        {
+          "id": "in-progress",
+          "label": "In progress",
+          "color": "blue",
+          "icon": "circle-dot"
+        },
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        }
+      ]
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "leaves custom persisted status layouts in their saved order",
+      "input": {
+        "value": [
+          {
+            "id": "completed",
+            "label": "Shipped",
+            "color": "conductor-done",
+            "icon": "conductor-done"
+          },
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle"
+          }
+        ],
+        "options": {}
+      },
+      "expected": [
+        {
+          "id": "completed",
+          "label": "Shipped",
+          "color": "conductor-done",
+          "icon": "conductor-done"
+        },
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        }
+      ]
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "migrates the old in-progress blue dot default only when requested",
+      "input": {
+        "value": [
+          {
+            "id": "in-progress",
+            "label": "In progress",
+            "color": "blue",
+            "icon": "circle-dot"
+          }
+        ],
+        "options": {
+          "migrateLegacyDefaultStatusVisuals": true
+        }
+      },
+      "expected": [
+        {
+          "id": "in-progress",
+          "label": "In progress",
+          "color": "conductor-progress",
+          "icon": "conductor-progress"
+        }
+      ]
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "every flag false leaves a legacy payload untouched",
+      "input": {
+        "value": [
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle"
+          },
+          {
+            "id": "in-progress",
+            "label": "In progress",
+            "color": "blue",
+            "icon": "circle-dot"
+          },
+          {
+            "id": "in-review",
+            "label": "In review",
+            "color": "violet",
+            "icon": "git-pull-request"
+          },
+          {
+            "id": "completed",
+            "label": "Completed",
+            "color": "emerald",
+            "icon": "circle-check"
+          }
+        ],
+        "options": {
+          "migrateDefaultWorkflowStatuses": false,
+          "repairReorderedDefaultStatuses": false,
+          "migrateLegacyDefaultStatusVisuals": false
+        }
+      },
+      "expected": [
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        },
+        {
+          "id": "in-progress",
+          "label": "In progress",
+          "color": "blue",
+          "icon": "circle-dot"
+        },
+        {
+          "id": "in-review",
+          "label": "In review",
+          "color": "violet",
+          "icon": "git-pull-request"
+        },
+        {
+          "id": "completed",
+          "label": "Completed",
+          "color": "emerald",
+          "icon": "circle-check"
+        }
+      ]
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "an extra key on a default entry defeats the exact-shape migration probe",
+      "input": {
+        "value": [
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle",
+            "pinned": true
+          },
+          {
+            "id": "in-progress",
+            "label": "In progress",
+            "color": "conductor-progress",
+            "icon": "conductor-progress"
+          },
+          {
+            "id": "in-review",
+            "label": "In review",
+            "color": "conductor-review",
+            "icon": "conductor-review"
+          },
+          {
+            "id": "completed",
+            "label": "Completed",
+            "color": "conductor-done",
+            "icon": "conductor-done"
+          }
+        ],
+        "options": {
+          "migrateDefaultWorkflowStatuses": true,
+          "repairReorderedDefaultStatuses": true
+        }
+      },
+      "expected": [
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        },
+        {
+          "id": "in-progress",
+          "label": "In progress",
+          "color": "conductor-progress",
+          "icon": "conductor-progress"
+        },
+        {
+          "id": "in-review",
+          "label": "In review",
+          "color": "conductor-review",
+          "icon": "conductor-review"
+        },
+        {
+          "id": "completed",
+          "label": "Completed",
+          "color": "conductor-done",
+          "icon": "conductor-done"
+        }
+      ]
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "caps the board at 12 columns and drops the overflow",
+      "input": {
+        "value": [
+          {
+            "id": "s0",
+            "label": "S0",
+            "color": "blue",
+            "icon": "flag"
+          },
+          {
+            "id": "s1",
+            "label": "S1",
+            "color": "blue",
+            "icon": "flag"
+          },
+          {
+            "id": "s2",
+            "label": "S2",
+            "color": "blue",
+            "icon": "flag"
+          },
+          {
+            "id": "s3",
+            "label": "S3",
+            "color": "blue",
+            "icon": "flag"
+          },
+          {
+            "id": "s4",
+            "label": "S4",
+            "color": "blue",
+            "icon": "flag"
+          },
+          {
+            "id": "s5",
+            "label": "S5",
+            "color": "blue",
+            "icon": "flag"
+          },
+          {
+            "id": "s6",
+            "label": "S6",
+            "color": "blue",
+            "icon": "flag"
+          },
+          {
+            "id": "s7",
+            "label": "S7",
+            "color": "blue",
+            "icon": "flag"
+          },
+          {
+            "id": "s8",
+            "label": "S8",
+            "color": "blue",
+            "icon": "flag"
+          },
+          {
+            "id": "s9",
+            "label": "S9",
+            "color": "blue",
+            "icon": "flag"
+          },
+          {
+            "id": "s10",
+            "label": "S10",
+            "color": "blue",
+            "icon": "flag"
+          },
+          {
+            "id": "s11",
+            "label": "S11",
+            "color": "blue",
+            "icon": "flag"
+          },
+          {
+            "id": "s12",
+            "label": "S12",
+            "color": "blue",
+            "icon": "flag"
+          },
+          {
+            "id": "s13",
+            "label": "S13",
+            "color": "blue",
+            "icon": "flag"
+          },
+          {
+            "id": "s14",
+            "label": "S14",
+            "color": "blue",
+            "icon": "flag"
+          }
+        ],
+        "options": {}
+      },
+      "expected": [
+        {
+          "id": "s0",
+          "label": "S0",
+          "color": "blue",
+          "icon": "flag"
+        },
+        {
+          "id": "s1",
+          "label": "S1",
+          "color": "blue",
+          "icon": "flag"
+        },
+        {
+          "id": "s2",
+          "label": "S2",
+          "color": "blue",
+          "icon": "flag"
+        },
+        {
+          "id": "s3",
+          "label": "S3",
+          "color": "blue",
+          "icon": "flag"
+        },
+        {
+          "id": "s4",
+          "label": "S4",
+          "color": "blue",
+          "icon": "flag"
+        },
+        {
+          "id": "s5",
+          "label": "S5",
+          "color": "blue",
+          "icon": "flag"
+        },
+        {
+          "id": "s6",
+          "label": "S6",
+          "color": "blue",
+          "icon": "flag"
+        },
+        {
+          "id": "s7",
+          "label": "S7",
+          "color": "blue",
+          "icon": "flag"
+        },
+        {
+          "id": "s8",
+          "label": "S8",
+          "color": "blue",
+          "icon": "flag"
+        },
+        {
+          "id": "s9",
+          "label": "S9",
+          "color": "blue",
+          "icon": "flag"
+        },
+        {
+          "id": "s10",
+          "label": "S10",
+          "color": "blue",
+          "icon": "flag"
+        },
+        {
+          "id": "s11",
+          "label": "S11",
+          "color": "blue",
+          "icon": "flag"
+        }
+      ]
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "duplicate ids are re-minted through makeWorkspaceStatusId",
+      "input": {
+        "value": [
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle"
+          },
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "blue",
+            "icon": "flag"
+          },
+          {
+            "id": "TODO",
+            "label": "Todo",
+            "color": "sky",
+            "icon": "timer"
+          }
+        ],
+        "options": {}
+      },
+      "expected": [
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        },
+        {
+          "id": "todo-2",
+          "label": "Todo",
+          "color": "blue",
+          "icon": "flag"
+        },
+        {
+          "id": "todo-3",
+          "label": "Todo",
+          "color": "sky",
+          "icon": "timer"
+        }
+      ]
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "non-object entries are skipped and the fallback label counts survivors only",
+      "input": {
+        "value": [
+          null,
+          "nope",
+          [],
+          42,
+          {
+            "color": "rose",
+            "icon": "ban"
+          },
+          {
+            "id": "  ",
+            "label": "   "
+          }
+        ],
+        "options": {}
+      },
+      "expected": [
+        {
+          "id": "status-1",
+          "label": "Status 1",
+          "color": "rose",
+          "icon": "ban"
+        },
+        {
+          "id": "status-2",
+          "label": "Status 2",
+          "color": "blue",
+          "icon": "circle-dot"
+        }
+      ]
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "labels are whitespace-collapsed and truncated to 32 characters",
+      "input": {
+        "value": [
+          {
+            "id": "x",
+            "label": "  ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab   ",
+            "color": "nope",
+            "icon": "nope"
+          }
+        ],
+        "options": {}
+      },
+      "expected": [
+        {
+          "id": "x",
+          "label": "ab ab ab ab ab ab ab ab ab ab ab",
+          "color": "neutral",
+          "icon": "circle-dot"
+        }
+      ]
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "an unknown id with no default visual cycles the colour palette by index",
+      "input": {
+        "value": [
+          {
+            "id": "alpha",
+            "label": "Alpha",
+            "color": "not-a-colour",
+            "icon": "not-an-icon"
+          },
+          {
+            "id": "beta",
+            "label": "Beta",
+            "color": "not-a-colour",
+            "icon": "not-an-icon"
+          }
+        ],
+        "options": {}
+      },
+      "expected": [
+        {
+          "id": "alpha",
+          "label": "Alpha",
+          "color": "neutral",
+          "icon": "circle-dot"
+        },
+        {
+          "id": "beta",
+          "label": "Beta",
+          "color": "blue",
+          "icon": "circle-dot"
+        }
+      ]
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "the reorder repair runs before the visual migration, so the defaults win",
+      "input": {
+        "value": [
+          {
+            "id": "completed",
+            "label": "Completed",
+            "color": "conductor-done",
+            "icon": "conductor-done"
+          },
+          {
+            "id": "in-review",
+            "label": "In review",
+            "color": "conductor-review",
+            "icon": "conductor-review"
+          },
+          {
+            "id": "in-progress",
+            "label": "In progress",
+            "color": "conductor-progress",
+            "icon": "conductor-progress"
+          },
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle"
+          }
+        ],
+        "options": {
+          "repairReorderedDefaultStatuses": true,
+          "migrateLegacyDefaultStatusVisuals": true
+        }
+      },
+      "expected": [
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        },
+        {
+          "id": "in-progress",
+          "label": "In progress",
+          "color": "conductor-progress",
+          "icon": "conductor-progress"
+        },
+        {
+          "id": "in-review",
+          "label": "In review",
+          "color": "conductor-review",
+          "icon": "conductor-review"
+        },
+        {
+          "id": "completed",
+          "label": "Done",
+          "color": "conductor-done",
+          "icon": "conductor-done"
+        }
+      ]
+    },
+    {
+      "function": "clampWorkspaceBoardOpacity",
+      "note": "a non-number falls back to fully opaque",
+      "input": null,
+      "expected": 1
+    },
+    {
+      "function": "clampWorkspaceBoardOpacity",
+      "note": "a numeric string is not a number",
+      "input": "0.5",
+      "expected": 1
+    },
+    {
+      "function": "clampWorkspaceBoardOpacity",
+      "note": "a boolean is not a number",
+      "input": true,
+      "expected": 1
+    },
+    {
+      "function": "clampWorkspaceBoardOpacity",
+      "note": "an object is not a number",
+      "input": {
+        "value": 0.5
+      },
+      "expected": 1
+    },
+    {
+      "function": "clampWorkspaceBoardOpacity",
+      "note": "a mid-range value round-trips",
+      "input": 0.5,
+      "expected": 0.5
+    },
+    {
+      "function": "clampWorkspaceBoardOpacity",
+      "note": "the lower bound is 0.2",
+      "input": 0.2,
+      "expected": 0.2
+    },
+    {
+      "function": "clampWorkspaceBoardOpacity",
+      "note": "below the lower bound clamps up",
+      "input": 0,
+      "expected": 0.2
+    },
+    {
+      "function": "clampWorkspaceBoardOpacity",
+      "note": "a negative clamps to the lower bound",
+      "input": -5,
+      "expected": 0.2
+    },
+    {
+      "function": "clampWorkspaceBoardOpacity",
+      "note": "the upper bound is 1",
+      "input": 1,
+      "expected": 1
+    },
+    {
+      "function": "clampWorkspaceBoardOpacity",
+      "note": "above the upper bound clamps down",
+      "input": 2,
+      "expected": 1
+    },
+    {
+      "function": "clampWorkspaceBoardOpacity",
+      "note": "rounds to two decimal places",
+      "input": 0.456,
+      "expected": 0.46
+    },
+    {
+      "function": "clampWorkspaceBoardOpacity",
+      "note": "rounding can reach the upper bound",
+      "input": 0.999,
+      "expected": 1
+    },
+    {
+      "function": "clampWorkspaceBoardOpacity",
+      "note": "just under the lower bound clamps up",
+      "input": 0.19,
+      "expected": 0.2
+    },
+    {
+      "function": "clampWorkspaceBoardOpacity",
+      "note": "a third decimal below the half rounds down",
+      "input": 0.234,
+      "expected": 0.23
+    },
+    {
+      "function": "clampWorkspaceBoardOpacity",
+      "note": "a third decimal above the half rounds up",
+      "input": 0.236,
+      "expected": 0.24
+    },
+    {
+      "function": "clampWorkspaceBoardOpacity",
+      "note": "an integer-valued float is unchanged",
+      "input": 0.75,
+      "expected": 0.75
+    },
+    {
+      "function": "clampWorkspaceBoardColumnWidth",
+      "note": "a non-number falls back to the default width",
+      "input": null,
+      "expected": 308
+    },
+    {
+      "function": "clampWorkspaceBoardColumnWidth",
+      "note": "a numeric string is not a number",
+      "input": "300",
+      "expected": 308
+    },
+    {
+      "function": "clampWorkspaceBoardColumnWidth",
+      "note": "below the minimum clamps up",
+      "input": 100,
+      "expected": 220
+    },
+    {
+      "function": "clampWorkspaceBoardColumnWidth",
+      "note": "fractional widths round to the nearest pixel",
+      "input": 321.6,
+      "expected": 322
+    },
+    {
+      "function": "clampWorkspaceBoardColumnWidth",
+      "note": "above the maximum clamps down",
+      "input": 900,
+      "expected": 520
+    },
+    {
+      "function": "clampWorkspaceBoardColumnWidth",
+      "note": "the minimum is inclusive",
+      "input": 220,
+      "expected": 220
+    },
+    {
+      "function": "clampWorkspaceBoardColumnWidth",
+      "note": "the maximum is inclusive",
+      "input": 520,
+      "expected": 520
+    },
+    {
+      "function": "clampWorkspaceBoardColumnWidth",
+      "note": "a half-pixel rounds up into the minimum",
+      "input": 219.5,
+      "expected": 220
+    },
+    {
+      "function": "clampWorkspaceBoardColumnWidth",
+      "note": "a fraction above the maximum still clamps down",
+      "input": 520.4,
+      "expected": 520
+    },
+    {
+      "function": "clampWorkspaceBoardColumnWidth",
+      "note": "zero clamps to the minimum",
+      "input": 0,
+      "expected": 220
+    },
+    {
+      "function": "clampWorkspaceBoardColumnWidth",
+      "note": "a negative clamps to the minimum",
+      "input": -100,
+      "expected": 220
+    },
+    {
+      "function": "clampWorkspaceBoardColumnWidth",
+      "note": "the default width passes through",
+      "input": 308,
+      "expected": 308
+    },
+    {
+      "function": "getWorkspaceStatus",
+      "note": "a known status is returned as-is",
+      "input": {
+        "worktree": {
+          "workspaceStatus": "in-review"
+        },
+        "statuses": [
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle"
+          },
+          {
+            "id": "in-progress",
+            "label": "In progress",
+            "color": "conductor-progress",
+            "icon": "conductor-progress"
+          },
+          {
+            "id": "in-review",
+            "label": "In review",
+            "color": "conductor-review",
+            "icon": "conductor-review"
+          },
+          {
+            "id": "completed",
+            "label": "Done",
+            "color": "conductor-done",
+            "icon": "conductor-done"
+          }
+        ]
+      },
+      "expected": "in-review"
+    },
+    {
+      "function": "getWorkspaceStatus",
+      "note": "an unknown status falls back to the default id",
+      "input": {
+        "worktree": {
+          "workspaceStatus": "nope"
+        },
+        "statuses": [
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle"
+          },
+          {
+            "id": "in-progress",
+            "label": "In progress",
+            "color": "conductor-progress",
+            "icon": "conductor-progress"
+          },
+          {
+            "id": "in-review",
+            "label": "In review",
+            "color": "conductor-review",
+            "icon": "conductor-review"
+          },
+          {
+            "id": "completed",
+            "label": "Done",
+            "color": "conductor-done",
+            "icon": "conductor-done"
+          }
+        ]
+      },
+      "expected": "in-progress"
+    },
+    {
+      "function": "getWorkspaceStatus",
+      "note": "an absent status falls back to the default id",
+      "input": {
+        "worktree": {},
+        "statuses": [
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle"
+          },
+          {
+            "id": "in-progress",
+            "label": "In progress",
+            "color": "conductor-progress",
+            "icon": "conductor-progress"
+          },
+          {
+            "id": "in-review",
+            "label": "In review",
+            "color": "conductor-review",
+            "icon": "conductor-review"
+          },
+          {
+            "id": "completed",
+            "label": "Done",
+            "color": "conductor-done",
+            "icon": "conductor-done"
+          }
+        ]
+      },
+      "expected": "in-progress"
+    },
+    {
+      "function": "getWorkspaceStatus",
+      "note": "a null status falls back to the default id",
+      "input": {
+        "worktree": {
+          "workspaceStatus": null
+        },
+        "statuses": [
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle"
+          },
+          {
+            "id": "in-progress",
+            "label": "In progress",
+            "color": "conductor-progress",
+            "icon": "conductor-progress"
+          },
+          {
+            "id": "in-review",
+            "label": "In review",
+            "color": "conductor-review",
+            "icon": "conductor-review"
+          },
+          {
+            "id": "completed",
+            "label": "Done",
+            "color": "conductor-done",
+            "icon": "conductor-done"
+          }
+        ]
+      },
+      "expected": "in-progress"
+    },
+    {
+      "function": "getWorkspaceStatus",
+      "note": "an EMPTY status string is falsy, so it never matches a status",
+      "input": {
+        "worktree": {
+          "workspaceStatus": ""
+        },
+        "statuses": [
+          {
+            "id": "",
+            "label": "Blank",
+            "color": "neutral",
+            "icon": "circle"
+          },
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle"
+          },
+          {
+            "id": "in-progress",
+            "label": "In progress",
+            "color": "conductor-progress",
+            "icon": "conductor-progress"
+          },
+          {
+            "id": "in-review",
+            "label": "In review",
+            "color": "conductor-review",
+            "icon": "conductor-review"
+          },
+          {
+            "id": "completed",
+            "label": "Done",
+            "color": "conductor-done",
+            "icon": "conductor-done"
+          }
+        ]
+      },
+      "expected": "in-progress"
+    },
+    {
+      "function": "getWorkspaceStatus",
+      "note": "without in-progress the first column is the default",
+      "input": {
+        "worktree": {
+          "workspaceStatus": "nope"
+        },
+        "statuses": [
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle"
+          },
+          {
+            "id": "completed",
+            "label": "Done",
+            "color": "conductor-done",
+            "icon": "conductor-done"
+          }
+        ]
+      },
+      "expected": "todo"
+    },
+    {
+      "function": "getWorkspaceStatus",
+      "note": "an empty board falls back to the constant default id",
+      "input": {
+        "worktree": {
+          "workspaceStatus": "nope"
+        },
+        "statuses": []
+      },
+      "expected": "in-progress"
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "twin-derived (workspace status visuals > preserves default-label reordered statuses unless a default migration is requested) — the twin omits the options argument entirely",
+      "input": {
+        "value": [
+          {
+            "id": "completed",
+            "label": "Completed",
+            "color": "conductor-done",
+            "icon": "conductor-done"
+          },
+          {
+            "id": "in-review",
+            "label": "In review",
+            "color": "conductor-review",
+            "icon": "conductor-review"
+          },
+          {
+            "id": "in-progress",
+            "label": "In progress",
+            "color": "conductor-progress",
+            "icon": "conductor-progress"
+          },
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "id": "completed",
+          "label": "Completed",
+          "color": "conductor-done",
+          "icon": "conductor-done"
+        },
+        {
+          "id": "in-review",
+          "label": "In review",
+          "color": "conductor-review",
+          "icon": "conductor-review"
+        },
+        {
+          "id": "in-progress",
+          "label": "In progress",
+          "color": "conductor-progress",
+          "icon": "conductor-progress"
+        },
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        }
+      ]
+    },
+    {
+      "function": "normalizePersistedWorkspaceStatuses",
+      "note": "twin-derived (workspace status visuals > leaves custom persisted status layouts in their saved order) — the twin omits the options argument entirely",
+      "input": {
+        "value": [
+          {
+            "id": "completed",
+            "label": "Shipped",
+            "color": "conductor-done",
+            "icon": "conductor-done"
+          },
+          {
+            "id": "todo",
+            "label": "Todo",
+            "color": "neutral",
+            "icon": "circle"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "id": "completed",
+          "label": "Shipped",
+          "color": "conductor-done",
+          "icon": "conductor-done"
+        },
+        {
+          "id": "todo",
+          "label": "Todo",
+          "color": "neutral",
+          "icon": "circle"
+        }
+      ]
+    },
+    {
+      "function": "getWorkspaceStatusFromGroupKey",
+      "note": "a malformed percent escape throws in decodeURIComponent, and the catch answers null",
+      "input": {
+        "groupKey": "workspace-status:%",
+        "statuses": [
+          {
+            "id": "%",
+            "label": "Percent",
+            "color": "neutral",
+            "icon": "circle"
+          }
+        ]
+      },
+      "expected": null
+    },
+    {
+      "function": "getWorkspaceStatusFromGroupKey",
+      "note": "a truncated UTF-8 escape sequence also throws, and answers null",
+      "input": {
+        "groupKey": "workspace-status:%E0%A4%A",
+        "statuses": [
+          {
+            "id": "%",
+            "label": "Percent",
+            "color": "neutral",
+            "icon": "circle"
+          }
+        ]
+      },
+      "expected": null
+    },
+    {
+      "function": "getWorkspaceStatusFromGroupKey",
+      "note": "a well-formed escape still decodes and matches",
+      "input": {
+        "groupKey": "workspace-status:a%20b",
+        "statuses": [
+          {
+            "id": "a b",
+            "label": "A B",
+            "color": "neutral",
+            "icon": "circle"
+          }
+        ]
+      },
+      "expected": "a b"
     }
   ]
 }

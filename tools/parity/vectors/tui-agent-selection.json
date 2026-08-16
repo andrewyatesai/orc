@@ -74,6 +74,186 @@
       "note": "removes disabled agents, preserves input order",
       "input": { "agents": ["claude", "codex", "grok"], "disabled": ["codex"] },
       "expected": ["claude", "grok"]
+    },
+    {
+      "function": "pickTuiAgent",
+      "note": "catalog order picks claude-agent-teams before cursor",
+      "input": { "preferred": null, "detected": ["cursor", "claude-agent-teams"] },
+      "expected": "claude-agent-teams"
+    },
+    {
+      "function": "pickTuiAgent",
+      "note": "catalog order picks mimo-code before pi",
+      "input": { "preferred": null, "detected": ["pi", "mimo-code"] },
+      "expected": "mimo-code"
+    },
+    {
+      "function": "pickTuiAgent",
+      "note": "catalog order picks ante before cursor",
+      "input": { "preferred": null, "detected": ["cursor", "ante"] },
+      "expected": "ante"
+    },
+    {
+      "function": "pickTuiAgent",
+      "note": "catalog order picks devin before openclaw",
+      "input": { "preferred": null, "detected": ["openclaw", "devin"] },
+      "expected": "devin"
+    },
+    {
+      "function": "normalizeDisabledTuiAgents",
+      "note": "keeps the agents added to the catalog after the first port",
+      "input": ["devin", "ante", "mimo-code", "claude-agent-teams"],
+      "expected": ["devin", "ante", "mimo-code", "claude-agent-teams"]
+    },
+    {
+      "function": "isTuiAgentEnabled",
+      "note": "a disabled devin is disabled (it must be a known agent to be dropped)",
+      "input": { "agent": "devin", "disabled": ["devin"] },
+      "expected": false
+    },
+    {
+      "function": "collapseDefaultTuiAgentToBuiltin",
+      "note": "a built-in preference passes through untouched, roster or no roster",
+      "input": {
+        "pref": "codex",
+        "customAgents": [
+          { "id": "p1", "label": "Claude (zai)", "baseAgent": "claude", "command": "claude" }
+        ]
+      },
+      "expected": "codex"
+    },
+    {
+      "function": "collapseDefaultTuiAgentToBuiltin",
+      "note": "'blank' survives the collapse — callers test for it after collapsing",
+      "input": { "pref": "blank" },
+      "expected": "blank"
+    },
+    {
+      "function": "collapseDefaultTuiAgentToBuiltin",
+      "note": "an unknown id passes through unvalidated (the twin never consults the catalog)",
+      "input": { "pref": "definitely-not-an-agent" },
+      "expected": "definitely-not-an-agent"
+    },
+    {
+      "function": "collapseDefaultTuiAgentToBuiltin",
+      "note": "an explicit null (auto) stays null",
+      "input": {
+        "pref": null,
+        "customAgents": [
+          { "id": "p1", "label": "Claude (zai)", "baseAgent": "claude", "command": "claude" }
+        ]
+      },
+      "expected": null
+    },
+    {
+      "function": "collapseDefaultTuiAgentToBuiltin",
+      "note": "an ABSENT pref key is the TS `undefined` argument (settings never written); `undefined` has no JSON image so both legs answer the __undefined__ sentinel, which a cutover shim maps back",
+      "input": {
+        "customAgents": [
+          { "id": "p1", "label": "Claude (zai)", "baseAgent": "claude", "command": "claude" }
+        ]
+      },
+      "expected": "__undefined__"
+    },
+    {
+      "function": "collapseDefaultTuiAgentToBuiltin",
+      "note": "a custom preference resolves to its profile's baseAgent",
+      "input": {
+        "pref": { "kind": "custom", "id": "p1" },
+        "customAgents": [
+          { "id": "p0", "label": "Codex (fast)", "baseAgent": "codex", "command": "codex" },
+          { "id": "p1", "label": "Claude (zai)", "baseAgent": "claude", "command": "claude" }
+        ]
+      },
+      "expected": "claude"
+    },
+    {
+      "function": "collapseDefaultTuiAgentToBuiltin",
+      "note": "a deleted custom profile collapses to null (auto), not to a stale agent",
+      "input": {
+        "pref": { "kind": "custom", "id": "gone" },
+        "customAgents": [
+          { "id": "p1", "label": "Claude (zai)", "baseAgent": "claude", "command": "claude" }
+        ]
+      },
+      "expected": null
+    },
+    {
+      "function": "collapseDefaultTuiAgentToBuiltin",
+      "note": "no roster at all collapses a custom preference to null",
+      "input": { "pref": { "kind": "custom", "id": "p1" } },
+      "expected": null
+    },
+    {
+      "function": "collapseDefaultTuiAgentToBuiltin",
+      "note": "an empty roster behaves the same as an absent one",
+      "input": { "pref": { "kind": "custom", "id": "p1" }, "customAgents": [] },
+      "expected": null
+    },
+    {
+      "function": "collapseDefaultTuiAgentToBuiltin",
+      "note": "a null roster behaves the same as an absent one",
+      "input": { "pref": { "kind": "custom", "id": "p1" }, "customAgents": null },
+      "expected": null
+    },
+    {
+      "function": "collapseDefaultTuiAgentToBuiltin",
+      "note": "a matched profile with no baseAgent collapses to null",
+      "input": {
+        "pref": { "kind": "custom", "id": "p1" },
+        "customAgents": [{ "id": "p1", "label": "No base", "command": "x" }]
+      },
+      "expected": null
+    },
+    {
+      "function": "collapseDefaultTuiAgentToBuiltin",
+      "note": "a matched profile with a null baseAgent collapses to null",
+      "input": {
+        "pref": { "kind": "custom", "id": "p1" },
+        "customAgents": [{ "id": "p1", "label": "Null base", "baseAgent": null, "command": "x" }]
+      },
+      "expected": null
+    },
+    {
+      "function": "collapseDefaultTuiAgentToBuiltin",
+      "note": "an empty-string baseAgent survives: the twin coalesces with ?? (nullish), not ||",
+      "input": {
+        "pref": { "kind": "custom", "id": "p1" },
+        "customAgents": [{ "id": "p1", "label": "Empty base", "baseAgent": "", "command": "x" }]
+      },
+      "expected": ""
+    },
+    {
+      "function": "collapseDefaultTuiAgentToBuiltin",
+      "note": "a roster that repeats an id resolves to the first match (Array#find)",
+      "input": {
+        "pref": { "kind": "custom", "id": "p1" },
+        "customAgents": [
+          { "id": "p1", "label": "Claude (zai)", "baseAgent": "claude", "command": "claude" },
+          { "id": "p1", "label": "Shadow", "baseAgent": "codex", "command": "codex" }
+        ]
+      },
+      "expected": "claude"
+    },
+    {
+      "function": "collapseDefaultTuiAgentToBuiltin",
+      "note": "an id-less preference matches an id-less roster entry (JS undefined === undefined) — outside the typed contract, modelled exactly",
+      "input": {
+        "pref": { "kind": "custom" },
+        "customAgents": [{ "label": "legacy", "baseAgent": "codex", "command": "x" }]
+      },
+      "expected": "codex"
+    },
+    {
+      "function": "collapseDefaultTuiAgentToBuiltin",
+      "note": "an id-less preference matches nothing in a well-formed roster",
+      "input": {
+        "pref": { "kind": "custom" },
+        "customAgents": [
+          { "id": "p1", "label": "Claude (zai)", "baseAgent": "claude", "command": "claude" }
+        ]
+      },
+      "expected": null
     }
   ]
 }
