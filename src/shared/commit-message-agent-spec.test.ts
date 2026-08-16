@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+// The five model-discovery parsers moved to `commit-message-model-listing.ts`
+// with their implementation; their cases live in that module's suite, run in
+// BOTH seam states. What stays here is the registry, buildArgs and the lookups.
 import {
   COMMIT_MESSAGE_AGENT_SPECS,
-  COMMIT_MESSAGE_MODEL_JSON_STRUCTURE_LIMITS,
   CUSTOM_AGENT_ID,
   DEFAULT_COMMIT_MESSAGE_AGENT_ID,
   getCommitMessageAgentCapability,
@@ -11,11 +13,6 @@ import {
   isCustomAgentId,
   listCommitMessageAgentCapabilities,
   listCommitMessageAgentIds,
-  parseAntigravityModels,
-  parseCodexModels,
-  parseCursorModels,
-  parseLineModels,
-  parsePiModels,
   resolveCommitMessageAgentChoice
 } from './commit-message-agent-spec'
 
@@ -230,172 +227,6 @@ describe('buildArgs (Claude)', () => {
   it('omits --effort when thinkingLevel is not provided', () => {
     const args = spec.buildArgs({ prompt: '', model: 'opus' })
     expect(args).not.toContain('--effort')
-  })
-})
-
-describe('model discovery parsers', () => {
-  it('parses Codex model JSON', () => {
-    expect(
-      parseCodexModels(
-        JSON.stringify({
-          models: [
-            {
-              slug: 'gpt-5.5',
-              display_name: 'GPT-5.5',
-              default_reasoning_level: 'low',
-              supported_reasoning_levels: [{ effort: 'low' }, { effort: 'high' }]
-            }
-          ]
-        })
-      )
-    ).toEqual([
-      {
-        id: 'gpt-5.5',
-        label: 'GPT-5.5',
-        thinkingLevels: [
-          { id: 'low', label: 'Low' },
-          { id: 'high', label: 'High' }
-        ],
-        defaultThinkingLevel: 'low'
-      }
-    ])
-  })
-
-  it('rejects excessive Codex model nesting before JSON.parse', () => {
-    const parseSpy = vi.spyOn(JSON, 'parse')
-    const depth = COMMIT_MESSAGE_MODEL_JSON_STRUCTURE_LIMITS.nestingDepth + 1
-    try {
-      expect(parseCodexModels(`${'['.repeat(depth)}0${']'.repeat(depth)}`)).toEqual([])
-      expect(parseSpy).not.toHaveBeenCalled()
-    } finally {
-      parseSpy.mockRestore()
-    }
-  })
-
-  it('parses one-model-per-line output', () => {
-    expect(parseLineModels('opencode/gpt-5.4-mini\n\nopenai/gpt-5.5\n').map((m) => m.id)).toEqual([
-      'opencode/gpt-5.4-mini',
-      'openai/gpt-5.5'
-    ])
-  })
-
-  it('parses Pi model table output with provider-qualified ids', () => {
-    const output = [
-      'provider        model                   context  max-out  thinking  images',
-      'github-copilot  gpt-5.4-mini            400K     128K     yes       yes',
-      'github-copilot  gpt-4o                  128K     4.1K     no        yes'
-    ].join('\n')
-
-    expect(parsePiModels(output)).toEqual([
-      {
-        id: 'github-copilot/gpt-5.4-mini',
-        label: 'Github Copilot GPT 5.4 Mini',
-        thinkingLevels: [
-          { id: 'off', label: 'Off' },
-          { id: 'low', label: 'Low' },
-          { id: 'medium', label: 'Medium' },
-          { id: 'high', label: 'High' },
-          { id: 'xhigh', label: 'Extra High' }
-        ],
-        defaultThinkingLevel: 'low'
-      },
-      {
-        id: 'github-copilot/gpt-4o',
-        label: 'Github Copilot GPT 4O'
-      }
-    ])
-  })
-
-  it('parses Cursor model output', () => {
-    expect(parseCursorModels('auto - Auto\ngpt-5.2 - GPT-5.2\n')).toEqual([
-      { id: 'auto', label: 'Auto' },
-      {
-        id: 'gpt-5.2',
-        label: 'GPT-5.2',
-        thinkingLevels: [
-          { id: 'low', label: 'Low' },
-          { id: 'medium', label: 'Medium' },
-          { id: 'high', label: 'High' },
-          { id: 'xhigh', label: 'Extra High' }
-        ],
-        defaultThinkingLevel: 'low'
-      }
-    ])
-  })
-
-  it('parses Antigravity model output', () => {
-    const output = [
-      'Gemini 3.5 Flash (Medium)',
-      'Gemini 3.5 Flash (High)',
-      'Gemini 3.5 Flash (Low)',
-      'Gemini 3.1 Pro (Low)',
-      'Gemini 3.1 Pro (High)',
-      'Claude Sonnet 4.6 (Thinking)',
-      'Claude Opus 4.6 (Thinking)',
-      'GPT-OSS 120B (Medium)'
-    ].join('\n')
-
-    expect(parseAntigravityModels(output)).toEqual([
-      { id: 'Gemini 3.5 Flash (Medium)', label: 'Gemini 3.5 Flash (Medium)' },
-      { id: 'Gemini 3.5 Flash (High)', label: 'Gemini 3.5 Flash (High)' },
-      { id: 'Gemini 3.5 Flash (Low)', label: 'Gemini 3.5 Flash (Low)' },
-      { id: 'Gemini 3.1 Pro (Low)', label: 'Gemini 3.1 Pro (Low)' },
-      { id: 'Gemini 3.1 Pro (High)', label: 'Gemini 3.1 Pro (High)' },
-      { id: 'Claude Sonnet 4.6 (Thinking)', label: 'Claude Sonnet 4.6 (Thinking)' },
-      { id: 'Claude Opus 4.6 (Thinking)', label: 'Claude Opus 4.6 (Thinking)' },
-      { id: 'GPT-OSS 120B (Medium)', label: 'GPT-OSS 120B (Medium)' }
-    ])
-  })
-
-  it('parses CRLF-heavy dynamic model outputs without full line-array splitting', () => {
-    const splitSpy = vi.spyOn(String.prototype, 'split')
-    const noise = 'ignored model with spaces\r\n'.repeat(10_000)
-    const blankNoise = '\r\n'.repeat(10_000)
-
-    expect(parseLineModels(`${noise}opencode/gpt-5.4-mini\r\nopenai/gpt-5.5\r\n`)).toEqual([
-      {
-        id: 'opencode/gpt-5.4-mini',
-        label: 'Opencode GPT 5.4 Mini',
-        thinkingLevels: [
-          { id: 'low', label: 'Low' },
-          { id: 'medium', label: 'Medium' },
-          { id: 'high', label: 'High' },
-          { id: 'xhigh', label: 'Extra High' }
-        ],
-        defaultThinkingLevel: 'low'
-      },
-      {
-        id: 'openai/gpt-5.5',
-        label: 'Openai GPT 5.5',
-        thinkingLevels: [
-          { id: 'low', label: 'Low' },
-          { id: 'medium', label: 'Medium' },
-          { id: 'high', label: 'High' },
-          { id: 'xhigh', label: 'Extra High' }
-        ],
-        defaultThinkingLevel: 'low'
-      }
-    ])
-    expect(
-      parsePiModels(
-        `${noise}provider model context max-out thinking images\r\ngithub-copilot gpt-5.4-mini 400K 128K yes yes\r\n`
-      )[0]?.id
-    ).toBe('github-copilot/gpt-5.4-mini')
-    expect(parseCursorModels(`${noise}auto - Auto\r\ngpt-5.2 - GPT-5.2\r\n`)).toHaveLength(2)
-    expect(parseAntigravityModels(`${blankNoise}Gemini 3.5 Flash (Medium)\r\n`)).toEqual([
-      { id: 'Gemini 3.5 Flash (Medium)', label: 'Gemini 3.5 Flash (Medium)' }
-    ])
-
-    const usedFullLineSplit = splitSpy.mock.calls.some(
-      ([separator]) =>
-        (typeof separator === 'string' && separator === '\n') ||
-        (separator instanceof RegExp && separator.source === '\\r?\\n')
-    )
-    const usedWhitespaceFieldSplit = splitSpy.mock.calls.some(
-      ([separator]) => separator instanceof RegExp && separator.source === '\\s+'
-    )
-    expect(usedFullLineSplit).toBe(false)
-    expect(usedWhitespaceFieldSplit).toBe(false)
   })
 })
 

@@ -1,7 +1,15 @@
 import type { TuiAgent } from './types'
 import { isTuiAgentEnabled } from './tui-agent-selection-resolution'
-import { assertJsonTextStructureWithinLimits } from './json-text-structure-limit'
 import { labelFromModelId } from './model-id-label'
+import {
+  OPENAI_THINKING_LEVELS,
+  parseAntigravityModels,
+  parseCodexModels,
+  parseCursorModels,
+  parseLineModels,
+  parsePiModels,
+  withOpenAiThinking
+} from './commit-message-model-listing'
 
 /* eslint-disable max-lines -- Why: this is the single registry for non-interactive commit-message agents, their model discovery parsers, and UI capabilities. */
 
@@ -9,6 +17,15 @@ import { labelFromModelId } from './model-id-label'
 // (commit-message generation). It is intentionally separate from
 // `tui-agent-config.ts`, which describes interactive PTY launching — mixing
 // the two confuses both code paths.
+//
+// The five model-discovery parsers are NOT here any more: they run on the Rust
+// `orca_agents::commit_message_models` core through
+// `commit-message-model-listing.ts`, which every `modelDiscovery.parse` field
+// below points at. The dependency runs ONE WAY (this file -> the listing
+// module), which is why the OpenAI effort table and the Codex JSON budget moved
+// there with them: `withOpenAiThinking` is needed by both halves, and a value
+// cycle between two `src/shared` modules is the hazard that made the last one
+// need a deferred call.
 
 export type ThinkingLevel = { id: string; label: string }
 
@@ -64,22 +81,15 @@ export type CommitMessageAgentCapability = {
   defaultModelId: string
 }
 
-export const COMMIT_MESSAGE_MODEL_JSON_STRUCTURE_LIMITS = {
-  structuralTokens: 64 * 1024,
-  nestingDepth: 16
-} as const
+// Why re-exported rather than declared here: the budget bounds the Codex listing
+// parser, which moved to `commit-message-model-listing.ts`. Re-exporting keeps
+// this module's public surface exactly what it was.
+export { COMMIT_MESSAGE_MODEL_JSON_STRUCTURE_LIMITS } from './commit-message-model-listing'
 
 const BASIC_THINKING_LEVELS: ThinkingLevel[] = [
   { id: 'low', label: 'Low' },
   { id: 'medium', label: 'Medium' },
   { id: 'high', label: 'High' }
-]
-
-const OPENAI_THINKING_LEVELS: ThinkingLevel[] = [
-  { id: 'low', label: 'Low' },
-  { id: 'medium', label: 'Medium' },
-  { id: 'high', label: 'High' },
-  { id: 'xhigh', label: 'Extra High' }
 ]
 
 const CLAUDE_THINKING_LEVELS: ThinkingLevel[] = [
@@ -89,200 +99,6 @@ const CLAUDE_THINKING_LEVELS: ThinkingLevel[] = [
   { id: 'xhigh', label: 'Extra High' },
   { id: 'max', label: 'Max' }
 ]
-
-function uniqueModels(models: CommitMessageModel[]): CommitMessageModel[] {
-  const seen = new Set<string>()
-  return models.filter((model) => {
-    if (!model.id || seen.has(model.id)) {
-      return false
-    }
-    seen.add(model.id)
-    return true
-  })
-}
-
-function* iterateModelOutputLines(output: string): Generator<string> {
-  let lineStart = 0
-
-  for (let index = 0; index < output.length; index++) {
-    const code = output.charCodeAt(index)
-    if (code !== 10 && code !== 13) {
-      continue
-    }
-
-    yield output.slice(lineStart, index)
-    if (code === 13 && output.charCodeAt(index + 1) === 10) {
-      index++
-    }
-    lineStart = index + 1
-  }
-
-  if (lineStart <= output.length) {
-    yield output.slice(lineStart)
-  }
-}
-
-function withOpenAiThinking(
-  id: string
-): Pick<CommitMessageModel, 'thinkingLevels' | 'defaultThinkingLevel'> {
-  return /(?:gpt-5|codex)/i.test(id)
-    ? { thinkingLevels: OPENAI_THINKING_LEVELS, defaultThinkingLevel: 'low' }
-    : {}
-}
-
-export function parseCodexModels(stdout: string): CommitMessageModel[] {
-  try {
-    assertJsonTextStructureWithinLimits(stdout, COMMIT_MESSAGE_MODEL_JSON_STRUCTURE_LIMITS)
-    const parsed = JSON.parse(stdout) as {
-      models?: {
-        slug?: string
-        display_name?: string
-        supported_reasoning_levels?: { effort?: string }[]
-        default_reasoning_level?: string
-      }[]
-    }
-    return uniqueModels(
-      (parsed.models ?? [])
-        .filter((model) => model.slug && model.display_name)
-        .map((model) => ({
-          id: model.slug!,
-          label: model.display_name!,
-          ...(model.supported_reasoning_levels?.length
-            ? {
-                thinkingLevels: model.supported_reasoning_levels
-                  .map((level) => level.effort)
-                  .filter((effort): effort is string => Boolean(effort))
-                  .map((effort) => ({
-                    id: effort,
-                    label: effort === 'xhigh' ? 'Extra High' : labelFromModelId(effort)
-                  })),
-                defaultThinkingLevel: model.default_reasoning_level ?? 'low'
-              }
-            : {})
-        }))
-    )
-  } catch {
-    return []
-  }
-}
-
-export function parseLineModels(stdout: string): CommitMessageModel[] {
-  const models: CommitMessageModel[] = []
-  for (const rawLine of iterateModelOutputLines(stdout)) {
-    const id = rawLine.trim()
-    if (id.length === 0 || id.includes(' ')) {
-      continue
-    }
-    models.push({
-      id,
-      label: labelFromModelId(id),
-      ...withOpenAiThinking(id)
-    })
-  }
-  return uniqueModels(models)
-}
-
-export function parsePiModels(stdout: string): CommitMessageModel[] {
-  const models: CommitMessageModel[] = []
-  for (const rawLine of iterateModelOutputLines(stdout)) {
-    const parts = getPiModelTableFields(rawLine, 6)
-    if (parts.length < 6 || parts[0] === 'provider') {
-      continue
-    }
-
-    const [provider, model, , , thinking] = parts
-    const id = `${provider}/${model}`
-    models.push({
-      id,
-      label: `${labelFromModelId(provider)} ${labelFromModelId(model)}`,
-      ...(thinking === 'yes'
-        ? {
-            thinkingLevels: [
-              { id: 'off', label: 'Off' },
-              { id: 'low', label: 'Low' },
-              { id: 'medium', label: 'Medium' },
-              { id: 'high', label: 'High' },
-              { id: 'xhigh', label: 'Extra High' }
-            ],
-            defaultThinkingLevel: 'low'
-          }
-        : {})
-    })
-  }
-  return uniqueModels(models)
-}
-
-// Why: model discovery output can include paste-sized noisy lines; only the first fields matter.
-function getPiModelTableFields(line: string, maxFields: number): string[] {
-  const fields: string[] = []
-  let tokenStart = -1
-
-  for (let index = 0; index <= line.length; index += 1) {
-    const isEnd = index === line.length
-    if (!isEnd && !isPiModelTableWhitespace(line.charCodeAt(index))) {
-      if (tokenStart === -1) {
-        tokenStart = index
-      }
-      continue
-    }
-    if (tokenStart !== -1) {
-      fields.push(line.slice(tokenStart, index))
-      tokenStart = -1
-      if (fields.length >= maxFields) {
-        break
-      }
-    }
-  }
-
-  return fields
-}
-
-function isPiModelTableWhitespace(code: number): boolean {
-  return (
-    code === 32 ||
-    (code >= 9 && code <= 13) ||
-    code === 160 ||
-    code === 5760 ||
-    (code >= 8192 && code <= 8202) ||
-    code === 8232 ||
-    code === 8233 ||
-    code === 8239 ||
-    code === 8287 ||
-    code === 12288 ||
-    code === 65279
-  )
-}
-
-export function parseCursorModels(stdout: string): CommitMessageModel[] {
-  const models: CommitMessageModel[] = []
-  for (const rawLine of iterateModelOutputLines(stdout)) {
-    const match = /^([^\s]+)\s+-\s+(.+)$/.exec(rawLine.trim())
-    if (!match) {
-      continue
-    }
-    models.push({
-      id: match[1],
-      label: match[2].replace(/\s+\((?:default|current)\)$/i, ''),
-      ...withOpenAiThinking(match[1])
-    })
-  }
-  return uniqueModels(models)
-}
-
-export function parseAntigravityModels(stdout: string): CommitMessageModel[] {
-  const models: CommitMessageModel[] = []
-  for (const rawLine of iterateModelOutputLines(stdout)) {
-    const id = rawLine.trim()
-    if (id.length === 0) {
-      continue
-    }
-    models.push({
-      id,
-      label: id
-    })
-  }
-  return uniqueModels(models)
-}
 
 export const COMMIT_MESSAGE_AGENT_SPECS: Partial<Record<TuiAgent, CommitMessageAgentSpec>> = {
   claude: {

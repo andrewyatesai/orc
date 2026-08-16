@@ -259,6 +259,61 @@
       "function": "listCommitMessageAgentCapabilities",
       "note": "full capability list; golden omitted (large) — per-element shape is golden-checked via getCommitMessageAgentCapability, live TS<->Rust diff still validates",
       "input": null
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "U+0085 (NEL) is not JS whitespace, so a dynamic agent still synthesizes the model — str::trim drops it",
+      "input": {
+        "agentId": "codex",
+        "modelId": ""
+      },
+      "expected": {
+        "id": "",
+        "label": ""
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "U+200B is whitespace to neither trim set — the control for the NEL case",
+      "input": {
+        "agentId": "codex",
+        "modelId": "​"
+      },
+      "expected": {
+        "id": "​",
+        "label": "​"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "a BOM-prefixed dynamic id is non-blank for both trim sets",
+      "input": {
+        "agentId": "codex",
+        "modelId": "﻿gpt-5.5"
+      },
+      "expected": {
+        "id": "﻿gpt-5.5",
+        "label": "﻿gpt 5.5",
+        "thinkingLevels": [
+          {
+            "id": "low",
+            "label": "Low"
+          },
+          {
+            "id": "medium",
+            "label": "Medium"
+          },
+          {
+            "id": "high",
+            "label": "High"
+          },
+          {
+            "id": "xhigh",
+            "label": "Extra High"
+          }
+        ],
+        "defaultThinkingLevel": "low"
+      }
     }
   ]
 }
