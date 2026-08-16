@@ -2615,15 +2615,6 @@
         },
         "sheet": {
           "1189e9fe0a": "閉じる"
-        },
-        "team": {
-          "multi": {
-            "combobox": {
-              "de83523bf9": "検索に一致するチームはありません。",
-              "301f2a796e": "全チーム",
-              "18ec58881e": "チームを検索..."
-            }
-          }
         }
       },
       "terminal": {
@@ -11526,17 +11517,6 @@
           "yoloPermissionsInfo": "Agent permission info",
           "yoloPermissionsTooltip": "Skip permission checks for agents for less interruptions"
         },
-        "FeatureSetupChecklist": {
-          "77f74946f5": "Agents は相互にメッセージを送信し、タスクを実行し、引き継ぎを調整できます。",
-          "399cf885c0": "Agent オーケストレーション",
-          "c5292c409d": "Agents は、要求に応じてアプリ ウィンドウを検査し、ローカル アプリを操作できます。",
-          "1ecfb490ac": "コンピュータ操作",
-          "01426f3a23": "Agents はサイトを移動し、ページを検査し、ブラウザーのタスクを実行できます。",
-          "ea85d9e628": "Agent ブラウザの使用",
-          "linearTicketsTitle": "Linear agent スキル",
-          "linearTicketsDescription": "Agents はリンクされた Linear タスクを使って、チケットを踏まえたより詳しい引き継ぎができます。",
-          "linearTicketsSetupSummary": "Linear ワークスペースに推奨。Linear 接続設定には影響しません。"
-        },
         "FeatureSetupInlineTerminal": {
           "789b59936e": "Enter キーを押してコマンドを実行し、要求されたら npx を確認します。これは、後で [設定] で設定することもできます。",
           "47fc6cc6dc": "スキルセットアップコマンド",
@@ -11653,9 +11633,6 @@
             }
           }
         },
-        "AgentFeatureSetupStep": {
-          "97dcdc010f": "CLI とスキルをインストール"
-        },
         "WindowsTerminalStep": {
           "powerShell": "PowerShell",
           "powerShellPwsh": "利用可能な場合は PowerShell 7+ を使い、代わりに Windows PowerShell を使用します。",
@@ -11745,10 +11722,6 @@
             "searchBranches": "ブランチを検索",
             "searchLinear": "Linear Issue を検索",
             "workspaceName": "ワークスペース名"
-          },
-          "ProjectHostSetupCombobox": {
-            "empty": "No hosts are ready for this project.",
-            "placeholder": "Choose host"
           },
           "ProjectCombobox": {
             "search": "Search projects...",

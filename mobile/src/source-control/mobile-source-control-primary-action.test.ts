@@ -1,10 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { resolveSourceControlCommitAreaPrimaryActionDecision } from '../../../src/shared/source-control-primary-action-decision'
 import {
-  resolveMobileSourceControlCommitAreaPrimaryActionDecision,
-  type MobileSourceControlPrimaryActionDecisionInputs
-} from './mobile-source-control-primary-action-decision'
-import {
   buildMobileSourceControlPrimaryAction,
   type MobileSourceControlPrimaryActionArgs,
   type MobileSourceControlPrimaryActionHandlers
@@ -158,114 +154,27 @@ describe('buildMobileSourceControlPrimaryAction', () => {
     )
     expect(action.disabled).toBe(false)
   })
-})
 
-function decisionInputs(
-  overrides: Partial<MobileSourceControlPrimaryActionDecisionInputs> = {}
-): MobileSourceControlPrimaryActionDecisionInputs {
-  return {
-    stagedCount: 0,
-    hasUnstagedChanges: false,
-    hasStageableChanges: false,
-    hasPartiallyStagedChanges: false,
-    hasMessage: false,
-    hasUnresolvedConflicts: false,
-    isCommitting: false,
-    isRemoteOperationActive: false,
-    upstreamStatus: undefined,
-    ...overrides
-  }
-}
-
-describe('mobile source-control primary action decision parity', () => {
-  it.each([
-    {
-      name: 'dirty tree stages first',
-      input: decisionInputs({
-        hasUnstagedChanges: true,
-        hasStageableChanges: true,
-        upstreamStatus: { hasUpstream: true, ahead: 0, behind: 2 }
-      })
-    },
-    {
-      name: 'staged message commits',
-      input: decisionInputs({ stagedCount: 1, hasMessage: true })
-    },
-    {
-      name: 'staged without message blocks commit',
-      input: decisionInputs({ stagedCount: 1, hasMessage: false })
-    },
-    {
-      name: 'unresolved conflicts block commit',
-      input: decisionInputs({ stagedCount: 1, hasMessage: true, hasUnresolvedConflicts: true })
-    },
-    {
-      name: 'unpublished branch publishes',
-      input: decisionInputs({
-        upstreamStatus: { hasUpstream: false, ahead: 0, behind: 0 },
-        hasCurrentBranch: true
-      })
-    },
-    {
-      name: 'detached head blocks publish',
-      input: decisionInputs({
-        upstreamStatus: { hasUpstream: false, ahead: 0, behind: 0 },
-        hasCurrentBranch: false
-      })
-    },
-    {
-      name: 'tracked ahead pushes',
-      input: decisionInputs({ upstreamStatus: { hasUpstream: true, ahead: 2, behind: 0 } })
-    },
-    {
-      name: 'tracked behind pulls',
-      input: decisionInputs({ upstreamStatus: { hasUpstream: true, ahead: 0, behind: 3 } })
-    },
-    {
-      name: 'tracked diverged syncs',
-      input: decisionInputs({ upstreamStatus: { hasUpstream: true, ahead: 2, behind: 3 } })
-    },
-    {
-      name: 'patch-equivalent diverged force-pushes with lease',
-      input: decisionInputs({
-        branchCommitsAhead: 4,
-        upstreamStatus: {
-          hasUpstream: true,
-          upstreamName: 'origin/feature',
-          ahead: 10,
-          behind: 2,
-          behindCommitsArePatchEquivalent: true
-        }
-      })
-    },
-    {
-      name: 'in-flight pull mirrors pull',
-      input: decisionInputs({
-        isRemoteOperationActive: true,
-        inFlightRemoteOpKind: 'pull',
-        upstreamStatus: { hasUpstream: true, ahead: 2, behind: 0 }
-      })
-    },
-    {
-      name: 'in-flight force push mirrors force push',
-      input: decisionInputs({
-        isRemoteOperationActive: true,
-        inFlightRemoteOpKind: 'force_push',
-        upstreamStatus: { hasUpstream: true, ahead: 2, behind: 0 }
-      })
-    },
-    {
-      name: 'in-flight push blocks committable candidate',
-      input: decisionInputs({
-        isRemoteOperationActive: true,
-        inFlightRemoteOpKind: 'push',
-        stagedCount: 1,
-        hasMessage: true
-      })
-    }
-  ])('matches the shared commit-area decision for $name', ({ input }) => {
-    expect(resolveMobileSourceControlCommitAreaPrimaryActionDecision(input)).toEqual(
-      resolveSourceControlCommitAreaPrimaryActionDecision(input)
-    )
+  // Seam: the mobile builder must resolve through the shared commit-area core,
+  // not a divergent local copy. Compare the built action's kind against the
+  // shared decision for the same tracked-ahead status.
+  it('routes the primary action through the shared commit-area decision core', () => {
+    const upstreamStatus = { hasUpstream: true, ahead: 2, behind: 0 }
+    const action = buildMobileSourceControlPrimaryAction(args({ status: status({ upstreamStatus }) }))
+    const shared = resolveSourceControlCommitAreaPrimaryActionDecision({
+      stagedCount: 0,
+      hasUnstagedChanges: false,
+      hasStageableChanges: false,
+      hasPartiallyStagedChanges: false,
+      hasMessage: false,
+      hasUnresolvedConflicts: false,
+      isCommitting: false,
+      isRemoteOperationActive: false,
+      upstreamStatus,
+      branchCommitsAhead: 2,
+      hasCurrentBranch: true
+    })
+    expect(shared.kind).toBe('push')
+    expect(action.kind).toBe(shared.kind)
   })
 })

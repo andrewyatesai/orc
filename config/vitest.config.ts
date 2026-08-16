@@ -27,6 +27,8 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    // Why --expose-gc: retention tests need a deterministic collection point to measure what a queue really holds.
+    execArgv: ['--expose-gc'],
     // Ensure DOM tests have a working Web Storage API on Node 26 (see the setup).
     // The seam setup binds the Rust dispatch core so cut-over src/shared modules
     // work without each surface's production bootstrap.

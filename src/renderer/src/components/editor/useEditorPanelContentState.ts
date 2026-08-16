@@ -180,8 +180,11 @@ export function useEditorPanelContentState({
       const next = { ...prev }
       let changed = false
       for (const fileId of uniqueIds) {
-        if (fileId in next) {
-          delete next[fileId]
+        const existing = next[fileId]
+        // Why: keep the last-known diff rendered and swap it when the lazy
+        // reload lands — dropping it flashes "Loading diff…" on every reveal.
+        if (existing && existing.isStale !== true) {
+          next[fileId] = { ...existing, isStale: true }
           changed = true
         }
       }
@@ -484,9 +487,13 @@ export function useEditorPanelContentState({
       !hasLiveRead(fileReadGenerationRef.current, outstandingFileReadsRef.current, fileId)
     )
   }
-  const needsDiffRead = (fileId: string): boolean =>
-    !diffContents[fileId] &&
-    !hasLiveRead(diffReadGenerationRef.current, outstandingDiffReadsRef.current, fileId)
+  const needsDiffRead = (fileId: string): boolean => {
+    const cached = diffContents[fileId]
+    return (
+      (!cached || cached.isStale === true) &&
+      !hasLiveRead(diffReadGenerationRef.current, outstandingDiffReadsRef.current, fileId)
+    )
+  }
 
   useEffect(() => {
     if (!isVisible) {
@@ -603,9 +610,10 @@ export function useEditorPanelContentState({
       invalidateDiffContent([current.id])
       return
     }
-    // Why: the lazy-load effect already fetches on first open; forcing here
-    // races a duplicate git-diff RPC for the same tab.
-    if (!diffContentsRef.current[current.id]) {
+    // Why: the lazy-load effect already fetches on first open and on a retained
+    // stale entry; forcing here races a duplicate git-diff RPC for the same tab.
+    const cachedDiff = diffContentsRef.current[current.id]
+    if (!cachedDiff || cachedDiff.isStale === true) {
       return
     }
     void loadDiffContent(current, { force: true })

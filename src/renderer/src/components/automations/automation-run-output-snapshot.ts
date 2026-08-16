@@ -6,6 +6,7 @@ import {
   TERMINAL_CONTROL_CHARACTER_PATTERN,
   stripAnsiEscapeSequences
 } from '../../../../shared/ansi-escape-sequences'
+import { copyUtf16SuffixToOwnedString } from '../../../../shared/owned-utf16-suffix'
 
 const MAX_OUTPUT_SNAPSHOT_CHARS = 256 * 1024
 
@@ -68,7 +69,11 @@ export function createAutomationRunOutputSnapshotBuffer(): AutomationRunOutputSn
           truncated = true
           continue
         }
-        chunks[0] = firstChunk.slice(overflowChars)
+        // Why: slicing an oversized chunk keeps V8's whole backing string alive; own the tail.
+        chunks[0] =
+          firstChunk.length > MAX_OUTPUT_SNAPSHOT_CHARS
+            ? copyUtf16SuffixToOwnedString(firstChunk, firstChunk.length - overflowChars)
+            : firstChunk.slice(overflowChars)
         totalChars -= overflowChars
         truncated = true
         overflowChars = 0

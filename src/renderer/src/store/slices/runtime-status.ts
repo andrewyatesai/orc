@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import type { AppState } from '../types'
 import type { PublicKnownRuntimeEnvironment } from '../../../../shared/runtime-environments'
 import type { RuntimeStatus } from '../../../../shared/runtime-types'
+import { runtimeEnvironmentStatusesEqual } from './runtime-environment-status-equality'
 import {
   clearRecentRuntimeCompatibilityFailure,
   clearRuntimeCompatibilityCache,
@@ -17,6 +18,8 @@ import { translate } from '@/i18n/i18n'
 export type RuntimeEnvironmentStatus = {
   status: RuntimeStatus | null
   appVersion?: string | null
+  /** When the stored status was last *observed to change*; an unchanged re-probe
+   * is dropped rather than rewritten, so this is not a probe-freshness clock. */
   checkedAt: number
   connectionGeneration?: number
 }
@@ -245,19 +248,26 @@ export const createRuntimeStatusSlice: StateCreator<AppState, [], [], RuntimeSta
       clearRecentRuntimeCompatibilityFailure(environmentId, status.status)
     }
     set((s) => {
-      const next = new Map(s.runtimeStatusByEnvironmentId)
       const connectionChanged =
         status.status !== null &&
         (previous?.status == null || previous.status.runtimeId !== status.status.runtimeId)
       if (connectionChanged) {
         advanceRuntimeEnvironmentConnectionGeneration(environmentId)
       }
-      next.set(environmentId, {
+      const nextEntry: RuntimeEnvironmentStatus = {
         ...status,
         connectionGeneration: connectionChanged
           ? (previous?.connectionGeneration ?? 0) + 1
           : (previous?.connectionGeneration ?? status.connectionGeneration ?? 0)
-      })
+      }
+      const currentEntry = s.runtimeStatusByEnvironmentId.get(environmentId)
+      // Why: an unchanged re-probe must not invalidate every Map subscriber. Real
+      // transitions change `status` or advance `connectionGeneration`, so they still write.
+      if (currentEntry && runtimeEnvironmentStatusesEqual(currentEntry, nextEntry)) {
+        return s
+      }
+      const next = new Map(s.runtimeStatusByEnvironmentId)
+      next.set(environmentId, nextEntry)
       return { runtimeStatusByEnvironmentId: next }
     })
     if (options?.suppressDisconnectToast) {

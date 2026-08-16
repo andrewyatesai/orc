@@ -2615,15 +2615,6 @@
         },
         "sheet": {
           "1189e9fe0a": "닫기"
-        },
-        "team": {
-          "multi": {
-            "combobox": {
-              "de83523bf9": "검색어와 일치하는 팀이 없습니다.",
-              "301f2a796e": "모든 팀",
-              "18ec58881e": "팀 검색..."
-            }
-          }
         }
       },
       "terminal": {
@@ -11526,17 +11517,6 @@
           "yoloPermissionsInfo": "Agent 권한 정보",
           "yoloPermissionsTooltip": "중단을 줄이기 위해 agents 권한 확인을 건너뜁니다."
         },
-        "FeatureSetupChecklist": {
-          "77f74946f5": "Agents는 서로 메시지를 보내고, 작업을 수행하고, 핸드오프를 조정할 수 있습니다.",
-          "399cf885c0": "Agent 오케스트레이션",
-          "c5292c409d": "Agents는 요청 시 앱 창을 검사하고 로컬 앱을 작동할 수 있습니다.",
-          "1ecfb490ac": "컴퓨터 사용",
-          "01426f3a23": "Agents가 사이트를 탐색하고, 페이지를 검사하고, 브라우저 작업을 처리할 수 있습니다.",
-          "ea85d9e628": "Agent 브라우저 사용",
-          "linearTicketsTitle": "Linear agent 스킬",
-          "linearTicketsDescription": "Agents는 연결된 Linear 작업을 사용해 티켓 맥락을 반영한 더 풍부한 인계를 할 수 있습니다.",
-          "linearTicketsSetupSummary": "Linear 워크스페이스에 권장됩니다. Linear 연결 설정에는 영향을 주지 않습니다."
-        },
         "FeatureSetupInlineTerminal": {
           "789b59936e": "Enter를 눌러 명령을 실행하고 요청 시 npx를 확인합니다. 나중에 설정에서 설정할 수도 있습니다.",
           "47fc6cc6dc": "스킬 설정 명령어",
@@ -11653,9 +11633,6 @@
             }
           }
         },
-        "AgentFeatureSetupStep": {
-          "97dcdc010f": "기능 활성화"
-        },
         "WindowsTerminalStep": {
           "powerShell": "PowerShell",
           "powerShellPwsh": "사용할 수 있으면 PowerShell 7+를 사용하고, 없으면 Windows PowerShell을 사용합니다.",
@@ -11745,10 +11722,6 @@
             "searchBranches": "브랜치 검색",
             "searchLinear": "Linear 이슈 검색",
             "workspaceName": "워크스페이스 이름"
-          },
-          "ProjectHostSetupCombobox": {
-            "empty": "이 프로젝트에 준비된 호스트가 없습니다.",
-            "placeholder": "호스트 선택"
           },
           "ProjectCombobox": {
             "search": "프로젝트 검색...",

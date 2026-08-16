@@ -179,6 +179,12 @@ export function disposePane(
     /* ignore */
   }
   try {
+    // Drop engine selection state before a recovery remount replaces the surface.
+    pane.terminal.clearSelection()
+  } catch {
+    /* ignore */
+  }
+  try {
     // Disposes the facade, which tears down the controller (engine + handlers +
     // overlays + DOM) — the single owner of aterm pane teardown now.
     pane.terminal.dispose()

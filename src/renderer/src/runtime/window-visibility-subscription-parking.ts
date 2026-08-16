@@ -1,10 +1,11 @@
-import { isWindowVisible } from '@/lib/window-visibility-interval'
 import {
-  isDocumentVisibilityProvenStale,
-  registerStaleDocumentVisibilityRecovery
-} from '@/components/terminal-pane/stale-document-visibility'
+  getWindowParkVisible,
+  subscribeWindowParkVisibility,
+  WINDOW_HIDE_PARK_GRACE_MS
+} from '@/lib/window-park-visibility'
 
-export const WINDOW_VISIBILITY_SUBSCRIPTION_PARK_DELAY_MS = 500
+// Why: the same app-switch grace every park site uses; the backoff below is what makes this one adaptive.
+export const WINDOW_VISIBILITY_SUBSCRIPTION_PARK_DELAY_MS = WINDOW_HIDE_PARK_GRACE_MS
 // Why: resuming re-enumerates every host, so repeated short hides must widen the park delay instead of paying that cost each cycle.
 export const WINDOW_VISIBILITY_SUBSCRIPTION_PARK_DELAY_BACKOFF_LIMIT = 8
 export const WINDOW_VISIBILITY_SUBSCRIPTION_RETRY_INITIAL_MS = 1_000
@@ -45,10 +46,6 @@ type SubscriptionEntry = {
   unsubscribe: (() => void) | null
 }
 
-function getWindowVisible(): boolean {
-  return isWindowVisible() || isDocumentVisibilityProvenStale()
-}
-
 export function installWindowVisibilitySubscriptionParking(
   specs: readonly WindowVisibilitySubscriptionSpec[],
   options: WindowVisibilitySubscriptionParkingOptions = {}
@@ -56,7 +53,7 @@ export function installWindowVisibilitySubscriptionParking(
   const parkDelayMs = options.parkDelayMs ?? WINDOW_VISIBILITY_SUBSCRIPTION_PARK_DELAY_MS
   const maxParkDelayMs = parkDelayMs * WINDOW_VISIBILITY_SUBSCRIPTION_PARK_DELAY_BACKOFF_LIMIT
   let disposed = false
-  let effectiveVisible = getWindowVisible()
+  let effectiveVisible = getWindowParkVisible()
   let visibilityGeneration = effectiveVisible ? 0 : 1
   let parkTimer: ReturnType<typeof setTimeout> | null = null
   let currentParkDelayMs = parkDelayMs
@@ -243,7 +240,7 @@ export function installWindowVisibilitySubscriptionParking(
     }
   }
   const reconcileVisibility = (): void => {
-    if (getWindowVisible()) {
+    if (getWindowParkVisible()) {
       cancelPark()
       const hiddenMs = hiddenSinceMs === null ? null : Date.now() - hiddenSinceMs
       hiddenSinceMs = null
@@ -266,7 +263,7 @@ export function installWindowVisibilitySubscriptionParking(
     hiddenSinceMs = Date.now()
     parkTimer = setTimeout(() => {
       parkTimer = null
-      if (getWindowVisible()) {
+      if (getWindowParkVisible()) {
         reconcileVisibility()
         return
       }
@@ -279,20 +276,12 @@ export function installWindowVisibilitySubscriptionParking(
   if (effectiveVisible) {
     startAll(false)
   }
-  const canListenToVisibility =
-    typeof document !== 'undefined' && typeof document.addEventListener === 'function'
-  const unregisterStaleRecovery = registerStaleDocumentVisibilityRecovery(reconcileVisibility)
-  if (canListenToVisibility) {
-    document.addEventListener('visibilitychange', reconcileVisibility)
-  }
+  const unsubscribeVisibility = subscribeWindowParkVisibility(reconcileVisibility)
 
   return () => {
     disposed = true
     cancelPark()
-    if (canListenToVisibility) {
-      document.removeEventListener('visibilitychange', reconcileVisibility)
-    }
-    unregisterStaleRecovery()
+    unsubscribeVisibility()
     effectiveVisible = false
     stopAll()
   }

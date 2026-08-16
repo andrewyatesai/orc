@@ -340,7 +340,6 @@ mobile-config app/h/*/source-control/*.tsx max=2152
 mobile-config app/h/*/tasks.tsx max=14682
 mobile-config app/index.tsx max=1422
 mobile-config app/pair-scan.tsx max=531
-mobile-config app/terminal-settings.tsx max=514
 mobile-config app/troubleshoot.tsx max=436
 mobile-config scripts/mock-server.ts max=407
 mobile-config scripts/repro-terminal-colors.ts max=319

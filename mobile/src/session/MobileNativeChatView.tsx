@@ -55,8 +55,7 @@ type Props = {
   loadingEarlier?: boolean
   onLoadEarlier?: () => void
   onSend: (text: string) => Promise<boolean>
-  /** Optimistic queued sends (owned by the route so they survive view switches). */
-  /** Optimistic user echoes, including any ridden-along image preview URIs. */
+  /** Accepted user echoes awaiting transcript replacement, including image previews. */
   pending: MobileNativeChatPendingItem[]
   /** Local photo URIs retained when the authoritative transcript replaces an
    *  optimistic image bubble, keyed by that turn's message id. */
@@ -170,9 +169,8 @@ export function MobileNativeChatView({
     []
   )
 
-  const pendingIds = useMemo(() => new Set(pending.map((p) => p.id)), [pending])
   // `data` is the list source: folded transcript + synthetic streaming bubble +
-  // route-owned optimistic queued messages. Memoize on the same deps so the
+  // route-owned accepted echoes. Memoize on the same deps so the
   // downstream autoscroll effects/`renderItem` keep referential stability.
   const { data } = useMemo(
     () =>
@@ -237,7 +235,6 @@ export function MobileNativeChatView({
     ({ item, index }: { item: NativeChatMessage; index: number }) => (
       <MobileNativeChatMessage
         message={item}
-        queued={pendingIds.has(item.id)}
         toolsExpanded={toolsExpanded}
         fontScale={fontScale}
         messageIndex={index}
@@ -245,7 +242,7 @@ export function MobileNativeChatView({
         onOpenFile={onOpenFile}
       />
     ),
-    [pendingIds, toolsExpanded, fontScale, onScrollToMessage, onOpenFile]
+    [toolsExpanded, fontScale, onScrollToMessage, onOpenFile]
   )
 
   const emptyState = mobileNativeChatEmptyState(status, agent ?? null, error)

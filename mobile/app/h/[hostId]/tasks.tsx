@@ -107,16 +107,16 @@ import {
 } from '../../../src/tasks/setup-hook-trust'
 import { colors, radii, spacing, typography } from '../../../src/theme/mobile-theme'
 import { triggerMediumImpact } from '../../../src/platform/haptics'
-import type {
-  GitHubProjectSortDirection,
-  GitHubProjectTable as SharedGitHubProjectTable
-} from '../../../src/tasks/mobile-github-project-group-sort'
 import {
   groupRows,
   isIterationCurrent,
   sortRows,
   type ProjectGroup
-} from '../../../src/tasks/mobile-github-project-group-sort'
+} from '../../../../src/shared/github-project-group-sort'
+import type {
+  GitHubProjectSortDirection,
+  GitHubProjectTable as SharedGitHubProjectTable
+} from '../../../../src/shared/github-project-types'
 import {
   CROSS_REPO_DISPLAY_LIMIT,
   isGitHubWorkItemsSshRemoteRequiredError,

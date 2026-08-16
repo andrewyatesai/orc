@@ -2615,15 +2615,6 @@
         },
         "sheet": {
           "1189e9fe0a": "Cerrar"
-        },
-        "team": {
-          "multi": {
-            "combobox": {
-              "de83523bf9": "Ningún equipo coincide con tu búsqueda.",
-              "301f2a796e": "Todos los equipos",
-              "18ec58881e": "Buscar equipos..."
-            }
-          }
         }
       },
       "terminal": {
@@ -11526,17 +11517,6 @@
           "yoloPermissionsInfo": "Información de permisos del agente",
           "yoloPermissionsTooltip": "Omite las comprobaciones de permisos de los agentes para reducir interrupciones"
         },
-        "FeatureSetupChecklist": {
-          "77f74946f5": "Los agentes pueden enviarse mensajes entre sí, tomar tareas y coordinar handoffs.",
-          "399cf885c0": "Orquestación de agentes",
-          "c5292c409d": "Los agentes pueden inspeccionar ventanas de apps y operar apps locales cuando se lo pidas.",
-          "1ecfb490ac": "Uso de la computadora",
-          "01426f3a23": "Los agentes pueden navegar por sitios, inspeccionar páginas y trabajar en tareas del navegador.",
-          "ea85d9e628": "Uso del navegador por agentes",
-          "linearTicketsTitle": "Skill de agente de Linear",
-          "linearTicketsDescription": "Los agentes pueden usar tareas de Linear enlazadas para handoffs con más contexto de ticket.",
-          "linearTicketsSetupSummary": "Recomendado para espacios de trabajo de Linear; no afecta la configuración de conexión de Linear."
-        },
         "FeatureSetupInlineTerminal": {
           "789b59936e": "Pulsa Enter para ejecutar el comando y confirma npx si se te solicita. También puedes configurarlo más tarde en Configuración.",
           "47fc6cc6dc": "Comando de configuración de skills",
@@ -11653,9 +11633,6 @@
             }
           }
         },
-        "AgentFeatureSetupStep": {
-          "97dcdc010f": "Activar capacidades"
-        },
         "WindowsTerminalStep": {
           "powerShell": "PowerShell",
           "powerShellPwsh": "Usa PowerShell 7+ cuando está disponible, con Windows PowerShell como alternativa.",
@@ -11745,10 +11722,6 @@
             "searchBranches": "Buscar ramas",
             "searchLinear": "Buscar issues de Linear",
             "workspaceName": "Nombre del espacio de trabajo"
-          },
-          "ProjectHostSetupCombobox": {
-            "empty": "No hay hosts listos para este proyecto.",
-            "placeholder": "Elegir host"
           },
           "ProjectCombobox": {
             "search": "Buscar proyectos...",

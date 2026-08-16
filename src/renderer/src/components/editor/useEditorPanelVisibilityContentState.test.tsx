@@ -387,6 +387,40 @@ describe('useEditorPanelContentState visibility', () => {
     expect(mocks.getRuntimeGitDiff).toHaveBeenCalledTimes(2)
   })
 
+  it('keeps an invalidated diff on screen until the reveal read lands', async () => {
+    const file = makeFile('diff-no-flash', { mode: 'diff', diffSource: 'unstaged' })
+    const freshDiff = createDeferred<DiffContent>()
+    mocks.getRuntimeGitDiff
+      .mockResolvedValueOnce(textDiff('old diff'))
+      .mockReturnValueOnce(freshDiff.promise)
+
+    await act(async () => root.render(<Probe activeFile={file} />))
+    await vi.waitFor(() =>
+      expect(snapshots.get('main')?.diffContents[file.id]?.modifiedContent).toBe('old diff')
+    )
+
+    await act(async () => root.render(<Probe activeFile={file} isVisible={false} />))
+    dispatchExternalChange(file)
+    // Why: the viewers render "Loading diff…" purely on a missing entry, so a
+    // retained (stale-marked) entry is what keeps the pane painted.
+    expect(snapshots.get('main')?.diffContents[file.id]?.modifiedContent).toBe('old diff')
+    expect(snapshots.get('main')?.diffContents[file.id]?.isStale).toBe(true)
+    expect(mocks.getRuntimeGitDiff).toHaveBeenCalledOnce()
+
+    await act(async () => root.render(<Probe activeFile={file} />))
+    await vi.waitFor(() => expect(mocks.getRuntimeGitDiff).toHaveBeenCalledTimes(2))
+    expect(snapshots.get('main')?.diffContents[file.id]?.modifiedContent).toBe('old diff')
+
+    await act(async () => {
+      freshDiff.resolve(textDiff('fresh diff'))
+      await freshDiff.promise
+    })
+    await vi.waitFor(() =>
+      expect(snapshots.get('main')?.diffContents[file.id]).toEqual(textDiff('fresh diff'))
+    )
+    expect(mocks.getRuntimeGitDiff).toHaveBeenCalledTimes(2)
+  })
+
   it('invalidates a hidden Git-status diff without reading until reveal', async () => {
     const file = makeFile('status', { mode: 'diff', diffSource: 'unstaged' })
     const status: GitStatusEntry[] = [
@@ -401,7 +435,7 @@ describe('useEditorPanelContentState visibility', () => {
     await act(async () =>
       root.render(<Probe activeFile={file} gitStatusEntries={status} isVisible={false} />)
     )
-    expect(snapshots.get('main')?.diffContents[file.id]).toBeUndefined()
+    expect(snapshots.get('main')?.diffContents[file.id]?.isStale).toBe(true)
     expect(mocks.getRuntimeGitDiff).toHaveBeenCalledOnce()
 
     await act(async () => root.render(<Probe activeFile={file} gitStatusEntries={status} />))
@@ -430,7 +464,7 @@ describe('useEditorPanelContentState visibility', () => {
     dispatchExternalChange(file)
     await vi.waitFor(() => expect(mocks.readRuntimeFileContent).toHaveBeenCalledTimes(2))
     expect(mocks.getRuntimeGitDiff).toHaveBeenCalledOnce()
-    expect(snapshots.get('main')?.diffContents[file.id]).toBeUndefined()
+    expect(snapshots.get('main')?.diffContents[file.id]?.isStale).toBe(true)
 
     await act(async () =>
       root.render(<Probe activeFile={file} editorViewMode={changesMode} isChangesMode />)
