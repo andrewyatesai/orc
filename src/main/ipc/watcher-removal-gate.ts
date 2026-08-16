@@ -1,7 +1,4 @@
-import {
-  isPathInsideOrEqual,
-  normalizeRuntimePathForComparison
-} from '../../shared/cross-platform-path'
+import { isPathInsideOrEqual, normalizeRuntimePathForComparison } from '../../shared/cross-platform-path-resolution'
 import {
   TERMINAL_REMOVAL_IN_PROGRESS_MESSAGE,
   WATCHER_REMOVAL_IN_PROGRESS_MESSAGE

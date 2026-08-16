@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { getExternalWorktreeParentPath } from '../../../../shared/external-worktree-visibility'
-import { normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path'
+import { normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path-resolution'
 import { translate } from '@/i18n/i18n'
 
 export type ImportedWorktreesVisibilityPlacement = 'repo-group' | 'pinned-fallback'

@@ -6,7 +6,7 @@ import type {
   EventProps
 } from '../../../../shared/telemetry-events'
 import type { DetectedWorktreeListResult, Worktree } from '../../../../shared/types'
-import { relativePathInsideRoot } from '../../../../shared/cross-platform-path'
+import { relativePathInsideRoot } from '../../../../shared/cross-platform-path-resolution'
 import { markOnboardingProjectAdded } from '@/lib/onboarding-project-checklist'
 import { finalizeImportedRepoAfterSkip } from './add-repo-skip-finalization'
 

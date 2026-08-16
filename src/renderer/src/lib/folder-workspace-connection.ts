@@ -1,5 +1,5 @@
 import type { FolderWorkspace, ProjectGroup, Repo } from '../../../shared/types'
-import { isPathInsideOrEqual } from '../../../shared/cross-platform-path'
+import { isPathInsideOrEqual } from '../../../shared/cross-platform-path-resolution'
 import { getProjectGroupSubtreeIds } from './git-wasm/project-groups'
 
 export type FolderWorkspaceConnectionState = {

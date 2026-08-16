@@ -7,11 +7,7 @@ import {
   normalizeExecutionHostId,
   type ExecutionHostId
 } from '../../../../shared/execution-host'
-import {
-  createNormalizedPathInsideOrEqualMatcher,
-  isRuntimePathAbsolute,
-  normalizeRuntimePathForComparison
-} from '../../../../shared/cross-platform-path'
+import { createNormalizedPathInsideOrEqualMatcher, isRuntimePathAbsolute, normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path-resolution'
 import type { AiVaultSession } from '../../../../shared/ai-vault-types'
 import type { Repo, Worktree } from '../../../../shared/types'
 import { aiVaultWorktreeCompactPath } from './ai-vault-session-worktree-affordances'

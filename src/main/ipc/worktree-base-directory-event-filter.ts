@@ -1,8 +1,4 @@
-import {
-  normalizeRuntimePathForComparison,
-  relativePathInsideRoot
-} from '../../shared/cross-platform-path'
-
+import { normalizeRuntimePathForComparison, relativePathInsideRoot } from '../../shared/cross-platform-path-resolution'
 type WorktreeBaseWatcherEvent = {
   type: 'create' | 'update' | 'delete'
   path: string

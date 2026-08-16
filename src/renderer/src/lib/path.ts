@@ -1,5 +1,4 @@
-import { relativePathInsideRoot } from '../../../shared/cross-platform-path'
-
+import { relativePathInsideRoot } from '../../../shared/cross-platform-path-resolution'
 function stripTrailingSeparators(path: string): string {
   return path.replace(/[\\/]+$/, '')
 }

@@ -203,7 +203,7 @@ import { resolveHostCodexSessionSourceHome } from './codex/codex-session-source-
 import type { CodexSessionResumePreparation } from './codex/codex-session-resume-home'
 import { prepareCodexSessionResume } from './codex/codex-session-resume-preparation'
 import { getOrcaManagedCodexHomePath, getSystemCodexHomePath } from './codex/codex-home-paths'
-import { normalizeRuntimePathForComparison } from '../shared/cross-platform-path'
+import { normalizeRuntimePathForComparison } from '../shared/cross-platform-path-resolution'
 import type { AgentProviderSessionMetadata } from '../shared/agent-session-resume'
 import { getDefaultWslDistro } from './wsl'
 import { collectWorktreeTrashSweepRoots, sweepStaleWorktreeTrash } from './worktree-trash'

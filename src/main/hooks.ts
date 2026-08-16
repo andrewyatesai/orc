@@ -3,7 +3,7 @@ import { readFileSync, existsSync, mkdirSync, writeFileSync, chmodSync, rmSync }
 import { dirname, join } from 'node:path'
 import { exec, execFile } from 'node:child_process'
 import { getDefaultRepoHookSettings } from '../shared/constants'
-import { getRuntimePathBasename } from '../shared/cross-platform-path'
+import { getRuntimePathBasename } from '../shared/cross-platform-path-resolution'
 import { resolveHookCommandSourcePolicy } from './rust-hook-command-source-policy'
 import { shouldWaitForSetupBeforeAgentStartup } from '../shared/setup-agent-startup-policy'
 import { TERMINAL_GIT_CREDENTIAL_GUARD_POLICY_ENV } from '../shared/terminal-git-credential-guard'

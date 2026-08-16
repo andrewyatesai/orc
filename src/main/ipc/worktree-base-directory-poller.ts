@@ -1,6 +1,6 @@
 import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { normalizeRuntimePathForComparison } from '../../shared/cross-platform-path'
+import { normalizeRuntimePathForComparison } from '../../shared/cross-platform-path-resolution'
 import { isMainWindowVisible, onMainWindowBecameVisible } from '../window/main-window-visibility'
 import type {
   WorktreeBaseRepoWatchConfig,

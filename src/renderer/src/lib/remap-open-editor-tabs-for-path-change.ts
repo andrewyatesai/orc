@@ -9,12 +9,8 @@ import {
   type OpenFilePathRekey,
   type RekeyOpenFilesResult
 } from '@/store/slices/editor'
-import {
-  isPathInsideOrEqual,
-  isWindowsAbsolutePathLike,
-  normalizeRuntimePathSeparators,
-  relativePathInsideRoot
-} from '../../../shared/cross-platform-path'
+import { isWindowsAbsolutePathLike } from '../../../shared/cross-platform-path'
+import { isPathInsideOrEqual, normalizeRuntimePathSeparators, relativePathInsideRoot } from '../../../shared/cross-platform-path-resolution'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../shared/constants'
 
 // Re-export the shared, flavor-aware containment check: move selection must fold

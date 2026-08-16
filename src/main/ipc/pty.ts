@@ -18,7 +18,7 @@ import type { Store } from '../persistence'
 import type { GlobalSettings, TuiAgent } from '../../shared/types'
 import { FLEET_GRANT_ENV_VAR, stripFleetGrantEnv } from '../../shared/fleet-grant'
 import { toSshExecutionHostId } from '../../shared/execution-host'
-import { normalizeRuntimePathForComparison } from '../../shared/cross-platform-path'
+import { normalizeRuntimePathForComparison } from '../../shared/cross-platform-path-resolution'
 import {
   normalizeDesktopTerminalScrollbackRows,
   terminalOutputBacklogCapChars

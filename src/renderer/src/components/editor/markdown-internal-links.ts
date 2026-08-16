@@ -3,11 +3,8 @@ import {
   filesystemPathToFileUri,
   fileUriToFilesystemPath
 } from '../../../../shared/file-uri-path'
-import {
-  isWindowsAbsolutePathLike,
-  relativePathInsideRoot
-} from '../../../../shared/cross-platform-path'
-
+import { isWindowsAbsolutePathLike } from '../../../../shared/cross-platform-path'
+import { relativePathInsideRoot } from '../../../../shared/cross-platform-path-resolution'
 // Pure classifier for markdown link targets. Called by the link-activation
 // dispatcher (activateMarkdownLink slice action) from three call sites —
 // MarkdownPreview, RichMarkdownEditor Cmd-click, RichMarkdownLinkBubble open —

@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 import { app } from 'electron'
 
-import { getRuntimePathBasename } from '../../shared/cross-platform-path'
+import { getRuntimePathBasename } from '../../shared/cross-platform-path-resolution'
 import { requireSshFilesystemProvider } from '../providers/ssh-filesystem-dispatch'
 import {
   writeFileToClipboard,

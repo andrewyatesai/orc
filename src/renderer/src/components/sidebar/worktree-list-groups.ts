@@ -43,10 +43,8 @@ import {
   type ExecutionHostId
 } from '../../../../shared/execution-host'
 import { parseWslUncPath } from '../../../../shared/wsl-unc-paths'
-import {
-  isWindowsAbsolutePathLike,
-  normalizeRuntimePathForComparison
-} from '../../../../shared/cross-platform-path'
+import { isWindowsAbsolutePathLike } from '../../../../shared/cross-platform-path'
+import { normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path-resolution'
 import {
   getCyclicProjectedWorktreeLineageIds,
   getLineageRenderInfo

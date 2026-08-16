@@ -9,7 +9,7 @@ import {
 import type { RecentlyClosedTabPosition } from './recently-closed-tabs'
 import { joinPath } from '@/lib/path'
 import { toast } from 'sonner'
-import { isPathInsideOrEqual } from '../../../../shared/cross-platform-path'
+import { isPathInsideOrEqual } from '../../../../shared/cross-platform-path-resolution'
 import { resolveMarkdownLinkTarget } from '@/components/editor/markdown-internal-links'
 import {
   buildCheckRunDetailsTabId,

@@ -7,7 +7,7 @@ import {
   getWorkspaceSourceProvider
 } from '../../../../shared/new-workspace/workspace-source'
 import { getWorkspaceSourceName } from '@/lib/git-wasm/workspace-name'
-import { isPathInsideOrEqual } from '../../../../shared/cross-platform-path'
+import { isPathInsideOrEqual } from '../../../../shared/cross-platform-path-resolution'
 import {
   getRepoExecutionHostId,
   LOCAL_EXECUTION_HOST_ID,

@@ -4,7 +4,7 @@ import type {
 } from './relay-watcher-teardown-tracker'
 import type { RelayDispatcher } from './dispatcher'
 import { emitRelayWatcherTerminalFailure } from './relay-watcher-terminal-notifier'
-import { isPathInsideOrEqual } from '../shared/cross-platform-path'
+import { isPathInsideOrEqual } from '../shared/cross-platform-path-resolution'
 import type { RelayWatcherPendingSetup } from './relay-watcher-setup-tracking'
 
 export class RelayWatcherRemovalFence {

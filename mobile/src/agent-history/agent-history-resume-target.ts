@@ -6,7 +6,7 @@ import {
   type ExecutionHostId
 } from '../../../src/shared/execution-host'
 import type { AiVaultSession } from '../../../src/shared/ai-vault-types'
-import { isPathInsideOrEqual } from '../../../src/shared/cross-platform-path'
+import { isPathInsideOrEqual } from '../../../src/shared/cross-platform-path-resolution'
 import type { Worktree } from '../worktree/workspace-list-types'
 import {
   canResumeInMobileSessionWorktree,

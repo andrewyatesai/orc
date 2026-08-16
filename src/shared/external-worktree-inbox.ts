@@ -1,4 +1,4 @@
-import { normalizeRuntimePathForComparison } from './cross-platform-path'
+import { normalizeRuntimePathForComparison } from './cross-platform-path-resolution'
 import type { DetectedWorktree, DetectedWorktreeListResult, Repo } from './types'
 import {
   effectiveExternalWorktreeVisibility,

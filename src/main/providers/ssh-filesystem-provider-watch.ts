@@ -1,7 +1,7 @@
 import type { SshChannelMultiplexer } from '../ssh/ssh-channel-multiplexer'
 import type { FsChangeEvent } from '../../shared/types'
 import { isMethodNotFoundError } from '../ssh/ssh-filesystem-stream-reader'
-import { normalizeRuntimePathForComparison } from '../../shared/cross-platform-path'
+import { normalizeRuntimePathForComparison } from '../../shared/cross-platform-path-resolution'
 import { PromiseSettlementWaiters } from '../../shared/promise-settlement-waiters'
 
 let nextRemoteWatchId = 1

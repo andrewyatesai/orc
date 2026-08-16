@@ -1,4 +1,4 @@
-import { isPathInsideOrEqual, isRuntimePathAbsolute } from '../../../src/shared/cross-platform-path'
+import { isPathInsideOrEqual, isRuntimePathAbsolute } from '../../../src/shared/cross-platform-path-resolution'
 import { parseWslUncPath } from '../../../src/shared/wsl-unc-paths'
 import { splitWorktreeIdForFilesystem } from '../../../src/shared/worktree-id'
 import type { AiVaultSession } from '../../../src/shared/ai-vault-types'

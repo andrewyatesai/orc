@@ -1,9 +1,6 @@
 import { appendFileSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
-import {
-  isPathInsideOrEqual,
-  normalizeRuntimePathForComparison
-} from '../../shared/cross-platform-path'
+import { isPathInsideOrEqual, normalizeRuntimePathForComparison } from '../../shared/cross-platform-path-resolution'
 import { writeFileAtomically } from '../codex-accounts/fs-utils'
 
 // State files for the session index heal: which backfilled rollouts exist

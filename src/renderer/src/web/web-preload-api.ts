@@ -57,7 +57,7 @@ import {
 } from '../../../shared/orca-profiles'
 import { EMPTY_PTY_MAIN_DELIVERY_DIAGNOSTICS } from '../../../shared/pty-delivery-diagnostics'
 import { createE2EConfig } from '../../../shared/e2e-config'
-import { relativePathInsideRoot } from '../../../shared/cross-platform-path'
+import { relativePathInsideRoot } from '../../../shared/cross-platform-path-resolution'
 import {
   applyPRBotAuthorOverride,
   normalizePRBotAuthorOverrides

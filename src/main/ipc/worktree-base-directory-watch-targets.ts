@@ -6,13 +6,8 @@ import type { FileStat, IFilesystemProvider } from '../providers/types'
 import type { GlobalSettings, Repo } from '../../shared/types'
 import { getRepoExecutionHostId, LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
 import { isFolderRepo } from '../../shared/repo-kind'
-import {
-  isRuntimePathAbsolute,
-  isWindowsAbsolutePathLike,
-  getRuntimePathBasename,
-  normalizeRuntimePathForComparison,
-  resolveRuntimePath
-} from '../../shared/cross-platform-path'
+import { isWindowsAbsolutePathLike } from '../../shared/cross-platform-path'
+import { isRuntimePathAbsolute, getRuntimePathBasename, normalizeRuntimePathForComparison, resolveRuntimePath } from '../../shared/cross-platform-path-resolution'
 import { isWslUncPath } from '../../shared/wsl-unc-paths'
 import { getSshFilesystemProvider } from '../providers/ssh-filesystem-dispatch'
 import {

@@ -13,7 +13,7 @@ import {
   normalizeExecutionHostId,
   type ExecutionHostId
 } from '../../shared/execution-host'
-import { isPathInsideOrEqual } from '../../shared/cross-platform-path'
+import { isPathInsideOrEqual } from '../../shared/cross-platform-path-resolution'
 import { AI_VAULT_DELETE_SOURCES } from './session-delete-agent-roots'
 import { subagentTranscriptsDirFor } from './session-scanner-subagent-transcripts'
 import type { AiVaultScanOptions } from './session-scanner-types'

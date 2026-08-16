@@ -3,10 +3,7 @@ import { useAppStore } from '@/store'
 import { shouldPollActiveGitStatus } from '@/lib/passive-macos-app-data-access'
 import { isWindowVisible } from '@/lib/window-visibility-interval'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
-import {
-  normalizeRuntimePathForComparison,
-  relativePathInsideRoot
-} from '../../../../shared/cross-platform-path'
+import { normalizeRuntimePathForComparison, relativePathInsideRoot } from '../../../../shared/cross-platform-path-resolution'
 import type {
   ActiveRightSidebarTab,
   FsChangedPayload,

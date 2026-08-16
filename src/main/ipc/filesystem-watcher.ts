@@ -4,10 +4,8 @@ import * as path from 'node:path'
 import { stat } from 'node:fs/promises'
 import type { Event as WatcherEvent } from '@parcel/watcher'
 import type { FsChangeEvent, FsChangedPayload } from '../../shared/types'
-import {
-  isWindowsAbsolutePathLike,
-  normalizeRuntimePathForComparison
-} from '../../shared/cross-platform-path'
+import { isWindowsAbsolutePathLike } from '../../shared/cross-platform-path'
+import { normalizeRuntimePathForComparison } from '../../shared/cross-platform-path-resolution'
 import { isWslPath } from '../wsl'
 import { createWslWatcher } from './filesystem-watcher-wsl'
 import type { WatchedRoot } from './filesystem-watcher-wsl'

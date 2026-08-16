@@ -1,7 +1,4 @@
-import {
-  isRuntimePathAbsolute,
-  normalizeRuntimePathForComparison
-} from '../../../../shared/cross-platform-path'
+import { isRuntimePathAbsolute, normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path-resolution'
 import type { ProjectHostSetupProjection } from '../../../../shared/project-host-setup-projection'
 import type { Worktree } from '../../../../shared/types'
 import { splitWorktreeIdForFilesystem } from '../../../../shared/worktree-id'

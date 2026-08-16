@@ -1,4 +1,4 @@
-import { isPathInsideOrEqual } from './cross-platform-path'
+import { isPathInsideOrEqual } from './cross-platform-path-resolution'
 import type { AiVaultListArgs, AiVaultListResult } from './ai-vault-types'
 
 export const DEFAULT_AI_VAULT_SCAN_LIMIT = 1000

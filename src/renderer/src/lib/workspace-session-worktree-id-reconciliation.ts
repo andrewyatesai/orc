@@ -1,4 +1,4 @@
-import { normalizeRuntimePathForComparison } from '../../../shared/cross-platform-path'
+import { normalizeRuntimePathForComparison } from '../../../shared/cross-platform-path-resolution'
 import { getRepoExecutionHostId, type ExecutionHostId } from '../../../shared/execution-host'
 import type { Repo, Worktree, WorkspaceSessionState } from '../../../shared/types'
 import { splitWorktreeId } from '../../../shared/worktree-id'

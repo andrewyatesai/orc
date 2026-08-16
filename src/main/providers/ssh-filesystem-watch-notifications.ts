@@ -1,8 +1,5 @@
 import type { FsChangeEvent } from '../../shared/types'
-import {
-  createNormalizedPathInsideOrEqualMatcher,
-  normalizeRuntimePathForComparison
-} from '../../shared/cross-platform-path'
+import { createNormalizedPathInsideOrEqualMatcher, normalizeRuntimePathForComparison } from '../../shared/cross-platform-path-resolution'
 import {
   failSshFilesystemWatchRegistration,
   type WatchRegistration

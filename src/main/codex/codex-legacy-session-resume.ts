@@ -8,7 +8,7 @@ import type {
 } from '../../shared/ai-vault-resume-preparation'
 import { isPerAccountManagedCodexHome } from '../../shared/ai-vault-resume-preparation'
 import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
-import { normalizeRuntimePathForComparison } from '../../shared/cross-platform-path'
+import { normalizeRuntimePathForComparison } from '../../shared/cross-platform-path-resolution'
 import {
   appendCodexSessionHealAuditRecord,
   createCodexSessionBackfillAuditWriter

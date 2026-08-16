@@ -3,7 +3,7 @@ import type {
   AiVaultScanIssue,
   AiVaultSession
 } from '../../shared/ai-vault-types'
-import { isPathInsideOrEqual } from '../../shared/cross-platform-path'
+import { isPathInsideOrEqual } from '../../shared/cross-platform-path-resolution'
 import { aiVaultScanLimit } from '../../shared/ai-vault-session-depth'
 import type { ExecutionHostId } from '../../shared/execution-host'
 import type { IFilesystemProvider } from '../providers/types'

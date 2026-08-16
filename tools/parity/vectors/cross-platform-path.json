@@ -379,6 +379,163 @@
         "candidatePath": "/repo/\ud83d\ude80app/src/\ud83c\udf89file.ts"
       },
       "expected": "src/\ud83c\udf89file.ts"
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "the root itself is inside-or-equal",
+      "input": { "rootPath": "/repo/app", "normalizedCandidate": "/repo/app" },
+      "expected": true
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "a child is inside",
+      "input": { "rootPath": "/repo/app", "normalizedCandidate": "/repo/app/src/index.ts" },
+      "expected": true
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "a sibling sharing the root's name prefix is outside \u2014 the boundary is a separator",
+      "input": { "rootPath": "/repo/app", "normalizedCandidate": "/repo/application/src/index.ts" },
+      "expected": false
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "a trailing slash on the root is trimmed before the boundary is built",
+      "input": { "rootPath": "/repo/app/", "normalizedCandidate": "/repo/app" },
+      "expected": true
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "the posix root is its own boundary (a '//' boundary would match nothing)",
+      "input": { "rootPath": "/", "normalizedCandidate": "/etc" },
+      "expected": true
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "the posix root equals itself",
+      "input": { "rootPath": "/", "normalizedCandidate": "/" },
+      "expected": true
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "a bare drive root is its own boundary",
+      "input": { "rootPath": "C:\\", "normalizedCandidate": "c:/repo" },
+      "expected": true
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "the root fold lowercases a drive path and trims its trailing separator",
+      "input": { "rootPath": "C:\\Repo\\", "normalizedCandidate": "c:/repo/src/index.ts" },
+      "expected": true
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "a sibling drive is outside",
+      "input": { "rootPath": "C:\\Repo", "normalizedCandidate": "d:/repo/src" },
+      "expected": false
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "a UNC root folds separators and case",
+      "input": {
+        "rootPath": "\\\\Server\\Share\\Repo\\",
+        "normalizedCandidate": "//server/share/repo/src"
+      },
+      "expected": true
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "a UNC sibling sharing the name prefix is outside",
+      "input": {
+        "rootPath": "\\\\Server\\Share\\Repo",
+        "normalizedCandidate": "//server/share/repo2"
+      },
+      "expected": false
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "both WSL UNC aliases and the distro name fold to one root",
+      "input": {
+        "rootPath": "\\\\wsl$\\Ubuntu\\home\\Alice\\repo",
+        "normalizedCandidate": "//wsl/ubuntu/home/Alice/repo/src"
+      },
+      "expected": true
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "the WSL linux tail stays case-sensitive",
+      "input": {
+        "rootPath": "\\\\wsl$\\Ubuntu\\home\\Alice\\repo",
+        "normalizedCandidate": "//wsl/ubuntu/home/alice/repo/src"
+      },
+      "expected": false
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "MISUSE the contract names: a RAW candidate must not match \u2014 the fold is not idempotent for WSL UNC",
+      "input": {
+        "rootPath": "\\\\wsl$\\Ubuntu\\repo",
+        "normalizedCandidate": "\\\\wsl.localhost\\ubuntu\\repo\\src"
+      },
+      "expected": false
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "#10832: an NFD root matches an NFC-folded candidate",
+      "input": {
+        "rootPath": "/userhome/ada/\u1111\u1173\u1105\u1169\u110c\u1166\u11a8\u1110\u1173",
+        "normalizedCandidate": "/userhome/ada/\ud504\ub85c\uc81d\ud2b8/src"
+      },
+      "expected": true
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "a literal backslash in a posix path is a filename character, not a separator",
+      "input": { "rootPath": "/srv/team\\repo", "normalizedCandidate": "/srv/team/repo/file.ts" },
+      "expected": false
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "the same literal backslash matches itself",
+      "input": { "rootPath": "/srv/team\\repo", "normalizedCandidate": "/srv/team\\repo/file.ts" },
+      "expected": true
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "U+212A folds to K under NFC, which makes the root a drive path whose backslash IS a separator",
+      "input": { "rootPath": "\u212a:/a\\b", "normalizedCandidate": "k:/a/b/c" },
+      "expected": true
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "astral characters: the boundary lands on a separator, never mid-surrogate-pair",
+      "input": {
+        "rootPath": "/repo/\ud83d\ude80app",
+        "normalizedCandidate": "/repo/\ud83d\ude80app/src/\ud83c\udf89file.ts"
+      },
+      "expected": true
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "the degenerate empty root equals the empty candidate \u2014 why an ABSENT key is refused, not defaulted",
+      "input": { "rootPath": "", "normalizedCandidate": "" },
+      "expected": true
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "a missing candidate is refused, not defaulted to '' (which would answer `true`)",
+      "input": { "rootPath": "/repo/app" },
+      "expected": {
+        "__parity_error__": "createNormalizedPathInsideOrEqualMatcher expects { rootPath: string, normalizedCandidate: string }"
+      }
+    },
+    {
+      "function": "createNormalizedPathInsideOrEqualMatcher",
+      "note": "a non-string candidate is refused with the same text on both legs",
+      "input": { "rootPath": "/repo/app", "normalizedCandidate": 7 },
+      "expected": {
+        "__parity_error__": "createNormalizedPathInsideOrEqualMatcher expects { rootPath: string, normalizedCandidate: string }"
+      }
     }
   ]
 }

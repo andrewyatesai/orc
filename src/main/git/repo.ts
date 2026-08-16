@@ -4,7 +4,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { gitExecFileSync, gitExecFileAsync } from './runner'
 import type { BaseRefSearchResult } from '../../shared/types'
 import { parseGitRevListAheadBehindCounts } from '../../shared/git-rev-list-output'
-import { normalizeRuntimePathSeparators } from '../../shared/cross-platform-path'
+import { normalizeRuntimePathSeparators } from '../../shared/cross-platform-path-resolution'
 import { isForEachRefExcludeUnsupportedError } from '../../shared/git-ref-command-capabilities'
 import { parseWslUncPath } from '../../shared/wsl-unc-paths'
 import { toWindowsWslPath } from '../wsl'

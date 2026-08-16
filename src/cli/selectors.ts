@@ -4,7 +4,7 @@ import type {
   RuntimeWorktreeListResult,
   RuntimeWorktreeRecord
 } from '../shared/runtime-types'
-import { isPathInsideOrEqual } from '../shared/cross-platform-path'
+import { isPathInsideOrEqual } from '../shared/cross-platform-path-resolution'
 import type { RuntimeClient } from './runtime-client'
 import { RuntimeClientError } from './runtime/types'
 import { getOptionalStringFlag, getRequiredStringFlag } from './flags'

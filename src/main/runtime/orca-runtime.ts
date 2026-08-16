@@ -325,11 +325,8 @@ import {
   applyAgentStatusHooksEnabled,
   isAgentStatusHooksEnabled
 } from '../agent-hooks/managed-agent-hook-controls'
-import {
-  isWindowsAbsolutePathLike,
-  isPathInsideOrEqual,
-  normalizeRuntimePathForComparison
-} from '../../shared/cross-platform-path'
+import { isWindowsAbsolutePathLike } from '../../shared/cross-platform-path'
+import { isPathInsideOrEqual, normalizeRuntimePathForComparison } from '../../shared/cross-platform-path-resolution'
 import { resolveTerminalStartupCwd } from '../../shared/terminal-startup-cwd'
 import { isWslUncPath, parseWslUncPath } from '../../shared/wsl-unc-paths'
 import {

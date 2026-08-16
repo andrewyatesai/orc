@@ -8,10 +8,7 @@ import { showDeleteWorktreeFailureToast } from './delete-worktree-failure-toast'
 import { getWorkspaceDeleteLineage } from './workspace-delete-lineage'
 import { resolveSshWorkspaceForget } from './ssh-workspace-forget-resolution'
 import { isPairedWebClientWindow } from '@/lib/desktop-window-chrome'
-import {
-  isPathInsideOrEqual,
-  normalizeRuntimePathForComparison
-} from '../../../../shared/cross-platform-path'
+import { isPathInsideOrEqual, normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path-resolution'
 import type { Worktree } from '../../../../shared/types'
 import { translate } from '@/i18n/i18n'
 

@@ -2,11 +2,7 @@
 // It lives in /shared (not renderer) so the mobile package can reuse it —
 // Metro only watches mobile/ + repo-root src/shared, never src/renderer.
 // INVARIANT: /shared is a leaf — this module must NOT import from src/renderer.
-import {
-  isPathInsideOrEqual,
-  normalizeRuntimePathForComparison,
-  normalizeRuntimePathSeparators
-} from './cross-platform-path'
+import { isPathInsideOrEqual, normalizeRuntimePathForComparison, normalizeRuntimePathSeparators } from './cross-platform-path-resolution'
 import { isClipboardTextByteLengthOverLimit } from './clipboard-text'
 import { parseWslUncPath } from './wsl-unc-paths'
 import type {

@@ -1,5 +1,5 @@
 import type { GitWorktreeInfo } from '../../shared/types'
-import { normalizeRuntimePathForComparison } from '../../shared/cross-platform-path'
+import { normalizeRuntimePathForComparison } from '../../shared/cross-platform-path-resolution'
 import { listWorktreeGraph } from '../git/worktree'
 
 type WorktreeLister = {

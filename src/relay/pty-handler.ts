@@ -24,10 +24,7 @@ import { DEFAULT_SSH_RELAY_GRACE_PERIOD_SECONDS } from '../shared/ssh-types'
 import { shouldUseShellReadyStartupDelivery } from '../shared/codex-startup-delivery'
 import { buildStartupCommandSubmission } from '../shared/startup-command-submission'
 import { resolveSetupAgentSequenceLaunchCommand } from '../shared/setup-agent-sequencing'
-import {
-  isPathInsideOrEqual,
-  normalizeRuntimePathForComparison
-} from '../shared/cross-platform-path'
+import { isPathInsideOrEqual, normalizeRuntimePathForComparison } from '../shared/cross-platform-path-resolution'
 import { splitWorktreeId } from '../shared/worktree-id'
 import { PhysicalExitTracker } from '../shared/physical-exit-tracker'
 import {

@@ -2,8 +2,7 @@ import type { Dispatch, SetStateAction } from 'react'
 import type { DirCache } from './file-explorer-types'
 import { normalizeAbsolutePath, isPathEqualOrDescendant } from './file-explorer-paths'
 import { useAppStore } from '@/store'
-import { normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path'
-
+import { normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path-resolution'
 // ── dirCache subtree purge ───────────────────────────────────────────
 // Why: dirCache is component-local useState in useFileExplorerTree, not
 // Zustand. This helper accepts the setter so it can be called from the

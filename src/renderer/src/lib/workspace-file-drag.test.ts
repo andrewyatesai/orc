@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import * as crossPlatformPath from '../../../shared/cross-platform-path'
+import * as crossPlatformPath from '../../../shared/cross-platform-path-resolution'
 import {
   WORKSPACE_FILE_PATHS_MIME,
   WORKSPACE_FILE_PATH_MIME,
@@ -8,7 +8,7 @@ import {
   readWorkspaceFileDragPaths
 } from './workspace-file-drag'
 
-vi.mock('../../../shared/cross-platform-path', async (importOriginal) => {
+vi.mock('../../../shared/cross-platform-path-resolution', async (importOriginal) => {
   const actual = await importOriginal<typeof crossPlatformPath>()
   return {
     ...actual,

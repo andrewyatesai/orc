@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
-import { normalizeRuntimePathForComparison } from '../../shared/cross-platform-path'
+import { normalizeRuntimePathForComparison } from '../../shared/cross-platform-path-resolution'
 import { listCodexSessionRolloutFilesIncrementally } from './codex-session-file-listing'
 import type { CodexSessionBridgeIncrementalOptions } from './codex-session-file-listing'
 import { linkCodexSessionFile } from './codex-session-link'

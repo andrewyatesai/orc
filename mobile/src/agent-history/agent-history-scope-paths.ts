@@ -1,7 +1,4 @@
-import {
-  isRuntimePathAbsolute,
-  normalizeRuntimePathForComparison
-} from '../../../src/shared/cross-platform-path'
+import { isRuntimePathAbsolute, normalizeRuntimePathForComparison } from '../../../src/shared/cross-platform-path-resolution'
 import type { Worktree } from '../worktree/workspace-list-types'
 import {
   AI_VAULT_SCOPE_PATHS_MAX_COUNT,

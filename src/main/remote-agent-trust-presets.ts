@@ -3,11 +3,8 @@ import { upsertProjectTrustLevelInContent } from './codex/config-toml-trust'
 import { getActiveMultiplexer } from './ipc/ssh'
 import { getSshFilesystemProvider } from './providers/ssh-filesystem-dispatch'
 import type { IFilesystemProvider } from './providers/types'
-import {
-  isWindowsAbsolutePathLike,
-  normalizeRuntimePathSeparators
-} from '../shared/cross-platform-path'
-
+import { isWindowsAbsolutePathLike } from '../shared/cross-platform-path'
+import { normalizeRuntimePathSeparators } from '../shared/cross-platform-path-resolution'
 export async function markRemoteAgentWorkspaceTrusted(args: {
   preset: AgentTrustPreset
   connectionId: string

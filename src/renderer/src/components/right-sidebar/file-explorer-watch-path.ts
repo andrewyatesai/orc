@@ -1,9 +1,5 @@
 import { joinPath, dirname, normalizeRelativePath } from '@/lib/path'
-import {
-  normalizeRuntimePathForComparison,
-  relativePathInsideRoot
-} from '../../../../shared/cross-platform-path'
-
+import { normalizeRuntimePathForComparison, relativePathInsideRoot } from '../../../../shared/cross-platform-path-resolution'
 export function normalizeExplorerAbsolutePath(path: string): string {
   return path === '/' || /^[A-Za-z]:[\\/]$/.test(path) ? path : path.replace(/[\\/]+$/, '')
 }

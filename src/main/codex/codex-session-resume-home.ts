@@ -1,10 +1,6 @@
 import { existsSync, lstatSync } from 'node:fs'
 import { join } from 'node:path'
-import {
-  getRuntimePathBasename,
-  normalizeRuntimePathForComparison,
-  relativePathInsideRoot
-} from '../../shared/cross-platform-path'
+import { getRuntimePathBasename, normalizeRuntimePathForComparison, relativePathInsideRoot } from '../../shared/cross-platform-path-resolution'
 import { listCodexSessionRolloutFilesIncrementally } from './codex-session-file-listing'
 
 // Why: only Codex's dated rollout layout may establish account-home provenance; nested/misplaced JSONL must not select credentials.

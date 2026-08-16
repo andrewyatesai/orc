@@ -1,11 +1,5 @@
-import {
-  isRuntimePathAbsolute,
-  isWindowsAbsolutePathLike,
-  normalizeRuntimePathForComparison,
-  normalizeRuntimePathSeparators,
-  relativePathInsideRoot,
-  resolveRuntimePath
-} from './cross-platform-path'
+import { isWindowsAbsolutePathLike } from './cross-platform-path'
+import { isRuntimePathAbsolute, normalizeRuntimePathForComparison, normalizeRuntimePathSeparators, relativePathInsideRoot, resolveRuntimePath } from './cross-platform-path-resolution'
 import { parseWslUncPath } from './wsl-unc-paths'
 import {
   isAgentScratchWorktreePath,

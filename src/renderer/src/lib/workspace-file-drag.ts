@@ -1,4 +1,4 @@
-import { normalizeRuntimePathForComparison } from '../../../shared/cross-platform-path'
+import { normalizeRuntimePathForComparison } from '../../../shared/cross-platform-path-resolution'
 import {
   NATIVE_FILE_DROP_MAX_PATH_BYTES,
   NATIVE_FILE_DROP_MAX_PATHS,

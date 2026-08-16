@@ -5,7 +5,7 @@ import { realpath } from 'node:fs/promises'
 import type { Store } from '../persistence'
 import { isRepoRoot, listRepoWorktrees } from '../repo-worktrees'
 import { computeWorkspaceRoot, getWorktreePathSettings } from './worktree-logic'
-import { isPathInsideOrEqual } from '../../shared/cross-platform-path'
+import { isPathInsideOrEqual } from '../../shared/cross-platform-path-resolution'
 import { getProjectGroupSubtreeIds } from '../rust-project-groups'
 import type { FolderWorkspace, ProjectGroup, Repo } from '../../shared/types'
 

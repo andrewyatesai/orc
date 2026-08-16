@@ -1,11 +1,8 @@
 import type { StateCreator } from 'zustand'
 import type { AppState } from '../types'
 import { getExplicitRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
-import {
-  isWindowsAbsolutePathLike,
-  relativePathInsideRoot
-} from '../../../../shared/cross-platform-path'
-
+import { isWindowsAbsolutePathLike } from '../../../../shared/cross-platform-path'
+import { relativePathInsideRoot } from '../../../../shared/cross-platform-path-resolution'
 export type RecentlyClosedTabPosition = {
   tabBarIndex?: number
   groupId?: string

@@ -1,10 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react'
 import type { FsChangedPayload } from '../../../../shared/types'
 import type { DirCache } from './file-explorer-types'
-import {
-  isPathInsideOrEqual,
-  normalizeRuntimePathForComparison
-} from '../../../../shared/cross-platform-path'
+import { isPathInsideOrEqual, normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path-resolution'
 import {
   purgeDirCacheSubtrees,
   purgeExpandedDirsSubtrees,

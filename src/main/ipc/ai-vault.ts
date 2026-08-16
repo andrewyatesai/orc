@@ -10,7 +10,7 @@ import {
 import { scanRemoteAiVaultSessions } from '../ai-vault/remote-session-scanner'
 import { listClaudeSubagentSessions } from '../ai-vault/session-scanner-claude-subagents'
 import { claudeProjectsRootDirs } from '../ai-vault/session-scanner-source-discovery'
-import { isPathInsideOrEqual } from '../../shared/cross-platform-path'
+import { isPathInsideOrEqual } from '../../shared/cross-platform-path-resolution'
 import { aiVaultScanLimit } from '../../shared/ai-vault-session-depth'
 import {
   aiVaultScanIssueResult,

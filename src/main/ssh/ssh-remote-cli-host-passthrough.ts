@@ -16,11 +16,7 @@ import {
 } from './ssh-remote-cli-caller-scope'
 import { parseRemoteCliArgs } from './ssh-remote-cli-args'
 import { clampOrchestrationAskTimeoutMs } from '../../shared/orchestration-ask-timeout'
-import {
-  isPathInsideOrEqual,
-  normalizeRuntimePathForComparison,
-  resolveRuntimePath
-} from '../../shared/cross-platform-path'
+import { isPathInsideOrEqual, normalizeRuntimePathForComparison, resolveRuntimePath } from '../../shared/cross-platform-path-resolution'
 import { splitWorktreeIdForFilesystem } from '../../shared/worktree-id'
 import {
   parseRemoteCliCallerIdentity,

@@ -5,7 +5,7 @@ import { NestedRepoChecklist } from '@/components/repo/NestedRepoChecklist'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { translate } from '@/i18n/i18n'
 import type { NestedRepoScanResult } from '../../../../shared/types'
-import { getRuntimePathBasename } from '../../../../shared/cross-platform-path'
+import { getRuntimePathBasename } from '../../../../shared/cross-platform-path-resolution'
 import { NestedRepoScanLimitNotice } from '../repo/NestedRepoScanLimitNotice'
 
 type RepoStepNestedImportPanelProps = {

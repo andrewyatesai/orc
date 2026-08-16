@@ -1,5 +1,5 @@
 import { FLOATING_TERMINAL_WORKTREE_ID } from './constants'
-import { resolveRuntimePath } from './cross-platform-path'
+import { resolveRuntimePath } from './cross-platform-path-resolution'
 import { parseWorkspaceKey } from './workspace-scope'
 import { splitWorktreeIdForFilesystem } from './worktree-id'
 

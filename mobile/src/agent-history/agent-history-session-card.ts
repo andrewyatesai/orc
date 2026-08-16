@@ -1,4 +1,4 @@
-import { isPathInsideOrEqual } from '../../../src/shared/cross-platform-path'
+import { isPathInsideOrEqual } from '../../../src/shared/cross-platform-path-resolution'
 import { latestSessionConversationTurn } from '../../../src/shared/ai-vault-session-display'
 import { aiVaultAgentLabel } from '../../../src/shared/ai-vault-types'
 import type { AiVaultSession } from '../../../src/shared/ai-vault-types'

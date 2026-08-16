@@ -2,10 +2,8 @@ import { mkdir, open } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { FileEntryWithStats, SFTPWrapper } from 'ssh2'
 
-import {
-  isWindowsAbsolutePathLike,
-  normalizeRuntimePathSeparators
-} from '../../shared/cross-platform-path'
+import { isWindowsAbsolutePathLike } from '../../shared/cross-platform-path'
+import { normalizeRuntimePathSeparators } from '../../shared/cross-platform-path-resolution'
 import { sanitizeLocalDownloadFilename } from '../local-download-filename'
 import { fastGetViaSftp, readDirViaSftp, statViaSftp } from './ssh-filesystem-provider-sftp'
 

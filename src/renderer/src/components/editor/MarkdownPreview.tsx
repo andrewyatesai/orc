@@ -97,7 +97,7 @@ import { copyMarkdownReviewNotesForAgent } from '@/lib/markdown-review-note-copy
 import { NotesSendMenu, type NotesSendMenuScope } from './NotesSendMenu'
 import { findWorktreeById } from '@/store/slices/worktree-helpers'
 import { dirname } from '@/lib/path'
-import { relativePathInsideRoot } from '../../../../shared/cross-platform-path'
+import { relativePathInsideRoot } from '../../../../shared/cross-platform-path-resolution'
 import { translate } from '@/i18n/i18n'
 
 const EMPTY_MARKDOWN_DOCUMENTS: MarkdownDocument[] = []

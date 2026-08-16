@@ -1,6 +1,7 @@
 import { resolve, relative, isAbsolute, posix, sep, win32 } from 'node:path'
 import type { GlobalSettings, OrcaWorkspaceLayout, Repo } from '../../shared/types'
-import { isWindowsAbsolutePathLike, resolveRuntimePath } from '../../shared/cross-platform-path'
+import { isWindowsAbsolutePathLike } from '../../shared/cross-platform-path'
+import { resolveRuntimePath } from '../../shared/cross-platform-path-resolution'
 import { isWslUncPath } from '../../shared/wsl-unc-paths'
 import { splitWorktreeId } from '../../shared/worktree-id'
 import { getWslHome, parseWslPath } from '../wsl'

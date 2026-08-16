@@ -23,10 +23,8 @@ import {
 } from './runtime-rpc-client'
 import type { RuntimeRpcResponse } from '../../../shared/runtime-rpc-envelope'
 import { basename, joinPath, normalizeRelativePath } from '@/lib/path'
-import {
-  isWindowsAbsolutePathLike,
-  relativePathInsideRoot
-} from '../../../shared/cross-platform-path'
+import { isWindowsAbsolutePathLike } from '../../../shared/cross-platform-path'
+import { relativePathInsideRoot } from '../../../shared/cross-platform-path-resolution'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
 import {
   createEmptyRuntimeFileSearchResult,

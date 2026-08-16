@@ -17,7 +17,7 @@ import {
 } from './relay-watcher-teardown-tracker'
 import { emitRelayWatcherTerminalFailure } from './relay-watcher-terminal-notifier'
 import { assertRelayWatcherRootCapacity } from './relay-watcher-root-capacity'
-import { normalizeRuntimePathForComparison } from '../shared/cross-platform-path'
+import { normalizeRuntimePathForComparison } from '../shared/cross-platform-path-resolution'
 import {
   trackRelayWatcherSetup,
   type RelayWatcherPendingSetup

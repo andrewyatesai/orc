@@ -29,14 +29,8 @@ import type {
   SearchResult,
   Worktree
 } from '../../shared/types'
-import {
-  isPathInsideOrEqual,
-  isRuntimePathAbsolute,
-  isWindowsAbsolutePathLike,
-  normalizeRuntimePathForComparison,
-  relativePathInsideRoot,
-  resolveRuntimePath
-} from '../../shared/cross-platform-path'
+import { isWindowsAbsolutePathLike } from '../../shared/cross-platform-path'
+import { isPathInsideOrEqual, isRuntimePathAbsolute, normalizeRuntimePathForComparison, relativePathInsideRoot, resolveRuntimePath } from '../../shared/cross-platform-path-resolution'
 import { PhysicalExitTracker } from '../../shared/physical-exit-tracker'
 import { sortDirEntries } from '../../shared/file-name-sort'
 import type {

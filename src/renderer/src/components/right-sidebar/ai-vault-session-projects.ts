@@ -7,10 +7,7 @@ import {
 import type { ProjectHostSetupProjection } from '../../../../shared/project-host-setup-projection'
 import type { AiVaultSession } from '../../../../shared/ai-vault-types'
 import type { ProjectHostSetup, Repo, Worktree } from '../../../../shared/types'
-import {
-  createNormalizedPathInsideOrEqualMatcher,
-  normalizeRuntimePathForComparison
-} from '../../../../shared/cross-platform-path'
+import { createNormalizedPathInsideOrEqualMatcher, normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path-resolution'
 import {
   folderGroupKey,
   folderLabel,

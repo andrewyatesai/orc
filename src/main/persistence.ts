@@ -162,11 +162,8 @@ import {
   getRepoIdFromWorktreeId,
   getWorktreePathBasenameFromId
 } from '../shared/worktree-id'
-import {
-  isPathInsideOrEqual,
-  isWindowsAbsolutePathLike,
-  normalizeRuntimePathForComparison
-} from '../shared/cross-platform-path'
+import { isWindowsAbsolutePathLike } from '../shared/cross-platform-path'
+import { isPathInsideOrEqual, normalizeRuntimePathForComparison } from '../shared/cross-platform-path-resolution'
 import { normalizeTerminalQuickCommands } from './rust-terminal-quick-commands'
 import { normalizeTaskProviderSettings } from './rust-task-providers'
 import { normalizeAutoRenameBranchFromWorkDefaultOn } from '../shared/auto-rename-branch-from-work-settings'

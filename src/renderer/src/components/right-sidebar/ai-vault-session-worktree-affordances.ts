@@ -1,4 +1,4 @@
-import { normalizeRuntimePathSeparators } from '../../../../shared/cross-platform-path'
+import { normalizeRuntimePathSeparators } from '../../../../shared/cross-platform-path-resolution'
 import type { AiVaultScope } from '../../../../shared/ai-vault-types'
 import { translate } from '@/i18n/i18n'
 import type {

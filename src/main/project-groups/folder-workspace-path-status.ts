@@ -1,5 +1,5 @@
 import { stat as statLocalPath } from 'node:fs/promises'
-import { isPathInsideOrEqual } from '../../shared/cross-platform-path'
+import { isPathInsideOrEqual } from '../../shared/cross-platform-path-resolution'
 import type {
   FolderWorkspacePathStatus,
   FolderWorkspacePathStatusRequest

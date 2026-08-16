@@ -1,11 +1,26 @@
-import { describe, expect, it } from 'vitest'
+// Moved here from cross-platform-path.test.ts when the module was cut over: the
+// behaviour these cases describe is now the Rust core's, reached through the
+// shim. config/vitest-orca-dispatch-seam.ts binds the seam for every test file,
+// so the `describe` below exercises the READY path; the final describe re-runs
+// the same inputs unbound and asserts the two states agree, which is the shim's
+// `parity` contract stated as a test rather than as a comment.
+import { afterEach, describe, expect, it } from 'vitest'
+import { setOrcaDispatchBinding } from './orca-dispatch-seam'
+import { orcaDispatch } from '../relay/wasm/orca_git_wasm.js'
 import {
+  createNormalizedPathInsideOrEqualMatcher,
+  getRuntimePathBasename,
   isPathInsideOrEqual,
   isRuntimePathAbsolute,
   normalizeRuntimePathForComparison,
+  normalizeRuntimePathSeparators,
   relativePathInsideRoot,
   resolveRuntimePath
-} from './cross-platform-path'
+} from './cross-platform-path-resolution'
+
+const bindSeam = (): void => {
+  setOrcaDispatchBinding((module, fn, inputJson) => orcaDispatch(module, fn, inputJson))
+}
 
 describe('cross-platform path containment', () => {
   it('keeps POSIX sibling prefixes outside the root', () => {
@@ -143,5 +158,96 @@ describe('cross-platform path containment', () => {
     )
     expect(resolveRuntimePath('C:\\Repos\\app\\repo', 'D:\\worktrees')).toBe('D:/worktrees')
     expect(isRuntimePathAbsolute('/remote/worktrees', 'windows')).toBe(true)
+  })
+})
+
+// Every probe the pre-ready sweep cares about, as one comparable snapshot.
+function probeAll(): string {
+  const roots = [
+    '/repo/app',
+    '/srv/team\\repo',
+    'C:\\Repo',
+    'C:\\',
+    '\\\\Server\\Share\\Repo\\',
+    '\\\\wsl$\\Ubuntu\\home\\Alice\\repo',
+    '/userhome/ada/프로젝트'.normalize('NFD'),
+    '\u212A:/a\\b',
+    '/'
+  ]
+  const candidates = [
+    '/repo/app/src/index.ts',
+    '/repo/application/src/index.ts',
+    '/srv/team/repo/file.ts',
+    'c:\\repo\\src\\index.ts',
+    '//server/share/repo/src',
+    '\\\\wsl.localhost\\ubuntu\\home\\Alice\\repo\\Src',
+    '/userhome/ada/프로젝트/src/🎉file.ts',
+    '\u212A:/a\\b/c',
+    '//server/share/x',
+    '../worktrees/feature',
+    'D:\\worktrees'
+  ]
+  const answers: unknown[] = []
+  for (const value of [...roots, ...candidates]) {
+    answers.push(
+      normalizeRuntimePathSeparators(value),
+      normalizeRuntimePathForComparison(value),
+      getRuntimePathBasename(value),
+      isRuntimePathAbsolute(value),
+      isRuntimePathAbsolute(value, 'posix'),
+      isRuntimePathAbsolute(value, 'windows')
+    )
+  }
+  for (const rootPath of roots) {
+    const matcher = createNormalizedPathInsideOrEqualMatcher(rootPath)
+    for (const candidatePath of candidates) {
+      answers.push(
+        isPathInsideOrEqual(rootPath, candidatePath),
+        relativePathInsideRoot(rootPath, candidatePath),
+        resolveRuntimePath(rootPath, candidatePath),
+        matcher(normalizeRuntimePathForComparison(candidatePath))
+      )
+    }
+  }
+  return JSON.stringify(answers)
+}
+
+describe('pre-ready parity (orca-dispatch seam)', () => {
+  afterEach(bindSeam)
+
+  it('answers identically unbound and bound', () => {
+    // Unbound is not a hypothetical: the Expo mobile client bundles no napi and
+    // no wasm, so its four agent-history importers only ever see this state.
+    setOrcaDispatchBinding(null)
+    const unbound = probeAll()
+    bindSeam()
+    expect(probeAll()).toBe(unbound)
+  })
+
+  it('agrees with the matcher fan-out on an already-normalized candidate', () => {
+    bindSeam()
+    const matcher = createNormalizedPathInsideOrEqualMatcher('\\\\wsl$\\Ubuntu\\home\\Alice\\repo')
+    // The fold is not idempotent for WSL UNC, so the matcher must be fed the
+    // normalized candidate — and must then agree with the dispatched predicate.
+    for (const candidatePath of [
+      '\\\\wsl.localhost\\ubuntu\\home\\Alice\\repo\\src',
+      '\\\\wsl.localhost\\ubuntu\\home\\alice\\repo\\src',
+      '\\\\wsl$\\Ubuntu\\home\\Alice\\repo'
+    ]) {
+      expect(matcher(normalizeRuntimePathForComparison(candidatePath))).toBe(
+        isPathInsideOrEqual('\\\\wsl$\\Ubuntu\\home\\Alice\\repo', candidatePath)
+      )
+    }
+  })
+
+  it('answers a codec-refused path instead of throwing', () => {
+    // A Windows directory name can hold an unpaired UTF-16 surrogate, which
+    // JSON.stringify emits as `"\ud800"` — valid JSON text that is not valid
+    // UTF-8, so the codec refuses the payload. The twin answered without
+    // crossing, and so does this.
+    bindSeam()
+    expect(relativePathInsideRoot('C:\\repo', 'C:\\repo\\bad\ud800name')).toBe('bad\ud800name')
+    expect(isPathInsideOrEqual('C:\\repo', 'C:\\other\ud800')).toBe(false)
+    expect(getRuntimePathBasename('/a/b\ud800')).toBe('b\ud800')
   })
 })

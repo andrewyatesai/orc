@@ -36,11 +36,7 @@ import { DEFAULT_REPO_BADGE_COLOR } from '../../shared/constants'
 import { normalizeRepoBadgeColor } from '../rust-repo-badge-color'
 import { sanitizeRepoIcon } from '../rust-repo-icon'
 import { normalizeRepoSourceControlAiOverrides } from '../../shared/source-control-ai'
-import {
-  isRuntimePathAbsolute,
-  normalizeRuntimePathForComparison,
-  relativePathInsideRoot
-} from '../../shared/cross-platform-path'
+import { isRuntimePathAbsolute, normalizeRuntimePathForComparison, relativePathInsideRoot } from '../../shared/cross-platform-path-resolution'
 import { isTuiAgent } from '../../shared/tui-agent-config'
 import { invalidateAuthorizedRootsCache } from './filesystem-auth'
 import type { ChildProcess } from 'node:child_process'

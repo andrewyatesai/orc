@@ -1,5 +1,4 @@
-import { normalizeRuntimePathSeparators } from './cross-platform-path'
-
+import { normalizeRuntimePathSeparators } from './cross-platform-path-resolution'
 export const UNKNOWN_EXTERNAL_WORKTREE_PARENT_PATH = 'Unknown location'
 
 function trimRuntimePathTrailingSlash(value: string): string {

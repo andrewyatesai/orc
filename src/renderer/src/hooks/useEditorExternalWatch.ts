@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react'
 import { useAppStore, type AppState } from '@/store'
 import { basename, joinPath } from '@/lib/path'
 import { getExternalFileChangeRelativePath } from '@/components/right-sidebar/useFileExplorerWatch'
-import { normalizeRuntimePathForComparison } from '../../../shared/cross-platform-path'
+import { normalizeRuntimePathForComparison } from '../../../shared/cross-platform-path-resolution'
 import {
   canAutoSaveOpenFile,
   getOpenFilesForExternalFileChange,
