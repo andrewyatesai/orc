@@ -22,11 +22,14 @@ pub struct GeneratedCommitMessage {
 }
 
 fn limit_section(value: &str, max_chars: usize) -> String {
-    if value.chars().count() <= max_chars {
+    // The twin is `value.length` / `value.slice(0, n)` — UTF-16 code units — and
+    // it reports `omitted` in the same unit.
+    let len = orca_core::js_string::utf16_len(value);
+    if len <= max_chars {
         return value.to_string();
     }
-    let omitted = value.chars().count() - max_chars;
-    let kept: String = value.chars().take(max_chars).collect();
+    let omitted = len - max_chars;
+    let kept: String = orca_core::js_string::slice_utf16(value, max_chars);
     format!("{kept}\n\n[truncated: {omitted} characters omitted]")
 }
 
@@ -69,7 +72,12 @@ pub fn split_generated_commit_message(message: &str) -> GeneratedCommitMessage {
     let body_lines: Vec<&str> = lines.collect();
 
     // trim → strip trailing dots → cap at 72 chars → trim trailing whitespace.
-    let capped: String = subject_line.trim().trim_end_matches('.').chars().take(72).collect();
+    // 72 UTF-16 units, matching the twin's `.slice(0, 72)`: an emoji subject was
+    // shipping 90 units where git tooling expects 72.
+    let capped: String = orca_core::js_string::slice_utf16(
+        subject_line.trim().trim_end_matches('.'),
+        72,
+    );
     let subject = capped.trim_end();
     let body = body_lines.join("\n").trim().to_string();
 

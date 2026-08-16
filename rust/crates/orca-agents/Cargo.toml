@@ -9,7 +9,10 @@ description = "Agent-CLI domain for Orca: commit-message prompt/plan building, p
 
 [dependencies]
 # Stripped: regex for the clean/extract heuristics, serde_json for parsing the
-# JSON error payloads agent CLIs emit.
+# JSON error payloads agent CLIs emit. orca-core supplies the JS-string
+# equivalences these ports must match: `trim_js` for `String.prototype.trim` and
+# `slice_utf16` for `slice(0, n)`, which counts UTF-16 units, not chars.
+orca-core = { path = "../orca-core" }
 regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-case", "unicode-perl"] }
 serde_json = { version = "1", default-features = false, features = ["std"] }
 

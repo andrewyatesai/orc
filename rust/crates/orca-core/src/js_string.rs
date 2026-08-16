@@ -14,6 +14,32 @@ pub fn trim_js(value: &str) -> &str {
     value.trim_matches(is_js_trim_ws)
 }
 
+/// `String.prototype.length` — UTF-16 code units, not chars.
+pub fn utf16_len(value: &str) -> usize {
+    value.chars().map(char::len_utf16).sum()
+}
+
+/// `String.prototype.slice(0, limit)` — the limit counts UTF-16 code units, so
+/// `.chars().take(limit)` keeps up to TWICE as much for astral text. Five ported
+/// cores had that substitution; see docs/rust-migration/ported-modules.md.
+///
+/// When the limit lands BETWEEN the halves of a surrogate pair, JS emits the lone
+/// high surrogate and no Rust `String` can hold one, so the pair is dropped
+/// instead. That residual is the boundary, not a choice.
+pub fn slice_utf16(value: &str, limit: usize) -> String {
+    let mut out = String::new();
+    let mut used = 0usize;
+    for ch in value.chars() {
+        let width = ch.len_utf16();
+        if used + width > limit {
+            break;
+        }
+        out.push(ch);
+        used += width;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

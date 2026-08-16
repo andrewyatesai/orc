@@ -84,7 +84,7 @@ pub fn sanitize_repo_icon(value: Option<&Value>) -> RepoIconSanitizeResult {
                 return RepoIconSanitizeResult::Undefined;
             }
             let label: String =
-                object.get("label").and_then(Value::as_str).map(|l| l.trim().chars().take(80).collect()).unwrap_or_default();
+                object.get("label").and_then(Value::as_str).map(|l| orca_core::js_string::slice_utf16(l.trim(), 80)).unwrap_or_default();
             RepoIconSanitizeResult::Icon(RepoIcon::Image {
                 src: src.to_string(),
                 source,

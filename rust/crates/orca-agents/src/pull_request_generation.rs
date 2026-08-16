@@ -32,11 +32,14 @@ pub struct GeneratedPullRequestFields {
 }
 
 fn limit_section(value: &str, max_chars: usize) -> String {
-    if value.chars().count() <= max_chars {
+    // The twin is `value.length` / `value.slice(0, n)` — UTF-16 code units — and
+    // it reports `omitted` in the same unit.
+    let len = orca_core::js_string::utf16_len(value);
+    if len <= max_chars {
         return value.to_string();
     }
-    let omitted = value.chars().count() - max_chars;
-    let kept: String = value.chars().take(max_chars).collect();
+    let omitted = len - max_chars;
+    let kept: String = orca_core::js_string::slice_utf16(value, max_chars);
     format!("{kept}\n\n[truncated: {omitted} characters omitted]")
 }
 
