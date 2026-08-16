@@ -9,7 +9,7 @@ export function SkillUpdateRunLog({ output }: { output: string }): React.JSX.Ele
     return null
   }
   return (
-    <Collapsible>
+    <Collapsible className="min-w-0">
       <CollapsibleTrigger asChild>
         <Button
           type="button"
@@ -21,9 +21,9 @@ export function SkillUpdateRunLog({ output }: { output: string }): React.JSX.Ele
           {translate('auto.components.skills.SkillFreshnessUpdateDialog.showLog', 'Show log')}
         </Button>
       </CollapsibleTrigger>
-      <CollapsibleContent className="mt-1">
+      <CollapsibleContent className="mt-1 min-w-0">
         {/* Displayed verbatim, never parsed — `skills update` has no --json. */}
-        <pre className="scrollbar-sleek max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted px-3 py-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground">
+        <pre className="scrollbar-sleek max-h-40 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] rounded-md border border-border bg-muted px-3 py-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground">
           {output.trim()}
         </pre>
       </CollapsibleContent>

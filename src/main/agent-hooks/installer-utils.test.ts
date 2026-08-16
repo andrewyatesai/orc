@@ -65,6 +65,25 @@ describe('readHooksJsonWithRaw', () => {
 
     expect(readHooksJsonWithRaw(configPath)).toEqual({ raw: 'not json\n', config: null })
   })
+
+  it('parses one leading BOM while preserving the exact raw contents', () => {
+    const contents = '\uFEFF{"hooks": {"Stop": []}, "custom": 1}\n'
+    writeFileSync(configPath, contents, 'utf-8')
+
+    expect(readHooksJsonWithRaw(configPath)).toEqual({
+      raw: contents,
+      config: { hooks: { Stop: [] }, custom: 1 }
+    })
+  })
+
+  it('rejects multiple or misplaced BOM characters', () => {
+    const body = '{"hooks": {"Stop": []}}'
+    for (const contents of [`\uFEFF\uFEFF${body}`, ` \uFEFF${body}`, `{\uFEFF"hooks": {}}`]) {
+      writeFileSync(configPath, contents, 'utf-8')
+
+      expect(readHooksJsonWithRaw(configPath)).toEqual({ raw: contents, config: null })
+    }
+  })
 })
 
 describe('writeHooksJson', () => {

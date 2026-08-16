@@ -54,6 +54,8 @@ export type CatalogModel = {
 export type AgentSessionOptionCatalog = {
   models: CatalogModel[]
   modelApply: CatalogOptionApply
+  /** Launch-safe options for opaque model ids that are absent from the static catalog. */
+  unknownModelOptions?: CatalogOption[]
   composeModelValue?: (modelId: string, values: Record<string, SessionOptionValue>) => string
   /** Why: a seeded id the CLI has retired is a fatal launch, so a successful probe
    * must be able to drop it rather than only add. Membership only — option menus

@@ -6301,7 +6301,8 @@ export class Store {
       (lastEmittedBucket === null ||
         compareFeatureInteractionUsageBuckets(nextBucket, lastEmittedBucket) > 0)
 
-    this.updateUI({
+    this.state.ui = {
+      ...this.state.ui,
       featureInteractions: {
         ...featureInteractions,
         [id]: {
@@ -6309,11 +6310,15 @@ export class Store {
           interactionCount: nextCount
         }
       }
-    })
+    }
     this.state.featureInteractionTelemetryBuckets = shouldEmit
       ? { ...telemetryBuckets, [id]: nextBucket }
       : telemetryBuckets
     this.scheduleSave()
+    // Why: live UI only consumes the seen transition; count-only telemetry must not re-hydrate the renderer.
+    if (!existing) {
+      this.notifyUIChanged()
+    }
 
     if (shouldEmit) {
       track('feature_interaction_usage_bucket_reached', {

@@ -414,6 +414,12 @@ export default function SmartWorkspaceNameField({
     localInputFocusFrameRef.current = null
   }, [])
 
+  const openSelectedSource = useCallback((): void => {
+    if (selectedSource?.url) {
+      void window.api.shell.openUrl(selectedSource.url)
+    }
+  }, [selectedSource?.url])
+
   const markSourcePopoverUserEngaged = useCallback((): void => {
     deferSourcePopoverUntilInteractionRef.current = false
   }, [])
@@ -1131,14 +1137,14 @@ export default function SmartWorkspaceNameField({
     isQueryStale,
     sourceIntent
   })
-  // Why: while isQueryStale, cmdk onValueChange is ignored; re-sync the stored arm
-  // when the query settles so commandValue cannot lag resolvedCommandValue.
+  // Why: while isQueryStale, cmdk onValueChange is ignored; keep the stored arm
+  // aligned too so a stale provider cannot reappear when the query settles.
   useEffect(() => {
-    if (isQueryStale || commandValue === resolvedCommandValue) {
+    if (commandValue === resolvedCommandValue) {
       return
     }
     setCommandValue(resolvedCommandValue)
-  }, [commandValue, isQueryStale, resolvedCommandValue])
+  }, [commandValue, resolvedCommandValue])
 
   const loading = githubLoading || gitlabLoading || branchesLoading || linearLoading
   // Why: only spin on first load — not on every in-flight refresh while rows stay visible.
@@ -1410,9 +1416,45 @@ export default function SmartWorkspaceNameField({
                   ref={setSelectedSourceNode}
                   data-workspace-source-pill="true"
                   tabIndex={0}
+                  aria-keyshortcuts={
+                    selectedSource.url ? 'Alt+Enter Backspace Delete' : 'Backspace Delete'
+                  }
                   onKeyDown={(event) => {
+                    // Why: the pill's action buttons are tabIndex=-1, so surface their
+                    // behavior as keyboard shortcuts on the focused pill itself.
+                    if (event.currentTarget !== event.target) {
+                      return
+                    }
                     if (
-                      event.currentTarget !== event.target ||
+                      (event.key === 'Backspace' || event.key === 'Delete') &&
+                      !event.metaKey &&
+                      !event.ctrlKey &&
+                      !event.shiftKey &&
+                      !event.altKey
+                    ) {
+                      event.preventDefault()
+                      onClearSelectedSource()
+                      // Why: the pill unmounts once cleared; hand focus back to the input.
+                      cancelLocalInputFocusFrame()
+                      localInputFocusFrameRef.current = requestAnimationFrame(() => {
+                        localInputFocusFrameRef.current = null
+                        localInputRef.current?.focus({ preventScroll: true })
+                      })
+                      return
+                    }
+                    if (
+                      event.key === 'Enter' &&
+                      event.altKey &&
+                      !event.metaKey &&
+                      !event.ctrlKey &&
+                      !event.shiftKey &&
+                      selectedSource.url
+                    ) {
+                      event.preventDefault()
+                      openSelectedSource()
+                      return
+                    }
+                    if (
                       event.key !== 'Enter' ||
                       event.metaKey ||
                       event.ctrlKey ||
@@ -1437,7 +1479,8 @@ export default function SmartWorkspaceNameField({
                           type="button"
                           variant="ghost"
                           size="icon-xs"
-                          onClick={() => void window.api.shell.openUrl(selectedSource.url!)}
+                          tabIndex={-1}
+                          onClick={openSelectedSource}
                           className="size-6 shrink-0 rounded-sm text-muted-foreground hover:text-foreground"
                           aria-label={translate(
                             'auto.components.new.workspace.SmartWorkspaceNameField.2c69728c2a',
@@ -1461,6 +1504,7 @@ export default function SmartWorkspaceNameField({
                         type="button"
                         variant="ghost"
                         size="icon-xs"
+                        tabIndex={-1}
                         onClick={onClearSelectedSource}
                         className="size-6 shrink-0 rounded-sm text-muted-foreground hover:text-foreground"
                         aria-label={translate(
@@ -1665,10 +1709,10 @@ export default function SmartWorkspaceNameField({
         open={crossRepoPrompt !== null}
         onOpenChange={(next) => !next && dismissCrossRepoPrompt()}
       >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
+        <DialogContent className="min-w-0 sm:max-w-md">
+          <DialogHeader className="min-w-0">
             <DialogTitle>{crossRepoSwitchTitle}</DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="break-words">
               {translate(
                 'auto.components.new.workspace.SmartWorkspaceNameField.ad188067ae',
                 'The GitHub URL points to'
@@ -1677,27 +1721,38 @@ export default function SmartWorkspaceNameField({
               {crossRepoSwitchDescriptionSuffix}
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter>
+          <DialogFooter className="min-w-0 sm:flex-wrap">
             <Button variant="outline" onClick={dismissCrossRepoPrompt}>
               {translate(
                 'auto.components.new.workspace.SmartWorkspaceNameField.6859e2896c',
                 'Cancel'
               )}
             </Button>
-            <Button variant="outline" onClick={() => void handleUseCurrentRepo()}>
-              {translate(
-                'auto.components.new.workspace.SmartWorkspaceNameField.eadf877af5',
-                'Keep'
-              )}{' '}
-              {selectedRepo?.displayName ?? crossRepoSwitchFallbackLabel}
+            <Button
+              variant="outline"
+              className="min-w-0 max-w-full"
+              onClick={() => void handleUseCurrentRepo()}
+            >
+              <span className="min-w-0 truncate">
+                {translate(
+                  'auto.components.new.workspace.SmartWorkspaceNameField.eadf877af5',
+                  'Keep'
+                )}{' '}
+                {selectedRepo?.displayName ?? crossRepoSwitchFallbackLabel}
+              </span>
             </Button>
             {crossRepoPrompt?.matchingRepo ? (
-              <Button onClick={() => void acceptGitHubLink(crossRepoPrompt.matchingRepo!)}>
-                {translate(
-                  'auto.components.new.workspace.SmartWorkspaceNameField.a76fcb4fa0',
-                  'Switch to'
-                )}{' '}
-                {crossRepoPrompt.matchingRepo.displayName}
+              <Button
+                className="min-w-0 max-w-full"
+                onClick={() => void acceptGitHubLink(crossRepoPrompt.matchingRepo!)}
+              >
+                <span className="min-w-0 truncate">
+                  {translate(
+                    'auto.components.new.workspace.SmartWorkspaceNameField.a76fcb4fa0',
+                    'Switch to'
+                  )}{' '}
+                  {crossRepoPrompt.matchingRepo.displayName}
+                </span>
               </Button>
             ) : allowCrossRepoProjectAdd ? (
               <Button onClick={() => void handleAddMatchingRepo()}>

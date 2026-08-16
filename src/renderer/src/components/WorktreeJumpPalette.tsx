@@ -82,7 +82,8 @@ import {
   createWorktreePaletteRequestGuard,
   getNextWorktreePaletteSelection,
   getWorktreePaletteSelectionItemIds,
-  getWorktreePaletteCreateActionState
+  getWorktreePaletteCreateActionState,
+  type WorktreePaletteRequestGuard
 } from '@/lib/worktree-palette-create-action'
 import { getWorkspacePortsByWorktreeId } from '@/lib/workspace-port-groups'
 import {
@@ -227,8 +228,8 @@ type PaletteListEntry = PaletteItem | CreateWorktreePaletteItem | SectionHeader 
 
 const CREATE_WORKSPACE_QUICK_ACTION_ITEM_ID = `quick-action:${CREATE_WORKSPACE_QUICK_ACTION_ID}`
 
-// Why: outlast the CommandDialog close animation (~150–200ms) so gated status maps stay live until fading rows are gone.
-const PALETTE_STATUS_INPUTS_LINGER_MS = 300
+// Why: outlast the CommandDialog close animation so its rows do not disappear mid-fade.
+const PALETTE_CLOSE_LINGER_MS = 300
 
 // Why `jump-palette-item`: selection chrome lives in main.css — flat accent is invisible on light popovers.
 const JUMP_PALETTE_ITEM_CLASSNAME =
@@ -468,9 +469,43 @@ function getSettingsTargetFromSectionId(sectionId: string): {
 }
 
 export default function WorktreeJumpPalette(): React.JSX.Element | null {
+  const visible = useAppStore((s) => s.activeModal === 'worktree-palette')
+  const [lingering, setLingering] = useState(visible)
+  useEffect(() => {
+    if (visible) {
+      setLingering(true)
+      return
+    }
+    const timer = window.setTimeout(() => setLingering(false), PALETTE_CLOSE_LINGER_MS)
+    return () => window.clearTimeout(timer)
+  }, [visible])
+  // Why: reopening must invalidate a pending create lookup from the previous content mount.
+  const createLookupGuard = useMemo(() => createWorktreePaletteRequestGuard(), [])
+
+  // Why: unmount the closed palette's content so its many hot store subscriptions do not re-render on unrelated app writes.
+  if (!visible && !lingering) {
+    return null
+  }
+  return (
+    <WorktreeJumpPaletteContent
+      visible={visible}
+      lingering={lingering}
+      createLookupGuard={createLookupGuard}
+    />
+  )
+}
+
+function WorktreeJumpPaletteContent({
+  visible,
+  lingering,
+  createLookupGuard
+}: {
+  visible: boolean
+  lingering: boolean
+  createLookupGuard: WorktreePaletteRequestGuard
+}): React.JSX.Element | null {
   // Why: subscribe to language changes so translated memos recompute without a fake i18n.language dependency.
   useTranslation()
-  const visible = useAppStore((s) => s.activeModal === 'worktree-palette')
   const closeModal = useAppStore((s) => s.closeModal)
   const openModal = useAppStore((s) => s.openModal)
   const openSettingsPage = useAppStore((s) => s.openSettingsPage)
@@ -485,20 +520,9 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
   const projectHostSetups = useAppStore((s) => s.projectHostSetups)
   const detectedWorktreesByRepo = useAppStore((s) => s.detectedWorktreesByRepo)
   const pendingWorktreeCreations = useAppStore((s) => s.pendingWorktreeCreations)
-  // Why: keep status maps subscribed through the close animation — dropping them while CommandDialog fades out would flash rows empty mid-animation.
-  const [statusInputsLingering, setStatusInputsLingering] = useState(false)
-  useEffect(() => {
-    if (visible) {
-      setStatusInputsLingering(true)
-      return
-    }
-    const timer = window.setTimeout(
-      () => setStatusInputsLingering(false),
-      PALETTE_STATUS_INPUTS_LINGER_MS
-    )
-    return () => window.clearTimeout(timer)
-  }, [visible])
-  // Why: these hot status maps get a new identity on every app-wide write, so gate the subscription on active-or-closing to stop the always-mounted palette re-rendering on unrelated terminals.
+  // Why: keep hot status maps live through the shell's close-animation linger.
+  const paletteStatusInputsActive = visible || lingering
+  // Why: these hot status maps get a new identity on every app-wide write, so gate the subscription on active-or-closing to stop the palette re-rendering on unrelated terminals.
   // Why: ptyIdsByTabId must be included — slept tabs keep a wake-hint sessionId in tab.ptyId, so without it the palette dot would lie green.
   const {
     agentStatusByPaneKey,
@@ -506,12 +530,10 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
     ptyIdsByTabId,
     terminalLayoutsByTabId,
     tabsByWorktree
-  } = useAppStore(useShallow((s) => selectPaletteStatusInputs(s, visible || statusInputsLingering)))
-  const agentStatusEpoch = useAppStore((s) =>
-    visible || statusInputsLingering ? s.agentStatusEpoch : 0
-  )
+  } = useAppStore(useShallow((s) => selectPaletteStatusInputs(s, paletteStatusInputsActive)))
+  const agentStatusEpoch = useAppStore((s) => (paletteStatusInputsActive ? s.agentStatusEpoch : 0))
   const { prCache, issueCache, hostedReviewCache } = useAppStore(
-    useShallow((s) => selectWorktreePaletteCacheInputs(s, visible || statusInputsLingering))
+    useShallow((s) => selectWorktreePaletteCacheInputs(s, paletteStatusInputsActive))
   )
   const migrationUnsupportedByPtyId = useAppStore((s) => s.migrationUnsupportedByPtyId)
   const activeWorktreeId = useAppStore((s) => s.activeWorktreeId)
@@ -572,7 +594,6 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
   const listRef = useRef<HTMLDivElement>(null)
   const fallbackFocusOuterFrameRef = useRef<number | null>(null)
   const fallbackFocusInnerFrameRef = useRef<number | null>(null)
-  const createLookupGuard = useMemo(() => createWorktreePaletteRequestGuard(), [])
   const preserveCreateLookupOnCloseRef = useRef(false)
 
   const repoMap = useMemo(() => new Map(repos.map((r) => [r.id, r])), [repos])

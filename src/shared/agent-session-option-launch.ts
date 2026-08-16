@@ -21,11 +21,25 @@ export function resolveAgentSessionOptionLaunch(
   const model = findCatalogModel(catalog, modelId)
   const appliedValues: Record<string, SessionOptionValue> = {}
   const args: string[] = []
-  const modelValues = model
-    ? Object.fromEntries(
-        model.options.map((option) => [option.id, values[option.id] ?? option.kind.defaultValue])
-      )
-    : {}
+  // An id the seed does not carry still gets the catalog's unknown-model menu, but
+  // no verified per-model default — only a picked value the menu offers may launch.
+  const modelOptions = model?.options ?? catalog.unknownModelOptions ?? []
+  const modelValues = Object.fromEntries(
+    modelOptions.flatMap((option) => {
+      const explicitValue = values[option.id]
+      if (explicitValue !== undefined) {
+        if (
+          !model &&
+          option.kind.type === 'select' &&
+          !option.kind.choices.some((choice) => choice.value === explicitValue)
+        ) {
+          return []
+        }
+        return [[option.id, explicitValue]]
+      }
+      return model ? [[option.id, option.kind.defaultValue]] : []
+    })
+  )
   const composedModelId = catalog.composeModelValue
     ? catalog.composeModelValue(modelId, modelValues)
     : modelId
@@ -37,11 +51,10 @@ export function resolveAgentSessionOptionLaunch(
       appliedValues.model = modelId
     }
   }
-  if (!model) {
-    return { args, appliedValues }
-  }
-
-  for (const option of model.options) {
+  // An unseeded id resolves its menu from `unknownModelOptions`, so iterate the
+  // resolved list — a bare `model.options` here would drop the effort flag for
+  // discovered ids the static seed never carried.
+  for (const option of modelOptions) {
     const value = modelValues[option.id]
     if (value === undefined) {
       continue

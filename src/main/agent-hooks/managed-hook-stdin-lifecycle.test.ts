@@ -1,5 +1,7 @@
 // Why: stdin ownership is a cross-agent process contract; one executable
 // matrix catches an unread early exit without duplicating template assertions.
+// Exception (#11549): Windows batch hooks give up stdin ownership on the
+// missing-Orca-env path, so their writer may break there.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -232,7 +234,7 @@ function withPlatform<T>(platform: NodeJS.Platform, run: () => T): T {
 }
 
 describe('Windows managed hook stdin structure', () => {
-  it('routes every batch guard to a shared drain epilogue', () => {
+  it('exits immediately when Orca env is missing and keeps drain for other failures', () => {
     const home = mkdtempSync(join(tmpdir(), 'orca-hook-stdin-windows-'))
     homedirMock.mockReturnValue(home)
     const previousGrokHome = process.env.GROK_HOME
@@ -254,15 +256,23 @@ describe('Windows managed hook stdin structure', () => {
       expect(mainBatchScripts).toHaveLength(10)
       for (const fileName of mainBatchScripts) {
         const script = readFileSync(join(hooksDir, fileName), 'utf8')
+        // Why: missing-env path must not touch more.com — hang class from #11549.
         expect(script, `${fileName} port guard`).toContain(
-          'if "%ORCA_AGENT_HOOK_PORT%"=="" goto :orca_agent_hook_drain_stdin'
+          'if "%ORCA_AGENT_HOOK_PORT%"=="" exit /b 0'
         )
         expect(script, `${fileName} token guard`).toContain(
-          'if "%ORCA_AGENT_HOOK_TOKEN%"=="" goto :orca_agent_hook_drain_stdin'
+          'if "%ORCA_AGENT_HOOK_TOKEN%"=="" exit /b 0'
         )
-        expect(script, `${fileName} pane guard`).toContain(
-          'if "%ORCA_PANE_KEY%"=="" goto :orca_agent_hook_drain_stdin'
+        expect(script, `${fileName} pane guard`).toContain('if "%ORCA_PANE_KEY%"=="" exit /b 0')
+        // Why: pin the rule, not today's three guards — a fourth ORCA_* guard routed to the
+        // drain would reintroduce #11549 with this suite green. The pattern spans the guard so
+        // it catches both `if "%VAR%"==""` and `if not defined VAR`; the Devin skip names no
+        // ORCA_* var, so it stays exempt.
+        expect(script, `${fileName} no ORCA_* guard may route to the more.com drain`).not.toMatch(
+          /ORCA_[A-Z_]+.*goto :?orca_agent_hook_drain_stdin/
         )
+        // Why: the epilogue stays shared — claude-hook.cmd still jumps to it from the
+        // Devin-imports-.claude skip, which now sits below these guards.
         expect(script, `${fileName} drain epilogue`).toContain(
           [
             ':orca_agent_hook_drain_stdin',
@@ -272,9 +282,20 @@ describe('Windows managed hook stdin structure', () => {
         )
       }
 
+      // Why (#11549): the Devin skip is the only remaining in-script jump to more.com, so it
+      // must sit below the env guards — otherwise a Devin session outside an Orca pane still
+      // parks there and strands the hook exactly like the pre-fix guards did.
+      const claude = readFileSync(join(hooksDir, 'claude-hook.cmd'), 'utf8')
+      expect(claude, 'claude devin guard present').toContain(
+        'if not "%DEVIN_PROJECT_DIR%"=="" goto :orca_agent_hook_drain_stdin'
+      )
+      expect(claude.indexOf('if "%ORCA_PANE_KEY%"=="" exit /b 0')).toBeLessThan(
+        claude.indexOf('if not "%DEVIN_PROJECT_DIR%"=="" goto :orca_agent_hook_drain_stdin')
+      )
+
       // Why (#11549 class): the Windows-local copilot .ps1 and kimi .sh now guard before
       // owning stdin — the caller may abandon the pipe, and the payload is discarded on
-      // this path anyway. (.cmd keeps the fork's shared more.com drain epilogue above.)
+      // this path anyway. (.cmd now exits immediately on the same path — see the guards above.)
       const copilot = readFileSync(join(hooksDir, 'copilot-hook.ps1'), 'utf8')
       expect(copilot.indexOf('if (-not $env:ORCA_AGENT_HOOK_PORT')).toBeGreaterThan(-1)
       expect(copilot.indexOf('if (-not $env:ORCA_AGENT_HOOK_PORT')).toBeLessThan(
@@ -340,10 +361,10 @@ describe('Windows managed hook stdin structure', () => {
               : [scriptPath]
           const result = await runHookProcess(executable, args, hookEnvironment())
           expect(result.exitCode, `${fileName} exit code`).toBe(0)
-          // Why (#11549 class): copilot .ps1 and kimi .sh now guard before owning stdin,
-          // so on the missing-env path their writer may break — EPIPE, or ECONNRESET when
-          // Windows tears the pipe down first. The fork's .cmd hooks drain via more.com and
-          // stay error-free (loop body skipped). hookEnvironment() strips every ORCA_* var,
+          // Why (#11549 class): every managed hook now guards before owning stdin on the
+          // missing-env path — copilot .ps1 and kimi .sh read after the guard, and .cmd
+          // exits before the more.com drain — so the writer may break: EPIPE, or ECONNRESET
+          // when Windows tears the pipe down first. hookEnvironment() strips every ORCA_* var,
           // so this relaxation only ever covers the missing-env path — a happy-path case
           // added to this loop must not reuse it.
           for (const error of result.stdinErrors) {
