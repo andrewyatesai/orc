@@ -119,6 +119,50 @@ Everything else about the module is done: all 14 exports routed, the core
 re-ported from a pre-action-recipe revision, eight JS-trim sites fixed, corpus
 1 -> 111 vectors. Fix the merge, then cut it over.
 
+### `linear-links` — refused four times, and the fourth settles it
+
+Each refusal found a real defect and two of them were live wrong-workspace bugs
+now fixed and shipped (the widened host check, 8eb59bacc7; the missing
+dot-segment removal, c76a4f2406). The fourth is different: it is not a defect to
+patch, it is a reason the module cannot take a `parity` shim at all.
+
+`URL.pathname` PERCENT-ENCODES; `parse_absolute_url` returns the raw segment, and
+`getLinearOrganizationUrlKeyFromIssueUrl` does not decode it (unlike
+`parseLinearIssueInput`, which `decodeURIComponent`s and so cancels the class):
+
+    https://linear.app/café/issue/ENG-1       twin "caf%C3%A9"   core "café"
+    https://linear.app/acme inc/issue/ENG-1   twin "acme%20inc"  core "acme inc"
+
+4,220 value divergences over 6,218 inputs — every non-ASCII code point
+U+0080–U+1FFF in the slug, plus 38 ASCII. A value SUBSTITUTION, not a refusal,
+into `linkedLinearIssueOrganizationUrlKey`, which
+`resolveLegacyLinearLinkWorkspace` equality-matches to pick a connected org's API
+token.
+
+**Why that blocks the cutover rather than motivating a fix.** `parity` is FORCED
+here — the return is `string | null` where null is the twin's own real answer, so
+no sentinel exists, and the value is persisted then equality-compared. But
+`parity` is a CHECKABLE CLAIM that the fallback equals the core, and measured it
+does not. Worse, the split is permanent rather than a startup window: **mobile
+installs no dispatch binding at all** (`setOrcaDispatchBinding` at HEAD is four
+sites, none under `mobile/`), and mobile reaches this function through
+`composer-linked-work-item.ts` -> `buildLinearWorkspaceSource` and writes the
+result. So:
+
+    mobile  (never binds)  -> fallback -> persists "caf%C3%A9"
+    desktop (binds)        -> core     -> persists "café"
+
+Same issue, same field, same `===` on read. There is no fallback that is both the
+twin (needed for the unbound surfaces to keep working) and the core (needed for
+`parity` to be true).
+
+**A pre-existing bug the measurement exposed, which is the real bug here.** The
+two writers of `linkedLinearIssueOrganizationUrlKey` ALREADY disagree at HEAD for
+the same URL: `parseLinearIssueInput` decodes, `getLinearOrganizationUrlKeyFromIssueUrl`
+does not. Only one of them can ever match a connected workspace. That wants
+fixing on its own merits, in TypeScript, before any cutover — and once the two
+writers agree, the `parity` obstacle above may dissolve with it.
+
 ### A clean verdict means "nothing found", not "nothing there"
 
 Batch 5 took seven modules this tool called clean and four of them still had to
