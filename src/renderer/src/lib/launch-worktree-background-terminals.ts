@@ -11,7 +11,7 @@ import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
 import { isWindowsAbsolutePathLike } from '../../../shared/cross-platform-path'
 import { makePaneKey } from '../../../shared/stable-pane-identity'
-import { buildSetupRunnerCommand } from '../../../shared/setup-runner-command'
+import { buildSetupRunnerCommand } from '../../../shared/setup-runner-command-resolution'
 import { getWorktreeSetupTerminalShellFamily } from '@/lib/setup-runner'
 import type {
   TerminalLayoutSnapshot,

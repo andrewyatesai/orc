@@ -6,7 +6,7 @@ import {
   buildWslInteractiveLoginShellCommand,
   escapeWslShCommandForWindows
 } from '../../shared/wsl-login-shell-command'
-import { resolveSetupRunnerCommand } from '../../shared/setup-runner-command'
+import { resolveSetupRunnerCommand } from '../../shared/setup-runner-command-resolution'
 import { resolveWindowsShellLaunchArgs } from './windows-shell-args'
 import {
   __resetNushellCapabilityProbeCache,

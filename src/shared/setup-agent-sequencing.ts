@@ -1,8 +1,5 @@
-import {
-  resolveSetupRunnerCommand,
-  type SetupRunnerCommandPlatform,
-  type SetupRunnerCommandShell
-} from './setup-runner-command'
+import { type SetupRunnerCommandPlatform, type SetupRunnerCommandShell } from './setup-runner-command'
+import { resolveSetupRunnerCommand } from './setup-runner-command-resolution'
 import type { AgentStartupShell } from './tui-agent-startup-shell'
 
 const DEFAULT_WAIT_TIMEOUT_SECONDS = 2 * 60 * 60
