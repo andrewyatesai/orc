@@ -140,8 +140,37 @@ fn is_known_bad_pr_reordered_default_status_payload(value: &Value) -> bool {
     is_legacy_default_status_payload(value, &WORKFLOW_IDS, default_status_visual)
 }
 
+/// The twin is `value.trim().replace(/\s+/g, ' ')`, and JS `\s` is not Rust's
+/// `char::is_whitespace`: they disagree on U+FEFF (JS strips, Rust does not) and
+/// on U+0085 NEL (Rust strips, JS does not). `split_whitespace` therefore
+/// collapsed a label differently from the twin — on a PERSISTED board label.
 fn collapse_whitespace(value: &str) -> String {
-    value.split_whitespace().collect::<Vec<_>>().join(" ")
+    value
+        .split(orca_core::js_string::is_js_trim_ws)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// `String.prototype.slice(0, n)` counts UTF-16 code units, not chars, so a
+/// `.chars().take(n)` cap kept twice the label for astral text and 1x for BMP.
+///
+/// One input this cannot match: when the limit falls BETWEEN the two halves of a
+/// surrogate pair, JS emits the lone high surrogate and no Rust `String` can hold
+/// one, so the pair is dropped instead. That is a property of the boundary, not a
+/// porting choice.
+fn take_utf16_units(value: &str, limit: usize) -> String {
+    let mut out = String::new();
+    let mut used = 0usize;
+    for ch in value.chars() {
+        let width = ch.len_utf16();
+        if used + width > limit {
+            break;
+        }
+        out.push(ch);
+        used += width;
+    }
+    out
 }
 
 fn replace_runs(value: &str, keep: impl Fn(char) -> bool) -> String {
@@ -173,7 +202,7 @@ fn sanitize_status_label(value: Option<&str>, fallback: &str) -> String {
     if collapsed.is_empty() {
         fallback.to_string()
     } else {
-        collapsed.chars().take(MAX_STATUS_LABEL_LENGTH).collect()
+        take_utf16_units(&collapsed, MAX_STATUS_LABEL_LENGTH)
     }
 }
 
