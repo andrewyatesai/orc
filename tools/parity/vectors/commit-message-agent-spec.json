@@ -29,8 +29,50 @@
     },
     {
       "function": "isCustomAgentId",
+      "note": "case-sensitive: capitalized is not the sentinel",
+      "input": "Custom",
+      "expected": false
+    },
+    {
+      "function": "isCustomAgentId",
       "note": "empty string is not the sentinel",
       "input": "",
+      "expected": false
+    },
+    {
+      "function": "isCustomAgentId",
+      "note": "a leading space defeats it — no trim on either side",
+      "input": " custom",
+      "expected": false
+    },
+    {
+      "function": "isCustomAgentId",
+      "note": "a trailing space defeats it",
+      "input": "custom ",
+      "expected": false
+    },
+    {
+      "function": "isCustomAgentId",
+      "note": "a number is not the sentinel (as_str answers None)",
+      "input": 5,
+      "expected": false
+    },
+    {
+      "function": "isCustomAgentId",
+      "note": "a boolean is not the sentinel",
+      "input": true,
+      "expected": false
+    },
+    {
+      "function": "isCustomAgentId",
+      "note": "an array holding the sentinel is not the sentinel",
+      "input": ["custom"],
+      "expected": false
+    },
+    {
+      "function": "isCustomAgentId",
+      "note": "an object is not the sentinel",
+      "input": {},
       "expected": false
     },
     {
@@ -65,228 +107,353 @@
     },
     {
       "function": "resolveCommitMessageAgentChoice",
-      "note": "enabled default agent with a commit-message spec is used",
-      "input": { "configuredAgentId": null, "defaultTuiAgent": "codex", "disabledTuiAgents": [] },
-      "expected": "codex"
-    },
-    {
-      "function": "resolveCommitMessageAgentChoice",
-      "note": "enabled default agent without a commit-message spec yields null (gemini has no spec)",
-      "input": { "configuredAgentId": null, "defaultTuiAgent": "gemini", "disabledTuiAgents": [] },
-      "expected": null
-    },
-    {
-      "function": "resolveCommitMessageAgentChoice",
-      "note": "blank default preference skips to the claude fallback",
-      "input": { "configuredAgentId": null, "defaultTuiAgent": "blank", "disabledTuiAgents": [] },
-      "expected": "claude"
-    },
-    {
-      "function": "resolveCommitMessageAgentChoice",
-      "note": "configured custom sentinel is returned verbatim",
+      "note": "the custom sentinel is a configured choice like any other",
       "input": {
         "configuredAgentId": "custom",
-        "defaultTuiAgent": "codex",
-        "disabledTuiAgents": ["custom"]
+        "defaultTuiAgent": "claude",
+        "disabledTuiAgents": []
       },
       "expected": "custom"
     },
     {
-      "function": "getCommitMessageModel",
-      "note": "non-reasoning model omits thinking keys",
-      "input": { "agentId": "claude", "modelId": "haiku" },
-      "expected": { "id": "haiku", "label": "Haiku" }
+      "function": "resolveCommitMessageAgentChoice",
+      "note": "an unregistered configured id is still returned verbatim",
+      "input": {
+        "configuredAgentId": "nope",
+        "defaultTuiAgent": "claude",
+        "disabledTuiAgents": []
+      },
+      "expected": "nope"
+    },
+    {
+      "function": "resolveCommitMessageAgentChoice",
+      "note": "empty configured id is falsy and falls through",
+      "input": {
+        "configuredAgentId": "",
+        "defaultTuiAgent": "codex",
+        "disabledTuiAgents": []
+      },
+      "expected": "codex"
+    },
+    {
+      "function": "resolveCommitMessageAgentChoice",
+      "note": "blank preference skips the default branch and lands on claude",
+      "input": {
+        "configuredAgentId": null,
+        "defaultTuiAgent": "blank",
+        "disabledTuiAgents": []
+      },
+      "expected": "claude"
+    },
+    {
+      "function": "resolveCommitMessageAgentChoice",
+      "note": "empty default preference is falsy and lands on claude",
+      "input": {
+        "configuredAgentId": null,
+        "defaultTuiAgent": "",
+        "disabledTuiAgents": []
+      },
+      "expected": "claude"
+    },
+    {
+      "function": "resolveCommitMessageAgentChoice",
+      "note": "a TuiAgent with no commit-message spec answers null",
+      "input": {
+        "configuredAgentId": null,
+        "defaultTuiAgent": "grok",
+        "disabledTuiAgents": []
+      },
+      "expected": null
+    },
+    {
+      "function": "resolveCommitMessageAgentChoice",
+      "note": "an unregistered default answers null",
+      "input": {
+        "configuredAgentId": null,
+        "defaultTuiAgent": "nope",
+        "disabledTuiAgents": []
+      },
+      "expected": null
+    },
+    {
+      "function": "resolveCommitMessageAgentChoice",
+      "note": "absent disabled roster",
+      "input": {
+        "configuredAgentId": null,
+        "defaultTuiAgent": "codex"
+      },
+      "expected": "codex"
+    },
+    {
+      "function": "resolveCommitMessageAgentChoice",
+      "note": "null disabled roster",
+      "input": {
+        "configuredAgentId": null,
+        "defaultTuiAgent": "codex",
+        "disabledTuiAgents": null
+      },
+      "expected": "codex"
+    },
+    {
+      "function": "resolveCommitMessageAgentChoice",
+      "note": "a disabled entry outside the agent catalog disables nothing",
+      "input": {
+        "configuredAgentId": null,
+        "defaultTuiAgent": "codex",
+        "disabledTuiAgents": ["bogus"]
+      },
+      "expected": "codex"
+    },
+    {
+      "function": "resolveCommitMessageAgentChoice",
+      "note": "a non-string disabled entry is dropped by both sides",
+      "input": {
+        "configuredAgentId": null,
+        "defaultTuiAgent": "codex",
+        "disabledTuiAgents": [5]
+      },
+      "expected": "codex"
+    },
+    {
+      "function": "resolveCommitMessageAgentChoice",
+      "note": "a mixed roster still disables the string it names",
+      "input": {
+        "configuredAgentId": null,
+        "defaultTuiAgent": "codex",
+        "disabledTuiAgents": ["codex", 5]
+      },
+      "expected": "claude"
+    },
+    {
+      "function": "resolveCommitMessageAgentChoice",
+      "note": "every catalog agent disabled answers null",
+      "input": {
+        "configuredAgentId": null,
+        "defaultTuiAgent": "codex",
+        "disabledTuiAgents": [
+          "claude",
+          "codex",
+          "opencode",
+          "pi",
+          "amp",
+          "cursor",
+          "kimi",
+          "copilot",
+          "antigravity"
+        ]
+      },
+      "expected": null
+    },
+    {
+      "function": "resolveCommitMessageAgentChoice",
+      "note": "a nested-array entry is dropped",
+      "input": {
+        "configuredAgentId": null,
+        "defaultTuiAgent": "codex",
+        "disabledTuiAgents": [["codex"]]
+      },
+      "expected": "codex"
+    },
+    {
+      "function": "resolveCommitMessageAgentChoice",
+      "note": "a null entry is dropped",
+      "input": {
+        "configuredAgentId": null,
+        "defaultTuiAgent": "codex",
+        "disabledTuiAgents": [null]
+      },
+      "expected": "codex"
     },
     {
       "function": "getCommitMessageModel",
-      "note": "claude sonnet exposes the five claude thinking levels",
-      "input": { "agentId": "claude", "modelId": "sonnet" },
+      "note": "a static catalog row with no effort selector",
+      "input": {
+        "agentId": "claude",
+        "modelId": "haiku"
+      },
+      "expected": {
+        "id": "haiku",
+        "label": "Haiku"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "a static catalog row with the five Claude effort levels",
+      "input": {
+        "agentId": "claude",
+        "modelId": "sonnet"
+      },
       "expected": {
         "id": "sonnet",
         "label": "Sonnet",
         "thinkingLevels": [
-          { "id": "low", "label": "Low" },
-          { "id": "medium", "label": "Medium" },
-          { "id": "high", "label": "High" },
-          { "id": "xhigh", "label": "Extra High" },
-          { "id": "max", "label": "Max" }
+          {
+            "id": "low",
+            "label": "Low"
+          },
+          {
+            "id": "medium",
+            "label": "Medium"
+          },
+          {
+            "id": "high",
+            "label": "High"
+          },
+          {
+            "id": "xhigh",
+            "label": "Extra High"
+          },
+          {
+            "id": "max",
+            "label": "Max"
+          }
         ],
         "defaultThinkingLevel": "low"
       }
     },
     {
       "function": "getCommitMessageModel",
-      "note": "codex spark variant keeps openai effort levels",
-      "input": { "agentId": "codex", "modelId": "gpt-5.3-codex-spark" },
+      "note": "the Opus row",
+      "input": {
+        "agentId": "claude",
+        "modelId": "opus"
+      },
+      "expected": {
+        "id": "opus",
+        "label": "Opus",
+        "thinkingLevels": [
+          {
+            "id": "low",
+            "label": "Low"
+          },
+          {
+            "id": "medium",
+            "label": "Medium"
+          },
+          {
+            "id": "high",
+            "label": "High"
+          },
+          {
+            "id": "xhigh",
+            "label": "Extra High"
+          },
+          {
+            "id": "max",
+            "label": "Max"
+          }
+        ],
+        "defaultThinkingLevel": "low"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "a dynamic catalog row carries the OpenAI effort table",
+      "input": {
+        "agentId": "codex",
+        "modelId": "gpt-5.5"
+      },
+      "expected": {
+        "id": "gpt-5.5",
+        "label": "GPT-5.5",
+        "thinkingLevels": [
+          {
+            "id": "low",
+            "label": "Low"
+          },
+          {
+            "id": "medium",
+            "label": "Medium"
+          },
+          {
+            "id": "high",
+            "label": "High"
+          },
+          {
+            "id": "xhigh",
+            "label": "Extra High"
+          }
+        ],
+        "defaultThinkingLevel": "low"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "the Spark variant accepts model_reasoning_effort",
+      "input": {
+        "agentId": "codex",
+        "modelId": "gpt-5.3-codex-spark"
+      },
       "expected": {
         "id": "gpt-5.3-codex-spark",
         "label": "GPT-5.3 Codex Spark",
         "thinkingLevels": [
-          { "id": "low", "label": "Low" },
-          { "id": "medium", "label": "Medium" },
-          { "id": "high", "label": "High" },
-          { "id": "xhigh", "label": "Extra High" }
-        ],
-        "defaultThinkingLevel": "low"
-      }
-    },
-    {
-      "function": "getCommitMessageModel",
-      "note": "amp large model exposes the three basic thinking levels",
-      "input": { "agentId": "amp", "modelId": "large" },
-      "expected": {
-        "id": "large",
-        "label": "Large",
-        "thinkingLevels": [
-          { "id": "low", "label": "Low" },
-          { "id": "medium", "label": "Medium" },
-          { "id": "high", "label": "High" }
-        ],
-        "defaultThinkingLevel": "low"
-      }
-    },
-    {
-      "function": "getCommitMessageModel",
-      "note": "dynamic agent synthesizes an unknown model id (gpt-5* gains openai effort levels)",
-      "input": { "agentId": "codex", "modelId": "gpt-5.9-codex" },
-      "expected": {
-        "id": "gpt-5.9-codex",
-        "label": "GPT 5.9 Codex",
-        "thinkingLevels": [
-          { "id": "low", "label": "Low" },
-          { "id": "medium", "label": "Medium" },
-          { "id": "high", "label": "High" },
-          { "id": "xhigh", "label": "Extra High" }
-        ],
-        "defaultThinkingLevel": "low"
-      }
-    },
-    {
-      "function": "getCommitMessageAgentCapability",
-      "note": "single-model dynamic agent capability without spawn details",
-      "input": { "agentId": "cursor" },
-      "expected": {
-        "id": "cursor",
-        "label": "Cursor",
-        "modelSource": "dynamic",
-        "defaultModelId": "auto",
-        "models": [{ "id": "auto", "label": "Auto" }]
-      }
-    },
-    {
-      "function": "getCommitMessageAgentCapability",
-      "note": "static agent capability copies model metadata, omitting binary/buildArgs",
-      "input": { "agentId": "claude" },
-      "expected": {
-        "id": "claude",
-        "label": "Claude",
-        "modelSource": "static",
-        "defaultModelId": "sonnet",
-        "models": [
-          { "id": "haiku", "label": "Haiku" },
           {
-            "id": "sonnet",
-            "label": "Sonnet",
-            "thinkingLevels": [
-              { "id": "low", "label": "Low" },
-              { "id": "medium", "label": "Medium" },
-              { "id": "high", "label": "High" },
-              { "id": "xhigh", "label": "Extra High" },
-              { "id": "max", "label": "Max" }
-            ],
-            "defaultThinkingLevel": "low"
+            "id": "low",
+            "label": "Low"
           },
           {
-            "id": "opus",
-            "label": "Opus",
-            "thinkingLevels": [
-              { "id": "low", "label": "Low" },
-              { "id": "medium", "label": "Medium" },
-              { "id": "high", "label": "High" },
-              { "id": "xhigh", "label": "Extra High" },
-              { "id": "max", "label": "Max" }
-            ],
-            "defaultThinkingLevel": "low"
+            "id": "medium",
+            "label": "Medium"
+          },
+          {
+            "id": "high",
+            "label": "High"
+          },
+          {
+            "id": "xhigh",
+            "label": "Extra High"
           }
-        ]
-      }
-    },
-    {
-      "function": "getCommitMessageModelCapability",
-      "note": "codex mini capability carries openai effort levels",
-      "input": { "agentId": "codex", "modelId": "gpt-5.4-mini" },
-      "expected": {
-        "id": "gpt-5.4-mini",
-        "label": "GPT-5.4 Mini",
-        "thinkingLevels": [
-          { "id": "low", "label": "Low" },
-          { "id": "medium", "label": "Medium" },
-          { "id": "high", "label": "High" },
-          { "id": "xhigh", "label": "Extra High" }
         ],
         "defaultThinkingLevel": "low"
       }
     },
     {
-      "function": "getCommitMessageModelCapability",
-      "note": "non-reasoning model capability omits thinking keys",
-      "input": { "agentId": "claude", "modelId": "haiku" },
-      "expected": { "id": "haiku", "label": "Haiku" }
-    },
-    {
-      "function": "getCommitMessageModelCapability",
-      "note": "copilot auto capability has no thinking levels",
-      "input": { "agentId": "copilot", "modelId": "auto" },
-      "expected": { "id": "auto", "label": "Auto" }
-    },
-    {
-      "function": "listCommitMessageAgentIds",
-      "note": "ordered agent ids with a non-interactive mode (custom is excluded)",
-      "input": null,
-      "expected": [
-        "claude",
-        "codex",
-        "opencode",
-        "pi",
-        "amp",
-        "cursor",
-        "kimi",
-        "copilot",
-        "antigravity"
-      ]
-    },
-    {
-      "function": "listCommitMessageAgentCapabilities",
-      "note": "full capability list; golden omitted (large) — per-element shape is golden-checked via getCommitMessageAgentCapability, live TS<->Rust diff still validates",
-      "input": null
-    },
-    {
       "function": "getCommitMessageModel",
-      "note": "U+0085 (NEL) is not JS whitespace, so a dynamic agent still synthesizes the model — str::trim drops it",
+      "note": "an unlisted dynamic id is synthesized with an OpenAI label + levels",
       "input": {
         "agentId": "codex",
-        "modelId": ""
+        "modelId": "gpt-5.9-turbo"
       },
       "expected": {
-        "id": "",
-        "label": ""
+        "id": "gpt-5.9-turbo",
+        "label": "GPT 5.9 Turbo",
+        "thinkingLevels": [
+          {
+            "id": "low",
+            "label": "Low"
+          },
+          {
+            "id": "medium",
+            "label": "Medium"
+          },
+          {
+            "id": "high",
+            "label": "High"
+          },
+          {
+            "id": "xhigh",
+            "label": "Extra High"
+          }
+        ],
+        "defaultThinkingLevel": "low"
       }
     },
     {
       "function": "getCommitMessageModel",
-      "note": "U+200B is whitespace to neither trim set — the control for the NEL case",
+      "note": "an unlisted dynamic id outside the OpenAI family gets no levels",
       "input": {
         "agentId": "codex",
-        "modelId": "​"
+        "modelId": "my/local-model"
       },
       "expected": {
-        "id": "​",
-        "label": "​"
+        "id": "my/local-model",
+        "label": "My Local Model"
       }
     },
     {
       "function": "getCommitMessageModel",
-      "note": "a BOM-prefixed dynamic id is non-blank for both trim sets",
+      "note": "a BOM-prefixed id misses the catalog by === and is synthesized WITH the BOM",
       "input": {
         "agentId": "codex",
         "modelId": "﻿gpt-5.5"
@@ -314,6 +481,1701 @@
         ],
         "defaultThinkingLevel": "low"
       }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "U+0085 is not JS whitespace, so a NEL-only id is a model",
+      "input": {
+        "agentId": "codex",
+        "modelId": ""
+      },
+      "expected": {
+        "id": "",
+        "label": ""
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "a leading NBSP IS JS whitespace but the id is not blank, so it is synthesized",
+      "input": {
+        "agentId": "codex",
+        "modelId": " x"
+      },
+      "expected": {
+        "id": " x",
+        "label": " x"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "short numeric parts uppercase, longer ones capitalize",
+      "input": {
+        "agentId": "codex",
+        "modelId": "1-abc-1234"
+      },
+      "expected": {
+        "id": "1-abc-1234",
+        "label": "1 Abc 1234"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "gpt uppercases whatever its case",
+      "input": {
+        "agentId": "codex",
+        "modelId": "GpT-x"
+      },
+      "expected": {
+        "id": "GpT-x",
+        "label": "GPT X"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "empty parts between separators are dropped",
+      "input": {
+        "agentId": "codex",
+        "modelId": "a--b//c"
+      },
+      "expected": {
+        "id": "a--b//c",
+        "label": "A B C"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "an astral first character is left alone (charAt(0) is a lone surrogate)",
+      "input": {
+        "agentId": "codex",
+        "modelId": "𐐨eseret"
+      },
+      "expected": {
+        "id": "𐐨eseret",
+        "label": "𐐨eseret"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "a matched surrogate pair round-trips",
+      "input": {
+        "agentId": "codex",
+        "modelId": "rocket-🚀"
+      },
+      "expected": {
+        "id": "rocket-🚀",
+        "label": "Rocket 🚀"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "the long s does not fold to s for the gpt test",
+      "input": {
+        "agentId": "codex",
+        "modelId": "ſodex-1"
+      },
+      "expected": {
+        "id": "ſodex-1",
+        "label": "Sodex 1"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "opencode static row",
+      "input": {
+        "agentId": "opencode",
+        "modelId": "opencode/deepseek-v4-flash-free"
+      },
+      "expected": {
+        "id": "opencode/deepseek-v4-flash-free",
+        "label": "OpenCode DeepSeek V4 Flash Free"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "opencode dynamic synthesis keeps the slash split",
+      "input": {
+        "agentId": "opencode",
+        "modelId": "anthropic/claude-sonnet-4.6"
+      },
+      "expected": {
+        "id": "anthropic/claude-sonnet-4.6",
+        "label": "Anthropic Claude Sonnet 4.6"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "pi catalog row",
+      "input": {
+        "agentId": "pi",
+        "modelId": "github-copilot/gpt-5.4-mini"
+      },
+      "expected": {
+        "id": "github-copilot/gpt-5.4-mini",
+        "label": "Github Copilot GPT 5.4 Mini",
+        "thinkingLevels": [
+          {
+            "id": "low",
+            "label": "Low"
+          },
+          {
+            "id": "medium",
+            "label": "Medium"
+          },
+          {
+            "id": "high",
+            "label": "High"
+          },
+          {
+            "id": "xhigh",
+            "label": "Extra High"
+          }
+        ],
+        "defaultThinkingLevel": "low"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "amp static row with the basic levels",
+      "input": {
+        "agentId": "amp",
+        "modelId": "large"
+      },
+      "expected": {
+        "id": "large",
+        "label": "Large",
+        "thinkingLevels": [
+          {
+            "id": "low",
+            "label": "Low"
+          },
+          {
+            "id": "medium",
+            "label": "Medium"
+          },
+          {
+            "id": "high",
+            "label": "High"
+          }
+        ],
+        "defaultThinkingLevel": "low"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "amp static row with none",
+      "input": {
+        "agentId": "amp",
+        "modelId": "rush"
+      },
+      "expected": {
+        "id": "rush",
+        "label": "Rush"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "cursor catalog row",
+      "input": {
+        "agentId": "cursor",
+        "modelId": "auto"
+      },
+      "expected": {
+        "id": "auto",
+        "label": "Auto"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "cursor synthesizes unlisted ids because its source is dynamic",
+      "input": {
+        "agentId": "cursor",
+        "modelId": "composer-1"
+      },
+      "expected": {
+        "id": "composer-1",
+        "label": "Composer 1"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "kimi on/off levels",
+      "input": {
+        "agentId": "kimi",
+        "modelId": "kimi-code/kimi-for-coding"
+      },
+      "expected": {
+        "id": "kimi-code/kimi-for-coding",
+        "label": "Kimi K2.6",
+        "thinkingLevels": [
+          {
+            "id": "on",
+            "label": "On"
+          },
+          {
+            "id": "off",
+            "label": "Off"
+          }
+        ],
+        "defaultThinkingLevel": "on"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "copilot has no dynamic synthesis, only its catalog",
+      "input": {
+        "agentId": "copilot",
+        "modelId": "gpt-4.1"
+      },
+      "expected": {
+        "id": "gpt-4.1",
+        "label": "GPT-4.1"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "copilot OpenAI row",
+      "input": {
+        "agentId": "copilot",
+        "modelId": "gpt-5.2-codex"
+      },
+      "expected": {
+        "id": "gpt-5.2-codex",
+        "label": "GPT-5.2 Codex",
+        "thinkingLevels": [
+          {
+            "id": "low",
+            "label": "Low"
+          },
+          {
+            "id": "medium",
+            "label": "Medium"
+          },
+          {
+            "id": "high",
+            "label": "High"
+          },
+          {
+            "id": "xhigh",
+            "label": "Extra High"
+          }
+        ],
+        "defaultThinkingLevel": "low"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "antigravity ids carry spaces and parentheses",
+      "input": {
+        "agentId": "antigravity",
+        "modelId": "Gemini 3.5 Flash (Medium)"
+      },
+      "expected": {
+        "id": "Gemini 3.5 Flash (Medium)",
+        "label": "Gemini 3.5 Flash (Medium)"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "antigravity synthesizes an unlisted id",
+      "input": {
+        "agentId": "antigravity",
+        "modelId": "Gemini 4 Pro (Max)"
+      },
+      "expected": {
+        "id": "Gemini 4 Pro (Max)",
+        "label": "Gemini 4 Pro (Max)"
+      }
+    },
+    {
+      "function": "getCommitMessageAgentCapability",
+      "note": "the UI view of claude: no binary, no buildArgs, no modelDiscovery",
+      "input": {
+        "agentId": "claude"
+      },
+      "expected": {
+        "id": "claude",
+        "label": "Claude",
+        "modelSource": "static",
+        "defaultModelId": "sonnet",
+        "models": [
+          {
+            "id": "haiku",
+            "label": "Haiku"
+          },
+          {
+            "id": "sonnet",
+            "label": "Sonnet",
+            "thinkingLevels": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "Extra High"
+              },
+              {
+                "id": "max",
+                "label": "Max"
+              }
+            ],
+            "defaultThinkingLevel": "low"
+          },
+          {
+            "id": "opus",
+            "label": "Opus",
+            "thinkingLevels": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "Extra High"
+              },
+              {
+                "id": "max",
+                "label": "Max"
+              }
+            ],
+            "defaultThinkingLevel": "low"
+          }
+        ]
+      }
+    },
+    {
+      "function": "getCommitMessageAgentCapability",
+      "note": "the UI view of codex: no binary, no buildArgs, no modelDiscovery",
+      "input": {
+        "agentId": "codex"
+      },
+      "expected": {
+        "id": "codex",
+        "label": "Codex",
+        "modelSource": "dynamic",
+        "defaultModelId": "gpt-5.5",
+        "models": [
+          {
+            "id": "gpt-5.5",
+            "label": "GPT-5.5",
+            "thinkingLevels": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "Extra High"
+              }
+            ],
+            "defaultThinkingLevel": "low"
+          },
+          {
+            "id": "gpt-5.4",
+            "label": "GPT-5.4",
+            "thinkingLevels": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "Extra High"
+              }
+            ],
+            "defaultThinkingLevel": "low"
+          },
+          {
+            "id": "gpt-5.4-mini",
+            "label": "GPT-5.4 Mini",
+            "thinkingLevels": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "Extra High"
+              }
+            ],
+            "defaultThinkingLevel": "low"
+          },
+          {
+            "id": "gpt-5.3-codex",
+            "label": "GPT-5.3 Codex",
+            "thinkingLevels": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "Extra High"
+              }
+            ],
+            "defaultThinkingLevel": "low"
+          },
+          {
+            "id": "gpt-5.3-codex-spark",
+            "label": "GPT-5.3 Codex Spark",
+            "thinkingLevels": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "Extra High"
+              }
+            ],
+            "defaultThinkingLevel": "low"
+          },
+          {
+            "id": "gpt-5.2",
+            "label": "GPT-5.2",
+            "thinkingLevels": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "Extra High"
+              }
+            ],
+            "defaultThinkingLevel": "low"
+          }
+        ]
+      }
+    },
+    {
+      "function": "getCommitMessageAgentCapability",
+      "note": "the UI view of opencode: no binary, no buildArgs, no modelDiscovery",
+      "input": {
+        "agentId": "opencode"
+      },
+      "expected": {
+        "id": "opencode",
+        "label": "OpenCode",
+        "modelSource": "dynamic",
+        "defaultModelId": "opencode/deepseek-v4-flash-free",
+        "models": [
+          {
+            "id": "opencode/deepseek-v4-flash-free",
+            "label": "OpenCode DeepSeek V4 Flash Free"
+          },
+          {
+            "id": "opencode/gpt-5.4-mini",
+            "label": "OpenCode GPT 5.4 Mini",
+            "thinkingLevels": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "Extra High"
+              }
+            ],
+            "defaultThinkingLevel": "low"
+          }
+        ]
+      }
+    },
+    {
+      "function": "getCommitMessageAgentCapability",
+      "note": "the UI view of pi: no binary, no buildArgs, no modelDiscovery",
+      "input": {
+        "agentId": "pi"
+      },
+      "expected": {
+        "id": "pi",
+        "label": "Pi",
+        "modelSource": "dynamic",
+        "defaultModelId": "github-copilot/gpt-5.4-mini",
+        "models": [
+          {
+            "id": "github-copilot/gpt-5.4-mini",
+            "label": "Github Copilot GPT 5.4 Mini",
+            "thinkingLevels": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "Extra High"
+              }
+            ],
+            "defaultThinkingLevel": "low"
+          }
+        ]
+      }
+    },
+    {
+      "function": "getCommitMessageAgentCapability",
+      "note": "the UI view of amp: no binary, no buildArgs, no modelDiscovery",
+      "input": {
+        "agentId": "amp"
+      },
+      "expected": {
+        "id": "amp",
+        "label": "Amp",
+        "modelSource": "static",
+        "defaultModelId": "smart",
+        "models": [
+          {
+            "id": "smart",
+            "label": "Smart"
+          },
+          {
+            "id": "rush",
+            "label": "Rush"
+          },
+          {
+            "id": "large",
+            "label": "Large",
+            "thinkingLevels": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              }
+            ],
+            "defaultThinkingLevel": "low"
+          },
+          {
+            "id": "deep",
+            "label": "Deep",
+            "thinkingLevels": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              }
+            ],
+            "defaultThinkingLevel": "low"
+          }
+        ]
+      }
+    },
+    {
+      "function": "getCommitMessageAgentCapability",
+      "note": "the UI view of cursor: no binary, no buildArgs, no modelDiscovery",
+      "input": {
+        "agentId": "cursor"
+      },
+      "expected": {
+        "id": "cursor",
+        "label": "Cursor",
+        "modelSource": "dynamic",
+        "defaultModelId": "auto",
+        "models": [
+          {
+            "id": "auto",
+            "label": "Auto"
+          }
+        ]
+      }
+    },
+    {
+      "function": "getCommitMessageAgentCapability",
+      "note": "the UI view of kimi: no binary, no buildArgs, no modelDiscovery",
+      "input": {
+        "agentId": "kimi"
+      },
+      "expected": {
+        "id": "kimi",
+        "label": "Kimi",
+        "modelSource": "static",
+        "defaultModelId": "default",
+        "models": [
+          {
+            "id": "default",
+            "label": "Config default"
+          },
+          {
+            "id": "kimi-code/kimi-for-coding",
+            "label": "Kimi K2.6",
+            "thinkingLevels": [
+              {
+                "id": "on",
+                "label": "On"
+              },
+              {
+                "id": "off",
+                "label": "Off"
+              }
+            ],
+            "defaultThinkingLevel": "on"
+          }
+        ]
+      }
+    },
+    {
+      "function": "getCommitMessageAgentCapability",
+      "note": "the UI view of copilot: no binary, no buildArgs, no modelDiscovery",
+      "input": {
+        "agentId": "copilot"
+      },
+      "expected": {
+        "id": "copilot",
+        "label": "GitHub Copilot",
+        "modelSource": "static",
+        "defaultModelId": "gpt-5.4",
+        "models": [
+          {
+            "id": "auto",
+            "label": "Auto"
+          },
+          {
+            "id": "claude-haiku-4.5",
+            "label": "Claude Haiku 4.5"
+          },
+          {
+            "id": "claude-sonnet-4.5",
+            "label": "Claude Sonnet 4.5"
+          },
+          {
+            "id": "claude-sonnet-4.6",
+            "label": "Claude Sonnet 4.6"
+          },
+          {
+            "id": "claude-opus-4.5",
+            "label": "Claude Opus 4.5"
+          },
+          {
+            "id": "claude-opus-4.6",
+            "label": "Claude Opus 4.6"
+          },
+          {
+            "id": "claude-opus-4.6-fast",
+            "label": "Claude Opus 4.6 Fast"
+          },
+          {
+            "id": "claude-opus-4.7",
+            "label": "Claude Opus 4.7"
+          },
+          {
+            "id": "gpt-4.1",
+            "label": "GPT-4.1"
+          },
+          {
+            "id": "gpt-5-mini",
+            "label": "GPT-5 Mini",
+            "thinkingLevels": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "Extra High"
+              }
+            ],
+            "defaultThinkingLevel": "low"
+          },
+          {
+            "id": "gpt-5.2",
+            "label": "GPT-5.2",
+            "thinkingLevels": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "Extra High"
+              }
+            ],
+            "defaultThinkingLevel": "low"
+          },
+          {
+            "id": "gpt-5.2-codex",
+            "label": "GPT-5.2 Codex",
+            "thinkingLevels": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "Extra High"
+              }
+            ],
+            "defaultThinkingLevel": "low"
+          },
+          {
+            "id": "gpt-5.3-codex",
+            "label": "GPT-5.3 Codex",
+            "thinkingLevels": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "Extra High"
+              }
+            ],
+            "defaultThinkingLevel": "low"
+          },
+          {
+            "id": "gpt-5.4",
+            "label": "GPT-5.4",
+            "thinkingLevels": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "Extra High"
+              }
+            ],
+            "defaultThinkingLevel": "low"
+          },
+          {
+            "id": "gpt-5.4-mini",
+            "label": "GPT-5.4 Mini",
+            "thinkingLevels": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "Extra High"
+              }
+            ],
+            "defaultThinkingLevel": "low"
+          },
+          {
+            "id": "gpt-5.5",
+            "label": "GPT-5.5",
+            "thinkingLevels": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "Extra High"
+              }
+            ],
+            "defaultThinkingLevel": "low"
+          }
+        ]
+      }
+    },
+    {
+      "function": "getCommitMessageAgentCapability",
+      "note": "the UI view of antigravity: no binary, no buildArgs, no modelDiscovery",
+      "input": {
+        "agentId": "antigravity"
+      },
+      "expected": {
+        "id": "antigravity",
+        "label": "Antigravity",
+        "modelSource": "dynamic",
+        "defaultModelId": "Gemini 3.5 Flash (Medium)",
+        "models": [
+          {
+            "id": "Gemini 3.5 Flash (Medium)",
+            "label": "Gemini 3.5 Flash (Medium)"
+          },
+          {
+            "id": "Gemini 3.5 Flash (High)",
+            "label": "Gemini 3.5 Flash (High)"
+          },
+          {
+            "id": "Gemini 3.5 Flash (Low)",
+            "label": "Gemini 3.5 Flash (Low)"
+          }
+        ]
+      }
+    },
+    {
+      "function": "getCommitMessageModelCapability",
+      "note": "a dynamic row keeps its effort levels in the capability view",
+      "input": {
+        "agentId": "codex",
+        "modelId": "gpt-5.4-mini"
+      },
+      "expected": {
+        "id": "gpt-5.4-mini",
+        "label": "GPT-5.4 Mini",
+        "thinkingLevels": [
+          {
+            "id": "low",
+            "label": "Low"
+          },
+          {
+            "id": "medium",
+            "label": "Medium"
+          },
+          {
+            "id": "high",
+            "label": "High"
+          },
+          {
+            "id": "xhigh",
+            "label": "Extra High"
+          }
+        ],
+        "defaultThinkingLevel": "low"
+      }
+    },
+    {
+      "function": "getCommitMessageModelCapability",
+      "note": "a static row without levels omits both keys",
+      "input": {
+        "agentId": "claude",
+        "modelId": "haiku"
+      },
+      "expected": {
+        "id": "haiku",
+        "label": "Haiku"
+      }
+    },
+    {
+      "function": "getCommitMessageModelCapability",
+      "note": "the five-level Claude row",
+      "input": {
+        "agentId": "claude",
+        "modelId": "opus"
+      },
+      "expected": {
+        "id": "opus",
+        "label": "Opus",
+        "thinkingLevels": [
+          {
+            "id": "low",
+            "label": "Low"
+          },
+          {
+            "id": "medium",
+            "label": "Medium"
+          },
+          {
+            "id": "high",
+            "label": "High"
+          },
+          {
+            "id": "xhigh",
+            "label": "Extra High"
+          },
+          {
+            "id": "max",
+            "label": "Max"
+          }
+        ],
+        "defaultThinkingLevel": "low"
+      }
+    },
+    {
+      "function": "getCommitMessageModelCapability",
+      "note": "kimi on/off",
+      "input": {
+        "agentId": "kimi",
+        "modelId": "kimi-code/kimi-for-coding"
+      },
+      "expected": {
+        "id": "kimi-code/kimi-for-coding",
+        "label": "Kimi K2.6",
+        "thinkingLevels": [
+          {
+            "id": "on",
+            "label": "On"
+          },
+          {
+            "id": "off",
+            "label": "Off"
+          }
+        ],
+        "defaultThinkingLevel": "on"
+      }
+    },
+    {
+      "function": "getCommitMessageModelCapability",
+      "note": "antigravity spaces and parentheses",
+      "input": {
+        "agentId": "antigravity",
+        "modelId": "Gemini 3.5 Flash (Low)"
+      },
+      "expected": {
+        "id": "Gemini 3.5 Flash (Low)",
+        "label": "Gemini 3.5 Flash (Low)"
+      }
+    },
+    {
+      "function": "listCommitMessageAgentIds",
+      "note": "registry order, and never the custom sentinel",
+      "input": null,
+      "expected": [
+        "claude",
+        "codex",
+        "opencode",
+        "pi",
+        "amp",
+        "cursor",
+        "kimi",
+        "copilot",
+        "antigravity"
+      ]
+    },
+    {
+      "function": "listCommitMessageAgentCapabilities",
+      "note": "every agent, UI view only",
+      "input": null,
+      "expected": [
+        {
+          "id": "claude",
+          "label": "Claude",
+          "modelSource": "static",
+          "defaultModelId": "sonnet",
+          "models": [
+            {
+              "id": "haiku",
+              "label": "Haiku"
+            },
+            {
+              "id": "sonnet",
+              "label": "Sonnet",
+              "thinkingLevels": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "Extra High"
+                },
+                {
+                  "id": "max",
+                  "label": "Max"
+                }
+              ],
+              "defaultThinkingLevel": "low"
+            },
+            {
+              "id": "opus",
+              "label": "Opus",
+              "thinkingLevels": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "Extra High"
+                },
+                {
+                  "id": "max",
+                  "label": "Max"
+                }
+              ],
+              "defaultThinkingLevel": "low"
+            }
+          ]
+        },
+        {
+          "id": "codex",
+          "label": "Codex",
+          "modelSource": "dynamic",
+          "defaultModelId": "gpt-5.5",
+          "models": [
+            {
+              "id": "gpt-5.5",
+              "label": "GPT-5.5",
+              "thinkingLevels": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "Extra High"
+                }
+              ],
+              "defaultThinkingLevel": "low"
+            },
+            {
+              "id": "gpt-5.4",
+              "label": "GPT-5.4",
+              "thinkingLevels": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "Extra High"
+                }
+              ],
+              "defaultThinkingLevel": "low"
+            },
+            {
+              "id": "gpt-5.4-mini",
+              "label": "GPT-5.4 Mini",
+              "thinkingLevels": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "Extra High"
+                }
+              ],
+              "defaultThinkingLevel": "low"
+            },
+            {
+              "id": "gpt-5.3-codex",
+              "label": "GPT-5.3 Codex",
+              "thinkingLevels": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "Extra High"
+                }
+              ],
+              "defaultThinkingLevel": "low"
+            },
+            {
+              "id": "gpt-5.3-codex-spark",
+              "label": "GPT-5.3 Codex Spark",
+              "thinkingLevels": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "Extra High"
+                }
+              ],
+              "defaultThinkingLevel": "low"
+            },
+            {
+              "id": "gpt-5.2",
+              "label": "GPT-5.2",
+              "thinkingLevels": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "Extra High"
+                }
+              ],
+              "defaultThinkingLevel": "low"
+            }
+          ]
+        },
+        {
+          "id": "opencode",
+          "label": "OpenCode",
+          "modelSource": "dynamic",
+          "defaultModelId": "opencode/deepseek-v4-flash-free",
+          "models": [
+            {
+              "id": "opencode/deepseek-v4-flash-free",
+              "label": "OpenCode DeepSeek V4 Flash Free"
+            },
+            {
+              "id": "opencode/gpt-5.4-mini",
+              "label": "OpenCode GPT 5.4 Mini",
+              "thinkingLevels": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "Extra High"
+                }
+              ],
+              "defaultThinkingLevel": "low"
+            }
+          ]
+        },
+        {
+          "id": "pi",
+          "label": "Pi",
+          "modelSource": "dynamic",
+          "defaultModelId": "github-copilot/gpt-5.4-mini",
+          "models": [
+            {
+              "id": "github-copilot/gpt-5.4-mini",
+              "label": "Github Copilot GPT 5.4 Mini",
+              "thinkingLevels": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "Extra High"
+                }
+              ],
+              "defaultThinkingLevel": "low"
+            }
+          ]
+        },
+        {
+          "id": "amp",
+          "label": "Amp",
+          "modelSource": "static",
+          "defaultModelId": "smart",
+          "models": [
+            {
+              "id": "smart",
+              "label": "Smart"
+            },
+            {
+              "id": "rush",
+              "label": "Rush"
+            },
+            {
+              "id": "large",
+              "label": "Large",
+              "thinkingLevels": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                }
+              ],
+              "defaultThinkingLevel": "low"
+            },
+            {
+              "id": "deep",
+              "label": "Deep",
+              "thinkingLevels": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                }
+              ],
+              "defaultThinkingLevel": "low"
+            }
+          ]
+        },
+        {
+          "id": "cursor",
+          "label": "Cursor",
+          "modelSource": "dynamic",
+          "defaultModelId": "auto",
+          "models": [
+            {
+              "id": "auto",
+              "label": "Auto"
+            }
+          ]
+        },
+        {
+          "id": "kimi",
+          "label": "Kimi",
+          "modelSource": "static",
+          "defaultModelId": "default",
+          "models": [
+            {
+              "id": "default",
+              "label": "Config default"
+            },
+            {
+              "id": "kimi-code/kimi-for-coding",
+              "label": "Kimi K2.6",
+              "thinkingLevels": [
+                {
+                  "id": "on",
+                  "label": "On"
+                },
+                {
+                  "id": "off",
+                  "label": "Off"
+                }
+              ],
+              "defaultThinkingLevel": "on"
+            }
+          ]
+        },
+        {
+          "id": "copilot",
+          "label": "GitHub Copilot",
+          "modelSource": "static",
+          "defaultModelId": "gpt-5.4",
+          "models": [
+            {
+              "id": "auto",
+              "label": "Auto"
+            },
+            {
+              "id": "claude-haiku-4.5",
+              "label": "Claude Haiku 4.5"
+            },
+            {
+              "id": "claude-sonnet-4.5",
+              "label": "Claude Sonnet 4.5"
+            },
+            {
+              "id": "claude-sonnet-4.6",
+              "label": "Claude Sonnet 4.6"
+            },
+            {
+              "id": "claude-opus-4.5",
+              "label": "Claude Opus 4.5"
+            },
+            {
+              "id": "claude-opus-4.6",
+              "label": "Claude Opus 4.6"
+            },
+            {
+              "id": "claude-opus-4.6-fast",
+              "label": "Claude Opus 4.6 Fast"
+            },
+            {
+              "id": "claude-opus-4.7",
+              "label": "Claude Opus 4.7"
+            },
+            {
+              "id": "gpt-4.1",
+              "label": "GPT-4.1"
+            },
+            {
+              "id": "gpt-5-mini",
+              "label": "GPT-5 Mini",
+              "thinkingLevels": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "Extra High"
+                }
+              ],
+              "defaultThinkingLevel": "low"
+            },
+            {
+              "id": "gpt-5.2",
+              "label": "GPT-5.2",
+              "thinkingLevels": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "Extra High"
+                }
+              ],
+              "defaultThinkingLevel": "low"
+            },
+            {
+              "id": "gpt-5.2-codex",
+              "label": "GPT-5.2 Codex",
+              "thinkingLevels": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "Extra High"
+                }
+              ],
+              "defaultThinkingLevel": "low"
+            },
+            {
+              "id": "gpt-5.3-codex",
+              "label": "GPT-5.3 Codex",
+              "thinkingLevels": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "Extra High"
+                }
+              ],
+              "defaultThinkingLevel": "low"
+            },
+            {
+              "id": "gpt-5.4",
+              "label": "GPT-5.4",
+              "thinkingLevels": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "Extra High"
+                }
+              ],
+              "defaultThinkingLevel": "low"
+            },
+            {
+              "id": "gpt-5.4-mini",
+              "label": "GPT-5.4 Mini",
+              "thinkingLevels": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "Extra High"
+                }
+              ],
+              "defaultThinkingLevel": "low"
+            },
+            {
+              "id": "gpt-5.5",
+              "label": "GPT-5.5",
+              "thinkingLevels": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "Extra High"
+                }
+              ],
+              "defaultThinkingLevel": "low"
+            }
+          ]
+        },
+        {
+          "id": "antigravity",
+          "label": "Antigravity",
+          "modelSource": "dynamic",
+          "defaultModelId": "Gemini 3.5 Flash (Medium)",
+          "models": [
+            {
+              "id": "Gemini 3.5 Flash (Medium)",
+              "label": "Gemini 3.5 Flash (Medium)"
+            },
+            {
+              "id": "Gemini 3.5 Flash (High)",
+              "label": "Gemini 3.5 Flash (High)"
+            },
+            {
+              "id": "Gemini 3.5 Flash (Low)",
+              "label": "Gemini 3.5 Flash (Low)"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

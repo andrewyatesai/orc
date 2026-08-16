@@ -1,6 +1,22 @@
 // TS dispatch for the commit-message-agent-spec parity module: maps the shared
 // vector function names to the real `src/shared/commit-message-agent-spec.ts`
 // exports so the harness compares the live TS reference against the Rust port.
+//
+// That module was CUT OVER in place — same path, same exports, dispatch bodies —
+// so this import line did not change and this adapter now drives the SHIM.
+// `config/vitest.parity.config.ts` installs no setup file, so the seam is UNBOUND
+// here and the shim answers from its `parity` fallback: exactly the deleted
+// bodies, and exactly what a surface runs before wasm is ready. This stays a real
+// TS-vs-Rust differential either way, and it is the leg that runs against the
+// NATIVELY built crate — the two suites in `src/shared` bind the wasm blob.
+//
+// `getCommitMessageAgentSpec` has no case here and no Rust arm: its answer
+// carries `buildArgs` and `modelDiscovery.parse`, which JSON cannot express.
+//
+// No `?? null` on the undefined-returning exports: the arm spells a miss
+// `Value::Null` and `compare.ts` never equates that with TS `undefined`, so the
+// corpus only carries DEFINED answers for those four. The misses are covered in
+// `commit-message-agent-spec-pre-ready.test.ts` instead.
 
 import {
   getCommitMessageAgentCapability,

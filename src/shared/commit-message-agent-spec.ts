@@ -1,4 +1,6 @@
 import type { TuiAgent } from './types'
+import { DispatchPayloadError } from './dispatch-payload-codec'
+import { isOrcaDispatchReady, tryOrcaDispatch } from './orca-dispatch-seam'
 import { isTuiAgentEnabled } from './tui-agent-selection-resolution'
 import { labelFromModelId } from './model-id-label'
 import {
@@ -26,6 +28,83 @@ import {
 // there with them: `withOpenAiThinking` is needed by both halves, and a value
 // cycle between two `src/shared` modules is the hazard that made the last one
 // need a deferred call.
+//
+// THE SEVEN LOOKUPS NOW RUN ON `orca_agents::commit_message_agent_spec`, over the
+// shared dispatch seam. Cut over IN PLACE: same path, same export names, so no
+// importer's import line changed and what moved is the implementation. The
+// deleted bodies stay below as the pre-ready fallback and are exported as
+// `COMMIT_MESSAGE_AGENT_SPEC_LOOKUP_FALLBACKS`.
+//
+// `getCommitMessageAgentSpec` IS NOT ROUTED, and cannot be. Its return value
+// carries two FUNCTION-VALUED fields, and JSON has no image for a function:
+// `JSON.parse(JSON.stringify(spec))` drops `buildArgs` entirely and reduces
+// `modelDiscovery` to `{binary, args}`. Both are called — `modelDiscovery.parse`
+// in production (`main/text-generation/commit-message-text-generation.ts:256`,
+// on the local and SSH-remote discovery paths) and `buildArgs` by this module's
+// suite. `agent-model-probe-spec.test.ts` also asserts REFERENCE identity
+// (`getAgentModelProbeSpec(id) === getCommitMessageAgentSpec(id)`), which a
+// per-call crossing cannot hold. The BEHAVIOUR of both closures is already on
+// Rust anyway — `buildArgs` through `commit_message_plan`
+// (`planCommitMessageGeneration` builds the spawn argv in production, not this
+// field) and `modelDiscovery.parse` through `commit_message_models` — so what
+// stays in TypeScript is the accessor and the registry it reads, not logic that
+// has no Rust twin. `orca-dispatch` deliberately registers no arm for it; the
+// crate's `get_commit_message_agent_spec` exists and is used by the other arms.
+//
+// ON THE SEAM rather than one surface's binding: the registry is read from
+// `src/shared` itself (`source-control-ai-generation-resolution.ts`,
+// `agent-model-probe-spec.ts`), from main (`commit-message-text-generation.ts`)
+// and from ~8 renderer components, so the reference must resolve under napi and
+// wasm alike.
+//
+// PRE-READY CONTRACT — `parity` for all seven, and it is FORCED:
+//  * `source-control-action-recipe-options.ts:18` builds a module-level
+//    `TEXT_GENERATION_AGENT_ID_SET` from `listCommitMessageAgentCapabilities()`
+//    AT IMPORT TIME in the renderer, i.e. before wasm init, and never recomputes
+//    it; `SourceControlTextGenerationDialogForm.tsx:93` memoizes the same list
+//    with an empty dep array. A pre-ready answer that is not the twin's answer is
+//    frozen for the session.
+//  * `getCommitMessageModel`'s answer becomes `params.model`, the `--model` argv
+//    of the next agent spawn, and `resolveCommitMessageAgentChoice`'s answer
+//    becomes `params.agentId`. No sentinel is available for either: both already
+//    spend `undefined`/`null` on "no such model" and "no agent qualifies".
+// So the fallback is the deleted body over the registry that stayed in
+// TypeScript, which makes pre-ready equal ready for every input.
+//
+// MEASURED, NOT ASSUMED, and four ways — HEAD's twin and this shim, each unbound
+// and each bound — because the fallback is a FOURTH implementation and a
+// twin-vs-core differential is blind to it (that is exactly the class the
+// source-control-ai cutover found). The pre-cutover bodies are frozen in
+// `commit-message-agent-spec-pre-cutover-lookups.ts`;
+// `commit-message-agent-spec-pre-ready.test.ts` runs the named edge classes and
+// proves each arm is really reached, and
+// `commit-message-agent-spec-shape-coverage.test.ts` runs the shape cross
+// product and reports byte, value and strict images separately.
+//
+// DECLARED RESIDUALS — each one an input the twin answered and the core models
+// differently, so the payload is REFUSED and the twin's body answers, including
+// where the twin threw:
+//  1. A PROTOTYPE-CHAIN agent id. `COMMIT_MESSAGE_AGENT_SPECS[agentId]` is a raw
+//     property read, so `'toString'`/`'constructor'`/`'__proto__'` resolve to
+//     Object.prototype's member; the twin then dereferences `.models` on it and
+//     throws `TypeError`, or (in `resolveCommitMessageAgentChoice`) returns the
+//     key as if it were an agent. The core scans a table and answers null.
+//  2. A NON-STRING agent id, which that same property read COERCES —
+//     `getCommitMessageModel(['claude'], 'haiku')` answers with Claude's model.
+//     The core reads `as_str` and answers null.
+//  3. A NON-STRING model id. On a dynamic agent with no catalog hit the twin
+//     calls `modelId.trim()` and CRASHES; the core reads `""`.
+//  4. A NON-STRING `configuredAgentId`/`defaultTuiAgent`: the twin returns a
+//     truthy non-string configured id VERBATIM and answers null for a truthy
+//     non-string default, where the core reads both as absent and falls through
+//     to `claude`.
+//  5. A payload the codec refuses — a lone UTF-16 surrogate in a model id (these
+//     ids arrive off persisted settings and the SSH relay), or an exotic object
+//     inside `disabledTuiAgents`.
+// Residual with no refusal: `getCommitMessageModel` used to hand back the
+// registry's OWN model object, so two calls were reference-equal and a mutation
+// would have edited the table; a crossed answer is a fresh object per call.
+// Value- and byte-identical, and nothing reads it by identity.
 
 export type ThinkingLevel = { id: string; label: string }
 
@@ -497,15 +576,20 @@ export type CustomAgentId = typeof CUSTOM_AGENT_ID
 export type CommitMessageAgentChoice = TuiAgent | CustomAgentId
 export type DefaultTuiAgentPreference = TuiAgent | 'blank' | null | undefined
 
-export function isCustomAgentId(id: string | null | undefined): id is CustomAgentId {
-  return id === CUSTOM_AGENT_ID
-}
-
+/** Stays in TypeScript: the answer carries `buildArgs` and `modelDiscovery.parse`,
+ *  which JSON cannot express. See the residual note at the top of the file. */
 export function getCommitMessageAgentSpec(agentId: TuiAgent): CommitMessageAgentSpec | undefined {
   return COMMIT_MESSAGE_AGENT_SPECS[agentId]
 }
 
-export function resolveCommitMessageAgentChoice(
+// --- the deleted bodies, verbatim: the pre-ready answer and the
+// --- out-of-representation answer, never a second implementation ---
+
+function localIsCustomAgentId(id: unknown): boolean {
+  return id === CUSTOM_AGENT_ID
+}
+
+function localResolveAgentChoice(
   configuredAgentId: CommitMessageAgentChoice | null | undefined,
   defaultTuiAgent: DefaultTuiAgentPreference,
   disabledTuiAgents?: Iterable<unknown> | null
@@ -525,10 +609,7 @@ export function resolveCommitMessageAgentChoice(
     : null
 }
 
-export function getCommitMessageModel(
-  agentId: TuiAgent,
-  modelId: string
-): CommitMessageModel | undefined {
+function localGetModel(agentId: TuiAgent, modelId: string): CommitMessageModel | undefined {
   const spec = getCommitMessageAgentSpec(agentId)
   const model = spec?.models.find((m) => m.id === modelId)
   if (model || !spec || spec.modelSource !== 'dynamic' || modelId.trim().length === 0) {
@@ -561,27 +642,180 @@ function toCommitMessageAgentCapability(
   }
 }
 
+function localGetAgentCapability(agentId: TuiAgent): CommitMessageAgentCapability | undefined {
+  const spec = getCommitMessageAgentSpec(agentId)
+  return spec ? toCommitMessageAgentCapability(spec) : undefined
+}
+
+function localGetModelCapability(
+  agentId: TuiAgent,
+  modelId: string
+): CommitMessageModelCapability | undefined {
+  return localGetAgentCapability(agentId)?.models.find((m) => m.id === modelId)
+}
+
+function localListAgentIds(): TuiAgent[] {
+  return Object.keys(COMMIT_MESSAGE_AGENT_SPECS) as TuiAgent[]
+}
+
+function localListAgentCapabilities(): CommitMessageAgentCapability[] {
+  return localListAgentIds()
+    .map((id) => localGetAgentCapability(id))
+    .filter((capability): capability is CommitMessageAgentCapability => Boolean(capability))
+}
+
+// --- the crossing ---
+
+/** The seam did not answer: unbound, or a payload it refused to encode. Kept
+ *  apart from `null`, which three of these exports mean as a real answer. */
+const NOT_CROSSED = Symbol('commit-message-agent-spec: the Rust core did not answer')
+
+function cross(fn: string, input: unknown, root: string): unknown | typeof NOT_CROSSED {
+  if (!isOrcaDispatchReady()) {
+    return NOT_CROSSED
+  }
+  try {
+    // The module key stays a string LITERAL: report-rust-orphan-ports.mjs can only
+    // attribute a dispatch site whose key is a literal node.
+    return tryOrcaDispatch('commit-message-agent-spec', fn, input, { root })
+  } catch (error) {
+    // Why the catch: model ids arrive off persisted settings and off the SSH
+    // relay, so they can carry a lone UTF-16 surrogate the codec refuses, and
+    // `disabledTuiAgents` is whatever the settings file held. The twin answered
+    // those. A DispatchCoreError still propagates — an unknown function is a
+    // wiring bug, not a degraded input.
+    if (error instanceof DispatchPayloadError) {
+      return NOT_CROSSED
+    }
+    throw error
+  }
+}
+
+/** Whether `COMMIT_MESSAGE_AGENT_SPECS[agentId]` is a lookup the core can model.
+ *  It is a raw property read, so a non-string key is COERCED to one and a
+ *  prototype key resolves to `Object.prototype`'s member — residuals 1 and 2. */
+function isRegistryLookupKey(agentId: unknown): agentId is TuiAgent {
+  return (
+    typeof agentId === 'string' &&
+    (Object.hasOwn(COMMIT_MESSAGE_AGENT_SPECS, agentId) || !(agentId in COMMIT_MESSAGE_AGENT_SPECS))
+  )
+}
+
+/** The twin only ever read an ARRAY of disabled ids (through `isTuiAgentEnabled`,
+ *  which does the same narrowing), so every other iterable disabled nothing. */
+function disabledArray(disabled: Iterable<unknown> | null | undefined): unknown[] {
+  return Array.isArray(disabled) ? (disabled as unknown[]) : []
+}
+
+export function isCustomAgentId(id: string | null | undefined): id is CustomAgentId {
+  const answer = cross('isCustomAgentId', id, 'id')
+  return answer === NOT_CROSSED ? localIsCustomAgentId(id) : (answer as boolean)
+}
+
+export function resolveCommitMessageAgentChoice(
+  configuredAgentId: CommitMessageAgentChoice | null | undefined,
+  defaultTuiAgent: DefaultTuiAgentPreference,
+  disabledTuiAgents?: Iterable<unknown> | null
+): CommitMessageAgentChoice | null {
+  // Widened on purpose: both preferences are read straight off persisted
+  // settings, so the runtime value may not match the declared union.
+  const configured: unknown = configuredAgentId
+  const preferred: unknown = defaultTuiAgent
+  const crossable =
+    (configured === null || configured === undefined || typeof configured === 'string') &&
+    (preferred === null || preferred === undefined || isRegistryLookupKey(preferred))
+  if (!crossable) {
+    return localResolveAgentChoice(configuredAgentId, defaultTuiAgent, disabledTuiAgents)
+  }
+  const answer = cross(
+    'resolveCommitMessageAgentChoice',
+    {
+      configuredAgentId: configuredAgentId ?? null,
+      defaultTuiAgent: defaultTuiAgent ?? null,
+      disabledTuiAgents: disabledArray(disabledTuiAgents)
+    },
+    'resolveCommitMessageAgentChoice'
+  )
+  return answer === NOT_CROSSED
+    ? localResolveAgentChoice(configuredAgentId, defaultTuiAgent, disabledTuiAgents)
+    : (answer as CommitMessageAgentChoice | null)
+}
+
+export function getCommitMessageModel(
+  agentId: TuiAgent,
+  modelId: string
+): CommitMessageModel | undefined {
+  if (!isRegistryLookupKey(agentId) || typeof modelId !== 'string') {
+    return localGetModel(agentId, modelId)
+  }
+  const answer = cross('getCommitMessageModel', { agentId, modelId }, 'getCommitMessageModel')
+  if (answer === NOT_CROSSED) {
+    return localGetModel(agentId, modelId)
+  }
+  // `Value::Null` is how the arm spells TS `undefined`; no lookup answers a real null.
+  return answer === null ? undefined : (answer as CommitMessageModel)
+}
+
 export function getCommitMessageAgentCapability(
   agentId: TuiAgent
 ): CommitMessageAgentCapability | undefined {
-  const spec = getCommitMessageAgentSpec(agentId)
-  return spec ? toCommitMessageAgentCapability(spec) : undefined
+  if (!isRegistryLookupKey(agentId)) {
+    return localGetAgentCapability(agentId)
+  }
+  const answer = cross(
+    'getCommitMessageAgentCapability',
+    { agentId },
+    'getCommitMessageAgentCapability'
+  )
+  if (answer === NOT_CROSSED) {
+    return localGetAgentCapability(agentId)
+  }
+  return answer === null ? undefined : (answer as CommitMessageAgentCapability)
 }
 
 export function getCommitMessageModelCapability(
   agentId: TuiAgent,
   modelId: string
 ): CommitMessageModelCapability | undefined {
-  return getCommitMessageAgentCapability(agentId)?.models.find((m) => m.id === modelId)
+  if (!isRegistryLookupKey(agentId) || typeof modelId !== 'string') {
+    return localGetModelCapability(agentId, modelId)
+  }
+  const answer = cross(
+    'getCommitMessageModelCapability',
+    { agentId, modelId },
+    'getCommitMessageModelCapability'
+  )
+  if (answer === NOT_CROSSED) {
+    return localGetModelCapability(agentId, modelId)
+  }
+  return answer === null ? undefined : (answer as CommitMessageModelCapability)
 }
 
 /** Ordered list of agents that have a non-interactive mode wired up. */
 export function listCommitMessageAgentIds(): TuiAgent[] {
-  return Object.keys(COMMIT_MESSAGE_AGENT_SPECS) as TuiAgent[]
+  const answer = cross('listCommitMessageAgentIds', undefined, 'listCommitMessageAgentIds')
+  return answer === NOT_CROSSED ? localListAgentIds() : (answer as TuiAgent[])
 }
 
 export function listCommitMessageAgentCapabilities(): CommitMessageAgentCapability[] {
-  return listCommitMessageAgentIds()
-    .map((id) => getCommitMessageAgentCapability(id))
-    .filter((capability): capability is CommitMessageAgentCapability => Boolean(capability))
+  const answer = cross(
+    'listCommitMessageAgentCapabilities',
+    undefined,
+    'listCommitMessageAgentCapabilities'
+  )
+  return answer === NOT_CROSSED
+    ? localListAgentCapabilities()
+    : (answer as CommitMessageAgentCapability[])
 }
+
+/** The deleted bodies, exported for the suites that compare pre-ready against
+ *  ready without reaching through the seam to do it. */
+export const COMMIT_MESSAGE_AGENT_SPEC_LOOKUP_FALLBACKS = {
+  isCustomAgentId: localIsCustomAgentId,
+  resolveCommitMessageAgentChoice: localResolveAgentChoice,
+  getCommitMessageModel: localGetModel,
+  getCommitMessageAgentCapability: localGetAgentCapability,
+  getCommitMessageModelCapability: localGetModelCapability,
+  listCommitMessageAgentIds: localListAgentIds,
+  listCommitMessageAgentCapabilities: localListAgentCapabilities
+} as const
