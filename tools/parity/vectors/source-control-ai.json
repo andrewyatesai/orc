@@ -16302,6 +16302,1046 @@
         "selectedThinkingByModel": {},
         "customPrompt": ""
       }
+    },
+    {
+      "function": "resolveSourceControlAiForOperation",
+      "note": "settings.sourceControlAi absent, legacy with no customAgentCommand key — the shape persistence.ts:3286 builds; the unguarded operand crashed here",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "codex"
+          }
+        },
+        "repo": null,
+        "operation": "commitMessage"
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "enabled": true,
+          "params": {
+            "agentId": "codex",
+            "model": "gpt-5.5",
+            "thinkingLevel": "low",
+            "customPrompt": "",
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "prCreationDefaults": {
+            "draft": false,
+            "useTemplate": false,
+            "generateDetailsOnOpen": false,
+            "openAfterCreate": false
+          }
+        }
+      }
+    },
+    {
+      "function": "resolveSourceControlAiForOperation",
+      "note": "settings.sourceControlAi absent, legacy with no customAgentCommand key — the shape persistence.ts:3286 builds; the unguarded operand crashed here",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "codex"
+          }
+        },
+        "repo": null,
+        "operation": "pullRequest"
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "enabled": true,
+          "params": {
+            "agentId": "codex",
+            "model": "gpt-5.5",
+            "thinkingLevel": "low",
+            "customPrompt": "",
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "prCreationDefaults": {
+            "draft": false,
+            "useTemplate": false,
+            "generateDetailsOnOpen": false,
+            "openAfterCreate": false
+          }
+        }
+      }
+    },
+    {
+      "function": "resolveSourceControlAiForOperation",
+      "note": "settings.sourceControlAi absent, legacy with no customAgentCommand key — the shape persistence.ts:3286 builds; the unguarded operand crashed here",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "codex"
+          }
+        },
+        "repo": null,
+        "operation": "branchName"
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "enabled": true,
+          "params": {
+            "agentId": "codex",
+            "model": "gpt-5.5",
+            "thinkingLevel": "low",
+            "customPrompt": "",
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "prCreationDefaults": {
+            "draft": false,
+            "useTemplate": false,
+            "generateDetailsOnOpen": false,
+            "openAfterCreate": false
+          }
+        }
+      }
+    },
+    {
+      "function": "resolveSourceControlAiForOperation",
+      "note": "settings.sourceControlAi absent, legacy with no customAgentCommand key, legacy prompt — the shape persistence.ts:3286 builds; the unguarded operand crashed here",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "codex",
+            "customPrompt": "legacy only"
+          }
+        },
+        "repo": null,
+        "operation": "commitMessage"
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "enabled": true,
+          "params": {
+            "agentId": "codex",
+            "model": "gpt-5.5",
+            "thinkingLevel": "low",
+            "customPrompt": "legacy only",
+            "commandInputTemplate": "{basePrompt}\n\nlegacy only"
+          },
+          "prCreationDefaults": {
+            "draft": false,
+            "useTemplate": false,
+            "generateDetailsOnOpen": false,
+            "openAfterCreate": false
+          }
+        }
+      }
+    },
+    {
+      "function": "resolveSourceControlAiForOperation",
+      "note": "settings.sourceControlAi absent, legacy with no customAgentCommand key, legacy prompt — the shape persistence.ts:3286 builds; the unguarded operand crashed here",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "codex",
+            "customPrompt": "legacy only"
+          }
+        },
+        "repo": null,
+        "operation": "pullRequest"
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "enabled": true,
+          "params": {
+            "agentId": "codex",
+            "model": "gpt-5.5",
+            "thinkingLevel": "low",
+            "customPrompt": "",
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "prCreationDefaults": {
+            "draft": false,
+            "useTemplate": false,
+            "generateDetailsOnOpen": false,
+            "openAfterCreate": false
+          }
+        }
+      }
+    },
+    {
+      "function": "resolveSourceControlAiForOperation",
+      "note": "settings.sourceControlAi absent, legacy with no customAgentCommand key, legacy prompt — the shape persistence.ts:3286 builds; the unguarded operand crashed here",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "codex",
+            "customPrompt": "legacy only"
+          }
+        },
+        "repo": null,
+        "operation": "branchName"
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "enabled": true,
+          "params": {
+            "agentId": "codex",
+            "model": "gpt-5.5",
+            "thinkingLevel": "low",
+            "customPrompt": "legacy only",
+            "commandInputTemplate": "legacy only\n\n{basePrompt}"
+          },
+          "prCreationDefaults": {
+            "draft": false,
+            "useTemplate": false,
+            "generateDetailsOnOpen": false,
+            "openAfterCreate": false
+          }
+        }
+      }
+    },
+    {
+      "function": "resolveSourceControlAiForOperation",
+      "note": "settings.sourceControlAi absent, legacy with no customAgentCommand key, claude — the shape persistence.ts:3286 builds; the unguarded operand crashed here",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "claude"
+          }
+        },
+        "repo": null,
+        "operation": "commitMessage"
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "enabled": true,
+          "params": {
+            "agentId": "claude",
+            "model": "sonnet",
+            "thinkingLevel": "low",
+            "customPrompt": "",
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "prCreationDefaults": {
+            "draft": false,
+            "useTemplate": false,
+            "generateDetailsOnOpen": false,
+            "openAfterCreate": false
+          }
+        }
+      }
+    },
+    {
+      "function": "resolveSourceControlAiForOperation",
+      "note": "settings.sourceControlAi absent, legacy with no customAgentCommand key, claude — the shape persistence.ts:3286 builds; the unguarded operand crashed here",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "claude"
+          }
+        },
+        "repo": null,
+        "operation": "pullRequest"
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "enabled": true,
+          "params": {
+            "agentId": "claude",
+            "model": "sonnet",
+            "thinkingLevel": "low",
+            "customPrompt": "",
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "prCreationDefaults": {
+            "draft": false,
+            "useTemplate": false,
+            "generateDetailsOnOpen": false,
+            "openAfterCreate": false
+          }
+        }
+      }
+    },
+    {
+      "function": "resolveSourceControlAiForOperation",
+      "note": "settings.sourceControlAi absent, legacy with no customAgentCommand key, claude — the shape persistence.ts:3286 builds; the unguarded operand crashed here",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "claude"
+          }
+        },
+        "repo": null,
+        "operation": "branchName"
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "enabled": true,
+          "params": {
+            "agentId": "claude",
+            "model": "sonnet",
+            "thinkingLevel": "low",
+            "customPrompt": "",
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "prCreationDefaults": {
+            "draft": false,
+            "useTemplate": false,
+            "generateDetailsOnOpen": false,
+            "openAfterCreate": false
+          }
+        }
+      }
+    },
+    {
+      "function": "resolveSourceControlAiEnabled",
+      "note": "settings.sourceControlAi absent, legacy without customAgentCommand",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "codex"
+          }
+        },
+        "repo": null
+      },
+      "expected": true
+    },
+    {
+      "function": "resolveSourceControlAiInstructions",
+      "note": "settings.sourceControlAi absent, legacy without customAgentCommand",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "codex"
+          }
+        },
+        "repo": null,
+        "operation": "commitMessage"
+      },
+      "expected": ""
+    },
+    {
+      "function": "resolveSourceControlActionRecipe",
+      "note": "settings.sourceControlAi absent, legacy without customAgentCommand",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "codex"
+          }
+        },
+        "repo": null,
+        "actionId": "commitMessage"
+      },
+      "expected": {
+        "agentId": "codex",
+        "commandInputTemplate": "{basePrompt}"
+      }
+    },
+    {
+      "function": "resolveSourceControlAiForOperation",
+      "note": "settings.sourceControlAi null, legacy with no customAgentCommand key — the shape persistence.ts:3286 builds; the unguarded operand crashed here",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "codex"
+          },
+          "sourceControlAi": null
+        },
+        "repo": null,
+        "operation": "commitMessage"
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "enabled": true,
+          "params": {
+            "agentId": "codex",
+            "model": "gpt-5.5",
+            "thinkingLevel": "low",
+            "customPrompt": "",
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "prCreationDefaults": {
+            "draft": false,
+            "useTemplate": false,
+            "generateDetailsOnOpen": false,
+            "openAfterCreate": false
+          }
+        }
+      }
+    },
+    {
+      "function": "resolveSourceControlAiForOperation",
+      "note": "settings.sourceControlAi null, legacy with no customAgentCommand key — the shape persistence.ts:3286 builds; the unguarded operand crashed here",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "codex"
+          },
+          "sourceControlAi": null
+        },
+        "repo": null,
+        "operation": "pullRequest"
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "enabled": true,
+          "params": {
+            "agentId": "codex",
+            "model": "gpt-5.5",
+            "thinkingLevel": "low",
+            "customPrompt": "",
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "prCreationDefaults": {
+            "draft": false,
+            "useTemplate": false,
+            "generateDetailsOnOpen": false,
+            "openAfterCreate": false
+          }
+        }
+      }
+    },
+    {
+      "function": "resolveSourceControlAiForOperation",
+      "note": "settings.sourceControlAi null, legacy with no customAgentCommand key — the shape persistence.ts:3286 builds; the unguarded operand crashed here",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "codex"
+          },
+          "sourceControlAi": null
+        },
+        "repo": null,
+        "operation": "branchName"
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "enabled": true,
+          "params": {
+            "agentId": "codex",
+            "model": "gpt-5.5",
+            "thinkingLevel": "low",
+            "customPrompt": "",
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "prCreationDefaults": {
+            "draft": false,
+            "useTemplate": false,
+            "generateDetailsOnOpen": false,
+            "openAfterCreate": false
+          }
+        }
+      }
+    },
+    {
+      "function": "resolveSourceControlAiForOperation",
+      "note": "settings.sourceControlAi null, legacy with no customAgentCommand key, legacy prompt — the shape persistence.ts:3286 builds; the unguarded operand crashed here",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "codex",
+            "customPrompt": "legacy only"
+          },
+          "sourceControlAi": null
+        },
+        "repo": null,
+        "operation": "commitMessage"
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "enabled": true,
+          "params": {
+            "agentId": "codex",
+            "model": "gpt-5.5",
+            "thinkingLevel": "low",
+            "customPrompt": "legacy only",
+            "commandInputTemplate": "{basePrompt}\n\nlegacy only"
+          },
+          "prCreationDefaults": {
+            "draft": false,
+            "useTemplate": false,
+            "generateDetailsOnOpen": false,
+            "openAfterCreate": false
+          }
+        }
+      }
+    },
+    {
+      "function": "resolveSourceControlAiForOperation",
+      "note": "settings.sourceControlAi null, legacy with no customAgentCommand key, legacy prompt — the shape persistence.ts:3286 builds; the unguarded operand crashed here",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "codex",
+            "customPrompt": "legacy only"
+          },
+          "sourceControlAi": null
+        },
+        "repo": null,
+        "operation": "pullRequest"
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "enabled": true,
+          "params": {
+            "agentId": "codex",
+            "model": "gpt-5.5",
+            "thinkingLevel": "low",
+            "customPrompt": "",
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "prCreationDefaults": {
+            "draft": false,
+            "useTemplate": false,
+            "generateDetailsOnOpen": false,
+            "openAfterCreate": false
+          }
+        }
+      }
+    },
+    {
+      "function": "resolveSourceControlAiForOperation",
+      "note": "settings.sourceControlAi null, legacy with no customAgentCommand key, legacy prompt — the shape persistence.ts:3286 builds; the unguarded operand crashed here",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "codex",
+            "customPrompt": "legacy only"
+          },
+          "sourceControlAi": null
+        },
+        "repo": null,
+        "operation": "branchName"
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "enabled": true,
+          "params": {
+            "agentId": "codex",
+            "model": "gpt-5.5",
+            "thinkingLevel": "low",
+            "customPrompt": "legacy only",
+            "commandInputTemplate": "legacy only\n\n{basePrompt}"
+          },
+          "prCreationDefaults": {
+            "draft": false,
+            "useTemplate": false,
+            "generateDetailsOnOpen": false,
+            "openAfterCreate": false
+          }
+        }
+      }
+    },
+    {
+      "function": "resolveSourceControlAiForOperation",
+      "note": "settings.sourceControlAi null, legacy with no customAgentCommand key, claude — the shape persistence.ts:3286 builds; the unguarded operand crashed here",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "claude"
+          },
+          "sourceControlAi": null
+        },
+        "repo": null,
+        "operation": "commitMessage"
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "enabled": true,
+          "params": {
+            "agentId": "claude",
+            "model": "sonnet",
+            "thinkingLevel": "low",
+            "customPrompt": "",
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "prCreationDefaults": {
+            "draft": false,
+            "useTemplate": false,
+            "generateDetailsOnOpen": false,
+            "openAfterCreate": false
+          }
+        }
+      }
+    },
+    {
+      "function": "resolveSourceControlAiForOperation",
+      "note": "settings.sourceControlAi null, legacy with no customAgentCommand key, claude — the shape persistence.ts:3286 builds; the unguarded operand crashed here",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "claude"
+          },
+          "sourceControlAi": null
+        },
+        "repo": null,
+        "operation": "pullRequest"
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "enabled": true,
+          "params": {
+            "agentId": "claude",
+            "model": "sonnet",
+            "thinkingLevel": "low",
+            "customPrompt": "",
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "prCreationDefaults": {
+            "draft": false,
+            "useTemplate": false,
+            "generateDetailsOnOpen": false,
+            "openAfterCreate": false
+          }
+        }
+      }
+    },
+    {
+      "function": "resolveSourceControlAiForOperation",
+      "note": "settings.sourceControlAi null, legacy with no customAgentCommand key, claude — the shape persistence.ts:3286 builds; the unguarded operand crashed here",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "claude"
+          },
+          "sourceControlAi": null
+        },
+        "repo": null,
+        "operation": "branchName"
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "enabled": true,
+          "params": {
+            "agentId": "claude",
+            "model": "sonnet",
+            "thinkingLevel": "low",
+            "customPrompt": "",
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "prCreationDefaults": {
+            "draft": false,
+            "useTemplate": false,
+            "generateDetailsOnOpen": false,
+            "openAfterCreate": false
+          }
+        }
+      }
+    },
+    {
+      "function": "resolveSourceControlAiEnabled",
+      "note": "settings.sourceControlAi null, legacy without customAgentCommand",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "codex"
+          },
+          "sourceControlAi": null
+        },
+        "repo": null
+      },
+      "expected": true
+    },
+    {
+      "function": "resolveSourceControlAiInstructions",
+      "note": "settings.sourceControlAi null, legacy without customAgentCommand",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "codex"
+          },
+          "sourceControlAi": null
+        },
+        "repo": null,
+        "operation": "commitMessage"
+      },
+      "expected": ""
+    },
+    {
+      "function": "resolveSourceControlActionRecipe",
+      "note": "settings.sourceControlAi null, legacy without customAgentCommand",
+      "input": {
+        "settings": {
+          "defaultTuiAgent": "codex",
+          "disabledTuiAgents": [],
+          "customAgents": [],
+          "agentCmdOverrides": {},
+          "commitMessageAi": {
+            "enabled": true,
+            "agentId": "codex"
+          },
+          "sourceControlAi": null
+        },
+        "repo": null,
+        "actionId": "commitMessage"
+      },
+      "expected": {
+        "agentId": "codex",
+        "commandInputTemplate": "{basePrompt}"
+      }
+    },
+    {
+      "function": "sourceControlAiSettingsFromLegacy",
+      "note": "legacy with no customAgentCommand key — yields an OWN customAgentCommand: undefined in the twin",
+      "input": {
+        "enabled": true,
+        "agentId": "codex"
+      },
+      "expected": {
+        "enabled": true,
+        "actions": {
+          "commitMessage": {
+            "agentId": "codex",
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "pullRequest": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "branchName": {
+            "agentId": "codex",
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixCommitFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixPushFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixChecks": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveConflicts": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveComments": {
+            "commandInputTemplate": "{basePrompt}"
+          }
+        },
+        "agentId": "codex",
+        "selectedModelByAgent": {},
+        "selectedModelByAgentByHost": {},
+        "discoveredModelsByAgent": {},
+        "discoveredModelsByAgentByHost": {},
+        "selectedThinkingByModel": {},
+        "instructionsByOperation": {
+          "commitMessage": "",
+          "pullRequest": "",
+          "branchName": ""
+        },
+        "prCreationDefaults": {
+          "draft": false,
+          "useTemplate": false,
+          "generateDetailsOnOpen": false,
+          "openAfterCreate": false
+        },
+        "launchActionDefaults": {}
+      }
+    },
+    {
+      "function": "normalizeSourceControlAiSettings",
+      "note": "sourceControlAi absent, legacy with no customAgentCommand key",
+      "input": {
+        "value": null,
+        "legacy": {
+          "enabled": true,
+          "agentId": "codex"
+        }
+      },
+      "expected": {
+        "enabled": true,
+        "actions": {
+          "commitMessage": {
+            "commandInputTemplate": "{basePrompt}",
+            "agentId": "codex"
+          },
+          "pullRequest": {
+            "commandInputTemplate": "{basePrompt}",
+            "agentId": "codex"
+          },
+          "branchName": {
+            "commandInputTemplate": "{basePrompt}",
+            "agentId": "codex"
+          },
+          "fixCommitFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixPushFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixChecks": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveConflicts": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveComments": {
+            "commandInputTemplate": "{basePrompt}"
+          }
+        },
+        "agentId": "codex",
+        "selectedModelByAgent": {},
+        "selectedModelByAgentByHost": {},
+        "discoveredModelsByAgent": {},
+        "discoveredModelsByAgentByHost": {},
+        "selectedThinkingByModel": {},
+        "instructionsByOperation": {
+          "commitMessage": "",
+          "pullRequest": "",
+          "branchName": ""
+        },
+        "prCreationDefaults": {
+          "draft": false,
+          "useTemplate": false,
+          "generateDetailsOnOpen": false,
+          "openAfterCreate": false
+        },
+        "launchActionDefaults": {}
+      }
+    },
+    {
+      "function": "sourceControlAiSettingsFromLegacy",
+      "note": "legacy with no customAgentCommand key, legacy prompt — yields an OWN customAgentCommand: undefined in the twin",
+      "input": {
+        "enabled": true,
+        "agentId": "codex",
+        "customPrompt": "legacy only"
+      },
+      "expected": {
+        "enabled": true,
+        "actions": {
+          "commitMessage": {
+            "agentId": "codex",
+            "commandInputTemplate": "{basePrompt}\n\nlegacy only"
+          },
+          "pullRequest": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "branchName": {
+            "agentId": "codex",
+            "commandInputTemplate": "legacy only\n\n{basePrompt}"
+          },
+          "fixCommitFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixPushFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixChecks": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveConflicts": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveComments": {
+            "commandInputTemplate": "{basePrompt}"
+          }
+        },
+        "agentId": "codex",
+        "selectedModelByAgent": {},
+        "selectedModelByAgentByHost": {},
+        "discoveredModelsByAgent": {},
+        "discoveredModelsByAgentByHost": {},
+        "selectedThinkingByModel": {},
+        "instructionsByOperation": {
+          "commitMessage": "legacy only",
+          "pullRequest": "",
+          "branchName": "legacy only"
+        },
+        "prCreationDefaults": {
+          "draft": false,
+          "useTemplate": false,
+          "generateDetailsOnOpen": false,
+          "openAfterCreate": false
+        },
+        "launchActionDefaults": {}
+      }
+    },
+    {
+      "function": "normalizeSourceControlAiSettings",
+      "note": "sourceControlAi absent, legacy with no customAgentCommand key, legacy prompt",
+      "input": {
+        "value": null,
+        "legacy": {
+          "enabled": true,
+          "agentId": "codex",
+          "customPrompt": "legacy only"
+        }
+      },
+      "expected": {
+        "enabled": true,
+        "actions": {
+          "commitMessage": {
+            "commandInputTemplate": "{basePrompt}\n\nlegacy only",
+            "agentId": "codex"
+          },
+          "pullRequest": {
+            "commandInputTemplate": "{basePrompt}",
+            "agentId": "codex"
+          },
+          "branchName": {
+            "commandInputTemplate": "legacy only\n\n{basePrompt}",
+            "agentId": "codex"
+          },
+          "fixCommitFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixPushFailure": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "fixChecks": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveConflicts": {
+            "commandInputTemplate": "{basePrompt}"
+          },
+          "resolveComments": {
+            "commandInputTemplate": "{basePrompt}"
+          }
+        },
+        "agentId": "codex",
+        "selectedModelByAgent": {},
+        "selectedModelByAgentByHost": {},
+        "discoveredModelsByAgent": {},
+        "discoveredModelsByAgentByHost": {},
+        "selectedThinkingByModel": {},
+        "instructionsByOperation": {
+          "commitMessage": "legacy only",
+          "pullRequest": "",
+          "branchName": "legacy only"
+        },
+        "prCreationDefaults": {
+          "draft": false,
+          "useTemplate": false,
+          "generateDetailsOnOpen": false,
+          "openAfterCreate": false
+        },
+        "launchActionDefaults": {}
+      }
     }
   ]
 }

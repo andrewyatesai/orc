@@ -328,7 +328,6 @@ inline src/shared/keybindings.ts
 inline src/shared/marine-creatures.ts
 inline src/shared/remote-runtime-client.ts
 inline src/shared/runtime-types.ts
-inline src/shared/source-control-ai.ts
 inline src/shared/telemetry-events.ts
 inline src/shared/text-search.ts
 inline src/shared/types.ts

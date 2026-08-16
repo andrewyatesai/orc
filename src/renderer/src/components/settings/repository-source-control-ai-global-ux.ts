@@ -31,6 +31,7 @@ import {
   readInheritedCommandTemplate
 } from './repository-source-control-ai-labels'
 import { createRepoAiPersistQueue } from './repository-source-control-ai-persist-queue'
+import { sameRepoSourceControlAiOverrides } from './repository-source-control-ai-write-dedupe'
 
 export { normalizeRepoAiDraft as normalizePersistedRepoAi } from './repository-source-control-ai-draft'
 
@@ -169,7 +170,7 @@ export function useRepositorySourceControlAiGlobalUx({
     setCustomCommandDraft(value ?? '')
     // Blur fires even when unchanged — skip the queue for true no-ops.
     const next = withRepoAiCustomCommand(persistedRef.current, value)
-    if (JSON.stringify(next) === JSON.stringify(persistedRef.current)) {
+    if (sameRepoSourceControlAiOverrides(next, persistedRef.current)) {
       setCustomCommandDraft((latest) => (latest === (value ?? '') ? null : latest))
       return
     }

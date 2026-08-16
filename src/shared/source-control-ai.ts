@@ -1,35 +1,207 @@
-/* eslint-disable max-lines -- Why: defaults, migration compatibility, and
-   operation resolution stay together so source-control AI precedence rules
-   cannot drift across commit-message, PR, repo, local, SSH, and runtime paths. */
-import { collapseDefaultTuiAgentToBuiltin } from './tui-agent-selection-resolution'
+// Source-control AI settings, migration and per-operation precedence on the Rust
+// `orca_git::source_control_ai` core, over the shared dispatch seam.
+//
+// The module KEEPS ITS NAME AND ITS EXPORTS: every caller's import line is
+// unchanged, and what moved is the implementation. The deleted twin's bodies live
+// in `source-control-ai-{instruction-templates,repo-override-normalization,
+// settings-normalization,legacy-model-selection-delta,legacy-commit-message-merge,
+// host-model-choice,operation-precedence,generation-resolution}.ts` — split
+// because the twin was one 1343-line file behind a `max-lines` bypass, and the
+// bypass is now GONE from `config/max-lines-baseline.txt`.
+//
+// On the SEAM rather than one surface's binding because all four binding-holding
+// surfaces call these: main (`persistence.ts` normalizes/merges/projects the
+// settings blob on every read and write, `ipc/repos.ts` and
+// `rpc/methods/repo-update-schema.ts` sanitize the repo override,
+// `text-generation/commit-message-text-generation.ts` resolves the operation),
+// the renderer (Settings, the repository SC-AI pane, CommitArea, ChecksPanel, the
+// PR dialog, the fix-with-AI launchers — wasm at ready), `src/shared` itself
+// (`constants.ts` builds the default settings, `source-control-ai-recipe-save.ts`)
+// and the SSH relay through that shared surface.
+//
+// PRE-READY CONTRACT — `parity` for all fifteen exports, and it is FORCED TWICE.
+//
+//  1. By the surfaces. These settings are PERSISTED PER REPO and decide WHICH
+//     MODEL runs a commit message, PR body or branch name, so a pre-ready answer
+//     that is not the twin's answer gets written back:
+//     `getDefaultSourceControlAiSettings` IS the `sourceControlAi` member of
+//     `getDefaultSettings()` (`constants.ts:431`), the object a first run saves;
+//     the two normalizers are the sanitizers on both sides; merge/project are the
+//     rollback bridge. No sentinel is available for the rest either — the
+//     predicates are consumed inside `if`, `resolveSourceControlAiInstructions`
+//     already spends `''` on "no instructions",
+//     `resolveSourceControlAiForOperation` already spends `{ok:false, error}` on
+//     failure, and the three model-choice helpers already spend `undefined` on
+//     "no choice recorded".
+//  2. By the input contract, which is why NO export can take `requireOrcaDispatch`
+//     and drop its body — not even the three whose only callers are main
+//     (`sourceControlAiSettingsFromLegacy`,
+//     `mergeLegacyCommitMessageAiIntoSourceControlAi`,
+//     `projectSourceControlAiToLegacyCommitMessageAi`, all `persistence.ts` /
+//     `orca-runtime-git.ts`, where the seam is bound at bootstrap). The twin's
+//     body is ALSO the answer for every input the core models differently
+//     (residual 3 below), so deleting it would change behaviour on a persisted
+//     settings file, not just before wasm.
+//
+// Measured, not asserted, in `source-control-ai-pre-ready.test.ts` (the named
+// edge cases) and `source-control-ai-shape-coverage.test.ts` (the shape cross
+// product): every case runs unbound and again on the SHIPPED wasm core and the
+// two answers must match, a counting binding proves each export really reached
+// its arm, and the corpus half is `pnpm parity` driving this shim unbound over
+// the shared vectors.
+//
+// NULL AT THE SEAM IS NOT ONE THING. Three exports can answer TS `undefined`
+// (`readSourceControlAiModelChoiceForHost`,
+// `clearSourceControlAiModelChoiceForHost`,
+// `normalizeRepoSourceControlAiOverrides`) and the arm spells that case
+// `Value::Null`, because `undefined` has no JSON image. For THOSE THREE a crossed
+// `null` is mapped back to `undefined`. For the other twelve a top-level `null`
+// is not a value the twin can return at all, so it is never reinterpreted — and
+// "the seam did not run" is carried by `NOT_CROSSED`, never by `null`, so "no
+// choice recorded" can never become "the choice is null".
+//
+// DECLARED RESIDUALS, all reachable:
+//  1. The payload is encoded with `{undefinedProperties: 'omit'}` (in
+//     `source-control-ai-core-crossing.ts`), so an own property whose value is
+//     `undefined` arrives ABSENT. It cannot be 'reject' —
+//     `normalizeSourceControlAiSettings` itself returns
+//     `modelOverridesByOperation: undefined` as an own key and its output is the
+//     next call's input — and it is NOT universally answer-preserving, which is
+//     why `source-control-ai-core-representable.ts` exists. The twin spreads
+//     (`{...defaults, ...base}`), so a present-`undefined` SHADOWS the default
+//     where an absent key INHERITS it, and `hasEntries` counts an own key holding
+//     `undefined` that `normalize_string_record` never sees. So own-`undefined`
+//     inside a crossed blob is REFUSED, except at the positions proven identical
+//     on both sides (`ALLOWED_OWN_UNDEFINED`, currently
+//     `modelOverridesByOperation`, which both sides drop from the persisted
+//     image).
+//  2. A returned object is EQUAL BY VALUE, not key-for-key, in two ways: the core
+//     OMITS a key the twin returned holding own-`undefined`, and it emits the keys
+//     it does return in its own order (BTreeMap / struct order).
+//
+//     MEASURED BY SHAPE, NOT BY CALL COUNT. Three earlier attempts reported a big
+//     denominator ("0 of 72,545", "0 of 60,995") and an independent rerun refuted
+//     each one, because a fifteen-export module's shape space is large enough that
+//     a six-figure sample can still miss an entire input SHAPE. The current figure
+//     is the COMPLETE `settings.sourceControlAi` x `settings.commitMessageAi` x
+//     `repo.sourceControlAi` product — 82 x 52 x 57 named cells — crossed with
+//     every operation, action id, discovery host, product default and agent
+//     environment: 7,775,055 cases, 3,162,875 of them crossing to the SHIPPED wasm
+//     core, with the pre-cutover HEAD twin as the reference on both sides of the
+//     seam. Three images, nested:
+//       * VALUE (keys sorted, own-`undefined` dropped) — 0 mismatches. Every `?.`
+//         read, every `JSON.parse` round trip and every by-key consumer sees the
+//         same answer.
+//       * BYTE (`JSON.stringify`) — 101,361, i.e. 3.2% of the crossed cases. KEY
+//         ORDER ONLY, at exactly these paths: the whole returned object; each
+//         `actions.{commitMessage,pullRequest,branchName}` recipe; `actionOverrides`
+//         and its members; `selectedModelByAgent`; `selectedModelByAgentByHost` and
+//         its host maps; `modelOverridesByOperation.*.selectedModelByAgent`.
+//       * STRICT (own-`undefined` distinguished from absent) — 101,697, i.e. 336
+//         cases beyond BYTE, only ever at `enabled`, `agentId`, `customAgentCommand`,
+//         `modelOverridesByOperation` and `selectedModelByAgent`. `JSON.stringify`
+//         drops all five, every `?.` read answers `undefined` either way, and the
+//         twin's own re-read path never sees them because a blob carrying
+//         own-`undefined` at those positions is refused on INPUT (residual 1).
+//     `source-control-ai-shape-coverage.test.ts` reruns that sweep — a smaller
+//     design by default, the complete product under `SCA_SHAPE_FULL=1` — and
+//     asserts the path list above, so a NEW divergence class fails rather than
+//     joining an average.
+//
+//     KEY ORDER IS NOT COSMETIC, AND "nothing does X" IS A CLAIM. An earlier note
+//     here said nothing in the tree compares a result of this module by raw
+//     `JSON.stringify`. That was FALSE. What the order difference looks like: for
+//     one repo-override blob the twin emits `actionOverrides: {fixChecks,
+//     pullRequest}` and the core `{pullRequest, fixChecks}`. Every consumer of the
+//     fifteen exports was walked; three sites read the byte image and here is each:
+//       * `repository-source-control-ai-persist-queue.ts` and
+//         `repository-source-control-ai-global-ux.ts` — the repository pane's
+//         redundant-write dedupe, `JSON.stringify(next) === JSON.stringify(base)`.
+//         Both operands are `normalizeRepoSourceControlAiOverrides` output and
+//         every `withRepoAi*` transform RE-NORMALIZES, so a base normalized before
+//         the renderer's wasm was ready and an edit normalized after it were
+//         compared across the seam and read as "changed" — the dedupe silently
+//         stops deduping. FIXED: both go through
+//         `repository-source-control-ai-write-dedupe.ts`, which compares by value;
+//         `repository-source-control-ai-key-order.test.ts` plants the mixed case
+//         and goes red on the byte comparison.
+//       * `main/persistence.ts` `writeToDiskAsync` — sha1 over
+//         `JSON.stringify(stateToSave)` decides whether to rewrite the store. A
+//         reordered blob changes the hash, so a renderer-written pre-ready value
+//         that main later re-normalizes costs ONE extra full-state write; it can
+//         never suppress a needed one, because a changed value always changes the
+//         string. Left alone deliberately.
+//     `repository-source-control-ai-global-ux.ts:61` also memoizes
+//     `JSON.stringify(persistedRepoAi)`, but only as an effect dependency ALONGSIDE
+//     `persistedRepoAi` itself, so it cannot change when the identity does not.
+//     Nothing else iterates these outputs for order: every other reader indexes by
+//     key, counts `Object.keys(...).length`, or emits fields in a fixed order.
+//  3. Inputs outside the core's contract do not cross and are answered by the
+//     twin's body — a non-array `customAgents`, a non-string `agentCmdOverrides`
+//     value, a non-boolean PR-creation default, an `operation`/`actionId` outside
+//     its closed union, a non-string `hostKey`/`agentId`/`modelId`/
+//     `discoveryHostKey`. The core reads all of those more loosely than the twin
+//     did (`as_str`/`as_bool`, or a `__parity_error__` that decodes as a THROW
+//     where the twin carried on), so the twin's answer stands, including where
+//     the twin threw. The projections are in `source-control-ai-core-payload.ts`.
+//
+//     THAT REFUSAL EXTENDS INSIDE the settings, legacy and model-choice blobs, in
+//     `source-control-ai-core-representable.ts`. The core's settings-level fields
+//     are not tri-state (`custom_agent_command: Option<String>`,
+//     `instructions_by_operation: BTreeMap<_, String>`,
+//     `pr_creation_defaults: { draft: Option<bool>, … }`), so a persisted `null`
+//     decodes as `None` and comes back as the DEFAULT — `""` / `false` written
+//     into settings. The twin returned what it was handed, so those blobs are
+//     refused. Only the REPO-override side is left to cross with nulls, because
+//     the core does tri-state that side deliberately (`normalize_repo_instruction`,
+//     `parse_bool_or_null`, `RepoSourceControlActionOverride`).
+//  4. `resolveSourceControlAiForOperation`'s error strings are built by the core,
+//     including its "Supported agents: …" summary. That catalog is duplicated in
+//     Rust; a change on one side alone shows up as changed error TEXT, not as a
+//     changed decision. The vectors for that function are the guard.
+import type { SourceControlActionId, SourceControlActionRecipe } from './source-control-ai-actions'
 import {
-  CUSTOM_AGENT_ID,
-  getCommitMessageAgentSpec,
-  getCommitMessageModel,
-  listCommitMessageAgentCapabilities,
-  type CustomAgentId,
-  isCustomAgentId,
-  resolveCommitMessageAgentChoice
-} from './commit-message-agent-spec'
-import { LOCAL_COMMIT_MESSAGE_HOST_KEY } from './commit-message-host-key'
+  areStrings,
+  cross,
+  crossed,
+  crossedOptional,
+  settingsAndRepo
+} from './source-control-ai-core-crossing'
 import {
-  DEFAULT_SOURCE_CONTROL_ACTION_COMMAND_TEMPLATES,
-  normalizeSourceControlActionRecipe,
-  normalizeSourceControlAiActionDefaults,
-  readSourceControlActionDefault,
-  resolveSourceControlActionCommandTemplate,
-  SOURCE_CONTROL_ACTION_IDS,
-  SOURCE_CONTROL_TEXT_ACTION_IDS,
-  type SourceControlActionId,
-  type SourceControlActionRecipe
-} from './source-control-ai-actions'
-import type {
-  CommitMessageAiModelCapability,
-  CommitMessageAiSettings,
-  GlobalSettings,
-  Repo,
-  TuiAgent
-} from './types'
+  corePrCreationDefaults,
+  isModelledActionId,
+  isModelledOperation,
+  isRecord,
+  UNPROJECTABLE
+} from './source-control-ai-core-payload'
+import {
+  coreHoldsLegacyBlob,
+  coreHoldsModelChoice,
+  coreHoldsSettingsBlob
+} from './source-control-ai-core-representable'
+import { resolveSourceControlAiForOperation as tsForOperation } from './source-control-ai-generation-resolution'
+import {
+  clearSourceControlAiModelChoiceForHost as tsClearChoice,
+  readSourceControlAiModelChoiceForHost as tsReadChoice,
+  selectSourceControlAiModelChoiceForHost as tsSelectChoice
+} from './source-control-ai-host-model-choice'
+import {
+  mergeLegacyCommitMessageAiIntoSourceControlAi as tsMergeLegacy,
+  projectSourceControlAiToLegacyCommitMessageAi as tsProjectLegacy
+} from './source-control-ai-legacy-commit-message-merge'
+import {
+  hasConfiguredSourceControlAiInstructions as tsHasInstructions,
+  resolveSourceControlActionRecipe as tsActionRecipe,
+  resolveSourceControlAiEnabled as tsEnabled,
+  resolveSourceControlAiInstructions as tsInstructions,
+  resolveSourceControlAiPrCreationDefaults as tsPrCreationDefaults
+} from './source-control-ai-operation-precedence'
+import { normalizeRepoSourceControlAiOverrides as tsNormalizeOverrides } from './source-control-ai-repo-override-normalization'
+import {
+  getDefaultSourceControlAiSettings as tsDefaultSettings,
+  normalizeSourceControlAiSettings as tsNormalizeSettings,
+  sourceControlAiSettingsFromLegacy as tsSettingsFromLegacy
+} from './source-control-ai-settings-normalization'
 import type {
   RepoSourceControlAiOverrides,
   SourceControlAiModelChoice,
@@ -37,14 +209,9 @@ import type {
   SourceControlAiPrCreationDefaults,
   SourceControlAiSettings
 } from './source-control-ai-types'
+import type { CommitMessageAiSettings, GlobalSettings, Repo, TuiAgent } from './types'
 
-export const DEFAULT_SOURCE_CONTROL_AI_PR_CREATION_DEFAULTS: Required<SourceControlAiPrCreationDefaults> =
-  {
-    draft: false,
-    useTemplate: false,
-    generateDetailsOnOpen: false,
-    openAfterCreate: false
-  }
+export { DEFAULT_SOURCE_CONTROL_AI_PR_CREATION_DEFAULTS } from './source-control-ai-pr-creation-defaults'
 
 export type ResolvedSourceControlAiGenerationParams = {
   agentId: TuiAgent | 'custom'
@@ -67,7 +234,9 @@ export type ResolveSourceControlAiResult =
   | { ok: true; value: ResolvedSourceControlAiOperation }
   | { ok: false; error: string }
 
-type ResolveSourceControlAiInput = {
+// Exported only because the split put the body in
+// `source-control-ai-generation-resolution.ts`; it was a file-local type here.
+export type ResolveSourceControlAiInput = {
   settings: Pick<
     GlobalSettings,
     'defaultTuiAgent' | 'agentCmdOverrides' | 'commitMessageAi' | 'sourceControlAi'
@@ -85,502 +254,51 @@ export type ResolveSourceControlAiPrCreationDefaultsInput = {
   prCreationProductDefaults?: SourceControlAiPrCreationDefaults
 }
 
-type RepoSourceControlActionOverride = NonNullable<
-  NonNullable<RepoSourceControlAiOverrides['actionOverrides']>[SourceControlActionId]
->
-
-const OPERATION_LABEL: Record<SourceControlAiOperation, string> = {
-  commitMessage: 'commit messages',
-  pullRequest: 'pull request details',
-  branchName: 'branch names'
-}
-
-// Why: SourceControlAiOperation is exactly SourceControlTextActionId, so the
-// operation list must stay derived from the canonical action ids, not duplicated.
-const SOURCE_CONTROL_AI_OPERATIONS: readonly SourceControlAiOperation[] =
-  SOURCE_CONTROL_TEXT_ACTION_IDS
-const PR_CREATION_DEFAULT_KEYS = [
-  'draft',
-  'useTemplate',
-  'generateDetailsOnOpen',
-  'openAfterCreate'
-] as const
-
-function supportedSourceControlAiAgentSummary(): string {
-  return `Supported agents: ${listCommitMessageAgentCapabilities()
-    .map((capability) => capability.label)
-    .join(', ')}, or Custom command.`
-}
-
-function copyRecord<T>(value: T | undefined): T | undefined {
-  return value === undefined ? undefined : structuredClone(value)
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function hasEntries(value: Record<string, unknown> | null | undefined): boolean {
-  return Object.keys(value ?? {}).length > 0
-}
-
-function isSafeRecordKey(key: string): boolean {
-  return key !== '' && key !== '__proto__' && key !== 'constructor' && key !== 'prototype'
-}
-
-function normalizeStringRecord(value: unknown): Record<string, string> | undefined {
-  if (!isRecord(value)) {
-    return undefined
-  }
-  const normalized: Record<string, string> = {}
-  for (const [key, item] of Object.entries(value)) {
-    if (isSafeRecordKey(key) && typeof item === 'string') {
-      normalized[key] = item
-    }
-  }
-  return Object.keys(normalized).length > 0 ? normalized : undefined
-}
-
-function normalizeAgentModelRecord(value: unknown): Partial<Record<TuiAgent, string>> | undefined {
-  return normalizeStringRecord(value) as Partial<Record<TuiAgent, string>> | undefined
-}
-
-function normalizeHostAgentModelRecord(
-  value: unknown
-): Partial<Record<string, Partial<Record<TuiAgent, string>>>> | undefined {
-  if (!isRecord(value)) {
-    return undefined
-  }
-  const normalized: Partial<Record<string, Partial<Record<TuiAgent, string>>>> = {}
-  for (const [hostKey, hostModels] of Object.entries(value)) {
-    if (!isSafeRecordKey(hostKey)) {
-      continue
-    }
-    const normalizedHostModels = normalizeAgentModelRecord(hostModels)
-    if (normalizedHostModels) {
-      normalized[hostKey] = normalizedHostModels
-    }
-  }
-  return Object.keys(normalized).length > 0 ? normalized : undefined
-}
-
-function normalizeSourceControlAiModelChoice(
-  value: unknown
-): SourceControlAiModelChoice | undefined {
-  if (!isRecord(value)) {
-    return undefined
-  }
-  const choice: SourceControlAiModelChoice = {}
-  const selectedModelByAgent = normalizeAgentModelRecord(value.selectedModelByAgent)
-  if (selectedModelByAgent) {
-    choice.selectedModelByAgent = selectedModelByAgent
-  }
-  const selectedModelByAgentByHost = normalizeHostAgentModelRecord(value.selectedModelByAgentByHost)
-  if (selectedModelByAgentByHost) {
-    choice.selectedModelByAgentByHost = selectedModelByAgentByHost
-  }
-  const selectedThinkingByModel = normalizeStringRecord(value.selectedThinkingByModel)
-  if (selectedThinkingByModel) {
-    choice.selectedThinkingByModel = selectedThinkingByModel
-  }
-  return Object.keys(choice).length > 0 ? choice : undefined
-}
-
-function normalizeOperationRecord<T>(
-  value: unknown,
-  normalizeValue: (value: unknown) => T | undefined
-): Partial<Record<SourceControlAiOperation, T>> | undefined {
-  if (!isRecord(value)) {
-    return undefined
-  }
-  const normalized: Partial<Record<SourceControlAiOperation, T>> = {}
-  for (const operation of SOURCE_CONTROL_AI_OPERATIONS) {
-    if (!Object.prototype.hasOwnProperty.call(value, operation)) {
-      continue
-    }
-    const normalizedValue = normalizeValue(value[operation])
-    if (normalizedValue !== undefined) {
-      normalized[operation] = normalizedValue
-    }
-  }
-  return Object.keys(normalized).length > 0 ? normalized : undefined
-}
-
-function normalizeActionRecord<T>(
-  value: unknown,
-  normalizeValue: (value: unknown) => T | undefined
-): Partial<Record<SourceControlActionId, T>> | undefined {
-  if (!isRecord(value)) {
-    return undefined
-  }
-  const normalized: Partial<Record<SourceControlActionId, T>> = {}
-  for (const actionId of SOURCE_CONTROL_ACTION_IDS) {
-    if (!Object.prototype.hasOwnProperty.call(value, actionId)) {
-      continue
-    }
-    const normalizedValue = normalizeValue(value[actionId])
-    if (normalizedValue !== undefined) {
-      normalized[actionId] = normalizedValue
-    }
-  }
-  return Object.keys(normalized).length > 0 ? normalized : undefined
-}
-
-function normalizeRepoInstruction(value: unknown): string | null | undefined {
-  return typeof value === 'string' || value === null ? value : undefined
-}
-
-function normalizeRepoPrCreationDefaults(
-  value: unknown
-): RepoSourceControlAiOverrides['prCreationDefaults'] {
-  if (!isRecord(value)) {
-    return undefined
-  }
-  const normalized: NonNullable<RepoSourceControlAiOverrides['prCreationDefaults']> = {}
-  for (const key of PR_CREATION_DEFAULT_KEYS) {
-    const item = value[key]
-    if (typeof item === 'boolean' || item === null) {
-      normalized[key] = item
-    }
-  }
-  return Object.keys(normalized).length > 0 ? normalized : undefined
+type SettingsSlice = Pick<GlobalSettings, 'sourceControlAi' | 'commitMessageAi'>
+type RepoSlice = Pick<Repo, 'sourceControlAi'>
+type InstructionArgs = {
+  settings: SettingsSlice
+  repo?: RepoSlice | null
+  operation: SourceControlAiOperation
 }
 
 export function normalizeRepoSourceControlAiOverrides(
   value: unknown
 ): RepoSourceControlAiOverrides | undefined {
+  // Why the pre-filter: the twin answered `undefined` for every non-record, so a
+  // Map/Date/class instance cannot change the answer and must not cost a throw.
   if (!isRecord(value)) {
-    return undefined
+    return tsNormalizeOverrides(value)
   }
-  const normalized: RepoSourceControlAiOverrides = {}
-  if (typeof value.enabled === 'boolean') {
-    normalized.enabled = value.enabled
-  }
-  if (typeof value.customAgentCommand === 'string') {
-    const customAgentCommand = value.customAgentCommand.trim()
-    if (customAgentCommand) {
-      normalized.customAgentCommand = customAgentCommand
-    }
-  }
-  const modelOverridesByOperation = normalizeOperationRecord(
-    value.modelOverridesByOperation,
-    normalizeSourceControlAiModelChoice
-  )
-  if (modelOverridesByOperation) {
-    normalized.modelOverridesByOperation = modelOverridesByOperation
-  }
-  const instructionsByOperation = normalizeOperationRecord(
-    value.instructionsByOperation,
-    normalizeRepoInstruction
-  )
-  if (instructionsByOperation) {
-    normalized.instructionsByOperation = instructionsByOperation
-  }
-  const actionOverrides = normalizeActionRecord<RepoSourceControlActionOverride>(
-    value.actionOverrides,
-    (item) => {
-      if (!isRecord(item)) {
-        return undefined
-      }
-      const normalized: RepoSourceControlActionOverride = {
-        ...normalizeSourceControlActionRecipe(item)
-      }
-      if (item.commandInputTemplate === null) {
-        normalized.commandInputTemplate = null
-      }
-      if (item.agentArgs === null) {
-        normalized.agentArgs = null
-      }
-      return Object.keys(normalized).length > 0 ? normalized : undefined
-    }
-  )
-  const migratedActionOverrides = { ...actionOverrides }
-  for (const operation of SOURCE_CONTROL_TEXT_ACTION_IDS) {
-    const instruction = instructionsByOperation?.[operation]
-    const existingTemplate = migratedActionOverrides[operation]?.commandInputTemplate
-    if (
-      typeof instruction === 'string' &&
-      (existingTemplate === undefined ||
-        isLegacyBranchInstructionTemplate(operation, instruction, existingTemplate))
-    ) {
-      migratedActionOverrides[operation] = {
-        ...migratedActionOverrides[operation],
-        commandInputTemplate: commandTemplateFromOperationInstruction(operation, instruction)
-      }
-    }
-  }
-  if (Object.keys(migratedActionOverrides).length > 0) {
-    normalized.actionOverrides = migratedActionOverrides
-  }
-  const prCreationDefaults = normalizeRepoPrCreationDefaults(value.prCreationDefaults)
-  if (prCreationDefaults) {
-    normalized.prCreationDefaults = prCreationDefaults
-  }
-  return Object.keys(normalized).length > 0 ? normalized : undefined
-}
-
-function commandTemplateFromInstruction(instruction: string | null | undefined): string {
-  const trimmed = instruction?.trim()
-  if (!trimmed) {
-    return '{basePrompt}'
-  }
-  return ['{basePrompt}', '', trimmed].join('\n')
-}
-
-function commandTemplateFromOperationInstruction(
-  operation: SourceControlAiOperation,
-  instruction: string | null | undefined
-): string {
-  const trimmed = instruction?.trim()
-  if (!trimmed) {
-    return '{basePrompt}'
-  }
-  // Why: branch naming instructions define naming style, so they must precede
-  // the general built-in prompt. Other operations retain their released order.
-  return operation === 'branchName'
-    ? [trimmed, '', '{basePrompt}'].join('\n')
-    : commandTemplateFromInstruction(trimmed)
-}
-
-function isLegacyBranchInstructionTemplate(
-  operation: SourceControlAiOperation,
-  instruction: string | null | undefined,
-  template: string | null | undefined
-): boolean {
-  // Why: reorder only the exact template older settings derived automatically;
-  // a user-authored command template remains authoritative.
-  return (
-    operation === 'branchName' &&
-    Boolean(instruction?.trim()) &&
-    template === commandTemplateFromInstruction(instruction)
-  )
-}
-
-function actionRecipeFromLegacyCommitMessageAi(legacy: CommitMessageAiSettings): {
-  agentId?: TuiAgent | CustomAgentId | null
-  commandInputTemplate: string
-} {
-  return {
-    ...(legacy.agentId === null
-      ? { agentId: null }
-      : isCustomAgentId(legacy.agentId)
-        ? { agentId: CUSTOM_AGENT_ID }
-        : legacy.agentId
-          ? { agentId: legacy.agentId }
-          : {}),
-    commandInputTemplate: commandTemplateFromInstruction(legacy.customPrompt)
-  }
-}
-
-function legacyPromptFromCommandTemplate(
-  template: string | undefined,
-  fallback: string | undefined
-): string {
-  const trimmed = template?.trim()
-  if (!trimmed || trimmed === '{basePrompt}') {
-    return fallback ?? ''
-  }
-  if (trimmed.startsWith('{basePrompt}')) {
-    return trimmed.slice('{basePrompt}'.length).trim()
-  }
-  return trimmed
-}
-
-function hasActionAgentRecipe(recipe: {
-  agentId?: TuiAgent | CustomAgentId | null
-}): recipe is { agentId: TuiAgent | CustomAgentId | null } {
-  return Object.prototype.hasOwnProperty.call(recipe, 'agentId')
-}
-
-function legacyCommitMessageCoreChanges(
-  legacy: CommitMessageAiSettings,
-  projected: CommitMessageAiSettings
-): Record<'enabled' | 'agentId' | 'customPrompt' | 'customAgentCommand', boolean> {
-  return {
-    enabled: legacy.enabled !== projected.enabled,
-    agentId: legacy.agentId !== projected.agentId,
-    customPrompt: legacy.customPrompt !== projected.customPrompt,
-    customAgentCommand: legacy.customAgentCommand !== projected.customAgentCommand
-  }
-}
-
-function hasLegacyCommitMessageCoreChanges(
-  changes: Record<'enabled' | 'agentId' | 'customPrompt' | 'customAgentCommand', boolean>
-): boolean {
-  return Object.values(changes).some(Boolean)
-}
-
-function applyLegacyAgentToActionRecipe(
-  recipe: SourceControlActionRecipe | undefined,
-  agentId: CommitMessageAiSettings['agentId']
-): SourceControlActionRecipe {
-  const next = { ...recipe }
-  if (agentId === null) {
-    next.agentId = null
-  } else if (isCustomAgentId(agentId)) {
-    next.agentId = CUSTOM_AGENT_ID
-  } else if (agentId && !isCustomAgentId(agentId)) {
-    next.agentId = agentId
-  } else {
-    delete next.agentId
-  }
-  return next
-}
-
-function shouldImportLegacyBranchPrompt(
-  base: SourceControlAiSettings,
-  projectedLegacy: CommitMessageAiSettings
-): boolean {
-  const branchRecipe = readSourceControlActionDefault(base.actions, 'branchName')
-  const projectedTemplate = commandTemplateFromOperationInstruction(
-    'branchName',
-    projectedLegacy.customPrompt
-  )
-  return (
-    branchRecipe.commandInputTemplate === undefined ||
-    branchRecipe.commandInputTemplate ===
-      DEFAULT_SOURCE_CONTROL_ACTION_COMMAND_TEMPLATES.branchName ||
-    // Why: stale legacy branch instructions can remain after a user customizes
-    // the new branch action recipe; only recipe state can prove it is still coupled.
-    branchRecipe.commandInputTemplate === projectedTemplate
-  )
-}
-
-function shouldImportLegacyBranchAgent(
-  base: SourceControlAiSettings,
-  projectedLegacy: CommitMessageAiSettings
-): boolean {
-  const branchRecipe = readSourceControlActionDefault(base.actions, 'branchName')
-  return !hasActionAgentRecipe(branchRecipe) || branchRecipe.agentId === projectedLegacy.agentId
+  const answer = cross('normalizeRepoSourceControlAiOverrides', value, 'value')
+  return crossedOptional(answer, () => tsNormalizeOverrides(value))
 }
 
 export function getDefaultSourceControlAiSettings(): SourceControlAiSettings {
-  return {
-    enabled: true,
-    actions: Object.fromEntries(
-      SOURCE_CONTROL_ACTION_IDS.map((actionId) => [
-        actionId,
-        { commandInputTemplate: DEFAULT_SOURCE_CONTROL_ACTION_COMMAND_TEMPLATES[actionId] }
-      ])
-    ) as SourceControlAiSettings['actions'],
-    agentId: null,
-    selectedModelByAgent: {},
-    selectedModelByAgentByHost: {},
-    discoveredModelsByAgent: {},
-    discoveredModelsByAgentByHost: {},
-    selectedThinkingByModel: {},
-    customAgentCommand: '',
-    instructionsByOperation: {
-      commitMessage: '',
-      pullRequest: '',
-      branchName: ''
-    },
-    prCreationDefaults: { ...DEFAULT_SOURCE_CONTROL_AI_PR_CREATION_DEFAULTS },
-    launchActionDefaults: {}
-  }
+  return crossed(cross('getDefaultSourceControlAiSettings', null, 'input'), tsDefaultSettings)
 }
 
 export function sourceControlAiSettingsFromLegacy(
   legacy: CommitMessageAiSettings | null | undefined
 ): SourceControlAiSettings {
-  const defaults = getDefaultSourceControlAiSettings()
-  if (!legacy) {
-    return defaults
+  if (!coreHoldsLegacyBlob(legacy)) {
+    return tsSettingsFromLegacy(legacy)
   }
-  const legacyActionRecipe = actionRecipeFromLegacyCommitMessageAi(legacy)
-  return {
-    ...defaults,
-    enabled: legacy.enabled,
-    agentId: legacy.agentId,
-    selectedModelByAgent: { ...legacy.selectedModelByAgent },
-    selectedModelByAgentByHost: copyRecord(legacy.selectedModelByAgentByHost) ?? {},
-    discoveredModelsByAgent: copyRecord(legacy.discoveredModelsByAgent) ?? {},
-    discoveredModelsByAgentByHost: copyRecord(legacy.discoveredModelsByAgentByHost) ?? {},
-    selectedThinkingByModel: { ...legacy.selectedThinkingByModel },
-    customAgentCommand: legacy.customAgentCommand,
-    instructionsByOperation: {
-      commitMessage: legacy.customPrompt ?? '',
-      // Why: the legacy prompt covered commit generation and branch auto-rename;
-      // the first split must preserve that guidance for both released paths.
-      pullRequest: '',
-      branchName: legacy.customPrompt ?? ''
-    },
-    actions: {
-      ...defaults.actions,
-      commitMessage: legacyActionRecipe,
-      branchName: {
-        ...legacyActionRecipe,
-        commandInputTemplate: commandTemplateFromOperationInstruction(
-          'branchName',
-          legacy.customPrompt
-        )
-      }
-    }
-  }
+  const answer = cross('sourceControlAiSettingsFromLegacy', legacy ?? null, 'legacy')
+  return crossed(answer, () => tsSettingsFromLegacy(legacy))
 }
 
-function mergeSelectedModelByAgentByHost(
-  base: Partial<Record<string, Partial<Record<TuiAgent, string>>>> | undefined,
-  override: Partial<Record<string, Partial<Record<TuiAgent, string>>>> | undefined
-): Partial<Record<string, Partial<Record<TuiAgent, string>>>> {
-  const merged = copyRecord(base) ?? {}
-  for (const [hostKey, hostModels] of Object.entries(override ?? {})) {
-    merged[hostKey] = {
-      ...merged[hostKey],
-      ...hostModels
-    }
+export function normalizeSourceControlAiSettings(
+  value: SourceControlAiSettings | null | undefined,
+  legacy?: CommitMessageAiSettings | null
+): SourceControlAiSettings {
+  if (!coreHoldsSettingsBlob(value) || !coreHoldsLegacyBlob(legacy)) {
+    return tsNormalizeSettings(value, legacy)
   }
-  return merged
-}
-
-function mergeLegacyModelSelectionDelta<T>(
-  existing: Record<string, T> | null | undefined,
-  legacy: Record<string, T> | null | undefined,
-  projected: Record<string, T> | null | undefined
-): Record<string, T> | undefined {
-  const merged: Record<string, T> = { ...existing }
-  let changed = false
-  const keys = new Set([...Object.keys(legacy ?? {}), ...Object.keys(projected ?? {})])
-  for (const key of keys) {
-    const legacyHasKey = Object.prototype.hasOwnProperty.call(legacy ?? {}, key)
-    const legacyValue = legacy?.[key]
-    if (JSON.stringify(projected?.[key]) === JSON.stringify(legacyValue)) {
-      continue
-    }
-    changed = true
-    if (legacyHasKey && legacyValue !== undefined) {
-      merged[key] = legacyValue
-    } else {
-      delete merged[key]
-    }
-  }
-  return changed ? merged : (existing ?? undefined)
-}
-
-function mergeLegacyHostModelSelectionDelta(
-  existing: Partial<Record<string, Partial<Record<TuiAgent, string>>>> | null | undefined,
-  legacy: Partial<Record<string, Partial<Record<TuiAgent, string>>>> | null | undefined,
-  projected: Partial<Record<string, Partial<Record<TuiAgent, string>>>> | null | undefined
-): Partial<Record<string, Partial<Record<TuiAgent, string>>>> | undefined {
-  const merged = copyRecord(existing) ?? {}
-  let changed = false
-  const hostKeys = new Set([...Object.keys(legacy ?? {}), ...Object.keys(projected ?? {})])
-  for (const hostKey of hostKeys) {
-    const nextHostModels = mergeLegacyModelSelectionDelta(
-      merged[hostKey],
-      legacy?.[hostKey],
-      projected?.[hostKey]
-    )
-    if (nextHostModels !== merged[hostKey]) {
-      changed = true
-    }
-    if (nextHostModels && Object.keys(nextHostModels).length > 0) {
-      merged[hostKey] = nextHostModels
-    } else {
-      delete merged[hostKey]
-    }
-  }
-  return changed ? merged : (existing ?? undefined)
+  const input = { value: value ?? null, legacy: legacy ?? null }
+  return crossed(cross('normalizeSourceControlAiSettings', input, 'value'), () =>
+    tsNormalizeSettings(value, legacy)
+  )
 }
 
 export function mergeLegacyCommitMessageAiIntoSourceControlAi(
@@ -588,214 +306,44 @@ export function mergeLegacyCommitMessageAiIntoSourceControlAi(
   legacy: CommitMessageAiSettings | null | undefined,
   options: { pullRequestInstructionsFromLegacy?: boolean } = {}
 ): SourceControlAiSettings {
-  // Why: older runtimes and rollback builds still write commitMessageAi; merge
-  // those writes into the new shape without wiping PR-only settings.
-  const base = normalizeSourceControlAiSettings(sourceControlAi, legacy)
-  if (!legacy) {
-    return base
+  if (!coreHoldsSettingsBlob(sourceControlAi) || !coreHoldsLegacyBlob(legacy)) {
+    return tsMergeLegacy(sourceControlAi, legacy, options)
   }
-  if (sourceControlAi) {
-    const existingCommitChoice = base.modelOverridesByOperation?.commitMessage
-    const projectedLegacy = projectSourceControlAiToLegacyCommitMessageAi(base)
-    const selectedModelByAgent = mergeLegacyModelSelectionDelta(
-      existingCommitChoice?.selectedModelByAgent,
-      legacy.selectedModelByAgent,
-      projectedLegacy.selectedModelByAgent
-    )
-    const selectedModelByAgentByHost = mergeLegacyHostModelSelectionDelta(
-      existingCommitChoice?.selectedModelByAgentByHost,
-      legacy.selectedModelByAgentByHost,
-      projectedLegacy.selectedModelByAgentByHost
-    )
-    const selectedThinkingByModel = mergeLegacyModelSelectionDelta(
-      existingCommitChoice?.selectedThinkingByModel,
-      legacy.selectedThinkingByModel,
-      projectedLegacy.selectedThinkingByModel
-    )
-    const shouldMergeLegacyModels =
-      selectedModelByAgent !== existingCommitChoice?.selectedModelByAgent ||
-      selectedModelByAgentByHost !== existingCommitChoice?.selectedModelByAgentByHost ||
-      selectedThinkingByModel !== existingCommitChoice?.selectedThinkingByModel
-    const nextModelOverridesByOperation = { ...base.modelOverridesByOperation }
-    if (shouldMergeLegacyModels) {
-      const nextCommitChoice: SourceControlAiModelChoice = {}
-      if (hasEntries(selectedModelByAgent)) {
-        nextCommitChoice.selectedModelByAgent = selectedModelByAgent
-      }
-      if (hasEntries(selectedModelByAgentByHost)) {
-        nextCommitChoice.selectedModelByAgentByHost = selectedModelByAgentByHost
-      }
-      if (hasEntries(selectedThinkingByModel)) {
-        nextCommitChoice.selectedThinkingByModel = selectedThinkingByModel
-      }
-      if (Object.keys(nextCommitChoice).length > 0) {
-        nextModelOverridesByOperation.commitMessage = nextCommitChoice
-      } else {
-        delete nextModelOverridesByOperation.commitMessage
-      }
+  const input = {
+    sourceControlAi: sourceControlAi ?? null,
+    legacy: legacy ?? null,
+    // Why Boolean(): the twin branched on truthiness, the core reads `as_bool`.
+    options: {
+      pullRequestInstructionsFromLegacy: Boolean(options.pullRequestInstructionsFromLegacy)
     }
-    // Why: rollback builds write commitMessageAi, while new builds project
-    // commit-message overrides there. Keep those model choices scoped to
-    // commit-message generation so PR defaults cannot drift on reload.
-    const legacyActionRecipe = actionRecipeFromLegacyCommitMessageAi(legacy)
-    const legacyChanges = legacyCommitMessageCoreChanges(legacy, projectedLegacy)
-    const shouldMergeLegacyCore = hasLegacyCommitMessageCoreChanges(legacyChanges)
-    const shouldMergeBranchPrompt =
-      legacyChanges.customPrompt && shouldImportLegacyBranchPrompt(base, projectedLegacy)
-    const shouldMergeBranchAgent =
-      legacyChanges.agentId && shouldImportLegacyBranchAgent(base, projectedLegacy)
-    return normalizeSourceControlAiSettings(
-      {
-        ...base,
-        discoveredModelsByAgent: copyRecord(legacy.discoveredModelsByAgent) ?? {},
-        discoveredModelsByAgentByHost: copyRecord(legacy.discoveredModelsByAgentByHost) ?? {},
-        ...(shouldMergeLegacyCore
-          ? {
-              // Why: legacy commitMessageAi is also our rollback projection.
-              // Only import fields that diverged so independent action recipes survive.
-              ...(legacyChanges.enabled ? { enabled: legacy.enabled } : {}),
-              ...(legacyChanges.agentId ? { agentId: legacy.agentId } : {}),
-              ...(legacyChanges.customAgentCommand
-                ? { customAgentCommand: legacy.customAgentCommand }
-                : {}),
-              instructionsByOperation: {
-                ...base.instructionsByOperation,
-                ...(legacyChanges.customPrompt ? { commitMessage: legacy.customPrompt ?? '' } : {}),
-                ...(shouldMergeBranchPrompt ? { branchName: legacy.customPrompt ?? '' } : {}),
-                ...(legacyChanges.customPrompt && options.pullRequestInstructionsFromLegacy
-                  ? { pullRequest: legacy.customPrompt ?? '' }
-                  : {})
-              },
-              actions: {
-                ...base.actions,
-                commitMessage: {
-                  ...(legacyChanges.agentId
-                    ? applyLegacyAgentToActionRecipe(base.actions?.commitMessage, legacy.agentId)
-                    : base.actions?.commitMessage),
-                  ...(legacyChanges.customPrompt
-                    ? { commandInputTemplate: legacyActionRecipe.commandInputTemplate }
-                    : {})
-                },
-                branchName: {
-                  ...(shouldMergeBranchAgent
-                    ? applyLegacyAgentToActionRecipe(base.actions?.branchName, legacy.agentId)
-                    : base.actions?.branchName),
-                  ...(shouldMergeBranchPrompt
-                    ? {
-                        commandInputTemplate: commandTemplateFromOperationInstruction(
-                          'branchName',
-                          legacy.customPrompt
-                        )
-                      }
-                    : {})
-                }
-              }
-            }
-          : {}),
-        modelOverridesByOperation: nextModelOverridesByOperation
-      },
-      shouldMergeLegacyCore ? legacy : undefined
-    )
   }
-  return normalizeSourceControlAiSettings(
-    {
-      ...base,
-      enabled: legacy.enabled,
-      agentId: legacy.agentId,
-      selectedModelByAgent: { ...legacy.selectedModelByAgent },
-      selectedModelByAgentByHost: copyRecord(legacy.selectedModelByAgentByHost) ?? {},
-      discoveredModelsByAgent: copyRecord(legacy.discoveredModelsByAgent) ?? {},
-      discoveredModelsByAgentByHost: copyRecord(legacy.discoveredModelsByAgentByHost) ?? {},
-      selectedThinkingByModel: { ...legacy.selectedThinkingByModel },
-      customAgentCommand: legacy.customAgentCommand,
-      instructionsByOperation: {
-        ...base.instructionsByOperation,
-        commitMessage: legacy.customPrompt ?? '',
-        branchName: legacy.customPrompt ?? '',
-        ...(options.pullRequestInstructionsFromLegacy
-          ? { pullRequest: legacy.customPrompt ?? '' }
-          : {})
-      }
-    },
-    legacy
+  return crossed(
+    cross('mergeLegacyCommitMessageAiIntoSourceControlAi', input, 'sourceControlAi'),
+    () => tsMergeLegacy(sourceControlAi, legacy, options)
   )
 }
 
-export function normalizeSourceControlAiSettings(
-  value: SourceControlAiSettings | null | undefined,
-  legacy?: CommitMessageAiSettings | null
-): SourceControlAiSettings {
-  const base = value ?? sourceControlAiSettingsFromLegacy(legacy)
-  const defaults = getDefaultSourceControlAiSettings()
-  const normalizedLaunchActionDefaults = normalizeSourceControlAiActionDefaults(
-    base.launchActionDefaults
+export function projectSourceControlAiToLegacyCommitMessageAi(
+  sourceControlAi: SourceControlAiSettings,
+  previousLegacy?: CommitMessageAiSettings | null
+): CommitMessageAiSettings {
+  // Why the instructionsByOperation check: the twin read THROUGH that member
+  // (`sourceControlAi.instructionsByOperation.commitMessage`) and threw when a
+  // hand-edited settings file omitted it, where the core decodes an absent member
+  // as an empty map and answers. The throw has to stay on the TypeScript body.
+  if (
+    !isRecord(sourceControlAi) ||
+    !isRecord(sourceControlAi.instructionsByOperation) ||
+    !coreHoldsSettingsBlob(sourceControlAi) ||
+    !coreHoldsLegacyBlob(previousLegacy)
+  ) {
+    return tsProjectLegacy(sourceControlAi, previousLegacy)
+  }
+  const input = { sourceControlAi, previousLegacy: previousLegacy ?? null }
+  return crossed(
+    cross('projectSourceControlAiToLegacyCommitMessageAi', input, 'sourceControlAi'),
+    () => tsProjectLegacy(sourceControlAi, previousLegacy)
   )
-  const normalizedActions = {
-    ...normalizedLaunchActionDefaults,
-    ...normalizeSourceControlAiActionDefaults(base.actions)
-  }
-  const migratedTextActions = Object.fromEntries(
-    SOURCE_CONTROL_TEXT_ACTION_IDS.map((actionId) => {
-      const existing = readSourceControlActionDefault(normalizedActions, actionId)
-      const instruction = base.instructionsByOperation?.[actionId]
-      const legacyInstruction = actionId === 'commitMessage' ? legacy?.customPrompt : undefined
-      const resolvedInstruction = instruction ?? legacyInstruction
-      const instructionTemplate =
-        instruction || legacyInstruction
-          ? commandTemplateFromOperationInstruction(actionId, resolvedInstruction)
-          : undefined
-      const shouldApplyInstructionTemplate =
-        instructionTemplate !== undefined &&
-        (existing.commandInputTemplate === undefined ||
-          existing.commandInputTemplate ===
-            DEFAULT_SOURCE_CONTROL_ACTION_COMMAND_TEMPLATES[actionId] ||
-          isLegacyBranchInstructionTemplate(
-            actionId,
-            resolvedInstruction,
-            existing.commandInputTemplate
-          ))
-      return [
-        actionId,
-        {
-          ...defaults.actions?.[actionId],
-          ...(base.agentId && !isCustomAgentId(base.agentId) ? { agentId: base.agentId } : {}),
-          ...existing,
-          ...(shouldApplyInstructionTemplate ? { commandInputTemplate: instructionTemplate } : {})
-        }
-      ]
-    })
-  ) as SourceControlAiSettings['actions']
-  const actions: SourceControlAiSettings['actions'] = {
-    ...defaults.actions,
-    ...normalizedActions,
-    ...migratedTextActions
-  }
-  return {
-    ...defaults,
-    ...base,
-    selectedModelByAgent: { ...defaults.selectedModelByAgent, ...base.selectedModelByAgent },
-    selectedModelByAgentByHost:
-      copyRecord(base.selectedModelByAgentByHost) ?? defaults.selectedModelByAgentByHost,
-    discoveredModelsByAgent:
-      copyRecord(base.discoveredModelsByAgent) ?? defaults.discoveredModelsByAgent,
-    discoveredModelsByAgentByHost:
-      copyRecord(base.discoveredModelsByAgentByHost) ?? defaults.discoveredModelsByAgentByHost,
-    selectedThinkingByModel: {
-      ...defaults.selectedThinkingByModel,
-      ...base.selectedThinkingByModel
-    },
-    instructionsByOperation: {
-      ...defaults.instructionsByOperation,
-      ...base.instructionsByOperation
-    },
-    modelOverridesByOperation: copyRecord(base.modelOverridesByOperation),
-    prCreationDefaults: {
-      ...defaults.prCreationDefaults,
-      ...base.prCreationDefaults
-    },
-    actions,
-    launchActionDefaults: normalizedLaunchActionDefaults ?? defaults.launchActionDefaults
-  }
 }
 
 export function readSourceControlAiModelChoiceForHost(
@@ -803,11 +351,12 @@ export function readSourceControlAiModelChoiceForHost(
   hostKey: string,
   agentId: TuiAgent
 ): string | undefined {
-  return (
-    choice?.selectedModelByAgentByHost?.[hostKey]?.[agentId] ??
-    (hostKey === LOCAL_COMMIT_MESSAGE_HOST_KEY
-      ? choice?.selectedModelByAgent?.[agentId]
-      : undefined)
+  if (!coreHoldsModelChoice(choice) || !areStrings(hostKey, agentId)) {
+    return tsReadChoice(choice, hostKey, agentId)
+  }
+  const input = { choice: choice ?? null, hostKey, agentId }
+  return crossedOptional(cross('readSourceControlAiModelChoiceForHost', input, 'choice'), () =>
+    tsReadChoice(choice, hostKey, agentId)
   )
 }
 
@@ -817,24 +366,13 @@ export function selectSourceControlAiModelChoiceForHost(
   agentId: TuiAgent,
   modelId: string
 ): SourceControlAiModelChoice {
-  const hostSelectedModels = choice?.selectedModelByAgentByHost?.[hostKey] ?? {}
-  return {
-    ...choice,
-    selectedModelByAgent:
-      hostKey === LOCAL_COMMIT_MESSAGE_HOST_KEY
-        ? {
-            ...choice?.selectedModelByAgent,
-            [agentId]: modelId
-          }
-        : choice?.selectedModelByAgent,
-    selectedModelByAgentByHost: {
-      ...choice?.selectedModelByAgentByHost,
-      [hostKey]: {
-        ...hostSelectedModels,
-        [agentId]: modelId
-      }
-    }
+  if (!coreHoldsModelChoice(choice) || !areStrings(hostKey, agentId, modelId)) {
+    return tsSelectChoice(choice, hostKey, agentId, modelId)
   }
+  const input = { choice: choice ?? null, hostKey, agentId, modelId }
+  return crossed(cross('selectSourceControlAiModelChoiceForHost', input, 'choice'), () =>
+    tsSelectChoice(choice, hostKey, agentId, modelId)
+  )
 }
 
 export function clearSourceControlAiModelChoiceForHost(
@@ -842,508 +380,98 @@ export function clearSourceControlAiModelChoiceForHost(
   hostKey: string,
   agentId: TuiAgent
 ): SourceControlAiModelChoice | undefined {
-  if (!choice) {
-    return undefined
+  if (!coreHoldsModelChoice(choice) || !areStrings(hostKey, agentId)) {
+    return tsClearChoice(choice, hostKey, agentId)
   }
-  // Why: model choices are host-scoped; clearing one "Use global" selector
-  // must not erase a different SSH/runtime host's override.
-  const selectedModelByAgent = { ...choice.selectedModelByAgent }
-  if (hostKey === LOCAL_COMMIT_MESSAGE_HOST_KEY) {
-    delete selectedModelByAgent[agentId]
-  }
-
-  const selectedModelByAgentByHost = { ...choice.selectedModelByAgentByHost }
-  const hostModels = { ...selectedModelByAgentByHost[hostKey] }
-  delete hostModels[agentId]
-  if (Object.keys(hostModels).length > 0) {
-    selectedModelByAgentByHost[hostKey] = hostModels
-  } else {
-    delete selectedModelByAgentByHost[hostKey]
-  }
-
-  const nextChoice: SourceControlAiModelChoice = {}
-  if (Object.keys(selectedModelByAgent).length > 0) {
-    nextChoice.selectedModelByAgent = selectedModelByAgent
-  }
-  if (Object.keys(selectedModelByAgentByHost).length > 0) {
-    nextChoice.selectedModelByAgentByHost = selectedModelByAgentByHost
-  }
-  const hasModelSelection =
-    nextChoice.selectedModelByAgent !== undefined ||
-    nextChoice.selectedModelByAgentByHost !== undefined
-  if (hasModelSelection && Object.keys(choice.selectedThinkingByModel ?? {}).length > 0) {
-    nextChoice.selectedThinkingByModel = choice.selectedThinkingByModel
-  }
-  return hasModelSelection ? nextChoice : undefined
-}
-
-export function projectSourceControlAiToLegacyCommitMessageAi(
-  sourceControlAi: SourceControlAiSettings,
-  previousLegacy?: CommitMessageAiSettings | null
-): CommitMessageAiSettings {
-  const commitMessageChoice = sourceControlAi.modelOverridesByOperation?.commitMessage
-  const commitRecipe = readSourceControlActionDefault(sourceControlAi.actions, 'commitMessage')
-  return {
-    enabled: sourceControlAi.enabled,
-    agentId: hasActionAgentRecipe(commitRecipe) ? commitRecipe.agentId : sourceControlAi.agentId,
-    selectedModelByAgent: {
-      ...sourceControlAi.selectedModelByAgent,
-      ...commitMessageChoice?.selectedModelByAgent
-    },
-    selectedModelByAgentByHost: mergeSelectedModelByAgentByHost(
-      sourceControlAi.selectedModelByAgentByHost,
-      commitMessageChoice?.selectedModelByAgentByHost
-    ),
-    discoveredModelsByAgent: copyRecord(sourceControlAi.discoveredModelsByAgent) ?? {},
-    discoveredModelsByAgentByHost: copyRecord(sourceControlAi.discoveredModelsByAgentByHost) ?? {},
-    selectedThinkingByModel: {
-      ...sourceControlAi.selectedThinkingByModel,
-      ...commitMessageChoice?.selectedThinkingByModel
-    },
-    customPrompt: legacyPromptFromCommandTemplate(
-      commitRecipe.commandInputTemplate,
-      sourceControlAi.instructionsByOperation.commitMessage ?? previousLegacy?.customPrompt
-    ),
-    customAgentCommand: sourceControlAi.customAgentCommand
-  }
-}
-
-function readDefaultSelectedModelId(
-  settings: Pick<SourceControlAiSettings, 'selectedModelByAgent' | 'selectedModelByAgentByHost'>,
-  hostKey: string,
-  agentId: TuiAgent
-): string | undefined {
-  return readSourceControlAiModelChoiceForHost(
-    {
-      selectedModelByAgent: settings.selectedModelByAgent,
-      selectedModelByAgentByHost: settings.selectedModelByAgentByHost
-    },
-    hostKey,
-    agentId
+  const input = { choice: choice ?? null, hostKey, agentId }
+  return crossedOptional(cross('clearSourceControlAiModelChoiceForHost', input, 'choice'), () =>
+    tsClearChoice(choice, hostKey, agentId)
   )
 }
 
-function getDiscoveredModels(
-  source: SourceControlAiSettings,
-  legacy: CommitMessageAiSettings | null | undefined,
-  hostKey: string,
-  agentId: TuiAgent
-): CommitMessageAiModelCapability[] {
-  return (
-    source.discoveredModelsByAgentByHost?.[hostKey]?.[agentId] ??
-    (hostKey === LOCAL_COMMIT_MESSAGE_HOST_KEY
-      ? (source.discoveredModelsByAgent?.[agentId] ??
-        legacy?.discoveredModelsByAgentByHost?.[hostKey]?.[agentId] ??
-        legacy?.discoveredModelsByAgent?.[agentId] ??
-        [])
-      : (legacy?.discoveredModelsByAgentByHost?.[hostKey]?.[agentId] ?? []))
+export function resolveSourceControlAiInstructions(args: InstructionArgs): string {
+  const payload = settingsAndRepo(args.settings, args.repo)
+  if (payload === UNPROJECTABLE || !isModelledOperation(args.operation)) {
+    return tsInstructions(args)
+  }
+  const input = { ...payload, operation: args.operation }
+  return crossed(cross('resolveSourceControlAiInstructions', input, 'args'), () =>
+    tsInstructions(args)
   )
 }
 
-function selectPersistedModelId(args: {
-  source: SourceControlAiSettings
-  legacy: CommitMessageAiSettings | null | undefined
-  repoOverrides: RepoSourceControlAiOverrides | null | undefined
-  operation: SourceControlAiOperation
-  hostKey: string
-  agentId: TuiAgent
-  defaultModelId: string
-}): string {
-  const { source, legacy, repoOverrides, operation, hostKey, agentId, defaultModelId } = args
-  return (
-    readSourceControlAiModelChoiceForHost(
-      repoOverrides?.modelOverridesByOperation?.[operation],
-      hostKey,
-      agentId
-    ) ??
-    readSourceControlAiModelChoiceForHost(
-      source.modelOverridesByOperation?.[operation],
-      hostKey,
-      agentId
-    ) ??
-    readDefaultSelectedModelId(source, hostKey, agentId) ??
-    legacy?.selectedModelByAgentByHost?.[hostKey]?.[agentId] ??
-    (hostKey === LOCAL_COMMIT_MESSAGE_HOST_KEY
-      ? legacy?.selectedModelByAgent?.[agentId]
-      : undefined) ??
-    defaultModelId
+export function hasConfiguredSourceControlAiInstructions(args: InstructionArgs): boolean {
+  const payload = settingsAndRepo(args.settings, args.repo)
+  if (payload === UNPROJECTABLE || !isModelledOperation(args.operation)) {
+    return tsHasInstructions(args)
+  }
+  const input = { ...payload, operation: args.operation }
+  return crossed(cross('hasConfiguredSourceControlAiInstructions', input, 'args'), () =>
+    tsHasInstructions(args)
   )
-}
-
-function resolveThinkingLevel(args: {
-  model: CommitMessageAiModelCapability
-  source: SourceControlAiSettings
-  legacy: CommitMessageAiSettings | null | undefined
-  repoOverrides: RepoSourceControlAiOverrides | null | undefined
-  operation: SourceControlAiOperation
-}): string | undefined {
-  const { model, source, legacy, repoOverrides, operation } = args
-  if (!model.thinkingLevels?.length) {
-    return undefined
-  }
-  const persisted =
-    repoOverrides?.modelOverridesByOperation?.[operation]?.selectedThinkingByModel?.[model.id] ??
-    source.modelOverridesByOperation?.[operation]?.selectedThinkingByModel?.[model.id] ??
-    source.selectedThinkingByModel[model.id] ??
-    legacy?.selectedThinkingByModel?.[model.id]
-  return model.thinkingLevels.some((level) => level.id === persisted)
-    ? persisted
-    : model.defaultThinkingLevel
-}
-
-function hasOwnInstruction(
-  instructions: Partial<Record<SourceControlAiOperation, string | null>> | null | undefined,
-  operation: SourceControlAiOperation
-): boolean {
-  return Object.prototype.hasOwnProperty.call(instructions ?? {}, operation)
-}
-
-function readRepoInstructionOverride(
-  instructions: RepoSourceControlAiOverrides['instructionsByOperation'],
-  operation: SourceControlAiOperation
-): string | undefined {
-  if (!hasOwnInstruction(instructions, operation)) {
-    return undefined
-  }
-  const instruction = instructions?.[operation]
-  return typeof instruction === 'string' ? instruction : undefined
-}
-
-// Why: callers that already normalized settings/repo overrides reuse this to
-// avoid re-normalizing the same inputs on every instruction lookup.
-function resolveInstructionsFromNormalized(
-  source: SourceControlAiSettings,
-  repoOverrides: RepoSourceControlAiOverrides | null | undefined,
-  operation: SourceControlAiOperation,
-  legacyCustomPrompt: string | undefined
-): string {
-  const repoInstruction = readRepoInstructionOverride(
-    repoOverrides?.instructionsByOperation,
-    operation
-  )
-  if (repoInstruction !== undefined) {
-    return repoInstruction.trim()
-  }
-  const globalInstruction = source.instructionsByOperation[operation]
-  if (typeof globalInstruction === 'string') {
-    return globalInstruction.trim()
-  }
-  return operation === 'commitMessage' ? (legacyCustomPrompt ?? '').trim() : ''
-}
-
-export function resolveSourceControlAiInstructions(args: {
-  settings: Pick<GlobalSettings, 'sourceControlAi' | 'commitMessageAi'>
-  repo?: Pick<Repo, 'sourceControlAi'> | null
-  operation: SourceControlAiOperation
-}): string {
-  const source = normalizeSourceControlAiSettings(
-    args.settings.sourceControlAi,
-    args.settings.commitMessageAi
-  )
-  const repoOverrides = normalizeRepoSourceControlAiOverrides(args.repo?.sourceControlAi)
-  return resolveInstructionsFromNormalized(
-    source,
-    repoOverrides,
-    args.operation,
-    args.settings.commitMessageAi?.customPrompt
-  )
-}
-
-export function hasConfiguredSourceControlAiInstructions(args: {
-  settings: Pick<GlobalSettings, 'sourceControlAi' | 'commitMessageAi'>
-  repo?: Pick<Repo, 'sourceControlAi'> | null
-  operation: SourceControlAiOperation
-}): boolean {
-  const repoOverrides = normalizeRepoSourceControlAiOverrides(args.repo?.sourceControlAi)
-  const repoInstruction = readRepoInstructionOverride(
-    repoOverrides?.instructionsByOperation,
-    args.operation
-  )
-  if (repoInstruction !== undefined) {
-    return true
-  }
-  return resolveSourceControlAiInstructions(args).length > 0
-}
-
-function resolvePrCreationDefaults(
-  source: SourceControlAiSettings,
-  repoOverrides: RepoSourceControlAiOverrides | null | undefined,
-  productDefaults: SourceControlAiPrCreationDefaults | undefined
-): Required<SourceControlAiPrCreationDefaults> {
-  const base = {
-    ...DEFAULT_SOURCE_CONTROL_AI_PR_CREATION_DEFAULTS,
-    ...productDefaults,
-    ...source.prCreationDefaults
-  }
-  const repoDefaults = repoOverrides?.prCreationDefaults
-  if (!repoDefaults) {
-    return base
-  }
-  return {
-    draft: repoDefaults.draft ?? base.draft,
-    useTemplate: repoDefaults.useTemplate ?? base.useTemplate,
-    generateDetailsOnOpen: repoDefaults.generateDetailsOnOpen ?? base.generateDetailsOnOpen,
-    openAfterCreate: repoDefaults.openAfterCreate ?? base.openAfterCreate
-  }
-}
-
-function resolveActionRecipeForTextOperation(
-  source: SourceControlAiSettings,
-  repoOverrides: RepoSourceControlAiOverrides | null | undefined,
-  operation: SourceControlAiOperation
-): { agentId?: TuiAgent | CustomAgentId | null; commandInputTemplate: string; agentArgs?: string } {
-  const globalRecipe = readSourceControlActionDefault(source.actions, operation)
-  const repoRecipe = repoOverrides?.actionOverrides?.[operation]
-  const repoInstruction = readRepoInstructionOverride(
-    repoOverrides?.instructionsByOperation,
-    operation
-  )
-  const fallbackTemplate =
-    repoInstruction !== undefined
-      ? commandTemplateFromOperationInstruction(operation, repoInstruction)
-      : resolveSourceControlActionCommandTemplate(source.actions, operation)
-  const repoTemplate =
-    typeof repoRecipe?.commandInputTemplate === 'string'
-      ? repoRecipe.commandInputTemplate.trim()
-      : undefined
-  const repoAgentArgs =
-    typeof repoRecipe?.agentArgs === 'string'
-      ? repoRecipe.agentArgs.trim()
-      : repoRecipe?.agentArgs === null
-        ? ''
-        : undefined
-  return {
-    ...(repoRecipe?.agentId !== undefined
-      ? { agentId: repoRecipe.agentId }
-      : globalRecipe.agentId !== undefined
-        ? { agentId: globalRecipe.agentId }
-        : {}),
-    ...(repoAgentArgs !== undefined
-      ? { agentArgs: repoAgentArgs }
-      : globalRecipe.agentArgs !== undefined
-        ? { agentArgs: globalRecipe.agentArgs }
-        : {}),
-    commandInputTemplate:
-      repoTemplate !== undefined
-        ? repoTemplate
-        : globalRecipe.commandInputTemplate !== undefined
-          ? globalRecipe.commandInputTemplate
-          : fallbackTemplate
-  }
 }
 
 export function resolveSourceControlAiPrCreationDefaults(
   input: ResolveSourceControlAiPrCreationDefaultsInput
 ): Required<SourceControlAiPrCreationDefaults> {
-  const source = normalizeSourceControlAiSettings(
-    input.settings.sourceControlAi,
-    input.settings.commitMessageAi
-  )
-  return resolvePrCreationDefaults(
-    source,
-    normalizeRepoSourceControlAiOverrides(input.repo?.sourceControlAi),
-    input.prCreationProductDefaults
+  const payload = settingsAndRepo(input.settings, input.repo)
+  const product = corePrCreationDefaults(input.prCreationProductDefaults)
+  if (payload === UNPROJECTABLE || product === UNPROJECTABLE) {
+    return tsPrCreationDefaults(input)
+  }
+  const call = product === undefined ? payload : { ...payload, prCreationProductDefaults: product }
+  return crossed(cross('resolveSourceControlAiPrCreationDefaults', call, 'input'), () =>
+    tsPrCreationDefaults(input)
   )
 }
 
 export function resolveSourceControlAiEnabled(input: {
-  settings: Pick<GlobalSettings, 'sourceControlAi' | 'commitMessageAi'> | null | undefined
-  repo?: Pick<Repo, 'sourceControlAi'> | null
+  settings: SettingsSlice | null | undefined
+  repo?: RepoSlice | null
 }): boolean {
-  const source = normalizeSourceControlAiSettings(
-    input.settings?.sourceControlAi,
-    input.settings?.commitMessageAi
-  )
-  const repoOverrides = normalizeRepoSourceControlAiOverrides(input.repo?.sourceControlAi)
-  // `?? false` because the return type says `boolean` and this could hand back
-  // `undefined`: a persisted `commitMessageAi` with no `enabled` key normalizes to
-  // an own-undefined `enabled`, so the coalesce fell through both operands. Every
-  // caller reads it as truthiness, so no behaviour changes — but the type stops
-  // lying, and the Rust core (which already answers `false`) stops diverging on
-  // 90 of 64,341 measured calls.
-  return repoOverrides?.enabled ?? source.enabled ?? false
+  const payload = settingsAndRepo(input.settings, input.repo)
+  if (payload === UNPROJECTABLE) {
+    return tsEnabled(input)
+  }
+  return crossed(cross('resolveSourceControlAiEnabled', payload, 'input'), () => tsEnabled(input))
 }
 
 export function resolveSourceControlActionRecipe(input: {
-  settings: Pick<GlobalSettings, 'sourceControlAi' | 'commitMessageAi'> | null | undefined
-  repo?: Pick<Repo, 'sourceControlAi'> | null
+  settings: SettingsSlice | null | undefined
+  repo?: RepoSlice | null
   actionId: SourceControlActionId
 }): SourceControlActionRecipe {
-  const source = normalizeSourceControlAiSettings(
-    input.settings?.sourceControlAi,
-    input.settings?.commitMessageAi
+  const payload = settingsAndRepo(input.settings, input.repo)
+  if (payload === UNPROJECTABLE || !isModelledActionId(input.actionId)) {
+    return tsActionRecipe(input)
+  }
+  const call = { ...payload, actionId: input.actionId }
+  return crossed(cross('resolveSourceControlActionRecipe', call, 'input'), () =>
+    tsActionRecipe(input)
   )
-  const globalRecipe = readSourceControlActionDefault(source.actions, input.actionId)
-  const repoRecipe = normalizeRepoSourceControlAiOverrides(input.repo?.sourceControlAi)
-    ?.actionOverrides?.[input.actionId]
-  if (!repoRecipe) {
-    return {
-      ...globalRecipe,
-      commandInputTemplate: resolveSourceControlActionCommandTemplate(
-        source.actions,
-        input.actionId
-      )
-    }
-  }
-  return {
-    ...globalRecipe,
-    commandInputTemplate: resolveSourceControlActionCommandTemplate(source.actions, input.actionId),
-    ...(repoRecipe.agentId !== undefined ? { agentId: repoRecipe.agentId } : {}),
-    ...(typeof repoRecipe.commandInputTemplate === 'string'
-      ? { commandInputTemplate: repoRecipe.commandInputTemplate.trim() }
-      : {}),
-    ...(typeof repoRecipe.agentArgs === 'string'
-      ? { agentArgs: repoRecipe.agentArgs.trim() }
-      : repoRecipe.agentArgs === null
-        ? { agentArgs: '' }
-        : {})
-  }
 }
 
 export function resolveSourceControlAiForOperation(
   input: ResolveSourceControlAiInput
 ): ResolveSourceControlAiResult {
-  const legacy = input.settings.commitMessageAi
-  const source = normalizeSourceControlAiSettings(input.settings.sourceControlAi, legacy)
-  const repoOverrides = normalizeRepoSourceControlAiOverrides(input.repo?.sourceControlAi)
-
-  const prCreationDefaults = resolvePrCreationDefaults(
-    source,
-    repoOverrides,
-    input.prCreationProductDefaults
-  )
-  const actionRecipe = resolveActionRecipeForTextOperation(source, repoOverrides, input.operation)
-  if (!actionRecipe.commandInputTemplate.trim()) {
-    return {
-      ok: false,
-      error: `Command template is empty for ${OPERATION_LABEL[input.operation]}.`
-    }
+  const payload = settingsAndRepo(input.settings, input.repo)
+  const product = corePrCreationDefaults(input.prCreationProductDefaults)
+  const hostKey: unknown = input.discoveryHostKey
+  if (
+    payload === UNPROJECTABLE ||
+    product === UNPROJECTABLE ||
+    !isModelledOperation(input.operation) ||
+    !(hostKey === undefined || typeof hostKey === 'string')
+  ) {
+    return tsForOperation(input)
   }
-  // Why: action recipes own the new customization model. The legacy global
-  // agent remains a fallback so existing users migrate without losing intent.
-  const preferredAgent = hasActionAgentRecipe(actionRecipe) ? actionRecipe.agentId : source.agentId
-  const agentChoice = resolveCommitMessageAgentChoice(
-    preferredAgent,
-    collapseDefaultTuiAgentToBuiltin(input.settings.defaultTuiAgent, input.settings.customAgents),
-    input.settings.disabledTuiAgents
-  )
-  if (!agentChoice) {
-    return {
-      ok: false,
-      error: `Choose a supported Source Control AI agent for this action in Settings -> Git -> Source Control AI. ${supportedSourceControlAiAgentSummary()}`
-    }
-  }
-
-  // Both operands optional-chain. `sourceControlAiSettingsFromLegacy` produces an
-  // OWN `customAgentCommand: undefined` for a legacy blob that has none — the
-  // shape persistence.ts:3286 builds — so the unguarded `.trim()` threw
-  // "Cannot read properties of undefined" for a settings object the app itself
-  // creates. The repoOverrides operand on this same line was already guarded.
-  const customAgentCommand =
-    repoOverrides?.customAgentCommand?.trim() || (source.customAgentCommand?.trim() ?? '')
-  if (isCustomAgentId(agentChoice)) {
-    if (!customAgentCommand) {
-      return {
-        ok: false,
-        error: 'Custom command is empty. Add one in Settings -> Git -> Source Control AI.'
-      }
-    }
-    return {
-      ok: true,
-      value: {
-        enabled: true,
-        params: {
-          agentId: CUSTOM_AGENT_ID,
-          model: '',
-          customPrompt: resolveInstructionsFromNormalized(
-            source,
-            repoOverrides,
-            input.operation,
-            legacy?.customPrompt
-          ),
-          commandInputTemplate: actionRecipe.commandInputTemplate,
-          ...(actionRecipe.agentArgs !== undefined ? { agentArgs: actionRecipe.agentArgs } : {}),
-          customAgentCommand
-        },
-        prCreationDefaults
-      }
-    }
-  }
-
-  const agentId = agentChoice
-  const actionAgentId = actionRecipe.agentId ?? agentId
-  const resolvedActionAgentId =
-    actionAgentId === agentId
-      ? agentId
-      : resolveCommitMessageAgentChoice(
-          actionAgentId,
-          collapseDefaultTuiAgentToBuiltin(
-            input.settings.defaultTuiAgent,
-            input.settings.customAgents
-          ),
-          input.settings.disabledTuiAgents
-        )
-  if (!resolvedActionAgentId || isCustomAgentId(resolvedActionAgentId)) {
-    return {
-      ok: false,
-      error: `Choose a supported Source Control AI agent for this action. ${supportedSourceControlAiAgentSummary()}`
-    }
-  }
-  const spec = getCommitMessageAgentSpec(resolvedActionAgentId)
-  if (!spec) {
-    return {
-      ok: false,
-      error: `Agent "${resolvedActionAgentId}" does not support Source Control AI ${OPERATION_LABEL[input.operation]}. ${supportedSourceControlAiAgentSummary()}`
-    }
-  }
-
-  const hostKey = input.discoveryHostKey ?? LOCAL_COMMIT_MESSAGE_HOST_KEY
-  const persistedModelId = selectPersistedModelId({
-    source,
-    legacy,
-    repoOverrides,
+  const call = {
+    ...payload,
     operation: input.operation,
-    hostKey,
-    agentId: resolvedActionAgentId,
-    defaultModelId: spec.defaultModelId
-  })
-  const discoveredModels = getDiscoveredModels(source, legacy, hostKey, resolvedActionAgentId)
-  const model =
-    spec.models.find((candidate) => candidate.id === persistedModelId) ??
-    discoveredModels.find((candidate) => candidate.id === persistedModelId) ??
-    getCommitMessageModel(resolvedActionAgentId, spec.defaultModelId)
-  if (!model) {
-    return { ok: false, error: `No model is available for ${spec.label}.` }
+    ...(hostKey === undefined ? {} : { discoveryHostKey: hostKey }),
+    ...(product === undefined ? {} : { prCreationProductDefaults: product })
   }
-
-  const thinkingLevel = resolveThinkingLevel({
-    model,
-    source,
-    legacy,
-    repoOverrides,
-    operation: input.operation
-  })
-  const agentCommandOverride = input.settings.agentCmdOverrides?.[resolvedActionAgentId]?.trim()
-  return {
-    ok: true,
-    value: {
-      enabled: true,
-      params: {
-        agentId: resolvedActionAgentId,
-        model: model.id,
-        thinkingLevel,
-        customPrompt: resolveInstructionsFromNormalized(
-          source,
-          repoOverrides,
-          input.operation,
-          legacy?.customPrompt
-        ),
-        commandInputTemplate: actionRecipe.commandInputTemplate,
-        ...(actionRecipe.agentArgs !== undefined ? { agentArgs: actionRecipe.agentArgs } : {}),
-        ...(customAgentCommand ? { customAgentCommand } : {}),
-        ...(agentCommandOverride ? { agentCommandOverride } : {})
-      },
-      prCreationDefaults
-    }
-  }
+  return crossed(cross('resolveSourceControlAiForOperation', call, 'input'), () =>
+    tsForOperation(input)
+  )
 }

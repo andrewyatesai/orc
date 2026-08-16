@@ -1,6 +1,7 @@
 import type { RepoSourceControlAiOverrides } from '../../../../shared/source-control-ai-types'
 import { normalizeRepoSourceControlAiOverrides } from '../../../../shared/source-control-ai'
 import { toSourceControlAiRepoUpdate } from '../../../../shared/source-control-ai-recipe-save'
+import { sameRepoSourceControlAiOverrides } from './repository-source-control-ai-write-dedupe'
 import type { SourceControlAiRepoUpdate } from '../../../../shared/source-control-ai-recipe-save'
 
 type PersistQueueOptions = {
@@ -37,7 +38,7 @@ export function createRepoAiPersistQueue(options: PersistQueueOptions) {
         // still routes through onError instead of becoming an unhandled rejection for fire-and-forget callers.
         try {
           const next = transform(options.getPersisted())
-          if (JSON.stringify(next) === JSON.stringify(options.getPersisted())) {
+          if (sameRepoSourceControlAiOverrides(next, options.getPersisted())) {
             return true
           }
           const repoUpdate = toSourceControlAiRepoUpdate(next)

@@ -1,6 +1,17 @@
 // TS dispatch for the source-control-ai parity module: maps the shared vector
-// function names to the real `src/shared/source-control-ai.ts` exports so the
-// harness compares the live TS reference against the Rust port.
+// function names to the real TypeScript reference so the harness compares it
+// against the Rust port.
+//
+// `src/shared/source-control-ai.ts` was CUT OVER in place — same path, same
+// exports, dispatch bodies — so this import line did not change and this adapter
+// now drives the SHIM, like the feature-tips and wsl-paths adapters.
+// `config/vitest.parity.config.ts` installs no setup file, so the seam is UNBOUND
+// here and the shim answers from its `parity` fallback: exactly the deleted-twin
+// bodies in `source-control-ai-{settings-normalization,operation-precedence,…}.ts`,
+// and exactly what a surface runs before (or without) a binding. Importing those
+// modules directly instead would test the same code while hiding a shim that
+// stopped calling them; going through the shim keeps this a real TS-vs-Rust
+// differential either way.
 //
 // Two argument encodings are in play, and both are MEASURED by
 // `pnpm parity:twin-derived` (phase A replays these cases), not chosen freely:
