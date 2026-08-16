@@ -81,6 +81,44 @@ Two habits that catch this class, both learned by failing at them first:
   verified the OpenCode title step it had just added and missed the `aiVaultTitle`
   step the same re-port had silently dropped, shipping an empty tab title.
 
+### `source-control-ai` — the one module held back on a REAL defect
+
+Everything else that was ever "blocked" turned out to be a staging problem. This
+one is not, and it should not be cut over until the defect below is fixed.
+
+**Undeclared bound-vs-unbound divergence in
+`mergeLegacyCommitMessageAiIntoSourceControlAi`** — the module's own rollback
+bridge, and the export its shim header names as highest-stakes. Minimal repro,
+both shapes in-contract:
+
+    merge(
+      {enabled:true, agentId:null, selectedModelByAgent:{}, selectedThinkingByModel:{},
+       customAgentCommand:'keep-me', instructionsByOperation:{}},
+      {enabled:false, agentId:'codex', model:'x'}
+    )
+      twin / UNBOUND -> own key `customAgentCommand: undefined`
+      BOUND (shipped wasm) -> `""`
+
+Same shape for `agentId`: the twin returns own `undefined`, the core returns
+`null`. 17 of 241 self-chosen inputs disagree bound-vs-unbound; UNBOUND matched
+the twin on all 241, so this is a genuine TS-vs-Rust divergence and not shim
+plumbing.
+
+Why it matters more than the count suggests: `JSON.stringify` DROPS an
+own-undefined key, so the twin's wire form omits the field while the core sends a
+value. The declared residual covers only the OPPOSITE direction (the core
+omitting an optional the twin returned as own-undefined). Callers are main-only
+and `persistence.ts:3270`/`:6004` write the result, so a substituted `""` becomes
+a persisted empty custom command where the twin persisted nothing.
+
+The 17 key-ORDER deltas in the same measurement ARE declared and are fine — no
+consumer reads by order (`source-control-action-recipe-match.ts` compares
+field-wise, persistence re-serializes).
+
+Everything else about the module is done: all 14 exports routed, the core
+re-ported from a pre-action-recipe revision, eight JS-trim sites fixed, corpus
+1 -> 111 vectors. Fix the merge, then cut it over.
+
 ### A clean verdict means "nothing found", not "nothing there"
 
 Batch 5 took seven modules this tool called clean and four of them still had to
