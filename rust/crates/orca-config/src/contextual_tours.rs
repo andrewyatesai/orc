@@ -185,11 +185,6 @@ pub const CONTEXTUAL_TOURS: [ContextualTour; 7] = [
                 "Drag workspaces between lanes as their status changes.",
                 "[data-contextual-tour-target=\"workspace-board-done-lane\"], [data-contextual-tour-target=\"workspace-board-lanes\"]",
             ),
-            step(
-                "Tune density",
-                "Use board settings to switch between detailed and compact cards.",
-                "[data-contextual-tour-target=\"workspace-board-settings\"], [data-contextual-tour-target=\"workspace-board-lanes\"]",
-            ),
         ],
     },
     ContextualTour {
@@ -228,17 +223,31 @@ pub const CONTEXTUAL_TOURS: [ContextualTour; 7] = [
         steps: &[
             ContextualTourStep {
                 required_for_start: Some(true),
+                preferred_placement: Some(ContextualTourStepPlacement::Bottom),
                 ..step(
                     "Grab page context for agents",
-                    "Grab controls can copy elements or hand page context to an agent.",
+                    "Use the grab tool to copy a page element's context for agents.",
                     "[data-contextual-tour-target=\"browser-grab-control\"]",
                 )
             },
-            step(
-                "Mark design feedback in place",
-                "Annotate elements and send those notes to an agent.",
-                "[data-contextual-tour-target=\"browser-annotation-control\"]",
-            ),
+            ContextualTourStep {
+                preferred_placement: Some(ContextualTourStepPlacement::Bottom),
+                ..step(
+                    "Mark design feedback in place",
+                    "Annotate elements and send those notes to an agent.",
+                    "[data-contextual-tour-target=\"browser-annotation-control\"]",
+                )
+            },
+            ContextualTourStep {
+                // Prefers the always-visible Import button; the overflow-menu row
+                // is the fallback once the import hint is dismissed.
+                preferred_placement: Some(ContextualTourStepPlacement::Bottom),
+                ..step(
+                    "Stay logged in",
+                    "Bring your existing logins into Orca to stay signed in immediately.",
+                    "[data-contextual-tour-target=\"browser-import-hint\"], [data-contextual-tour-target=\"browser-import-cookies-control\"]",
+                )
+            },
         ],
     },
     ContextualTour {
@@ -473,12 +482,13 @@ mod tests {
     }
 
     #[test]
-    fn points_the_workspace_board_tour_at_the_board_center_done_lane_and_settings() {
+    fn points_the_workspace_board_tour_at_the_board_center_and_done_lane() {
         let tour = find(ContextualTourId::WorkspaceBoard);
 
+        // Two steps: the tune-density step is not in the TS catalog.
         assert_eq!(
             tour.steps.iter().map(|step| step.title).collect::<Vec<_>>(),
-            vec!["Plan work on the board", "Move work through lanes", "Tune density"]
+            vec!["Plan work on the board", "Move work through lanes"]
         );
         assert_eq!(
             tour.steps[0].target_selector,
@@ -491,10 +501,22 @@ mod tests {
             tour.steps[1].target_selector,
             "[data-contextual-tour-target=\"workspace-board-done-lane\"], [data-contextual-tour-target=\"workspace-board-lanes\"]"
         );
-        assert_eq!(tour.steps[2].body, "Use board settings to switch between detailed and compact cards.");
+    }
+
+    #[test]
+    fn orders_the_browser_tour_as_grab_annotate_then_stay_logged_in() {
+        let tour = find(ContextualTourId::Browser);
+
+        assert_eq!(
+            tour.steps.iter().map(|step| step.title).collect::<Vec<_>>(),
+            vec!["Grab page context for agents", "Mark design feedback in place", "Stay logged in"]
+        );
+        for step in tour.steps {
+            assert_eq!(step.preferred_placement, Some(ContextualTourStepPlacement::Bottom));
+        }
         assert_eq!(
             tour.steps[2].target_selector,
-            "[data-contextual-tour-target=\"workspace-board-settings\"], [data-contextual-tour-target=\"workspace-board-lanes\"]"
+            "[data-contextual-tour-target=\"browser-import-hint\"], [data-contextual-tour-target=\"browser-import-cookies-control\"]"
         );
     }
 

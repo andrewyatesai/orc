@@ -211,12 +211,9 @@ export const CONTEXTUAL_TOURS = [
 
 export const CONTEXTUAL_TOUR_IDS = CONTEXTUAL_TOURS.map((tour) => tour.id)
 
-// `isContextualTourId` and `normalizeContextualTourIds` moved to
-// `contextual-tour-id-normalization.ts`, which dispatches to
-// `orca_config::contextual_tours` with these bodies as its pre-ready fallback.
-// `getContextualTour` stays: the Rust core carries its own copy of the tour
-// catalog, so crossing it would make the CATALOG the thing that has to agree,
-// not a predicate — and this file is the catalog's only source of truth.
-export function getContextualTour(id: ContextualTourId): ContextualTour {
-  return CONTEXTUAL_TOURS.find((tour) => tour.id === id)!
-}
+// All three functions moved onto the Rust `orca_config::contextual_tours` core:
+// the two id predicates to `contextual-tour-id-normalization.ts`, the catalog
+// lookup to `contextual-tour-lookup.ts` (renderer-only, hence the separate
+// file). Each keeps its deleted body as a `parity` pre-ready fallback over the
+// data below, which stays here — the catalog is authored in TS and the core
+// mirrors it, pinned tour-by-tour by the parity vectors.

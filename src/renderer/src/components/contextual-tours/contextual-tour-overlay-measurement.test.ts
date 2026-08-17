@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { getContextualTour } from '../../../../shared/contextual-tours'
+import { getContextualTour } from '../../../../shared/contextual-tour-lookup'
 import { setRendererUiLanguage } from '@/i18n/i18n'
 import {
   getContextualTourDisplayProgress,

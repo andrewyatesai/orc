@@ -299,20 +299,26 @@ What the core answered, measured against BOTH shipped blobs (they agree):
   was one tour short of its twin. `feature_education_telemetry`'s mirror const
   was short the same id and is fixed with it.
 
-**The catalog fix is NOT in this commit, and neither is the ids-const fix.** Both
-were drafted, and both were dropped on the way in, for the same reason: the
-board/browser drift is not the core lagging HEAD, it is the core *leading* it.
-The steps the core is missing exist only in the maintainer's uncommitted working
-tree, so a `getContextualTour` golden encoding them compares the Rust catalog
-against a revision that is in no commit — the aiVaultTitle mistake exactly. Run
-against the staged tree the four drafted tour goldens fail as
-`contextual-tours#12` and `#13`; against the working tree they pass. That
-asymmetry IS the tell, and the rule it re-proves is the standing one: port
-against `git show HEAD:`, never disk. The corpus therefore grew 8 → **12**, all
-four added cases on the two id functions, and the catalog vectors are left at
-HEAD's three. `CONTEXTUAL_TOUR_IDS` and its `feature_education_telemetry` mirror
-are handled in their own entry below, where the defect is live rather than
-latent.
+**CORRECTION — the catalog fix was dropped from the first commit for a reason
+that was wrong.** That commit said the board/browser drift was "the core leading
+HEAD", the missing steps existing "only in the maintainer's uncommitted working
+tree", and dropped four drafted tour goldens as a repeat of the aiVaultTitle
+mistake. That is backwards. `git show HEAD:src/shared/contextual-tours.ts` at
+b06d6c6d2d contains "Stay logged in" and does NOT contain "Tune density"; the
+Rust catalog is the opposite on both. The core was lagging **committed** TS, the
+four goldens were right, and dropping them was the error.
+
+What produced the wrong call: the working tree DOES carry an unrelated
+contextual-tours edit (a parallel session removing two step `id`s from the
+automations tour), and seeing an uncommitted diff on the file was taken as
+evidence that the newer steps were uncommitted too. Two different changes to one
+file, one committed and one not. The check that settles it costs one command and
+was not run — `git show HEAD:` on the TS side, not just on the Rust side. Porting
+against HEAD means reading HEAD on **both** sides of the comparison.
+
+The corpus went 8 → 12 in the first commit (the two id functions) and 12 → 16
+here: `getContextualTour` now has one vector per tour, goldens taken from HEAD's
+TS, so a sampled subset can never again hide a drifted tour.
 
 _Cut over 2026-08-15, TWO of three exports._ `isContextualTourId` and
 `normalizeContextualTourIds` are deleted from
@@ -450,6 +456,37 @@ session owns. And `rust/orca-git-wasm/Cargo.lock` was stale at HEAD (missing the
 `orca-policy` / `orca-core` edges a previous cutover added); cargo regenerates it
 identically from the committed manifests, so it is committed here rather than
 left to reappear in every future build.
+
+### `contextual-tours` — the third export, and the refusal that dissolved
+
+`getContextualTour` was refused with "the reason is the blob, not the port": the
+core's catalog was stale and the shipped wasm carried it. Rebuilding the blob for
+an unrelated telemetry fix made that refusal testable, so it got tested rather
+than re-asserted. Nine cases, one per tour plus two controls, comparing HEAD's TS
+catalog to the rebuilt wasm: **five tours agreed, `workspace-board` and `browser`
+did not.** The blob was fine; the Rust catalog was wrong against committed TS.
+
+So the fix is a port fix, not a product decision: the board tour loses the
+tune-density step, the browser tour gains "Stay logged in" and the two placements
+it was missing, and the grab step takes its reworded copy — every value read off
+`git show HEAD:src/shared/contextual-tours.ts`. All seven tours then agree, the
+blob is rebuilt on top, and the lookup crosses.
+
+_Cut over, all three exports._ `getContextualTour` goes to its own
+`contextual-tour-lookup.ts` rather than joining the id functions, because the
+two have different reach and therefore different contracts: the id functions
+serve main (napi), the renderer (wasm), and the web preload (which binds
+neither, so its fallback is permanent); the lookup is renderer-only. One file per
+binding story keeps both honest — and merging them would have made
+`contextual-tour-id-normalization.ts` a name that lies.
+
+Pre-ready contract `parity`, forced the same way: the return type is a non-null
+`ContextualTour` that every caller renders, so a sentinel would blank the overlay
+mid-tour. Crossing returns a FRESH object per call, which was checked rather than
+assumed — no caller compares tours by identity or mutates one, and the single
+render-path caller memoises on `activeTourId`. Ten cases run every tour in both
+seam states; planting a bound-only defect (drop the last step) reddens nine of
+them, so the bound leg is exercised rather than silently falling back.
 
 ### What is actually left, and what each one is waiting on
 
