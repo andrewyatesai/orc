@@ -4,9 +4,25 @@ Companion to [TAILING-SYSTEM.md](./TAILING-SYSTEM.md) (the process). This is the
 current *state*: where the fork sits against upstream, and what remains a human
 decision rather than a port. Update the top block on each sync.
 
-## At parity as of upstream `09ec516ae5`  _(2026-08-15)_
-The ledger from base `4dc777f707` (v1.4.143) through `09ec516ae5` is fully dispositioned,
-and every mechanically-portable *missing* item is on `main`. Two syncs got us here:
+## At parity as of upstream `b6d5972ec4`  _(2026-08-17)_
+The ledger from base `4dc777f707` (v1.4.143) through `b6d5972ec4` is fully dispositioned,
+and every mechanically-portable *missing* item is on `main`. Three syncs got us here:
+
+- **Cadence sync** (`09ec516ae5..b6d5972ec4`, +300 commits): dispositioned 299 → 132
+  portable-missing (3 high · 67 med · 62 low), 109 n/a (the max-lines refactor campaign +
+  reverts), 31 superseded (aterm 4 / rust 2 / orchestration-divergent 13 / other 12), 12
+  large-feature, 9 collides. **84 ported** across 5 batch commits + a mobile-harness fix
+  (`2224b2471a`→`1d697951ce`): b1 13, b2 20, b3 16, b4 20, b5 15. Census re-baselined per
+  batch (orca-runtime.ts 36393→36628 attach-kind; pty.ts 6382; shim 2812→2823). Two silent
+  auto-merge losses were caught by post-rebase tsc (a dropped `withTimeout` that b2's ported
+  module already carried; a duplicate const); the SGR-pen-reset and `snapshotCarriesNoImage`
+  guard collided on one replay block and were reconciled to keep both; three batch-introduced
+  oxlint errors were fixed by *splitting* (mobile + an over-800 test file), never suppressing.
+  The orchestration-divergent commits routed to superseded/collides per
+  [orchestration/RECONCILIATION.md](../orchestration/RECONCILIATION.md).
+
+The ledger from base `4dc777f707` (v1.4.143) through `09ec516ae5` was fully dispositioned in
+the two prior syncs:
 
 - **First sync** (through `c991bb27d3`, 848 commits): 2 orchestration grafts (capability
   tokens, mutation receipts), all 11 high-impact items, the entire medium tier (290) and
