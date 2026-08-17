@@ -573,6 +573,53 @@ Pre-ready contract `parity`: `true` searches and `false` navigates, so no value
 can double as "could not ask", and on the main-process path this feeds
 `will-navigate` validation. Planting a bound-only inversion reddens 24 of 25.
 
+### Why "cut over every module" cannot be satisfied: the fallback is load-bearing
+
+This is the structural answer, and it outranks every cost or reach refusal in
+this document, so it belongs before them.
+
+The `parity` pre-ready contract says a shim with no safe sentinel recomputes the
+deleted twin's body locally. That body has to run when the seam is UNBOUND — the
+renderer's boot window, and **permanently** on the web preload and on mobile,
+neither of which ever installs a binding. So whatever the fallback itself calls
+must remain a real TS implementation. **A fallback that dispatches is not a
+fallback**; when the seam is unbound it would ask the unbound seam.
+
+That makes some TS exports permanently uncuttable, and not as a judgement call.
+`pnpm exec node config/scripts/list-fallback-load-bearing-exports.mjs` walks
+every shim, extracts its `legacy*` fallback bodies and reports what they call:
+
+```
+70 shim files dispatch on the seam.
+41 exports are called from inside a pre-ready fallback and cannot cross
+```
+
+Most are tables and patterns, which is unremarkable. About a dozen are
+FUNCTIONS, and those are the ones a completion-minded reader would otherwise
+queue up:
+
+* `cross-platform-path::isWindowsAbsolutePathLike` — three shims depend on it
+  (`cross-platform-path-resolution`, `setup-runner-command-resolution`,
+  `git-wasm/setup-runner-command-platform`). Its own file already says so; the
+  earlier census filed it as an unwritten cost refusal, which was wrong twice
+  over — the reason is structural, and it was already written down.
+* the four `agent-status-field-normalization` normalizers, plus
+  `assertJsonTextStructureWithinLimits`, all inside `agent-status-evaluation`'s
+  fallback
+* `nushell-shell::quoteNuDoubleQuoted`, `tui-agent-config::isTuiAgent`,
+  `opencode-terminal-title::isMeaningfulOpenCodeTerminalTitle`,
+  `utf8-byte-limits::{clampUtf8TextTail,measureUtf8ByteLength}`
+
+So "cut over ALL modules" and "keep the `parity` contract" are the same
+instruction pointing in opposite directions. Driving the count to 87 would mean
+deleting the fallbacks, which means the renderer answers nothing during its boot
+window and the web preload and mobile answer nothing **ever** — those two surfaces
+have no wasm to become ready. The ceiling is a property of the architecture, not
+of how much work anyone is willing to do.
+
+Run the script before starting any cutover. If the export is on the list, the
+question is not "what does a crossing cost" — it is already answered.
+
 ### Correction to the re-census: the "no Rust arm" bucket dissolves
 
 The census above put five modules in "no Rust arm — needs a Rust change, not a
