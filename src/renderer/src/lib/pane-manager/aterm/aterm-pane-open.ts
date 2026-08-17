@@ -7,7 +7,7 @@ import {
 } from '../pane-terminal-options'
 import { normalizeTerminalTuiMouseWheelMultiplier } from '../pane-terminal-mouse-wheel'
 import { normalizeDesktopTerminalScrollbackRows } from '../../../../../shared/terminal-scrollback-policy'
-import { resolveCursorAgentImeAnchor } from '../terminal-ime-anchor'
+import { createCursorAgentImeAnchorTracker } from '../cursor-agent-ime-anchor-tracker'
 import { createAtermPaneController, type AtermLinkContext } from './aterm-pane-renderer'
 import { ATERM_RENDERER_FONT_PX } from './aterm-pane-controller-types'
 import { flushPendingAtermRainPulsesAtControllerAttach } from './aterm-rain-pulse-delivery'
@@ -126,6 +126,9 @@ function buildAtermPaneController(
   pane: ManagedPaneInternal,
   linkContext?: AtermLinkContext
 ): ReturnType<typeof createAtermPaneController> {
+  // Per-pane latch: once this pane has seen the Cursor Agent screen it keeps
+  // anchoring typed follow-ups even after the header scrolls out of view.
+  const resolveCursorAgentImeAnchor = createCursorAgentImeAnchorTracker()
   return createAtermPaneController(
     pane.xtermContainer,
     // Keystrokes/drained-replies → the PTY pipeline once wired; dropped pre-connect.

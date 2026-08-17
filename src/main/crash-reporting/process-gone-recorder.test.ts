@@ -51,6 +51,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.restoreAllMocks()
   _resetTracerForTests()
   clearCrashBreadcrumbsForTest()
@@ -157,6 +158,7 @@ describe('recordProcessGoneCrash', () => {
   })
 
   it('reports how many repeats a coalesced suppression stands for', () => {
+    vi.useFakeTimers()
     const dedupe = new ProcessGoneDedupe()
     const utilityCrash = event({
       source: 'child',
@@ -164,13 +166,11 @@ describe('recordProcessGoneCrash', () => {
       reason: 'crashed',
       details: { serviceName: 'network.mojom.NetworkService' }
     })
-    const nowSpy = vi.spyOn(Date, 'now')
 
-    nowSpy.mockReturnValue(0)
     for (let i = 0; i < 700; i++) {
       recordProcessGoneCrash({ record: vi.fn() } as never, utilityCrash, dedupe)
     }
-    nowSpy.mockReturnValue(30_000)
+    vi.advanceTimersByTime(30_000)
     recordProcessGoneCrash({ record: vi.fn() } as never, utilityCrash, dedupe)
 
     expect(getCrashBreadcrumbSnapshot()).toEqual([
@@ -362,5 +362,82 @@ describe('recordProcessGoneCrash', () => {
     recordProcessGoneCrash({ record } as never, event(), dedupe)
 
     await vi.waitFor(() => expect(record).toHaveBeenCalledTimes(2))
+  })
+
+  function withStubbedPlatform(platform: NodeJS.Platform, run: () => void): void {
+    const original = process.platform
+    Object.defineProperty(process, 'platform', { configurable: true, value: platform })
+    try {
+      run()
+    } finally {
+      Object.defineProperty(process, 'platform', { configurable: true, value: original })
+    }
+  }
+
+  // Why child kills: the decode gate is source-agnostic, and a non-recoverable
+  // child persists synchronously on every branch of the crash-reporting stack
+  // (the renderer killed path defers behind a sibling-kill settle), so the
+  // platform stub is still in force when the gate reads process.platform.
+  const nonRecoverableChildKill = (overrides: Partial<ProcessGoneCrashEvent>): ProcessGoneCrashEvent =>
+    event({
+      source: 'child',
+      processType: 'Utility',
+      details: { serviceName: 'node.mojom.NodeService', type: 'Utility' },
+      ...overrides
+    })
+
+  it('names the decoded POSIX wait status on the span and keeps the stored code raw', async () => {
+    const record = vi.fn().mockResolvedValue({ id: 'report-1' })
+
+    withStubbedPlatform('linux', () => {
+      recordProcessGoneCrash(
+        { record } as never,
+        nonRecoverableChildKill({ reason: 'killed', exitCode: 61696 }),
+        new ProcessGoneDedupe()
+      )
+    })
+
+    await vi.waitFor(() => expect(record).toHaveBeenCalledOnce())
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({ exitCode: 61696 }))
+    expect(sink.records).toEqual([
+      expect.objectContaining({
+        name: 'electron.process_gone',
+        attributes: expect.objectContaining({
+          'crash.exit_code': 61696,
+          'crash.exit_code_decoded': 'exit status 241'
+        })
+      })
+    ])
+  })
+
+  it('leaves Windows exit codes and launch-failed codes undecoded', async () => {
+    const record = vi.fn().mockResolvedValue({ id: 'report-1' })
+
+    withStubbedPlatform('win32', () => {
+      recordProcessGoneCrash(
+        { record } as never,
+        nonRecoverableChildKill({ reason: 'killed', exitCode: 1 }),
+        new ProcessGoneDedupe()
+      )
+    })
+    withStubbedPlatform('linux', () => {
+      recordProcessGoneCrash(
+        { record } as never,
+        nonRecoverableChildKill({ reason: 'launch-failed', exitCode: 18 }),
+        new ProcessGoneDedupe()
+      )
+    })
+
+    await vi.waitFor(() => expect(record).toHaveBeenCalledTimes(2))
+    expect(sink.records).toHaveLength(2)
+    for (const span of sink.records) {
+      expect(span).toEqual(
+        expect.objectContaining({
+          attributes: expect.not.objectContaining({
+            'crash.exit_code_decoded': expect.anything()
+          })
+        })
+      )
+    }
   })
 })

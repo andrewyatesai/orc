@@ -198,6 +198,7 @@
         },
         "editor": {
           "dcb521ed29": "该文件处于冲突状态，但没有可编辑的工作树文件。",
+          "conflictPlaceholderGuidance": "请在 Git 中解决冲突，或恢复其中一侧后再重新打开。",
           "51f15c37d3": "无法打开目录：{{value0}}",
           "f2e00db373": "未找到文件：{{value0}}",
           "checkRunDetailsUnavailable": "此检查没有可用的详细信息。",
@@ -261,6 +262,7 @@
           "81f13f48d2": "删除工作树\"{{value1}}\"后，Git 无法安全删除分支\"{{value0}}\"，因此 Orca 将其保留以避免丢失本地提交。",
           "runtimeScopeForbiddenTitle": "此连接具有受限（移动端）访问权限",
           "runtimeScopeForbiddenDescription": "移动端范围的配对无法使用工作区。请通过设置 → 远程 Orca 服务器 → 分享此 Orca 服务器中的浏览器访问链接重新连接。",
+          "preservedBranchCleanupHostAmbiguous": "\"{{value0}}\" 有多个待处理的保留分支清理；请指定主机。",
           "localBaseRefRefreshFailedForWorktree": "Local {{value0}} was not refreshed for \"{{value1}}\"",
           "localBaseRefRefreshFailedDescriptionNamed": "Workspace \"{{value0}}\" was created from {{value1}}, but Orca could not fast-forward local {{value2}}. {{value3}}",
           "localBaseRefRefreshFailedDetailDirtyNamed": "The worktree at {{value0}} (where local {{value1}} is checked out) has uncommitted changes. Commit, stash, or discard those changes, then update local {{value1}} manually.",

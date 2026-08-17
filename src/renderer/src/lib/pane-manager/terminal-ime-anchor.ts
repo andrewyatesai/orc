@@ -7,7 +7,7 @@ export type TerminalImeAnchor = {
 
 const CURSOR_AGENT_HEADER = 'Cursor Agent'
 const CURSOR_AGENT_INPUT_MARKER = '→'
-const CURSOR_AGENT_EMPTY_PROMPT = 'Plan, search, build anything'
+const CURSOR_AGENT_EMPTY_PROMPTS = ['Plan, search, build anything', 'Add a follow-up'] as const
 const CURSOR_AGENT_HEADER_SCAN_ROWS = 6
 
 export function resolveCursorAgentImeAnchor(args: {
@@ -16,6 +16,9 @@ export function resolveCursorAgentImeAnchor(args: {
   cols: number
   cursorX: number
   cursorY: number
+  // Once the caller has seen the Cursor Agent screen it stays "known" even after
+  // the header scrolls past the top rows, so typed follow-ups keep anchoring.
+  knownCursorAgent?: boolean
 }): TerminalImeAnchor | null {
   const cursorLine = getVisibleLine(args.buffer, args.cursorY)
   if (args.cursorX !== 0 || !isBlankLine(cursorLine)) {
@@ -28,10 +31,11 @@ function findCursorAgentScreenInputAnchor(args: {
   buffer: IBuffer
   rows: number
   cols: number
+  knownCursorAgent?: boolean
 }): TerminalImeAnchor | null {
-  if (!hasCursorAgentHeader(args.buffer, args.rows)) {
-    return null
-  }
+  // A visible header OR a prior sighting lets typed input (not just the empty
+  // placeholder) anchor to the prompt row; an empty prompt anchors regardless.
+  const allowTypedInput = args.knownCursorAgent || hasCursorAgentHeader(args.buffer, args.rows)
 
   // Why: the input box sits below the transcript, so scan bottom-up — a
   // transcript line containing "→ " (e.g. a rename diff) must not win.
@@ -40,7 +44,7 @@ function findCursorAgentScreenInputAnchor(args: {
     if (!line) {
       continue
     }
-    const column = resolveCursorAgentInputColumn(line, args.cols)
+    const column = resolveCursorAgentInputColumn(line, args.cols, Boolean(allowTypedInput))
     if (column !== null) {
       return { row, column: Math.min(column, Math.max(args.cols - 1, 0)) }
     }
@@ -63,15 +67,23 @@ function hasCursorAgentHeader(buffer: IBuffer, rows: number): boolean {
   return false
 }
 
-function resolveCursorAgentInputColumn(line: IBufferLine, cols: number): number | null {
+function resolveCursorAgentInputColumn(
+  line: IBufferLine,
+  cols: number,
+  allowTypedInput: boolean
+): number | null {
   const inputColumn = findCursorAgentInputStartColumn(line, cols)
   if (inputColumn === null) {
     return null
   }
 
   const inputText = line.translateToString(true, inputColumn, cols)
-  if (!inputText.trim() || inputText.startsWith(CURSOR_AGENT_EMPTY_PROMPT)) {
+  const isEmptyPrompt = CURSOR_AGENT_EMPTY_PROMPTS.some((prompt) => inputText.startsWith(prompt))
+  if (!inputText.trim() || isEmptyPrompt) {
     return inputColumn
+  }
+  if (!allowTypedInput) {
+    return null
   }
 
   return findLineContentEndColumn(line, inputColumn, cols) ?? inputColumn

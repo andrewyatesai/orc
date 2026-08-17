@@ -270,6 +270,7 @@ import {
   type NewExternalWorktreesInboxActionState
 } from './new-external-worktrees-inbox-actions'
 import { isEligibleWorktreeParent } from './worktree-parent-candidates'
+import { unnestWorktrees } from './worktree-unnest'
 import {
   buildImportedWorktreesCardCandidates,
   getHiddenImportedWorktrees
@@ -2777,17 +2778,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
         return
       }
       // Why: dropping a nested card on a reorder line is the un-nest escape hatch; clear only the dragged children.
-      void Promise.all(ids.map((id) => updateWorktreeLineage(id, { noParent: true }))).catch(
-        (err) => {
-          console.error('Failed to unnest workspace:', err)
-          toast.error(
-            translate(
-              'auto.components.sidebar.WorktreeList.failedUnnestWorkspace',
-              'Failed to unnest workspace'
-            )
-          )
-        }
-      )
+      void unnestWorktrees(ids, updateWorktreeLineage)
     },
     [cyclicLineageIds, updateWorktreeLineage, worktreeDragGroups, worktreeLineageById, worktreeMap]
   )

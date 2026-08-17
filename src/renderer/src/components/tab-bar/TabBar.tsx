@@ -68,7 +68,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Button } from '@/components/ui/button'
 import type { TabCreateEntryArgs } from './tab-create-entry-action'
 import { buildTabAgentLaunchOptions, orderTabLaunchAgents } from './tab-agent-launch-options'
-import { collapseDefaultTuiAgentToBuiltin } from '../../../../shared/tui-agent-selection'
+import {
+  collapseDefaultTuiAgentToBuiltin,
+  DEFAULT_DISABLED_TUI_AGENTS
+} from '../../../../shared/tui-agent-selection'
 import { buildTabCreateMenuOptions, type TabCreateMenuOption } from './tab-create-menu-options'
 import { MobileEmulatorTabIntroCallout } from '../emulator-pane/MobileEmulatorTabIntroCallout'
 import { shouldShowMobileEmulatorTabIntro } from '../emulator-pane/mobile-emulator-tab-intro-visibility'
@@ -327,6 +330,9 @@ function TabBarInner({
   const defaultAgent = useAppStore((s) =>
     collapseDefaultTuiAgentToBuiltin(s.settings?.defaultTuiAgent, s.settings?.customAgents)
   )
+  const disabledTuiAgents = useAppStore(
+    (s) => s.settings?.disabledTuiAgents ?? DEFAULT_DISABLED_TUI_AGENTS
+  )
   const agentCmdOverrides = useAppStore(
     (s) => s.settings?.agentCmdOverrides ?? EMPTY_AGENT_CMD_OVERRIDES
   )
@@ -335,10 +341,10 @@ function TabBarInner({
   const agentLaunchOptions = useMemo(
     () =>
       buildTabAgentLaunchOptions(
-        orderTabLaunchAgents(defaultAgent, detectedIds ?? []),
+        orderTabLaunchAgents(defaultAgent, detectedIds ?? [], disabledTuiAgents),
         agentCmdOverrides
       ),
-    [agentCmdOverrides, defaultAgent, detectedIds]
+    [agentCmdOverrides, defaultAgent, detectedIds, disabledTuiAgents]
   )
   const isWebClient = (globalThis as { __ORCA_WEB_CLIENT__?: boolean }).__ORCA_WEB_CLIENT__ === true
   const windowsTerminalCapabilityOwnerKey = getWindowsTerminalCapabilityOwnerKey(

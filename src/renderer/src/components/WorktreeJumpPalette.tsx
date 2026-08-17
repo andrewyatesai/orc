@@ -2467,9 +2467,9 @@ function WorktreeJumpPaletteContent({
                 const workspaceTabHostBadge = getPaletteHostBadge(workspaceTabRepo, hostOptions)
                 const WorkspaceTabIcon =
                   result.contentType === 'terminal' ? SquareTerminal : FileText
-                // Why null on a typed query: the dot belongs to the frozen recent section — the
-                // Open Tabs results a search returns show their content icon instead.
-                const recentRow = hasQuery ? null : (recentTabRowById.get(entry.id) ?? null)
+                // Why regardless of query: a searched-for tab is exactly when its agent status
+                // matters — the map covers every open tab, not just the frozen recent section.
+                const recentRow = recentTabRowById.get(entry.id) ?? null
 
                 return (
                   <CommandItem

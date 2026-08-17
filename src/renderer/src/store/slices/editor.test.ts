@@ -3001,6 +3001,37 @@ describe('createEditorSlice conflict status reconciliation', () => {
     ])
   })
 
+  it('opens no workspace editor tab when conflict metadata is missing (#14850)', () => {
+    const store = createEditorTabsStore()
+
+    // No conflictKind/status/source resolves to no OpenConflictMetadata, so
+    // openConflictFile adds no OpenFile — a workspace tab would point at nothing.
+    store.getState().openConflictFile(
+      'wt-1',
+      '/repo',
+      { path: 'src/plain.ts', status: 'modified', area: 'unstaged' },
+      'typescript'
+    )
+
+    expect(store.getState().openFiles).toHaveLength(0)
+    expect(store.getState().unifiedTabsByWorktree['wt-1'] ?? []).toHaveLength(0)
+  })
+
+  it('opens no workspace editor tab from conflict review when metadata is missing (#14850)', () => {
+    const store = createEditorTabsStore()
+
+    store.getState().openConflictReviewFile(
+      'review-file',
+      'wt-1',
+      '/repo',
+      { path: 'src/plain.ts', status: 'modified', area: 'unstaged' },
+      'typescript'
+    )
+
+    expect(store.getState().openFiles).toHaveLength(0)
+    expect(store.getState().unifiedTabsByWorktree['wt-1'] ?? []).toHaveLength(0)
+  })
+
   it('reloads an open check-details tab from the hosted provider', async () => {
     const fetchPRCheckDetails = vi.fn().mockResolvedValue({
       name: 'verify',
@@ -5231,5 +5262,32 @@ describe('read-only editor tabs (AI Vault View Log)', () => {
     expect(store.getState().openFiles[0]).toEqual(
       expect.objectContaining({ externalSshTargetId: 'ssh-1' })
     )
+  })
+})
+
+describe('hydrateEditorSession duplicate id resolution (#14850)', () => {
+  it('drops a persisted file whose resolved id is already used', () => {
+    const store = createEditorStore()
+    // Production always seeds this; the minimal editor-only store does not.
+    store.setState({ unifiedTabsByWorktree: {} } as never)
+    const filePath = '/repo/src/app.ts'
+    const runtimeEnvironmentId = 'runtime-1'
+    // A runtime-owned tuple resolves to one owned id; the session schema allows
+    // the same (path, worktree, runtime) tuple twice, so only one may restore.
+    const persistedFile = {
+      filePath,
+      relativePath: 'src/app.ts',
+      worktreeId: 'wt-1',
+      language: 'typescript',
+      runtimeEnvironmentId
+    }
+
+    store.getState().hydrateEditorSession({
+      openFilesByWorktree: { 'wt-1': [persistedFile, { ...persistedFile }] }
+    } as never)
+
+    expect(store.getState().openFiles.map((file) => file.id)).toEqual([
+      ownedEditorFileId(filePath, 'wt-1', runtimeEnvironmentId)
+    ])
   })
 })

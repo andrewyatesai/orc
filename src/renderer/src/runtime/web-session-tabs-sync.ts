@@ -77,6 +77,10 @@ import { isRuntimeSubscriptionReplayResponse } from '../../../shared/runtime-sub
 import { queueAcceptedWebSessionTerminalSnapshot } from './web-session-terminal-handle-events'
 import { recoverWebSessionTerminalOrphansBeforeApply } from './web-session-terminal-orphan-recovery'
 import {
+  buildWebSessionExistingTabIndex,
+  type WebSessionExistingTabIndex
+} from './web-session-existing-tab-index'
+import {
   clearWebAgentSessionHandoff,
   clearWebAgentSessionHandoffsForEnvironment,
   clearWebAgentSessionHandoffsForWorktree,
@@ -1081,23 +1085,11 @@ function buildEditorUnifiedTab(
   }
 }
 
-function findExistingEditorUnifiedTab(
-  state: WebSessionTabsSyncState,
-  worktreeId: string,
-  fileId: string,
-  hostTabId: string
-): Tab | null {
-  return (
-    (state.unifiedTabsByWorktree[worktreeId] ?? []).find(
-      (tab) => tab.contentType === 'editor' && (tab.id === hostTabId || tab.entityId === fileId)
-    ) ?? null
-  )
-}
-
 function buildMirroredEditorTabs(
   snapshot: RuntimeMobileSessionTabsResult,
   environmentId: string,
   state: WebSessionTabsSyncState,
+  existingTabIndex: WebSessionExistingTabIndex,
   hostGroupIdByTabId: ReadonlyMap<string, string>,
   fallbackGroupId: string,
   sortOffset: number,
@@ -1108,12 +1100,7 @@ function buildMirroredEditorTabs(
     const existingFile = state.openFiles.find(
       (file) => file.worktreeId === snapshot.worktree && file.id === fileId
     )
-    const existingUnifiedTab = findExistingEditorUnifiedTab(
-      state,
-      snapshot.worktree,
-      fileId,
-      tab.id
-    )
+    const existingUnifiedTab = existingTabIndex.getEditorUnifiedTab(fileId, tab.id)
     const sourceFileId = editorSourceFileId(tab)
     const groupId = hostGroupIdByTabId.get(tab.id) ?? fallbackGroupId
     const file: OpenFile = {
@@ -1474,8 +1461,9 @@ function buildMirroredHostGroups({
     const localHostOrder = hostGroup.tabOrder
       .map((tabId) => hostToLocalTabId.get(tabId))
       .filter((tabId): tabId is string => tabId !== undefined && validUnifiedTabIds.has(tabId))
+    const localHostOrderIds = new Set(localHostOrder)
     const hostTabOrder = [
-      ...(existing?.tabOrder.filter((tabId) => !localHostOrder.includes(tabId)) ?? []),
+      ...(existing?.tabOrder.filter((tabId) => !localHostOrderIds.has(tabId)) ?? []),
       ...localHostOrder
     ]
     // Why: a pending client reorder wins over a stale pre-move host order until the host echoes the move (or membership changes).
@@ -2084,10 +2072,14 @@ function applyWebSessionTabsSnapshotWithContext(
       ? [...retainedBrowserTabs, ...mirroredBrowserTabs.map((entry) => entry.workspace)]
       : null
   const readyEditorTabs = snapshot.tabs.filter(isReadyEditorTab)
+  const existingTabIndex = buildWebSessionExistingTabIndex({
+    unifiedTabs: state.unifiedTabsByWorktree[worktreeId] ?? []
+  })
   const mirroredEditorTabs = buildMirroredEditorTabs(
     snapshot,
     environmentId,
     state,
+    existingTabIndex,
     hostGroupIdByTabId,
     targetGroupId,
     mirroredTerminalTabEntries.length + mirroredBrowserTabs.length,
@@ -2385,8 +2377,10 @@ function applyWebSessionTabsSnapshotWithContext(
           .filter((tabId): tabId is string => tabId !== undefined && validTabBarIds.has(tabId))
       ) ?? []
     const next: string[] = []
+    const seen = new Set<string>()
     const push = (tabId: string): void => {
-      if (validTabBarIds.has(tabId) && !next.includes(tabId)) {
+      if (validTabBarIds.has(tabId) && !seen.has(tabId)) {
+        seen.add(tabId)
         next.push(tabId)
       }
     }

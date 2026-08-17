@@ -2757,9 +2757,12 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
       }
 
       const reveal = s.pendingEditorReveal
-      const rekeyForReveal = reveal
-        ? rekeys.find((r) => r.oldFilePath === reveal.filePath)
-        : undefined
+      // Why: two worktrees can rekey the same oldFilePath, so an id-keyed reveal must match its own file, not the first path match.
+      const rekeyForReveal = !reveal
+        ? undefined
+        : reveal.fileId
+          ? rekeyByOldId.get(reveal.fileId)
+          : rekeys.find((r) => r.oldFilePath === reveal.filePath)
 
       return {
         openFiles: nextOpenFiles,
@@ -3169,6 +3172,7 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     const absolutePath = joinPath(worktreePath, entry.path)
     const isPreview = options?.preview ?? false
     let editorItemTargetGroupId = options?.targetGroupId
+    let openedConflictFile = true
     set((s) => {
       const id = absolutePath
       const conflict = toOpenConflictMetadata(entry)
@@ -3185,6 +3189,7 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
           : s.trackedConflictPathsByWorktree[worktreeId]
 
       if (!conflict) {
+        openedConflictFile = false
         return s
       }
 
@@ -3265,6 +3270,10 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
             : { ...s.trackedConflictPathsByWorktree, [worktreeId]: nextTracked }
       }
     })
+    // Why: no conflict metadata means no OpenFile was added, so a workspace tab would point at nothing.
+    if (!openedConflictFile) {
+      return
+    }
     void openWorkspaceEditorItem(
       get(),
       absolutePath,
@@ -3281,6 +3290,7 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
     const reviewTab = (get().unifiedTabsByWorktree?.[worktreeId] ?? []).find(
       (tab) => tab.entityId === reviewFileId && tab.contentType === 'conflict-review'
     )
+    let openedConflictFile = true
     set((s) => {
       const conflict = toOpenConflictMetadata(entry)
       const existing = s.openFiles.find((f) => f.id === absolutePath)
@@ -3293,6 +3303,7 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
           : s.trackedConflictPathsByWorktree[worktreeId]
 
       if (!conflict) {
+        openedConflictFile = false
         return s
       }
 
@@ -3357,6 +3368,10 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
       }
     })
 
+    // Why: no conflict metadata means no OpenFile was added, so a workspace tab would point at nothing.
+    if (!openedConflictFile) {
+      return
+    }
     // Why: the conflict file needs a normal editor backing tab for save/close, but selecting from Conflict Review must keep the review tab visible; restore focus after.
     void openWorkspaceEditorItem(
       get(),
@@ -4581,6 +4596,10 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
             usedOpenFileIds.has(pf.filePath)
               ? ownedId
               : pf.filePath
+          // Why: the persisted schema allows repeated (path, worktree, runtime) tuples, and an owned id repeats verbatim — restoring both would put two files under one id.
+          if (usedOpenFileIds.has(id)) {
+            continue
+          }
           usedOpenFileIds.add(id)
           // Why: map from the collision-derived legacy id; keying by filePath would collapse same-path local/runtime tabs onto the last owner to hydrate.
           addEditorFileIdMigration(editorFileIdMigrationsByWorktree, worktreeId, legacyId, id)
@@ -4776,7 +4795,10 @@ function toOpenConflictMetadata(entry: GitStatusEntry): OpenConflictMetadata | u
           'auto.store.slices.editor.dcb521ed29',
           'This file is in a conflict state, but no working-tree file is available to edit.'
         ),
-        guidance: 'Resolve the conflict in Git or restore one side before reopening it.'
+        guidance: translate(
+          'auto.store.slices.editor.conflictPlaceholderGuidance',
+          'Resolve the conflict in Git or restore one side before reopening it.'
+        )
       }
 }
 

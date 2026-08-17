@@ -878,6 +878,52 @@ describe('Store', () => {
     expect(settings.notifications.suppressWhenFocused).toBe(true)
   })
 
+  it('validates notification settings field-by-field, discarding type-flipped values on disk', async () => {
+    writeDataFile({
+      ...getDefaultPersistedState(testState.dir),
+      settings: {
+        notifications: {
+          // A blanket `{ ...defaults, ...candidate }` spread would keep each of these verbatim.
+          enabled: 'false',
+          terminalBell: 'yes',
+          suppressWhenFocused: 1,
+          customSoundPath: 42
+        }
+      }
+    })
+
+    const store = await createStore()
+    const notifications = store.getSettings().notifications
+    expect(typeof notifications.enabled).toBe('boolean')
+    expect(notifications.enabled).toBe(true)
+    expect(typeof notifications.terminalBell).toBe('boolean')
+    expect(notifications.terminalBell).toBe(false)
+    expect(typeof notifications.suppressWhenFocused).toBe('boolean')
+    expect(notifications.suppressWhenFocused).toBe(true)
+    expect(notifications.customSoundPath).toBeNull()
+  })
+
+  it('lets an explicit rightSidebarExplorerView outrank the legacy search-tab fallback', async () => {
+    writeDataFile({
+      ...getDefaultPersistedState(testState.dir),
+      ui: { rightSidebarTab: 'search', rightSidebarExplorerView: 'files' }
+    })
+
+    const store = await createStore()
+    // Regression: the legacy `tab === 'search'` fallback used to outrank the stored view.
+    expect(store.getUI().rightSidebarExplorerView).toBe('files')
+  })
+
+  it('migrates a legacy search activity tab with no explorer view to the search view', async () => {
+    writeDataFile({
+      ...getDefaultPersistedState(testState.dir),
+      ui: { rightSidebarTab: 'search' }
+    })
+
+    const store = await createStore()
+    expect(store.getUI().rightSidebarExplorerView).toBe('search')
+  })
+
   it('migrates the inherited lumen cursor glow to the native-Orca water trail once, leaving other effects', async () => {
     writeDataFile({
       ...getDefaultPersistedState(testState.dir),
@@ -8666,6 +8712,70 @@ describe('Store', () => {
     expect(isTerminalLeafId(leafId)).toBe(true)
     expect(layout.ptyIdsByLeafId).toEqual({ [leafId]: 'remote-pty' })
     expect(store.getSshRemotePtyLeases('ssh-1')[0].leafId).toBe(leafId)
+  })
+
+  it('rewrites legacy pane ids inside a host partition and remaps its leases', async () => {
+    // Regression: pane-identity migration only ran on the legacy blob, so an SSH/runtime host
+    // partition kept its `pane:1` leaves and its lease lost the binding on load.
+    writeDataFile({
+      schemaVersion: 1,
+      repos: [],
+      worktreeMeta: {},
+      settings: {},
+      ui: {},
+      githubCache: { pr: {}, issue: {} },
+      workspaceSession: getDefaultWorkspaceSession(),
+      workspaceSessionsByHostId: {
+        'ssh:host-b': {
+          ...getDefaultWorkspaceSession(),
+          activeRepoId: 'repo-ssh',
+          activeWorktreeId: 'repo-ssh::/worktree',
+          activeTabId: 'tab-ssh',
+          tabsByWorktree: {
+            'repo-ssh::/worktree': [
+              {
+                id: 'tab-ssh',
+                worktreeId: 'repo-ssh::/worktree',
+                title: 'Terminal',
+                customTitle: null,
+                color: null,
+                sortOrder: 0,
+                createdAt: 1,
+                ptyId: 'remote-pty'
+              }
+            ]
+          },
+          terminalLayoutsByTabId: {
+            'tab-ssh': {
+              root: { type: 'leaf', leafId: 'pane:1' },
+              activeLeafId: 'pane:1',
+              expandedLeafId: null,
+              ptyIdsByLeafId: { 'pane:1': 'remote-pty' }
+            }
+          }
+        }
+      },
+      sshRemotePtyLeases: [
+        {
+          targetId: 'ssh-1',
+          ptyId: 'remote-pty',
+          worktreeId: 'repo-ssh::/worktree',
+          tabId: 'tab-ssh',
+          leafId: 'pane:1',
+          state: 'detached',
+          createdAt: 1,
+          updatedAt: 1
+        }
+      ]
+    })
+
+    const store = await createStore()
+
+    const root = store.getWorkspaceSession('ssh:host-b').terminalLayoutsByTabId['tab-ssh']?.root
+    const leafId = root?.type === 'leaf' ? root.leafId : null
+    expect(leafId && isTerminalLeafId(leafId)).toBe(true)
+    // The lease follows the partition's rewritten leaf, not the legacy `pane:1`.
+    expect(store.getSshRemotePtyLeases('ssh-1')[0]?.leafId).toBe(leafId)
   })
 
   it('hydrates legacy numeric agent status cache through the pane identity migration', async () => {

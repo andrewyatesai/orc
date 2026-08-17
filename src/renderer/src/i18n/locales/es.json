@@ -198,6 +198,7 @@
         },
         "editor": {
           "dcb521ed29": "Este archivo está en conflicto, pero no hay una copia editable en el worktree.",
+          "conflictPlaceholderGuidance": "Resuelve el conflicto en Git o restaura uno de los lados antes de volver a abrirlo.",
           "51f15c37d3": "No se puede abrir la carpeta: {{value0}}",
           "f2e00db373": "No se encontró el archivo: {{value0}}",
           "checkRunDetailsUnavailable": "No hay detalles disponibles para este check.",
@@ -261,6 +262,7 @@
           "81f13f48d2": "Git no pudo eliminar de forma segura la rama \"{{value0}}\" después de eliminar el worktree \"{{value1}}\", así que Orca la conservó para evitar perder commits locales.",
           "runtimeScopeForbiddenTitle": "Esta conexión tiene acceso limitado (móvil)",
           "runtimeScopeForbiddenDescription": "Los espacios de trabajo no están disponibles con un emparejamiento de acceso móvil. Vuelve a conectarte con el enlace del navegador desde Ajustes → Servidores remotos de Orca → Comparte este servidor Orca.",
+          "preservedBranchCleanupHostAmbiguous": "Hay varias limpiezas de rama preservada pendientes para \"{{value0}}\"; especifica el host.",
           "localBaseRefRefreshFailedForWorktree": "Local {{value0}} was not refreshed for \"{{value1}}\"",
           "localBaseRefRefreshFailedDescriptionNamed": "Workspace \"{{value0}}\" was created from {{value1}}, but Orca could not fast-forward local {{value2}}. {{value3}}",
           "localBaseRefRefreshFailedDetailDirtyNamed": "The worktree at {{value0}} (where local {{value1}} is checked out) has uncommitted changes. Commit, stash, or discard those changes, then update local {{value1}} manually.",

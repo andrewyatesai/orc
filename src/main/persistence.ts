@@ -103,6 +103,7 @@ import {
 import { isFolderRepo } from '../shared/repo-kind'
 import { isPtyIncarnationId } from '../shared/pty-incarnation'
 import { getRepoExecutionHostId, parseExecutionHostId } from '../shared/execution-host'
+import { repoGitUsernameCacheKey } from './repo-git-username-cache-key'
 import {
   getDefaultPersistedState,
   getDefaultNotificationSettings,
@@ -502,7 +503,10 @@ const WORKTREE_META_GC_GRACE_MS = 30 * 24 * 60 * 60 * 1000
 
 function gcStaleWorktreeMeta(state: PersistedState): number {
   // Why: a hand-corrupted "worktreeMeta": null overrides the defaults merge; normalize here instead of throwing.
+  // Companion lineage maps get the same guard because the deletes below index them directly.
   state.worktreeMeta ??= {}
+  state.worktreeLineageById ??= {}
+  state.workspaceLineageByChildKey ??= {}
   const repoById = new Map(state.repos.map((repo) => [repo.id, repo]))
   const projectIds = new Set((state.projects ?? []).map((project) => project.id))
   const now = Date.now()
@@ -663,6 +667,10 @@ export function getCanonicalUserDataPath(): string {
  * Copy legacy mobile pairing credentials into the canonical userData directory.
  *
  * Copies the registry and E2EE keypair forward as a pair so an update doesn't force a re-pair or mix devices with the wrong key.
+ *
+ * Sources are deliberately left in place: a copy-then-delete has no atomic form across the userData
+ * dirs, and losing the originals to a crash mid-migration would strand every paired device. They stay
+ * readable by an older build the user rolls back to; removing them is a separate cleanup decision.
  */
 export function migrateMobilePairingDataToCanonicalUserDataPath(sourceUserDataDir: string): void {
   const targetUserDataDir = getCanonicalUserDataPath()
@@ -1074,12 +1082,13 @@ function normalizeRightSidebarExplorerView(
   view: unknown,
   tab?: unknown
 ): PersistedState['ui']['rightSidebarExplorerView'] {
-  // Why: older builds persisted Search as a standalone activity tab.
-  if (tab === 'search') {
-    return 'search'
-  }
   if (view === 'files' || view === 'search') {
     return view
+  }
+  // Why: older builds persisted Search as a standalone activity tab with no explorer view; 'search'
+  // is still a live tab, so this fallback must not outrank an explicit view.
+  if (tab === 'search') {
+    return 'search'
   }
   return getDefaultUIState().rightSidebarExplorerView
 }
@@ -1124,10 +1133,25 @@ function normalizeNotificationSettings(value: unknown): NotificationSettings {
           Math.max(LONG_COMMAND_THRESHOLD_SECONDS_MIN, Math.round(rawLongCommandThreshold))
         )
       : defaults.longCommandThresholdSeconds
+  // Why field-by-field: a blanket spread let a type-flipped value on disk through, so `enabled: "false"`
+  // stayed truthy and `customSoundPath: 42` reached the sound loader.
+  const booleanOr = (raw: unknown, fallback: boolean): boolean =>
+    typeof raw === 'boolean' ? raw : fallback
   return {
-    ...defaults,
-    ...candidate,
+    enabled: booleanOr(candidate.enabled, defaults.enabled),
+    agentTaskComplete: booleanOr(candidate.agentTaskComplete, defaults.agentTaskComplete),
+    terminalBell: booleanOr(candidate.terminalBell, defaults.terminalBell),
+    longCommandComplete: booleanOr(candidate.longCommandComplete, defaults.longCommandComplete),
+    terminalAppNotifications: booleanOr(
+      candidate.terminalAppNotifications,
+      defaults.terminalAppNotifications
+    ),
+    suppressWhenFocused: booleanOr(candidate.suppressWhenFocused, defaults.suppressWhenFocused),
     customSoundId,
+    customSoundPath:
+      typeof candidate.customSoundPath === 'string'
+        ? candidate.customSoundPath
+        : defaults.customSoundPath,
     customSoundVolume,
     longCommandThresholdSeconds
   }
@@ -2076,8 +2100,13 @@ function normalizeTerminalLayoutSnapshotForPersistence(
   )
   const inputLeafIdsInOrder = collectLayoutLeafIdsInOrder(inputRoot)
   const preferredLeafIdsInOrder = collectLayoutLeafIdsInOrder(preferredLayout?.root)
-  const usePreferredLeafIds = preferredLeafIdsInOrder.length === inputLeafIdsInOrder.length
+  // Why the uniqueness check: a preferred layout that repeats a UUID would hand two input leaves the
+  // same id, collapsing their pty/buffer/scrollback/title records onto one key.
+  const usePreferredLeafIds =
+    preferredLeafIdsInOrder.length === inputLeafIdsInOrder.length &&
+    new Set(preferredLeafIdsInOrder).size === preferredLeafIdsInOrder.length
   const leafIdByInputLeafId = new Map<string, string>()
+  const claimedLeafIds = new Set<string>()
   for (const [index, leafId] of inputLeafIdsInOrder.entries()) {
     const count = counts.get(leafId) ?? 0
     if (count !== 1 || leafIdByInputLeafId.has(leafId)) {
@@ -2086,14 +2115,17 @@ function normalizeTerminalLayoutSnapshotForPersistence(
     }
     if (isTerminalLeafId(leafId)) {
       leafIdByInputLeafId.set(leafId, leafId)
+      claimedLeafIds.add(leafId)
       continue
     }
     changed = true
     const preferredLeafId = usePreferredLeafIds ? preferredLeafIdsInOrder[index] : undefined
-    leafIdByInputLeafId.set(
-      leafId,
-      preferredLeafId && isTerminalLeafId(preferredLeafId) ? preferredLeafId : randomUUID()
-    )
+    const nextLeafId =
+      preferredLeafId && isTerminalLeafId(preferredLeafId) && !claimedLeafIds.has(preferredLeafId)
+        ? preferredLeafId
+        : randomUUID()
+    claimedLeafIds.add(nextLeafId)
+    leafIdByInputLeafId.set(leafId, nextLeafId)
   }
   const root = changed
     ? cloneLayoutWithLeafIds(inputRoot, leafIdByInputLeafId, duplicatedInputLeafIds)
@@ -2254,6 +2286,19 @@ function remapSshRemotePtyLeaseLeafIds(
   return { leases: nextLeases, changed }
 }
 
+/** Combines per-tab leaf maps from separate host partitions; an already-mapped tab keeps its mapping. */
+function mergeLeafIdMapsByTabId(
+  target: Map<string, Map<string, string>>,
+  source: Map<string, Map<string, string>>
+): Map<string, Map<string, string>> {
+  const merged = new Map(target)
+  for (const [tabId, leafIds] of source) {
+    const existing = merged.get(tabId)
+    merged.set(tabId, existing ? new Map([...leafIds, ...existing]) : new Map(leafIds))
+  }
+  return merged
+}
+
 function normalizePersistedPaneIdentityState(state: PersistedState): {
   state: PersistedState
   changed: boolean
@@ -2261,20 +2306,54 @@ function normalizePersistedPaneIdentityState(state: PersistedState): {
   legacyPaneKeyAliasEntries: LegacyPaneKeyAliasEntry[]
 } {
   const normalizedSession = normalizeWorkspaceSessionPaneIdentities(state.workspaceSession, {})
+  let leafIdByInputLeafIdByTabId = normalizedSession.leafIdByInputLeafIdByTabId
+  let leafIdByPtyIdByTabId = normalizedSession.leafIdByPtyIdByTabId
+  const hostSessionLegacyPaneKeyAliasEntries: LegacyPaneKeyAliasEntry[] = []
+  // Why: SSH/runtime hosts keep their own session blob, and their legacy leaves need the same UUID
+  // rewrite — otherwise their leases and read markers still point at `pane:1` after migration.
+  const normalizedHostSessions = state.workspaceSessionsByHostId
+    ? { ...state.workspaceSessionsByHostId }
+    : undefined
+  let hostSessionsChanged = false
+  if (normalizedHostSessions) {
+    for (const hostId of Object.keys(
+      normalizedHostSessions
+    ) as (keyof typeof normalizedHostSessions)[]) {
+      const hostSession = normalizedHostSessions[hostId]
+      if (!hostSession) {
+        continue
+      }
+      const normalizedHostSession = normalizeWorkspaceSessionPaneIdentities(hostSession, {})
+      normalizedHostSessions[hostId] = normalizedHostSession.session
+      leafIdByInputLeafIdByTabId = mergeLeafIdMapsByTabId(
+        leafIdByInputLeafIdByTabId,
+        normalizedHostSession.leafIdByInputLeafIdByTabId
+      )
+      leafIdByPtyIdByTabId = mergeLeafIdMapsByTabId(
+        leafIdByPtyIdByTabId,
+        normalizedHostSession.leafIdByPtyIdByTabId
+      )
+      for (const entry of normalizedHostSession.legacyPaneKeyAliasEntries) {
+        hostSessionLegacyPaneKeyAliasEntries.push(entry)
+      }
+      hostSessionsChanged ||= normalizedHostSession.changed
+    }
+  }
   const remappedLeases = remapSshRemotePtyLeaseLeafIds(
     state.sshRemotePtyLeases ?? [],
-    normalizedSession.leafIdByInputLeafIdByTabId,
-    normalizedSession.leafIdByPtyIdByTabId
+    leafIdByInputLeafIdByTabId,
+    leafIdByPtyIdByTabId
   )
   const mergedMigrationUnsupportedEntries: MigrationUnsupportedPtyEntry[] = []
   const mergedLegacyPaneKeyAliasEntries = mergeLegacyPaneKeyAliasEntries([
     ...normalizeLegacyPaneKeyAliasEntries(state.legacyPaneKeyAliasEntries),
     ...legacyMigrationUnsupportedRowsToAliasEntries(state.migrationUnsupportedPtyEntries ?? []),
-    ...normalizedSession.legacyPaneKeyAliasEntries
+    ...normalizedSession.legacyPaneKeyAliasEntries,
+    ...hostSessionLegacyPaneKeyAliasEntries
   ])
   const remappedAcknowledgements = remapAcknowledgedAgentPaneKeys(
     state.ui?.acknowledgedAgentsByPaneKey,
-    normalizedSession.leafIdByInputLeafIdByTabId
+    leafIdByInputLeafIdByTabId
   )
   const migrationUnsupportedChanged = !migrationUnsupportedEntriesEqual(
     state.migrationUnsupportedPtyEntries ?? [],
@@ -2286,6 +2365,7 @@ function normalizePersistedPaneIdentityState(state: PersistedState): {
   )
   if (
     !normalizedSession.changed &&
+    !hostSessionsChanged &&
     !remappedLeases.changed &&
     !migrationUnsupportedChanged &&
     !legacyAliasesChanged &&
@@ -2302,6 +2382,7 @@ function normalizePersistedPaneIdentityState(state: PersistedState): {
     state: {
       ...state,
       workspaceSession: normalizedSession.session,
+      ...(normalizedHostSessions ? { workspaceSessionsByHostId: normalizedHostSessions } : {}),
       sshRemotePtyLeases: remappedLeases.leases,
       migrationUnsupportedPtyEntries: mergedMigrationUnsupportedEntries,
       legacyPaneKeyAliasEntries: mergedLegacyPaneKeyAliasEntries,
@@ -3785,6 +3866,12 @@ export class Store {
               // Why: migrate once from the retired Appearance setting only when no explicit chrome preference exists yet.
               rightSidebarOpen,
               rightSidebarTab: normalizeRightSidebarTab(parsed.ui?.rightSidebarTab),
+              // Why here and not in getUI: only the raw payload still shows the legacy
+              // "Search tab, no explorer view" shape — the defaults spread above fills in 'files'.
+              rightSidebarExplorerView: normalizeRightSidebarExplorerView(
+                parsed.ui?.rightSidebarExplorerView,
+                parsed.ui?.rightSidebarTab
+              ),
               setupGuideSidebarDismissed,
               usagePercentageDisplayChangeNoticeDismissed,
               setupGuideBrowserMilestoneMigrated:
@@ -4439,8 +4526,9 @@ export class Store {
     if (!repo) {
       return false
     }
-    const previous = this.gitUsernameCache.get(repo.path) ?? repo.gitUsername ?? ''
-    this.gitUsernameCache.set(repo.path, username)
+    const cacheKey = repoGitUsernameCacheKey(repo)
+    const previous = this.gitUsernameCache.get(cacheKey) ?? repo.gitUsername ?? ''
+    this.gitUsernameCache.set(cacheKey, username)
     if (previous === username) {
       return false
     }
@@ -4562,9 +4650,10 @@ export class Store {
     const group = (this.state.projectGroups ?? []).find(
       (entry) => entry.id === input.projectGroupId
     )
+    // Why trim: the guard accepts a padded path, so persist the same value it validated.
     const folderPath =
       typeof input.folderPath === 'string' && input.folderPath.trim().length > 0
-        ? input.folderPath
+        ? input.folderPath.trim()
         : group?.parentPath
     if (!group || !folderPath) {
       throw new Error('Folder-backed project group not found.')
@@ -4626,7 +4715,7 @@ export class Store {
       workspace.name = normalizeFolderWorkspaceName(updates.name, workspace.name)
     }
     if (typeof updates.folderPath === 'string' && updates.folderPath.trim().length > 0) {
-      workspace.folderPath = updates.folderPath
+      workspace.folderPath = updates.folderPath.trim()
     }
     if (updates.linkedTask !== undefined) {
       workspace.linkedTask = updates.linkedTask
@@ -5158,7 +5247,7 @@ export class Store {
     // Why: never spawn git/gh username resolution in hydration — a stuck probe froze Windows startup for minutes (issue #7225); read only cache/persisted value.
     const gitUsername = isFolderRepo(repo)
       ? ''
-      : (this.gitUsernameCache.get(repo.path) ?? repo.gitUsername ?? '')
+      : (this.gitUsernameCache.get(repoGitUsernameCacheKey(repo)) ?? repo.gitUsername ?? '')
 
     return {
       ...repoWithoutIcon,
@@ -5283,6 +5372,11 @@ export class Store {
       throw new Error('Automation not found.')
     }
     const current = this.state.automations[index]
+    // Why: the renderer forwards a Partial verbatim, so `{ enabled: undefined }` survives structuredClone
+    // and would blank the stored value in the spread below. Explicit clears go through the `null` branches.
+    const definedUpdates = Object.fromEntries(
+      Object.entries(updates).filter(([, value]) => value !== undefined)
+    ) as AutomationUpdateInput
     const repoId = updates.projectId ?? current.projectId
     const repo = this.state.repos.find((entry) => entry.id === repoId)
     const executionTargetType = repo?.connectionId ? 'ssh' : 'local'
@@ -5294,7 +5388,7 @@ export class Store {
     const workspaceMode = updates.workspaceMode ?? current.workspaceMode
     const updated: Automation = {
       ...current,
-      ...updates,
+      ...definedUpdates,
       name:
         updates.name !== undefined ? updates.name.trim() || 'Untitled automation' : current.name,
       precheck: Object.hasOwn(updates, 'precheck')
@@ -5493,7 +5587,8 @@ export class Store {
     }
     const current = this.state.automations[index]
     const nextRunAt = nextAutomationOccurrenceAfter(current.rrule, current.dtstart, now)
-    const updated = { ...current, nextRunAt, updatedAt: Date.now() }
+    // Why: reuse the injected `now` so nextRunAt and updatedAt share one clock (deterministic in tests, no skew).
+    const updated = { ...current, nextRunAt, updatedAt: now }
     this.state.automations[index] = updated
     this.flush()
     return updated
@@ -5726,6 +5821,9 @@ export class Store {
     const movedLineage = this.state.worktreeLineageById[newWorktreeId]
     if (movedLineage && movedLineage.worktreeId === oldWorktreeId) {
       movedLineage.worktreeId = newWorktreeId
+      // Why: moveKey reports nothing when the record already sat under the new key, so flag the repair
+      // ourselves or the caller skips the save and the stale id comes back on reload.
+      changed = true
     }
     // Why: children carry this as parentWorktreeId; keep the denormalized path-derived id consistent (parentWorktreeInstanceId is stable).
     for (const lineage of Object.values(this.state.worktreeLineageById)) {
@@ -7250,9 +7348,14 @@ export class Store {
         entry.targetId === normalizedLease.targetId && entry.ptyId === normalizedLease.ptyId
     )
     const existing = existingIndex !== -1 ? this.state.sshRemotePtyLeases[existingIndex] : undefined
+    // Why: callers pass optional fields as explicit `undefined`, which would blank the stored tabId/leafId
+    // (and friends) when re-upserting an existing lease.
+    const definedLease = Object.fromEntries(
+      Object.entries(normalizedLease).filter(([, value]) => value !== undefined)
+    ) as typeof normalizedLease
     const next: SshRemotePtyLease = {
       ...existing,
-      ...normalizedLease,
+      ...definedLease,
       createdAt: existing?.createdAt ?? normalizedLease.createdAt ?? now,
       updatedAt: normalizedLease.updatedAt ?? now
     }

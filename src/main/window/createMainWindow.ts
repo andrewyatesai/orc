@@ -22,6 +22,7 @@ import { ORCA_BROWSER_GUEST_WEB_PREFERENCES } from '../../shared/browser-guest-w
 import { BROWSER_WINDOW_CLOSE_ALLOWED_PRELOAD } from '../../shared/browser-window-close-policy'
 import { isCrashReportReason } from '../../shared/crash-reporting'
 import { markSystemSessionEnding } from '../crash-reporting/expected-teardown-state'
+import { recordDurableCrashBreadcrumb } from '../crash-reporting/durable-crash-breadcrumb'
 import { trackRendererProcessGone } from '../telemetry/fork-reliability-events'
 import {
   DEFAULT_RENDERER_RECOVERY_MAX_RECOVERIES,
@@ -315,7 +316,16 @@ export function createMainWindow(
   // that tears down the renderer is expected teardown — record it so the killed renderer that
   // follows isn't mis-filed as a crash. Windows-only; other platforms never emit this signal.
   if (process.platform === 'win32') {
-    mainWindow.on('session-end', markSystemSessionEnding)
+    mainWindow.on('session-end', (event) => {
+      markSystemSessionEnding()
+      // Why: killed/exit-1 tree kills look identical from a user task-kill and an
+      // OS shutdown; this is the only positive OS-shutdown signal bundles get.
+      recordDurableCrashBreadcrumb('system_session_end', {
+        reasons: Array.isArray(event?.reasons)
+          ? event.reasons.filter((reason) => typeof reason === 'string').join(',')
+          : ''
+      })
+    })
   }
 
   // Why: under E2E headless the main window stays hidden, and a hidden window

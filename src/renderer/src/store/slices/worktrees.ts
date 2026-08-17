@@ -1,6 +1,7 @@
 /* eslint-disable max-lines */
 import type { StateCreator } from 'zustand'
 import type { AppState } from '../types'
+import { normalizeRightSidebarRoute } from '../right-sidebar-route'
 import type {
   DetectedWorktreeListResult,
   TerminalLayoutSnapshot,
@@ -1346,6 +1347,18 @@ async function refreshWorktreeLineageForSettings(
   }))
 }
 
+// Why: this runs inside a catch, so letting the refresh reject would replace the failure it recovers from.
+async function refreshWorktreeLineageBestEffort(
+  settings: AppState['settings'],
+  set: Parameters<StateCreator<AppState>>[0]
+): Promise<void> {
+  try {
+    await refreshWorktreeLineageForSettings(settings, set)
+  } catch (err) {
+    console.error('Failed to refresh worktree lineage after a failed write:', err)
+  }
+}
+
 async function refreshRemoteWorktreeLineageBestEffort(
   settings: AppState['settings'],
   set: (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void
@@ -1462,9 +1475,11 @@ async function purgeOrphanedRuntimeSshProjects(
   if (destroyedSshTargetIds.length === 0) {
     return
   }
-  const destroyedTargetIds = new Set(destroyedSshTargetIds)
+  // Drop blanks once, before both lookups, so a repo with no connectionId never matches below.
+  const purgeableSshTargetIds = destroyedSshTargetIds.filter((id) => id !== '')
+  const destroyedTargetIds = new Set(purgeableSshTargetIds)
   const destroyedHostIds = new Set<ExecutionHostId>(
-    destroyedSshTargetIds.map((id) => toSshExecutionHostId(id))
+    purgeableSshTargetIds.map((id) => toSshExecutionHostId(id))
   )
   const orphanedSetupIds = get()
     .projectHostSetups.filter((setup) => destroyedHostIds.has(setup.hostId))
@@ -1951,7 +1966,8 @@ const WORKTREE_ID_KEYED_MAP_KEYS = [
 
 /**
  * Re-key every worktree-id-keyed map from `oldWorktreeId` to `newWorktreeId` after a folder
- * rename. Tab-id/file-id-keyed maps and active/renaming pointers stay put since tabs/files keep their ids.
+ * rename. Tab-id/file-id-keyed maps stay put since tabs/files keep their ids; the
+ * active/renaming pointers are worktree-id-valued, so they're re-pointed too.
  * Main-process counterpart: `Store.migrateWorktreeIdentity` in persistence.ts.
  */
 function buildWorktreeRenameState(
@@ -2180,14 +2196,8 @@ function buildWorktreePurgeState(s: AppState, worktreeIds: string[]): Partial<Ap
     let changed = omitted !== s.rightSidebarTabByWorktree
     const out: AppState['rightSidebarTabByWorktree'] = {}
     for (const [id, tab] of Object.entries(omitted)) {
-      if (
-        tab === 'explorer' ||
-        tab === 'vault' ||
-        tab === 'workspaces' ||
-        tab === 'source-control' ||
-        tab === 'checks' ||
-        tab === 'ports'
-      ) {
+      // Reuse the route validator so newer tabs (pr-checks, plugin panels) aren't silently dropped.
+      if (normalizeRightSidebarRoute(tab).rightSidebarTab === tab) {
         out[id] = tab
       } else {
         changed = true
@@ -2841,7 +2851,9 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
           }
           return { repoId: r.id, ok: detected.authoritative, detected }
         } catch (err) {
-          console.error(`Failed to fetch worktrees for repo ${r.id}:`, err)
+          if (!notifyRuntimeScopeForbiddenIfNeeded(err)) {
+            console.error(`Failed to fetch worktrees for repo ${r.id}:`, err)
+          }
           return { repoId: r.id, ok: false as const }
         }
       }
@@ -2917,6 +2929,8 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
   },
 
   updateWorktreeLineage: async (worktreeId, args) => {
+    // Why: an unresolvable owner route (ambiguous or missing) rejects rather than skipping — this is a
+    // user-initiated action, and both callers toast the failure. Don't swallow it into a silent no-op.
     const ownerSettings = settingsForWorktreeOwner(get(), worktreeId)
     try {
       applyWorktreeLineageUpdate(
@@ -2926,7 +2940,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       )
     } catch (err) {
       console.error('Failed to update worktree lineage:', err)
-      await refreshWorktreeLineageForSettings(ownerSettings, set)
+      await refreshWorktreeLineageBestEffort(ownerSettings, set)
     }
   },
 
@@ -2940,7 +2954,8 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       )
     } catch (err) {
       console.error('Failed to assign worktree parent:', err)
-      await refreshWorktreeLineageForSettings(ownerSettings, set)
+      // Unlike the update path this rethrows, so the recovery refresh must not mask the original cause.
+      await refreshWorktreeLineageBestEffort(ownerSettings, set)
       throw err
     }
   },
@@ -3886,7 +3901,13 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       let changed = false
       for (const worktreeId of new Set(worktreeIds)) {
         const current = nextDeleteState[worktreeId]
-        if (current?.isDeleting && current.error === null && !current.canForceDelete) {
+        // Phase-aware: a queued row must still be promoted to deleting.
+        if (
+          current?.isDeleting &&
+          current.phase === 'deleting' &&
+          current.error === null &&
+          !current.canForceDelete
+        ) {
           continue
         }
         nextDeleteState[worktreeId] = {
@@ -3955,6 +3976,18 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
           : matchingRetainedTargets[0])
       if ((options?.hostId || options?.runtimeEnvironmentId) && !retainedTarget) {
         throw new Error(`No preserved branch cleanup is pending for "${branchName}".`)
+      }
+      // Ambiguous route: deleting against the active runtime could hit the wrong host's branch.
+      // Localized because it surfaces in the toast below; the throw above mirrors a main-process
+      // message verbatim (orca-runtime.ts, ipc/worktrees.ts) and must stay in sync with it.
+      if (!retainedTarget && matchingRetainedTargets.length > 1) {
+        throw new Error(
+          translate(
+            'auto.store.slices.worktrees.preservedBranchCleanupHostAmbiguous',
+            'Multiple preserved branch cleanups are pending for "{{value0}}"; specify the host.',
+            { value0: branchName }
+          )
+        )
       }
       const cleanupHostId = options?.hostId ?? retainedTarget?.cleanup.hostId
       // Why: the removed row no longer records its nested HUB owner, so retain the deletion-time route.
@@ -4038,13 +4071,18 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     const linkedPrForPushTarget = isPositiveHostedReviewNumber(normalizedUpdates.linkedPR)
       ? normalizedUpdates.linkedPR
       : null
-    const resolvedPushTarget =
+    // Why: an ambiguous owner must not throw past this update — skip the lookup instead.
+    const pushTargetOwnerSettings =
       linkedPrForPushTarget !== null &&
       normalizedUpdates.pushTarget === undefined &&
       existingWorktree &&
       !existingWorktree.pushTarget
+        ? trySettingsForWorktreeOwner(get(), worktreeId)
+        : null
+    const resolvedPushTarget =
+      pushTargetOwnerSettings && existingWorktree && linkedPrForPushTarget !== null
         ? await resolveGitHubReviewPushTarget(
-            settingsForWorktreeOwner(get(), worktreeId),
+            pushTargetOwnerSettings,
             existingWorktree.repoId,
             linkedPrForPushTarget
           )
@@ -4067,7 +4105,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       return
     }
     const shouldRefreshHostedReview =
-      (normalizedUpdates.linkedPR === null && worktreeForUpdate?.linkedPR !== null) ||
+      (normalizedUpdates.linkedPR === null && (worktreeForUpdate?.linkedPR ?? null) !== null) ||
       (normalizedUpdates.linkedGitLabMR === null &&
         (worktreeForUpdate?.linkedGitLabMR ?? null) !== null) ||
       (normalizedUpdates.linkedBitbucketPR === null &&
@@ -4251,7 +4289,12 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     }
     hostedReviewPushTargetLookupsInFlight.add(lookup.key)
     try {
-      const resolvedPushTarget = await lookup.resolve(settingsForWorktreeOwner(get(), worktreeId))
+      // Why: an ambiguous owner is a skip, not a crash — this runs as fire-and-forget background restoration.
+      const ownerSettings = trySettingsForWorktreeOwner(get(), worktreeId)
+      if (!ownerSettings) {
+        return
+      }
+      const resolvedPushTarget = await lookup.resolve(ownerSettings)
       if (!resolvedPushTarget) {
         return
       }
@@ -4349,7 +4392,9 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       return
     }
     // updateWorktreesMeta applies the store update synchronously, so the reveal below sees the row already rendered.
-    void get().updateWorktreesMeta(updates)
+    if (updates.size > 0) {
+      void get().updateWorktreesMeta(updates)
+    }
     if (revealWorktreeId !== null) {
       get().revealWorktreeInSidebar(revealWorktreeId, { behavior: 'smooth', highlight: true })
     }
@@ -4652,7 +4697,8 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       // Only drop for repos with a populated/authoritative list; a missing repoId means not-yet-hydrated (defer).
       const validIdsByRepo = new Map<string, Set<string>>()
       for (const [repoId, list] of Object.entries(s.worktreesByRepo)) {
-        if (s.detectedWorktreesByRepo[repoId]) {
+        // An empty list is the not-yet-hydrated shape, not an authoritative "no worktrees".
+        if (s.detectedWorktreesByRepo[repoId] || list.length === 0) {
           continue
         }
         validIdsByRepo.set(repoId, new Set(list.map((worktree) => worktree.id)))
@@ -4678,8 +4724,11 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
           changed = true
         }
       }
-      const patch: { lastVisitedAtByWorktreeId?: Record<string, number>; activeWorktreeId?: null } =
-        {}
+      const patch: {
+        lastVisitedAtByWorktreeId?: Record<string, number>
+        activeWorktreeId?: null
+        activeWorkspaceKey?: null
+      } = {}
       if (changed) {
         patch.lastVisitedAtByWorktreeId = next
       }
@@ -4696,6 +4745,16 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
         const activeRepoWorktreeIds = validIdsByRepo.get(getRepoIdFromWorktreeId(activeId))
         if (activeRepoWorktreeIds && !activeRepoWorktreeIds.has(activeId)) {
           patch.activeWorktreeId = null
+          // Leaving the derived workspace key behind would keep the phantom workspace selected.
+          // Only the stale worktree's own key is dropped (same equality check as the rename path),
+          // so a folder key or a key pointing at another live worktree survives. The bare-id form
+          // predates the `worktree:` prefix and is cleared too, matching the purge path.
+          if (
+            s.activeWorkspaceKey === worktreeWorkspaceKey(activeId) ||
+            s.activeWorkspaceKey === activeId
+          ) {
+            patch.activeWorkspaceKey = null
+          }
         }
       }
       return Object.keys(patch).length > 0 ? patch : {}

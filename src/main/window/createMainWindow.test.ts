@@ -80,6 +80,10 @@ import {
   resetExpectedTeardownStateForTest,
   resolveExpectedTeardownScope
 } from '../crash-reporting/expected-teardown-state'
+import {
+  clearCrashBreadcrumbsForTest,
+  getCrashBreadcrumbSnapshot
+} from '../crash-reporting/crash-breadcrumb-store'
 
 function withPlatform<T>(platform: NodeJS.Platform, run: () => T): T {
   const original = process.platform
@@ -109,6 +113,7 @@ describe('createMainWindow', () => {
     vi.mocked(ipcMain.handle).mockReset()
     vi.mocked(ipcMain.removeHandler).mockReset()
     resetExpectedTeardownStateForTest()
+    clearCrashBreadcrumbsForTest()
     vi.useRealTimers()
   })
 
@@ -3733,6 +3738,7 @@ describe('createMainWindow', () => {
 
     afterEach(() => {
       setPlatform(originalPlatform)
+      clearCrashBreadcrumbsForTest()
     })
 
     it('hides to the tray instead of closing when the setting is on', () => {
@@ -3883,6 +3889,26 @@ describe('createMainWindow', () => {
           isExpectedRendererReload: false
         })
       ).toBe('app-shutdown')
+    })
+
+    it('durably records the session-end reasons so bundles can identify OS shutdown', () => {
+      setPlatform('win32')
+      const { windowHandlers } = setupCloseWindow()
+
+      createMainWindow(null)
+      windowHandlers['session-end']?.({ reasons: ['shutdown', 'critical'] } as never)
+      windowHandlers['session-end']?.({} as never)
+
+      expect(getCrashBreadcrumbSnapshot()).toEqual([
+        expect.objectContaining({
+          name: 'system_session_end',
+          data: expect.objectContaining({ reasons: 'shutdown,critical' })
+        }),
+        expect.objectContaining({
+          name: 'system_session_end',
+          data: expect.objectContaining({ reasons: '' })
+        })
+      ])
     })
 
     it.each(['darwin', 'linux'] as const)(

@@ -198,6 +198,7 @@
         },
         "editor": {
           "dcb521ed29": "このファイルは競合状態にありますが、編集できる作業ツリー ファイルがありません。",
+          "conflictPlaceholderGuidance": "Git で競合を解決するか、いずれかの側を復元してから開き直してください。",
           "51f15c37d3": "ディレクトリを開けません: {{value0}}",
           "f2e00db373": "ファイルが見つかりません: {{value0}}",
           "checkRunDetailsUnavailable": "このチェックの詳細はありません。",
@@ -261,6 +262,7 @@
           "81f13f48d2": "ワークツリー\"{{value1}}\"を削除した後、Git はブランチ\"{{value0}}\"を安全に削除できなかったため、Orca はローカルコミットを失わないように保持しました。",
           "runtimeScopeForbiddenTitle": "この接続は制限付き（モバイル）アクセスです",
           "runtimeScopeForbiddenDescription": "モバイル範囲のペアリングではワークスペースを使用できません。設定 → リモート Orca サーバー → この Orca サーバーを共有する からブラウザー用リンクで再接続してください。",
+          "preservedBranchCleanupHostAmbiguous": "\"{{value0}}\" に対して保留中の保存済みブランチのクリーンアップが複数あります。ホストを指定してください。",
           "localBaseRefRefreshFailedForWorktree": "Local {{value0}} was not refreshed for \"{{value1}}\"",
           "localBaseRefRefreshFailedDescriptionNamed": "Workspace \"{{value0}}\" was created from {{value1}}, but Orca could not fast-forward local {{value2}}. {{value3}}",
           "localBaseRefRefreshFailedDetailDirtyNamed": "The worktree at {{value0}} (where local {{value1}} is checked out) has uncommitted changes. Commit, stash, or discard those changes, then update local {{value1}} manually.",

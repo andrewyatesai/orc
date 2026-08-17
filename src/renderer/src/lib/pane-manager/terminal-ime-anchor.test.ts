@@ -93,7 +93,7 @@ describe('resolveCursorAgentImeAnchor', () => {
   })
 
   it('does not override normal terminal cursor positioning', () => {
-    const buffer = makeBuffer(['', '  → Plan, search, build anything', '', ''])
+    const buffer = makeBuffer(['', '  → ordinary shell output', '', ''])
 
     expect(
       resolveCursorAgentImeAnchor({
@@ -104,6 +104,40 @@ describe('resolveCursorAgentImeAnchor', () => {
         cursorY: 3
       })
     ).toBeNull()
+  })
+
+  it('anchors the follow-up placeholder after the Cursor Agent header scrolls away', () => {
+    const buffer = makeBuffer(['transcript', '', '  → Add a follow-up', '', ''])
+
+    expect(
+      resolveCursorAgentImeAnchor({
+        buffer,
+        rows: 5,
+        cols: 80,
+        cursorX: 0,
+        cursorY: 4
+      })
+    ).toEqual({ row: 2, column: 4 })
+  })
+
+  it('anchors typed follow-up input once the caller reports the Cursor Agent is known', () => {
+    const buffer = makeBuffer(['transcript', '', '  → hello', '', ''])
+
+    // Header has scrolled away: without knownCursorAgent typed input is ignored.
+    expect(
+      resolveCursorAgentImeAnchor({ buffer, rows: 5, cols: 80, cursorX: 0, cursorY: 4 })
+    ).toBeNull()
+
+    expect(
+      resolveCursorAgentImeAnchor({
+        buffer,
+        rows: 5,
+        cols: 80,
+        cursorX: 0,
+        cursorY: 4,
+        knownCursorAgent: true
+      })
+    ).toEqual({ row: 2, column: 9 })
   })
 
   it('does not override when xterm already exposes a non-stale cursor position', () => {
