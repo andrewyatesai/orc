@@ -15,7 +15,12 @@
         null,
         "workspace-creation"
       ],
-      "expected": ["tasks", "workspace-agent-sessions", "browser", "workspace-creation"]
+      "expected": [
+        "tasks",
+        "workspace-agent-sessions",
+        "browser",
+        "workspace-creation"
+      ]
     },
     {
       "function": "normalizeContextualTourIds",
@@ -100,7 +105,9 @@
       "input": "workspace-creation",
       "expected": {
         "id": "workspace-creation",
-        "allowedActiveModals": ["new-workspace-composer"],
+        "allowedActiveModals": [
+          "new-workspace-composer"
+        ],
         "steps": [
           {
             "title": "Pick a project",
@@ -123,6 +130,48 @@
           }
         ]
       }
+    },
+    {
+      "function": "isContextualTourId",
+      "note": "floating-workspace is a known id — the one `CONTEXTUAL_TOUR_IDS` omits, which these two functions do not read (they match on the enum)",
+      "input": "floating-workspace",
+      "expected": true
+    },
+    {
+      "function": "isContextualTourId",
+      "note": "an array is not an id",
+      "input": [
+        "tasks"
+      ],
+      "expected": false
+    },
+    {
+      "function": "normalizeContextualTourIds",
+      "note": "every catalog id survives, in first-seen order",
+      "input": [
+        "workspace-board",
+        "workspace-agent-sessions",
+        "browser",
+        "tasks",
+        "automations",
+        "floating-workspace",
+        "workspace-creation"
+      ],
+      "expected": [
+        "workspace-board",
+        "workspace-agent-sessions",
+        "browser",
+        "tasks",
+        "automations",
+        "floating-workspace",
+        "workspace-creation"
+      ]
+    },
+    {
+      "function": "normalizeContextualTourIds",
+      "note": "empty list stays empty",
+      "input": [],
+      "expected": []
     }
   ]
 }

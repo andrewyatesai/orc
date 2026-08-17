@@ -211,24 +211,12 @@ export const CONTEXTUAL_TOURS = [
 
 export const CONTEXTUAL_TOUR_IDS = CONTEXTUAL_TOURS.map((tour) => tour.id)
 
-export function isContextualTourId(value: unknown): value is ContextualTourId {
-  return typeof value === 'string' && CONTEXTUAL_TOUR_IDS.includes(value as ContextualTourId)
-}
-
+// `isContextualTourId` and `normalizeContextualTourIds` moved to
+// `contextual-tour-id-normalization.ts`, which dispatches to
+// `orca_config::contextual_tours` with these bodies as its pre-ready fallback.
+// `getContextualTour` stays: the Rust core carries its own copy of the tour
+// catalog, so crossing it would make the CATALOG the thing that has to agree,
+// not a predicate — and this file is the catalog's only source of truth.
 export function getContextualTour(id: ContextualTourId): ContextualTour {
   return CONTEXTUAL_TOURS.find((tour) => tour.id === id)!
-}
-
-export function normalizeContextualTourIds(value: unknown): ContextualTourId[] {
-  if (!Array.isArray(value)) {
-    return []
-  }
-
-  const seen = new Set<ContextualTourId>()
-  for (const item of value) {
-    if (isContextualTourId(item)) {
-      seen.add(item)
-    }
-  }
-  return [...seen]
 }

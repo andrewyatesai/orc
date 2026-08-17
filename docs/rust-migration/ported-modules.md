@@ -275,6 +275,100 @@ by an adversarial sweep rather than by this tool: it trims with Rust
 segment containing U+0085 (Rust only) or U+FEFF (JS only) answers differently.
 The other three worktree-id functions are clean.
 
+### `contextual-tours` — CUT OVER 2026-08-16, two of three exports
+
+**`contextual-tours`, re-ported and PARTIALLY cut over 2026-08-15.** The module
+was clean on `pnpm parity:twin-derived` and had three green `getContextualTour`
+vectors, and the catalog was still stale on two tours — the exact shape of "a
+clean verdict means nothing found, not nothing there". Twin-derived could not see
+it because the twin's own tests read `CONTEXTUAL_TOURS.find(...)` directly rather
+than calling `getContextualTour`, so the tool recorded no calls to it at all, and
+the three vectors happened to cover the three tours that had not drifted.
+
+What the core answered, measured against BOTH shipped blobs (they agree):
+
+- `workspace-board` carried a third "Tune density" step that upstream **removed**
+  in #5389, anchored on `workspace-board-settings`.
+- `browser` was missing its third step entirely — "Stay logged in", the
+  cookie-import step from #4836 re-anchored by #4902 — had the pre-#4836 grab
+  copy, and had lost `preferredPlacement: 'bottom'` from both surviving steps.
+- `CONTEXTUAL_TOUR_IDS` listed six ids, omitting `floating-workspace` (#5062).
+  Inert for the two id functions, which answer from `from_id`, but the TS twin
+  derives that list with `CONTEXTUAL_TOURS.map(...)` and
+  `dev-education-suppression.ts` marks every id in it as seen, so the Rust copy
+  was one tour short of its twin. `feature_education_telemetry`'s mirror const
+  was short the same id and is fixed with it.
+
+**The catalog fix is NOT in this commit, and neither is the ids-const fix.** Both
+were drafted, and both were dropped on the way in, for the same reason: the
+board/browser drift is not the core lagging HEAD, it is the core *leading* it.
+The steps the core is missing exist only in the maintainer's uncommitted working
+tree, so a `getContextualTour` golden encoding them compares the Rust catalog
+against a revision that is in no commit — the aiVaultTitle mistake exactly. Run
+against the staged tree the four drafted tour goldens fail as
+`contextual-tours#12` and `#13`; against the working tree they pass. That
+asymmetry IS the tell, and the rule it re-proves is the standing one: port
+against `git show HEAD:`, never disk. The corpus therefore grew 8 → **12**, all
+four added cases on the two id functions, and the catalog vectors are left at
+HEAD's three. `CONTEXTUAL_TOUR_IDS` and its `feature_education_telemetry` mirror
+are handled in their own entry below, where the defect is live rather than
+latent.
+
+_Cut over 2026-08-15, TWO of three exports._ `isContextualTourId` and
+`normalizeContextualTourIds` are deleted from
+`src/shared/contextual-tours.ts` and all three importers — `main/persistence.ts`
+(napi), `store/slices/ui.ts` (wasm at ready) and `web/web-preload-api.ts` (binds
+NEITHER, ever) — now go through `src/shared/contextual-tour-id-normalization.ts`
+on the orca-dispatch seam. Pre-ready contract: **`parity`**, forced. Every answer
+decides `ui.contextualToursSeenIds`, which is persisted, so a pre-ready `[]`
+hydrates an empty seen list and the next `updateUI` writes it back — every
+dismissed tour replays, permanently — and no sentinel exists, because `[]` and
+`false` are already both functions' real answers. The fallbacks recompute the
+deleted bodies over the kept `CONTEXTUAL_TOUR_IDS` table. Two rows in
+`shim-pre-ready-contract.test.ts`, both confirmed discriminating (a `[]`
+fallback and a fallback that drops `floating-workspace` each redden their row).
+
+The port needed no Rust change at all, which is worth stating because the
+drafted version assumed otherwise: both functions answer through
+`ContextualTourId::from_id`, whose arms are exactly the seven twin ids with no
+aliases, so they never read the short `CONTEXTUAL_TOUR_IDS` const and were
+already faithful. `contextual-tour-id-normalization.test.ts` runs every case in
+**both** seam states, and the bound leg was proven live rather than assumed:
+inverting the bound answer inside `dispatchContextualTourIds` reddens two of the
+five tests, so a `bind()` that silently no-op'd could not pass here.
+
+**`getContextualTour` is REFUSED, and the reason is the blob, not the port.** Its
+answer comes from the core's own copy of the step tables, and the SHIPPED
+`orca_git_wasm_bg.wasm` / `orca_node.node` still carry the stale copy above —
+rebuilding them was out of scope here (a concurrent rebuild corrupts them for
+every parallel session). Routing it would have deleted the browser tour's
+cookie-import step and resurrected a removed board step at the wasm-ready edge,
+which is a shipped regression, not a degraded fallback; and it cannot be laundered
+as a `parity` row either, since the gate calls the real shipped wasm and the row
+would simply be red. The TS lookup therefore stays, over data that stays anyway,
+with a header naming the blocker. **It becomes routable the moment the blobs are
+rebuilt** — the core's tables are already correct and pinned by seven vectors, so
+the follow-up is: rebuild, confirm `getContextualTour` matches for all seven
+tours, then move the lookup onto the shim with a `find` over `CONTEXTUAL_TOURS`
+as its `parity` fallback (the `browser-viewport-presets` shape).
+
+One thing a reader of this entry should know. `pnpm parity` reports
+`getContextualTour #5` (automations) failing **in the working tree only**: the
+maintainer has uncommitted edits that drop the two step `id`s and reword one
+body, and the core matches HEAD. That case was left alone deliberately — the core
+should not be re-pointed at an uncommitted edit — and the four added cases do not
+touch it. Verified against the STAGED tree throughout, in a `git worktree add`
+of `git commit-tree`, because the working tree could not answer honestly here:
+typecheck at HEAD's exact baseline (2 node / 25 web), `pnpm parity` 3652 cases /
+golden 3630/3630 / 3740 tests exit 0, and 770 tests across every file that
+imports the shim.
+
+After this cutover the module leaves `parity:twin-derived` altogether — the tool
+reads a twin's exports from the function declarations in the vector's `source`
+file, and `contextual-tours.ts` now declares only `getContextualTour`, which the
+twin's tests never call directly. Same structural skip as `mcp-env`. The twelve
+vectors are the whole guard on this surface now.
+
 ### What is actually left, and what each one is waiting on
 
 40 of the 85 vector-backed modules hold no twin implementation any more. Of the

@@ -173,7 +173,7 @@ import {
 } from '../shared/terminal-scrollback-policy'
 import { compareFeatureInteractionUsageBuckets, getFeatureInteractionCategory, getFeatureInteractionUsageBucket, type FeatureInteractionId } from '../shared/feature-interactions'
 import { normalizeFeatureInteractions, normalizeFeatureInteractionTelemetryBuckets } from '../shared/feature-interaction-state'
-import { normalizeContextualTourIds } from '../shared/contextual-tours'
+import { normalizeContextualTourIds } from '../shared/contextual-tour-id-normalization'
 import { normalizeFeatureTipIds } from '../shared/feature-tip-selection'
 import {
   parseCodexResetCreditAttemptLedger,

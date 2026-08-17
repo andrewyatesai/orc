@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import {
-  CONTEXTUAL_TOURS,
-  normalizeContextualTourIds,
-  type ContextualTour,
-  type ContextualTourId
-} from './contextual-tours'
-
+import { CONTEXTUAL_TOURS, type ContextualTour, type ContextualTourId } from './contextual-tours'
+import { normalizeContextualTourIds } from './contextual-tour-id-normalization'
 describe('contextual tour definitions', () => {
   it('defines the required tours with concise visible steps', () => {
     const expectedIds: ContextualTourId[] = [
