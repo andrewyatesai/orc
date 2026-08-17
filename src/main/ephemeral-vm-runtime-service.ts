@@ -51,6 +51,7 @@ export type CleanupEphemeralVmRuntimeArgs = {
   recipe: OrcaVmRecipe
   runtimeId: string
   now?: number
+  destroyTimeoutMs?: number
   signal?: AbortSignal
   onStdout?: (chunk: string) => void
   onStderr?: (chunk: string) => void
@@ -160,6 +161,7 @@ export async function cleanupEphemeralVmRuntime(
     recipe: args.recipe,
     context: contextFromRuntime(args.repoPath, running),
     recipeResult: running.recipeResult,
+    timeoutMs: args.destroyTimeoutMs,
     signal: args.signal,
     onStdout: args.onStdout,
     onStderr: args.onStderr

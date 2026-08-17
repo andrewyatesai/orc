@@ -362,7 +362,7 @@ describe('registerEphemeralVmHandlers', () => {
     expect(listEnvironments(userDataPath)).toEqual([])
   })
 
-  it('removes the runtime-owned SSH target on cleanup even when destroy fails', async () => {
+  it('retains the runtime-owned SSH target when destroy fails', async () => {
     const userDataPath = makeDir('orca-ephemeral-vm-ipc-user-data-')
     const repoPath = makeDir('orca-ephemeral-vm-ipc-repo-')
     getPathMock.mockReturnValue(userDataPath)
@@ -387,8 +387,6 @@ describe('registerEphemeralVmHandlers', () => {
         '}))'
       ].join('\n')
     )
-    // Why: a failing destroy drives the cleanup_failed branch; the runtime-owned
-    // SSH target must still be torn down so it never orphans (see Fix D).
     writeFileSync(destroyPath, 'process.exit(1)')
     writeFileSync(
       join(repoPath, 'orca.yaml'),
@@ -409,12 +407,20 @@ describe('registerEphemeralVmHandlers', () => {
 
     const cleaned = (await handlers.get('ephemeralVm:cleanup')?.(null, {
       runtimeId: provisioned.runtime.id
-    } as never)) as { status?: string; connectionMode?: string; sshTargetId?: string }
+    } as never)) as {
+      status?: string
+      cleanupLastError?: string
+      connectionMode?: string
+      sshTargetId?: string
+    }
 
+    // Why: a failing destroy must keep the SSH target so cleanup stays retryable
+    // instead of orphaning the still-live VM.
     expect(cleaned).toEqual(expect.objectContaining({ status: 'cleanup_failed' }))
-    expect(removeRuntimeOwnedSshTargetMock).toHaveBeenCalledWith('runtime-ssh-orca-instance-1')
-    expect(cleaned.connectionMode).toBeUndefined()
-    expect(cleaned.sshTargetId).toBeUndefined()
+    expect(cleaned.cleanupLastError).toBeTruthy()
+    expect(removeRuntimeOwnedSshTargetMock).not.toHaveBeenCalled()
+    expect(cleaned.connectionMode).toBe('ssh')
+    expect(cleaned.sshTargetId).toBe('runtime-ssh-orca-instance-1')
   })
 
   it('runs suspend and resume for an attached ephemeral VM workspace', async () => {

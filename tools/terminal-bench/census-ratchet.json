@@ -198,9 +198,20 @@
       "why": [
         "+90 on orca-runtime.ts from +300-delta batch 1 attach-kind ports: STA-4028 quarter-circle guarded-send authorization + launchIncarnationId, launch-identity-authoritative, the 30s repo-rescan admin-fingerprint gate (#14207) refreshRepoWorktreeScan, and the diffComments FolderWorkspace type union. In-place OrcaRuntimeService methods; pty.ts flat 6382, shim flat 2812."
       ]
+    },
+    {
+      "date": "2026-08-17",
+      "head": "d300-b2",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36483,
+        "shimWholeFileLoc": 2812
+      },
+      "why": [
+        "orca-runtime.ts +123 (36483->36606) stacked on d300-b1 from the +300-delta batch-2 attach-kind ports (SGR-pen clear on hidden-output restore #14241, renderer-graph reload-termination gate, mobile cluster). shimWholeFileLoc +11 (2812->2823) entirely from src/renderer/src/components/terminal-pane/pty-pre-handler-buffer.ts, a shim-manifest attach \u2014 NOT the delivery-reliability host regions. pty.ts flat 6382."
+      ]
     }
   ],
-  "shimWholeFileLoc": 2812,
-  "src/main/runtime/orca-runtime.ts": 36483,
+  "shimWholeFileLoc": 2823,
+  "src/main/runtime/orca-runtime.ts": 36606,
   "src/main/ipc/pty.ts": 6382
 }

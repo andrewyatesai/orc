@@ -8,6 +8,7 @@ import {
   POST_REPLAY_MODE_RESET,
   POST_REPLAY_REATTACH_RESET,
   POST_REPLAY_REATTACH_RESET_KEEP_MOUSE,
+  RESET_AFTER_BYTE_GAP,
   RESET_KITTY_KEYBOARD_PROTOCOL,
   RESET_TERMINAL_CURSOR_STYLE
 } from './layout-serialization'
@@ -9078,7 +9079,7 @@ describe('connectPanePty', () => {
       claim: true
     })
     expect(written).toContain(viewportClear)
-    expect(written).not.toContain('\x1b[2J\x1b[3J\x1b[H')
+    expect(written).not.toContain(`${RESET_AFTER_BYTE_GAP}\x1b[2J\x1b[3J\x1b[H`)
     expect(written).toEqual(
       expect.arrayContaining([coldScrollback, POST_REPLAY_MODE_RESET, blankViewport])
     )
@@ -10864,6 +10865,26 @@ describe('connectPanePty', () => {
       expect(capturedDataCallback.current).not.toBeNull()
       return { transport, pane, dataCallback: capturedDataCallback.current!, binding }
     }
+
+    // STA-4042 root: the restore-needed marker is the ONE point where "bytes were
+    // dropped" is known. The emulator carries state across chunks just like the
+    // cross-chunk parser the handler already resets, so the gap is closed here
+    // rather than left to each recovery path to remember.
+    it('closes the emulator state gap when a drop is announced', async () => {
+      enableMainAuthority()
+      const deps = createDeps({ isVisibleRef: { current: false } })
+      const { pane, dataCallback } = await connectHiddenPane(deps)
+      dataCallback('hidden output\r\n', { seq: 16, rawLength: 16 })
+      pane.terminal.write.mockClear()
+
+      const { _dispatchPtyModelRestoreNeededForTest } = await import('./pty-model-restore-channel')
+      _dispatchPtyModelRestoreNeededForTest({ id: 'pty-id', reason: 'hidden-drop', markerSeq: 64 })
+      await flushAsyncTicks(4)
+
+      const written = pane.terminal.write.mock.calls.map(([data]) => data as string)
+      const gapReset = written.find((data) => data === RESET_AFTER_BYTE_GAP)
+      expect(gapReset).toBeDefined()
+    })
 
     it('marks the PTY hidden on hidden output and clears it before requesting restore on reveal', async () => {
       enableMainAuthority()
@@ -14092,7 +14113,10 @@ describe('connectPanePty', () => {
 
     expect(getMainBufferSnapshot).toHaveBeenCalledWith('pty-id', { scrollbackRows: 5000 })
     expect(pane.terminal.resize).toHaveBeenCalledWith(100, 30)
-    expect(pane.terminal.write).toHaveBeenCalledWith('\x1b[2J\x1b[3J\x1b[H', expect.any(Function))
+    expect(pane.terminal.write).toHaveBeenCalledWith(
+      `${RESET_AFTER_BYTE_GAP}\x1b[2J\x1b[3J\x1b[H`,
+      expect.any(Function)
+    )
     expect(pane.terminal.write).toHaveBeenCalledWith('snapshot-state\r\n', expect.any(Function))
     expect(pane.terminal.write).not.toHaveBeenCalledWith(live, expect.any(Function))
     disposable.dispose()
@@ -14143,7 +14167,7 @@ describe('connectPanePty', () => {
 
     expect(getMainBufferSnapshot).toHaveBeenCalledWith('pty-id', { scrollbackRows: 5000 })
     expect(pane.terminal.write).toHaveBeenCalledWith(
-      '\x1b[?1049l\x1b[2J\x1b[3J\x1b[H',
+      `${RESET_AFTER_BYTE_GAP}\x1b[?1049l\x1b[2J\x1b[3J\x1b[H`,
       expect.any(Function)
     )
     expect(pane.terminal.write).toHaveBeenCalledWith(
@@ -14151,16 +14175,16 @@ describe('connectPanePty', () => {
       expect.any(Function)
     )
     expect(pane.terminal.write).toHaveBeenCalledWith(
-      '\x1b[0m\x1b[?1049h\x1b[2J\x1b[H',
+      `${RESET_AFTER_BYTE_GAP}\x1b[?1049h\x1b[2J\x1b[H`,
       expect.any(Function)
     )
     const writes = (pane.terminal.write as ReturnType<typeof vi.fn>).mock.calls.map(
       (call) => call[0]
     )
     expect(writes.indexOf('preserved-shell-history\r\n')).toBeLessThan(
-      writes.indexOf('\x1b[0m\x1b[?1049h\x1b[2J\x1b[H')
+      writes.indexOf(`${RESET_AFTER_BYTE_GAP}\x1b[?1049h\x1b[2J\x1b[H`)
     )
-    expect(writes.indexOf('\x1b[0m\x1b[?1049h\x1b[2J\x1b[H')).toBeLessThan(
+    expect(writes.indexOf(`${RESET_AFTER_BYTE_GAP}\x1b[?1049h\x1b[2J\x1b[H`)).toBeLessThan(
       writes.indexOf('altscreen-snapshot\r\n')
     )
     expect(pane.terminal.write).toHaveBeenCalledWith('altscreen-snapshot\r\n', expect.any(Function))
@@ -14307,7 +14331,7 @@ describe('connectPanePty', () => {
     disposable.dispose()
   })
 
-  it('abandons a stalled hidden restore and drains pending foreground chunks warning-first', async () => {
+  it('abandons a stalled hidden restore with reset, warning, then pending foreground', async () => {
     const { connectPanePty } = await import('./pty-connection')
     const transport = createMockTransport('pty-id')
     const capturedDataCallback: {
@@ -14369,6 +14393,8 @@ describe('connectPanePty', () => {
     const warningIndex = written.findIndex((data) => data.includes('main recovery was unavailable'))
     const combinedLiveIndex = written.indexOf(firstLive + secondLive)
     expect(warningIndex).toBeGreaterThanOrEqual(0)
+    // The SGR pen must be grounded immediately before the plain-text warning (STA-4042).
+    expect(written[warningIndex - 1]).toBe(RESET_AFTER_BYTE_GAP)
     expect(combinedLiveIndex).toBeGreaterThan(warningIndex)
 
     snapshot.resolve({
@@ -14383,6 +14409,63 @@ describe('connectPanePty', () => {
       'late-snapshot-state\r\n',
       expect.any(Function)
     )
+    disposable.dispose()
+  })
+
+  // STA-4042: the hidden-delivery gate drops renderer-bound bytes, so the span it
+  // ate can contain the `ESC[22m` closing a bold run. Abandoning the restore means
+  // no snapshot will rebuild the buffer, so unless the pen is cleared here every
+  // drained and subsequent cell inherits bold — the "regular text renders bold"
+  // field report.
+  it('clears the SGR pen before draining abandoned foreground chunks', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport('pty-id')
+    const capturedDataCallback: {
+      current: ((data: string, meta?: { seq?: number; rawLength?: number }) => void) | null
+    } = { current: null }
+    transport.connect.mockImplementation(async ({ callbacks }: { callbacks: ConnectCallbacks }) => {
+      capturedDataCallback.current = callbacks.onData ?? null
+      return 'pty-id'
+    })
+    transportFactoryQueue.push(transport)
+    const getMainBufferSnapshot = window.api.pty.getMainBufferSnapshot as unknown as ReturnType<
+      typeof vi.fn
+    >
+    const snapshot = createDeferred<{ data: string; cols: number; rows: number; seq: number }>()
+    getMainBufferSnapshot.mockReturnValue(snapshot.promise)
+    // The dropped span is where `ESC[22m` would have been; the pen is left bold.
+    const hidden = '\x1b[1mbold-run-opened-while-hidden\r\n'
+    const live = 'live-after-reveal\r\n'
+
+    const pane = createPane(1)
+    const manager = createManager(1)
+    const deps = createDeps({
+      isVisibleRef: { current: false },
+      startup: { command: 'codex' }
+    })
+    const disposable = connectPanePty(pane as never, manager as never, deps as never)
+    await flushAsyncTicks(6)
+
+    vi.useFakeTimers()
+    capturedDataCallback.current?.(hidden, { seq: hidden.length, rawLength: hidden.length })
+    ;(deps.isVisibleRef as { current: boolean }).current = true
+    capturedDataCallback.current?.(live, {
+      seq: hidden.length + live.length,
+      rawLength: live.length
+    })
+    await flushAsyncTicks(4)
+
+    // Let the foreground deadline expire so the restore is abandoned.
+    vi.advanceTimersByTime(750)
+    vi.advanceTimersByTime(0)
+    await flushAsyncTicks(10)
+
+    const written = pane.terminal.write.mock.calls.map(([data]) => data as string)
+    const resetIndex = written.indexOf(RESET_AFTER_BYTE_GAP)
+    const liveIndex = written.findIndex((data) => data.includes('live-after-reveal'))
+    expect(resetIndex).toBeGreaterThanOrEqual(0)
+    expect(liveIndex).toBeGreaterThanOrEqual(0)
+    expect(resetIndex).toBeLessThan(liveIndex)
     disposable.dispose()
   })
 
@@ -14902,7 +14985,7 @@ describe('connectPanePty', () => {
     expect(pane.terminal.clear).toHaveBeenCalled()
     expect(pane.terminal.write).not.toHaveBeenCalledWith(live, expect.any(Function))
     expect(pane.terminal.write).not.toHaveBeenCalledWith(
-      '\x1b[2J\x1b[3J\x1b[H',
+      `${RESET_AFTER_BYTE_GAP}\x1b[2J\x1b[3J\x1b[H`,
       expect.any(Function)
     )
     disposable.dispose()
@@ -15121,7 +15204,7 @@ describe('connectPanePty', () => {
       expect.any(Function)
     )
     expect(pane.terminal.write).not.toHaveBeenCalledWith(
-      '\x1b[2J\x1b[3J\x1b[H',
+      `${RESET_AFTER_BYTE_GAP}\x1b[2J\x1b[3J\x1b[H`,
       expect.any(Function)
     )
     disposable.dispose()
@@ -21807,7 +21890,7 @@ describe('connectPanePty', () => {
     const SSH_PTY_ID = 'ssh:target-1@@pty-9'
     const RELAY_ATTACH_TAIL = 'relay-100kb-attach-tail'
     const MODEL_SNAPSHOT = 'main-model-5000-row-snapshot'
-    const CLEAR_SEQUENCE = '\x1b[2J\x1b[3J\x1b[H'
+    const CLEAR_SEQUENCE = `${RESET_AFTER_BYTE_GAP}\x1b[2J\x1b[3J\x1b[H`
 
     function seedSshWorkspaceState(overrides: Record<string, unknown> = {}): void {
       mockStoreState = {

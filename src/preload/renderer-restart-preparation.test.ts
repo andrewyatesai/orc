@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { UpdateStatus } from '../shared/types'
+import { ORCA_RENDERER_SHUTDOWN_CHECKPOINT_FAILED_EVENT } from '../shared/renderer-shutdown-events'
 import {
   createUpdaterQuitAbortRelay,
   prepareAndInvokeAppRestart,
@@ -9,11 +10,14 @@ import {
 } from './renderer-restart-preparation'
 
 describe('prepareRendererForAppRestart', () => {
-  it('aborts when the dispatched shutdown checkpoint prevents unload', async () => {
+  it('aborts when the dispatched shutdown checkpoint reports failure', async () => {
     const eventTarget = new EventTarget()
     const started = vi.fn()
     const aborted = vi.fn()
-    const checkpoint = vi.fn((event: Event) => event.preventDefault())
+    const checkpoint = vi.fn((event: Event) => {
+      event.currentTarget?.dispatchEvent(new Event(ORCA_RENDERER_SHUTDOWN_CHECKPOINT_FAILED_EVENT))
+      event.preventDefault()
+    })
     eventTarget.addEventListener('restart-started', started)
     eventTarget.addEventListener('restart-aborted', aborted)
     eventTarget.addEventListener('beforeunload', checkpoint)
@@ -28,6 +32,22 @@ describe('prepareRendererForAppRestart', () => {
     expect(started).toHaveBeenCalledTimes(1)
     expect(checkpoint).toHaveBeenCalledTimes(1)
     expect(aborted).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not mistake an unrelated unload veto for checkpoint failure', async () => {
+    const eventTarget = new EventTarget()
+    const aborted = vi.fn()
+    const veto = vi.fn((event: Event) => event.preventDefault())
+    eventTarget.addEventListener('restart-aborted', aborted)
+    eventTarget.addEventListener('beforeunload', veto)
+
+    await prepareRendererForAppRestart(eventTarget, {
+      startedEventName: 'restart-started',
+      abortedEventName: 'restart-aborted'
+    })
+
+    expect(veto).toHaveBeenCalledTimes(1)
+    expect(aborted).not.toHaveBeenCalled()
   })
 })
 
@@ -54,7 +74,10 @@ describe('prepareAndInvokeAppRestart', () => {
     const eventTarget = new EventTarget()
     const aborted = vi.fn()
     eventTarget.addEventListener('restart-aborted', aborted)
-    eventTarget.addEventListener('beforeunload', (event) => event.preventDefault())
+    eventTarget.addEventListener('beforeunload', (event) => {
+      event.currentTarget?.dispatchEvent(new Event(ORCA_RENDERER_SHUTDOWN_CHECKPOINT_FAILED_EVENT))
+      event.preventDefault()
+    })
     const invoke = vi.fn()
 
     await expect(prepareAndInvokeAppRestart(eventTarget, invoke, options)).rejects.toThrow(

@@ -6,7 +6,10 @@ import {
   createShutdownCheckpointGuard,
   preventUnloadAndScheduleShutdownCheckpointReset
 } from './shutdown-checkpoint-guard'
-import { ORCA_RENDERER_UNLOAD_PREVENTED_EVENT } from '../../../shared/renderer-shutdown-events'
+import {
+  ORCA_RENDERER_SHUTDOWN_CHECKPOINT_FAILED_EVENT,
+  ORCA_RENDERER_UNLOAD_PREVENTED_EVENT
+} from '../../../shared/renderer-shutdown-events'
 
 describe('createShutdownCheckpointGuard', () => {
   it('dedupes the synthetic and native unload events in one close attempt', () => {
@@ -72,6 +75,19 @@ describe('createShutdownCheckpointGuard', () => {
     expect(eventTarget.dispatchEvent(new Event('beforeunload', { cancelable: true }))).toBe(true)
 
     expect(persist).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports checkpoint failure separately from the unload verdict', () => {
+    const eventTarget = new EventTarget()
+    const failed = vi.fn()
+    const guard = createShutdownCheckpointGuard(() => {
+      throw new Error('invalid session')
+    })
+    eventTarget.addEventListener(ORCA_RENDERER_SHUTDOWN_CHECKPOINT_FAILED_EVENT, failed)
+    eventTarget.addEventListener('beforeunload', createShutdownCheckpointBeforeUnloadHandler(guard))
+
+    expect(eventTarget.dispatchEvent(new Event('beforeunload', { cancelable: true }))).toBe(false)
+    expect(failed).toHaveBeenCalledTimes(1)
   })
 
   it('resets after a paired-web dirty-file veto regardless of listener order', async () => {

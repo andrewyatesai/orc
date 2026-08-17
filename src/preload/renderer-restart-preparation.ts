@@ -2,6 +2,7 @@ import {
   ORCA_EDITOR_PREPARE_HOT_EXIT_EVENT,
   type EditorPrepareHotExitDetail
 } from '../shared/editor-save-events'
+import { ORCA_RENDERER_SHUTDOWN_CHECKPOINT_FAILED_EVENT } from '../shared/renderer-shutdown-events'
 import type { UpdateStatus } from '../shared/types'
 
 export type AppRestartPrepOptions = {
@@ -44,8 +45,26 @@ export async function prepareRendererForAppRestart(
     await requestEditorHotExitBackup(eventTarget)
     // Why: update installs can bypass native close. A cancelable synthetic
     // unload both captures mounted terminals and reports checkpoint failure.
-    const accepted = eventTarget.dispatchEvent(new Event('beforeunload', { cancelable: true }))
-    if (!accepted) {
+    let checkpointFailed = false
+    const markCheckpointFailed = (): void => {
+      checkpointFailed = true
+    }
+    eventTarget.addEventListener(
+      ORCA_RENDERER_SHUTDOWN_CHECKPOINT_FAILED_EVENT,
+      markCheckpointFailed
+    )
+    try {
+      // Why: the aggregate unload verdict also includes unrelated listeners
+      // (dirty-file vetoes, paired-web reload guards); only the checkpoint's own
+      // failure event should abort the restart.
+      eventTarget.dispatchEvent(new Event('beforeunload', { cancelable: true }))
+    } finally {
+      eventTarget.removeEventListener(
+        ORCA_RENDERER_SHUTDOWN_CHECKPOINT_FAILED_EVENT,
+        markCheckpointFailed
+      )
+    }
+    if (checkpointFailed) {
       throw new Error('Renderer shutdown checkpoint was not completed.')
     }
   } catch (error) {

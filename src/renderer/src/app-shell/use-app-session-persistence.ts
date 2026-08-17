@@ -16,7 +16,10 @@ import {
   createShutdownCheckpointBeforeUnloadHandler,
   createShutdownCheckpointGuard
 } from '../lib/shutdown-checkpoint-guard'
-import { registerUpdaterBeforeUnloadBypass } from '../lib/updater-beforeunload'
+import {
+  isIntentionalAppRestartInProgress,
+  registerUpdaterBeforeUnloadBypass
+} from '../lib/updater-beforeunload'
 import {
   buildWorkspaceSessionPayload,
   shouldPersistWorkspaceSession
@@ -63,9 +66,26 @@ function captureShutdownCheckpoint(): void {
   // Why: re-read state after capture() populated scrollback buffers into the store via Zustand
   // setters. The earlier read is only for the gating flags and would miss those updates.
   const freshState = useAppStore.getState()
-  const sessionSnapshots = shouldCaptureSession
-    ? buildWorkspaceSessionHostSnapshots(buildWorkspaceSessionPayload(freshState), freshState)
-    : []
+  let sessionSnapshots: ReturnType<typeof buildWorkspaceSessionHostSnapshots> = []
+  try {
+    sessionSnapshots = shouldCaptureSession
+      ? buildWorkspaceSessionHostSnapshots(buildWorkspaceSessionPayload(freshState), freshState)
+      : []
+  } catch (error) {
+    // Why: a corrupt persisted field can fault only the full snapshot; block the
+    // intentional-restart install rather than lose an unsaved draft, but for a
+    // clean session fall back to the durable view patch so the update proceeds.
+    // Dirty drafts exist only in the full session snapshot.
+    if (!isIntentionalAppRestartInProgress() || freshState.openFiles.some((file) => file.isDirty)) {
+      throw error
+    }
+    console.error('[app] Full renderer session snapshot failed; using durable session', error)
+    window.api.app.persistBeforeUnloadSync({
+      sessions: [],
+      ui: buildActiveViewUnloadPatch(freshState)
+    })
+    return
+  }
   // Why: one blocking checkpoint closes the immediate-quit race for both the narrow view
   // preference and the larger session recovery snapshots.
   window.api.app.persistBeforeUnloadSync({

@@ -121,6 +121,7 @@ import {
   POST_REPLAY_MODE_RESET,
   POST_REPLAY_REATTACH_RESET,
   POST_REPLAY_REATTACH_RESET_KEEP_MOUSE,
+  RESET_AFTER_BYTE_GAP,
   RESET_KITTY_KEYBOARD_PROTOCOL,
   RESET_TERMINAL_CURSOR_STYLE
 } from './layout-serialization'
@@ -390,7 +391,7 @@ const FOREGROUND_GRID_DRIFT_CHECK_MIN_MS = 250
 // Why: this is only shown if hidden renderer output was skipped and main-owned
 // terminal state is unavailable, so the user has an explicit loss signal.
 const HIDDEN_OUTPUT_RESTORE_UNAVAILABLE_WARNING =
-  '\x18\x1b[0m\r\n[Orca skipped hidden terminal output because main recovery was unavailable.]\r\n'
+  '\r\n[Orca skipped hidden terminal output because main recovery was unavailable.]\r\n'
 type E2eTerminalPtyDataInjectionApi = {
   inject: (paneKey: string, data: string, meta?: PtyDataMeta) => boolean
   keys: () => string[]
@@ -1998,10 +1999,10 @@ export function connectPanePty(
     // "question answered" signal no hook will ever deliver.
     questionAnsweredInference.observeSentTerminalInput(data)
   }
-  let pendingTerminalInputWrite: Promise<void> | null = null
+  let pendingTerminalInputWrite: Promise<boolean | null> | null = null
   let sequencedInterruptStatusBaseline: AgentStatusEntry | null | undefined
   let interruptStatusBaselineSequence = 0
-  const setPendingTerminalInputWrite = (promise: Promise<void>): void => {
+  const setPendingTerminalInputWrite = (promise: Promise<boolean | null>): void => {
     pendingTerminalInputWrite = promise
     void promise.finally(() => {
       if (pendingTerminalInputWrite === promise) {
@@ -2014,7 +2015,9 @@ export function connectPanePty(
     if (!pendingWrite) {
       return interruptInference.flushPending()
     }
-    return pendingWrite.then(() => interruptInference.flushPending())
+    return pendingWrite.then((immediateResult) => {
+      return immediateResult ?? interruptInference.flushPending()
+    })
   }
   // Why: the 133;D confirmation guard and the visible-pane resampler both key off
   // "does this pane expect an agent"; derive each signal once so the two callers
@@ -4218,26 +4221,28 @@ export function connectPanePty(
       clearPendingTerminalInputIntent()
       const writePromise = transport
         .sendInputAccepted(data)
-        .then((accepted) => {
+        .then((accepted): boolean | Promise<boolean> | null => {
           if (accepted) {
             // Why: rejected writes use transport recovery and must not arm a parser probe.
             markAcceptedTerminalInputSent()
             observeAcceptedShellCommandInput(data)
             observeAcceptedTerminalInput(data, acknowledgedIntent)
-            interruptInference.observeInputIntent(
+            const immediateResult = interruptInference.observeInputIntent(
               acknowledgedIntent,
               interruptStatusBaseline,
               capturedBaselineSequence
             )
             observeTitleOnlyInterrupt()
-          } else {
-            // Why: Esc/Ctrl+C are the first keys users press on a frozen pane;
-            // an unbound-transport reject here must arm recovery too.
-            requestRecoveryForUndeliverableInput()
+            return immediateResult ?? null
           }
+          // Why: Esc/Ctrl+C are the first keys users press on a frozen pane;
+          // an unbound-transport reject here must arm recovery too.
+          requestRecoveryForUndeliverableInput()
+          return null
         })
         .catch((err) => {
           console.warn('[agent-interrupt] acknowledged terminal input failed:', err)
+          return null
         })
       setPendingTerminalInputWrite(writePromise)
       return
@@ -6105,6 +6110,12 @@ export function connectPanePty(
         noteHiddenOutputRestoreFloodBackpressure()
         return
       }
+      // Why the emulator too: it carries state across chunks exactly like the cross-chunk parser reset above. If the
+      // gap swallowed the `ESC[22m` closing a bold run, every later cell inherits it, so ground the pen at this one
+      // point where "bytes were dropped" is known rather than leaving each recovery path to remember (STA-4042). After
+      // the backpressure return, not before: under flood these markers arrive continuously and the flood path repaints
+      // via the snapshot replay, which grounds the pen itself, so one reset per marker would only add damped work.
+      writePtyOutputToXterm(RESET_AFTER_BYTE_GAP, true)
       // Why: a marker during an in-flight restore means that snapshot may predate the drop, so a fresh one must follow; capture BEFORE the mark, which starts a restore synchronously on a visible pane.
       const restoreWasInFlight = hiddenOutputRestoreInFlight !== null
       markHiddenOutputRestoreNeeded()
@@ -6966,6 +6977,10 @@ export function connectPanePty(
       if (!opts.quiet) {
         writeRestoreUnavailableWarning()
       }
+      // Why unconditional (not folded into the warning branch): this abandon declares the bytes unrecoverable, so no
+      // snapshot will rebuild the buffer; without grounding the pen here the quiet flood path drains queued foreground
+      // chunks under the stale pen and every cell inherits a dropped `ESC[22m` (STA-4042).
+      writePtyOutputToXterm(RESET_AFTER_BYTE_GAP, true)
       if (hadPendingOverflow) {
         return
       }
@@ -7104,6 +7119,9 @@ export function connectPanePty(
     }
 
     function writeRestoreUnavailableWarning(): void {
+      // Why first, before the visibility gate: the pen reset must parse ahead of both the plain-text warning (which
+      // carries no SGR of its own) and any foreground drain, so the stranded bold never colours them (STA-4042).
+      writePtyOutputToXterm(RESET_AFTER_BYTE_GAP, true)
       if (!shouldWritePtyOutputForeground(deps.isVisibleRef.current)) {
         return
       }
@@ -7211,15 +7229,17 @@ export function connectPanePty(
             if (!snapshotCarriesNoImage) {
               if (!snapshot.alternateScreen) {
                 // Why: \x1b[3J wipes xterm scrollback; alt-screen TUIs keep it in xterm, so clear only the normal buffer (mirrors pty-transport.ts).
-                writeReplayData('\x1b[2J\x1b[3J\x1b[H')
+                // Why the leading reset: a replay only runs because renderer-bound bytes were dropped, so the pen the drop interrupted is unknown; without clearing it the whole replayed buffer inherits it (STA-4042).
+                writeReplayData(`${RESET_AFTER_BYTE_GAP}\x1b[2J\x1b[3J\x1b[H`)
               } else if (snapshot.scrollbackAnsi !== undefined) {
                 // Why: SerializeAddon captures normal + alt buffers together; rebuild normal while active, then return to a clean alt frame.
-                writeReplayData('\x1b[?1049l\x1b[2J\x1b[3J\x1b[H')
+                // Why the reset moved to the front: scrollbackAnsi was replayed BEFORE the trailing \x1b[0m, so the normal-buffer history inherited the stale pen even though the alt frame after it did not (STA-4042).
+                writeReplayData(`${RESET_AFTER_BYTE_GAP}\x1b[?1049l\x1b[2J\x1b[3J\x1b[H`)
                 writeReplayData(snapshot.scrollbackAnsi)
-                writeReplayData('\x1b[0m\x1b[?1049h\x1b[2J\x1b[H')
+                writeReplayData(`${RESET_AFTER_BYTE_GAP}\x1b[?1049h\x1b[2J\x1b[H`)
               } else {
                 // Why: the snapshot's ?1049h no-ops when already on alt screen and skips blank cells; clear the alt buffer so the pre-hide frame can't bleed through blank cells (spares normal-buffer scrollback).
-                writeReplayData('\x1b[0m\x1b[?1049h\x1b[2J\x1b[H')
+                writeReplayData(`${RESET_AFTER_BYTE_GAP}\x1b[?1049h\x1b[2J\x1b[H`)
               }
               writeReplayData(snapshot.data)
             }

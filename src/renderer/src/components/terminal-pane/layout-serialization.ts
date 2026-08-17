@@ -64,6 +64,20 @@ export function buildPostReplayLiveAgentReattachReset(payload: string): string {
 // Why: a live agent owns cursor/focus here; forcing ?25h/?1004l breaks a parked agent that only arms ?1004h at startup.
 export const POST_REPLAY_LIVE_AGENT_SNAPSHOT_RESET = RESET_TERMINAL_CURSOR_STYLE
 
+// Why separate from the profiles above: those clear DEC *mode* bits and none touches SGR. A recovery path that
+// declares renderer-bound bytes unrecoverable has by definition lost whatever turned the pen on, so a dropped
+// `ESC[22m` would leave bold applied to everything written after (STA-4042).
+export const RESET_GRAPHIC_RENDITION = '\x1b[0m'
+
+// State to re-establish when renderer-bound bytes were dropped and the gap can't be replayed away.
+// Scoped to the pen on purpose: a gap can also strand a charset designation, an open OSC 8 link, or a partial
+// escape, but each of those changes what a live TUI sees on a production path with no reported symptom, and the
+// pen is what the field reports actually show (STA-4042) — widen only with a symptom to point at.
+// Deliberately NOT a soft reset (DECSTR): xterm's DECSTR wipes kitty flags/stacks
+// (terminal-kitty-keyboard-mode-tracker applySoftReset), silencing Option chords for an agent that negotiates
+// them only at startup.
+export const RESET_AFTER_BYTE_GAP = RESET_GRAPHIC_RENDITION
+
 // Cross-platform monospace chain: browsers skip fonts absent on the current OS, so listing all is safe.
 // Nerd Fonts come last to cover PUA glyphs (U+E000–U+F8FF) from OMP/Powerline that standard monospace fonts lack.
 const FALLBACK_FONTS = [

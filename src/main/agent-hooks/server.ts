@@ -389,7 +389,7 @@ function isToolProgressWorkingAfterInterrupt(next: AgentHookEventPayload): boole
   if (next.payload.state !== 'working') {
     return false
   }
-  if (next.payload.agentType !== 'claude') {
+  if (next.payload.agentType !== 'claude' && next.payload.agentType !== 'codex') {
     return false
   }
   // Why: a same-prompt retry is another UserPromptSubmit, while late post-Ctrl+C progress arrives as tool lifecycle work.
@@ -1122,6 +1122,9 @@ export class AgentHookServer {
         (effectivePayload.hasExplicitPrompt !== true &&
           Date.now() - previous.receivedAt <= INTERRUPTED_DONE_LATE_WORKING_SUPPRESSION_MS))
     ) {
+      if (effectivePayload.payload.agentType === 'codex') {
+        markCodexLeadTurnInterrupted(this.state, effectivePayload.paneKey)
+      }
       return previous
     }
     if (
@@ -1137,7 +1140,12 @@ export class AgentHookServer {
     // clears cleanly and an unrelated turn can't inherit a stale compact marker.
     const cachedPayload = resolveCachedClaudeCompactOwnership(previous, effectivePayload)
     const enriched = this.attachStatusTiming(cachedPayload, now)
-    this.runtimeObservedStatusPaneKeys.add(enriched.paneKey)
+    // Why: a status backed only by a restored child is not live-observed work this runtime; keep the pane out of the observed set so status-change consumers see observedInCurrentRuntime: false and can reconcile it.
+    if (enriched.restoredUnconfirmed) {
+      this.runtimeObservedStatusPaneKeys.delete(enriched.paneKey)
+    } else {
+      this.runtimeObservedStatusPaneKeys.add(enriched.paneKey)
+    }
     this.state.lastStatusByPaneKey.set(enriched.paneKey, enriched)
     this.scheduleStatusPersist()
     this.notifyStatusChangeListeners()
@@ -2381,7 +2389,12 @@ export class AgentHookServer {
       if (!isValidPaneKey(paneKey)) {
         continue
       }
-      const { promptInteractionKey: _promptInteractionKey, ...persistedPayload } = payload
+      // Why: restoredUnconfirmed is one-normalization provenance re-derived per event; persisting it would resurface a stale marker on a hydrated row the next runtime re-observes live.
+      const {
+        promptInteractionKey: _promptInteractionKey,
+        restoredUnconfirmed: _restoredUnconfirmed,
+        ...persistedPayload
+      } = payload
       entries[paneKey] = persistedPayload as EnrichedAgentHookEventPayload
     }
     const file: LastStatusFile = { version: LAST_STATUS_FILE_VERSION, entries }

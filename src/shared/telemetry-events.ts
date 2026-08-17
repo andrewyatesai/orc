@@ -392,6 +392,9 @@ const runtimeRpcStartFailedSchema = z
   .object({ error_class: runtimeRpcStartErrorClassSchema })
   .strict()
 
+// Why: classify session-killing 1013 closures as producer size failures or queue backpressure.
+const remoteOutboundBudgetCloseSchema = z.object({ emitter: z.enum(['size', 'queue']) }).strict()
+
 // Why: daemon replace/retire lifecycle signal — issue #7936 was undiagnosable without asking a user for daemon.log.
 // Enum-only + bucketed session count so no paths, raw versions, or exact counts reach the wire.
 // The union keeps each reason pinned to its transition, so a death can't be reported as a replace.
@@ -1371,6 +1374,7 @@ export const eventSchemas = {
   daemon_start_failed: daemonStartFailedSchema,
   daemon_lifecycle: daemonLifecycleSchema,
   runtime_rpc_start_failed: runtimeRpcStartFailedSchema,
+  remote_outbound_budget_close: remoteOutboundBudgetCloseSchema,
 
   codex_trust_grant: codexTrustGrantSchema,
 

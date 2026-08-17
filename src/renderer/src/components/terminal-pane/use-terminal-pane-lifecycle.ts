@@ -97,6 +97,10 @@ import { copyTerminalTextVerified, reportTerminalCopyOutcome } from './terminal-
 import { parseOsc7 } from './parse-osc7'
 import { guardParserHandler } from './terminal-parser-handler-guard'
 import { resolveTerminalJisYenInput } from './terminal-jis-yen-input'
+import {
+  isNonLatinControlChordKeyup,
+  resolveNonLatinControlChordInput
+} from './terminal-non-latin-control-chord'
 import { installTerminalImeCompositionTracker } from './terminal-ime-composition-tracker'
 import { installTerminalImeLinuxCandidateState } from './terminal-ime-linux-candidate-state'
 import {
@@ -1090,6 +1094,9 @@ export function useTerminalPaneLifecycle({
         // listener on the terminal element for that.
         const interruptKeyupGuard = createTerminalInterruptKeyupGuard(pane.terminal.element)
         interruptKeyupBlurDisposablesRef.current.set(pane.id, interruptKeyupGuard)
+        // Why: the physical key of a claimed non-Latin control chord, so its matching keyup is
+        // swallowed and a kitty release report for the swallowed press cannot leak.
+        let claimedNonLatinControlChordCode: string | null = null
         pane.terminal.attachCustomKeyEventHandler((e) => {
           const linuxCandidateClassification = linuxImeCandidateState?.classifyKeyboardEvent(e) ?? {
             candidateDigitGuardActive: false
@@ -1169,6 +1176,22 @@ export function useTerminalPaneLifecycle({
             } else {
               interruptKeyupGuard.disarm()
             }
+            observeLinuxCandidateEvent()
+            return false
+          }
+          // Why here: after the Ctrl+C interrupt arm, which owns its own ETX and kitty reset.
+          // This covers the other 25 letters, whose only failure is the kitty encoder reading
+          // the layout glyph out of `key`. Sending the C0 byte reproduces what the OS control
+          // table produces for that physical key on any layout.
+          if (isNonLatinControlChordKeyup(e, claimedNonLatinControlChordCode)) {
+            claimedNonLatinControlChordCode = null
+            observeLinuxCandidateEvent()
+            return false
+          }
+          const nonLatinControlChord = resolveNonLatinControlChordInput(e)
+          if (nonLatinControlChord) {
+            claimedNonLatinControlChordCode = e.code
+            pane.terminal.input(nonLatinControlChord)
             observeLinuxCandidateEvent()
             return false
           }

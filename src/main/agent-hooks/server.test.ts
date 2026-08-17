@@ -783,6 +783,74 @@ describe('AgentHookServer listener replay', () => {
     }
   })
 
+  it('does not let late Codex tool hooks with explicit prompt resurrect an inferred interrupt', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    try {
+      const server = new AgentHookServer()
+      server.ingestRemote(
+        {
+          paneKey: PANE,
+          tabId: 'tab-1',
+          worktreeId: 'wt-1',
+          hasExplicitPrompt: true,
+          hookEventName: 'UserPromptSubmit',
+          payload: {
+            state: 'working',
+            prompt: 'Run sleep 30, then reply done.',
+            agentType: 'codex'
+          }
+        },
+        'conn-1'
+      )
+      const baseline = server.getStatusSnapshot()[0]
+
+      vi.setSystemTime(1_500)
+      expect(
+        server.inferInterrupt({
+          paneKey: PANE,
+          baselineUpdatedAt: baseline.receivedAt,
+          baselineStateStartedAt: baseline.stateStartedAt,
+          baselinePrompt: 'Run sleep 30, then reply done.',
+          baselineAgentType: 'codex',
+          intent: 'plain-escape'
+        })
+      ).toBe(true)
+
+      vi.setSystemTime(6_000)
+      server.ingestRemote(
+        {
+          paneKey: PANE,
+          tabId: 'tab-1',
+          worktreeId: 'wt-1',
+          hasExplicitPrompt: true,
+          hookEventName: 'PostToolUse',
+          payload: {
+            state: 'working',
+            prompt: 'Run sleep 30, then reply done.',
+            agentType: 'codex',
+            toolName: 'Bash',
+            toolInput: 'sleep 30'
+          }
+        },
+        'conn-1'
+      )
+
+      expect(server.getStatusSnapshot()).toEqual([
+        expect.objectContaining({
+          state: 'done',
+          prompt: 'Run sleep 30, then reply done.',
+          agentType: 'codex',
+          interrupted: true,
+          receivedAt: 1_500,
+          stateStartedAt: 1_500
+        })
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('allows a new prompt after an inferred interrupt', () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_000)
@@ -6297,6 +6365,66 @@ describe('Last-status persistence', () => {
         stateStartedAt: expect.any(Number),
         payload: expect.objectContaining({ state: 'working', prompt: 'persist me' })
       })
+    } finally {
+      server.stop()
+    }
+  })
+
+  it('drops observed-in-runtime when a restored child gates a post-restart pane, restoring it on a live lead boundary', async () => {
+    // A restored working child persists across the restart; its lifecycle then drains.
+    const firstServer = new AgentHookServer()
+    await firstServer.start({ env: 'production', userDataPath })
+    await postHookEvent(
+      firstServer,
+      buildBody({
+        hook_event_name: 'SubagentStart',
+        agent_id: 'a0000000000000005',
+        agent_type: 'reviewer'
+      })
+    )
+    firstServer.flushStatusPersistSync()
+    firstServer.stop()
+
+    const server = new AgentHookServer()
+    await server.start({ env: 'production', userDataPath })
+    try {
+      // A current-runtime child enters — the pane is now live-observed this runtime.
+      await postHookEvent(
+        server,
+        buildBody({
+          hook_event_name: 'SubagentStart',
+          agent_id: 'a0000000000000006',
+          agent_type: 'reviewer'
+        })
+      )
+      expect(server.getStatusChangeSnapshot()[0]?.observedInCurrentRuntime).toBe(true)
+
+      // The runtime child drains, leaving only the unconfirmed restored child gating 'working'.
+      await postHookEvent(
+        server,
+        buildBody({ hook_event_name: 'SubagentStop', agent_id: 'a0000000000000006' })
+      )
+      expect(server.getStatusSnapshot()[0]).toMatchObject({
+        state: 'working',
+        subagents: [expect.objectContaining({ id: 'a0000000000000005' })]
+      })
+      expect(server.getStatusChangeSnapshot()[0]?.observedInCurrentRuntime).toBe(false)
+
+      // The restored child itself drains — still unconfirmed 'working', roster empty.
+      await postHookEvent(
+        server,
+        buildBody({ hook_event_name: 'SubagentStop', agent_id: 'a0000000000000005' })
+      )
+      expect(server.getStatusSnapshot()[0]).toMatchObject({ state: 'working' })
+      expect(server.getStatusSnapshot()[0]?.subagents).toBeUndefined()
+      expect(server.getStatusChangeSnapshot()[0]?.observedInCurrentRuntime).toBe(false)
+      expect(server._getStateForTests().claudeSubagentRosterByPaneKey.size).toBe(0)
+
+      // A real lead Stop proves the boundary — the pane resolves done and is observed again.
+      await postHookEvent(server, buildBody({ hook_event_name: 'Stop', background_tasks: [] }))
+      expect(server.getStatusSnapshot()[0]).toMatchObject({ state: 'done' })
+      expect(server.getStatusSnapshot()[0]?.subagents).toBeUndefined()
+      expect(server.getStatusChangeSnapshot()[0]?.observedInCurrentRuntime).toBe(true)
     } finally {
       server.stop()
     }

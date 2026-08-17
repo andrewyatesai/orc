@@ -341,6 +341,26 @@ describe('terminal clipboard paste', () => {
     })
   })
 
+  it('forwards resolved protected paste options and overrides the legacy Windows flag', async () => {
+    const pasteText = vi.fn()
+
+    await pasteTerminalClipboard({
+      readClipboardText: vi.fn().mockResolvedValue('line one\nline two'),
+      readClipboardFilePaths: noClipboardFilePaths(),
+      saveClipboardImageAsTempFile: vi.fn(),
+      pasteText,
+      // Why: a remote Windows agent pane must win over the client-platform flag so a
+      // pasted newline is encoded as modified Enter, not submitted as CR.
+      forceBracketedMultilineTextPaste: true,
+      protectedMultilineTextPasteOptions: { windowsInputRecordNewline: 'alt-enter' },
+      targetShell: posix
+    })
+
+    expect(pasteText).toHaveBeenCalledWith('line one\nline two', {
+      windowsInputRecordNewline: 'alt-enter'
+    })
+  })
+
   it('keeps single-line text on the ordinary paste path when Windows multi-line protection is on', async () => {
     const saveClipboardImageAsTempFile = vi.fn()
     const pasteText = vi.fn()

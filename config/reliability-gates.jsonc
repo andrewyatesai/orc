@@ -7384,6 +7384,136 @@
         "Browser screencast subscribers share the fixed contract but have no dedicated gate."
       ],
       "demotionRule": "Demote if a retired runtime transport can leave a renderer subscription without a close event, if one failing teardown strands its sibling subscriptions, or if a close delivered after a generation advance is gated out as a stale transport frame."
+    },
+    {
+      "id": "runtime.renderer-graph-reload-termination",
+      "title": "Renderer graph reloads terminate under exact document and window authority",
+      "maturity": "experimental",
+      "protection": "partial",
+      "owner": "runtime-platform",
+      "layer": "electron-runtime-contract",
+      "surfaces": [
+        "desktop renderer reload and crash recovery",
+        "headless-to-desktop promotion",
+        "CLI and paired-runtime graph availability"
+      ],
+      "platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ],
+      "providers": [
+        "local",
+        "daemon",
+        "paired-runtime"
+      ],
+      "coveredPlatforms": [
+        "macos"
+      ],
+      "coveredProviders": [
+        "local"
+      ],
+      "coverageNotes": "Deterministic reload-lifecycle, renderer-notification, document-navigation, and preload-IPC contracts run green with no native addon. The runtime-ownership contracts in orca-runtime.test.ts cover generation replacement, superseded same-frame publication, cancelled-navigation recovery, failed-promotion pinning, timeout cleanup, and headless-fallback retirement; the one PTY-backed timeout case needs the built aterm addon, and the rest of that file's live-terminal tests are gated on the addon in this worktree. No live Electron crash-recovery or headless-promotion journey is shipped in this fork gate; the renderer generation stays local to Electron IPC and does not change the remote wire.",
+      "motivatingLinks": [
+        "https://github.com/stablyai/orca/issues/14066",
+        "https://github.com/stablyai/orca/pull/14070"
+      ],
+      "invariant": "Every genuine renderer graph reload revision settles exactly once, while a blocked external navigation that preserves the current document never starts a revision. A cancelled renderer-document navigation restores authority only when that same renderer survived; cancellation after an earlier document committed remains fenced until publication or timeout. Replacing a reload cancels only the prior revision; its timer and callbacks cannot settle a newer revision. A desktop reload succeeds only from a publication carrying a new renderer-document generation, while a failed headless promotion may recover only from its originating window. Timeout, renderer loss, and close reach a terminal graph state, and successful desktop publication permanently retires headless sentinel fallback until a new headless runtime is established.",
+      "oracle": "Begin, then settle a lifecycle revision as success, failure, cancellation, and timeout, and require each to settle exactly once while a replacement cancels only the prior revision and fences its timer. Start a blocked external main-frame navigation against the packaged renderer and require no revision to begin; start a same-renderer navigation and require exactly one shared fence across concurrent provisional starts that cancels only after every attempt fails or a later listener blocks it. Drive a surviving desktop reload and require cancellation to restore ready authority; drive two reloads and require the earlier committed one to stay fenced until its restarted timeout makes the graph unavailable. Publish from a superseded renderer generation through the current main frame and require rejection without graph mutation. Restore headless authority after a failed promotion, publish from a competing window, and require rejection while the sentinel stays authoritative and ready; then require a promoted-window timeout to restore headless authority and a desktop reload timeout to reach unavailable. Contain a disposed-frame send once per load generation and require the queued createTerminal to reject rather than hang.",
+      "commands": [
+        "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/runtime-graph-reload-lifecycle.test.ts src/main/window/runtime-renderer-notification-sender.test.ts src/main/window/renderer-document-navigation.test.ts src/main/ipc/runtime.test.ts",
+        "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/orca-runtime.test.ts"
+      ],
+      "testFiles": [
+        "src/main/runtime/runtime-graph-reload-lifecycle.test.ts",
+        "src/main/window/runtime-renderer-notification-sender.test.ts",
+        "src/main/window/renderer-document-navigation.test.ts",
+        "src/main/ipc/runtime.test.ts",
+        "src/main/runtime/orca-runtime.test.ts"
+      ],
+      "assertionRefs": [
+        {
+          "file": "src/main/runtime/runtime-graph-reload-lifecycle.test.ts",
+          "assertions": [
+            "records success, failure, cancellation, and timeout as terminal outcomes",
+            "cancels a superseded generation and ignores its stale completion and timeout",
+            "keeps a generation started by a cancellation observer active"
+          ]
+        },
+        {
+          "file": "src/main/runtime/orca-runtime.test.ts",
+          "assertions": [
+            "restores a surviving renderer when its reload is cancelled",
+            "keeps an earlier committed reload fenced when a later reload is cancelled",
+            "restores headless authority when desktop promotion navigation is cancelled",
+            "does not let a superseded reload timeout overwrite a newer renderer graph",
+            "rejects a same-frame graph publication from the superseded renderer generation",
+            "keeps a restored headless graph pinned to the failed promotion window",
+            "retires the headless fallback after renderer promotion succeeds"
+          ]
+        },
+        {
+          "file": "src/main/ipc/runtime.test.ts",
+          "assertions": [
+            "rejects graph publications without a renderer generation",
+            "rejects a graph publication queued by a superseded main frame"
+          ]
+        },
+        {
+          "file": "src/main/window/runtime-renderer-notification-sender.test.ts",
+          "assertions": [
+            "contains a disposed frame and suppresses repeated sends and warnings",
+            "reports renderer process loss once per load generation",
+            "keeps close terminal when renderer lifecycle events arrive late"
+          ]
+        },
+        {
+          "file": "src/main/window/renderer-document-navigation.test.ts",
+          "assertions": [
+            "accepts the packaged renderer document but not a blocked external load",
+            "shares one reload fence across concurrent provisional navigations",
+            "cancels when a later will-navigate listener blocks the navigation"
+          ]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-08-16",
+          "runner": "local",
+          "platform": "macos",
+          "command": "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/runtime-graph-reload-lifecycle.test.ts src/main/window/runtime-renderer-notification-sender.test.ts src/main/window/renderer-document-navigation.test.ts src/main/ipc/runtime.test.ts",
+          "result": "passed",
+          "durationSeconds": 4,
+          "summary": "The four deterministic contracts passed 43 tests covering lifecycle settlement and timeout replacement, disposed-frame containment and reload-generation gating, blocked-external versus packaged-document navigation and shared provisional fences, and preload IPC current-main-frame plus renderer-generation guards. The ten runtime-ownership contracts in orca-runtime.test.ts (generation supersession, cancelled-navigation recovery, failed-promotion pinning, timeout cleanup, and headless-fallback retirement) also pass; the surrounding live-terminal tests in that file require the built aterm addon."
+        }
+      ],
+      "runtimeBudget": {
+        "p95Seconds": 30,
+        "scope": "deterministic reload-lifecycle, renderer-notification, document-navigation, preload-IPC, and runtime-ownership vitest contracts"
+      },
+      "flakeHistory": {
+        "status": "unknown",
+        "evidence": "The deterministic suites pass locally on macOS; focused CI and soak history are not yet available."
+      },
+      "redGreenEvidence": {
+        "status": "partial",
+        "evidence": "Each guard has a paired failing case: the superseded-generation publication throws only because the reloading graph fences the reused rendererGeneration, the cancelled-navigation recovery returns ready only because the renderer fence is classified, and the disposed-frame sender contains the throw only because the notification path suspends instead of failing the runtime op. A full three-case live Electron oracle is not run in this fork."
+      },
+      "performanceBudget": {
+        "required": false,
+        "evidence": "The change adds one unref'd reload-timeout timer, a constant-length renderer generation string on the already-coalesced graph IPC, and constant-time generation and window-authority checks. It adds no polling loop, subprocess, network request, remote frame, provider scan, or steady-state fanout."
+      },
+      "promotionCriteria": [
+        "Collect focused CI and soak history without unexplained flakes.",
+        "Add a live Electron renderer-crash-recovery and a headless-to-desktop promotion journey with daemon-backed PTY identity.",
+        "Collect live Linux and Windows desktop reload evidence."
+      ],
+      "knownGaps": [
+        "Coverage is deterministic main-process and preload IPC only; no live Electron crash-recovery or headless-promotion journey is shipped in this fork gate.",
+        "The PTY-backed promotion-timeout ownership test and the surrounding live-terminal tests require the built aterm addon and do not run in an addon-less worktree.",
+        "No mixed-version live run is required because the renderer generation is confined to same-version preload and main Electron IPC and the remote runtime wire is unchanged."
+      ],
+      "demotionRule": "Demote if a reload revision settles more than once, a stale document or competing window can publish, a timer survives settlement, a desktop reload failure stays indefinitely reloading, headless fallback returns after a successful promotion, or a disposed-frame notification fails the runtime operation that produced it."
     }
   ]
 }
