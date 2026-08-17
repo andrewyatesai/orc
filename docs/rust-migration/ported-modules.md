@@ -573,6 +573,42 @@ Pre-ready contract `parity`: `true` searches and `false` navigates, so no value
 can double as "could not ask", and on the main-process path this feeds
 `will-navigate` validation. Planting a bound-only inversion reddens 24 of 25.
 
+### Re-census 2026-08-16 — measured, because the previous list was not
+
+The counts in the section below ("40 of the 85") were carried forward rather
+than re-measured, and a summary of them had drifted further still: it described
+four modules blocked on maintainer decisions and three deliberate never-cut-
+overs, which is not what the tree says. This census resolves every adapter's
+imports and asks, per imported name, whether the file it comes from dispatches.
+
+**87 vector modules. 66 hold no TS implementation.** Of the 21 that do, the
+first cut is not "is it cuttable" but **does anything call it**:
+
+| State | Modules |
+| --- | --- |
+| no Rust arm — needs a Rust change, not a shim | `terminal-stream-protocol` (all 6), `agent-scratch-worktrees` (2 `legacy*` matchers), `policy` (`decidePlayPath`), `fleet-identity` (`serializePtyBinding`), `mobile-relay-pairing-offer` (`createPairingOfferSchema`, a zod factory — not a crossable shape) |
+| refused with an executable check | `quick-open-filter` (`node:path.relative` resolves against `process.cwd()`, so the twin is not a pure function of its arguments), `browser-search`'s `buildSearchUrl` (Kagi session link) |
+| refuse on reach or cost, not yet written up | `browser-screencast-protocol` (decode runs per VIDEO FRAME **and** reaches `mobile/src/transport/`, which never installs a binding — a permanent fallback, not a boot window), `cross-platform-path`'s `isWindowsAbsolutePathLike` (39 production call sites, several per-item: `quick-open-file-list`, `worktree-list-groups`) |
+| data/type exports the adapter imports — nothing to cross | `fleet-exceptions` (`EXCEPTION_SOURCE_STATUS`), and the six modules whose only twin import is `types.ts` |
+| deliberate never-cut-over | `nacl-box`, `orchestration-store`, `keep-tail` |
+| genuinely open | `agent-recognition` (`titleHasAgentName`, `isExpectedAgentProcess`), `worktree-id` (the 19–65× budget call below) |
+
+**`mcp-env` is its own category, and the finding is worth more than the
+cutover.** `maskMcpEnv` has **no production caller**. The `mcp` cutover moved the
+renderer onto `git-wasm/mcp-config-content-inspection.ts`, which carries its own
+inline fallback and imports only TYPES from `mcp-config.ts` — so
+`mcp-config.ts`'s `inspectMcpConfigContent`, `summarizeMcpServer` and
+`maskMcpEnv` are a superseded second implementation kept alive by
+`mcp-config.test.ts` alone. The parity adapter still calls it "the live TS
+reference"; it is not live. Two defensible endings — delete it, or keep it
+deliberately as an independent differential oracle and say so — and choosing is
+a maintainer call, not a cutover.
+
+The lesson under all of this: **"is it cut over" and "is it called" are
+different questions, and the second one is cheaper.** Checking reach first would
+have skipped `mcp-env` entirely and would have flagged `browser-screencast-
+protocol`'s mobile reach before any porting effort.
+
 ### What is actually left, and what each one is waiting on
 
 40 of the 85 vector-backed modules hold no twin implementation any more. Of the
