@@ -573,6 +573,44 @@ Pre-ready contract `parity`: `true` searches and `false` navigates, so no value
 can double as "could not ask", and on the main-process path this feeds
 `will-navigate` validation. Planting a bound-only inversion reddens 24 of 25.
 
+### `agent-recognition` — refused on GRANULARITY, which is a new reason
+
+Worth separating from the cost refusals, because the predicates here are cheap
+enough and faithful enough to cross; the problem is that crossing them is the
+wrong unit of work.
+
+**Fidelity is not the blocker, and the probe that establishes that is the
+interesting part.** `titleHasAgentName` matches with
+`(?<![\w./\\-])name(?![\w./\\-])` — a LOOKBEHIND, which Rust's `regex`
+crate does not support at all, so the port had to emulate it. And JS `\w`
+without `/u` is ASCII-only while Rust's is Unicode, so `'héclaude'`,
+`'日本claude'`, `'мclaude'` and `'café claude'` are inputs where an emulation
+using Rust's `\w` flips the answer and paints the wrong agent on a tab. 27/27
+agree against both shipped cores, 16 answering true and 11 false. The port got
+it right.
+
+**The blocker is that one question costs a dozen crossings.**
+`terminal-title-agent-type.ts` (12 calls) and `agent-title-identity.ts` (10)
+each answer "which agent is this title?" as a sequential ladder of
+`if (titleHasAgentName(title, 'codex')) … if (titleHasAgentName(title,
+'openclaude')) …`. Measured: 28.1 ns TS body against 1810.9 ns wasm — 65×,
+higher than the ~740 ns a bare-string seam costs, because the payload is an
+object. So a classification that costs ~0.3 µs today would cost ~21 µs, and the
+shape locks in: a later port of the classifier would have a dozen crossings to
+unwind before it could land.
+
+Only the three predicates have arms. The classifier does not exist in Rust —
+`grep` for `classify_terminal_title_agent_type` finds nothing. So the ordering
+is: port the classifier, cross it once, let it own the predicates.
+`config/scripts/agent-recognition-crossing-granularity.mjs` prints the arms, the
+per-file call counts and the measurement, and exits 1 the moment a classifier
+arm appears.
+
+The general form, which is worth stating once: **a faithful, affordable export
+can still be the wrong thing to cross.** Cost refusals ask "how expensive is one
+crossing"; this one asks "how many crossings does one decision take". The second
+question is the one that catches ladder-shaped callers.
+
 ### Re-census 2026-08-16 — measured, because the previous list was not
 
 The counts in the section below ("40 of the 85") were carried forward rather
