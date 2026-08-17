@@ -573,6 +573,40 @@ Pre-ready contract `parity`: `true` searches and `false` navigates, so no value
 can double as "could not ask", and on the main-process path this feeds
 `will-navigate` validation. Planting a bound-only inversion reddens 24 of 25.
 
+### Correction to the re-census: the "no Rust arm" bucket dissolves
+
+The census above put five modules in "no Rust arm — needs a Rust change, not a
+shim", and that framing was repeated as "real work, not a blocker". Both were
+wrong. Asking the cheaper question — **does anything call it** — of each name
+individually empties the bucket:
+
+| Module | Census said | Measured |
+| --- | --- | --- |
+| `fleet-identity` | missing `serializePtyBinding` arm | `serialize_pty_binding` and `store_keys_equal` already EXIST in `orca-policy`, merely undispatched — and it does not matter, because **nothing outside `src/shared/fleet-identity/` and its own tests imports the directory at all.** Zero production consumers. |
+| `policy` | missing `decidePlayPath` arm | `decidePlayPath` and `isAllowedPlayHost` appear only in `play-path-guard.ts` itself. Zero production consumers. (`decideFleetGrant`, in the same parity module, IS wired — `fleet-grant-registry.ts`.) |
+| `agent-scratch-worktrees` | two `legacy*` matchers unrouted | They are the module's own PRE-READY FALLBACK bodies, and `agent-scratch-worktrees.ts` says so in its header. Not pending work; the `parity` contract behaving as designed. |
+| `terminal-stream-protocol` | all six unrouted | Refuse: the terminal binary-framing path, so per-FRAME on the hottest stream in the app, **and** imported by `mobile/src/transport/`, which never installs a binding — the fallback would be permanent, not a boot window. Same double reason as `browser-screencast-protocol`. |
+| `mobile-relay-pairing-offer` | `createPairingOfferSchema` unrouted | A zod schema factory. Not a crossable shape at all; it returns a validator, not a value. |
+
+So **none of the five was "write an arm and cut it over"** — three are unwired or
+already-correct, two are refusals. Combined with `mcp-env`, that is **three
+separate modules with no production consumer** (`fleet-identity`, `policy`'s
+play-path guard, `mcp-env`'s masking) each carrying a full Rust port, a parity
+corpus and a green gate.
+
+That is the finding worth keeping from this whole census: **a green parity
+module is not evidence that anything uses the code.** The corpus proves TS and
+Rust agree; it says nothing about whether the app ever calls either one. Three
+of the twenty-one "remaining cutovers" are ports of code the app does not run,
+and a reader working the list top-down would have discovered that only after
+building three shims.
+
+Practically, the remaining list has no straightforward cutover left in it. What
+it has is: two perf/reach refusals to write up (`cross-platform-path`'s
+`isWindowsAbsolutePathLike` across 39 call sites, `worktree-id`'s 19–65× budget
+call), three unwired modules whose fate is a product decision, and three
+deliberate never-cut-overs.
+
 ### `agent-recognition` — refused on GRANULARITY, which is a new reason
 
 Worth separating from the cost refusals, because the predicates here are cheap
