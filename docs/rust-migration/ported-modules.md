@@ -573,6 +573,55 @@ Pre-ready contract `parity`: `true` searches and `false` navigates, so no value
 can double as "could not ask", and on the main-process path this feeds
 `will-navigate` validation. Planting a bound-only inversion reddens 24 of 25.
 
+### `worktree-id` — the budget call answered, the cutover NOT taken, and why
+
+The standing question was a cost budget: 19–65× per call. Re-measured today:
+22.1 ns TS body, 241.8 ns napi (11×), 537.4 ns wasm (24×), and a 2,773-element
+sweep costs +0.61 ms. Bounded by WORKTREE count — tens, not the 1.5M lines that
+sank `quick-open-filter`. **On cost, it is affordable.**
+
+It still did not land, for two reasons found in the doing.
+
+**1. A latent port bug, now fixed.** Differentialling all four functions over 32
+inputs against both shipped cores: 122/128, with all six failures in
+`getWorktreePathBasenameFromId` and all of them the documented `.trim()` class —
+JS strips U+FEFF and Rust does not; Rust strips U+0085 (NEL) and JS does not.
+Both directions were live: `"r::/a/b\u{feff}"` answered `"b\u{feff}"` against
+the twin's `"b"`, and `"r::\u{85}"` answered `None` against the twin's
+`"\u{85}"`. The core now uses `trim_js` in both spots, and 10 vectors pin it
+(the corpus went 27 → 37). Latent rather than shipped, because production still
+runs the twin — but it would have become a real defect the instant anyone
+completed the cutover, which is precisely what was about to happen.
+
+**2. The cutover is a PARALLEL SESSION'S uncommitted work, and I nearly
+committed it.** `src/shared/worktree-id-parsing.ts` and its test are UNTRACKED.
+So is the edit to `tools/parity/dispatch/worktree-id.ts` whose header confidently
+says "The shared TS impl was DELETED … every surface now reaches
+`orca_core::worktree_id` through `src/shared/worktree-id-parsing.ts`". None of
+that is at HEAD; at HEAD the adapter imports the twin and says so.
+
+I read that header with `head -8` on the working tree instead of
+`git show HEAD:`, concluded the shim was committed-and-unwired, and repointed 66
+files onto it. Typecheck caught it — 39 node / 55 web errors, every one
+`Cannot find module '…/worktree-id-parsing'` — because the staged tree does not
+contain a file the working tree does. All 66 were backed out.
+
+This is the SAME mistake as the `contextual-tours` catalog call, in the same
+session, after writing "porting against HEAD means reading HEAD on **both**
+sides". There it was reading HEAD on the Rust side but not the TS side; here it
+was reading HEAD on neither. The durable form: **`head`/`cat`/`grep` on a path
+reads the working tree. In a repo with ~1,700 uncommitted files, every one of
+those is a possible lie about what is committed.** Use `git show HEAD:<path>`,
+and when a file's own comment describes an architecture, check that the comment
+is committed too.
+
+What remains for whoever finishes it: the shim already exists in the working
+tree, the core is now correct, and 37 vectors pin it. Two notes for that person.
+`worktree-id.ts` must KEEP its four bodies — the shim imports them as its
+`parity` fallback. And leave `mobile/` importing them directly: mobile never
+installs a binding, so routing it through the shim adds the seam and the payload
+codec to that bundle only to arrive back at the same bodies.
+
 ### Why "cut over every module" cannot be satisfied: the fallback is load-bearing
 
 This is the structural answer, and it outranks every cost or reach refusal in

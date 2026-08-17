@@ -2,7 +2,7 @@
   "schema": 1,
   "crate": "orca-git-wasm",
   "sourceSha256": "307e0c25d24f501ea27c69dc8f593c1459ad3bc42870a3eb1fb3cf014b4459e2",
-  "wasmSha256": "b4b32425530b296a384883032a172b7d7caa3783207161e915c05c186af71a16",
+  "wasmSha256": "a96c34bf823a0f10b9843d5b632a44c4e6bc92a7fcffe425a27cfaa3857061bf",
   "artifacts": {
     "src/relay/wasm/orca_git_wasm.js": {
       "bytes": 56341,
@@ -14,7 +14,7 @@
     },
     "src/relay/wasm/orca_git_wasm_bg.wasm.base64.ts": {
       "bytes": 2195988,
-      "sha256": "e4e57a4a2134ffddbad783c91eb2a768ed3d93a05d9d474a6c66e1e797edede6"
+      "sha256": "cff1c805c75bef974c4307bc190b6d2f92b7ae0fb929063ed88cc800262f637f"
     },
     "src/relay/wasm/orca_git_wasm_bg.wasm.d.ts": {
       "bytes": 4164,
@@ -30,7 +30,7 @@
     },
     "src/renderer/src/lib/git-wasm/orca_git_wasm_bg.wasm": {
       "bytes": 1646839,
-      "sha256": "b4b32425530b296a384883032a172b7d7caa3783207161e915c05c186af71a16"
+      "sha256": "a96c34bf823a0f10b9843d5b632a44c4e6bc92a7fcffe425a27cfaa3857061bf"
     },
     "src/renderer/src/lib/git-wasm/orca_git_wasm_bg.wasm.d.ts": {
       "bytes": 4164,
