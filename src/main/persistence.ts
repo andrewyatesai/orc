@@ -4616,6 +4616,7 @@ export class Store {
         | 'pendingFirstAgentMessageRename'
         | 'firstAgentMessageRenameError'
         | 'lastActivityAt'
+        | 'diffComments'
       >
     >
   ): FolderWorkspace | null {
@@ -4668,6 +4669,9 @@ export class Store {
     }
     if (updates.lastActivityAt !== undefined && Number.isFinite(updates.lastActivityAt)) {
       workspace.lastActivityAt = updates.lastActivityAt
+    }
+    if (updates.diffComments !== undefined) {
+      workspace.diffComments = updates.diffComments
     }
     workspace.updatedAt = Date.now()
     this.scheduleSave()

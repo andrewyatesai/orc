@@ -8718,6 +8718,111 @@ describe('useIpcEvents worktrees:changed local-owner refresh (#6628)', () => {
   })
 })
 
+describe('runtime host catalog refresh on reposChanged', () => {
+  // Why: the host emits one reposChanged for project-group and folder-workspace edits
+  // too, so a repos-only refresh leaves those catalogs stale on every paired client.
+  it('refetches the runtime host project group and folder workspace catalogs', async () => {
+    vi.resetModules()
+    vi.useFakeTimers()
+    try {
+      const calls: string[] = []
+      const fetchRuntimeEnvironmentRepos = vi.fn(() => {
+        calls.push('repos')
+        return Promise.resolve([])
+      })
+      const fetchProjectGroupsForRuntimeEnvironment = vi.fn(() => {
+        calls.push('project-groups')
+        return Promise.resolve()
+      })
+      const fetchFolderWorkspacesForRuntimeEnvironment = vi.fn(() => {
+        calls.push('folder-workspaces')
+        return Promise.resolve()
+      })
+      const state = {
+        settings: { activeRuntimeEnvironmentId: 'env-1' as string | null },
+        repos: [],
+        worktreesByRepo: {},
+        folderWorkspaces: [],
+        projectGroups: [],
+        runtimeEnvironments: [],
+        runtimeStatusByEnvironmentId: new Map(),
+        tabsByWorktree: {},
+        ptyIdsByTabId: {},
+        remountTerminalTabForRecovery: vi.fn(),
+        markEnvironmentSshStateStale: vi.fn(),
+        fetchRepos: vi.fn(() => Promise.resolve()),
+        fetchRuntimeEnvironmentRepos,
+        fetchProjectGroupsForRuntimeEnvironment,
+        fetchFolderWorkspacesForRuntimeEnvironment,
+        fetchWorktrees: vi.fn(() => Promise.resolve()),
+        fetchWorktreeLineage: vi.fn(() => Promise.resolve())
+      }
+
+      vi.doMock('react', async () => {
+        const actual = await vi.importActual<typeof ReactModule>('react')
+        return { ...actual, useEffect: (effect: () => void | (() => void)) => void effect() }
+      })
+      vi.doMock('../store', () => ({
+        useAppStore: { subscribe: vi.fn(() => () => {}), getState: () => state }
+      }))
+      const noopListener = (): (() => void) => () => {}
+      const autoStubNamespace = new Proxy(
+        {},
+        {
+          get:
+            () =>
+            (...args: unknown[]) => {
+              if (typeof args[0] === 'function') {
+                return noopListener()
+              }
+              return new Promise(() => {})
+            }
+        }
+      )
+      let runtimeOnResponse: ((response: unknown) => void) | undefined
+      const api = new Proxy(
+        {
+          runtimeEnvironments: {
+            subscribe: async (_args: unknown, callbacks: { onResponse: (r: unknown) => void }) => {
+              runtimeOnResponse = callbacks.onResponse
+              return { unsubscribe: vi.fn(), sendBinary: vi.fn() }
+            }
+          }
+        } as Record<string, unknown>,
+        { get: (target, prop: string) => target[prop] ?? autoStubNamespace }
+      )
+      vi.stubGlobal('window', { api })
+
+      const { useIpcEvents } = await import('./useIpcEvents')
+      useIpcEvents()
+      // Seeded discovery for the connected runtime; drains the scheduler's debounce.
+      await vi.advanceTimersByTimeAsync(300)
+
+      expect(fetchProjectGroupsForRuntimeEnvironment).toHaveBeenCalledWith('env-1')
+      expect(fetchFolderWorkspacesForRuntimeEnvironment).toHaveBeenCalledWith('env-1')
+      // Folder workspaces resolve their owning group from projectGroups, so groups must land first.
+      expect(calls).toEqual(['repos', 'project-groups', 'folder-workspaces'])
+
+      calls.length = 0
+      fetchProjectGroupsForRuntimeEnvironment.mockClear()
+      fetchFolderWorkspacesForRuntimeEnvironment.mockClear()
+      if (!runtimeOnResponse) {
+        throw new Error('Expected runtime client event callbacks')
+      }
+      // Past the scheduler's min interval so the event schedules on the debounce alone.
+      await vi.advanceTimersByTimeAsync(5_000)
+      runtimeOnResponse({ ok: true, result: { type: 'reposChanged' } })
+      await vi.advanceTimersByTimeAsync(300)
+
+      expect(fetchProjectGroupsForRuntimeEnvironment).toHaveBeenCalledWith('env-1')
+      expect(fetchFolderWorkspacesForRuntimeEnvironment).toHaveBeenCalledWith('env-1')
+      expect(calls).toEqual(['repos', 'project-groups', 'folder-workspaces'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('parked terminal recovery on repos:changed', () => {
   it('remounts a pane that parked on an unresolved host once repos hydrate', async () => {
     vi.resetModules()

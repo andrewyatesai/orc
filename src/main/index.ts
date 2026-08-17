@@ -87,6 +87,7 @@ import {
   configureElectronNetworkCompatibility,
   configureDevUserDataPath,
   configureOrcaUserDataPathEnv,
+  disableUnsupportedChromiumFeatures,
   enableMainProcessGpuFeatures,
   installDevParentDisconnectQuit,
   installDevParentSignalQuit,
@@ -821,6 +822,7 @@ if (hasSingleInstanceLock) {
     platform: process.platform,
     ...getMainProcessLifecycleIdentity()
   })
+  disableUnsupportedChromiumFeatures()
   configureElectronNetworkCompatibility()
   // Why: the privileged-scheme table locks at app-ready; codeCache needs it.
   registerRendererScheme()

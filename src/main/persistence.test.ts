@@ -5239,7 +5239,19 @@ describe('Store', () => {
     const updated = store.updateFolderWorkspace(workspace.id, {
       comment: 'Coordinate api and web',
       isPinned: true,
-      lastActivityAt: 123
+      lastActivityAt: 123,
+      diffComments: [
+        {
+          id: 'note-1',
+          worktreeId: folderWorkspaceKey(workspace.id),
+          filePath: 'README.md',
+          source: 'markdown',
+          lineNumber: 1,
+          body: 'Review this paragraph',
+          createdAt: 100,
+          side: 'modified'
+        }
+      ]
     })
 
     expect(workspace.folderPath).toBe('/workspace/platform')
@@ -5251,9 +5263,16 @@ describe('Store', () => {
       linkedTask,
       comment: 'Coordinate api and web',
       isPinned: true,
-      lastActivityAt: 123
+      lastActivityAt: 123,
+      diffComments: [expect.objectContaining({ id: 'note-1', body: 'Review this paragraph' })]
     })
     expect(store.getFolderWorkspaces()).toHaveLength(1)
+    store.flush()
+
+    const restored = await createStore()
+    expect(restored.getFolderWorkspace(workspace.id)?.diffComments).toEqual([
+      expect.objectContaining({ id: 'note-1', body: 'Review this paragraph' })
+    ])
   })
 
   it('rejects folder workspace creation for non-folder-backed project groups', async () => {

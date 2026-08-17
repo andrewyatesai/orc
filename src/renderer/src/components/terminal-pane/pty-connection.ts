@@ -130,7 +130,6 @@ import {
   TERMINAL_INTERRUPT_INPUT_KITTY
 } from './xterm-bypass-policy'
 import { buildFreshShellViewportBlankingSequence } from './terminal-restored-viewport'
-import { createShellReadyMarkerScanState, scanForShellReadyMarker } from './shell-ready-marker-scan'
 import { getSystemPrefersDark } from '@/lib/terminal-theme'
 import {
   INITIAL_MODE_2031_REPLY_SCAN_STATE,
@@ -339,7 +338,6 @@ const SSH_SESSION_EXPIRED_ERROR = 'SSH_SESSION_EXPIRED'
 const REMOTE_PTY_ID_PREFIX = 'remote:'
 const PTY_CONNECT_DIAG_LIMIT = 200
 const COMMAND_CODE_OUTPUT_DONE_SETTLE_MS = 1500
-const SSH_SHELL_READY_STARTUP_FALLBACK_MS = 1500
 const MANUAL_AGENT_COMMAND_MAX_CHARS = 4096
 const STARTUP_DRAFT_PASTE_QUIET_MS = 1500
 // Why: the notice deliberately omits the rejected path — saved cwds can
@@ -1048,7 +1046,6 @@ export function connectPanePty(
   let cleanupStartupDraftPasteTimers = (): void => {}
   let unregisterE2ePtyDataInjection = (): void => {}
   let startupInjectTimer: ReturnType<typeof setTimeout> | null = null
-  let sshShellReadyFallbackTimer: ReturnType<typeof setTimeout> | null = null
   let agentTaskCompleteNotificationGraceTimer: ReturnType<typeof setTimeout> | null = null
   let agentTaskCompleteNotificationMaxTimer: ReturnType<typeof setTimeout> | null = null
   let agentTaskCompleteStatusUnsubscribe: (() => void) | null = null
@@ -3711,6 +3708,8 @@ export function connectPanePty(
   let codexStreamErrorObservedWorkingStartedAt: number | null = null
   let codexStreamErrorOutputFastPathConsumed = false
   const shouldDeliverStartupViaTerminalPaste = paneStartup?.delivery === 'terminal-paste'
+  const shouldUseProviderSshStartupDelivery =
+    Boolean(connectionId) && !shouldDeliverStartupViaTerminalPaste
   const hadExistingPaneTransportAtConnect = deps.paneTransportsRef.current.size > 0
   let lastTerminalInputAt = Number.NEGATIVE_INFINITY
   let hasReceivedPtyOutput = false
@@ -3764,8 +3763,9 @@ export function connectPanePty(
     env: paneEnv,
     ...(paneStartup?.envToDelete ? { envToDelete: paneStartup.envToDelete } : {}),
     command: shouldDeliverStartupViaTerminalPaste ? undefined : paneStartup?.command,
-    // Why: every renderer-delivered SSH startup command must wait on the relay's
-    // readiness marker, not just Codex-hinted ones — an unready shell drops it.
+    ...(shouldUseProviderSshStartupDelivery ? { commandDelivery: 'provider' as const } : {}),
+    // Why: SSH startup commands are provider-owned so delivery survives renderer
+    // replacement; startupCommandDelivery still tags the relay's shell-ready gate.
     startupCommandDelivery: shouldDeliverStartupViaTerminalPaste
       ? undefined
       : connectionId && paneStartup?.command
@@ -4863,53 +4863,13 @@ export function connectPanePty(
         .catch(() => {})
     }
 
-    // Why: for ordinary local startup commands, the local PTY provider already
-    // writes via the shell-ready barrier. terminal-paste and SSH startup
-    // commands stay renderer-delivered so xterm/relay can apply their handling.
-    let pendingStartupCommand: PendingStartupCommand | null =
-      shouldDeliverStartupViaTerminalPaste || connectionId
-        ? paneStartup?.command
-          ? { command: paneStartup.command }
-          : null
+    // Why: local and ordinary SSH startup commands are provider-owned so delivery
+    // survives renderer replacement. Only explicit terminal-paste stays renderer-owned.
+    let pendingStartupCommand: PendingStartupCommand | null = shouldDeliverStartupViaTerminalPaste
+      ? paneStartup?.command
+        ? { command: paneStartup.command }
         : null
-    // Why: every renderer-delivered SSH command needs the relay's readiness marker;
-    // the existing fallback preserves shells that cannot emit it.
-    const shouldWaitForSshShellReady =
-      Boolean(connectionId) &&
-      Boolean(pendingStartupCommand) &&
-      !shouldDeliverStartupViaTerminalPaste
-    let sshShellReadyMarkerScan = shouldWaitForSshShellReady
-      ? createShellReadyMarkerScanState()
       : null
-    let sshStartupShellReady = !shouldWaitForSshShellReady
-    // Why: a fresh remote respawn (agent resume) must re-arm the marker wait so the
-    // resume command lands on the new shell's prompt, and cancel any pending write.
-    const armSshStartupShellReady = (): void => {
-      if (!connectionId || !pendingStartupCommand || shouldDeliverStartupViaTerminalPaste) {
-        return
-      }
-      if (startupInjectTimer !== null) {
-        clearTimeout(startupInjectTimer)
-        startupInjectTimer = null
-      }
-      if (sshShellReadyFallbackTimer !== null) {
-        clearTimeout(sshShellReadyFallbackTimer)
-        sshShellReadyFallbackTimer = null
-      }
-      sshShellReadyMarkerScan = createShellReadyMarkerScanState()
-      sshStartupShellReady = false
-    }
-    const markSshStartupShellReady = (): void => {
-      if (sshStartupShellReady) {
-        return
-      }
-      sshStartupShellReady = true
-      if (sshShellReadyFallbackTimer !== null) {
-        clearTimeout(sshShellReadyFallbackTimer)
-        sshShellReadyFallbackTimer = null
-      }
-      schedulePendingStartupCommandDelivery()
-    }
     const startupDraftReadyScanner = ownsStartupDraftPaste
       ? createDraftPasteReadyScanner(
           startupDraftAgentConfig?.draftPasteReadySignal ?? 'render-quiet-after-bracketed-paste'
@@ -5221,18 +5181,6 @@ export function connectPanePty(
       if (!startup) {
         return
       }
-      if (!sshStartupShellReady) {
-        if (sshShellReadyFallbackTimer === null) {
-          // Why: some SSH shells cannot emit Orca's ready marker. Prefer the
-          // marker when available, but fall back to the old renderer delivery
-          // behavior instead of dropping the startup command forever.
-          sshShellReadyFallbackTimer = setTimeout(() => {
-            sshShellReadyFallbackTimer = null
-            markSshStartupShellReady()
-          }, SSH_SHELL_READY_STARTUP_FALLBACK_MS)
-        }
-        return
-      }
       if (startupInjectTimer !== null) {
         clearTimeout(startupInjectTimer)
       }
@@ -5328,12 +5276,6 @@ export function connectPanePty(
       // a restart-in-place would leak the old TUI's flags into a fresh shell.
       kittyKeyboardModes.reset()
       prepareFreshShellViewportForSpawn(options)
-      if (connectionId && startupOverride?.command) {
-        // Why: SSH providers use `command` only as spawn metadata; the renderer
-        // must still submit the resume command to the fresh remote shell.
-        pendingStartupCommand = { command: startupOverride.command }
-      }
-      armSshStartupShellReady()
       const coldRestoreOverride =
         startupOverride && 'launchConfig' in startupOverride
           ? (startupOverride as ColdRestoreAgentResumeStartup)
@@ -5356,6 +5298,9 @@ export function connectPanePty(
         cols,
         rows,
         ...(startupOverride?.command ? { command: startupOverride.command } : {}),
+        ...(connectionId && startupOverride?.command && !shouldDeliverStartupViaTerminalPaste
+          ? { commandDelivery: 'provider' as const }
+          : {}),
         ...(connectionId && startupOverride?.command
           ? { startupCommandDelivery: 'shell-ready' as const }
           : {}),
@@ -5459,6 +5404,12 @@ export function connectPanePty(
             void window.api.pty.clearPendingPaneSerializer(cacheKey, gen).catch(() => {})
           }
           if (resolvedPtyId && connectionId) {
+            if (
+              shouldUseProviderSshStartupDelivery &&
+              (startupOverride?.command || paneStartup?.command)
+            ) {
+              armStartupDraftReadinessObservation()
+            }
             schedulePendingStartupCommandDelivery()
           }
           return resolvedPtyId
@@ -5881,6 +5832,11 @@ export function connectPanePty(
           onConnect: (): void => {
             if (isCurrent()) {
               reportRemoteRendererSerializerReady()
+            }
+          },
+          onStreamRecovered: (): void => {
+            if (isCurrent()) {
+              markHiddenOutputRestoreNeeded()
             }
           },
           onData: (data: string, meta?: PtyDataMeta): void => {
@@ -7249,19 +7205,24 @@ export function connectPanePty(
                 suppressStructuralReplayPtyResize = false
               }
             }
-            if (!snapshot.alternateScreen) {
-              // Why: \x1b[3J wipes xterm scrollback; alt-screen TUIs keep it in xterm, so clear only the normal buffer (mirrors pty-transport.ts).
-              writeReplayData('\x1b[2J\x1b[3J\x1b[H')
-            } else if (snapshot.scrollbackAnsi !== undefined) {
-              // Why: SerializeAddon captures normal + alt buffers together; rebuild normal while active, then return to a clean alt frame.
-              writeReplayData('\x1b[?1049l\x1b[2J\x1b[3J\x1b[H')
-              writeReplayData(snapshot.scrollbackAnsi)
-              writeReplayData('\x1b[0m\x1b[?1049h\x1b[2J\x1b[H')
-            } else {
-              // Why: the snapshot's ?1049h no-ops when already on alt screen and skips blank cells; clear the alt buffer so the pre-hide frame can't bleed through blank cells (spares normal-buffer scrollback).
-              writeReplayData('\x1b[0m\x1b[?1049h\x1b[2J\x1b[H')
+            // Why: an imageless success is not proof the pane is empty; normal replay opens with \x1b[2J\x1b[3J\x1b[H, clearing screen + scrollback and painting nothing. Keep the frame the user can still see.
+            const snapshotCarriesNoImage =
+              snapshot.alternateScreen !== true && snapshot.data === '' && !snapshot.scrollbackAnsi
+            if (!snapshotCarriesNoImage) {
+              if (!snapshot.alternateScreen) {
+                // Why: \x1b[3J wipes xterm scrollback; alt-screen TUIs keep it in xterm, so clear only the normal buffer (mirrors pty-transport.ts).
+                writeReplayData('\x1b[2J\x1b[3J\x1b[H')
+              } else if (snapshot.scrollbackAnsi !== undefined) {
+                // Why: SerializeAddon captures normal + alt buffers together; rebuild normal while active, then return to a clean alt frame.
+                writeReplayData('\x1b[?1049l\x1b[2J\x1b[3J\x1b[H')
+                writeReplayData(snapshot.scrollbackAnsi)
+                writeReplayData('\x1b[0m\x1b[?1049h\x1b[2J\x1b[H')
+              } else {
+                // Why: the snapshot's ?1049h no-ops when already on alt screen and skips blank cells; clear the alt buffer so the pre-hide frame can't bleed through blank cells (spares normal-buffer scrollback).
+                writeReplayData('\x1b[0m\x1b[?1049h\x1b[2J\x1b[H')
+              }
+              writeReplayData(snapshot.data)
             }
-            writeReplayData(snapshot.data)
             // Why: live agents own ?25l/?1004h; a forced ?1004l here would silence focus events until restart (agents enable focus reporting only at startup).
             writeReplayData(
               hasLiveAgentReattachStatusOrTitleSignal()
@@ -7593,13 +7554,6 @@ export function connectPanePty(
         recordAgentHibernationPaneOutput(cacheKey)
         // Why: output is the agent-start signal that ends the relaxed no-evidence process-scan cadence (a starting agent always prints).
         agentCompletionCoordinator.observeOutputActivity()
-      }
-      if (sshShellReadyMarkerScan) {
-        const scanned = scanForShellReadyMarker(sshShellReadyMarkerScan, data)
-        if (scanned.matched) {
-          markSshStartupShellReady()
-        }
-        data = scanned.output
       }
       observeStartupDraftPasteReadiness(data)
       resetHiddenOutputRestoreIfPtyChanged()
@@ -9038,10 +8992,6 @@ export function connectPanePty(
       if (startupInjectTimer !== null) {
         clearTimeout(startupInjectTimer)
         startupInjectTimer = null
-      }
-      if (sshShellReadyFallbackTimer !== null) {
-        clearTimeout(sshShellReadyFallbackTimer)
-        sshShellReadyFallbackTimer = null
       }
       cleanupStartupDraftPasteTimers()
       releaseUnattemptedStartupDraftPasteDelivery()

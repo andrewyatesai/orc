@@ -20321,7 +20321,7 @@ describe('OrcaRuntimeService', () => {
     )
   })
 
-  it('derives remote OMP owner from live PTY metadata when the tab snapshot omits it', async () => {
+  it('normalizes a remote OMP title without republishing omitted launch identity', async () => {
     const spawn = vi.fn().mockResolvedValue({ id: 'pty-omp' })
     const runtime = new OrcaRuntimeService(store)
     runtime.setPtyController({
@@ -20395,10 +20395,10 @@ describe('OrcaRuntimeService', () => {
     expect(result.tabs[0]).toEqual(
       expect.objectContaining({
         type: 'terminal',
-        title: '\u280b OMP',
-        launchAgent: 'omp'
+        title: '\u280b OMP'
       })
     )
+    expect(result.tabs[0]).not.toHaveProperty('launchAgent')
   })
 
   it('skips the foreground-process probe when the PTY launch agent is already known', async () => {

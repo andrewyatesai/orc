@@ -345,6 +345,7 @@ export type FolderWorkspace = {
   lastActivityAt: number
   createdAt: number
   updatedAt: number
+  diffComments?: DiffComment[]
 }
 
 export type FolderWorkspaceLinkedTask = {

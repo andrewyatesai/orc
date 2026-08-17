@@ -149,6 +149,7 @@ type FolderWorkspaceUpdates = Partial<
     | 'pendingFirstAgentMessageRename'
     | 'firstAgentMessageRenameError'
     | 'lastActivityAt'
+    | 'diffComments'
   >
 >
 
@@ -1606,10 +1607,14 @@ export type RepoSlice = {
   fetchProjectGroupsForAllHosts: (
     options?: AllHostCatalogFetchOptions & { prefetchedLocal?: ProjectGroup[] }
   ) => Promise<void>
+  // Why: a remote runtime's reposChanged also covers group/folder-workspace edits; these
+  // refresh just that host's catalogs host-scoped (see the runtime project refresh scheduler).
+  fetchProjectGroupsForRuntimeEnvironment: (environmentId: string) => Promise<void>
   fetchFolderWorkspaces: () => Promise<void>
   fetchFolderWorkspacesForAllHosts: (
     options?: AllHostCatalogFetchOptions & { prefetchedLocal?: FolderWorkspace[] }
   ) => Promise<void>
+  fetchFolderWorkspacesForRuntimeEnvironment: (environmentId: string) => Promise<void>
   addRepo: () => Promise<Repo | null>
   addRepoPath: (
     path: string,
@@ -2165,6 +2170,30 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
     )
   },
 
+  fetchProjectGroupsForRuntimeEnvironment: async (environmentId) => {
+    // Why: a remote host emits one reposChanged for group edits too; merge that host's
+    // groups host-scoped so its rows refresh without clobbering local/other-host rows.
+    try {
+      const target = getActiveRuntimeTarget({ activeRuntimeEnvironmentId: environmentId })
+      const catalog = await fetchProjectGroupCatalogForTarget(target)
+      set((s) => {
+        const projectGroups = reconcileCatalogArrayIdentity(
+          s.projectGroups,
+          mergeFetchedProjectGroupCatalog(catalog, s.projectGroups).projectGroups,
+          (group) => group.id
+        )
+        return {
+          projectGroups,
+          ...(catalogRowsUnchanged(projectGroups, s.projectGroups)
+            ? {}
+            : { folderWorkspacePathStatuses: {} })
+        }
+      })
+    } catch (err) {
+      console.warn(`Failed to fetch project groups for runtime environment ${environmentId}:`, err)
+    }
+  },
+
   fetchFolderWorkspaces: async () => {
     try {
       const folderWorkspaceUpdates = getFolderWorkspaceUpdateCoordinator(get)
@@ -2261,6 +2290,42 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
           s
         )
       }))
+    }
+  },
+
+  fetchFolderWorkspacesForRuntimeEnvironment: async (environmentId) => {
+    // Why: the same remote reposChanged also covers folder-workspace edits; merge that host's
+    // slice host-scoped. Callers fetch groups first because folders resolve owners from them.
+    const folderWorkspaceUpdates = getFolderWorkspaceUpdateCoordinator(get)
+    try {
+      const target = getActiveRuntimeTarget({ activeRuntimeEnvironmentId: environmentId })
+      const catalog = await fetchFolderWorkspaceCatalogForTarget(target)
+      set((current) => {
+        folderWorkspaceUpdates.recordCatalogReplacement(
+          getFolderWorkspaceCatalogReplacementIds(
+            catalog,
+            current.folderWorkspaces,
+            current.projectGroups
+          )
+        )
+        const folderWorkspaces = reconcileCatalogArrayIdentity(
+          current.folderWorkspaces,
+          mergeFetchedFolderWorkspaceCatalog(catalog, current.folderWorkspaces, current.projectGroups)
+            .folderWorkspaces,
+          (workspace) => workspace.id
+        )
+        return {
+          folderWorkspaces,
+          ...(catalogRowsUnchanged(folderWorkspaces, current.folderWorkspaces)
+            ? {}
+            : { folderWorkspacePathStatuses: {} })
+        }
+      })
+    } catch (err) {
+      console.warn(
+        `Failed to fetch folder workspaces for runtime environment ${environmentId}:`,
+        err
+      )
     }
   },
 
@@ -2491,6 +2556,18 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
               )
             ).folderWorkspace
       if (!updated) {
+        await reconcileFailedFolderWorkspaceUpdate({
+          target,
+          folderWorkspaceId,
+          ticket: updateTicket,
+          coordinator: folderWorkspaceUpdates,
+          set,
+          get
+        })
+        return false
+      }
+      if (updates.diffComments !== undefined && updated.diffComments === undefined) {
+        // Why: older paired runtimes strip this optional field; reconcile instead of showing an unsaved note.
         await reconcileFailedFolderWorkspaceUpdate({
           target,
           folderWorkspaceId,

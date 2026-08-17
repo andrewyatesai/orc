@@ -188,9 +188,19 @@
       "why": [
         "pty.ts +7 (6375->6382) from fresh-delta batch 5: 4e7421d9e1 imports TerminalHostGoneError and adds its guard in normalizeNodePtySpawnError. Accepted attach-kind \u2014 the extractable classifier already lives in daemon-errors.ts, only the pty.ts call-site guard remains. orca-runtime.ts held flat at 36393 and shimWholeFileLoc flat at 2812 across the batch (the batch's usage-ipc removal + pr-comment consolidation net out on the god object)."
       ]
+    },
+    {
+      "date": "2026-08-17",
+      "head": "d300-b1",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36393
+      },
+      "why": [
+        "+90 on orca-runtime.ts from +300-delta batch 1 attach-kind ports: STA-4028 quarter-circle guarded-send authorization + launchIncarnationId, launch-identity-authoritative, the 30s repo-rescan admin-fingerprint gate (#14207) refreshRepoWorktreeScan, and the diffComments FolderWorkspace type union. In-place OrcaRuntimeService methods; pty.ts flat 6382, shim flat 2812."
+      ]
     }
   ],
   "shimWholeFileLoc": 2812,
-  "src/main/runtime/orca-runtime.ts": 36393,
+  "src/main/runtime/orca-runtime.ts": 36483,
   "src/main/ipc/pty.ts": 6382
 }

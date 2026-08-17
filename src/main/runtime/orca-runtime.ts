@@ -7,9 +7,14 @@ import {
   isCursorAgentTitle,
   isCursorNativeAgentTitle,
   isOpenCodeNativeTitle,
+  isQuarterCircleSpinnerOnlyAgentTitle,
   isShellProcess,
   normalizeTerminalTitle
 } from '../../shared/agent-detection'
+import {
+  agentTitleProvesAgentPresence,
+  ptyTitleProvesAgentPresence
+} from './agent-presence-proof'
 import { extractOscTitleScanTail } from '../../shared/osc-title-scan-tail'
 import { sortDirEntries } from '../../shared/file-name-sort'
 import { extractLastOsc7Uri, extractOscScanTail } from '../daemon/osc7-uri-extraction'
@@ -654,6 +659,7 @@ import {
   scanLocalRepoWorktreesForResolution,
   type RuntimeWorktreeScanResult
 } from './repo-worktree-resolution-scan'
+import { readRepoWorktreeAdminFingerprint } from './repo-worktree-admin-fingerprint'
 import {
   getLocalWorktreePathAccess,
   removeLocalWorktreePath,
@@ -1394,6 +1400,8 @@ type RuntimePtyWorktreeRecord = {
   paneKey: string | null
   launchConfig: SleepingAgentLaunchConfig | null
   launchToken: string | null
+  // Why: provider PTY IDs can be reused; launch identity belongs only to the process that received the token.
+  launchIncarnationId: PtyIncarnationId | null
   launchAgent: TuiAgent | null
   foregroundAgent: TuiAgent | null
   connected: boolean
@@ -2461,12 +2469,25 @@ type RuntimeWorktreeScanCache = {
   runtimeKey: string
   result: RuntimeWorktreeScanResult
   expiresAt: number
+  /**
+   * Git-admin state read as of the scan's start, kept unresolved so no caller ever waits on the
+   * probe to receive a scan result. Resolves to `null` when the state could not be read.
+   */
+  adminFingerprint: Promise<string | null>
+  /** When the Git scan behind `result` actually ran, so reconciliation can be bounded. */
+  scannedAt: number
 }
 
 type RuntimeWorktreeScanInFlight = {
   generation: number
   runtimeKey: string
-  promise: Promise<RuntimeWorktreeScanResult>
+  promise: Promise<RuntimeWorktreeScanRefresh>
+}
+
+type RuntimeWorktreeScanRefresh = {
+  result: RuntimeWorktreeScanResult
+  adminFingerprint: Promise<string | null>
+  scannedAt: number
 }
 
 type WorktreeLineageCandidate = {
@@ -15967,10 +15988,13 @@ export class OrcaRuntimeService {
       }
     }
     if (terminal.titleStatus) {
-      // Why: the native OpenCode marker is presence-only; a stale marker left on a
-      // shell must not report a status, so corroborate it against live process
-      // evidence the way a hookless send would before trusting the title.
-      if (isOpenCodeNativeTitle(terminal.title)) {
+      // Why: an OpenCode marker and a lone quarter-circle spinner (STA-4028) are activity,
+      // not identity — a stale marker left on a shell must not report a status, so resolve
+      // both through the identity/foreground evidence path a hookless send would use.
+      if (
+        isOpenCodeNativeTitle(terminal.title) ||
+        isQuarterCircleSpinnerOnlyAgentTitle(terminal.title)
+      ) {
         const isRunningAgent = await this.isTerminalRunningAgent(handle)
         this.assertTerminalAgentStatusPtyBinding(handle, ptyId)
         return {
@@ -17542,6 +17566,7 @@ export class OrcaRuntimeService {
         | 'pendingFirstAgentMessageRename'
         | 'firstAgentMessageRenameError'
         | 'lastActivityAt'
+        | 'diffComments'
       >
     >
   ): Promise<FolderWorkspace | null> {
@@ -24548,6 +24573,7 @@ export class OrcaRuntimeService {
           ? copySleepingAgentLaunchConfig(effectiveLaunchConfig)
           : null
         pty.launchToken = launchToken ?? null
+        pty.launchIncarnationId = launchToken ? pty.incarnationId : null
         pty.launchAgent = launchOpts.launchAgent ?? null
       }
       const handle = pty ? this.issuePtyHandle(pty) : preAllocatedHandle
@@ -28022,31 +28048,79 @@ export class OrcaRuntimeService {
     }
     const inFlight = this.worktreeScanInFlight.get(repo.id)
     if (inFlight?.generation === generation && inFlight.runtimeKey === runtimeKey) {
-      return inFlight.promise
+      return (await inFlight.promise).result
     }
-    const promise = this.listRepoWorktreesForResolutionUncached(repo, projectRuntime)
+    const reusableCached =
+      cached?.generation === generation && cached.runtimeKey === runtimeKey ? cached : null
+    const promise = this.refreshRepoWorktreeScan(repo, projectRuntime, reusableCached)
     this.worktreeScanInFlight.set(repo.id, { generation, runtimeKey, promise })
     try {
-      const result = await promise
+      const refresh = await promise
       // Why: back off local spawn failures under resource pressure while a disconnected SSH scan can recover on the next poll.
       if (
-        (result.ok || !repo.connectionId) &&
+        (refresh.result.ok || !repo.connectionId) &&
         generation === (this.worktreeScanGenerations.get(repo.id) ?? 0) &&
         this.worktreeScanInFlight.get(repo.id)?.promise === promise
       ) {
         this.worktreeScanCache.set(repo.id, {
           generation,
           runtimeKey,
-          result,
-          expiresAt: Date.now() + resolveWorktreeScanCacheTtlMs(repo)
+          result: refresh.result,
+          expiresAt: Date.now() + resolveWorktreeScanCacheTtlMs(repo),
+          adminFingerprint: refresh.adminFingerprint,
+          scannedAt: refresh.scannedAt
         })
       }
-      return result
+      return refresh.result
     } finally {
       if (this.worktreeScanInFlight.get(repo.id)?.promise === promise) {
         this.worktreeScanInFlight.delete(repo.id)
       }
     }
+  }
+
+  /**
+   * Refresh one repo's worktree rows, skipping the `git worktree list` subprocess when a cheap
+   * Git-admin fingerprint proves nothing changed since the cached scan.
+   */
+  private async refreshRepoWorktreeScan(
+    repo: Repo,
+    projectRuntime: ProjectExecutionRuntimeResolution | undefined,
+    cached: RuntimeWorktreeScanCache | null
+  ): Promise<RuntimeWorktreeScanRefresh> {
+    const scannedAt = Date.now()
+    // SSH and WSL-routed repos run Git off-host, so a local admin-dir read cannot describe them.
+    const fingerprintCapable =
+      !repo.connectionId &&
+      // Why: a repo whose scan TTL already reaches the reconciliation interval can never reuse a
+      // fingerprint, so reading one would be pure work. Agent-scratch roots are that case today.
+      resolveWorktreeScanCacheTtlMs(repo) < WORKTREE_SCAN_ADMIN_RECONCILE_INTERVAL_MS &&
+      !getLocalProjectWorktreeGitOptionsForRuntime(repo, projectRuntime).wslDistro
+    // Why issue it before the scan: a change landing while the scan runs must not be stamped as
+    // already-observed, or the next probe would mask it until the reconciliation deadline.
+    const adminFingerprint = fingerprintCapable
+      ? readRepoWorktreeAdminFingerprint(repo.path)
+      : UNFINGERPRINTED_WORKTREE_SCAN
+    const reusable =
+      fingerprintCapable &&
+      cached?.result.ok === true &&
+      scannedAt - cached.scannedAt < WORKTREE_SCAN_ADMIN_RECONCILE_INTERVAL_MS
+        ? cached
+        : null
+    if (reusable) {
+      // Why await only here: this is the one branch whose decision needs the probe. A scan-bound
+      // caller must never wait on it, or every cold read pays filesystem latency it cannot use.
+      const [current, previous] = await Promise.all([adminFingerprint, reusable.adminFingerprint])
+      if (current !== null && current === previous) {
+        return {
+          result: reusable.result,
+          adminFingerprint: reusable.adminFingerprint,
+          scannedAt: reusable.scannedAt
+        }
+      }
+    }
+    const result = await this.listRepoWorktreesForResolutionUncached(repo, projectRuntime)
+    return { result, adminFingerprint, scannedAt }
   }
 
   private async listRepoWorktreesForResolutionUncached(
@@ -28210,6 +28284,7 @@ export class OrcaRuntimeService {
         paneKey: state.paneKey ?? null,
         launchConfig: null,
         launchToken: null,
+        launchIncarnationId: null,
         launchAgent: null,
         foregroundAgent: null,
         connected: state.connected ?? true,
@@ -29348,11 +29423,13 @@ export class OrcaRuntimeService {
             { title: pty.lastOscTitle, updatedAt: pty.lastOscTitleAt }
           )
         : null
-      const launchAgent = tab.launchAgent ?? liveLeafPty?.launchAgent ?? pty?.launchAgent ?? null
+      // Renderer omission is authoritative: PTY launch provenance outlives agent exit.
+      const launchAgent = tab.launchAgent ?? null
+      const launchOwnerAgent = launchAgent ?? liveLeafPty?.launchAgent ?? pty?.launchAgent ?? null
       // Why: a retained OMP hook stays stable while wrapper foreground reads can report Pi.
       const ownerAgent =
         resolvePaneAgentOwner({
-          launchAgent,
+          launchAgent: launchOwnerAgent,
           hookAgent:
             tab.agentStatus?.agentType ??
             hookAgentStatus?.agentType ??
@@ -30097,18 +30174,29 @@ export class OrcaRuntimeService {
         return await this.isPtyRunningAgent(pty.pty, leaf)
       }
       const { leaf } = this.getLiveLeafForHandle(handle)
+      const trackedPty = leaf.ptyId ? this.ptysById.get(leaf.ptyId) : null
       // Why: check the leaf pane title and the tab title, which already carries OSC-enriched agent indicators (e.g. ✳ prefix).
       const paneTitle = getLatestLeafTitle(leaf, null)
       const paneTitleClassification = classifyAgentTitle(paneTitle)
       // Why: the OpenCode native marker names no agent token, so classifyAgentTitle
       // scores it 'agent' by identity alone; defer it to the foreground-process
       // check below so a stale marker on a shell is not authorized on title only.
-      if (paneTitleClassification === 'agent' && !isOpenCodeNativeTitle(paneTitle)) {
+      // A lone quarter-circle spinner is deferred the same way unless the tracked PTY
+      // carries verified managed-Claude launch identity (STA-4028).
+      if (
+        trackedPty
+          ? ptyTitleProvesAgentPresence(trackedPty, paneTitle, paneTitleClassification)
+          : agentTitleProvesAgentPresence(paneTitle, paneTitleClassification)
+      ) {
         return true
       }
       const tabTitle = this.tabs.get(leaf.tabId)?.title?.trim() || null
       const tabTitleClassification = paneTitle === null ? classifyAgentTitle(tabTitle) : 'neutral'
-      if (tabTitleClassification === 'agent' && !isOpenCodeNativeTitle(tabTitle)) {
+      if (
+        trackedPty
+          ? ptyTitleProvesAgentPresence(trackedPty, tabTitle, tabTitleClassification)
+          : agentTitleProvesAgentPresence(tabTitle, tabTitleClassification)
+      ) {
         return true
       }
       const openCodeMarkerTitle = paneTitle ?? tabTitle
@@ -30159,7 +30247,7 @@ export class OrcaRuntimeService {
         )
       : null
     const leafTitleClassification = classifyAgentTitle(leafTitle)
-    if (leafTitleClassification === 'agent' && !isOpenCodeNativeTitle(leafTitle)) {
+    if (ptyTitleProvesAgentPresence(pty, leafTitle, leafTitleClassification)) {
       return true
     }
     const ptyTitle = getLatestAgentCandidateTitle(
@@ -30167,11 +30255,7 @@ export class OrcaRuntimeService {
       { title: pty.lastOscTitle, updatedAt: pty.lastOscTitleAt }
     )
     const ptyTitleClassification = classifyAgentTitle(ptyTitle)
-    if (
-      leafTitle === null &&
-      ptyTitleClassification === 'agent' &&
-      !isOpenCodeNativeTitle(ptyTitle)
-    ) {
+    if (leafTitle === null && ptyTitleProvesAgentPresence(pty, ptyTitle, ptyTitleClassification)) {
       return true
     }
     const managementTitleClassification = classifyLatestAgentTitle({
@@ -34165,6 +34249,12 @@ const WORKTREE_SCAN_CACHE_TTL_MS = 30_000
 // fan-out was measured at ~128 git execs/min on real installs, mostly against
 // these (crash-cluster diagnostics, 2026-07).
 const WORKTREE_SCAN_AGENT_SCRATCH_TTL_MS = 5 * 60_000
+// Why: the Git-admin fingerprint reads HEAD and its ref tip exactly, but sparse-checkout pattern
+// edits are invisible to it and a tip living in packed-refs or reftable only gets an mtime + size
+// stamp, so a real scan still runs on this interval even while the probe reports "unchanged".
+export const WORKTREE_SCAN_ADMIN_RECONCILE_INTERVAL_MS = 5 * 60_000
+/** Stand-in for a repo the local admin probe cannot or need not describe; never matches a real read. */
+const UNFINGERPRINTED_WORKTREE_SCAN: Promise<string | null> = Promise.resolve(null)
 const RESOLVED_WORKTREE_REPO_TIMEOUT_MS = 5000
 
 export function resolveWorktreeScanCacheTtlMs(repo: Pick<Repo, 'path' | 'connectionId'>): number {
