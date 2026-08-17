@@ -488,6 +488,42 @@ render-path caller memoises on `activeTourId`. Ten cases run every tour in both
 seam states; planting a bound-only defect (drop the last step) reddens nine of
 them, so the bound leg is exercised rather than silently falling back.
 
+### `effective-upstream` — `splitRemoteBranchName`, and cost as a decision, not a mood
+
+The last TS-side export of this module. Cutting it over needed two questions
+answered rather than one, because a 6-line string split crossing a seam is the
+exact shape that got `quick-open-filter`'s per-file exports refused.
+
+**Cost.** Measured on this machine, same instrument as the earlier refusal:
+23.2 ns TS body, 407.8 ns napi (18×), 740.7 ns wasm (32×). Those multiples are
+identical to quick-open-filter's, so the multiple is NOT what decides it — what
+decides it is what the call count is bounded by. quick-open-filter ran per FILE
+over a 1.5M-line ripgrep pass, which is unbounded by anything the user
+controls. This runs per REF: `git-history-ref-display` is the only per-item
+caller (twice per ref), so a 1000-ref history costs +1.44 ms and a realistic one
+is a fraction of that; the other three call sites run once per operation. Cut
+over.
+
+**Fidelity.** Probed against BOTH shipped cores over 20 cases, 20/20 equal. The
+interesting ones are non-ASCII, because the twin indexes with
+`indexOf`/`.length` (UTF-16 units) and the core with `find`/`len` (bytes) —
+`'😀/main'`, `'a😀/b'`, `'x/😀'`, `'😀/'`. They agree, and the reason is worth
+stating: both only ask whether the slash is FIRST or LAST, and the split point
+is the same character under either unit. That is a property, not a coincidence,
+but the corpus now pins it anyway — 8 of those cases are new vectors, taking the
+module 7 → 15.
+
+**The `null` collision.** `null` is one of this function's real answers and also
+`tryOrcaDispatch`'s "no binding installed" signal, so the shim asks
+`isOrcaDispatchReady()` rather than reading readiness off the result. The test
+makes that load-bearing: planting a bound-only defect on the null path reddens 6
+of 15 cases, which are exactly the inputs a readiness-by-`null` shim would get
+wrong while every other input still looked right.
+
+The twin file keeps a one-line re-export so `git-effective-upstream`'s public
+surface is unchanged and its two sibling predicates — both at most twice per
+operation — keep calling it.
+
 ### What is actually left, and what each one is waiting on
 
 40 of the 85 vector-backed modules hold no twin implementation any more. Of the
