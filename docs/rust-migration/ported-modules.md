@@ -524,6 +524,55 @@ The twin file keeps a one-line re-export so `git-effective-upstream`'s public
 surface is unchanged and its two sibling predicates — both at most twice per
 operation — keep calling it.
 
+### `browser-search` — one export crosses, one is refused with a token in the diff
+
+`looksLikeSearchQuery` CUT OVER; `buildSearchUrl` REFUSED, and the refusal is a
+script rather than a paragraph.
+
+**Why `buildSearchUrl` cannot cross.** TS takes
+`(query, engine, { kagiSessionLink })` and routes Kagi searches through the
+user's private-session link — a URL carrying an account bearer token. Rust's
+`build_search_url(query, engine)` has no options parameter at all; the dispatch
+module's own header admits it ("only `buildSearchUrl` (without options)").
+Crossing would silently downgrade every Kagi user to unauthenticated search, and
+**no vector can see it**, because the corpus only ever calls the two-arg shape.
+`config/scripts/browser-search-kagi-session-gap.mjs` prints both answers and
+exits 0 while the gap is real, 1 once the core learns the option:
+
+```
+twin (session link honoured) -> https://kagi.com/search?token=SECRET…&q=rust+ownership
+core (options ignored)       -> https://kagi.com/search?q=rust%20ownership
+```
+
+Note the second divergence hiding in that pair, which the refusal was not
+looking for: the twin builds through `URLSearchParams` (`+` for space) and the
+core through `encodeURIComponent` (`%20`). Even a core that grew the option
+would still have to agree on the encoding.
+
+Porting it is not a small job and should not be taken lightly:
+`buildKagiSessionSearchUrl` runs through `normalizeKagiSessionLink`, a
+hostile-paste validator that rejects user-info credentials and non-default ports
+so a pasted link cannot smuggle alternate auth into saved state. That is the
+`linear-links` `new URL` problem with a security consequence attached.
+
+**Why `looksLikeSearchQuery` can.** Probed against BOTH shipped cores over 31
+inputs, 31/31 equal, with the corpus answering true 15 times and false 16 — so a
+mistake in either direction is visible. The cases that matter are whitespace:
+the twin's `[^\s]+` is JS `\s` and the core's is Rust's, and the two disagree
+about U+FEFF. They still agree on every input, but by branch order rather than
+by the regexes matching, so those cases are pinned as tests instead of reasoned
+about.
+
+Worth recording how the test earned its keep: the first draft of the whitespace
+expectations had five of seven backwards, and the run caught it. A U+FEFF
+leading or trailing a dotted host blocks the URL pattern (the input then reads
+as a URL through the dot branch), but in the middle of a dotless word it changes
+nothing — which is not what "JS treats it as whitespace" leads you to guess.
+
+Pre-ready contract `parity`: `true` searches and `false` navigates, so no value
+can double as "could not ask", and on the main-process path this feeds
+`will-navigate` validation. Planting a bound-only inversion reddens 24 of 25.
+
 ### What is actually left, and what each one is waiting on
 
 40 of the 85 vector-backed modules hold no twin implementation any more. Of the
