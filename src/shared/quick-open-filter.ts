@@ -11,31 +11,82 @@ import { posix, win32 } from 'node:path'
 // The three scanner-argument builders are CUT OVER to the Rust
 // `orca_core::quick_open_filter` core and now ship from
 // `quick-open-listing-arguments.ts` on the dispatch seam. This file keeps the
-// blocklist data both halves read, the shared types, and four bodies that must
-// NOT cross, each for a measured reason:
+// blocklist data both halves read, the shared types, and FOUR bodies that stay
+// in TypeScript.
 //
-//   - buildExcludePathPrefixes. `node:path`'s `relative()` resolves its operands
-//     against `process.cwd()` and folds Windows UNC roots case-insensitively;
-//     the zero-dep Rust port reproduces neither (`orca_core`'s `path_flavor` has
-//     no `//` UNC branch at all). 864 comparisons against both shipped
-//     artifacts, 42 disagreements — including
-//     buildExcludePathPrefixes('//Server/Share/Repo',
-//     ['//server/share/repo/packages/app']), which is `['packages/app']` here
-//     and `[]` in Rust, i.e. a nested worktree that stops being excluded. That
-//     input is what `quick-open-file-list.ts` builds for a UNC workspace, and it
-//     is asserted in this module's own test; the parity corpus has no `//` root,
-//     which is why `pnpm parity` is green over it.
+// They stay for TWO DIFFERENT reasons, and the reasons are anti-correlated,
+// which is the finding rather than an accident of ordering: the only PER-SCAN
+// export cannot cross (semantics), and the only exports that could cross are
+// PER-FILE (cost). Nothing in this module is both crossable and affordable at
+// the per-call seam, so it crosses as a unit or not at all — and its per-scan
+// half already crossed, as the three builders next door.
+//
+// Re-derived 2026-08-16 from scratch rather than inherited, against BOTH shipped
+// artifacts (`orca_node.node` and `orca_git_wasm_bg.wasm`), which agreed with
+// each other on every input. `config/scripts/quick-open-filter-crossing-cost.mjs`
+// owns the cost half and the both-artifacts half and FAILS with `--check` when
+// either refusal goes stale; `quick-open-filter-crossing.test.ts` owns the
+// correctness half and every claim below that can go red.
+//
+//   - buildExcludePathPrefixes. Its answer becomes `--glob !<prefix>` and
+//     `:(exclude,glob)<prefix>`, i.e. argv of a spawned rg / git ls-files, and it
+//     also keys `fs-handler.ts`'s scan-coalescing cache — so a wrong answer does
+//     not render wrong, it RUNS, and a second request then dedupes onto it.
+//     4,312 comparisons over a 28-root x 75-exclude-path grid: 400
+//     disagreements, in THREE independent classes.
+//       1. `orca_core::path_flavor` has no `//` branch (it tests `\\` only), so
+//          it reads a UNC root as POSIX and compares case-sensitively (86).
+//          buildExcludePathPrefixes('//Server/Share/Repo',
+//          ['//server/share/repo/packages/app']) is `['packages/app']` here and
+//          `[]` in Rust — a nested worktree that stops being excluded, on the
+//          root shape a UNC workspace produces.
+//       2. `node:path`'s `relative()` resolves BOTH operands against
+//          `process.cwd()` (216). That one is a PROOF, not a port gap: the twin
+//          is not a pure function of its arguments — its answer depends on the
+//          host's working directory and, under win32, its current drive — so no
+//          pure core can reproduce it, however carefully ported.
+//       3. `win32.relative()` folds the whole path with full-Unicode
+//          `toLowerCase`; the port uses `eq_ignore_ascii_case` (98). A Windows
+//          workspace named in Cyrillic, accented or Turkish-dotted text stops
+//          matching and its exclude pathspec silently vanishes. Same class: a
+//          cross-drive `relative()` answers with the RESOLVED to-path in Node
+//          (`D:/repo/b`) and an unnormalised one in Rust (`D:/repo/a/../b`).
+//     Classes 2 and 3 defeat the obvious "cross only absolute, non-`//` roots"
+//     gate — every one of 5 targeted attacks passes that gate and still diverges
+//     — so this is not a shim contract to write. Classes 1 and 3 are a port gap
+//     plus an artifact rebuild; class 2 would need cwd carried across the seam,
+//     which is a different function, not this one. `pnpm parity`'s corpus has no
+//     `//` root and no non-ASCII Windows path, which is why it is green over all
+//     of it; the disagreement rows in the crossing suite are what pin it.
 //   - shouldIncludeQuickOpenPath / shouldExcludeQuickOpenRelPath /
-//     normalizeQuickOpenRgLine. All three run ONCE PER LISTED FILE (and per
-//     directory entry in `quick-open-readdir-walk.ts`), and
-//     `orca-runtime-files.ts` lists with no maxResults. Measured through the
-//     real codec: 265ns here against 929ns dispatched, so the three together
-//     cost ~2ms per 1,000 files — ~1s added to an uncapped $HOME scan, on the
-//     path whose 10s-timeout bug this blocklist exists for. They are clean
-//     against both artifacts (0 divergences in 101,348 comparisons); what
-//     unblocks them is a BATCHED dispatch arm that crosses once per rg chunk
-//     instead of once per line, which needs a Rust change and an artifact
-//     rebuild.
+//     normalizeQuickOpenRgLine. Held back on COST, and the cost is
+//     ARCHITECTURAL rather than an implementation detail to optimise away.
+//     Correctness is not the blocker: the named shape cross-product is 1,281
+//     inputs, which against both artifacts is 2,478 comparisons after the 84 the
+//     codec refuses for a lone surrogate, and they agree on everything except one
+//     out-of-type `RgOutputMode` cell. The corpus is discriminating — all three
+//     seeded idiom substitutions redden it. But the FLOOR of ONE crossing
+//     — the entry called with the payload already built and the answer left
+//     unparsed — is 381 ns through napi and 725 ns through wasm, which already
+//     exceeds the ENTIRE body of two of the three. Through the real codec the
+//     three cost 309 ns here against 2,062 ns napi (6.7x) and 3,601 ns wasm
+//     (11.6x). They run ONCE PER LISTED FILE (and per directory entry in
+//     `quick-open-readdir-walk.ts`), and `orca-runtime-files.ts` lists with no
+//     maxResults: a real $HOME with these very globs applied emits 1,568,458
+//     lines in 7.7s of rg — most of the hard 10s per-pass timeout this blocklist
+//     exists to avoid — so cutting them over adds +2.6s (napi) to +4.9s (wasm)
+//     of blocking main-thread JS per pass, and the two passes share that thread.
+//     The general form, worth reusing on the next module: a per-item predicate
+//     whose body costs less than the ~400 ns seam floor cannot profitably cross
+//     it, which is the same reason `cross-platform-path-resolution.ts` composes
+//     `createNormalizedPathInsideOrEqualMatcher` instead of dispatching it. What
+//     unblocks these three is a BATCHED arm that crosses once per rg chunk
+//     instead of once per line — a Rust change plus an artifact rebuild. The
+//     crossing suite watches for that arm and goes red the day it lands.
+//
+// Cutting the three over would also move no counter: `report-rust-orphan-ports.mjs`
+// already lists `quick-open-filter` as having production dispatch, through
+// `quick-open-listing-arguments.ts:106`.
 
 // ─── Hidden-dir blocklist ────────────────────────────────────────────
 
