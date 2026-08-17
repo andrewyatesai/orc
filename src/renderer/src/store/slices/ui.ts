@@ -816,7 +816,7 @@ export type UISlice = {
   ) => void
   markOrcaHookRepoAlwaysTrusted: (repoId: string) => void
   clearOrcaHookTrustForRepo: (repoId: string) => void
-  setupScriptPromptDismissedRepoIds: string[]
+  setupScriptPromptDismissedRepoIds: readonly string[]
   dismissSetupScriptPrompt: (repoId: string) => void
   setupGuideSidebarDismissed: boolean
   setSetupGuideSidebarDismissed: (dismissed: boolean) => void

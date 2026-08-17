@@ -52,6 +52,7 @@ export function useAllHostClients(hostIds: string[], options?: UseAllHostClients
       client: RpcClient
       state: ConnectionState
       path: MobileConnectionPath
+      pendingPath: MobileConnectionPath | null
     }> = []
     for (const id of hostIds) {
       const all = ctx.getAllClients().find((entry) => entry.hostId === id)
@@ -60,7 +61,8 @@ export function useAllHostClients(hostIds: string[], options?: UseAllHostClients
           hostId: id,
           client: all.client,
           state: ctx.getState(id),
-          path: ctx.getActivePath(id)
+          path: ctx.getActivePath(id),
+          pendingPath: ctx.getPendingPath(id)
         })
       }
     }

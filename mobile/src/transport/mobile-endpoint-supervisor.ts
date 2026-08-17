@@ -3,19 +3,18 @@ import type { MobileEndpointSupervisorDependencies } from './mobile-endpoint-sup
 import { RelayReconnectController } from './mobile-relay-reconnect-controller'
 import { RelayLeaseRotationTimer } from './mobile-relay-lease-rotation-timer'
 import { MobileEndpointHysteresis } from './mobile-endpoint-hysteresis'
-import {
-  encodeBase64Url,
-  isDirectorResolutionFailure,
-  persistRelayHost,
-  toError
-} from './mobile-endpoint-supervisor-support'
+import { persistRelayHost } from './mobile-endpoint-supervisor-support'
 import { selectDialableRelayCredentials } from './mobile-relay-credential-selection'
 import {
-  applyResumeConfirmation,
+  dialRelayCredential,
+  type RelayCredentialDialContext
+} from './mobile-relay-credential-dial'
+import {
   mobileRelayCredentialNeedsRotation,
   rotateMobileRelayCredential
 } from './mobile-relay-credential-rotation'
 import type { MobileRelayCredentialBundle } from './mobile-relay-credential-bundle'
+import * as recoveryPresentation from './mobile-relay-recovery-presentation'
 import type { StableLogicalRpcClient } from './stable-logical-rpc-client'
 import type { HostProfile } from './types'
 
@@ -73,6 +72,7 @@ export class MobileEndpointSupervisor {
       } else {
         // Why: the direct client enters reconnecting after its first failed
         // dial and may never publish disconnected while its retry loop lives.
+        recoveryPresentation.onActiveFailure(this.logical, this.relayReconnect, state, this.bundle)
         this.relayReconnect.handleStateFailure(this.logical, state)
       }
     })
@@ -97,6 +97,7 @@ export class MobileEndpointSupervisor {
       this.clearDirectProbeTimer()
       this.relayReconnect.clear()
       this.leaseRotation.clear()
+      this.logical.setRecoveryPath(null)
     }
   }
 
@@ -107,6 +108,7 @@ export class MobileEndpointSupervisor {
     this.clearDirectProbeTimer()
     this.relayReconnect.clear()
     this.leaseRotation.clear()
+    this.logical.setRecoveryPath(null)
   }
 
   private async recoverRelay(forceReplacement = false): Promise<void> {
@@ -137,8 +139,16 @@ export class MobileEndpointSupervisor {
         readBundle: () => this.dependencies.readBundle(this.host.id)
       })
       this.bundle = selection.bundle
+      if (selection.credentials.length === 0) {
+        // Why: no socket can open, so a "Connecting via Relay…" verdict would lie.
+        this.logical.setRecoveryPath(null)
+      } else if (this.foreground && !this.stopped) {
+        // Why: an eligible credential backs a genuine relay dial — name the path
+        // the user is now waiting on so a failed direct hint stops masquerading.
+        this.logical.setRecoveryPath('relay')
+      }
       for (const credential of selection.credentials) {
-        const result = await this.tryRelayCredential(credential)
+        const result = await dialRelayCredential(credential, this.relayDialContext())
         if (result.ok) {
           retryAfterOperation = this.logical.getState() !== 'connected'
           return
@@ -156,6 +166,9 @@ export class MobileEndpointSupervisor {
         // record its outcome without recreating a foreground retry timer.
         const scheduleRetry = !forceReplacement && this.foreground && !this.stopped
         this.relayReconnect.registerFailure(lastError, scheduleRetry)
+        // Why: a rejected credential gates recovery until a fresh one is durable —
+        // stop presenting a Relay wait the dial loop can no longer honor.
+        recoveryPresentation.clearIfCredentialBlocked(this.logical, this.relayReconnect)
       }
     } finally {
       this.operationInFlight = false
@@ -169,65 +182,27 @@ export class MobileEndpointSupervisor {
     }
   }
 
-  private async tryRelayCredential(credential: {
-    token: string
-    version: number
-  }): Promise<{ ok: true } | { ok: false; error: Error }> {
-    const first = await this.openAndMigrateRelay(credential)
-    if (first.ok) {
-      return first
-    }
-    if (!isDirectorResolutionFailure(first.error) || !this.host.relay) {
-      return first
-    }
-    try {
-      const resolved = await this.dependencies.resolveRelay({
-        relay: this.host.relay,
-        resumeToken: credential.token
-      })
-      this.host = await persistRelayHost(this.host, resolved, this.dependencies.saveHost)
-      return await this.openAndMigrateRelay(credential)
-    } catch (error) {
-      return { ok: false, error: toError(error) }
-    }
-  }
-
-  private async openAndMigrateRelay(credential: {
-    token: string
-    version: number
-  }): Promise<{ ok: true } | { ok: false; error: Error }> {
-    // Why: director resolution and grace fallback can finish after background/stop.
-    if (this.stopped || !this.foreground || !this.host.relay || !this.bundle) {
-      return { ok: false, error: new Error('relay state missing') }
-    }
-    const session = this.dependencies.openRelay(
-      this.host.relay,
-      credential,
-      `confirm-${encodeBase64Url(this.dependencies.randomBytes(16))}`
-    )
-    try {
-      await this.logical.migrateTo(session, 'relay')
-      this.relayReconnect.setActiveSession(session)
-      if (!this.foreground) {
-        this.relayReconnect.suspendActiveRelay(this.logical)
-      }
-      this.relayRotationPending = false
-      this.hysteresis.recordMigration(this.dependencies.now())
-      const confirmation = session.getResumeConfirmation()
-      if (confirmation) {
-        this.bundle = applyResumeConfirmation(this.bundle, credential.version, confirmation)
-        // Why: the relay is already authenticated; a SecureStore failure must
-        // not open another socket or count against transport recovery backoff.
-        await this.dependencies.writeBundle(this.bundle).catch(() => {})
-      }
-      // Why: async persistence can finish after stop/background; never recreate a stale timer.
-      this.leaseRotation.scheduleFromLease(
-        this.stopped || !this.foreground ? null : session.getLeaseExpiresAt()
-      )
-      this.scheduleDirectProbe()
-      return { ok: true }
-    } catch (error) {
-      return { ok: false, error: session.getFailure() ?? toError(error) }
+  private relayDialContext(): RelayCredentialDialContext {
+    return {
+      logical: this.logical,
+      dependencies: this.dependencies,
+      relayReconnect: this.relayReconnect,
+      leaseRotation: this.leaseRotation,
+      hysteresis: this.hysteresis,
+      isStopped: () => this.stopped,
+      isForeground: () => this.foreground,
+      getHost: () => this.host,
+      setHost: (host) => {
+        this.host = host
+      },
+      getBundle: () => this.bundle,
+      setBundle: (bundle) => {
+        this.bundle = bundle
+      },
+      clearRelayRotationPending: () => {
+        this.relayRotationPending = false
+      },
+      scheduleDirectProbe: () => this.scheduleDirectProbe()
     }
   }
 

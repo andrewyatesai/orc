@@ -122,6 +122,7 @@ import {
   POST_REPLAY_REATTACH_RESET,
   POST_REPLAY_REATTACH_RESET_KEEP_MOUSE,
   RESET_AFTER_BYTE_GAP,
+  RESET_GRAPHIC_RENDITION,
   RESET_KITTY_KEYBOARD_PROTOCOL,
   RESET_TERMINAL_CURSOR_STYLE
 } from './layout-serialization'
@@ -301,6 +302,7 @@ import {
 } from '../../../../shared/agent-process-recognition'
 import type { SetupSplitDirection, TuiAgent } from '../../../../shared/types'
 import { isTuiAgent, TUI_AGENT_CONFIG } from '../../../../shared/tui-agent-config'
+import { resolveDraftPasteReadyTimeoutMs } from '../../../../shared/draft-paste-ready-timeout'
 import { createDraftPasteReadyScanner } from '../../../../shared/draft-paste-ready-scanner'
 import { sendAgentDraftPasteContent } from '@/lib/agent-draft-paste-content'
 import { writeTerminalPastePtyInput } from './terminal-pty-paste-writer'
@@ -345,7 +347,6 @@ const STARTUP_DRAFT_PASTE_QUIET_MS = 1500
 // contain private repo/user names; the terminal itself shows where it opened.
 export const STARTUP_CWD_FALLBACK_NOTICE =
   '\r\n[Orca opened this terminal at the workspace root because its saved start folder no longer exists.]\r\n'
-const STARTUP_DRAFT_PASTE_TIMEOUT_MS = 8000
 const HIDDEN_OUTPUT_RESTORE_PENDING_CHARS = 512 * 1024
 const HIDDEN_OUTPUT_RESTORE_DEFERRED_RETRY_MS = 50
 const HIDDEN_OUTPUT_RESTORE_DEFERRED_RETRY_MAX = 3
@@ -4973,7 +4974,7 @@ export function connectPanePty(
       startupDraftHardTimer = setTimeout(() => {
         startupDraftHardTimer = null
         void deliverStartupDraftIfAgentOwnsPty()
-      }, STARTUP_DRAFT_PASTE_TIMEOUT_MS)
+      }, resolveDraftPasteReadyTimeoutMs(startupDraftAgent))
     }
     const armStartupDraftQuietTimer = (): void => {
       if (!startupDraftReadyScanner || startupDraftPasteSettled) {
@@ -7506,6 +7507,13 @@ export function connectPanePty(
         if (hiddenOutputRestoreInFlight === trackedHiddenOutputRestore) {
           hiddenOutputRestoreInFlight = null
         }
+        // Why: after dispose the task body (`while (!disposed)`) exits immediately, so
+        // re-arming here resolves instantly and re-enters this handler — an unbounded
+        // self-feeding promise chain that eats the heap. The pane is gone; there is
+        // nothing to restore (#14749).
+        if (disposed) {
+          return
+        }
         if (hiddenOutputRestorePendingChunks.length > 0 || hiddenOutputRestorePendingOverflow) {
           hiddenOutputRestoreNeeded = true
           armHiddenOutputRestoreForegroundDeadline()
@@ -8028,10 +8036,17 @@ export function connectPanePty(
               suppressStructuralReplayPtyResize = false
             }
           }
-          writeReplayData('\x1b[2J\x1b[3J\x1b[H')
+          writeReplayData(`${RESET_GRAPHIC_RENDITION}\x1b[2J\x1b[3J\x1b[H`)
           // Why: re-arm the kitty keyboard mirror from the snapshot preamble so Option chords keep their encoding after a window reload.
           kittyKeyboardModes.scanReplay(connectResult.snapshot)
-          writeReplayData(connectResult.snapshot)
+          // Why gated: a live agent or alt-screen TUI owns its pen, so ground only a dead/normal-buffer snapshot whose stale run would style the fresh shell (STA-4042).
+          const groundSnapshotReplay =
+            Boolean(connectResult.coldRestore) ||
+            (!shouldPreserveAgentReattachModes() &&
+              !(connectResult.isAlternateScreen ?? kittyKeyboardModes.isAlternateScreen))
+          writeReplayData(
+            `${groundSnapshotReplay ? RESET_GRAPHIC_RENDITION : ''}${connectResult.snapshot}`
+          )
           // Snapshot reattach keeps a live session, so drop only renderer-owned state instead of the broader mode reset.
           writeReplayData(
             reattachReplayResetSequence(connectResult.snapshot, connectResult.isAlternateScreen)
@@ -8049,11 +8064,14 @@ export function connectPanePty(
           }
         } else if (connectResult?.replay) {
           rememberReattachPayloadAgentSignal(connectResult.replay, { fullScreenReplay: true })
-          // Relay replay may overlap xterm's pre-disconnect content; clear first to avoid duplication.
-          writeReplayData('\x1b[2J\x1b[3J\x1b[H')
+          // Relay replay may overlap xterm's pre-disconnect content; clear first to avoid duplication (grounded so a stale bg pen can't erase the cleared cells to a color).
+          writeReplayData(`${RESET_GRAPHIC_RENDITION}\x1b[2J\x1b[3J\x1b[H`)
           // Why: raw relay replay may contain the app's own kitty pushes; re-arm with set semantics so redelivery can't grow the stack.
           kittyKeyboardModes.scanReplay(connectResult.replay)
-          writeReplayData(connectResult.replay)
+          // Why gated: a live relay owns its pen; ground only the dead cold-restore fallback whose stale run would style the fresh shell.
+          writeReplayData(
+            `${connectResult.coldRestore ? RESET_GRAPHIC_RENDITION : ''}${connectResult.replay}`
+          )
           writeReplayData(
             reattachReplayResetSequence(connectResult.replay, connectResult.isAlternateScreen)
           )
@@ -8077,8 +8095,8 @@ export function connectPanePty(
           } catch {
             // The current xterm grid remains a safe lower bound for blanking.
           }
-          // Why: shrinking first would promote clipped stale viewport rows into scrollback, beyond the reach of a later viewport-only clear.
-          writeReplayData('\x1b[2J\x1b[H')
+          // Why: shrinking first would promote clipped stale viewport rows into scrollback, beyond the reach of a later viewport-only clear. Grounded so a stale bg pen can't erase the cleared cells to a color.
+          writeReplayData(`${RESET_GRAPHIC_RENDITION}\x1b[2J\x1b[H`)
           await waitForTerminalReplayWritesParsed(pane.terminal)
           if (!isCurrentReattachPayload()) {
             return
@@ -8105,7 +8123,8 @@ export function connectPanePty(
             }
           }
           // Why: recorded scrollback is raw PTY output that may hold query sequences; xterm.write would auto-reply into the new shell's stdin. See replay-guard.ts.
-          writeReplayData(connectResult.coldRestore.scrollback)
+          // Grounded: a dead run's scrollback can open a pen it never closed, which would style the fresh shell that drains after it (STA-4042).
+          writeReplayData(`${RESET_GRAPHIC_RENDITION}${connectResult.coldRestore.scrollback}`)
           const preparedStartup = coldRestoreStartup ?? buildColdRestoreAgentResumeStartup()
           const didPrepareResume = applyColdRestoreAgentResumeStartup(preparedStartup)
           if (didPrepareResume) {

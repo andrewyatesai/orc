@@ -233,7 +233,9 @@
         "workspace": {
           "cleanup": {
             "9d6e531da6": "工作区不再存在。",
-            "changedSinceConfirmation": "工作区在确认后发生了更改。请刷新并在删除前重新检查。"
+            "changedSinceConfirmation": "工作区在确认后发生了更改。请刷新并在删除前重新检查。",
+            "hostCollision": "错误：此工作区在多个主机的相同路径上存在",
+            "hostUnresolved": "Orca 无法确定哪个主机拥有此工作区。请刷新项目并重新检查。"
           }
         },
         "worktrees": {
@@ -664,9 +666,7 @@
             "toast": {
               "restartFallbackUnavailableNone": "{{value0}} 个 Cookie 均无法加载，且重启回退不可用。此配置文件的旧 Cookie 已被替换。请重试导入。",
               "restartFallbackUnavailablePartial": "已导入 {{value1}} 个 Cookie 中的 {{value0}} 个。其余无法加载，且重启回退不可用。请重试导入。",
-              "googleCookiesSkipped": "未导入 Google Cookie。请在 Orca 中使用此配置文件打开浏览器，然后登录 Google。",
-              "googleDirectSignInAction": "登录 Google",
-              "googleDirectSignInUnavailable": "无法打开浏览器配置文件。请打开它并在 accounts.google.com 登录。"
+              "googleCookiesSkipped": "未导入 Google Cookie。请在 {{value0}} 上的 Orca 中使用此配置文件打开浏览器，然后登录 Google。"
             }
           }
         }

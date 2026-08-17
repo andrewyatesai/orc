@@ -104,6 +104,7 @@ import {
   getVirtualRowTransform,
   pruneStaleVirtualRowElementCache,
   shouldUseHeaderTopSpacing,
+  WORKTREE_SIDEBAR_VIRTUAL_ROW_GAP,
   type RenderRow
 } from './worktree-list-virtual-rows'
 import {
@@ -1619,6 +1620,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
         groupIds: group.worktreeIds,
         draggedIds: args.draggedIds,
         draggingWorktreeId: args.draggingWorktreeId,
+        fallbackGap: WORKTREE_SIDEBAR_VIRTUAL_ROW_GAP,
         grab: args.grab,
         anchor: args.anchor
       })
@@ -2103,7 +2105,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
       [stickyHeaderIndexes]
     ),
     overscan: 10,
-    gap: 6,
+    gap: WORKTREE_SIDEBAR_VIRTUAL_ROW_GAP,
     // Why: the sticky group header lives inside the virtual list, so scroll math needs the same top inset as the DOM reveal.
     scrollPaddingStart: WORKTREE_SIDEBAR_REVEAL_TOP_INSET,
     isScrollingResetDelay: USER_SCROLL_MEASUREMENT_ADJUSTMENT_SUPPRESS_MS,

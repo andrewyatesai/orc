@@ -24,6 +24,7 @@ type StoreEntry = {
   state: ConnectionState
   refCount: number
   unsubState: () => void
+  unsubConnectionPath: () => void
 }
 
 export type RpcClientContextValue = {
@@ -36,6 +37,9 @@ export type RpcClientContextValue = {
   // Why: ms-epoch of the last 'connected' (null if never this session); UI escalates "Reconnecting…" into a re-pair prompt.
   getLastConnectedAt: (hostId: string) => number | null
   getActivePath: (hostId: string) => MobileConnectionPath
+  // Why: the path a scheduled Relay recovery is dialing (null when connected or
+  // when no relay recovery is in flight); drives the "Connecting via Relay…" verdict.
+  getPendingPath: (hostId: string) => MobileConnectionPath | null
   subscribeHostState: (hostId: string, listener: (state: ConnectionState) => void) => () => void
   getAllClients: () => Array<{ hostId: string; client: RpcClient }>
   subscribeAllHosts: (listener: () => void) => () => void
@@ -78,6 +82,7 @@ export function RpcClientProvider({ children }: { children: ReactNode }) {
     primedHostsRef.current.delete(hostId)
     const entry = storeRef.current.get(hostId)
     entry?.unsubState()
+    entry?.unsubConnectionPath()
     storeRef.current.delete(hostId)
     entry?.client.close()
     notifyHostState(hostId, 'disconnected')
@@ -144,11 +149,22 @@ export function RpcClientProvider({ children }: { children: ReactNode }) {
         cur.state = state
         notifyHostState(hostId, state)
       })
+      // Why: a scheduled Relay recovery changes the pending path without a
+      // transport-state change; re-notify so path-aware verdicts rerender.
+      const logical = client as Partial<StableLogicalRpcClient>
+      const unsubConnectionPath =
+        logical.onConnectionPathChange?.(() => {
+          const cur = storeRef.current.get(hostId)
+          if (cur) {
+            notifyHostState(hostId, cur.state)
+          }
+        }) ?? (() => {})
       const entry: StoreEntry = {
         client,
         state: client.getState(),
         refCount: 0,
-        unsubState
+        unsubState,
+        unsubConnectionPath
       }
       storeRef.current.set(hostId, entry)
       notifyHostState(hostId, entry.state)
@@ -206,6 +222,7 @@ export function RpcClientProvider({ children }: { children: ReactNode }) {
       const savedRefCount = entry?.refCount ?? Math.max(1, listenerCount)
       if (entry) {
         entry.unsubState()
+        entry.unsubConnectionPath()
         entry.client.close()
         storeRef.current.delete(hostId)
       }
@@ -231,6 +248,10 @@ export function RpcClientProvider({ children }: { children: ReactNode }) {
 
   const getActivePath = useCallback((hostId: string): MobileConnectionPath => {
     return clientActivePath(storeRef.current.get(hostId)?.client)
+  }, [])
+
+  const getPendingPath = useCallback((hostId: string): MobileConnectionPath | null => {
+    return clientPendingPath(storeRef.current.get(hostId)?.client)
   }, [])
 
   const subscribeHostState = useCallback(
@@ -301,6 +322,7 @@ export function RpcClientProvider({ children }: { children: ReactNode }) {
       getReconnectAttempt,
       getLastConnectedAt,
       getActivePath,
+      getPendingPath,
       subscribeHostState,
       getAllClients,
       subscribeAllHosts,
@@ -315,6 +337,7 @@ export function RpcClientProvider({ children }: { children: ReactNode }) {
       getReconnectAttempt,
       getLastConnectedAt,
       getActivePath,
+      getPendingPath,
       subscribeHostState,
       getAllClients,
       subscribeAllHosts,
@@ -415,4 +438,9 @@ export function usePrimeHosts(): (hosts: HostProfile[]) => void {
 function clientActivePath(client: RpcClient | undefined): MobileConnectionPath {
   const logical = client as Partial<StableLogicalRpcClient> | undefined
   return typeof logical?.getActivePath === 'function' ? logical.getActivePath() : 'lan'
+}
+
+function clientPendingPath(client: RpcClient | undefined): MobileConnectionPath | null {
+  const logical = client as Partial<StableLogicalRpcClient> | undefined
+  return logical?.getPendingPath?.() ?? null
 }

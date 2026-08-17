@@ -108,17 +108,37 @@ export function isSetupScriptPromptDismissed(
   return dismissedEntries.includes(getSetupScriptPromptDismissalKey(repoId))
 }
 
+function isUnchangedDismissalList(
+  value: unknown,
+  next: readonly string[]
+): value is readonly string[] {
+  return (
+    Array.isArray(value) &&
+    value.length === next.length &&
+    value.every((entry, index) => entry === next[index])
+  )
+}
+
 export function filterSetupScriptPromptDismissalsToValidRepos(
   value: unknown,
   validRepoIds: Set<string>
-): string[] {
-  return sanitizeSetupScriptPromptDismissals(value).filter((entry) => {
+): readonly string[] {
+  const next = sanitizeSetupScriptPromptDismissals(value).filter((entry) => {
     const repoId = entry.slice(SETUP_SCRIPT_PROMPT_DISMISSAL_PREFIX.length)
     return validRepoIds.has(repoId)
   })
+  // Why: fetchRepos / fetchRuntimeEnvironmentRepos / validateRepoScopedUi assign this
+  // into set() on every catalog refresh. SetupScriptPromptCard Object.is-subscribes to
+  // the array, so a fresh copy on a no-op prune is a guaranteed miss. Compare against the
+  // original input, not the sanitize copy — sanitize always allocates, including for []
+  // and already-valid keys.
+  if (isUnchangedDismissalList(value, next)) {
+    return value
+  }
+  return next
 }
 
-export function sanitizeSetupScriptPromptDismissals(value: unknown): string[] {
+export function sanitizeSetupScriptPromptDismissals(value: unknown): readonly string[] {
   if (!Array.isArray(value)) {
     return []
   }

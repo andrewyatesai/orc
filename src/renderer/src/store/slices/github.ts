@@ -75,6 +75,8 @@ import {
 } from '../../../../shared/task-source-context'
 import { normalizeGitHubPRForBranchOutcome } from '../../../../shared/github-pr-for-branch-outcome'
 import { getGitHubRepoLookupIndex } from './github-repo-lookup-index'
+import { reconcileCatalogRows } from './repo-identity-reconcile'
+import { areCatalogValuesEqual } from './catalog-value-equality'
 import { withGitHubCheckDetailsTimeout } from '@/runtime/github-check-details-timeout'
 
 // ─── ProjectV2 cache types ────────────────────────────────────────────
@@ -680,7 +682,7 @@ type InflightChecks = {
 const inflightChecksRequests = new Map<string, InflightChecks>()
 const inflightCommentsRequests = new Map<string, Promise<PRComment[]>>()
 type InflightWorkItems = {
-  promise: Promise<GitHubWorkItem[]>
+  promise: Promise<readonly GitHubWorkItem[]>
   force: boolean
   noCache: boolean
 }
@@ -1886,7 +1888,7 @@ export type GitHubSlice = {
   prRefreshStates: Record<string, PRRefreshState>
   prVisibleRefreshGeneration: number
   // Why: keyed by repoId + limit + query so same-path repos on different SSH targets don't share results.
-  workItemsCache: Record<string, CacheEntry<GitHubWorkItem[]>>
+  workItemsCache: Record<string, CacheEntry<readonly GitHubWorkItem[]>>
   fetchPRForBranch: (
     repoPath: string,
     branch: string,
@@ -1976,7 +1978,7 @@ export type GitHubSlice = {
     query: string,
     repoPath?: string,
     sourceContext?: TaskSourceContext | null
-  ) => GitHubWorkItem[] | null
+  ) => readonly GitHubWorkItem[] | null
   /** Returns a thin view (sources + error, never items) so it stays a cheap selector without dragging the whole work-item array through the equality check. */
   getWorkItemsSourcesAndError: (
     repoId: string,
@@ -1999,7 +2001,7 @@ export type GitHubSlice = {
     limit: number,
     query: string,
     options?: FetchOptions
-  ) => Promise<GitHubWorkItem[]>
+  ) => Promise<readonly GitHubWorkItem[]>
   /**
    * Fan out one work-item query across repos; partial failures don't reject — a repo with no cached fallback increments `failedCount`, but one served stale cache on rejection isn't counted.
    * `githubUnavailable`: every selected GitHub source refresh failed because GitHub was unreachable (5xx/network/rate-limit), even if stale cache remains — lets the caller attribute the stale/empty list.
@@ -2677,7 +2679,13 @@ export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (s
     return null
   },
 
-  fetchWorkItems: async (repoId, repoPath, limit, query, options): Promise<GitHubWorkItem[]> => {
+  fetchWorkItems: async (
+    repoId,
+    repoPath,
+    limit,
+    query,
+    options
+  ): Promise<readonly GitHubWorkItem[]> => {
     if (isGitHubWorkItemsQueryTooLarge(query)) {
       return []
     }
@@ -2752,15 +2760,56 @@ export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (s
         if (get().workItemsInvalidationNonce !== requestInvalidationNonce) {
           return items
         }
-        set((s) => ({
-          workItemsCache: withBoundedCacheEntry(s.workItemsCache, key, {
-            data: items,
-            fetchedAt: Date.now(),
-            sources: envelope.sources,
-            ...(errorForCache ? { error: errorForCache } : {}),
-            ...(envelope.issueSourceFellBack ? { issueSourceFellBack: true } : {})
-          })
-        }))
+        // Why: TaskPage useShallow-selects cache entry refs. A new { ...entry, fetchedAt }
+        // still remaps every visible row. IPC structuredClone rebuilds nested records, so
+        // data === previous.data never holds — reconcile structurally, then either mutate
+        // fetchedAt in place or write one entry that keeps unchanged row/meta refs.
+        set((s) => {
+          const previousEntry = s.workItemsCache[key]
+          const previousData = previousEntry?.data ?? []
+          const reconciled = reconcileCatalogRows(
+            previousData,
+            items,
+            (row) => `${row.repoId}\0${row.id}`
+          )
+          const nextFellBack = envelope.issueSourceFellBack ? true : undefined
+          const sourcesUnchanged = areCatalogValuesEqual(previousEntry?.sources, envelope.sources)
+          const errorUnchanged = areCatalogValuesEqual(previousEntry?.error, errorForCache)
+          const fellBackUnchanged = previousEntry?.issueSourceFellBack === nextFellBack
+          if (
+            previousEntry &&
+            reconciled === previousData &&
+            sourcesUnchanged &&
+            errorUnchanged &&
+            fellBackUnchanged
+          ) {
+            previousEntry.fetchedAt = Date.now()
+            return {}
+          }
+          const previousSources = previousEntry?.sources
+          const previousError = previousEntry?.error
+          return {
+            workItemsCache: withBoundedCacheEntry(s.workItemsCache, key, {
+              // Why: `reconciled` already is `previousEntry.data` when nothing changed —
+              // reconcileCatalogRows returns the previous array on a structural match.
+              data: reconciled,
+              fetchedAt: Date.now(),
+              sources:
+                sourcesUnchanged && previousSources !== undefined
+                  ? previousSources
+                  : envelope.sources,
+              ...(errorForCache
+                ? {
+                    error:
+                      errorUnchanged && previousError !== undefined
+                        ? previousError
+                        : errorForCache
+                  }
+                : {}),
+              ...(nextFellBack ? { issueSourceFellBack: true } : {})
+            })
+          }
+        })
         return items
       } catch (err) {
         // Why: rethrow but keep the stale cache entry so the UI still renders while the user retries.
@@ -4637,7 +4686,7 @@ export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (s
     set((s) => {
       const prefix = `${repoId}::`
       const legacyPrefix = `${repoPath}::`
-      const next: Record<string, CacheEntry<GitHubWorkItem[]>> = {}
+      const next: Record<string, CacheEntry<readonly GitHubWorkItem[]>> = {}
       for (const [key, entry] of Object.entries(s.workItemsCache)) {
         if (!key.startsWith(prefix) && !key.startsWith(legacyPrefix)) {
           next[key] = entry

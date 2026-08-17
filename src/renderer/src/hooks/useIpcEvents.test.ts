@@ -8823,6 +8823,83 @@ describe('runtime host catalog refresh on reposChanged', () => {
   })
 })
 
+describe('repo catalog refresh on repos:changed', () => {
+  it('skips remote catalog RPCs when refreshing local rows under a runtime', async () => {
+    vi.resetModules()
+    let reposChangedListener: (() => void) | undefined
+    const fetchRepos = vi.fn(() => Promise.resolve())
+    const fetchProjectGroups = vi.fn(() => Promise.resolve())
+    const fetchFolderWorkspaces = vi.fn(() => Promise.resolve())
+    const remountTerminalTabForRecovery = vi.fn(() => true)
+    const state = {
+      settings: { activeRuntimeEnvironmentId: null as string | null },
+      repos: [{ id: 'repo1', connectionId: 'conn-1' }],
+      worktreesByRepo: { repo1: [{ id: 'wt-1', repoId: 'repo1' }] },
+      folderWorkspaces: [],
+      projectGroups: [],
+      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: null }] },
+      ptyIdsByTabId: {},
+      remountTerminalTabForRecovery,
+      fetchRepos,
+      fetchProjectGroups,
+      fetchFolderWorkspaces
+    }
+
+    vi.doMock('react', async () => {
+      const actual = await vi.importActual<typeof ReactModule>('react')
+      return { ...actual, useEffect: (effect: () => void | (() => void)) => void effect() }
+    })
+    vi.doMock('../store', () => ({
+      useAppStore: { subscribe: vi.fn(() => () => {}), getState: () => state }
+    }))
+    const noopListener = (): (() => void) => () => {}
+    const autoStubNamespace = new Proxy(
+      {},
+      {
+        get:
+          () =>
+          (...args: unknown[]) => {
+            if (typeof args[0] === 'function') {
+              return noopListener()
+            }
+            return new Promise(() => {})
+          }
+      }
+    )
+    const api = new Proxy(
+      {
+        repos: {
+          onChanged: (listener: () => void) => {
+            reposChangedListener = listener
+            return () => {}
+          }
+        }
+      } as Record<string, unknown>,
+      { get: (target, prop: string) => target[prop] ?? autoStubNamespace }
+    )
+    vi.stubGlobal('window', { api })
+
+    const { recordTerminalTabParkedOnUnresolvedHost, clearTerminalTabsParkedOnUnresolvedHost } =
+      await import('@/lib/parked-terminal-host-hydration')
+    clearTerminalTabsParkedOnUnresolvedHost()
+
+    const { useIpcEvents } = await import('./useIpcEvents')
+    useIpcEvents()
+    state.settings.activeRuntimeEnvironmentId = 'env-1'
+    // Why: the local-slice refresh still has to release panes that parked on an unhydrated host.
+    recordTerminalTabParkedOnUnresolvedHost('wt-1', 'tab-1')
+    reposChangedListener?.()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const localOwner = { runtimeEnvironmentId: null }
+    expect(fetchRepos).toHaveBeenCalledWith(localOwner)
+    expect(fetchProjectGroups).toHaveBeenCalledWith(localOwner)
+    expect(fetchFolderWorkspaces).toHaveBeenCalledWith(localOwner)
+    expect(remountTerminalTabForRecovery).toHaveBeenCalledWith('tab-1')
+    clearTerminalTabsParkedOnUnresolvedHost()
+  })
+})
+
 describe('parked terminal recovery on repos:changed', () => {
   it('remounts a pane that parked on an unresolved host once repos hydrate', async () => {
     vi.resetModules()

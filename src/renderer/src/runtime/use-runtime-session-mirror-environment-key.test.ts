@@ -17,6 +17,7 @@ vi.mock('@/lib/runtime-session-mirror-owners', async (importOriginal) => {
 })
 
 import { useAppStore } from '@/store'
+import type { PublicKnownRuntimeEnvironment } from '../../../shared/runtime-environments'
 import type { AppState } from '@/store/types'
 import {
   selectRuntimeSessionMirrorKeyInputs,
@@ -72,7 +73,7 @@ function seedMirrorState(): void {
       runtimeEnvironments: [
         { id: 'env-a', createdAt: 100, pairingRevision: 101 },
         { id: 'env-b', createdAt: 200, pairingRevision: 201 }
-      ] as AppState['runtimeEnvironments'],
+      ] as PublicKnownRuntimeEnvironment[],
       runtimeStatusByEnvironmentId: new Map([
         ['env-a', { status: { runtimeId: 'runtime-a' }, connectionGeneration: 1 }],
         ['env-b', { status: { runtimeId: 'runtime-b' }, connectionGeneration: 2 }]
@@ -230,7 +231,7 @@ describe('useRuntimeSessionMirrorEnvironmentKey', () => {
       useAppStore.setState({
         runtimeEnvironments: [
           { id: 'env-a', createdAt: 100, pairingRevision: 102 }
-        ] as AppState['runtimeEnvironments']
+        ] as PublicKnownRuntimeEnvironment[]
       })
     })
     expect(hook.result.current).toBe(`env-a${SEP}runtime-a${SEP}2${SEP}102`)

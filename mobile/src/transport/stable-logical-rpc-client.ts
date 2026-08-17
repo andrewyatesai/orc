@@ -1,5 +1,6 @@
 import type { ConnectionState, RpcResponse } from './types'
 import type { RpcClient } from './rpc-client'
+import { LogicalClientConnectionPath } from './logical-client-connection-path'
 
 export type MobileConnectionPath = 'lan' | 'tailscale' | 'relay'
 
@@ -34,6 +35,11 @@ export type StableLogicalRpcClient = RpcClient & {
   migrateTo(session: RpcClient, path: MobileConnectionPath, timeoutMs?: number): Promise<void>
   suspendActiveSession(): void
   getActivePath(): MobileConnectionPath
+  // The path the user is waiting on while a scheduled Relay recovery is active —
+  // the still-bound active path can't name it. Null once connected.
+  getPendingPath(): MobileConnectionPath | null
+  setRecoveryPath(path: MobileConnectionPath | null): void
+  onConnectionPathChange(listener: () => void): () => void
   getGeneration(): number
 }
 
@@ -52,6 +58,7 @@ export function createStableLogicalRpcClient(
   const pendingRequests = new Set<PendingRequest>()
   const stateListeners = new Set<(state: ConnectionState) => void>()
   let state = initialSession.getState()
+  const connectionPath = new LogicalClientConnectionPath(() => state === 'connected')
 
   bindActiveState(initialSession, generation)
 
@@ -226,6 +233,7 @@ export function createStableLogicalRpcClient(
       }
       pendingRequests.clear()
       state = nextSession.getState()
+      connectionPath.clearAfterConnected()
       for (const listener of stateListeners) {
         listener(state)
       }
@@ -233,6 +241,11 @@ export function createStableLogicalRpcClient(
     },
 
     getActivePath: () => activePath,
+    // Why: a previous session that recovers mid-recovery makes the pending path a lie —
+    // once we're connected the user is no longer waiting on anything.
+    getPendingPath: () => connectionPath.pending(),
+    setRecoveryPath: (path) => connectionPath.setRecovery(path),
+    onConnectionPathChange: (listener) => connectionPath.subscribe(listener),
     getGeneration: () => generation
   }
 
@@ -268,6 +281,9 @@ export function createStableLogicalRpcClient(
       return
     }
     state = next
+    if (next === 'connected') {
+      connectionPath.clearAfterConnected()
+    }
     for (const listener of stateListeners) {
       listener(next)
     }

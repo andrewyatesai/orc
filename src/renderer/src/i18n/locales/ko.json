@@ -233,7 +233,9 @@
         "workspace": {
           "cleanup": {
             "9d6e531da6": "워크스페이스가 더 이상 존재하지 않습니다.",
-            "changedSinceConfirmation": "확인 후 워크스페이스가 변경되었습니다. 제거하기 전에 새로 고쳐 검토하세요."
+            "changedSinceConfirmation": "확인 후 워크스페이스가 변경되었습니다. 제거하기 전에 새로 고쳐 검토하세요.",
+            "hostCollision": "오류: 이 워크스페이스가 여러 호스트의 동일한 경로에 존재합니다",
+            "hostUnresolved": "Orca가 이 워크스페이스를 소유한 호스트를 확인할 수 없습니다. 프로젝트를 새로 고쳐 다시 검토하세요."
           }
         },
         "worktrees": {
@@ -664,9 +666,7 @@
             "toast": {
               "restartFallbackUnavailableNone": "None of the {{value0}} cookies could be loaded, and the restart fallback was unavailable. The previous cookies for this profile were replaced. Try the import again.",
               "restartFallbackUnavailablePartial": "Imported {{value0}} of {{value1}} cookies. The rest could not be loaded, and the restart fallback was unavailable. Try the import again.",
-              "googleCookiesSkipped": "Google 쿠키를 가져오지 않았습니다. 이 프로필로 Orca에서 브라우저를 연 다음 Google에 로그인하세요.",
-              "googleDirectSignInAction": "Google에 로그인",
-              "googleDirectSignInUnavailable": "브라우저 프로필을 열 수 없습니다. 프로필을 열고 accounts.google.com에서 로그인하세요."
+              "googleCookiesSkipped": "Google 쿠키를 가져오지 않았습니다. {{value0}}에서 이 프로필로 Orca 브라우저를 연 다음 Google에 로그인하세요."
             }
           }
         }

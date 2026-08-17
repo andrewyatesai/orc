@@ -555,6 +555,17 @@ export function useTerminalKeyboardShortcuts({
           // side of that send's macrotask.
           return
         }
+        // Why: a cursor chord (Cmd+←/→, word-delete, …) pressed while a syllable is still
+        // composing reaches the pty from this keydown, ahead of the glyph that commits on
+        // compositionend — `가나다` then Cmd+Left leaves `다가나` (#12871). Enter is handled
+        // above, where a fallback timer is right because a late newline still arrives; a chord
+        // arriving mid-preedit is the corruption itself, so this one waits without a deadline.
+        if (e.isComposing) {
+          sendTerminalInputAfterComposition(pane.terminal.element, sendResolvedInput, {
+            fallbackMs: null
+          })
+          return
+        }
         sendResolvedInput()
         return
       }

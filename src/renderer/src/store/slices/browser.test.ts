@@ -10,6 +10,7 @@ import {
 import { GRAB_BUDGET, type BrowserPageAnnotation } from '../../../../shared/browser-grab-types'
 import { clearRuntimeCompatibilityCacheForTests } from '../../runtime/runtime-rpc-client'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
+import { getExecutionHostLabel } from '../../../../shared/execution-host'
 
 const createWebRuntimeSessionBrowserTabMock = vi.hoisted(() => vi.fn())
 const runtimeEnvironmentCall = vi.fn()
@@ -756,7 +757,10 @@ describe('createBrowserSlice runtime guard', () => {
       })
     })
     const store = createTestStore()
-    store.setState({ browserSessionHostIdOverride: 'runtime:windows-2' })
+    store.setState({
+      browserSessionHostIdOverride: 'runtime:windows-2',
+      runtimeEnvironments: [{ id: 'windows-2', name: 'Windows Server' }] as never
+    })
 
     const importing = store
       .getState()
@@ -775,7 +779,12 @@ describe('createBrowserSlice runtime guard', () => {
       _meta: { runtimeId: 'runtime-windows' }
     })
 
-    await expect(importing).resolves.toMatchObject({ ok: true, profileId: 'windows-profile' })
+    await expect(importing).resolves.toMatchObject({
+      ok: true,
+      profileId: 'windows-profile',
+      executionHostId: 'runtime:windows-2',
+      executionHostLabel: 'Windows Server'
+    })
     expect(store.getState().browserSessionHostIdOverride).toBe('runtime:linux-3')
     expect(store.getState().browserSessionImportState).toBeNull()
     expect(runtimeEnvironmentCall.mock.calls).toHaveLength(callsBeforeCompletion)
@@ -1061,10 +1070,48 @@ describe('createBrowserSlice runtime guard', () => {
     const result = await store.getState().importCookiesToProfile('default')
 
     expect(mockApi.browser.sessionImportCookies).not.toHaveBeenCalled()
-    expect(result.ok).toBe(false)
+    expect(result).toMatchObject({
+      ok: false,
+      executionHostId: 'runtime:env-1',
+      executionHostLabel: 'env-1'
+    })
     expect(store.getState().browserSessionImportState).toMatchObject({
       profileId: 'default',
       status: 'error'
+    })
+  })
+
+  it('retains the host display label used by browser settings', async () => {
+    const store = createTestStore()
+    store.setState({
+      settings: {
+        ...settingsWithRuntime('env-1'),
+        hostSettingOverrides: {
+          'runtime:env-1': { displayLabel: 'Production Browser Host' }
+        }
+      } as AppState['settings'],
+      runtimeEnvironments: [{ id: 'env-1', name: 'Remote Mac' }] as never
+    })
+
+    const result = await store.getState().importCookiesToProfile('default')
+
+    expect(result.executionHostLabel).toBe('Production Browser Host')
+  })
+
+  it('retains the local execution host for a successful browser import', async () => {
+    mockApi.browser.sessionImportFromBrowser.mockResolvedValueOnce({
+      ok: true,
+      profileId: 'default',
+      summary: { totalCookies: 2, importedCookies: 2, skippedCookies: 0, domains: [] }
+    })
+    const store = createTestStore()
+
+    const result = await store.getState().importCookiesFromBrowser('default', 'chrome', 'Default')
+
+    expect(result).toMatchObject({
+      ok: true,
+      executionHostId: 'local',
+      executionHostLabel: getExecutionHostLabel('local')
     })
   })
 

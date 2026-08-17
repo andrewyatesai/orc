@@ -58,6 +58,7 @@ import {
 import { useHostClient, useForceReconnect } from '../../../../src/transport/client-context'
 import {
   useLastConnectedAt,
+  usePendingConnectionPath,
   useReconnectAttempt
 } from '../../../../src/transport/client-context-connection-metrics'
 import {
@@ -720,6 +721,7 @@ export default function SessionScreen() {
   const { client, state: connState } = useHostClient(hostId)
   const reconnectAttempts = useReconnectAttempt(hostId)
   const lastConnectedAt = useLastConnectedAt(hostId)
+  const pendingConnectionPath = usePendingConnectionPath(hostId)
   const forceReconnectHost = useForceReconnect()
   // Why: also bounces the route to the host index if the host proves this worktree is gone.
   const worktreeName = useSessionWorktreeName({
@@ -4154,7 +4156,8 @@ export default function SessionScreen() {
     state: connState,
     reconnectAttempts,
     lastConnectedAt,
-    endpoint: hostEndpoint
+    endpoint: hostEndpoint,
+    pendingPath: pendingConnectionPath
   })
   const showConnectionRetry =
     connectionVerdict.kind === 'warning' || connectionVerdict.kind === 'unreachable'

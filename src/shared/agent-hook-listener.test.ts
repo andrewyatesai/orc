@@ -819,6 +819,41 @@ describe('shared agent-hook-listener', () => {
     expect(tool?.payload.interactivePrompt).toBeUndefined()
   })
 
+  it('maps OMP ask to blocked without publishing a native prompt', () => {
+    // Why: OMP's `ask` parks on the user's answer (blocked sidebar row), but unlike Pi it must not
+    // emit interactivePrompt so no native ask card renders over the terminal.
+    const tool = normalizeHookPayload(
+      state,
+      'omp',
+      {
+        paneKey: PANE_KEY,
+        tabId: 'tab-1',
+        worktreeId: 'wt',
+        env: 'production',
+        version: '1',
+        payload: {
+          hook_event_name: 'tool_execution_start',
+          tool_name: 'ask',
+          tool_input: {
+            questions: [
+              {
+                question: 'Choose',
+                options: ['x', 'y']
+              }
+            ]
+          }
+        }
+      },
+      'production'
+    )
+    expect(tool?.payload).toMatchObject({
+      state: 'blocked',
+      agentType: 'omp',
+      toolName: 'ask'
+    })
+    expect(tool?.payload.interactivePrompt).toBeUndefined()
+  })
+
   it('captures Pi session ids on Pi-compatible status events', () => {
     const event = normalizeHookPayload(
       state,

@@ -38,6 +38,7 @@ import {
   POST_REPLAY_LIVE_AGENT_REATTACH_RESET,
   POST_REPLAY_MODE_RESET,
   replayPayloadEndsWithCursorHidden,
+  RESET_GRAPHIC_RENDITION,
   RESET_KITTY_KEYBOARD_PROTOCOL,
   RESET_TERMINAL_CURSOR_STYLE,
   restorePaneFontSizes,
@@ -458,10 +459,48 @@ describe('restoreScrollbackBuffers', () => {
       restoredViewportBlankingPanesRef
     )
 
-    expect(writes).toEqual(['restored output', '\r\n', POST_REPLAY_MODE_RESET])
+    // Pen grounded on both ends: a captured mid-run pen must not style the restored cells, and the grounded newline avoids a background-color erase from that pen.
+    expect(writes).toEqual([
+      `${RESET_GRAPHIC_RENDITION}restored output${RESET_GRAPHIC_RENDITION}\r\n`,
+      POST_REPLAY_MODE_RESET
+    ])
     expect(manager.hasWebglRenderer).toHaveBeenCalledWith(1)
     expect(restoredViewportBlankingPanesRef.current.has(1)).toBe(true)
     expect(replayingPanesRef.current.size).toBe(0)
+  })
+
+  it('brackets an unclosed SGR run so the captured pen cannot latch onto the fresh shell (STA-4042)', () => {
+    const writes: string[] = []
+    const pane = {
+      id: 1,
+      terminal: {
+        write: vi.fn((data: string, callback?: () => void) => {
+          writes.push(data)
+          callback?.()
+        })
+      }
+    }
+    const manager = {
+      getPanes: vi.fn(() => [pane]),
+      hasWebglRenderer: vi.fn(() => true)
+    }
+
+    // A dead run whose bold (\x1b[1m) was never closed: without grounding it
+    // would style the fresh shell prompt that drains after the restored rows.
+    restoreScrollbackBuffers(
+      manager as unknown as Parameters<typeof restoreScrollbackBuffers>[0],
+      { [LEAF_1]: '\x1b[1mBOLD-RUN-LEFT-OPEN' },
+      new Map([[LEAF_1, 1]]),
+      { current: new Map<number, number>() }
+    )
+
+    const bufferWrite = writes[0]
+    expect(bufferWrite.startsWith(RESET_GRAPHIC_RENDITION)).toBe(true)
+    // Grounded again after the run AND before the newline scrolls, so neither
+    // the pen nor a background-color erase survives into the fresh shell.
+    expect(bufferWrite.endsWith(`${RESET_GRAPHIC_RENDITION}\r\n`)).toBe(true)
+    // POST_REPLAY_MODE_RESET (itself grounded) still trails the buffer write.
+    expect(writes.at(-1)).toBe(POST_REPLAY_MODE_RESET)
   })
 })
 

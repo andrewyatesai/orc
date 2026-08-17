@@ -4,7 +4,8 @@ import type { RpcClient } from './rpc-client'
 import { isRpcDeliveryUnknown, markRpcDeliveryUnknown } from './rpc-delivery-ambiguity'
 import {
   createStableLogicalRpcClient,
-  LogicalClientCutoverError
+  LogicalClientCutoverError,
+  type MobileConnectionPath
 } from './stable-logical-rpc-client'
 
 class FakeSession implements RpcClient {
@@ -214,5 +215,31 @@ describe('stable logical RPC client', () => {
     expect(oldSession.close).not.toHaveBeenCalled()
     expect(client.getActivePath()).toBe('lan')
     expect(client.getGeneration()).toBe(1)
+  })
+
+  it('publishes recovery-path changes and keeps Relay pending until cleared', () => {
+    const session = new FakeSession('reconnecting')
+    const client = createStableLogicalRpcClient(session, 'tailscale')
+    const paths: (MobileConnectionPath | null)[] = []
+    client.onConnectionPathChange(() => paths.push(client.getPendingPath()))
+
+    client.setRecoveryPath('relay')
+    expect(client.getPendingPath()).toBe('relay')
+    expect(paths).toEqual(['relay'])
+
+    client.setRecoveryPath(null)
+    expect(client.getPendingPath()).toBeNull()
+    expect(paths).toEqual(['relay', null])
+  })
+
+  it('does not revive a stale recovery path after a connection later drops', () => {
+    const session = new FakeSession('reconnecting')
+    const client = createStableLogicalRpcClient(session, 'tailscale')
+
+    client.setRecoveryPath('relay')
+    session.setState('connected')
+    session.setState('reconnecting')
+
+    expect(client.getPendingPath()).toBeNull()
   })
 })

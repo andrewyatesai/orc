@@ -7974,9 +7974,13 @@ describe('connectPanePty', () => {
     connectPanePty(pane as never, manager as never, deps as never)
     await flushAsyncTicks(20)
 
-    expect(pane.terminal.write).toHaveBeenCalledWith('\x1b[2J\x1b[3J\x1b[H', expect.any(Function))
+    // Clear and dead/normal-buffer snapshot body are both SGR-grounded (STA-4042).
     expect(pane.terminal.write).toHaveBeenCalledWith(
-      '\x1b[?1004hrestored snapshot',
+      '\x1b[0m\x1b[2J\x1b[3J\x1b[H',
+      expect.any(Function)
+    )
+    expect(pane.terminal.write).toHaveBeenCalledWith(
+      '\x1b[0m\x1b[?1004hrestored snapshot',
       expect.any(Function)
     )
     expect(pane.terminal.write).toHaveBeenCalledWith(
@@ -8070,7 +8074,8 @@ describe('connectPanePty', () => {
       }
     )
     const snapshotWriteCall = pane.terminal.write.mock.invocationCallOrder.find(
-      (_order, index) => pane.terminal.write.mock.calls[index][0] === '\x1b[?1004hrestored snapshot'
+      (_order, index) =>
+        pane.terminal.write.mock.calls[index][0] === '\x1b[0m\x1b[?1004hrestored snapshot'
     )
     expect(resizeToSnapshotCall).toBeDefined()
     expect(snapshotWriteCall).toBeDefined()
@@ -8898,7 +8903,8 @@ describe('connectPanePty', () => {
     connectPanePty(pane as never, manager as never, deps as never)
     await flushAsyncTicks(20)
 
-    expect(pane.terminal.write).toHaveBeenCalledWith('snapshot-payload', expect.any(Function))
+    // Dead/normal-buffer snapshot body is SGR-grounded (STA-4042).
+    expect(pane.terminal.write).toHaveBeenCalledWith('\x1b[0msnapshot-payload', expect.any(Function))
     expect(pane.terminal.write).not.toHaveBeenCalledWith('replay-payload', expect.any(Function))
   })
 
@@ -8933,7 +8939,8 @@ describe('connectPanePty', () => {
     connectPanePty(pane as never, manager as never, deps as never)
     await flushAsyncTicks(20)
 
-    expect(pane.terminal.write).toHaveBeenCalledWith('replay-payload', expect.any(Function))
+    // The relay body is SGR-grounded because a cold-restore fallback is present (dead run); STA-4042.
+    expect(pane.terminal.write).toHaveBeenCalledWith('\x1b[0mreplay-payload', expect.any(Function))
     expect(pane.terminal.write).not.toHaveBeenCalledWith('cold-payload', expect.any(Function))
     // Why: the replay branch supersedes cold-restore but must still ack, or the daemon redelivers the cold-restore payload next reattach.
     expect(window.api.pty.ackColdRestore).toHaveBeenCalledWith('tab-pty')
@@ -9005,7 +9012,9 @@ describe('connectPanePty', () => {
     const recoveredCols = 20
     const recoveredRows = 3
     const coldScrollback = '\x1b[1;1HCOLD\x1b[1;15HEND\r\nCOLD_SOURCE_ROW_02'
-    const viewportClear = '\x1b[2J\x1b[H'
+    // The viewport clear and the recovered scrollback are both SGR-grounded (STA-4042) so a dead run's stale pen can't erase the cleared cells to a color or style the fresh shell.
+    const viewportClear = '\x1b[0m\x1b[2J\x1b[H'
+    const groundedColdScrollback = `\x1b[0m${coldScrollback}`
     transport.connect.mockImplementation(async ({ sessionId }: { sessionId?: string }) => {
       if (sessionId) {
         return {
@@ -9066,7 +9075,7 @@ describe('connectPanePty', () => {
     await flushAsyncTicks(20)
     expect(preResizeBarrier.release).not.toBeNull()
     expect(pane.terminal.resize).not.toHaveBeenCalledWith(recoveredCols, recoveredRows)
-    expect(written).not.toContain(coldScrollback)
+    expect(written).not.toContain(groundedColdScrollback)
 
     preResizeBarrier.release?.()
     await flushAsyncTicks(20)
@@ -9081,10 +9090,10 @@ describe('connectPanePty', () => {
     expect(written).toContain(viewportClear)
     expect(written).not.toContain(`${RESET_AFTER_BYTE_GAP}\x1b[2J\x1b[3J\x1b[H`)
     expect(written).toEqual(
-      expect.arrayContaining([coldScrollback, POST_REPLAY_MODE_RESET, blankViewport])
+      expect.arrayContaining([groundedColdScrollback, POST_REPLAY_MODE_RESET, blankViewport])
     )
-    expect(written.indexOf(viewportClear)).toBeLessThan(written.indexOf(coldScrollback))
-    expect(written.indexOf(coldScrollback)).toBeLessThan(written.indexOf(blankViewport))
+    expect(written.indexOf(viewportClear)).toBeLessThan(written.indexOf(groundedColdScrollback))
+    expect(written.indexOf(groundedColdScrollback)).toBeLessThan(written.indexOf(blankViewport))
     const viewportClearOperation = operations.findIndex(
       (operation) => operation.kind === 'write' && operation.data === viewportClear
     )
@@ -9102,7 +9111,7 @@ describe('connectPanePty', () => {
     // stream: the dirty-viewport clear may only precede the restored rows —
     // from the cold scrollback onward no chunk may erase them, and the blanking
     // scrolls one CRLF per viewport row then homes the cursor.
-    expectWritesPreserveScrollback(written.slice(written.indexOf(coldScrollback)))
+    expectWritesPreserveScrollback(written.slice(written.indexOf(groundedColdScrollback)))
     expect(blankViewport.split('\r\n').length - 1).toBe(destinationRows)
     expect(blankViewport.endsWith('\x1b[H')).toBe(true)
   })
@@ -9159,7 +9168,8 @@ describe('connectPanePty', () => {
     await flushAsyncTicks(20)
     await new Promise((resolve) => setTimeout(resolve, 70))
 
-    expect(pane.terminal.write).toHaveBeenCalledWith('cold-payload', expect.any(Function))
+    // Grounded: a dead run's cold-restore scrollback is SGR-grounded so its stale pen can't style the fresh shell (STA-4042).
+    expect(pane.terminal.write).toHaveBeenCalledWith('\x1b[0mcold-payload', expect.any(Function))
     expect(pane.terminal.write).not.toHaveBeenCalledWith(
       expect.stringContaining('--- session restored ---'),
       expect.any(Function)
@@ -9250,7 +9260,8 @@ describe('connectPanePty', () => {
     await flushAsyncTicks(20)
     await new Promise((resolve) => setTimeout(resolve, 70))
 
-    expect(pane.terminal.write).toHaveBeenCalledWith('cold-payload', expect.any(Function))
+    // Grounded: a dead run's cold-restore scrollback is SGR-grounded so its stale pen can't style the fresh shell (STA-4042).
+    expect(pane.terminal.write).toHaveBeenCalledWith('\x1b[0mcold-payload', expect.any(Function))
     expect(transport.sendInput).not.toHaveBeenCalled()
     expect(transport.connect).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -9325,7 +9336,8 @@ describe('connectPanePty', () => {
     await flushAsyncTicks(20)
     await new Promise((resolve) => setTimeout(resolve, 70))
 
-    expect(pane.terminal.write).toHaveBeenCalledWith('cold-payload', expect.any(Function))
+    // Grounded: a dead run's cold-restore scrollback is SGR-grounded so its stale pen can't style the fresh shell (STA-4042).
+    expect(pane.terminal.write).toHaveBeenCalledWith('\x1b[0mcold-payload', expect.any(Function))
     expect(pane.terminal.write).not.toHaveBeenCalledWith(
       expect.stringContaining('--- session restored ---'),
       expect.any(Function)
@@ -9448,7 +9460,8 @@ describe('connectPanePty', () => {
     await flushAsyncTicks(20)
     await new Promise((resolve) => setTimeout(resolve, 70))
 
-    expect(pane.terminal.write).toHaveBeenCalledWith('cold-payload', expect.any(Function))
+    // Grounded: a dead run's cold-restore scrollback is SGR-grounded so its stale pen can't style the fresh shell (STA-4042).
+    expect(pane.terminal.write).toHaveBeenCalledWith('\x1b[0mcold-payload', expect.any(Function))
     expect(deps.onShowSessionRestoredBanner).toHaveBeenCalledTimes(1)
     expect(deps.onShowSessionRestoredBanner).toHaveBeenCalledWith(1, 'restored', {
       lastCommand: 'npm run dev'
@@ -9491,7 +9504,8 @@ describe('connectPanePty', () => {
     await flushAsyncTicks(20)
     await new Promise((resolve) => setTimeout(resolve, 70))
 
-    expect(pane.terminal.write).toHaveBeenCalledWith('cold-payload', expect.any(Function))
+    // Grounded: a dead run's cold-restore scrollback is SGR-grounded so its stale pen can't style the fresh shell (STA-4042).
+    expect(pane.terminal.write).toHaveBeenCalledWith('\x1b[0mcold-payload', expect.any(Function))
     expect(deps.onShowSessionRestoredBanner).not.toHaveBeenCalled()
   })
 
@@ -9613,7 +9627,8 @@ describe('connectPanePty', () => {
     await flushAsyncTicks(20)
     await new Promise((resolve) => setTimeout(resolve, 70))
 
-    expect(pane.terminal.write).toHaveBeenCalledWith('cold-payload', expect.any(Function))
+    // Grounded: a dead run's cold-restore scrollback is SGR-grounded so its stale pen can't style the fresh shell (STA-4042).
+    expect(pane.terminal.write).toHaveBeenCalledWith('\x1b[0mcold-payload', expect.any(Function))
     expect(deps.onShowSessionRestoredBanner).toHaveBeenCalledWith(1, 'restored')
     expect(transport.sendInput).not.toHaveBeenCalled()
     expect(transport.connect).toHaveBeenCalledWith(
@@ -9690,7 +9705,8 @@ describe('connectPanePty', () => {
     await flushAsyncTicks(20)
     await new Promise((resolve) => setTimeout(resolve, 70))
 
-    expect(pane.terminal.write).toHaveBeenCalledWith('cold-payload', expect.any(Function))
+    // Grounded: a dead run's cold-restore scrollback is SGR-grounded so its stale pen can't style the fresh shell (STA-4042).
+    expect(pane.terminal.write).toHaveBeenCalledWith('\x1b[0mcold-payload', expect.any(Function))
     expect(deps.onShowSessionRestoredBanner).not.toHaveBeenCalled()
     expect(transport.connect).not.toHaveBeenCalledWith(
       expect.objectContaining({ command: expect.stringContaining('resume') })
@@ -10573,7 +10589,8 @@ describe('connectPanePty', () => {
     connectPanePty(pane as never, createManager(1) as never, deps as never)
     await flushAsyncTicks(20)
 
-    const snapshotIndex = writes.indexOf('authoritative-snapshot')
+    // Grounded: a normal-buffer daemon snapshot is SGR-grounded so its stale pen can't style the fresh shell (STA-4042).
+    const snapshotIndex = writes.indexOf('\x1b[0mauthoritative-snapshot')
     expect(snapshotIndex).toBeGreaterThanOrEqual(0)
     expect(writes).not.toContain('post-snapshot-live')
     while (parseCallbacks.length > 0) {
@@ -11736,6 +11753,87 @@ describe('connectPanePty', () => {
         dataCallback('BELOW-WINDOW', { seq: 60, rawLength: 12 })
         await flushAsyncTicks(8)
         expect(writtenData(pane)).toContain('BELOW-WINDOW')
+      })
+    })
+
+    // Why this exists (#14749): the hidden-output restore task tracked its in-flight
+    // work with a `.finally` that re-armed the restore. The task body is
+    // `while (!disposed)`, so after dispose it exits immediately, the handler runs at
+    // once and re-arms again — an unbounded self-feeding promise chain that consumed
+    // ~4GB in ~12s and starved the microtask queue. The guard now returns early when
+    // disposed. This drives the restore into its armed, in-flight state, disposes the
+    // pane, and counts how many times the chain re-reads isVisibleRef afterwards.
+    describe('post-dispose restore termination', () => {
+      it('stops re-arming the hidden output restore once the pane binding is disposed', async () => {
+        enableMainAuthority()
+
+        // A counting getter: the re-arm reads isVisibleRef.current on every cycle, so
+        // the read delta is a direct, deterministic measure of how many times the
+        // chain looped — no timing or memory heuristics needed.
+        let visibilityReads = 0
+        let visible = true
+        const isVisibleRef = {
+          get current() {
+            visibilityReads += 1
+            return visible
+          },
+          set current(next: boolean) {
+            visible = next
+          }
+        }
+        const deps = createDeps({ isVisibleRef })
+        const { dataCallback, binding } = await connectHiddenPane(deps)
+        const transportOptions = createdTransportOptions.at(-1) as {
+          onPtySpawn?: (ptyId: string) => void
+        }
+        transportOptions.onPtySpawn?.('pty-id')
+
+        const getMainBufferSnapshot = window.api.pty.getMainBufferSnapshot as unknown as ReturnType<
+          typeof vi.fn
+        >
+        // Park the first fetch in flight so a restore is armed and awaiting at dispose;
+        // later re-arms (the bug) would resolve instantly against the fallback value.
+        const inFlightSnapshot = createDeferred<{
+          data: string
+          cols: number
+          rows: number
+          seq: number
+        }>()
+        getMainBufferSnapshot
+          .mockReturnValueOnce(inFlightSnapshot.promise)
+          .mockResolvedValue({ data: 'late snapshot\r\n', cols: 100, rows: 30, seq: 64 })
+
+        const { _dispatchPtyModelRestoreNeededForTest } =
+          await import('./pty-model-restore-channel')
+        _dispatchPtyModelRestoreNeededForTest({
+          id: 'pty-id',
+          reason: 'pending-cap',
+          markerSeq: 64
+        })
+        await flushAsyncTicks(4)
+        expect(getMainBufferSnapshot).toHaveBeenCalledTimes(1)
+
+        // Overflow the pending-live queue while the snapshot is in flight so the
+        // finally handler re-latches restore-needed after the task exits (512KB cap).
+        const flood = 'z'.repeat(512 * 1024 + 1)
+        dataCallback(flood, { seq: 512 * 1024 + 1 + 64, rawLength: 512 * 1024 + 1 })
+        await flushAsyncTicks(4)
+
+        binding.dispose()
+        const readsAtDispose = visibilityReads
+        // Let the parked restore observe dispose and exit its `while (!disposed)` body.
+        inFlightSnapshot.resolve({ data: 'late snapshot\r\n', cols: 100, rows: 30, seq: 64 })
+        try {
+          await flushAsyncTicks(200)
+          // A terminated chain settles in a handful of turns; the self-feeding loop
+          // grew once per microtask turn and would blow past this by orders of magnitude.
+          expect(visibilityReads - readsAtDispose).toBeLessThan(50)
+        } finally {
+          // Safety: if the guard ever regresses, drop foreground so the detached re-arm
+          // chain stops on its next cycle instead of spinning into the next test.
+          visible = false
+          await flushAsyncTicks(8)
+        }
       })
     })
   })
@@ -20177,7 +20275,8 @@ describe('connectPanePty', () => {
     expect(deps.syncPanePtyLayoutBinding).toHaveBeenCalledWith(1, 'leaf-session')
     expect(deps.updateTabPtyId).toHaveBeenCalledWith('tab-1', 'leaf-session')
     // Why: the relay's replay buffer holds full history, so clear xterm before writing to avoid duplicating prior-session content.
-    expect(writes).toContain('\x1b[2J\x1b[3J\x1b[H')
+    // Grounded: the clear is SGR-grounded so a stale bg pen can't erase the cleared cells to a color (STA-4042).
+    expect(writes).toContain('\x1b[0m\x1b[2J\x1b[3J\x1b[H')
     expect(writes).toContain('restored-ssh-output')
     expect(writes).toContain(POST_REPLAY_REATTACH_RESET)
     expect(api.pty.signal).toHaveBeenCalledWith('leaf-session', 'SIGWINCH')

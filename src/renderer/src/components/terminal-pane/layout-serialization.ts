@@ -30,17 +30,22 @@ export const EMPTY_LAYOUT: TerminalLayoutSnapshot = {
 // Why: SerializeAddon replays mode bits assuming reattach to a live TUI, but Orca restores against a fresh shell with none, so stale bits (e.g. focus reporting rings the bell on click) must be reset.
 export const RESET_TERMINAL_CURSOR_STYLE = '\x1b[0 q'
 export const RESET_KITTY_KEYBOARD_PROTOCOL = '\x1b[<99u\x1b[=0u'
+// Why: abandoned byte-gap replay drains live chunks, so a dropped intensity reset must not style them (STA-4042). Also grounds background-color erase — a stale bg pen would otherwise paint the cells a following \x1b[2J clears.
+export const RESET_GRAPHIC_RENDITION = '\x1b[0m'
+// Last so a dead process cannot leave stale attributes in the DECSC register a live TUI's \x1b8 would restore.
+const SAVE_GROUNDED_CURSOR = '\x1b7'
 // Every mouse mode the daemon can re-arm from a snapshot: protocols 9/1000/1002/1003 + SGR encodings 1006/1016.
 export const RESET_MOUSE_REPORTING =
   '\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1016l'
 
-export const POST_REPLAY_MODE_RESET = `${RESET_TERMINAL_CURSOR_STYLE}${RESET_KITTY_KEYBOARD_PROTOCOL}\x1b[?25h${RESET_MOUSE_REPORTING}\x1b[?1004l\x1b[?2004l`
+// Why grounded: a serialized pane can end mid-pen, but the following fresh shell assumes default attributes.
+export const POST_REPLAY_MODE_RESET = `${RESET_GRAPHIC_RENDITION}${RESET_TERMINAL_CURSOR_STYLE}${RESET_KITTY_KEYBOARD_PROTOCOL}\x1b[?25h${RESET_MOUSE_REPORTING}\x1b[?1004l\x1b[?2004l${SAVE_GROUNDED_CURSOR}`
 
-// Why: same-session live replay; keep cursor/focus cleanup but preserve Kitty flags the running TUI relies on.
+// Why: same-session live replay; keep cursor/focus cleanup but preserve Kitty flags AND the pen the running TUI relies on.
 export const POST_REPLAY_LIVE_SNAPSHOT_RESET = `${RESET_TERMINAL_CURSOR_STYLE}\x1b[?25h\x1b[?1004l`
 
-// Why: daemon reattach hits a live session, so skip the full reset; still clear cursor/focus/mouse/Kitty bits harmful to a plain shell after a bad TUI exit — safe for live TUIs since the post-reattach SIGWINCH repaints the cursor.
-export const POST_REPLAY_REATTACH_RESET = `${RESET_TERMINAL_CURSOR_STYLE}${RESET_KITTY_KEYBOARD_PROTOCOL}\x1b[?25h${RESET_MOUSE_REPORTING}\x1b[?1004l`
+// Why: the normal-buffer reattach fallback can follow a dead TUI, so its stale pen and saved pen must not reach the surviving shell; still clear cursor/focus/mouse/Kitty bits harmful to a plain shell after a bad TUI exit.
+export const POST_REPLAY_REATTACH_RESET = `${RESET_GRAPHIC_RENDITION}${RESET_TERMINAL_CURSOR_STYLE}${RESET_KITTY_KEYBOARD_PROTOCOL}\x1b[?25h${RESET_MOUSE_REPORTING}\x1b[?1004l${SAVE_GROUNDED_CURSOR}`
 
 // Why: an alt-screen reattach replays the daemon's rehydrate sequences, which re-arm the live TUI's mouse modes; wiping them one write later hands drags back to xterm's row selection (#8291). Normal-buffer panes keep RESET_MOUSE_REPORTING so a dead TUI's stale modes never reach a shell (#7893).
 export const POST_REPLAY_REATTACH_RESET_KEEP_MOUSE = `${RESET_TERMINAL_CURSOR_STYLE}${RESET_KITTY_KEYBOARD_PROTOCOL}\x1b[?25h\x1b[?1004l`
@@ -63,11 +68,6 @@ export function buildPostReplayLiveAgentReattachReset(payload: string): string {
 
 // Why: a live agent owns cursor/focus here; forcing ?25h/?1004l breaks a parked agent that only arms ?1004h at startup.
 export const POST_REPLAY_LIVE_AGENT_SNAPSHOT_RESET = RESET_TERMINAL_CURSOR_STYLE
-
-// Why separate from the profiles above: those clear DEC *mode* bits and none touches SGR. A recovery path that
-// declares renderer-bound bytes unrecoverable has by definition lost whatever turned the pen on, so a dropped
-// `ESC[22m` would leave bold applied to everything written after (STA-4042).
-export const RESET_GRAPHIC_RENDITION = '\x1b[0m'
 
 // State to re-establish when renderer-bound bytes were dropped and the gap can't be replayed away.
 // Scoped to the pen on purpose: a gap can also strand a charset designation, an open OSC 8 link, or a partial
@@ -295,9 +295,13 @@ export function restoreScrollbackBuffers(
       const buf = trimTrailingAltScreenEnter(buffer)
       if (buf.length > 0) {
         // replayIntoTerminal: buffer queries (DA1/DECRQM/CPR) would auto-reply into the new shell's stdin. See replay-guard.ts.
-        replayIntoTerminal(pane, replayingPanesRef, buf, renderOptions)
-        // Newline first so the new shell prompt doesn't trigger zsh's PROMPT_EOL_MARK (%) indicator.
-        replayIntoTerminal(pane, replayingPanesRef, '\r\n', renderOptions)
+        // Ground the pen on both ends: a captured mid-run pen must not style the cells, and the grounded newline avoids both zsh's PROMPT_EOL_MARK (%) and a background-color erase from the captured pen.
+        replayIntoTerminal(
+          pane,
+          replayingPanesRef,
+          `${RESET_GRAPHIC_RENDITION}${buf}${RESET_GRAPHIC_RENDITION}\r\n`,
+          renderOptions
+        )
         // Clear mode bits the buffer replayed: the fresh shell has no TUI to consume them. See POST_REPLAY_MODE_RESET.
         replayIntoTerminal(pane, replayingPanesRef, POST_REPLAY_MODE_RESET, renderOptions)
         // Why: connection resolution runs after layout replay; only fresh-shell paths move these rows into scrollback.

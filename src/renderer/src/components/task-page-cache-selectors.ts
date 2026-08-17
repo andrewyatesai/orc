@@ -33,7 +33,7 @@ export type TaskPageWorkItemsFetchOptions = {
   noCache: boolean
 }
 
-type WorkItemsCache = Record<string, CacheEntry<GitHubWorkItem[]>>
+type WorkItemsCache = Record<string, CacheEntry<readonly GitHubWorkItem[]>>
 type LinearIssueCache = Record<string, CacheEntry<LinearIssue>>
 type LinearSearchCache = Record<string, CacheEntry<LinearIssue[]>>
 type LinearListCache = Record<string, CacheEntry<LinearCollectionResult<LinearIssue>>>
@@ -54,7 +54,7 @@ export function selectTaskPageWorkItemsCacheEntries(
   repos: readonly TaskPageRepoCacheInput[],
   limit: number,
   query: string
-): (CacheEntry<GitHubWorkItem[]> | undefined)[] {
+): (CacheEntry<readonly GitHubWorkItem[]> | undefined)[] {
   return repos.map(
     (repo) =>
       workItemsCache[
@@ -65,7 +65,7 @@ export function selectTaskPageWorkItemsCacheEntries(
 
 export function buildTaskPageRepoSourceState(
   repos: readonly TaskPageRepoCacheInput[],
-  entries: readonly (CacheEntry<GitHubWorkItem[]> | undefined)[]
+  entries: readonly (CacheEntry<readonly GitHubWorkItem[]> | undefined)[]
 ): TaskPageRepoSourceState[] {
   return repos.map((repo, index) => {
     const entry = entries[index]
@@ -119,7 +119,7 @@ function taskPageWorkItemCacheKey(item: GitHubWorkItem): string {
 
 export function reconcileTaskPagePagesWithWorkItemsCache(
   pages: TaskPageWorkItemPages,
-  entries: readonly (CacheEntry<GitHubWorkItem[]> | undefined)[]
+  entries: readonly (CacheEntry<readonly GitHubWorkItem[]> | undefined)[]
 ): (GitHubWorkItem[] | null)[] {
   const cachedItems = new Map<string, GitHubWorkItem>()
   for (const entry of entries) {

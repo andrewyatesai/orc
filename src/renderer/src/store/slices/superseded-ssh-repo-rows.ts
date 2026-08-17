@@ -4,7 +4,8 @@ import { getRepoExecutionHostId, toSshExecutionHostId } from '../../../../shared
 
 export type SshRepoReconciliation = {
   repos: Repo[]
-  pendingReadoptions: SshRepoReadoption[]
+  // Readonly so a reused pending queue can't be mutated after a no-op catalog reconcile.
+  pendingReadoptions: readonly SshRepoReadoption[]
 }
 
 function repoBelongsToTarget(repo: Repo, targetId: string): boolean {
@@ -69,7 +70,7 @@ export function reconcileReadoptedSshRepoRows(
 export function mergeSshRepoReadoptions(
   pending: readonly SshRepoReadoption[],
   incoming: readonly SshRepoReadoption[]
-): SshRepoReadoption[] {
+): readonly SshRepoReadoption[] {
   const repoIdsByMigration = new Map<string, Set<string>>()
   for (const readoption of [...pending, ...incoming]) {
     const key = `${readoption.oldTargetId}\0${readoption.newTargetId}`

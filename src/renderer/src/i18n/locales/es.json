@@ -233,7 +233,9 @@
         "workspace": {
           "cleanup": {
             "9d6e531da6": "El espacio de trabajo ya no existe.",
-            "changedSinceConfirmation": "El espacio de trabajo cambió después de la confirmación. Actualiza para revisarlo antes de eliminarlo."
+            "changedSinceConfirmation": "El espacio de trabajo cambió después de la confirmación. Actualiza para revisarlo antes de eliminarlo.",
+            "hostCollision": "Error: este espacio de trabajo existe en varios hosts en la misma ruta",
+            "hostUnresolved": "Orca no puede determinar qué host es el propietario de este espacio de trabajo. Actualiza los proyectos y revísalo de nuevo."
           }
         },
         "worktrees": {
@@ -664,9 +666,7 @@
             "toast": {
               "restartFallbackUnavailableNone": "None of the {{value0}} cookies could be loaded, and the restart fallback was unavailable. The previous cookies for this profile were replaced. Try the import again.",
               "restartFallbackUnavailablePartial": "Imported {{value0}} of {{value1}} cookies. The rest could not be loaded, and the restart fallback was unavailable. Try the import again.",
-              "googleCookiesSkipped": "Las cookies de Google no se importaron. Abre un navegador en Orca con este perfil e inicia sesión en Google.",
-              "googleDirectSignInAction": "Iniciar sesión en Google",
-              "googleDirectSignInUnavailable": "No se pudo abrir el perfil del navegador. Ábrelo e inicia sesión en accounts.google.com."
+              "googleCookiesSkipped": "Las cookies de Google no se importaron. Abre un navegador en Orca en {{value0}} con este perfil e inicia sesión en Google."
             }
           }
         }

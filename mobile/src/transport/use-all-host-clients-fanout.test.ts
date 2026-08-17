@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ConnectionState } from './types'
 import type { HostProfile } from './types'
 import type { RpcClient } from './rpc-client'
+import type { MobileConnectionPath } from './stable-logical-rpc-client'
 
 const connectMock = vi.fn()
 const loadHostsMock = vi.fn()
@@ -131,6 +132,79 @@ describe('useAllHostClients auto-connect fanout', () => {
 
     const openedHostIds = connectMock.mock.calls.map((call) => (call[0] as HostProfile).id).sort()
     expect(openedHostIds).toEqual(['a', 'b'])
+
+    act(() => {
+      renderer?.unmount()
+    })
+  })
+})
+
+// A client whose recovery path can change without a transport-state change —
+// the seam that lets a scheduled Relay recovery surface "Connecting via Relay…".
+type PathAwareClient = RpcClient & {
+  emitPendingPath: (path: MobileConnectionPath | null) => void
+}
+
+function makePathAwareClient(state: ConnectionState): PathAwareClient {
+  let pendingPath: MobileConnectionPath | null = null
+  const pathListeners = new Set<() => void>()
+  return {
+    sendRequest: vi.fn(),
+    subscribe: vi.fn(() => () => {}),
+    updateTerminalSubscriptionViewport: vi.fn(),
+    getState: () => state,
+    getReconnectAttempt: () => 0,
+    getLastConnectedAt: () => null,
+    getActivePath: () => 'tailscale',
+    getPendingPath: () => pendingPath,
+    onConnectionPathChange: (listener: () => void) => {
+      pathListeners.add(listener)
+      return () => pathListeners.delete(listener)
+    },
+    onStateChange: () => () => {},
+    notifyForeground: vi.fn(),
+    close: vi.fn(),
+    emitPendingPath: (next: MobileConnectionPath | null) => {
+      pendingPath = next
+      for (const listener of pathListeners) {
+        listener()
+      }
+    }
+  } as unknown as PathAwareClient
+}
+
+describe('useAllHostClients recovery-path presentation', () => {
+  it('rerenders observers when Relay becomes pending without a transport-state change', async () => {
+    const client = makePathAwareClient('reconnecting')
+    connectMock.mockImplementation(() => client)
+    loadHostsMock.mockResolvedValue([host('a', 0)])
+
+    let latest: ReturnType<typeof useAllHostClients> = []
+    function Probe(): null {
+      latest = useAllHostClients(['a'])
+      return null
+    }
+
+    const restore = suppressDeprecationWarning()
+    let renderer: ReactTestRenderer | null = null
+    try {
+      await act(async () => {
+        renderer = create(createElement(RpcClientProvider, null, createElement(Probe)))
+      })
+      await act(async () => {})
+      await act(async () => {})
+    } finally {
+      restore()
+    }
+
+    expect(latest[0]?.pendingPath).toBeNull()
+
+    // No state change — only the recovery path moves; observers must still rerender.
+    act(() => {
+      client.emitPendingPath('relay')
+    })
+    expect(latest[0]?.state).toBe('reconnecting')
+    expect(latest[0]?.pendingPath).toBe('relay')
 
     act(() => {
       renderer?.unmount()

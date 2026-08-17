@@ -5,6 +5,7 @@ import {
   POST_REPLAY_MODE_RESET,
   POST_REPLAY_REATTACH_RESET,
   POST_REPLAY_REATTACH_RESET_KEEP_MOUSE,
+  RESET_GRAPHIC_RENDITION,
   RESET_KITTY_KEYBOARD_PROTOCOL,
   RESET_MOUSE_REPORTING,
   RESET_TERMINAL_CURSOR_STYLE
@@ -32,11 +33,14 @@ describe('terminal replay state reset constants', () => {
 
   it('clears mouse / focus / bracketed-paste modes in the cold-restore bundle', () => {
     // Cold restore lands a fresh shell, so every interactive mode bit is reset:
-    // cursor style + Kitty + DECTCEM `?25h` + the full mouse set (#7893) + focus
-    // 1004 + bracketed-paste 2004.
+    // SGR ground (STA-4042) + cursor style + Kitty + DECTCEM `?25h` + the full
+    // mouse set (#7893) + focus 1004 + bracketed-paste 2004, then a grounded
+    // saved cursor (`\x1b7`) so a live TUI's later `\x1b8` can't restore a stale pen.
     expect(POST_REPLAY_MODE_RESET).toBe(
-      `${RESET_TERMINAL_CURSOR_STYLE}${RESET_KITTY_KEYBOARD_PROTOCOL}\x1b[?25h${RESET_MOUSE_REPORTING}\x1b[?1004l\x1b[?2004l`
+      `${RESET_GRAPHIC_RENDITION}${RESET_TERMINAL_CURSOR_STYLE}${RESET_KITTY_KEYBOARD_PROTOCOL}\x1b[?25h${RESET_MOUSE_REPORTING}\x1b[?1004l\x1b[?2004l\x1b7`
     )
+    expect(POST_REPLAY_MODE_RESET.startsWith(RESET_GRAPHIC_RENDITION)).toBe(true)
+    expect(POST_REPLAY_MODE_RESET.endsWith('\x1b7')).toBe(true)
     expect(POST_REPLAY_MODE_RESET).toContain(RESET_KITTY_KEYBOARD_PROTOCOL)
   })
 
@@ -46,8 +50,11 @@ describe('terminal replay state reset constants', () => {
     // input; reattach clears the full mouse set for that reason (#7893). Live
     // agents keep mouse via POST_REPLAY_LIVE_AGENT_REATTACH_RESET.
     expect(POST_REPLAY_REATTACH_RESET).toBe(
-      `${RESET_TERMINAL_CURSOR_STYLE}${RESET_KITTY_KEYBOARD_PROTOCOL}\x1b[?25h${RESET_MOUSE_REPORTING}\x1b[?1004l`
+      `${RESET_GRAPHIC_RENDITION}${RESET_TERMINAL_CURSOR_STYLE}${RESET_KITTY_KEYBOARD_PROTOCOL}\x1b[?25h${RESET_MOUSE_REPORTING}\x1b[?1004l\x1b7`
     )
+    // The normal-buffer fallback can follow a dead TUI, so it grounds the pen and the saved-cursor register (STA-4042).
+    expect(POST_REPLAY_REATTACH_RESET.startsWith(RESET_GRAPHIC_RENDITION)).toBe(true)
+    expect(POST_REPLAY_REATTACH_RESET.endsWith('\x1b7')).toBe(true)
     expect(POST_REPLAY_REATTACH_RESET).toContain(RESET_KITTY_KEYBOARD_PROTOCOL)
     expect(POST_REPLAY_REATTACH_RESET).toContain('\x1b[?1000l')
     // Bracketed paste (2004) stays armed on reattach — only the cold restore clears it.

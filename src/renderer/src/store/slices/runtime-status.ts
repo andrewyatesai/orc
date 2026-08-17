@@ -4,6 +4,12 @@ import type { AppState } from '../types'
 import type { PublicKnownRuntimeEnvironment } from '../../../../shared/runtime-environments'
 import type { RuntimeStatus } from '../../../../shared/runtime-types'
 import { runtimeEnvironmentStatusesEqual } from './runtime-environment-status-equality'
+import { reconcileCatalogRows } from './repo-identity-reconcile'
+import { advanceRuntimeEnvironmentConnectionGeneration } from './runtime-environment-connection-generation'
+export {
+  clearRuntimeEnvironmentConnectionGenerationsForTests,
+  getRuntimeEnvironmentConnectionGeneration
+} from './runtime-environment-connection-generation'
 import {
   clearRecentRuntimeCompatibilityFailure,
   clearRuntimeCompatibilityCache,
@@ -25,9 +31,9 @@ export type RuntimeEnvironmentStatus = {
 }
 
 export type RuntimeStatusSlice = {
-  /** Saved remote Orca servers. Host pickers use this to show user-chosen names
-   * instead of opaque runtime ids. */
-  runtimeEnvironments: PublicKnownRuntimeEnvironment[]
+  /** Saved remote Orca servers. Host pickers show user-chosen names, not opaque
+   * runtime ids. Readonly: a no-op refetch may reuse the previous array identity. */
+  runtimeEnvironments: readonly PublicKnownRuntimeEnvironment[]
   /** True only after the saved-runtime catalog has loaded successfully. */
   runtimeEnvironmentCatalogHydrated: boolean
   /** Keyed by runtime environment id. Fed into buildExecutionHostRegistry so
@@ -41,7 +47,7 @@ export type RuntimeStatusSlice = {
   removedRuntimeEnvironmentIds: ReadonlySet<string>
   /** Replaces the saved-environment list, trims stale status entries, and
    * retires state owned by any environment that just left the saved list. */
-  setRuntimeEnvironments: (environments: PublicKnownRuntimeEnvironment[]) => void
+  setRuntimeEnvironments: (environments: readonly PublicKnownRuntimeEnvironment[]) => void
   /** Merges one environment's status. Replaces the prior entry for that id. */
   setRuntimeEnvironmentStatus: (
     environmentId: string,
@@ -59,7 +65,6 @@ export type RuntimeStatusSlice = {
   hydrateRuntimeEnvironmentStatuses: () => Promise<void>
 }
 
-const connectionGenerationByEnvironment = new Map<string, number>()
 const activeRuntimeDisconnectedToasts = new Map<string, symbol>()
 const RUNTIME_DISCONNECTED_TOAST_DURATION_MS = 4_000
 
@@ -137,16 +142,6 @@ function dismissRuntimeDisconnectedToast(environmentId: string): void {
   toast.dismiss?.(toastId)
 }
 
-export function getRuntimeEnvironmentConnectionGeneration(environmentId: string): number {
-  return connectionGenerationByEnvironment.get(environmentId) ?? 0
-}
-
-function advanceRuntimeEnvironmentConnectionGeneration(environmentId: string): number {
-  const next = getRuntimeEnvironmentConnectionGeneration(environmentId) + 1
-  connectionGenerationByEnvironment.set(environmentId, next)
-  return next
-}
-
 export const createRuntimeStatusSlice: StateCreator<AppState, [], [], RuntimeStatusSlice> = (
   set,
   get
@@ -213,8 +208,21 @@ export const createRuntimeStatusSlice: StateCreator<AppState, [], [], RuntimeSta
           removedChanged = true
         }
       }
+      // Why: list()/hydrate always allocate (IPC structuredClone + redact remaps
+      // endpoints[]), so a no-op refresh would hand back a field-identical catalog as a
+      // brand-new array and miss every Object.is subscriber. Reuse equal rows so the 60s
+      // TTL refresh stays a no-op render.
+      const reconciled = reconcileCatalogRows(
+        s.runtimeEnvironments,
+        environments,
+        (environment) => environment.id
+      )
+      const catalogUnchanged = reconciled === s.runtimeEnvironments
+      if (catalogUnchanged && s.runtimeEnvironmentCatalogHydrated && !statusesChanged && !removedChanged) {
+        return s
+      }
       return {
-        runtimeEnvironments: environments,
+        runtimeEnvironments: reconciled,
         runtimeEnvironmentCatalogHydrated: true,
         ...(statusesChanged ? { runtimeStatusByEnvironmentId: nextStatuses } : {}),
         ...(removedChanged ? { removedRuntimeEnvironmentIds: nextRemoved } : {})

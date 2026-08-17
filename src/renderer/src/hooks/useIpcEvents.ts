@@ -1161,9 +1161,10 @@ export function useIpcEvents(): void {
         if (isRuntimeEnvironmentActive()) {
           // Why: the all-host sidebar shows local repos even under a runtime; refresh the local slice, keep runtime slices.
           void (async () => {
-            await state.fetchReposForAllHosts()
-            await state.fetchProjectGroupsForAllHosts()
-            await state.fetchFolderWorkspacesForAllHosts()
+            const localOwner = { runtimeEnvironmentId: null }
+            await state.fetchRepos(localOwner)
+            await state.fetchProjectGroups(localOwner)
+            await state.fetchFolderWorkspaces(localOwner)
             remountTerminalTabsAwaitingHostHydration()
           })()
           return
