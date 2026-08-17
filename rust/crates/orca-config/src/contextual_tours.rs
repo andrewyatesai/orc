@@ -342,12 +342,17 @@ pub const CONTEXTUAL_TOURS: [ContextualTour; 7] = [
     },
 ];
 
-pub const CONTEXTUAL_TOUR_IDS: [ContextualTourId; 6] = [
+/// The TS twin DERIVES this (`CONTEXTUAL_TOURS.map(tour => tour.id)`), so a
+/// hand-written mirror here is drift waiting to happen — it already was, missing
+/// `floating-workspace` (#5062). The test below pins it to the catalog, which is
+/// the comparison the old mirror-vs-mirror assert could not make.
+pub const CONTEXTUAL_TOUR_IDS: [ContextualTourId; 7] = [
     ContextualTourId::WorkspaceBoard,
     ContextualTourId::WorkspaceAgentSessions,
     ContextualTourId::Browser,
     ContextualTourId::Tasks,
     ContextualTourId::Automations,
+    ContextualTourId::FloatingWorkspace,
     ContextualTourId::WorkspaceCreation,
 ];
 
@@ -383,6 +388,15 @@ pub fn normalize_contextual_tour_ids(value: &Value) -> Vec<ContextualTourId> {
 
 #[cfg(test)]
 mod tests {
+    /// The twin derives its id list from the catalog; this is that derivation.
+    #[test]
+    fn lists_every_catalog_id_in_catalog_order() {
+        assert_eq!(
+            CONTEXTUAL_TOUR_IDS.to_vec(),
+            CONTEXTUAL_TOURS.iter().map(|tour| tour.id).collect::<Vec<_>>()
+        );
+    }
+
     use super::*;
     use serde_json::json;
 

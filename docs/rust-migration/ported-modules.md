@@ -369,6 +369,66 @@ file, and `contextual-tours.ts` now declares only `getContextualTour`, which the
 twin's tests never call directly. Same structural skip as `mcp-env`. The twelve
 vectors are the whole guard on this surface now.
 
+### The shipped blob is a THIRD implementation, and nobody was diffing it
+
+Two defects, found one after the other while cutting `contextual-tours` over,
+both of the same shape: a thing that ships disagreeing with the source that
+allegedly produced it.
+
+**1. `FEATURE_EDUCATION_SOURCES` was one entry short, and that one is live.**
+The Rust table omitted `floating_workspace_visible` (#5062), so
+`normalizeFeatureEducationSource` relabelled every floating-workspace event
+`"unknown"`. That module IS cut over — the renderer drives it through
+`git-wasm/feature-education-telemetry.ts` — so the twin's correct ten-entry
+table is dead code on that path and the loss was real, silent, and
+indistinguishable downstream from a genuine off-table value.
+
+Measured on the shipped `orca_node.node`, one call per table member: 9/10 agree,
+`floating_workspace_visible` answers `"unknown"`. The first version of that probe
+reported 0/10 and was WRONG — it wrapped the argument as `{value: …}` when the
+seam passes it bare, so every call fell down the off-table branch. Both the
+finding and the control agreed, which is the signature of a probe measuring
+nothing; the rule that catches it is the standing one, include an input where
+the two sides MUST differ, and note it has to discriminate in *both* directions.
+
+Two guards were in place and neither could fire. The unit test asserts
+`FEATURE_EDUCATION_CONTEXTUAL_TOUR_IDS == CONTEXTUAL_TOUR_IDS` — two hand-written
+Rust mirrors of the same list, so it passed while both were short. And the corpus
+sampled 3 of the 10 sources. Fixed: the tour-id const is now pinned to the
+CATALOG (`CONTEXTUAL_TOURS.map(...)`, the derivation the twin actually uses), and
+the corpus went 9 → 19 cases — every member of both tables, plus the three
+off-table controls. The added `floating_workspace_visible` case was watched to
+fail against the pre-rebuild blob.
+
+**2. The committed wasm did not correspond to the committed source, and had lost
+a whole field.** Rebuilding from the STAGED tree produced a blob 934 bytes
+*smaller* than the committed one — wrong-signed for a change that adds a table
+entry. Chasing that: a parallel session is mid-removal of the `aiVaultTitle`
+feature, a 151-line deletion sitting uncommitted in
+`workspace_session_schema.rs`, and the committed blob had been built from a tree
+that already carried it. So at HEAD, `orca_git_wasm_bg.wasm` dropped
+`aiVaultTitle` on every session parse while HEAD's committed TS (`types.ts`,
+`store/slices/tabs.ts`, `ai-vault-tab-title-sync.ts`) still read it. Probed
+three ways on both blobs — well-formed must round-trip, a future `agent` must be
+DROPPED, an explicit `null` must SURVIVE. Committed blob: `<absent>`, `<absent>`,
+`<absent>`. Rebuilt blob: the object, `<absent>`, `null`.
+
+That is the aiVaultTitle regression for the THIRD time, and the first time it
+arrived through the artifact rather than the source. The rebuild fixes it as a
+side effect of being built from committed source, which is the whole invariant:
+`check:wasm-pins` only proves the pin matches the file, never that the file
+matches the source it claims to be built from.
+
+Two things left open, deliberately. The corpus has **zero** cases touching
+`aiVaultTitle`, which is how an entire field could vanish from an artifact
+unnoticed; the case belongs in `workspace-session-schema`, whose adapter drives
+**napi**, and the local `.node` is stale in the same direction — so adding it
+here would commit a red gate over an untracked build output that a parallel
+session owns. And `rust/orca-git-wasm/Cargo.lock` was stale at HEAD (missing the
+`orca-policy` / `orca-core` edges a previous cutover added); cargo regenerates it
+identically from the committed manifests, so it is committed here rather than
+left to reappear in every future build.
+
 ### What is actually left, and what each one is waiting on
 
 40 of the 85 vector-backed modules hold no twin implementation any more. Of the

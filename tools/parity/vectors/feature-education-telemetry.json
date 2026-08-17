@@ -5,9 +5,9 @@
   "cases": [
     {
       "function": "normalizeFeatureEducationSource",
-      "note": "known source is preserved",
-      "input": "tasks_open",
-      "expected": "tasks_open"
+      "note": "every feature-education source in the table normalizes to itself — sampling only a few is how the missing floating_workspace_visible survived",
+      "input": "workspace_board_visible",
+      "expected": "workspace_board_visible"
     },
     {
       "function": "normalizeFeatureEducationSource",
@@ -17,9 +17,87 @@
     },
     {
       "function": "normalizeFeatureEducationSource",
+      "note": "every feature-education source in the table normalizes to itself — sampling only a few is how the missing floating_workspace_visible survived",
+      "input": "browser_visible",
+      "expected": "browser_visible"
+    },
+    {
+      "function": "normalizeFeatureEducationSource",
+      "note": "known source is preserved",
+      "input": "tasks_open",
+      "expected": "tasks_open"
+    },
+    {
+      "function": "normalizeFeatureEducationSource",
+      "note": "every feature-education source in the table normalizes to itself — sampling only a few is how the missing floating_workspace_visible survived",
+      "input": "automations_open",
+      "expected": "automations_open"
+    },
+    {
+      "function": "normalizeFeatureEducationSource",
+      "note": "every feature-education source in the table normalizes to itself — sampling only a few is how the missing floating_workspace_visible survived",
+      "input": "floating_workspace_visible",
+      "expected": "floating_workspace_visible"
+    },
+    {
+      "function": "normalizeFeatureEducationSource",
+      "note": "every feature-education source in the table normalizes to itself — sampling only a few is how the missing floating_workspace_visible survived",
+      "input": "workspace_creation_visible",
+      "expected": "workspace_creation_visible"
+    },
+    {
+      "function": "normalizeFeatureEducationSource",
+      "note": "every feature-education source in the table normalizes to itself — sampling only a few is how the missing floating_workspace_visible survived",
+      "input": "workspace_creation_modal",
+      "expected": "workspace_creation_modal"
+    },
+    {
+      "function": "normalizeFeatureEducationSource",
       "note": "setup-guide parallel-work source is preserved",
       "input": "setup_guide_parallel_work",
       "expected": "setup_guide_parallel_work"
+    },
+    {
+      "function": "normalizeFeatureEducationSource",
+      "note": "every feature-education source in the table normalizes to itself — sampling only a few is how the missing floating_workspace_visible survived",
+      "input": "unknown",
+      "expected": "unknown"
+    },
+    {
+      "function": "normalizeSetupGuideSource",
+      "note": "sidebar source is preserved",
+      "input": "sidebar",
+      "expected": "sidebar"
+    },
+    {
+      "function": "normalizeSetupGuideSource",
+      "note": "every setup-guide source in the table normalizes to itself — sampling only a few is how the missing floating_workspace_visible survived",
+      "input": "contextual_tour",
+      "expected": "contextual_tour"
+    },
+    {
+      "function": "normalizeSetupGuideSource",
+      "note": "settings source is preserved",
+      "input": "settings",
+      "expected": "settings"
+    },
+    {
+      "function": "normalizeSetupGuideSource",
+      "note": "every setup-guide source in the table normalizes to itself — sampling only a few is how the missing floating_workspace_visible survived",
+      "input": "feature_wall",
+      "expected": "feature_wall"
+    },
+    {
+      "function": "normalizeSetupGuideSource",
+      "note": "help-menu source is preserved",
+      "input": "help_menu",
+      "expected": "help_menu"
+    },
+    {
+      "function": "normalizeSetupGuideSource",
+      "note": "every setup-guide source in the table normalizes to itself — sampling only a few is how the missing floating_workspace_visible survived",
+      "input": "unknown",
+      "expected": "unknown"
     },
     {
       "function": "normalizeFeatureEducationSource",
@@ -32,24 +110,6 @@
       "note": "null falls back to unknown",
       "input": null,
       "expected": "unknown"
-    },
-    {
-      "function": "normalizeSetupGuideSource",
-      "note": "sidebar source is preserved",
-      "input": "sidebar",
-      "expected": "sidebar"
-    },
-    {
-      "function": "normalizeSetupGuideSource",
-      "note": "settings source is preserved",
-      "input": "settings",
-      "expected": "settings"
-    },
-    {
-      "function": "normalizeSetupGuideSource",
-      "note": "help-menu source is preserved",
-      "input": "help_menu",
-      "expected": "help_menu"
     },
     {
       "function": "normalizeSetupGuideSource",
