@@ -49,6 +49,13 @@ const PARALLEL_CHECKOUT_GIT_ARGS = ['-c', 'checkout.workers=0']
 
 beforeEach(() => {
   clearGitCapabilityStateForTests()
+  // Why: addWorktree reads ORCA_WORKTREE_ADD_TIMEOUT_MS at call time, so a developer's ambient
+  // value must not leak in. `undefined` deletes the key, matching production's unset case.
+  vi.stubEnv('ORCA_WORKTREE_ADD_TIMEOUT_MS', undefined)
+})
+
+afterEach(() => {
+  vi.unstubAllEnvs()
 })
 
 describe('listWorktrees in-flight sharing', () => {
@@ -863,6 +870,27 @@ describe('addWorktree', () => {
     )
     expect(worktreeAddCall?.[1]).toMatchObject({ timeout: WORKTREE_ADD_TIMEOUT_MS })
     expect(WORKTREE_ADD_TIMEOUT_MS).toBeGreaterThan(0)
+  })
+
+  it('raises the worktree add timeout from ORCA_WORKTREE_ADD_TIMEOUT_MS (#12696)', async () => {
+    // Why: reverting the call-site wiring to the raw constant must fail a test — prove the
+    // override actually reaches git, not just resolveWorktreeAddTimeoutMs in isolation.
+    vi.stubEnv('ORCA_WORKTREE_ADD_TIMEOUT_MS', '600000')
+    gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '' }) // worktree add
+
+    await addWorktree('/repo', '/repo-feature', 'feature/test', 'feature/test', false, false, {
+      checkoutExistingBranch: true
+    })
+
+    const worktreeAddCall = gitExecFileAsyncMock.mock.calls.find(
+      ([argv]) =>
+        Array.isArray(argv) &&
+        argv[0] === '-c' &&
+        argv[1] === 'checkout.workers=0' &&
+        argv[2] === 'worktree' &&
+        argv[3] === 'add'
+    )
+    expect(worktreeAddCall?.[1]).toMatchObject({ timeout: 600_000 })
   })
 
   it('does not write branch base config when no base branch is provided', async () => {

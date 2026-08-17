@@ -1229,6 +1229,7 @@
         "9e3c49beb8": "复制议题标识符",
         "9a9a884236": "复制网址",
         "97c19a84f1": "复制 Linear URL",
+        "openOnLinear": "在 Linear 中打开",
         "f63ef94ea8": "议题",
         "f6c6381593": "复制提示",
         "5d670ec8dc": "复制建议的分支名称",
@@ -2028,7 +2029,9 @@
         "workspaceTabMissing": "标签页不再存在",
         "projectsGroupsHeader": "项目和分组",
         "projectBadge": "项目",
-        "repoGroupBadge": "仓库组"
+        "repoGroupBadge": "仓库组",
+        "paletteOpenTabBranch": "分支名称",
+        "paletteOpenTabWorkspace": "工作区名称"
       },
       "github": {
         "pr": {
@@ -2747,7 +2750,8 @@
             "a7e2fd2699": "提交议题",
             "5c8ce20be6": "如果这种情况持续存在，请",
             "cc6d997c65": "从此处重新启动终端守护进程以清除失效的守护进程状态。",
-            "e16012e31e": "拥有此会话的终端守护进程已退出，因此无法恢复该会话及其滚动回看内容。请打开一个新终端以继续。"
+            "e16012e31e": "拥有此会话的终端守护进程已退出，因此无法恢复该会话及其滚动回看内容。请打开一个新终端以继续。",
+            "sessionUnavailable": "Orca 无法重新连接到主机上此窗格的终端会话。请打开一个新终端以继续。"
           },
           "TerminalPane": {
             "ac112e9036": "删除标题",
@@ -5062,14 +5066,11 @@
         },
         "NewExternalWorktreesInboxLine": {
           "9f2d4c8b17": "永久隐藏 {{value0}} 的外部工作树",
-          "d9f7b2a14c": "折叠 {{value0}} 的外部创建的新工作树",
-          "e2c4a8d91f": "展开 {{value0}} 的外部创建的新工作树",
-          "7c4e9b2a81": "外部创建的新工作树",
           "5e1b8d3f62": "永久隐藏外部工作树",
-          "4d7a1c9e53": "这些工作树是在 Orca 外部创建的。",
-          "8b3f2e1d74": "导入",
-          "1c9e7a4b28": "保持隐藏",
-          "6f2d8c1e95": "全部导入",
+          "2a6f31d8c7": "隐藏的工作树",
+          "5b90e4a2f6": "隐藏的工作树",
+          "7f18c5b0d3": "查看 {{value1}} 中的 {{value0}} 个隐藏工作树",
+          "4e2b7a9c05": "查看 {{value1}} 中的 {{value0}} 个隐藏工作树",
           "c3e8a1f4b2": "不再显示"
         },
         "newExternalWorktreesInboxActions": {

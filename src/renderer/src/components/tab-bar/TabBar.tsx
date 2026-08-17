@@ -1206,6 +1206,8 @@ function TabBarInner({
                 />
               )
             })}
+            {/* Why: a short end inset keeps a last tab's close control off the chevron and fade. */}
+            <div data-tab-strip-end-pad="" aria-hidden className="pointer-events-none shrink-0" />
           </div>
           <TabStripScrollIndicator metrics={tabStripOverflowState} />
         </div>

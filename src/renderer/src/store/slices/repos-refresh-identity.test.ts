@@ -4,8 +4,8 @@ import { createTestStore } from './store-test-helpers'
 
 // Why: every field here is load-bearing. A scalar-only repo reconciles even when the structural
 // compare is broken, which is exactly how an earlier version of this work shipped green and inert.
-// addedAt must stay non-zero: project-host-setup-projection falls back to `repo.addedAt || now`,
-// so a zero timestamp stamps Date.now() into every projection and nothing ever reconciles.
+// addedAt is non-zero on this fixture so the default case still exercises a real timestamp;
+// dedicated tests below cover addedAt 0 / omitted without restamping Date.now().
 const repo: Repo = {
   id: 'repo-1',
   path: '/repo-1',
@@ -50,8 +50,13 @@ function clone<T>(value: T): T {
   return structuredClone(value)
 }
 
-function mockRepos(...rows: readonly Repo[]): void {
+function mockRepos(...rows: readonly (Repo | Omit<Repo, 'addedAt'>)[]): void {
   reposList.mockImplementation(async () => rows.map(clone))
+}
+
+function omitAddedAt(row: Repo): Omit<Repo, 'addedAt'> {
+  const { addedAt: _addedAt, ...rest } = row
+  return rest
 }
 
 beforeEach(() => {
@@ -236,6 +241,62 @@ describe('repo catalog refresh identity', () => {
     expect(store.getState().projects).not.toBe(projects)
     expect(store.getState().projects).toHaveLength(2)
     expect(store.getState().projectHostSetups).toHaveLength(2)
+  })
+
+  it('keeps catalog identity when repo.addedAt is 0', async () => {
+    mockRepos({ ...repo, addedAt: 0 })
+    const store = createTestStore()
+    await store.getState().fetchRepos()
+    const projects = store.getState().projects
+    const setups = store.getState().projectHostSetups
+    expect(projects).toHaveLength(1)
+    expect(setups).toHaveLength(1)
+    expect(projects[0]?.createdAt).toBe(0)
+    expect(setups[0]?.createdAt).toBe(0)
+
+    await store.getState().fetchRepos()
+
+    expect(store.getState().projects).toBe(projects)
+    expect(store.getState().projects[0]).toBe(projects[0])
+    expect(store.getState().projectHostSetups).toBe(setups)
+    expect(store.getState().projectHostSetups[0]).toBe(setups[0])
+  })
+
+  it('keeps catalog identity when repo.addedAt is omitted', async () => {
+    mockRepos(omitAddedAt(repo))
+    const store = createTestStore()
+    await store.getState().fetchRepos()
+    const projects = store.getState().projects
+    const setups = store.getState().projectHostSetups
+    expect(projects).toHaveLength(1)
+    expect(setups).toHaveLength(1)
+    expect(projects[0]?.createdAt).toBe(0)
+    expect(setups[0]?.createdAt).toBe(0)
+
+    await store.getState().fetchRepos()
+
+    expect(store.getState().projects).toBe(projects)
+    expect(store.getState().projects[0]).toBe(projects[0])
+    expect(store.getState().projectHostSetups).toBe(setups)
+    expect(store.getState().projectHostSetups[0]).toBe(setups[0])
+  })
+
+  it('lets a nested hookSettings change through when repo.addedAt is 0', async () => {
+    mockRepos({ ...repo, addedAt: 0 })
+    const store = createTestStore()
+    await store.getState().fetchRepos()
+    const setups = store.getState().projectHostSetups
+
+    mockRepos({
+      ...repo,
+      addedAt: 0,
+      hookSettings: { mode: 'override', scripts: { setup: '', archive: '' } }
+    })
+    await store.getState().fetchRepos()
+
+    expect(store.getState().projectHostSetups).not.toBe(setups)
+    expect(store.getState().projectHostSetups[0]).not.toBe(setups[0])
+    expect(store.getState().projectHostSetups[0]?.hookSettings?.mode).toBe('override')
   })
 })
 

@@ -4,7 +4,7 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentStatusEntry } from '../../../../shared/agent-status-types'
-import type { AiVaultListResult } from '../../../../shared/ai-vault-types'
+import type { AiVaultListResult, AiVaultSession } from '../../../../shared/ai-vault-types'
 import { useAppStore } from '@/store'
 import {
   resetAiVaultForcedRescanThrottleForTest,
@@ -15,6 +15,36 @@ const EMPTY_RESULT: AiVaultListResult = {
   sessions: [],
   issues: [],
   scannedAt: '2026-07-01T00:00:00.000Z'
+}
+
+// Production rows carry nested previewMessages + subagent so a broken walker
+// cannot pass a scalar-only fixture. ids are stable so reconcile keys on them.
+function makeVaultSession(index: number, title = `session-${index}`): AiVaultSession {
+  const timestamp = new Date(Date.UTC(2026, 6, 1, 0, 0, index)).toISOString()
+  return {
+    id: `session-${index}`,
+    executionHostId: 'local',
+    executionHostPlatform: 'darwin',
+    agent: 'codex',
+    sessionId: `session-${index}`,
+    title,
+    cwd: '/home/ada/orca',
+    branch: 'main',
+    model: 'gpt-5',
+    filePath: `/sessions/session-${index}.jsonl`,
+    codexHome: '/home/ada/.codex',
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    modifiedAt: timestamp,
+    messageCount: 4,
+    totalTokens: 1800,
+    previewMessages: [],
+    lastUserPrompt: null,
+    queuedMessageCount: 0,
+    subagentTranscriptCount: 0,
+    resumeCommand: `codex resume session-${index}`,
+    subagent: null
+  }
 }
 
 const THROTTLE_MS = 30_000
@@ -278,13 +308,139 @@ describe('useAiVaultSessionRefresh refocus behavior', () => {
     await fireWindowFocused()
     expect(latest?.scanResult).toBe(firstResult)
 
+    // A reminted stamp with the same empty body is still the snapshot on screen.
     listSessionsMock.mockResolvedValueOnce({
       ...EMPTY_RESULT,
       scannedAt: '2026-07-01T00:00:02.000Z'
     })
     await advance(THROTTLE_MS + 1)
     await fireWindowFocused()
-    expect(latest?.scanResult).not.toBe(firstResult)
+    expect(latest?.scanResult).toBe(firstResult)
+  })
+
+  it('keeps session row identity when a reminted scan is a structuredClone of the same nested rows', async () => {
+    const session = makeVaultSession(1)
+    const first: AiVaultListResult = {
+      sessions: [
+        {
+          ...session,
+          previewMessages: [
+            {
+              role: 'user',
+              text: 'keep session list identity on reminted scannedAt',
+              timestamp: session.modifiedAt
+            },
+            {
+              role: 'assistant',
+              text: 'reuse previous row refs when the transcript did not change',
+              timestamp: session.modifiedAt
+            }
+          ],
+          lastUserPrompt: 'keep session list identity on reminted scannedAt',
+          subagent: {
+            parentSessionId: session.sessionId,
+            agentType: 'Explore',
+            status: 'completed'
+          }
+        }
+      ],
+      issues: [],
+      scannedAt: '2026-07-01T00:00:00.000Z'
+    }
+    listSessionsMock.mockResolvedValueOnce(first)
+    await renderHook()
+    await flushMicrotasks()
+    const appliedSessions = latest?.sessions
+    const appliedResult = latest?.scanResult
+    expect(appliedSessions?.[0]?.previewMessages).toHaveLength(2)
+
+    const reminted = structuredClone(first)
+    reminted.scannedAt = '2026-07-01T00:00:15.000Z'
+    expect(reminted.sessions).not.toBe(first.sessions)
+    expect(reminted.sessions[0]).not.toBe(first.sessions[0])
+    expect(reminted.sessions[0]?.previewMessages).not.toBe(first.sessions[0]?.previewMessages)
+
+    listSessionsMock.mockResolvedValueOnce(reminted)
+    await advance(THROTTLE_MS + 1)
+    await fireWindowFocused()
+
+    expect(latest?.sessions).toBe(appliedSessions)
+    expect(latest?.sessions[0]).toBe(appliedSessions?.[0])
+    expect(latest?.sessions[0]?.previewMessages).toBe(appliedSessions?.[0]?.previewMessages)
+    expect(latest?.scanResult).toBe(appliedResult)
+  })
+
+  it('replaces the changed row when a reminted scan edits nested preview text', async () => {
+    const session = makeVaultSession(1)
+    const sibling = makeVaultSession(2)
+    const first: AiVaultListResult = {
+      sessions: [
+        {
+          ...session,
+          previewMessages: [
+            { role: 'user', text: 'original ask', timestamp: session.modifiedAt }
+          ]
+        },
+        sibling
+      ],
+      issues: [],
+      scannedAt: '2026-07-01T00:00:00.000Z'
+    }
+    listSessionsMock.mockResolvedValueOnce(first)
+    await renderHook()
+    await flushMicrotasks()
+    const appliedSessions = latest?.sessions
+    expect(appliedSessions).toHaveLength(2)
+
+    const reminted = structuredClone(first)
+    reminted.scannedAt = '2026-07-01T00:00:15.000Z'
+    const changed = reminted.sessions[0]
+    const preview = changed?.previewMessages[0]
+    if (!changed || !preview) {
+      throw new Error('expected a nested preview message')
+    }
+    reminted.sessions[0] = {
+      ...changed,
+      previewMessages: [{ ...preview, text: 'follow-up ask' }]
+    }
+
+    listSessionsMock.mockResolvedValueOnce(reminted)
+    await advance(THROTTLE_MS + 1)
+    await fireWindowFocused()
+
+    expect(latest?.sessions).not.toBe(appliedSessions)
+    expect(latest?.sessions[0]).not.toBe(appliedSessions?.[0])
+    expect(latest?.sessions[0]?.previewMessages[0]?.text).toBe('follow-up ask')
+    expect(latest?.sessions[1]).toBe(appliedSessions?.[1])
+  })
+
+  it('appends a new session on refocus and keeps the surviving row identity', async () => {
+    const first: AiVaultListResult = {
+      sessions: [makeVaultSession(1)],
+      issues: [],
+      scannedAt: '2026-07-01T00:00:00.000Z'
+    }
+    listSessionsMock.mockResolvedValueOnce(first)
+    await renderHook()
+    await flushMicrotasks()
+    const surviving = latest?.sessions[0]
+    const previous = first.sessions[0]
+    expect(surviving?.id).toBe('session-1')
+    if (!previous) {
+      throw new Error('expected the first scan to include a session')
+    }
+
+    listSessionsMock.mockResolvedValueOnce({
+      sessions: [structuredClone(previous), makeVaultSession(2)],
+      issues: [],
+      scannedAt: '2026-07-01T00:00:15.000Z'
+    })
+    await advance(THROTTLE_MS + 1)
+    await fireWindowFocused()
+
+    expect(latest?.sessions).toHaveLength(2)
+    expect(latest?.sessions[0]).toBe(surviving)
+    expect(latest?.sessions[1]?.id).toBe('session-2')
   })
 
   it('keeps the manual refresh button forcing a cache bypass', async () => {

@@ -65,6 +65,17 @@ describe('EphemeralVmRuntimesSection helpers', () => {
     ).toEqual(['new', 'old'])
   })
 
+  it('keeps a cleaned runtime visible while hidden SSH teardown is incomplete', () => {
+    const runtime = makeRuntime({
+      status: 'cleaned',
+      cleanupStatus: 'succeeded',
+      sshTargetId: 'runtime-ssh-cleanup-retry'
+    })
+
+    expect(getVisibleEphemeralVmRuntimes([runtime])).toEqual([runtime])
+    expect(getEphemeralVmRuntimeStatusLabel(runtime)).toBe('Cleanup failed')
+  })
+
   it('prioritizes cleanup status in the visible label', () => {
     expect(getEphemeralVmRuntimeStatusLabel(makeRuntime())).toBe('Running')
     expect(getEphemeralVmRuntimeStatusLabel(makeRuntime({ cleanupStatus: 'failed' }))).toBe(

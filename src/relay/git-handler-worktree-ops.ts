@@ -4,7 +4,7 @@ import {
   shareGitCryptStateWithWorktree
 } from '../shared/git-crypt-worktree-state'
 import { resolveWorktreeAddBaseRef } from '../shared/worktree-base-ref'
-import { WORKTREE_ADD_TIMEOUT_MS } from '../shared/worktree-add-timeout'
+import { resolveWorktreeAddTimeoutMs } from '../shared/worktree-add-timeout'
 import type { GitExec } from './git-handler-ops'
 export { removeWorktreeOp } from './git-handler-worktree-remove'
 export { readRelayWorktreeList } from './git-handler-worktree-list'
@@ -149,8 +149,8 @@ export async function addWorktreeOp(git: GitExec, params: Record<string, unknown
   }
 
   try {
-    // Why: bound the add so a cloud-placeholder stall on the SSH host fails fast into rollback, mirroring local (STA-1292, #7410).
-    await git(args, repoPath, { timeout: WORKTREE_ADD_TIMEOUT_MS })
+    // Why: bound the add so a cloud-placeholder stall on the SSH host fails fast into rollback, mirroring local (STA-1292, #7410); ORCA_WORKTREE_ADD_TIMEOUT_MS raises it for a slow SSH-host checkout (#12696).
+    await git(args, repoPath, { timeout: resolveWorktreeAddTimeoutMs() })
   } catch (error) {
     // Why: a killed add (e.g. timeout mid-checkout, #7410) can leave a registered worktree + fresh branch; roll back only state this add created.
     const registration = await probeRelayWorktreeAddRegistration(git, repoPath, targetDir)
@@ -172,9 +172,9 @@ export async function addWorktreeOp(git: GitExec, params: Record<string, unknown
     try {
       await shareGitCryptStateWithWorktree(git, gitCryptDir, targetDir)
       if (deferCheckoutForGitCrypt) {
-        // Why: bound the deferred git-crypt checkout too — same stall class, same fail-fast-into-rollback (mirrors local).
+        // Why: bound the deferred git-crypt checkout too — same stall class, same fail-fast-into-rollback (mirrors local); honors the override.
         await git([...parallelCheckout, 'checkout'], targetDir, {
-          timeout: WORKTREE_ADD_TIMEOUT_MS
+          timeout: resolveWorktreeAddTimeoutMs()
         })
       }
     } catch (error) {

@@ -1229,6 +1229,7 @@
         "9e3c49beb8": "Issue 識別子のコピー",
         "9a9a884236": "URLをコピー",
         "97c19a84f1": "Linear URL をコピー",
+        "openOnLinear": "Linear で開く",
         "f63ef94ea8": "Issue",
         "f6c6381593": "プロンプトのコピー",
         "5d670ec8dc": "提案されたブランチ名をコピーします",
@@ -2028,7 +2029,9 @@
         "workspaceTabMissing": "タブはもう存在しません",
         "projectsGroupsHeader": "プロジェクトとグループ",
         "projectBadge": "プロジェクト",
-        "repoGroupBadge": "リポジトリグループ"
+        "repoGroupBadge": "リポジトリグループ",
+        "paletteOpenTabBranch": "ブランチ名",
+        "paletteOpenTabWorkspace": "ワークスペース名"
       },
       "github": {
         "pr": {
@@ -2747,7 +2750,8 @@
             "a7e2fd2699": "Issue を登録",
             "5c8ce20be6": "この状態が続く場合は、",
             "cc6d997c65": "ここから terminal デーモンを再起動して、古いデーモン状態をクリアします。",
-            "e16012e31e": "このセッションを所有していた terminal デーモンが終了したため、セッションとそのスクロールバックを復元できませんでした。続行するには新しい terminal を開いてください。"
+            "e16012e31e": "このセッションを所有していた terminal デーモンが終了したため、セッションとそのスクロールバックを復元できませんでした。続行するには新しい terminal を開いてください。",
+            "sessionUnavailable": "Orca はホスト上でこのペインの terminal セッションに再接続できませんでした。続行するには新しい terminal を開いてください。"
           },
           "TerminalPane": {
             "ac112e9036": "タイトルを削除",
@@ -5062,14 +5066,11 @@
         },
         "NewExternalWorktreesInboxLine": {
           "9f2d4c8b17": "{{value0}} の外部ワークツリーを完全に非表示にする",
-          "d9f7b2a14c": "{{value0}} の外部で作成された新しいワークツリーを折りたたむ",
-          "e2c4a8d91f": "{{value0}} の外部で作成された新しいワークツリーを展開",
-          "7c4e9b2a81": "外部で作成された新しいワークツリー",
           "5e1b8d3f62": "外部ワークツリーを完全に非表示にする",
-          "4d7a1c9e53": "これらのワークツリーは Orca の外部で作成されました。",
-          "8b3f2e1d74": "インポート",
-          "1c9e7a4b28": "非表示のままにする",
-          "6f2d8c1e95": "すべてインポート",
+          "2a6f31d8c7": "非表示のワークツリー",
+          "5b90e4a2f6": "非表示のワークツリー",
+          "7f18c5b0d3": "{{value1}} の非表示のワークツリー {{value0}} 件を確認",
+          "4e2b7a9c05": "{{value1}} の非表示のワークツリー {{value0}} 件を確認",
           "c3e8a1f4b2": "今後表示しない"
         },
         "newExternalWorktreesInboxActions": {

@@ -24,6 +24,10 @@ import type {
   ProjectHostSetupUpdateResult
 } from '../../../../shared/types'
 import {
+  mergeCatalogCreatedAt,
+  mergeCatalogUpdatedAt
+} from '../../../../shared/catalog-timestamp-merge'
+import {
   getProjectIdentityKey,
   projectHostSetupProjectionFromRepos,
   type ProjectHostSetupProjection
@@ -573,8 +577,10 @@ function mergeProjectCompatibilityProject(base: Project, overlay: Project): Proj
     ...overlay,
     // Why: all-host startup fetches hosts separately; one host's record must not erase repo ownership learned from another host with the same id.
     sourceRepoIds: [...new Set([...base.sourceRepoIds, ...overlay.sourceRepoIds])],
-    createdAt: Math.min(base.createdAt, overlay.createdAt),
-    updatedAt: Math.max(base.updatedAt, overlay.updatedAt)
+    // Why not plain min/max: a host whose repos carry no `addedAt` projects 0, and 0 means
+    // unknown, not epoch — it must not win over the real timestamp the other host knows.
+    createdAt: mergeCatalogCreatedAt(base.createdAt, overlay.createdAt),
+    updatedAt: mergeCatalogUpdatedAt(base.updatedAt, overlay.updatedAt)
   }
   if (localWindowsRuntimePreference === undefined) {
     delete project.localWindowsRuntimePreference

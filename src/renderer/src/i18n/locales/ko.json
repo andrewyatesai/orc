@@ -1229,6 +1229,7 @@
         "9e3c49beb8": "이슈 식별자 복사",
         "9a9a884236": "URL 복사",
         "97c19a84f1": "Linear URL 복사",
+        "openOnLinear": "Linear에서 열기",
         "f63ef94ea8": "이슈",
         "f6c6381593": "프롬프트 복사",
         "5d670ec8dc": "추천 브랜치 이름 복사",
@@ -2028,7 +2029,9 @@
         "workspaceTabMissing": "탭이 더 이상 존재하지 않습니다",
         "projectsGroupsHeader": "프로젝트 및 그룹",
         "projectBadge": "프로젝트",
-        "repoGroupBadge": "리포지토리 그룹"
+        "repoGroupBadge": "리포지토리 그룹",
+        "paletteOpenTabBranch": "브랜치 이름",
+        "paletteOpenTabWorkspace": "워크스페이스 이름"
       },
       "github": {
         "pr": {
@@ -2747,7 +2750,8 @@
             "a7e2fd2699": "이슈 등록",
             "5c8ce20be6": "문제가 계속되면",
             "cc6d997c65": "오래된 데몬 상태를 지우려면 여기에서 terminal 데몬을 다시 시작하세요.",
-            "e16012e31e": "이 세션을 소유한 terminal 데몬이 종료되어 세션과 스크롤백을 복구할 수 없습니다. 계속하려면 새 terminal을 여세요."
+            "e16012e31e": "이 세션을 소유한 terminal 데몬이 종료되어 세션과 스크롤백을 복구할 수 없습니다. 계속하려면 새 terminal을 여세요.",
+            "sessionUnavailable": "Orca가 호스트에서 이 창의 terminal 세션에 다시 연결하지 못했습니다. 계속하려면 새 terminal을 여세요."
           },
           "TerminalPane": {
             "ac112e9036": "제목 삭제",
@@ -5062,14 +5066,11 @@
         },
         "NewExternalWorktreesInboxLine": {
           "9f2d4c8b17": "{{value0}}의 외부 워크트리를 영구적으로 숨기기",
-          "d9f7b2a14c": "{{value0}}의 외부에서 생성된 새 워크트리 접기",
-          "e2c4a8d91f": "{{value0}}의 외부에서 생성된 새 워크트리 펼치기",
-          "7c4e9b2a81": "외부에서 생성된 새 워크트리",
           "5e1b8d3f62": "외부 워크트리를 영구적으로 숨기기",
-          "4d7a1c9e53": "이 워크트리는 Orca 외부에서 생성되었습니다.",
-          "8b3f2e1d74": "가져오기",
-          "1c9e7a4b28": "숨긴 상태 유지",
-          "6f2d8c1e95": "모두 가져오기",
+          "2a6f31d8c7": "숨겨진 워크트리",
+          "5b90e4a2f6": "숨겨진 워크트리",
+          "7f18c5b0d3": "{{value1}}의 숨겨진 워크트리 {{value0}}개 검토",
+          "4e2b7a9c05": "{{value1}}의 숨겨진 워크트리 {{value0}}개 검토",
           "c3e8a1f4b2": "다시 표시하지 않기"
         },
         "newExternalWorktreesInboxActions": {

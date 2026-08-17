@@ -33,6 +33,7 @@ import {
   type ClosedTerminalTabSnapshot
 } from './recently-closed-tabs'
 import { findRepoForHost } from './repo-host-identity'
+import { reuseEqualRecordMap } from './repo-identity-reconcile'
 import {
   dropWorktreeRowsForRemovedRuntimeEnvironments,
   isRemovedRuntimeHostId
@@ -1149,8 +1150,8 @@ async function listWorktreeLineageForRuntime(
   settings: AppState['settings'],
   options: BackgroundRuntimeRefreshOptions = {}
 ): Promise<{
-  worktreeLineageById: Record<string, WorktreeLineage>
-  workspaceLineageByChildKey: Record<string, WorkspaceLineage>
+  worktreeLineageById: Readonly<Record<string, WorktreeLineage>>
+  workspaceLineageByChildKey: Readonly<Record<string, WorkspaceLineage>>
 }> {
   const target = getActiveRuntimeTarget(settings)
   type LineageListResponse = {
@@ -1330,21 +1331,40 @@ function applyWorktreeLineageUpdate(
   })
 }
 
+// Why: merge both lineage maps for the focused host, then skip set() entirely when neither map moved
+// so a cloned no-op refresh leaves Object.is subscribers (WorktreeList) untouched.
+function applyHostLineageRefresh(
+  set: Parameters<StateCreator<AppState>>[0],
+  hostId: ExecutionHostId,
+  lineage: {
+    worktreeLineageById: Readonly<Record<string, WorktreeLineage>>
+    workspaceLineageByChildKey: Readonly<Record<string, WorkspaceLineage>>
+  }
+): void {
+  set((s) => {
+    const worktreeLineageById = mergeLineageForHost(s, hostId, lineage.worktreeLineageById)
+    const workspaceLineageByChildKey = mergeWorkspaceLineageForHost(
+      s,
+      hostId,
+      lineage.workspaceLineageByChildKey
+    )
+    if (
+      worktreeLineageById === s.worktreeLineageById &&
+      workspaceLineageByChildKey === s.workspaceLineageByChildKey
+    ) {
+      return s
+    }
+    return { worktreeLineageById, workspaceLineageByChildKey }
+  })
+}
+
 async function refreshWorktreeLineageForSettings(
   settings: AppState['settings'],
   set: Parameters<StateCreator<AppState>>[0],
   options: BackgroundRuntimeRefreshOptions = {}
 ): Promise<void> {
   const lineage = await listWorktreeLineageForRuntime(settings, options)
-  const hostId = getSettingsFocusedExecutionHostId(settings)
-  set((s) => ({
-    worktreeLineageById: mergeLineageForHost(s, hostId, lineage.worktreeLineageById),
-    workspaceLineageByChildKey: mergeWorkspaceLineageForHost(
-      s,
-      hostId,
-      lineage.workspaceLineageByChildKey
-    )
-  }))
+  applyHostLineageRefresh(set, getSettingsFocusedExecutionHostId(settings), lineage)
 }
 
 // Why: this runs inside a catch, so letting the refresh reject would replace the failure it recovers from.
@@ -1370,15 +1390,7 @@ async function refreshRemoteWorktreeLineageBestEffort(
     const lineage = await listWorktreeLineageForRuntime(settings, {
       reuseRecentCompatibilityFailure: true
     })
-    const hostId = getSettingsFocusedExecutionHostId(settings)
-    set((s) => ({
-      worktreeLineageById: mergeLineageForHost(s, hostId, lineage.worktreeLineageById),
-      workspaceLineageByChildKey: mergeWorkspaceLineageForHost(
-        s,
-        hostId,
-        lineage.workspaceLineageByChildKey
-      )
-    }))
+    applyHostLineageRefresh(set, getSettingsFocusedExecutionHostId(settings), lineage)
   } catch (err) {
     // Why: lineage is supplemental, so a remote timeout here must not discard a successful worktree refresh.
     console.error('Failed to fetch worktree lineage:', err)
@@ -1410,15 +1422,18 @@ function mergeLineageForHost(
     'repos' | 'settings' | 'worktreesByRepo' | 'detectedWorktreesByRepo' | 'worktreeLineageById'
   >,
   hostId: ExecutionHostId,
-  lineage: Record<string, WorktreeLineage>
-): Record<string, WorktreeLineage> {
+  lineage: Readonly<Record<string, WorktreeLineage>>
+): Readonly<Record<string, WorktreeLineage>> {
   const next: Record<string, WorktreeLineage> = {}
   for (const [worktreeId, existing] of Object.entries(state.worktreeLineageById)) {
     if (getWorktreeHostId(state, worktreeId) !== hostId) {
       next[worktreeId] = existing
     }
   }
-  return { ...next, ...lineage }
+  for (const [worktreeId, incoming] of Object.entries(lineage)) {
+    next[worktreeId] = incoming
+  }
+  return reuseEqualRecordMap(state.worktreeLineageById, next)
 }
 
 function mergeWorkspaceLineageForHost(
@@ -1431,8 +1446,8 @@ function mergeWorkspaceLineageForHost(
     | 'workspaceLineageByChildKey'
   >,
   hostId: ExecutionHostId,
-  lineage: Record<string, WorkspaceLineage>
-): Record<string, WorkspaceLineage> {
+  lineage: Readonly<Record<string, WorkspaceLineage>>
+): Readonly<Record<string, WorkspaceLineage>> {
   const next: Record<string, WorkspaceLineage> = {}
   for (const [childKey, existing] of Object.entries(state.workspaceLineageByChildKey)) {
     const childScope = parseWorkspaceKey(existing.childWorkspaceKey)
@@ -1443,7 +1458,10 @@ function mergeWorkspaceLineageForHost(
       next[childKey] = existing
     }
   }
-  return { ...next, ...lineage }
+  for (const [childKey, incoming] of Object.entries(lineage)) {
+    next[childKey] = incoming
+  }
+  return reuseEqualRecordMap(state.workspaceLineageByChildKey, next)
 }
 
 async function persistWorktreeMeta(

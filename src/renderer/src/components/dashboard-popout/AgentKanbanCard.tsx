@@ -1,8 +1,8 @@
 import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { MessageCircleQuestion } from 'lucide-react'
 import { AgentIcon } from '@/lib/agent-catalog'
 import { agentTypeToIconAgent, formatAgentTypeLabel } from '@/lib/agent-status'
+import { AgentQuestionIcon } from '@/components/AgentQuestionIcon'
 import { AgentStateDot } from '@/components/AgentStateDot'
 import { RepoIconGlyph } from '@/components/repo/repo-icon'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -100,8 +100,9 @@ export const AgentKanbanCard = memo(
     onOpenTerminal
   }: AgentKanbanCardProps): React.JSX.Element {
     useTranslation()
-    // Why: the two outcomes worth scanning for get a tinted card — amber for
-    // "answer me", green for "finished, look at it". Everything else stays
+    // Why: the two outcomes worth scanning for get a tinted card — the
+    // --agent-question accent for "answer me", green for "finished, look at
+    // it". Everything else stays
     // neutral so the tint keeps meaning something.
     const needsYou = card.bucket === 'attention'
     const isDone = card.dotState === 'done'
@@ -123,7 +124,7 @@ export const AgentKanbanCard = memo(
           'group flex w-full flex-col gap-1.5 rounded-lg border p-2.5 text-left',
           'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           needsYou
-            ? 'border-amber-500/40 bg-amber-500/[0.06] hover:border-amber-500/60 hover:bg-amber-500/10'
+            ? 'border-agent-question/40 bg-agent-question/[0.06] hover:border-agent-question/60 hover:bg-agent-question/10'
             : isDone
               ? 'border-emerald-500/40 bg-emerald-500/[0.06] hover:border-emerald-500/60 hover:bg-emerald-500/10'
               : 'border-border/60 bg-card hover:border-border hover:bg-accent/40'
@@ -173,11 +174,11 @@ export const AgentKanbanCard = memo(
           <div className="line-clamp-2 text-xs leading-snug text-foreground/90">{card.task}</div>
         ) : null}
 
-        {/* Why: the card behind it is amber now, so the pill needs its own edge
-            to stay a distinct chip instead of a flat block of tint. */}
+        {/* Why: the card behind it carries the --agent-question tint, so the pill
+            needs its own edge to stay a distinct chip instead of a flat block. */}
         {card.askSummary ? (
-          <div className="flex items-start gap-1 rounded-md bg-amber-500/15 px-1.5 py-1 text-[11px] text-amber-600 ring-1 ring-inset ring-amber-500/25 dark:text-amber-400">
-            <MessageCircleQuestion className="mt-px size-3 shrink-0" aria-hidden />
+          <div className="flex items-start gap-1 rounded-md bg-agent-question/15 px-1.5 py-1 text-[11px] text-agent-question-text ring-1 ring-inset ring-agent-question/25">
+            <AgentQuestionIcon className="mt-px size-3 shrink-0" />
             <span className="line-clamp-2">{card.askSummary}</span>
           </div>
         ) : null}

@@ -4,13 +4,13 @@ import {
   CalendarClock,
   EyeOff,
   LayoutDashboard,
-  MessageCircleQuestion,
   Search,
   Smartphone
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/store'
 import { cn } from '@/lib/utils'
+import { AgentQuestionIcon } from '@/components/AgentQuestionIcon'
 import type { GlobalSettings } from '../../../../shared/types'
 import { DASHBOARD_BUCKET_ORDER, type DashboardBucket } from '../../../../shared/dashboard-snapshot'
 import { useAgentBucketCounts } from '@/components/dashboard/useAgentBucketCounts'
@@ -94,7 +94,7 @@ function DashboardBucketCounts({
           className="inline-flex items-center gap-1 text-[10px] tabular-nums text-worktree-sidebar-foreground/55"
         >
           {bucket === 'attention' ? (
-            <MessageCircleQuestion className="size-2.5 text-amber-500" aria-hidden />
+            <AgentQuestionIcon className="size-2.5" />
           ) : (
             <span className={cn('size-1.5 rounded-full', DASHBOARD_BUCKET_DOT_CLASS[bucket])} />
           )}

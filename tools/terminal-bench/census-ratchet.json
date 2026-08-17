@@ -209,9 +209,19 @@
       "why": [
         "orca-runtime.ts +123 (36483->36606) stacked on d300-b1 from the +300-delta batch-2 attach-kind ports (SGR-pen clear on hidden-output restore #14241, renderer-graph reload-termination gate, mobile cluster). shimWholeFileLoc +11 (2812->2823) entirely from src/renderer/src/components/terminal-pane/pty-pre-handler-buffer.ts, a shim-manifest attach \u2014 NOT the delivery-reliability host regions. pty.ts flat 6382."
       ]
+    },
+    {
+      "date": "2026-08-17",
+      "head": "d300-b4",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36606
+      },
+      "why": [
+        "+22 on orca-runtime.ts from +300-delta batch 4: the #14207 worktree-scan admin-fingerprint timeout block (WORKTREE_SCAN_ADMIN_FINGERPRINT_TIMEOUT_MS / WORKTREE_SCAN_FALLBACK_ALLOWANCE_MS + withTimeout on the reuse-decision adminFingerprint probe). pty.ts flat 6382, shim flat 2823. Accepted attach-kind; decomposition still owed."
+      ]
     }
   ],
   "shimWholeFileLoc": 2823,
-  "src/main/runtime/orca-runtime.ts": 36606,
+  "src/main/runtime/orca-runtime.ts": 36628,
   "src/main/ipc/pty.ts": 6382
 }

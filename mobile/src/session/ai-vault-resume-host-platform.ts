@@ -1,29 +1,9 @@
 import { parseWslUncPath } from '../../../src/shared/wsl-paths'
 import type { MobileAiVaultResumeTargetStatus } from '../agent-history/agent-history-resume-target'
 
-const NODE_PLATFORMS = new Set<NodeJS.Platform>([
-  'aix',
-  'android',
-  'darwin',
-  'freebsd',
-  'haiku',
-  'linux',
-  'openbsd',
-  'sunos',
-  'win32',
-  'cygwin',
-  'netbsd'
-])
-
-export function readMobileRuntimeHostPlatform(statusResult: unknown): NodeJS.Platform | null {
-  if (!statusResult || typeof statusResult !== 'object') {
-    return null
-  }
-  const hostPlatform = (statusResult as { hostPlatform?: unknown }).hostPlatform
-  return typeof hostPlatform === 'string' && NODE_PLATFORMS.has(hostPlatform as NodeJS.Platform)
-    ? (hostPlatform as NodeJS.Platform)
-    : null
-}
+// Neutral home shared with the worktree/run-target pickers; kept re-exported so
+// ai-vault-resume callers keep their existing import surface.
+export { readMobileRuntimeHostPlatform } from '../transport/mobile-runtime-host-platform'
 
 export function readMobileRuntimeTerminalWindowsShell(statusResult: unknown): string | null {
   if (!statusResult || typeof statusResult !== 'object') {

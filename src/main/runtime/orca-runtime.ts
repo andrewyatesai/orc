@@ -670,6 +670,7 @@ import {
   listStoredWorktreeRowsForRepo,
   resolveRepoWorktreeRows,
   resolveScopedWorktreeIdRow,
+  RESOLVED_WORKTREE_REPO_TIMEOUT_MS,
   type RepoWorktreeRowDeps
 } from './repo-worktree-row-resolution'
 import { withTimeout } from '../../shared/promise-timeout-fallback'
@@ -28133,7 +28134,6 @@ export class OrcaRuntimeService {
     if (!this.store) {
       return { worktrees: [], platformByRepoId: new Map() }
     }
-    const now = Date.now()
     const metaById = this.store.getAllWorktreeMeta() ?? {}
     const repos = this.store.getRepos()
     const projectRuntimeByRepoId = resolveLocalProjectRuntimesForRepos(this.requireStore(), repos)
@@ -28154,11 +28154,13 @@ export class OrcaRuntimeService {
       this.store?.getAllWorktreeLineage?.() ?? {}
     )
     // Why: short TTL avoids shelling out on every frequent poll while still catching worktree changes made outside Orca.
+    // Why stamped on completion, not entry: a compute that spent longer than the TTL would otherwise publish an
+    // already-expired entry, so the very next poll recomputes and every caller repeats the same slow path.
     if (generation === this.resolvedWorktreeGeneration) {
       this.resolvedWorktreeCache = {
         worktrees,
         platformByRepoId,
-        expiresAt: now + RESOLVED_WORKTREE_CACHE_TTL_MS
+        expiresAt: Date.now() + RESOLVED_WORKTREE_CACHE_TTL_MS
       }
     }
     return { worktrees, platformByRepoId }
@@ -28279,7 +28281,14 @@ export class OrcaRuntimeService {
     if (reusable) {
       // Why await only here: this is the one branch whose decision needs the probe. A scan-bound
       // caller must never wait on it, or every cold read pays filesystem latency it cannot use.
-      const [current, previous] = await Promise.all([adminFingerprint, reusable.adminFingerprint])
+      // Why cap only the fresh probe: this await runs inside RESOLVED_WORKTREE_REPO_TIMEOUT_MS, so a
+      // probe that outlasts the deadline leaves no room for the fallback scan and strands the caller
+      // on persisted rows; expiring yields `null` here, which forces the real scan below. The cached
+      // side has already settled, so it needs no deadline.
+      const [current, previous] = await Promise.all([
+        withTimeout(adminFingerprint, WORKTREE_SCAN_ADMIN_FINGERPRINT_TIMEOUT_MS, null),
+        reusable.adminFingerprint
+      ])
       if (current !== null && current === previous) {
         return {
           result: reusable.result,
@@ -34392,6 +34401,19 @@ const WORKTREE_SCAN_AGENT_SCRATCH_TTL_MS = 5 * 60_000
 // edits are invisible to it and a tip living in packed-refs or reftable only gets an mtime + size
 // stamp, so a real scan still runs on this interval even while the probe reports "unchanged".
 export const WORKTREE_SCAN_ADMIN_RECONCILE_INTERVAL_MS = 5 * 60_000
+// Why reserved rather than spent on the probe: when the probe expires the caller still has to run the
+// fallback `git worktree list` inside the same RESOLVED_WORKTREE_REPO_TIMEOUT_MS budget, so that scan
+// needs its own room. Sized for a healthy Git on a busy host, well above a warm list's tens of ms.
+const WORKTREE_SCAN_FALLBACK_ALLOWANCE_MS = 1500
+// Why derived from the caller's budget instead of a generous absolute: the reuse-decision await runs
+// *inside* RESOLVED_WORKTREE_REPO_TIMEOUT_MS, so outlasting it buys nothing — the caller has already
+// given up and restored persisted rows — while turning a reusable scan into a full-budget stall that
+// repeats on every TTL expiry. Subtracting keeps that invariant true by construction if either side
+// moves. Not smaller: the probe reads a subset of what the fallback scan reads, so a probe too slow to
+// fit is a scan that will not fit either. Expiring yields `null`, the "cannot prove unchanged"
+// sentinel, so a real scan runs.
+export const WORKTREE_SCAN_ADMIN_FINGERPRINT_TIMEOUT_MS =
+  RESOLVED_WORKTREE_REPO_TIMEOUT_MS - WORKTREE_SCAN_FALLBACK_ALLOWANCE_MS
 /** Stand-in for a repo the local admin probe cannot or need not describe; never matches a real read. */
 const UNFINGERPRINTED_WORKTREE_SCAN: Promise<string | null> = Promise.resolve(null)
 

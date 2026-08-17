@@ -1,9 +1,15 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as path from 'node:path'
 import { GitCapabilityCache } from '../shared/git-capability-cache'
 import type { GitExec } from './git-handler-ops'
 import { addWorktreeOp, removeWorktreeOp } from './git-handler-worktree-ops'
 import { WORKTREE_ADD_TIMEOUT_MS } from '../shared/worktree-add-timeout'
+
+// Why: addWorktreeOp reads ORCA_WORKTREE_ADD_TIMEOUT_MS at call time; a leaked override would
+// skew the default-timeout assertions below.
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
 
 function removeWorktreeWithCapabilityCache(
   git: GitExec,
@@ -89,6 +95,24 @@ describe('addWorktreeOp', () => {
     )
     expect(addCall?.[2]).toMatchObject({ timeout: WORKTREE_ADD_TIMEOUT_MS })
     expect(WORKTREE_ADD_TIMEOUT_MS).toBeGreaterThan(0)
+  })
+
+  it('raises the SSH worktree add timeout from ORCA_WORKTREE_ADD_TIMEOUT_MS (#12696)', async () => {
+    // Why: the fork's relay twin must honor the override too, so a slow SSH-host checkout is not
+    // killed at the 180s floor — prove the raised value reaches git.
+    vi.stubEnv('ORCA_WORKTREE_ADD_TIMEOUT_MS', '600000')
+    const git = vi.fn<GitExec>(async () => ({ stdout: '', stderr: '' }))
+
+    await addWorktreeOp(git, {
+      repoPath: '/repo',
+      branchName: 'feature/test',
+      targetDir: '/repo-feature'
+    })
+
+    const addCall = git.mock.calls.find(
+      ([args]) => args.includes('worktree') && args.includes('add')
+    )
+    expect(addCall?.[2]).toMatchObject({ timeout: 600_000 })
   })
 
   it('does not write branch base config when checking out an existing SSH branch', async () => {

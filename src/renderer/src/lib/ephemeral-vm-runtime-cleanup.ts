@@ -34,7 +34,9 @@ export async function cleanupEphemeralVmRuntimesForDeleted(args: {
     const runtimes = await window.api.ephemeralVm.listRuntimes()
     const matchingRuntimes = runtimes.filter(
       (runtime) =>
-        runtime.cleanupStatus !== 'succeeded' &&
+        // A succeeded provider cleanup whose hidden SSH target still lingers stays
+        // eligible so the interrupted teardown gets retried, not skipped as done.
+        (runtime.cleanupStatus !== 'succeeded' || runtime.sshTargetId !== undefined) &&
         ((runtime.workspaceId !== undefined && workspaceIdSet.has(runtime.workspaceId)) ||
           (runtime.sshTargetId !== undefined && sshTargetIdSet.has(runtime.sshTargetId)))
     )

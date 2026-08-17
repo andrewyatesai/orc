@@ -4,7 +4,11 @@ import { isAbsolute, join, posix, resolve, win32 } from 'node:path'
 import { branchIsSafeToDeleteNative } from './rust-branch-cleanup'
 import type { RunGit } from './rust-git-executor'
 import { resolveWorktreeAddBaseRef } from '../../shared/worktree-base-ref'
-import { WORKTREE_ADD_TIMEOUT_MS } from '../../shared/worktree-add-timeout'
+import {
+  WORKTREE_ADD_TIMEOUT_MS,
+  WORKTREE_ADD_TIMEOUT_MAX_MS,
+  resolveWorktreeAddTimeoutMs
+} from '../../shared/worktree-add-timeout'
 import type {
   GitWorktreeInfo,
   LocalBaseRefRefreshResult,
@@ -97,7 +101,7 @@ const PRUNABLE_EXISTENCE_PROBE_CONCURRENCY = 8
 const PARALLEL_CHECKOUT_GIT_ARGS = ['-c', 'checkout.workers=0'] as const
 
 // Why: shared with the relay twin so both transports bound the add identically.
-export { WORKTREE_ADD_TIMEOUT_MS }
+export { WORKTREE_ADD_TIMEOUT_MS, WORKTREE_ADD_TIMEOUT_MAX_MS, resolveWorktreeAddTimeoutMs }
 export const WORKTREE_REMOVAL_PREFLIGHT_TIMEOUT_MS = 30_000
 export const WORKTREE_REMOVAL_REGISTRATION_TIMEOUT_MS = 30_000
 // Why: one wedged shared scan otherwise hangs every later list, including create's post-add re-list (#9786).
@@ -980,8 +984,8 @@ async function performAddWorktree(
   try {
     await gitExecFileAsync(args, {
       ...gitExecOptions(repoPath, options),
-      // Why: bound the checkout so a OneDrive cloud-placeholder stall (STA-1292) fails fast instead of hanging.
-      timeout: WORKTREE_ADD_TIMEOUT_MS
+      // Why: resolve per call — hoisting to a module const would freeze the ORCA_WORKTREE_ADD_TIMEOUT_MS override at import (STA-1292 floor, #12696 ceiling).
+      timeout: resolveWorktreeAddTimeoutMs()
     })
   } catch (error) {
     // Why: a killed add (e.g. timeout mid-checkout, #7410) can leave a registered worktree + fresh branch; roll back only state this add created.
@@ -1024,7 +1028,8 @@ async function performAddWorktree(
       if (deferCheckoutForGitCrypt) {
         await gitExecFileAsync([...PARALLEL_CHECKOUT_GIT_ARGS, 'checkout'], {
           ...gitExecOptions(worktreePath, options),
-          timeout: WORKTREE_ADD_TIMEOUT_MS
+          // Why: same slow-content-filter class as the add — honor the override here too.
+          timeout: resolveWorktreeAddTimeoutMs()
         })
       }
     } catch (error) {
