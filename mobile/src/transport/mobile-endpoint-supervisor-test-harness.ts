@@ -16,6 +16,7 @@ export class FakeSession implements RpcClient {
     })
   )
   readonly subscribe = vi.fn(() => () => {})
+  readonly sendTerminalBinaryInput = vi.fn((_terminal: string, _payload: Uint8Array): boolean => true)
   readonly updateTerminalSubscriptionViewport = vi.fn()
   readonly notifyForeground = vi.fn()
   readonly close = vi.fn()
