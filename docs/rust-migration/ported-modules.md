@@ -414,10 +414,32 @@ DROPPED, an explicit `null` must SURVIVE. Committed blob: `<absent>`, `<absent>`
 `<absent>`. Rebuilt blob: the object, `<absent>`, `null`.
 
 That is the aiVaultTitle regression for the THIRD time, and the first time it
-arrived through the artifact rather than the source. The rebuild fixes it as a
-side effect of being built from committed source, which is the whole invariant:
-`check:wasm-pins` only proves the pin matches the file, never that the file
-matches the source it claims to be built from.
+arrived through the artifact rather than the source.
+
+**A guard already existed, was firing, and was being committed red.** The claim
+first written here — that `check:wasm-pins` only proves the pin matches the file
+— is wrong, and worth correcting rather than quietly deleting, because it would
+send the next reader off to build a guard that is already there.
+`check-orca-wasm-pins.mjs` hashes the crate source and compares it to the hash
+recorded in the pin, and at the previous HEAD (b06d6c6d2d) it exits **1**:
+
+```
+[check-wasm-pins] orca-git-wasm: committed wasm does not match its pin:
+  - src/renderer/src/lib/git-wasm/orca_git_wasm_bg.wasm.d.ts does not match its size/SHA-256 pin
+  - rust/orca-git-wasm source changed since the artifacts were built
+```
+
+It exits 0 on this commit. `check:wasm-pins` is a link in `pnpm lint`, so the
+lint gate was red on this axis and the stale blob shipped anyway. The
+actionable lesson is not "write a new check" but "this one was already telling
+you"; the follow-up worth having is whatever makes a red gate impossible to
+carry forward, not more coverage.
+
+(An attempt to check whether the OTHER `pnpm lint` links were red at HEAD is not
+reported here because the measurement was broken: run through
+`./node_modules/.bin/pnpm` inside a detached worktree, all eight sub-checks
+reported red on BOTH trees — including the wasm pin check that had just exited 0
+directly. A harness that fails everything identically is measuring itself.)
 
 Two things left open, deliberately. The corpus has **zero** cases touching
 `aiVaultTitle`, which is how an entire field could vanish from an artifact
