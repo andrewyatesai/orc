@@ -1,12 +1,6 @@
-// TS dispatch for the mcp-env parity module. It drives `src/shared/mcp-config.ts`
-// — which is NOT the live path and has not been since the `mcp` cutover moved
-// the renderer onto the git-wasm shim. Calling it "the live TS reference", as
-// this comment used to, was wrong.
-//
-// It is kept on purpose: an independent TS implementation is what makes this
-// leg a real TS-vs-Rust differential instead of the wasm-vs-binary
-// self-comparison every cut-over module degenerates to. See the header on
-// `src/shared/mcp-server-inspection.ts`.
+// TS dispatch for the mcp-env parity module: maps the shared vector function
+// names to the real `src/shared/mcp-config.ts` exports so the harness compares
+// the live TS reference against the Rust `orca-text::mcp_env` port.
 
 import { maskMcpEnv } from '../../../src/shared/mcp-config'
 

@@ -1,22 +1,3 @@
-// PARITY-ONLY ORACLE — not production code, on purpose.
-//
-// `summarizeMcpServer` and `maskMcpEnv` have NO production caller. The `mcp`
-// cutover moved the renderer onto
-// `renderer/lib/git-wasm/mcp-config-content-inspection.ts`, which carries its
-// own inline fallback and imports only TYPES from `mcp-config.ts` — so this
-// file, and `mcp-config.ts`'s `inspectMcpConfigContent`, are a second
-// implementation the app no longer runs.
-//
-// Kept rather than deleted, deliberately: it is what makes the `mcp-env` parity
-// module a REAL TS-vs-Rust differential. Delete it and that adapter has to drive
-// the wasm oracle instead, which degenerates to wasm-vs-binary — a
-// self-comparison that cannot catch Rust-side drift in the env-masking bounds.
-// Same reasoning as `nacl-box` and `orchestration-store`, which are also
-// parity-only by design.
-//
-// So: keep it correct and keep it in the corpus, but do not treat it as a
-// pending cutover, and do not wire it back into the app without deciding which
-// of the two implementations is authoritative.
 import {
   isMcpConfigInspectionFieldWithinLimit,
   isMcpConfigInspectionNameWithinLimit,

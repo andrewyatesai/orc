@@ -685,10 +685,11 @@ individually empties the bucket:
 | `mobile-relay-pairing-offer` | `createPairingOfferSchema` unrouted | A zod schema factory. Not a crossable shape at all; it returns a validator, not a value. |
 
 So **none of the five was "write an arm and cut it over"** — three are unwired or
-already-correct, two are refusals. Combined with `mcp-env`, that is **three
-separate modules with no production consumer** (`fleet-identity`, `policy`'s
-play-path guard, `mcp-env`'s masking) each carrying a full Rust port, a parity
-corpus and a green gate.
+already-correct, two are refusals. That leaves **two** modules with no
+production consumer — `fleet-identity` and `policy`'s play-path guard — each
+carrying a full Rust port, a parity corpus and a green gate. (A third,
+`mcp-env`, was claimed here and is retracted below: its twin is live, and the
+shim I thought had replaced it is untracked.)
 
 That is the finding worth keeping from this whole census: **a green parity
 module is not evidence that anything uses the code.** The corpus proves TS and
@@ -761,21 +762,33 @@ first cut is not "is it cuttable" but **does anything call it**:
 | deliberate never-cut-over | `nacl-box`, `orchestration-store`, `keep-tail` |
 | genuinely open | `agent-recognition` (`titleHasAgentName`, `isExpectedAgentProcess`), `worktree-id` (the 19–65× budget call below) |
 
-**`mcp-env` is its own category, and the finding is worth more than the
-cutover.** `maskMcpEnv` has **no production caller**. The `mcp` cutover moved the
-renderer onto `git-wasm/mcp-config-content-inspection.ts`, which carries its own
-inline fallback and imports only TYPES from `mcp-config.ts` — so
-`mcp-config.ts`'s `inspectMcpConfigContent`, `summarizeMcpServer` and
-`maskMcpEnv` are a superseded second implementation kept alive by
-`mcp-config.test.ts` alone. The parity adapter still calls it "the live TS
-reference"; it is not live. Two defensible endings — delete it, or keep it
-deliberately as an independent differential oracle and say so — and choosing is
-a maintainer call, not a cutover.
+**`mcp-env` — RETRACTED.** This entry claimed `maskMcpEnv` had no production
+caller and that `mcp-config.ts`'s inspection was a superseded second
+implementation. **Both are false.** At HEAD, `McpConfigSection.tsx` and
+`settings/mcp-config-inspection.ts` import `inspectMcpConfigContent` straight
+from `src/shared/mcp-config.ts`; it is the live path.
 
-The lesson under all of this: **"is it cut over" and "is it called" are
-different questions, and the second one is cheaper.** Checking reach first would
-have skipped `mcp-env` entirely and would have flagged `browser-screencast-
-protocol`'s mobile reach before any porting effort.
+The error: `renderer/lib/git-wasm/mcp-config-content-inspection.ts`, the shim I
+described as having replaced it, is UNTRACKED. Like `worktree-id`'s, the `mcp`
+cutover is a parallel session's uncommitted work. I read the renderer's imports
+with `grep` on the working tree and reported them as HEAD's.
+
+There is nothing dead here and nothing to decide.
+
+Two lessons, and the second one cost more than the first.
+
+**"Is it cut over" and "is it called" are different questions, and the second is
+cheaper.** Checking reach first flagged `browser-screencast-protocol`'s mobile
+reach before any porting effort.
+
+**Ask both questions of HEAD.** The `mcp-env` claim above was retracted because
+reach was measured on the WORKING TREE. In this repo that is not a small slip:
+~1,700 files are uncommitted, and at least two cutovers (`mcp`, `worktree-id`)
+exist there as another session's in-progress work — shim files untracked,
+importers repointed, adapter headers already rewritten to announce a cutover
+that is not committed. Reading any of those with `grep`/`cat`/`head` returns a
+confident description of a tree that is not the one you would be committing to.
+`git grep <pat> HEAD --` and `git show HEAD:<path>`, every time.
 
 ### What is actually left, and what each one is waiting on
 
