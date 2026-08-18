@@ -1,5 +1,5 @@
 import type { CliStatusResult, RuntimeStatus } from '../../shared/runtime-types'
-import { type PairingOffer } from '../../shared/pairing'
+import type { PairingOffer } from '../../shared/pairing'
 import { parsePairingCode } from '../../shared/pairing-deep-link'
 import { launchOrcaApp } from './launch'
 import { getDefaultUserDataPath, readMetadata } from './metadata'

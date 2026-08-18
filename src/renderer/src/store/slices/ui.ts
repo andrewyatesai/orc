@@ -53,10 +53,16 @@ import {
   WORKSPACE_CLEANUP_CLASSIFIER_VERSION,
   type WorkspaceCleanupDismissal
 } from '../../../../shared/workspace-cleanup'
-import { type FeatureTipId } from '../../../../shared/feature-tips'
+import type { FeatureTipId } from '../../../../shared/feature-tips'
 import { normalizeFeatureTipIds } from '../../../../shared/feature-tip-selection'
-import { type FeatureInteractionId, type FeatureInteractionState } from '../../../../shared/feature-interactions'
-import { hasFeatureInteraction, normalizeFeatureInteractions } from '../../../../shared/feature-interaction-state'
+import type {
+  FeatureInteractionId,
+  FeatureInteractionState
+} from '../../../../shared/feature-interactions'
+import {
+  hasFeatureInteraction,
+  normalizeFeatureInteractions
+} from '../../../../shared/feature-interaction-state'
 import type { ContextualTourId } from '../../../../shared/contextual-tours'
 import { getContextualTour } from '../../../../shared/contextual-tour-lookup'
 import { normalizeContextualTourIds } from '../../../../shared/contextual-tour-id-normalization'
@@ -88,7 +94,12 @@ import {
   type ExecutionHostId
 } from '../../../../shared/execution-host'
 import { WORKSPACE_BOARD_COLUMN_WIDTH_DEFAULT } from '../../../../shared/workspace-statuses'
-import { clampWorkspaceBoardColumnWidth, clampWorkspaceBoardOpacity, cloneDefaultWorkspaceStatuses, normalizeWorkspaceStatuses } from '../../../../shared/workspace-status-normalization'
+import {
+  clampWorkspaceBoardColumnWidth,
+  clampWorkspaceBoardOpacity,
+  cloneDefaultWorkspaceStatuses,
+  normalizeWorkspaceStatuses
+} from '../../../../shared/workspace-status-normalization'
 import { clampMarkdownTocPanelWidth } from '../../../../shared/markdown-toc-panel-width'
 import { clampCombinedDiffFileTreeWidth } from '../../../../shared/combined-diff-file-tree-width'
 import { normalizeKagiSessionLink } from '../../../../shared/browser-url'

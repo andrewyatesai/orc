@@ -7,7 +7,7 @@ import { showBlockedNotificationFallbackToast } from '@/lib/blocked-notification
 // buildAgentNotificationId derivation moved to the Rust orca-core (orca-git wasm).
 import { buildAgentNotificationId } from '../../lib/git-wasm/agent-notification-id'
 import { resolveCompatibleAgentTypeForOwner } from '../../../../shared/agent-title-owner'
-import { type AgentStatusEntry } from '../../../../shared/agent-status-types'
+import type { AgentStatusEntry } from '../../../../shared/agent-status-types'
 import { isFreshNonDoneAgentStatus } from '../../../../shared/agent-status-evaluation'
 import { isSupersededAgentCompletionSnapshot } from './agent-completion-snapshot-staleness'
 import type {

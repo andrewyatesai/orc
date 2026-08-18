@@ -27,14 +27,17 @@ import {
   captureAgentGenerationFailureOutput,
   type AgentGenerationFailureOutput
 } from './agent-failure-output'
-import { type BranchNameWorkContext } from '../../shared/branch-name-from-work'
+import type { BranchNameWorkContext } from '../../shared/branch-name-from-work'
 import { buildBranchNamePrompt } from '../../shared/branch-leaf-naming'
 import { sanitizeBranchSlug } from '../../shared/branch-leaf-naming'
 import type {
   CommitMessageAgentCapability,
   CommitMessageModelCapability
 } from '../../shared/commit-message-agent-spec'
-import { getAgentModelProbeSpec, type AgentModelProbeSpec } from '../../shared/agent-model-probe-spec'
+import {
+  getAgentModelProbeSpec,
+  type AgentModelProbeSpec
+} from '../../shared/agent-model-probe-spec'
 import { planAgentBinary, planCommitMessageGeneration } from './rust-commit-message-plan'
 import type { CommitMessagePlan } from '../../shared/commit-message-plan'
 import { LOCAL_COMMIT_MESSAGE_HOST_KEY } from '../../shared/commit-message-host-key'

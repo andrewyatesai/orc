@@ -1,5 +1,5 @@
 import { useAppStore } from '@/store'
-import { type PaneKey } from '../../../shared/stable-pane-id'
+import type { PaneKey } from '../../../shared/stable-pane-id'
 import { makePaneKey } from '../../../shared/stable-pane-identity'
 import type { AgentType } from '../../../shared/agent-status-types'
 import { bindAutomationTerminal } from '@/lib/automation-terminal-ownership'

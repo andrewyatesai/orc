@@ -131,7 +131,10 @@ import {
 } from '../../../shared/clipboard-image'
 import { sanitizeWebRuntimeWorkspaceSession } from './web-workspace-session'
 import { GIT_REMOTE_OPERATION_RPC_TIMEOUT_MS } from '../../../shared/git-remote-operation-timeout'
-import { type FeatureInteractionId, type FeatureInteractionState } from '../../../shared/feature-interactions'
+import type {
+  FeatureInteractionId,
+  FeatureInteractionState
+} from '../../../shared/feature-interactions'
 import { normalizeFeatureInteractions } from '../../../shared/feature-interaction-state'
 import type { ContextualTourId } from '../../../shared/contextual-tours'
 import { normalizeContextualTourIds } from '../../../shared/contextual-tour-id-normalization'

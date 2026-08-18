@@ -21,8 +21,11 @@ import {
   type PublicKnownRuntimeEnvironment
 } from '../../../../shared/runtime-environments'
 import type { RuntimeStatus } from '../../../../shared/runtime-types'
-import { type RuntimeCompatVerdict } from '../../../../shared/protocol-compat'
-import { describeRuntimeCompatBlock, evaluateRuntimeCompat } from '../../../../shared/protocol-compat-verdict'
+import type { RuntimeCompatVerdict } from '../../../../shared/protocol-compat'
+import {
+  describeRuntimeCompatBlock,
+  evaluateRuntimeCompat
+} from '../../../../shared/protocol-compat-verdict'
 import {
   MIN_COMPATIBLE_RUNTIME_SERVER_VERSION,
   PROJECT_HOST_SETUP_RUNTIME_CAPABILITY,

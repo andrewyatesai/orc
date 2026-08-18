@@ -273,8 +273,11 @@ import {
 } from './synthetic-title-spinner'
 import { shouldSendSyntheticTitleFrame } from './synthetic-title-visibility'
 import { shouldCopySyntheticTitleFrameToPtyData } from './synthetic-title-frame-routing'
-import { type SyntheticAgentTitleProfile } from '../shared/synthetic-agent-title'
-import { getSyntheticAgentTitleProfile, shouldDriveSyntheticAgentTitleFromHook } from '../shared/synthetic-agent-title-resolution'
+import type { SyntheticAgentTitleProfile } from '../shared/synthetic-agent-title'
+import {
+  getSyntheticAgentTitleProfile,
+  shouldDriveSyntheticAgentTitleFromHook
+} from '../shared/synthetic-agent-title-resolution'
 import type { AgentStatusState } from '../shared/agent-status-types'
 import { isAskUserQuestionTool } from '../shared/agent-question-answered-intent'
 import { resolveTuiAgentPermissionMode } from '../shared/tui-agent-permissions'

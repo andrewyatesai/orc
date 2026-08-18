@@ -1,4 +1,4 @@
-import { type SetupRunnerCommandPlatform, type SetupRunnerCommandShell } from './setup-runner-command'
+import type { SetupRunnerCommandPlatform, SetupRunnerCommandShell } from './setup-runner-command'
 import { resolveSetupRunnerCommand } from './setup-runner-command-resolution'
 import type { AgentStartupShell } from './tui-agent-startup-shell'
 

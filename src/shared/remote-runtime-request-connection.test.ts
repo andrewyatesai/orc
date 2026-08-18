@@ -1,7 +1,7 @@
 import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { type PairingOffer } from './pairing'
+import type { PairingOffer } from './pairing'
 import { encodePairingOffer, parsePairingCode } from './pairing-deep-link'
 import {
   decrypt,

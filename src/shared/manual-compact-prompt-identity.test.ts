@@ -7,7 +7,7 @@ import {
   type AgentHookEventPayload
 } from './agent-hook-listener'
 import type { AgentProviderSessionMetadata } from './agent-session-resume'
-import { type ParsedAgentStatusPayload } from './agent-status-types'
+import type { ParsedAgentStatusPayload } from './agent-status-types'
 import { normalizeAgentStatusPayload } from './agent-status-evaluation'
 const SESSION: AgentProviderSessionMetadata = { key: 'session_id', id: 'sess-abc' }
 const OTHER_SESSION: AgentProviderSessionMetadata = { key: 'session_id', id: 'sess-xyz' }

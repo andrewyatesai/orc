@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { type FeatureInteractionId } from '../../../../shared/feature-interactions'
+import type { FeatureInteractionId } from '../../../../shared/feature-interactions'
 import { isFeatureInteractionId } from '../../../../shared/feature-interaction-state'
 import { isFeatureTipId } from '../../../../shared/feature-tip-selection'
 import {

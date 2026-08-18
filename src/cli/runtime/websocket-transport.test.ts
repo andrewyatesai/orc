@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketServer } from 'ws'
-import { type PairingOffer } from '../../shared/pairing'
+import type { PairingOffer } from '../../shared/pairing'
 import { encodePairingOffer } from '../../shared/pairing-deep-link'
 import {
   decrypt,

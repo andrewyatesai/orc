@@ -22,7 +22,7 @@
 
 import { useMemo } from 'react'
 import { translate } from '@/i18n/i18n'
-import { type FleetException } from './fleet-exceptions'
+import type { FleetException } from './fleet-exceptions'
 import {
   collapseExceptionsByTask,
   unwiredExceptionSources
