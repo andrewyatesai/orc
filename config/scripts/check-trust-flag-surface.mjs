@@ -27,20 +27,41 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
 const ROOT = new URL('../..', import.meta.url).pathname
-const CONFIG = 'rust/.cargo/config.toml'
 
-// Read the COMMITTED config: this repo carries ~1,700 uncommitted files from
-// parallel sessions, so the working tree is not evidence of what ships.
+// EVERY tracked cargo config, enumerated — never a hardcoded path. Cargo merges
+// configs from the invocation cwd upward, so a build started in rust/ reads BOTH
+// rust/.cargo/config.toml and the repo-root one. This check first hardcoded the
+// rust/ file, went green, and the ROOT file still carried all three dead flags —
+// so the build kept failing while the check reported success. Enumerating is the
+// fix, and it is why this reads a glob rather than a constant.
+function trackedConfigs() {
+  return execFileSync('git', ['ls-files', '*.cargo/config.toml'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  })
+    .split('\n')
+    .filter(Boolean)
+}
+
+// Read the INDEX, falling back to HEAD: the index is exactly what a commit would
+// contain, so a fix to this table is checkable BEFORE it lands — reading HEAD
+// alone made the fix unverifiable until after it was committed. Neither reads the
+// working tree, because this repo carries ~1,700 uncommitted files from parallel
+// sessions and that tree is not evidence of what ships.
 function committed(path) {
-  try {
-    return execFileSync('git', ['show', `HEAD:${path}`], {
-      cwd: ROOT,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-  } catch {
-    return readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8')
+  for (const rev of [`:${path}`, `HEAD:${path}`]) {
+    try {
+      return execFileSync('git', ['show', rev], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+    } catch {
+      /* try the next reference */
+    }
   }
+  return readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8')
 }
 
 /** Flag NAMES only — `-Zfoo=bar` and `-Zfoo` both yield `foo`. */
@@ -81,9 +102,20 @@ function offeredFlags() {
   return names
 }
 
-const configured = configuredFlags(committed(CONFIG))
+const CONFIGS = trackedConfigs()
+if (CONFIGS.length === 0) {
+  console.error('[trust-flags] found no tracked *.cargo/config.toml — the repo layout changed')
+  process.exit(1)
+}
+const configured = new Map()
+for (const file of CONFIGS) {
+  for (const [flag, key] of configuredFlags(committed(file))) {
+    const prior = configured.get(flag)
+    configured.set(flag, { flag, where: prior ? `${prior.where}, ${file} (${key})` : `${file} (${key})` })
+  }
+}
 if (configured.size === 0) {
-  console.error(`[trust-flags] parsed no -Z flags out of ${CONFIG} — the parser or the file changed shape`)
+  console.error(`[trust-flags] parsed no -Z flags out of ${CONFIGS.join(', ')} — the parser or the files changed shape`)
   process.exit(1)
 }
 
@@ -99,13 +131,13 @@ if (offered.size === 0) {
   process.exit(1)
 }
 
-const dead = [...configured].filter(([flag]) => !offered.has(flag))
-console.log(`[trust-flags] ${configured.size} configured, ${offered.size} offered by the installed stage2`)
+const dead = [...configured.values()].filter((entry) => !offered.has(entry.flag))
+console.log(`[trust-flags] ${configured.size} distinct flag(s) across ${CONFIGS.length} config(s); stage2 offers ${offered.size}`)
 
 if (dead.length > 0) {
-  console.error(`\n[trust-flags] ${dead.length} flag(s) in ${CONFIG} are NOT accepted:`)
-  for (const [flag, key] of dead) {
-    console.error(`  - -Z${flag}   (in ${key})`)
+  console.error(`\n[trust-flags] ${dead.length} configured flag(s) are NOT accepted:`)
+  for (const entry of dead) {
+    console.error(`  - -Z${entry.flag}   in ${entry.where}`)
   }
   console.error('\nAn unknown -Z is fatal on EVERY unit, build scripts included, so nothing under')
   console.error('rust/ compiles while this is true. See what the stage2 does offer:')
@@ -114,4 +146,4 @@ if (dead.length > 0) {
   console.error('table is not read — both compile as vanilla Rust with the verifier silently off.')
   process.exit(1)
 }
-console.log('[trust-flags] every configured trust flag is accepted by the installed stage2.')
+console.log(`[trust-flags] every configured trust flag is accepted, across: ${CONFIGS.join(', ')}`)

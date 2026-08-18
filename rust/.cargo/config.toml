@@ -32,41 +32,69 @@ offline = true
 # whose body is not in the lowered bundle)", which no source change reaches. That
 # is the Trust-Std campaign, and until it lands every std call is an assumption.
 #
-# WHY NOT `strict`: `-Ztrust-policy` is a rustflag, and cargo has no per-package
-# rustflags (`[profile.*.package]` takes profile keys only, and Trust's own
-# `-Ztrust-verify-crate-role` says outright it "never changes verifier scope").
-# One policy therefore covers first-party AND vendor. Vendored code holds nothing
-# above advisory; picking strict to gate our crates would only make the workspace
-# refuse to build, and picking advisory is the price of that being workspace-wide.
-# The strict gate survives per crate, as a ratchet — see the probe below.
+# FLAG SURFACE, MEASURED 2026-08-18 — the three flags this table used to set are
+# GONE from the installed stage2, and every unit under rust/ failed flag-parse
+# while they were here, so the verifier was not running at all:
 #
-# MEMCHR HANG: `memchr` verification did not terminate on stage2 51bf8a270 under
-# any policy (2026-07-18 bug, still live). The step budget below is the fix — a
-# monotone-decreasing preprocessing bound that terminates with the clock disabled,
-# measured verdict-identical from 1e4 to 1e9. Never use the `-ms` wall-clock twin:
-# it silently drops the slowest functions and breaks build reproducibility.
+#     -Ztrust-verify                          unknown unstable option
+#     -Ztrust-policy                          unknown unstable option
+#     -Ztrust-verify-function-budget-steps    unknown unstable option
 #
-# PROBE before editing either flag — both spellings are a property of the
-# INSTALLED stage2, not of the calendar, and this has flipped twice on toolchain
-# swaps alone (`-Zno-trust-verify` was DELETED and fails flag-parse on EVERY unit,
-# build scripts included, so nothing under rust/ compiles when it is set):
+# `config/scripts/check-trust-flag-surface.mjs` now probes this table against
+# `rustc -Z help` so the next flip is a named failure instead of a build that
+# quietly compiles as vanilla Rust. Run it before editing anything below; do NOT
+# "fix" a rejection by clearing RUSTFLAGS or building from a directory where this
+# table is not read, because both turn the verifier off silently.
 #
-#     rustup run trust rustc -Z help | grep trust-verify
+# WHAT REPLACED THEM:
+#   * verification is BATTERIES-ON by default, so there is nothing to switch on.
+#     `-Zno-trust-verify` is the sole off-switch.
+#   * the default policy is STRICT — confirmed directly: a function with one
+#     unproved obligation is a build error. `-Ztrust-lame` is what `advisory` was,
+#     "report Trust verification failures without forced-counterexample
+#     escalation (verification still runs non-fatally)".
+#   * the step budget became a wall-clock twin, `-ms`.
 #
-# RATCHET a single crate back to a real gate (advisory is not a gate). RUSTFLAGS
-# overrides this table wholesale, so `-Ztrust-verify=on` must be repeated:
+# WHY THE `-ms` BUDGET, WHICH THIS FILE USED TO FORBID. The old text said "Never
+# use the `-ms` wall-clock twin: it silently drops the slowest functions and
+# breaks build reproducibility", and prescribed the step budget instead. That
+# advice was correct WHEN A STEP BUDGET EXISTED. It does not. And the hang it was
+# written for is still live — measured today, `rustc --crate-name memchr` ran
+# 4m17s on that one crate with no output and no sign of terminating.
 #
-#     CARGO_TARGET_DIR=target/pol RUSTFLAGS="-Ztrust-verify=on \
-#       -Ztrust-verify-function-budget-steps=100000 -Ztrust-policy=strict" \
+# So the real choice is not "steps vs ms", it is "verification that terminates"
+# against "verification that hangs", and a verifier that hangs is a verifier
+# nobody leaves on. The `-ms` downside is real and unfixed: a function that
+# exceeds the budget is reported as timed-out rather than proved, and which
+# functions those are can vary with machine load. Read the verdict counts
+# accordingly — a timed-out obligation is an ASSUMPTION, exactly like the absent-
+# callee residue above, not a proof.
+#
+# RESTORE THE STEP BUDGET the day it returns: swap the `-ms` line for
+# `-Ztrust-verify-function-budget-steps=100000` and re-run the probe script.
+#
+# WHY NOT `strict`: cargo has no per-package rustflags (`[profile.*.package]`
+# takes profile keys only, and Trust's own `-Ztrust-verify-crate-role` says
+# outright it "never changes verifier scope"). One policy therefore covers
+# first-party AND vendor. Vendored code holds nothing above advisory; gating our
+# crates with strict would only make the workspace refuse to build.
+#
+# RATCHET a single crate back to a real gate. RUSTFLAGS overrides this table
+# wholesale, so every flag must be repeated:
+#
+#     CARGO_TARGET_DIR=target/pol \
+#       RUSTFLAGS="-Ztrust-verify-function-budget-ms=5000" \
 #       cargo build -p orca-stream-split
 #
 # Crates that hold a real policy today: orca-stream-split and orca-provider-backoff
 # at `certify`, aterm-hash at `strict`. Everything else needs the Trust-Std bundle.
 [target.aarch64-apple-darwin]
 rustflags = [
-  "-Ztrust-verify=on",
-  "-Ztrust-verify-function-budget-steps=100000",
-  "-Ztrust-policy=advisory",
+  # Non-fatal reporting: what `-Ztrust-policy=advisory` used to do.
+  "-Ztrust-lame",
+  # Without a budget, memchr does not terminate (measured 4m17s, still running).
+  # Tune this rather than removing it; removing it hangs the build.
+  "-Ztrust-verify-function-budget-ms=5000",
 ]
 # Cargo does not forward target rustflags to trustdoc, so doctests would silently
 # fall back to the default — state it rather than inherit it by accident.
@@ -77,7 +105,7 @@ rustflags = [
 # override. The stable test entrypoint (`pnpm run test:rust`, i.e.
 # config/scripts/run-rust-tests.mjs) clears RUSTDOCFLAGS alongside RUSTFLAGS;
 # do the same in any new stable-lane script that runs doctests.
-# `-Ztrust-verify=off` is the ONE trust flag the embedded doctest frontend
+# `-Zno-trust-verify` is the ONE trust flag the embedded doctest frontend
 # accepts — rustc_driver_impl calls it a "redundant deauthorization", since
 # EmbeddedNoOfficialEvidence forces verification off internally anyway. It is
 # not redundant HERE: without it, the merged-doctest child compile falls back to
@@ -86,7 +114,7 @@ rustflags = [
 # trust flag in this table is rejected outright by the same frontend, loudly.
 # Net: doctests compile-and-run deauthorized — a stated policy, not a silent
 # fallback.
-rustdocflags = ["-Ztrust-verify=off"]
+rustdocflags = ["-Zno-trust-verify"]
 
 # Build scripts and proc-macros compile for the HOST and never need verification —
 # and the current stage2 ICEs (SignatureMismatch on std closures, rustc_traits/
@@ -100,4 +128,4 @@ target-applies-to-host = true
 host-config = true
 
 [host]
-rustflags = ["-Ztrust-verify=off"]
+rustflags = ["-Zno-trust-verify"]

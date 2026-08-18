@@ -21,9 +21,15 @@ target-applies-to-host = false
 # its own dependencies.
 [target.aarch64-apple-darwin]
 rustflags = [
-  "-Ztrust-verify=on",
-  "-Ztrust-verify-function-budget-steps=100000",
-  "-Ztrust-policy=advisory",
+  # MEASURED 2026-08-18: -Ztrust-verify, -Ztrust-policy and
+  # -Ztrust-verify-function-budget-steps are all GONE from the installed stage2,
+  # and every unit failed flag-parse while they were set here. Verification is
+  # batteries-on by default now; -Ztrust-lame is what `advisory` was; the step
+  # budget became a wall-clock twin, and without a budget memchr does not
+  # terminate (measured 4m17s). Full rationale in rust/.cargo/config.toml.
+  # `config/scripts/check-trust-flag-surface.mjs` probes BOTH files.
+  "-Ztrust-lame",
+  "-Ztrust-verify-function-budget-ms=5000",
 ]
 # `-Ztrust-verify=off` is the ONE trust flag the embedded doctest frontend
 # accepts — rustc_driver_impl calls it a "redundant deauthorization", since
@@ -34,7 +40,7 @@ rustflags = [
 # trust flag in this table is rejected outright by the same frontend, loudly.
 # Net: doctests compile-and-run deauthorized — a stated policy, not a silent
 # fallback.
-rustdocflags = ["-Ztrust-verify=off"]
+rustdocflags = ["-Zno-trust-verify"]
 
 # Build scripts and proc-macros compile for the HOST and never need verification —
 # and the current stage2 ICEs (SignatureMismatch on std closures, rustc_traits/
@@ -48,4 +54,4 @@ target-applies-to-host = true
 host-config = true
 
 [host]
-rustflags = ["-Ztrust-verify=off"]
+rustflags = ["-Zno-trust-verify"]
