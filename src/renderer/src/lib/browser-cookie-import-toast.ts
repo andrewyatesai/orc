@@ -1,10 +1,25 @@
 import { toast } from 'sonner'
 import type { BrowserCookieImportSummary } from '../../../shared/types'
+import { isHandledWireDiscriminant } from '../../../shared/handled-wire-discriminant'
 import { translate } from '@/i18n/i18n'
 
 type CookieImportWarning = NonNullable<BrowserCookieImportSummary['warning']>
+type CookieImportWarningCode = CookieImportWarning['code']
+
+// Why: the summary is cast, not decoded, off the runtime RPC wire, so a newer host can send a code
+// this build has never heard of. The Record key is the union itself, so a new member fails typecheck
+// here instead of silently falling out of the switch into a blank toast.warning(undefined) (#15002).
+const HANDLED_WARNING_CODES: Record<CookieImportWarningCode, true> = {
+  'restart-fallback-unavailable': true
+}
 
 function formatCookieImportWarning(warning: CookieImportWarning): string {
+  if (!isHandledWireDiscriminant(warning.code, HANDLED_WARNING_CODES)) {
+    return translate(
+      'auto.lib.browser.cookie.import.toast.unrecognizedWarning',
+      'The cookie import finished with a warning this version of Orca does not recognize. Update Orca to see the details, then check this profile before relying on its cookies.'
+    )
+  }
   switch (warning.code) {
     case 'restart-fallback-unavailable':
       return warning.loadedCookies === 0

@@ -3,6 +3,7 @@ import { basename, dirname, extname, isAbsolute, join } from 'node:path'
 
 import {
   finishCodexSubagent,
+  setCodexSubagentModel,
   upsertCodexSubagent,
   type CodexSubagentRoster
 } from './codex-subagent-roster'
@@ -22,6 +23,9 @@ type JsonlCursor = {
 
 type TrackedTranscriptSubagent = JsonlCursor & {
   description?: string
+  // Retained across polls: the cursor is incremental and `turn_context` is
+  // emitted once per turn, so a later read usually carries no model at all.
+  model?: string
   startedAt: number
   unresolvedSince?: number
 }
@@ -199,6 +203,23 @@ function readActivity(recordValue: JsonRecord):
   }
 }
 
+// Latest model from the child's own `turn_context` records. A child can launch
+// on a different model than its parent, so read it from the child rollout.
+function readChildModel(records: JsonRecord[]): string | undefined {
+  let model: string | undefined
+  for (const recordValue of records) {
+    if (recordValue.type !== 'turn_context') {
+      continue
+    }
+    const payload = record(recordValue.payload)
+    const value = typeof payload?.model === 'string' ? payload.model.trim() : ''
+    if (value) {
+      model = value
+    }
+  }
+  return model
+}
+
 function childIsComplete(records: JsonRecord[]): boolean {
   let complete = false
   for (const recordValue of records) {
@@ -289,6 +310,11 @@ export function reconcileCodexSubagentTranscript(
       }
     } else {
       tracked.unresolvedSince = undefined
+      tracked.model = readChildModel(records) ?? tracked.model
+      // Re-applied every reconcile, not just on discovery: the parent's own
+      // activity upsert can rebuild this child's roster entry, which would
+      // otherwise drop a model found on an earlier poll.
+      setCodexSubagentModel(roster, id, tracked.model)
       if (!childIsComplete(records)) {
         continue
       }

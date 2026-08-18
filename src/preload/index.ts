@@ -4549,6 +4549,8 @@ const api = {
       | {
           available: true
           qrDataUrl: string
+          /** Natural bitmap width and height in pixels (integer pixels-per-module). */
+          qrSize: number
           pairingUrl: string
           /** Null when no direct address was advertised — the QR pairs over Relay alone. */
           endpoint: string | null
@@ -4664,6 +4666,9 @@ const api = {
     },
     retirePaneAuthority: (paneKey: string): void => {
       ipcRenderer.send('agentStatus:retirePaneAuthority', paneKey)
+    },
+    restorePaneAuthority: (paneKey: string): void => {
+      ipcRenderer.send('agentStatus:restorePaneAuthority', paneKey)
     },
     transferPaneAuthority: (args: {
       fromPaneKey: string

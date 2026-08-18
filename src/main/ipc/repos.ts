@@ -1208,15 +1208,14 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
   ipcMain.removeHandler('sparsePresets:save')
   ipcMain.removeHandler('sparsePresets:remove')
 
-  const promotionOptions = { onChanged: () => notifyReposChanged(mainWindow) }
+  // Why one shared reference: enrichment dedupes coalesced callers by callback identity, so a fresh
+  // closure per list call would stack up (and re-broadcast) for the length of a slow sweep.
+  const broadcastReposChanged = (): void => notifyReposChanged(mainWindow)
+  const promotionOptions = { onChanged: broadcastReposChanged }
   const runRepoEnrichment = (): void => {
-    enrichMissingRepoGitRemoteIdentities(store, {
-      onChanged: () => notifyReposChanged(mainWindow)
-    })
+    enrichMissingRepoGitRemoteIdentities(store, { onChanged: broadcastReposChanged })
     // Why: username resolution spawns git/gh, so keep it off this sync handler (issue #7225); it re-lists when values land.
-    enrichRepoGitUsernames(store, {
-      onChanged: () => notifyReposChanged(mainWindow)
-    })
+    enrichRepoGitUsernames(store, { onChanged: broadcastReposChanged })
   }
   const runRepoListSideEffects = (): void => {
     // Why: kind is captured at add time; re-detect here so a later `git init`
@@ -1243,9 +1242,7 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
   })
 
   ipcMain.handle('projects:list', () => {
-    enrichMissingRepoGitRemoteIdentities(store, {
-      onChanged: () => notifyReposChanged(mainWindow)
-    })
+    enrichMissingRepoGitRemoteIdentities(store, { onChanged: broadcastReposChanged })
     return store.getProjects()
   })
 
@@ -1259,9 +1256,7 @@ export function registerRepoHandlers(mainWindow: BrowserWindow, store: Store): v
   })
 
   ipcMain.handle('projectHostSetups:list', () => {
-    enrichMissingRepoGitRemoteIdentities(store, {
-      onChanged: () => notifyReposChanged(mainWindow)
-    })
+    enrichMissingRepoGitRemoteIdentities(store, { onChanged: broadcastReposChanged })
     return store.getProjectHostSetups()
   })
 

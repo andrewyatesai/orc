@@ -3060,6 +3060,7 @@ export function useIpcEvents(): void {
         interactivePrompt: data.interactivePrompt,
         lastAssistantMessage: data.lastAssistantMessage,
         interrupted: data.interrupted,
+        turnCompletedAt: data.turnCompletedAt,
         // Why: same trap as interactivePrompt — this rebuild is a field whitelist, so subagent child rows vanish if omitted.
         subagents: data.subagents
       })
@@ -3234,7 +3235,7 @@ export function useIpcEvents(): void {
       if (options?.replay !== true && data.rainPulse) {
         deliverAtermRainPulse(data.paneKey, data.rainPulse)
       }
-      if (options?.replay !== true && statusWorktreeId) {
+      if (statusWorktreeId && (options?.replay !== true || resolvedPayload.state === 'working')) {
         // Why: local Codex/Claude hooks arrive via this main-process IPC path, not the PTY OSC fallback, so task-complete notifications must observe accepted hook state here too.
         const notificationPayload = {
           ...resolvedPayload,
@@ -3244,12 +3245,17 @@ export function useIpcEvents(): void {
           // Why: carry the turn-boundary signals so the coordinator can ignore
           // background plugin hook churn (Claude-Mem) after the turn finished.
           ...(data.hookEventName ? { hookEventName: data.hookEventName } : {}),
-          ...(data.hasExplicitPrompt === true ? { hasExplicitPrompt: true } : {})
+          ...(data.hasExplicitPrompt === true ? { hasExplicitPrompt: true } : {}),
+          ...(typeof data.turnCompletedAt === 'number'
+            ? { turnCompletedAt: data.turnCompletedAt }
+            : {})
         }
         observeAgentHookCompletionForNotification({
           paneKey,
           worktreeId: statusWorktreeId,
-          payload: notificationPayload
+          payload: notificationPayload,
+          // Why: replayed non-working rows seed the coordinator's handled set without re-announcing a stale completion.
+          ...(options?.replay === true ? { seedOnly: true } : {})
         })
       }
       return 'applied'

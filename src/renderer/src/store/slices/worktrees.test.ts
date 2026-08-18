@@ -2325,19 +2325,33 @@ describe('worktree lineage state', () => {
     })
   })
 
-  it('refetches lineage after an update failure', async () => {
+  it('refetches lineage and rethrows after an update failure', async () => {
     const lineage = makeLineage()
     const store = createLocalLineageTestStore(lineage)
     mockApi.worktrees.updateLineage.mockRejectedValueOnce(new Error('stale parent'))
     mockApi.worktrees.listLineage.mockResolvedValue({ [lineage.worktreeId]: lineage })
     vi.spyOn(console, 'error').mockImplementation(() => {})
 
-    await store.getState().updateWorktreeLineage(lineage.worktreeId, {
-      parentWorktreeId: lineage.parentWorktreeId
-    })
+    await expect(
+      store.getState().updateWorktreeLineage(lineage.worktreeId, {
+        parentWorktreeId: lineage.parentWorktreeId
+      })
+    ).rejects.toThrow('stale parent')
 
     expect(mockApi.worktrees.listLineage).toHaveBeenCalled()
     expect(store.getState().worktreeLineageById).toEqual({ [lineage.worktreeId]: lineage })
+  })
+
+  it('rethrows the original update failure when the recovery refresh fails too', async () => {
+    const lineage = makeLineage()
+    const store = createLocalLineageTestStore(lineage)
+    mockApi.worktrees.updateLineage.mockRejectedValueOnce(new Error('unnest failed'))
+    mockApi.worktrees.listLineage.mockRejectedValue(new Error('list also failed'))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await expect(
+      store.getState().updateWorktreeLineage(lineage.worktreeId, { noParent: true })
+    ).rejects.toThrow('unnest failed')
   })
 
   it('refetches lineage and rethrows when explicit parent assignment fails', async () => {
@@ -8123,6 +8137,78 @@ describe('setWorktreesPinnedAndReveal', () => {
     expect(reveal).not.toHaveBeenCalled()
     expect(store.getState().worktreesByRepo.repo1[0].isPinned).toBe(true)
     expect(store.getState().worktreesByRepo.repo1[1].isPinned).toBe(true)
+  })
+
+  it.each([
+    { previousPinned: false, nextPinned: true },
+    { previousPinned: true, nextPinned: false }
+  ])(
+    'reveals the focused descendant when changing its unfocused ancestor from $previousPinned to $nextPinned',
+    ({ previousPinned, nextPinned }) => {
+      const store = createTestStore()
+      const parent = makeWorktree({
+        id: 'repo1::/parent',
+        instanceId: 'parent-instance',
+        repoId: 'repo1',
+        isPinned: previousPinned
+      })
+      const child = makeWorktree({
+        id: 'repo1::/child',
+        instanceId: 'child-instance',
+        repoId: 'repo1'
+      })
+      const reveal = vi.fn()
+      store.setState({
+        worktreesByRepo: { repo1: [parent, child] },
+        worktreeLineageById: {
+          [child.id]: makeLineage({
+            worktreeId: child.id,
+            worktreeInstanceId: 'child-instance',
+            parentWorktreeId: parent.id,
+            parentWorktreeInstanceId: 'parent-instance'
+          })
+        },
+        activeWorktreeId: child.id,
+        revealWorktreeInSidebar: reveal
+      } as Partial<AppState>)
+
+      store.getState().setWorktreesPinnedAndReveal([parent.id], nextPinned)
+
+      expect(reveal).toHaveBeenCalledWith(child.id, { behavior: 'smooth', highlight: true })
+    }
+  )
+
+  it('does not reveal a focused descendant under the duplicate-in-groups policy', () => {
+    const store = createTestStore()
+    const parent = makeWorktree({
+      id: 'repo1::/parent',
+      instanceId: 'parent-instance',
+      repoId: 'repo1'
+    })
+    const child = makeWorktree({
+      id: 'repo1::/child',
+      instanceId: 'child-instance',
+      repoId: 'repo1'
+    })
+    const reveal = vi.fn()
+    store.setState({
+      worktreesByRepo: { repo1: [parent, child] },
+      worktreeLineageById: {
+        [child.id]: makeLineage({
+          worktreeId: child.id,
+          worktreeInstanceId: 'child-instance',
+          parentWorktreeId: parent.id,
+          parentWorktreeInstanceId: 'parent-instance'
+        })
+      },
+      activeWorktreeId: child.id,
+      settings: { showPinnedWorktreesInGroups: true } as never,
+      revealWorktreeInSidebar: reveal
+    } as Partial<AppState>)
+
+    store.getState().setWorktreesPinnedAndReveal([parent.id], true)
+
+    expect(reveal).not.toHaveBeenCalled()
   })
 })
 

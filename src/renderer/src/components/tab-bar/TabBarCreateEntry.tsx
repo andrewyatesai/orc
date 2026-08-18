@@ -28,8 +28,7 @@ import {
 } from './TabBarCreateEntryRow'
 import { dropFileEntriesCoveredByTabResults } from './open-tab-entry-dedupe'
 import { activateOpenTabSearchResult } from './open-tab-selection-routing'
-import type { OpenTabSearchResult } from './open-tab-search'
-import { useOpenTabSearch } from './use-open-tab-search'
+import { useTabCreateEntrySearchResults } from './use-tab-create-entry-search-results'
 import type { TuiAgent } from '../../../../shared/types'
 import { translate } from '@/i18n/i18n'
 import { getRendererAppPlatform } from '@/lib/renderer-app-platform'
@@ -45,7 +44,6 @@ function omniboxPlaceholder(): string {
 
 const EMPTY_AGENT_OPTIONS: readonly TabAgentLaunchOption[] = []
 const EMPTY_MENU_OPTIONS: readonly TabCreateMenuOption[] = []
-const EMPTY_TAB_RESULTS: readonly OpenTabSearchResult[] = []
 
 type TabBarCreateEntryProps = {
   agentOptions?: readonly TabAgentLaunchOption[]
@@ -86,10 +84,10 @@ export default function TabBarCreateEntry({
   const [lastMenuOpen, setLastMenuOpen] = useState(menuOpen)
   const inputRef = useRef<HTMLInputElement>(null)
   const fileList = useRuntimeFileListForWorktree({ enabled: menuOpen, worktreeId })
-  const tabSearch = useOpenTabSearch({ enabled: menuOpen, query, worktreeId })
-  // Why gate on the query: the search defers, so its rows can still describe an
-  // earlier query — Enter must never submit a tab the current query never matched.
-  const tabResults = tabSearch.query === query ? tabSearch.results : EMPTY_TAB_RESULTS
+  // Why retention (not a query gate): dropping every deferred row on each
+  // keystroke flashes the list. The hook keeps rows the live query still
+  // matches, so Enter never submits a tab the current query never matched.
+  const tabResults = useTabCreateEntrySearchResults({ enabled: menuOpen, query, worktreeId })
   const shouldResolveAbsolutePaths = menuOpen && isTabEntryAbsolutePathLike(query.trim())
   const allowAbsolutePathsSelector = useMemo(
     () =>

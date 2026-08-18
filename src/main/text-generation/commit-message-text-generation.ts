@@ -36,8 +36,12 @@ import type {
   CommitMessageAgentCapability,
   CommitMessageModelCapability
 } from '../../shared/commit-message-agent-spec'
-import { getAgentModelProbeSpec, type AgentModelProbeSpec } from '../../shared/agent-model-probe-spec'
+import {
+  getAgentModelProbeSpec,
+  type AgentModelProbeSpec
+} from '../../shared/agent-model-probe-spec'
 import { planAgentBinary, planCommitMessageGeneration } from './rust-commit-message-plan'
+import { commandBackslashMode } from './commit-message-command-backslash-mode'
 import type { CommitMessagePlan } from '../../shared/commit-message-plan'
 import { LOCAL_COMMIT_MESSAGE_HOST_KEY } from '../../shared/commit-message-host-key'
 import {
@@ -899,7 +903,10 @@ export async function generateCommitMessageFromContext(
           linkedIssue: formatLinkedIssueTemplateValue(context.linkedIssue)
         })
       : buildCommitMessagePrompt(context, params.customPrompt ?? '')
-  const planned = planCommitMessageGeneration(params, prompt)
+  const planned = planCommitMessageGeneration(
+    { ...params, backslash: commandBackslashMode(target) },
+    prompt
+  )
   if (!planned.ok) {
     return { success: false, error: planned.error }
   }
@@ -972,7 +979,10 @@ export async function generatePullRequestFieldsFromContext(
           linkedIssue: formatLinkedIssueTemplateValue(context.linkedIssue)
         })
       : buildPullRequestFieldsPrompt(context, params.customPrompt ?? '')
-  const planned = planCommitMessageGeneration(params, prompt)
+  const planned = planCommitMessageGeneration(
+    { ...params, backslash: commandBackslashMode(target) },
+    prompt
+  )
   if (!planned.ok) {
     return {
       success: false,
@@ -1023,7 +1033,10 @@ export async function generateBranchNameFromContext(
           assistantMessage: context.assistantMessage ?? ''
         })
       : buildBranchNamePrompt(context, params.customPrompt ?? '')
-  const planned = planCommitMessageGeneration(params, prompt)
+  const planned = planCommitMessageGeneration(
+    { ...params, backslash: commandBackslashMode(target) },
+    prompt
+  )
   if (!planned.ok) {
     return { success: false, error: planned.error }
   }

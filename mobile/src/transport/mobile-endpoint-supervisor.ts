@@ -50,6 +50,9 @@ export class MobileEndpointSupervisor {
       minimumDwellMs: MINIMUM_DWELL_MS
     })
     this.relayReconnect = new RelayReconnectController(dependencies, this.recoverRelay.bind(this))
+    // Why: project the recovery-dial failure streak into the logical client so a
+    // continuous Relay outage escalates the connection verdict to unreachable.
+    this.relayReconnect.reportFailureCountTo(this.logical.setRecoveryAttempt)
     this.leaseRotation = new RelayLeaseRotationTimer(dependencies, () => {
       this.relayRotationPending = true
       void this.recoverRelay(true)
@@ -145,7 +148,7 @@ export class MobileEndpointSupervisor {
       } else if (this.foreground && !this.stopped) {
         // Why: an eligible credential backs a genuine relay dial — name the path
         // the user is now waiting on so a failed direct hint stops masquerading.
-        this.logical.setRecoveryPath('relay')
+        this.logical.setRecoveryPath('relay', this.relayReconnect.getFailureCount())
       }
       for (const credential of selection.credentials) {
         const result = await dialRelayCredential(credential, this.relayDialContext())

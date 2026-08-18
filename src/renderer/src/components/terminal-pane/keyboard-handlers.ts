@@ -13,6 +13,7 @@ import {
   createTerminalImeDeferredNewlineSender,
   sendTerminalInputAfterComposition
 } from './terminal-ime-deferred-newline'
+import { createTerminalImeDeferredChordSender } from './terminal-ime-deferred-chord'
 import { sendTerminalQuickCommandToPane } from './terminal-quick-command-dispatch'
 import type { ResolvedCustomKeybinding } from '../../../../shared/custom-keybindings'
 import {
@@ -309,6 +310,7 @@ export function useTerminalKeyboardShortcuts({
     const nativeOnlyShortcutTracker = createTerminalNativeOnlyShortcutTracker()
     const customSendTextSuppression = createTerminalCustomSendTextSuppression()
     const deferredNewlineSender = createTerminalImeDeferredNewlineSender()
+    const deferredChordSender = createTerminalImeDeferredChordSender()
     const onModifierDown = (e: KeyboardEvent): void => {
       if (e.key === 'Alt') {
         optionKeyLocation = e.location
@@ -559,11 +561,11 @@ export function useTerminalKeyboardShortcuts({
         // composing reaches the pty from this keydown, ahead of the glyph that commits on
         // compositionend — `가나다` then Cmd+Left leaves `다가나` (#12871). Enter is handled
         // above, where a fallback timer is right because a late newline still arrives; a chord
-        // arriving mid-preedit is the corruption itself, so this one waits without a deadline.
+        // arriving mid-preedit is the corruption itself, so this one waits on the composition
+        // rather than a deadline. The sender owns the wait so blur and teardown can drop it
+        // (STA-4476), and bounds it so a composition that never commits can't strand the chord.
         if (e.isComposing) {
-          sendTerminalInputAfterComposition(pane.terminal.element, sendResolvedInput, {
-            fallbackMs: null
-          })
+          deferredChordSender.defer(pane.terminal.element, sendResolvedInput)
           return
         }
         sendResolvedInput()
@@ -832,6 +834,8 @@ export function useTerminalKeyboardShortcuts({
     const onNativeOnlyBlur = (): void => {
       nativeOnlyShortcutTracker.clear()
       customSendTextSuppression.clear()
+      // Drop any chord held for a live composition; the focus that would commit it is gone.
+      deferredChordSender.cancelPending()
     }
 
     window.addEventListener('keydown', onModifierDown, { capture: true })
@@ -849,6 +853,9 @@ export function useTerminalKeyboardShortcuts({
       window.removeEventListener('keyup', onNativeOnlyShortcutCompanion, { capture: true })
       window.removeEventListener('beforeinput', onNativeOnlyBeforeInput, { capture: true })
       window.removeEventListener('blur', onNativeOnlyBlur)
+      // A chord waiting on a composition would otherwise outlive the pane; its listener flushes
+      // the stale send against a rebound terminal (STA-4476).
+      deferredChordSender.cancelPending()
     }
   }, [
     isActive,

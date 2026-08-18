@@ -579,13 +579,15 @@
           "missing": "未找到文件夹",
           "notDirectory": "路径不是文件夹",
           "ambiguousConnection": "无法确定连接",
-          "unavailable": "无法检查文件夹"
+          "unavailable": "无法检查文件夹",
+          "unrecognized": "文件夹无法使用"
         },
         "description": {
           "missing": "Orca 找不到 {{path}}。请移除并重新导入此文件夹工作区。",
           "notDirectory": "{{path}} 存在，但它不是文件夹。",
           "ambiguousConnection": "Orca 无法判断哪个 SSH 连接拥有此文件夹范围。",
-          "unavailable": "Orca 现在无法验证此文件夹。请检查运行时或 SSH 连接，然后重试。"
+          "unavailable": "Orca 现在无法验证此文件夹。请检查运行时或 SSH 连接，然后重试。",
+          "unrecognized": "Orca 无法使用 {{path}}，并且此版本无法识别原因。请更新 Orca 以查看详细信息。"
         },
         "createError": {
           "title": {
@@ -668,7 +670,8 @@
             "toast": {
               "restartFallbackUnavailableNone": "{{value0}} 个 Cookie 均无法加载，且重启回退不可用。此配置文件的旧 Cookie 已被替换。请重试导入。",
               "restartFallbackUnavailablePartial": "已导入 {{value1}} 个 Cookie 中的 {{value0}} 个。其余无法加载，且重启回退不可用。请重试导入。",
-              "googleCookiesSkipped": "未导入 Google Cookie。请在 {{value0}} 上的 Orca 中使用此配置文件打开浏览器，然后登录 Google。"
+              "googleCookiesSkipped": "未导入 Google Cookie。请在 {{value0}} 上的 Orca 中使用此配置文件打开浏览器，然后登录 Google。",
+              "unrecognizedWarning": "Orca 导入 Cookie 时出现了此版本无法识别的警告。请更新 Orca 以查看详细信息，然后在依赖这些 Cookie 之前检查此配置文件。"
             }
           }
         }
@@ -14085,6 +14088,13 @@
           "e81a02d61b": "保存前输入有效的五字段 cron。",
           "968e66d686": "输入一个五字段 cron。",
           "cadb7b0bc9": "无效的"
+        },
+        "AutomationAgentFilterMenu": {
+          "agent": "智能体",
+          "all": "全部",
+          "926e785e4d": "搜索智能体...",
+          "491043ee45": "没有智能体符合您的搜索。",
+          "clear": "清除筛选器"
         },
         "AutomationDetail": {
           "007c8ad874": "提示词",

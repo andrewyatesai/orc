@@ -3,6 +3,7 @@ import { RpcDispatcher } from './dispatcher'
 import type { RpcRequest } from './core'
 import type { OrcaRuntimeService } from '../orca-runtime'
 import { TERMINAL_METHODS } from './methods/terminal'
+import { attachOwnedSubscriptionCleanupRouting } from './subscription-registry-test-double'
 import type { RuntimeTerminalWait } from '../../../shared/runtime-types'
 import {
   TerminalStreamOpcode,
@@ -12,14 +13,14 @@ import {
 } from '../../../shared/terminal-stream-protocol'
 
 function stubRuntime(overrides: Partial<OrcaRuntimeService> = {}): OrcaRuntimeService {
-  return {
+  return attachOwnedSubscriptionCleanupRouting({
     getRuntimeId: () => 'test-runtime',
     // Why: subscribe streams register as remote view subscribers for Phase-5
     // query-authority suppression (terminal-query-authority.md).
     registerRemoteTerminalViewSubscriber: () => () => {},
     requestRendererTerminalTabMount: () => false,
     ...overrides
-  } as OrcaRuntimeService
+  } as OrcaRuntimeService)
 }
 
 const makeRequest = (method: string, params?: unknown): RpcRequest => ({
@@ -223,10 +224,7 @@ describe('terminal subscribe buffering', () => {
       }),
       waitForTerminal: vi.fn(() => new Promise<RuntimeTerminalWait>(() => {}))
     })
-    const dispatcher = new RpcDispatcher({
-      runtime,
-      methods: TERMINAL_METHODS
-    })
+    const dispatcher = new RpcDispatcher({ runtime, methods: TERMINAL_METHODS })
 
     const dispatchPromise = dispatcher.dispatchStreaming(
       makeRequest('terminal.subscribe', {
@@ -346,10 +344,7 @@ describe('terminal subscribe buffering', () => {
       sendTerminal: vi.fn().mockResolvedValue({ accepted: true }),
       updateMobileViewport: vi.fn().mockResolvedValue(false)
     })
-    const dispatcher = new RpcDispatcher({
-      runtime,
-      methods: TERMINAL_METHODS
-    })
+    const dispatcher = new RpcDispatcher({ runtime, methods: TERMINAL_METHODS })
 
     const dispatchPromise = dispatcher.dispatchStreaming(
       makeRequest('terminal.subscribe', {
@@ -421,10 +416,7 @@ describe('terminal subscribe buffering', () => {
       sendTerminal: vi.fn().mockResolvedValue({ accepted: true }),
       updateMobileViewport: vi.fn().mockResolvedValue(false)
     })
-    const dispatcher = new RpcDispatcher({
-      runtime,
-      methods: TERMINAL_METHODS
-    })
+    const dispatcher = new RpcDispatcher({ runtime, methods: TERMINAL_METHODS })
 
     const dispatchPromise = dispatcher.dispatchStreaming(
       makeRequest('terminal.subscribe', {
@@ -660,10 +652,7 @@ describe('terminal subscribe buffering', () => {
       sendTerminal: vi.fn().mockResolvedValue({ accepted: true }),
       updateMobileViewport: vi.fn().mockResolvedValue({ updated: true, applied: true })
     })
-    const dispatcher = new RpcDispatcher({
-      runtime,
-      methods: TERMINAL_METHODS
-    })
+    const dispatcher = new RpcDispatcher({ runtime, methods: TERMINAL_METHODS })
 
     const dispatchPromise = dispatcher.dispatchStreaming(
       makeRequest('terminal.subscribe', {

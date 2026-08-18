@@ -17,7 +17,15 @@ import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import type { Store } from '../persistence'
 import type { GlobalSettings, TuiAgent } from '../../shared/types'
 import { FLEET_GRANT_ENV_VAR, stripFleetGrantEnv } from '../../shared/fleet-grant'
-import { toSshExecutionHostId } from '../../shared/execution-host'
+import {
+  LOCAL_EXECUTION_HOST_ID,
+  toSshExecutionHostId,
+  type ExecutionHostId
+} from '../../shared/execution-host'
+import {
+  SSH_PROVIDER_UNREGISTERED_REASON,
+  describeUnconfirmedStop
+} from '../../shared/pty-liveness-verdict'
 import { normalizeRuntimePathForComparison } from '../../shared/cross-platform-path'
 import {
   normalizeDesktopTerminalScrollbackRows,
@@ -74,6 +82,7 @@ import { detectExplicitPiAgentKindFromCommand } from '../../shared/explicit-pi-a
 import { detectPiAgentKindFromCommand } from '../pi/rust-pi-agent-kind'
 import { isPwshAvailable } from '../pwsh'
 import { LocalPtyProvider } from '../providers/local-pty-provider'
+import type { PtyProcessInfo } from '../providers/pty-process-info'
 import type { IPtyProvider, PtySpawnOptions, PtySpawnResult } from '../providers/types'
 import { isPtyWriteUnavailableError } from '../providers/pty-write-unavailable-error'
 import {
@@ -233,6 +242,24 @@ function registeredPtyProviders(): RegisteredPtyProvider[] {
     { provider: localProvider, connectionId: null },
     ...Array.from(sshProviders, ([connectionId, provider]) => ({ provider, connectionId }))
   ]
+}
+
+// Why: the runtime cannot say which hosts a listing covered unless the listing
+// names them; a null connectionId is the machine running Orca (the local host).
+async function listRegisteredPtyProcessesWithHostScope(): Promise<{
+  processes: PtyProcessInfo[]
+  hostIds: ExecutionHostId[]
+}> {
+  const providers = registeredPtyProviders()
+  const providerSessions = await Promise.all(
+    providers.map(({ provider }) => provider.listProcesses())
+  )
+  return {
+    processes: providerSessions.flat(),
+    hostIds: providers.map(({ connectionId }) =>
+      connectionId ? toSshExecutionHostId(connectionId) : LOCAL_EXECUTION_HOST_ID
+    )
+  }
 }
 
 const SYNTHETIC_KILL_EXIT_DUPLICATE_WINDOW_MS = 30_000
@@ -4319,12 +4346,15 @@ export function registerPtyHandlers(
           if (connectionId) {
             // Why: runtime/CLI close can target a detached SSH PTY after its
             // provider was unregistered. Tombstone the lease so reconnect does
-            // not revive a terminal the user explicitly closed.
+            // not revive a terminal the user explicitly closed — but a detached
+            // relay PTY outlives its provider, so this is lost contact, not a
+            // kill anyone confirmed; report an unconfirmed stop (#14977).
             const incarnationId = finishUnreachableSshPtyShutdown(ptyId, connectionId, store)
             runtime?.onPtyExit(ptyId, -1, incarnationId)
             rememberSyntheticKillExit(ptyId)
             sendPtyExitToRenderer({ id: ptyId, code: -1 })
-            return true
+            console.warn(`[pty] ${describeUnconfirmedStop(SSH_PROVIDER_UNREGISTERED_REASON)}`)
+            return false
           }
           return false
         }
@@ -4424,13 +4454,15 @@ export function registerPtyHandlers(
         provider = connectionId ? getProvider(connectionId) : getProviderForPty(ptyId)
       } catch {
         if (connectionId) {
-          // Why: an absent SSH provider means there is no live target left to
-          // await, but the relay lease must still be tombstoned.
+          // Why: the relay lease must still be tombstoned, but an absent SSH
+          // provider is lost contact — the remote PTY is designed to survive it,
+          // so nothing here observed an exit to report as a confirmed stop. Fall
+          // through to the unconfirmed `false` instead of fabricating a kill (#14977).
           const incarnationId = finishUnreachableSshPtyShutdown(ptyId, connectionId, store)
           runtime?.onPtyExit(ptyId, -1, incarnationId)
           rememberSyntheticKillExit(ptyId)
           sendPtyExitToRenderer({ id: ptyId, code: -1 })
-          return true
+          console.warn(`[pty] ${describeUnconfirmedStop(SSH_PROVIDER_UNREGISTERED_REASON)}`)
         }
         return false
       }
@@ -4526,12 +4558,9 @@ export function registerPtyHandlers(
       }
     },
     listProcesses: async () => {
-      const providerSessions = await Promise.all([
-        localProvider.listProcesses(),
-        ...Array.from(sshProviders.values(), (provider) => provider.listProcesses())
-      ])
-      return providerSessions.flat()
+      return (await listRegisteredPtyProcessesWithHostScope()).processes
     },
+    listProcessesWithHostScope: listRegisteredPtyProcessesWithHostScope,
     serializeBuffer: (ptyId, opts) => {
       // Why: mobile xterm must start from the desktop's exact screen state/dimensions before live TUI chunks render correctly.
       return requestSerializedBuffer(ptyId, opts)

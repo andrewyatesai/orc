@@ -579,13 +579,15 @@
           "missing": "Folder not found",
           "notDirectory": "Path is not a folder",
           "ambiguousConnection": "Cannot determine connection",
-          "unavailable": "Cannot check folder"
+          "unavailable": "Cannot check folder",
+          "unrecognized": "Folder is not usable"
         },
         "description": {
           "missing": "Orca cannot find {{path}}. Remove and re-import this folder workspace.",
           "notDirectory": "{{path}} exists, but it is not a folder.",
           "ambiguousConnection": "Orca cannot tell which SSH connection owns this folder scope.",
-          "unavailable": "Orca cannot verify this folder right now. Check the runtime or SSH connection and try again."
+          "unavailable": "Orca cannot verify this folder right now. Check the runtime or SSH connection and try again.",
+          "unrecognized": "Orca cannot use {{path}}, and this version does not recognize the reason. Update Orca to see the details."
         },
         "createError": {
           "title": {
@@ -668,7 +670,8 @@
             "toast": {
               "restartFallbackUnavailableNone": "None of the {{value0}} cookies could be loaded, and the restart fallback was unavailable. The previous cookies for this profile were replaced. Try the import again.",
               "restartFallbackUnavailablePartial": "Imported {{value0}} of {{value1}} cookies. The rest could not be loaded, and the restart fallback was unavailable. Try the import again.",
-              "googleCookiesSkipped": "Google cookies were not imported. Open a browser in Orca on {{value0}} with this profile, then sign into Google."
+              "googleCookiesSkipped": "Google cookies were not imported. Open a browser in Orca on {{value0}} with this profile, then sign into Google.",
+              "unrecognizedWarning": "The cookie import finished with a warning this version of Orca does not recognize. Update Orca to see the details, then check this profile before relying on its cookies."
             }
           }
         }
@@ -14089,6 +14092,13 @@
           "e81a02d61b": "Enter a valid five-field cron before saving.",
           "968e66d686": "Enter a five-field cron.",
           "cadb7b0bc9": "invalid"
+        },
+        "AutomationAgentFilterMenu": {
+          "agent": "Agent",
+          "all": "All",
+          "926e785e4d": "Search agents...",
+          "491043ee45": "No agents match your search.",
+          "clear": "Clear filters"
         },
         "AutomationDetail": {
           "007c8ad874": "Prompt",

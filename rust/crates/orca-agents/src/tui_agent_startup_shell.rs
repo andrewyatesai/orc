@@ -5,7 +5,7 @@
 //! platform, quoting single arguments, joining an argv into one command line,
 //! clearing env vars, and validating/quoting user-configured extra CLI args.
 
-use crate::commit_message_prompt::{is_js_trim_ws, tokenize_custom_command_template};
+use crate::commit_message_prompt::{is_js_trim_ws, tokenize_custom_command_template, CommandTemplateBackslash};
 
 /// Target shell whose quoting/clearing syntax a launch plan is built for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -186,7 +186,7 @@ pub fn tokenize_startup_command(
         // Why: nushell templates route through the POSIX tokenizer — single/double-quote
         // splitting is compatible; nu-specific escapes are a named follow-up (#8928 §5).
         AgentStartupShell::Posix | AgentStartupShell::Nushell => {
-            tokenize_custom_command_template(value)
+            tokenize_custom_command_template(value, CommandTemplateBackslash::Escape)
         }
         AgentStartupShell::Powershell | AgentStartupShell::Cmd => {
             tokenize_windows_startup_command(value, shell)

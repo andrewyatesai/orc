@@ -34,6 +34,17 @@ describe('relay reconnect controller', () => {
     expect(onRetry).toHaveBeenCalledOnce()
   })
 
+  it('publishes consecutive failures and the direct-connection reset', () => {
+    const published: number[] = []
+    const reconnect = createController(vi.fn(), (count) => published.push(count))
+
+    reconnect.registerFailure(new RelayOuterError(4408), false)
+    reconnect.registerFailure(new RelayOuterError(4408), false)
+    reconnect.resetForDirectConnection()
+
+    expect(published).toEqual([0, 1, 2, 0])
+  })
+
   it('drops a pending relay retry after direct connectivity wins', () => {
     const onRetry = vi.fn()
     const reconnect = createController(onRetry)
@@ -265,8 +276,11 @@ describe('relay reconnect controller', () => {
   })
 })
 
-function createController(onRetry: () => void): RelayReconnectController {
-  return new RelayReconnectController(
+function createController(
+  onRetry: () => void,
+  reportFailureCount: (count: number) => void = () => {}
+): RelayReconnectController {
+  const controller = new RelayReconnectController(
     {
       now: Date.now,
       randomBytes: () => new Uint8Array([128, 0]),
@@ -275,4 +289,6 @@ function createController(onRetry: () => void): RelayReconnectController {
     },
     onRetry
   )
+  controller.reportFailureCountTo(reportFailureCount)
+  return controller
 }

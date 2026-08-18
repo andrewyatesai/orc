@@ -107,7 +107,7 @@ describe('mobile endpoint supervisor', () => {
 
     // Why: a real eligible-credential relay dial must publish the pending path so
     // the header can say "Connecting via Relay…" instead of a failed direct hint.
-    expect(logical.setRecoveryPath).toHaveBeenCalledWith('relay')
+    expect(logical.setRecoveryPath).toHaveBeenCalledWith('relay', 0)
     expect(logical.getPendingPath()).toBe('relay')
     await vi.advanceTimersByTimeAsync(249)
     expect(logical.getPendingPath()).toBe('relay')

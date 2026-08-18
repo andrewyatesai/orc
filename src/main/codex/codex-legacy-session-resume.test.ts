@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   existsSync,
   linkSync,
@@ -11,11 +11,37 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
+import type * as NodeFsPromises from 'node:fs/promises'
 import {
   codexRolloutHardlinkIdentity,
   dedupeCodexRolloutFileAliases
 } from '../ai-vault/codex-session-root-dedup'
 import { prepareLegacySharedCodexSessionResume } from './codex-legacy-session-resume'
+import { CodexSessionResumeHomeUnavailableError } from './codex-session-resume-refusal'
+
+const lstatFaults = vi.hoisted(() => ({
+  path: null as string | null,
+  reset(): void {
+    lstatFaults.path = null
+  }
+}))
+
+// Why: fault only the SELECTED account's candidate rollout lstat with a transient
+// EBUSY so the catch's absence-vs-lock distinction is exercised on the real path.
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof NodeFsPromises>()
+  return {
+    ...actual,
+    lstat: async (...args: Parameters<typeof actual.lstat>) => {
+      if (args[0] === lstatFaults.path) {
+        const error: NodeJS.ErrnoException = new Error(`EBUSY: locked '${args[0]}'`)
+        error.code = 'EBUSY'
+        throw error
+      }
+      return actual.lstat(...args)
+    }
+  }
+})
 
 describe('prepareLegacySharedCodexSessionResume', () => {
   let root: string
@@ -24,6 +50,7 @@ describe('prepareLegacySharedCodexSessionResume', () => {
   let rolloutPath: string
 
   beforeEach(() => {
+    lstatFaults.reset()
     root = mkdtempSync(join(tmpdir(), 'orca-legacy-codex-resume-'))
     legacyHome = join(root, 'codex-runtime-home', 'home')
     systemHome = join(root, 'real-codex-home')
@@ -40,6 +67,7 @@ describe('prepareLegacySharedCodexSessionResume', () => {
   })
 
   afterEach(() => {
+    lstatFaults.reset()
     rmSync(root, { recursive: true, force: true })
   })
 
@@ -177,6 +205,7 @@ describe('per-account resume repin', () => {
   )
 
   beforeEach(() => {
+    lstatFaults.reset()
     root = mkdtempSync(join(tmpdir(), 'orca-codex-account-repin-'))
     peerHome = join(root, 'codex-accounts', '11111111-aaaa-4aaa-8aaa-111111111111', 'home')
     selectedHome = join(root, 'codex-accounts', '99999999-bbbb-4bbb-8bbb-999999999999', 'home')
@@ -189,6 +218,7 @@ describe('per-account resume repin', () => {
   })
 
   afterEach(() => {
+    lstatFaults.reset()
     rmSync(root, { recursive: true, force: true })
   })
 
@@ -267,6 +297,25 @@ describe('per-account resume repin', () => {
     )
 
     expect(result).toEqual({ useRealCodexHome: false })
+  })
+
+  it('refuses when the selected rollout is temporarily unreadable', async () => {
+    // Why: a blanket catch used to decline the SELECTED account on a briefly
+    // locked candidate and keep the source per-account home — a wrong-account
+    // resume. A non-definitive lstat error must now refuse (STA-4607).
+    lstatFaults.path = recordedRolloutPath
+
+    await expect(
+      prepareLegacySharedCodexSessionResume(
+        {
+          agent: 'codex',
+          filePath: bridgedRolloutPath,
+          codexHome: peerHome,
+          executionHostId: 'local'
+        },
+        repinOptions()
+      )
+    ).rejects.toBeInstanceOf(CodexSessionResumeHomeUnavailableError)
   })
 
   it('declines a session owned by another host', async () => {

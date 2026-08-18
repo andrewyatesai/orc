@@ -20,6 +20,7 @@ export function useMobilePairingQrInvalidation(params: {
   hasGeneratedRef: MutableRef<boolean>
   pairingRequestIdRef: MutableRef<number>
   setPairQrDataUrl: (value: string | null) => void
+  setPairQrSize: (value: number | null) => void
   setPairingUrl: (value: string | null) => void
   setPairLoading: (value: boolean) => void
   regenerate: (mode: MobilePairingConnectionMode, opts: { rotate: boolean }) => void
@@ -31,6 +32,7 @@ export function useMobilePairingQrInvalidation(params: {
     hasGeneratedRef,
     pairingRequestIdRef,
     setPairQrDataUrl,
+    setPairQrSize,
     setPairingUrl,
     setPairLoading,
     regenerate
@@ -54,6 +56,7 @@ export function useMobilePairingQrInvalidation(params: {
     hasGeneratedRef.current = false
     setPairingUrl(null)
     setPairQrDataUrl(null)
+    setPairQrSize(null)
     if (signedIn && canMintMobilePairingOffer({ connectionMode, signedIn })) {
       // Why: rotate on the sign-in edge — the token behind the QR cleared at
       // sign-out may have been exposed, so the fresh session mints fresh.
@@ -67,6 +70,7 @@ export function useMobilePairingQrInvalidation(params: {
     hasGeneratedRef,
     pairingRequestIdRef,
     setPairQrDataUrl,
+    setPairQrSize,
     setPairingUrl,
     setPairLoading,
     regenerate
@@ -88,6 +92,7 @@ export function useMobilePairingQrInvalidation(params: {
     hasGeneratedRef.current = false
     setPairingUrl(null)
     setPairQrDataUrl(null)
+    setPairQrSize(null)
     if (shouldRegenerate && canMintMobilePairingOffer({ connectionMode, signedIn })) {
       // Why: no rotate here — the main process rotates exactly once when the
       // requested mode differs from the pending token's minted mode, so the
@@ -105,6 +110,7 @@ export function useMobilePairingQrInvalidation(params: {
     hasGeneratedRef,
     pairingRequestIdRef,
     setPairQrDataUrl,
+    setPairQrSize,
     setPairingUrl,
     setPairLoading,
     regenerate

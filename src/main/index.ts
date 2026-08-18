@@ -200,6 +200,7 @@ import {
 } from './codex/codex-state-db-backfill-recovery'
 import { createCodexSessionMigrationScheduler } from './codex/codex-session-migration-scheduler'
 import { prepareLegacySharedCodexSessionResume } from './codex/codex-legacy-session-resume'
+import { CodexSessionResumeHomeUnavailableError } from './codex/codex-session-resume-refusal'
 import { resolveHostCodexSessionSourceHome } from './codex/codex-session-source-home'
 import type { CodexSessionResumePreparation } from './codex/codex-session-resume-home'
 import { prepareCodexSessionResume } from './codex/codex-session-resume-preparation'
@@ -894,6 +895,12 @@ function startTerminalRuntimeStartupServices(): Promise<void> {
         return
       }
       logStartupMilestone('startup-service-start', { service: 'agent-hook-server' })
+      // Why (#11217): the hook listener fails open on every request error, so an IDS resetting
+      // loopback POSTs mid-body stops agent status for every runtime with no symptom but staleness.
+      // Log + telemetry (the daemon_start_failed pattern) so it is diagnosable without a packet capture.
+      agentHookServer.setTransportInterferenceListener((report) => {
+        track('agent_hook_transport_blocked', { count: report.count })
+      })
       await agentHookServer.start({
         env: app.isPackaged ? 'production' : 'development',
         // Why: hooks source this endpoint file at invocation time so old PTY env reaches the current process after restart; dev namespaces it (worktrees share `orca-dev`).
@@ -1060,6 +1067,15 @@ async function prepareCodexSessionResumeForLaunch(args: {
           }
         )
       } catch (error) {
+        // Why: a typed refusal is only as strong as the narrowest catch between
+        // the throw and the spawn. The blanket catch below deliberately falls
+        // back to the source home on migration failure, which would swallow the
+        // selected-tree-locked refusal and resume under the peer account's
+        // credentials — the exact STA-4607 wrong-account resume. Rethrow it; the
+        // PTY spawn path settles the pane reservation and aborts before spawn.
+        if (error instanceof CodexSessionResumeHomeUnavailableError) {
+          throw error
+        }
         // Why: migration is a compatibility repair; its failure must not prevent the PTY from resuming from its trusted origin home.
         console.warn(
           '[codex-session-resume] Legacy rollout migration failed; using origin home:',

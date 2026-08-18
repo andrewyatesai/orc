@@ -26,14 +26,17 @@ export const TERMINAL_IME_DEFERRED_NEWLINE_FALLBACK_MS = 200
 // right for it; a cursor chord arriving mid-preedit reproduces the corruption the wait exists to
 // prevent (#12871), and a conversion can hold its candidate window open for seconds. Dropping the
 // chord costs one keypress, firing early costs a mangled line.
+// Returns a disposer that stops the wait without sending: a `fallbackMs: null` wait has no exit of
+// its own, so a caller that can outlive the composition must hold it — otherwise the compositionend
+// listener stays on the terminal element and a later composition flushes the stale send (STA-4476).
 export function sendTerminalInputAfterComposition(
   terminalElement: HTMLElement | null | undefined,
   send: () => void,
   options?: { fallbackMs?: number | null }
-): void {
+): () => void {
   if (!terminalElement) {
-    window.setTimeout(send, 0)
-    return
+    const immediateTimer = window.setTimeout(send, 0)
+    return () => window.clearTimeout(immediateTimer)
   }
 
   const fallbackMs =
@@ -42,7 +45,9 @@ export function sendTerminalInputAfterComposition(
       : (options?.fallbackMs ?? TERMINAL_IME_DEFERRED_NEWLINE_FALLBACK_MS)
   let done = false
 
-  const finish = (): void => {
+  // Detaches the listener and cancels the fallback without sending — the disposer an owning caller
+  // holds so a null-fallback wait can still end on blur or teardown.
+  const stopWaiting = (): void => {
     if (done) {
       return
     }
@@ -51,6 +56,13 @@ export function sendTerminalInputAfterComposition(
     if (fallbackTimer !== undefined) {
       window.clearTimeout(fallbackTimer)
     }
+  }
+
+  const finish = (): void => {
+    if (done) {
+      return
+    }
+    stopWaiting()
     // Defer one macrotask so the engine's post-compositionend glyph forwarding
     // runs before our newline reaches the PTY.
     window.setTimeout(send, 0)
@@ -62,6 +74,8 @@ export function sendTerminalInputAfterComposition(
   // compositionend handler, keeping our deferred send ordered after its flush.
   terminalElement.addEventListener('compositionend', onCompositionEnd)
   const fallbackTimer = fallbackMs === null ? undefined : window.setTimeout(finish, fallbackMs)
+
+  return stopWaiting
 }
 
 // Why: when the deferred send's timer beats the re-dispatched keydown, the

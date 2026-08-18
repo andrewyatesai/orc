@@ -61,6 +61,25 @@ export function finishCodexSubagent(roster: CodexSubagentRoster, id: string): vo
   roster.delete(id.trim())
 }
 
+// Narrower than upsert: never creates an entry and never touches `state`, so
+// late model discovery from a child rollout can't resurrect a finished child
+// nor move any child's lifecycle.
+export function setCodexSubagentModel(
+  roster: CodexSubagentRoster,
+  id: string,
+  model: string | undefined
+): void {
+  const normalizedModel = normalizeOptionalField(model, AGENT_MODEL_MAX_LENGTH)
+  if (!normalizedModel) {
+    return
+  }
+  const existing = roster.get(id.trim())
+  if (!existing) {
+    return
+  }
+  existing.model = normalizedModel
+}
+
 export function seedCodexSubagentRoster(
   roster: CodexSubagentRoster,
   snapshots: readonly AgentSubagentSnapshot[]

@@ -579,13 +579,15 @@
           "missing": "Carpeta no encontrada",
           "notDirectory": "La ruta no es una carpeta",
           "ambiguousConnection": "No se puede determinar la conexión",
-          "unavailable": "No se puede verificar la carpeta"
+          "unavailable": "No se puede verificar la carpeta",
+          "unrecognized": "La carpeta no se puede usar"
         },
         "description": {
           "missing": "Orca no puede encontrar {{path}}. Elimina y vuelve a importar este espacio de trabajo de carpeta.",
           "notDirectory": "{{path}} existe, pero no es una carpeta.",
           "ambiguousConnection": "Orca no puede determinar a qué conexión SSH pertenece este alcance de carpeta.",
-          "unavailable": "Orca no puede verificar esta carpeta ahora mismo. Revisa el host o la conexión SSH e inténtalo de nuevo."
+          "unavailable": "Orca no puede verificar esta carpeta ahora mismo. Revisa el host o la conexión SSH e inténtalo de nuevo.",
+          "unrecognized": "Orca no puede usar {{path}} y esta versión no reconoce el motivo. Actualiza Orca para ver los detalles."
         },
         "createError": {
           "title": {
@@ -668,7 +670,8 @@
             "toast": {
               "restartFallbackUnavailableNone": "None of the {{value0}} cookies could be loaded, and the restart fallback was unavailable. The previous cookies for this profile were replaced. Try the import again.",
               "restartFallbackUnavailablePartial": "Imported {{value0}} of {{value1}} cookies. The rest could not be loaded, and the restart fallback was unavailable. Try the import again.",
-              "googleCookiesSkipped": "Las cookies de Google no se importaron. Abre un navegador en Orca en {{value0}} con este perfil e inicia sesión en Google."
+              "googleCookiesSkipped": "Las cookies de Google no se importaron. Abre un navegador en Orca en {{value0}} con este perfil e inicia sesión en Google.",
+              "unrecognizedWarning": "La importación de cookies finalizó con una advertencia que esta versión de Orca no reconoce. Actualiza Orca para ver los detalles y luego revisa este perfil antes de confiar en sus cookies."
             }
           }
         }
@@ -14085,6 +14088,13 @@
           "e81a02d61b": "Ingrese un cron válido de cinco campos antes de guardar.",
           "968e66d686": "Ingrese un cron de cinco campos.",
           "cadb7b0bc9": "inválido"
+        },
+        "AutomationAgentFilterMenu": {
+          "agent": "Agente",
+          "all": "Todas",
+          "926e785e4d": "Agentes de búsqueda...",
+          "491043ee45": "Ningún agente coincide con su búsqueda.",
+          "clear": "Limpiar filtros"
         },
         "AutomationDetail": {
           "007c8ad874": "Inmediato",

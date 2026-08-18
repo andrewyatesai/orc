@@ -30,6 +30,7 @@ type MobilePageContentProps = {
   connectionMode: MobilePairingConnectionMode
   handleConnectionModeChange: (mode: MobilePairingConnectionMode) => void
   pairQrDataUrl: string | null
+  pairQrSize: number | null
   pairingUrl: string | null
   relayDegraded: boolean
   platform: Platform
@@ -67,6 +68,7 @@ export function MobilePageContent({
   connectionMode,
   handleConnectionModeChange,
   pairQrDataUrl,
+  pairQrSize,
   pairingUrl,
   relayDegraded,
   platform,
@@ -111,6 +113,7 @@ export function MobilePageContent({
               onOpenInstallUrl={openInstallUrl}
               onCopyInstallUrl={copyInstallUrl}
               pairQrDataUrl={pairQrDataUrl}
+              pairQrSize={pairQrSize}
               pairingUrl={pairingUrl}
               relayDegraded={relayDegraded}
               pairLoading={pairLoading}

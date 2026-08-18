@@ -4,6 +4,7 @@ import { RpcDispatcher } from './dispatcher'
 import type { RpcRequest } from './core'
 import type { OrcaRuntimeService } from '../orca-runtime'
 import { TERMINAL_METHODS } from './methods/terminal'
+import { attachOwnedSubscriptionCleanupRouting } from './subscription-registry-test-double'
 import type { RuntimeTerminalWait } from '../../../shared/runtime-types'
 import {
   TerminalStreamOpcode,
@@ -16,7 +17,7 @@ import {
 } from '../../../shared/terminal-stream-protocol'
 
 function stubRuntime(overrides: Partial<OrcaRuntimeService> = {}): OrcaRuntimeService {
-  return {
+  const runtime = {
     getRuntimeId: () => 'test-runtime',
     // Why: every multiplex stream registers as a remote view subscriber for
     // Phase-5 query-authority suppression (terminal-query-authority.md).
@@ -35,6 +36,7 @@ function stubRuntime(overrides: Partial<OrcaRuntimeService> = {}): OrcaRuntimeSe
     isRemoteDesktopViewerOwner: vi.fn().mockReturnValue(false),
     ...overrides
   } as OrcaRuntimeService
+  return attachOwnedSubscriptionCleanupRouting(runtime)
 }
 
 function makeRequest(method: string, params?: unknown): RpcRequest {

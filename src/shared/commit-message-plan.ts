@@ -5,9 +5,15 @@
 // and the SSH provider ships a resolved plan to the relay to execute. This shared
 // module keeps only the types those boundaries reference.
 import type { TuiAgent } from './types'
+import type { CommandTemplateBackslash } from './commit-message-prompt'
 
 export type CommitMessagePlanInput = {
   agentId: TuiAgent | 'custom'
+  /** How to read `\` in the command override / args / custom command. Defaults
+   *  to POSIX escaping; pass `'literal'` only when the command is known to run on
+   *  native Windows, where `\` is the path separator (#11375). Rides in the JSON
+   *  the Rust planner (napi/wasm) reads. */
+  backslash?: CommandTemplateBackslash
   model: string
   thinkingLevel?: string
   customAgentCommand?: string

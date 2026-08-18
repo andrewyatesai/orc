@@ -2,42 +2,44 @@ import { describe, expect, it } from 'vitest'
 import type { NativeChatMessage } from '../../../../shared/native-chat-types'
 import {
   appendPendingSendCache,
-  appendCommandMarkerCache,
-  applyCommandMarkerBoundaries,
-  clearCommandMarkerCacheForTests,
   clearPendingSendCacheForTests,
-  commandMarkersAsMessages,
-  isCommandMarkerId,
   isLaunchPromptMessageId,
   isPendingMessageId,
   launchPromptAsMessage,
   nextNativeChatPendingSendId,
   pendingSendsAsMessages,
   prunePendingSends,
-  readCommandMarkerCache,
   readPendingSendCache,
   shouldPruneLaunchPrompt,
   writePendingSendCache,
   type NativeChatPendingSend
 } from './native-chat-pending'
+import {
+  appendCommandMarkerCache,
+  applyCommandMarkerBoundaries,
+  clearCommandMarkerCacheForTests,
+  commandMarkersAsMessages,
+  isCommandMarkerId,
+  readCommandMarkerCache
+} from './native-chat-command-marker'
 import { stripNoiseMessages } from './native-chat-noise'
 
-function userMessage(id: string, text: string): NativeChatMessage {
+function userMessage(id: string, text: string, timestamp = 1): NativeChatMessage {
   return {
     id,
     role: 'user',
     blocks: [{ type: 'text', text }],
-    timestamp: 1,
+    timestamp,
     source: 'transcript'
   }
 }
 
-function assistantMessage(id: string, text: string): NativeChatMessage {
+function assistantMessage(id: string, text: string, timestamp = 2): NativeChatMessage {
   return {
     id,
     role: 'assistant',
     blocks: [{ type: 'text', text }],
-    timestamp: 2,
+    timestamp,
     source: 'transcript'
   }
 }
@@ -151,16 +153,6 @@ describe('prunePendingSends', () => {
     ).toEqual([pendingOf('p2', 'repeat')])
   })
 
-  it('prunes consecutive optimistic sends that were glued into one transcript user turn', () => {
-    const pending = [pendingOf('p1', 'tell me a joke'), pendingOf('p2', 'continue')]
-    expect(
-      prunePendingSends(pending, [
-        userMessage('u1', 'tell me a jokecontinue'),
-        assistantMessage('a1', 'a joke')
-      ])
-    ).toEqual([])
-  })
-
   it('does not treat an unrelated longer user turn as a glued match', () => {
     const pending = [pendingOf('p1', 'hi')]
     expect(
@@ -220,13 +212,6 @@ describe('pendingSendsAsMessages', () => {
     expect(pendingSendsAsMessages(pending, [])).toHaveLength(1)
   })
 
-  it('hides consecutive optimistic sends once a glued transcript user turn lands', () => {
-    const pending = [pendingOf('p1', 'tell me a joke'), pendingOf('p2', 'continue')]
-    expect(pendingSendsAsMessages(pending, [userMessage('u1', 'tell me a jokecontinue')])).toEqual(
-      []
-    )
-  })
-
   it('keeps a repeated prompt visible when its only match predates the send boundary', () => {
     const history = [userMessage('old-user', 'run tests'), assistantMessage('old-answer', 'passed')]
     const pending = [{ ...pendingOf('new-send', 'run tests'), afterMessageId: 'old-answer' }]
@@ -280,6 +265,125 @@ describe('pendingSendsAsMessages', () => {
     expect(pendingSendsAsMessages(pending, [userMessage('u1', 'repeat')]).map((m) => m.id)).toEqual(
       ['pending:p2']
     )
+  })
+})
+
+// Glue matching consumes a leading RUN of the still-open queue against one
+// transcript user row, so every fixture here puts the glued row past each send's
+// own boundary. Matching a send the row predates is the failure mode STA-4477
+// pins down: the fork's matcher must give each send its own boundary, not reuse
+// the oldest still-open send's for the whole queue.
+const GLUE_BOUNDARY = assistantMessage('glue-boundary', 'ready', 1000)
+const GLUE_SENT_AT = 5000
+
+function gluePending(id: string, text: string): NativeChatPendingSend {
+  return {
+    id,
+    text,
+    sentAt: GLUE_SENT_AT,
+    afterMessageId: GLUE_BOUNDARY.id,
+    afterMessageTimestamp: GLUE_BOUNDARY.timestamp
+  }
+}
+
+/** Visible history, the send boundary, then the row the agent glued the queue into. */
+function glueTranscript(row: string): NativeChatMessage[] {
+  return [userMessage('glue-history', 'hello', 900), GLUE_BOUNDARY, userMessage('glue-row', row, 6000)]
+}
+
+function advancedGlueTranscript(row: string): NativeChatMessage[] {
+  return [...glueTranscript(row), assistantMessage('glue-answer', 'done', 6100)]
+}
+
+describe('glued rapid sends', () => {
+  it('retires both echoes when a lost Enter glued the pair into one row', () => {
+    const pending = [gluePending('p1', 'tell me a joke'), gluePending('p2', 'continue')]
+
+    expect(prunePendingSends(pending, advancedGlueTranscript('tell me a jokecontinue'))).toEqual([])
+  })
+
+  it('hides both echoes as soon as the glued row lands, before the reply', () => {
+    const pending = [gluePending('p1', 'tell me a joke'), gluePending('p2', 'continue')]
+
+    expect(pendingSendsAsMessages(pending, glueTranscript('tell me a jokecontinue'))).toEqual([])
+  })
+
+  // A row that already existed when a send was issued can never be that send's
+  // echo — for EVERY queued send, not just the oldest one the glue run starts at.
+  const mixedAgeGlue = (): { messages: NativeChatMessage[]; pending: NativeChatPendingSend[] } => {
+    const gluedRow = userMessage('glue-row', 'foobar', 6000)
+    return {
+      messages: [
+        GLUE_BOUNDARY,
+        gluedRow,
+        assistantMessage('glue-answer', 'fixed', 6100),
+        userMessage('later-history', 'anything', 6200)
+      ],
+      // 'foo' was queued before the row landed; 'bar' only after it.
+      pending: [
+        gluePending('p1', 'foo'),
+        {
+          id: 'p2',
+          text: 'bar',
+          sentAt: 7000,
+          afterMessageId: 'glue-answer',
+          afterMessageTimestamp: 6100
+        }
+      ]
+    }
+  }
+
+  it('keeps a queued send whose own boundary is newer than the glued row (STA-4477)', () => {
+    const { messages, pending } = mixedAgeGlue()
+
+    expect(prunePendingSends(pending, messages)).toEqual(pending)
+  })
+
+  // Separate from the prune case on purpose: the render path is what makes the
+  // bubble visually vanish, and a shared `it` would mask it behind the first
+  // failing assertion.
+  it('still renders a queued send whose own boundary is newer than the row (STA-4477)', () => {
+    const { messages, pending } = mixedAgeGlue()
+
+    expect(pendingSendsAsMessages(pending, messages)).toHaveLength(2)
+  })
+
+  // Glue is adjacency: a send the row predates ends the run rather than being
+  // skipped, so a row must never bridge across a send it cannot represent.
+  it('never glues across a send the row cannot represent (STA-4477)', () => {
+    const gluedRow = userMessage('glue-row', 'alphagamma', 6000)
+    const messages = [GLUE_BOUNDARY, gluedRow, assistantMessage('glue-answer', 'ok', 6100)]
+    const pending = [
+      gluePending('p1', 'alpha'),
+      // Queued after the row landed, so the row is not its echo...
+      {
+        id: 'p2',
+        text: 'beta',
+        sentAt: 7000,
+        afterMessageId: 'glue-row',
+        afterMessageTimestamp: 6000
+      },
+      // ...and 'alpha'+'gamma' must not close over the gap it leaves.
+      gluePending('p3', 'gamma')
+    ]
+
+    expect(prunePendingSends(pending, messages)).toEqual(pending)
+    expect(pendingSendsAsMessages(pending, messages)).toHaveLength(3)
+  })
+
+  it('still retires the leading run the glued row did land after (STA-4477)', () => {
+    const gluedRow = userMessage('glue-row', 'firstsecond', 6000)
+    const messages = [GLUE_BOUNDARY, gluedRow, assistantMessage('glue-answer', 'done', 6100)]
+    const third = {
+      id: 'p3',
+      text: 'third',
+      sentAt: 7000,
+      afterMessageId: 'glue-row',
+      afterMessageTimestamp: gluedRow.timestamp
+    }
+    const pending = [gluePending('p1', 'first'), gluePending('p2', 'second'), third]
+
+    expect(prunePendingSends(pending, messages)).toEqual([third])
   })
 })
 

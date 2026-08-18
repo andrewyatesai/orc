@@ -29406,6 +29406,114 @@ describe('OrcaRuntimeService', () => {
     expect(replacementCleanup).toHaveBeenCalledTimes(1)
   })
 
+  it('releases an owned subscription only while its registration still owns the id', async () => {
+    const runtime = createRuntime()
+    const oldCleanup = vi.fn()
+    const replacementCleanup = vi.fn()
+
+    const oldRegistration = runtime.registerOwnedSubscriptionCleanup(
+      'terminal:owned',
+      oldCleanup,
+      'conn-old'
+    )
+
+    runtime.registerOwnedSubscriptionCleanup('terminal:owned', replacementCleanup, 'conn-new')
+    expect(oldCleanup).toHaveBeenCalledTimes(1)
+
+    // The stale registration must not reach the replacement that now owns the id.
+    oldRegistration.releaseIfCurrent()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(replacementCleanup).not.toHaveBeenCalled()
+  })
+
+  it('releases an owned subscription when the registration is still current', async () => {
+    const runtime = createRuntime()
+    const cleanup = vi.fn()
+
+    const registration = runtime.registerOwnedSubscriptionCleanup('terminal:live', cleanup, 'conn')
+    registration.releaseIfCurrent()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(cleanup).toHaveBeenCalledTimes(1)
+    // A second release is a no-op: the registration no longer owns the id.
+    registration.releaseIfCurrent()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(cleanup).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses an unsubscribe from a connection that no longer owns the subscription', async () => {
+    const runtime = createRuntime()
+    const oldCleanup = vi.fn()
+    const replacementCleanup = vi.fn()
+
+    runtime.registerSubscriptionCleanup('terminal:unsub', oldCleanup, 'conn-old')
+    runtime.registerSubscriptionCleanup('terminal:unsub', replacementCleanup, 'conn-new')
+
+    expect(runtime.cleanupSubscriptionIfOwnedByConnection('terminal:unsub', 'conn-old')).toBe(false)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(replacementCleanup).not.toHaveBeenCalled()
+
+    expect(runtime.cleanupSubscriptionIfOwnedByConnection('terminal:unsub', 'conn-new')).toBe(true)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(replacementCleanup).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports an unregistered subscription as gone rather than refused', async () => {
+    const runtime = createRuntime()
+
+    // Why it matters: a client retrying on `false` would otherwise chase a dead id.
+    expect(runtime.cleanupSubscriptionIfOwnedByConnection('terminal:missing', 'conn-a')).toBe(true)
+  })
+
+  it('reports a refusal even when a sibling id was merely absent', async () => {
+    const runtime = createRuntime()
+    const bareCleanup = vi.fn()
+    const compositeCleanup = vi.fn()
+
+    // A clientless stream registers under the bare id; a client-scoped one under the composite.
+    runtime.registerSubscriptionCleanup('terminal-1', bareCleanup, 'conn-a')
+    runtime.registerSubscriptionCleanup('terminal-1:phone-1', compositeCleanup, 'conn-b')
+
+    // conn-a owns the bare id but not the composite: one genuine teardown, one refusal.
+    expect(runtime.cleanupSubscriptionIfOwnedByConnection('terminal-1', 'conn-a')).toBe(true)
+    expect(runtime.cleanupSubscriptionIfOwnedByConnection('terminal-1:phone-1', 'conn-a')).toBe(
+      false
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(bareCleanup).toHaveBeenCalledTimes(1)
+    expect(compositeCleanup).not.toHaveBeenCalled()
+  })
+
+  // Why: the lease-only branch's unguarded compensating handleMobileUnsubscribe is only
+  // safe while a viewport-less subscribe cannot yield to the macrotask queue. Pin it so
+  // adding an await to that path fails here instead of silently killing a live lease.
+  it('settles a viewport-less mobile subscribe without leaving the microtask queue', async () => {
+    const runtime = createRuntime()
+    let settled = false
+
+    void runtime.handleMobileSubscribe('pty-lease', 'phone-1', undefined).then(() => {
+      settled = true
+    })
+    // Drain microtasks only: any real await on this path leaves this unsettled.
+    for (let i = 0; i < 50; i += 1) {
+      await Promise.resolve()
+    }
+
+    expect(settled).toBe(true)
+  })
+
+  it('tears down unconditionally for in-process callers that have no connection', async () => {
+    const runtime = createRuntime()
+    const cleanup = vi.fn()
+
+    runtime.registerSubscriptionCleanup('terminal:inproc', cleanup, 'conn-owner')
+    expect(runtime.cleanupSubscriptionIfOwnedByConnection('terminal:inproc', undefined)).toBe(true)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(cleanup).toHaveBeenCalledTimes(1)
+  })
+
   it('does not deliver or accept browser screencast frames before ready', async () => {
     const runtime = createRuntime()
     const done = deferred<void>()
@@ -38998,6 +39106,101 @@ describe('OrcaRuntimeService', () => {
       gitSpy.mockRestore()
       await rm(TEST_WORKTREE_PATH, { recursive: true, force: true })
     }
+  })
+
+  describe('host-qualified removal routing (STA-4343)', () => {
+    const SHARED_WT_PATH = '/tmp/wt-shared'
+    const SHARED_WT_ID = `${TEST_REPO_ID}::${SHARED_WT_PATH}`
+    const LOCAL_REPO_PATH = '/tmp/repo-local'
+    const REMOTE_REPO_PATH = '/tmp/repo-envb'
+    const REMOTE_HOST = 'runtime:env-b'
+    const sharedGitWorktree = {
+      path: SHARED_WT_PATH,
+      head: 'abc',
+      branch: 'feature/foo',
+      isBare: false,
+      isMainWorktree: false
+    }
+
+    // Same repo id registered on two execution hosts: the STA-4343 collision where a
+    // bare `repoId::path` names two workspaces and delete must honor the confirmed host.
+    function makeTwoHostStore(metaHostId?: string): typeof store {
+      const localRepo = {
+        id: TEST_REPO_ID,
+        path: LOCAL_REPO_PATH,
+        displayName: 'repo',
+        badgeColor: 'blue',
+        addedAt: 1
+      }
+      const remoteRepo = { ...localRepo, path: REMOTE_REPO_PATH, executionHostId: REMOTE_HOST }
+      const metaById: Record<string, WorktreeMeta> = {
+        [SHARED_WT_ID]: makeWorktreeMeta({
+          instanceId: 'inst-1',
+          ...(metaHostId ? { hostId: metaHostId as WorktreeMeta['hostId'] } : {})
+        })
+      }
+      return {
+        ...store,
+        getRepos: () => [localRepo, remoteRepo],
+        getRepo: (id: string) => [localRepo, remoteRepo].find((repo) => repo.id === id),
+        getAllWorktreeMeta: () => metaById,
+        getWorktreeMeta: (id: string) => metaById[id],
+        setWorktreeMeta: (id: string, meta: Partial<WorktreeMeta>) => {
+          metaById[id] = { ...(metaById[id] ?? makeWorktreeMeta()), ...meta }
+          return metaById[id]
+        }
+      } as typeof store
+    }
+
+    it('routes the delete to the confirmed remote host repo, never the local same-id row', async () => {
+      const runtime = createWorktreeRemovalRuntime(makeTwoHostStore(REMOTE_HOST))
+      vi.mocked(getEffectiveHooks).mockReturnValue(null)
+      vi.mocked(listWorktreesStrict).mockResolvedValue([sharedGitWorktree])
+      vi.mocked(removeWorktree).mockResolvedValue({})
+
+      await runtime.removeManagedWorktree(SHARED_WT_ID, false, false, false, REMOTE_HOST)
+
+      expect(removeWorktree).toHaveBeenCalledWith(
+        REMOTE_REPO_PATH,
+        SHARED_WT_PATH,
+        false,
+        expect.anything()
+      )
+      expect(removeWorktree).not.toHaveBeenCalledWith(
+        LOCAL_REPO_PATH,
+        expect.anything(),
+        expect.anything(),
+        expect.anything()
+      )
+    })
+
+    it('routes the delete to the local host repo when the local row is confirmed', async () => {
+      const runtime = createWorktreeRemovalRuntime(makeTwoHostStore('local'))
+      vi.mocked(getEffectiveHooks).mockReturnValue(null)
+      vi.mocked(listWorktreesStrict).mockResolvedValue([sharedGitWorktree])
+      vi.mocked(removeWorktree).mockResolvedValue({})
+
+      await runtime.removeManagedWorktree(SHARED_WT_ID, false, false, false, 'local')
+
+      expect(removeWorktree).toHaveBeenCalledWith(
+        LOCAL_REPO_PATH,
+        SHARED_WT_PATH,
+        false,
+        expect.anything()
+      )
+    })
+
+    it('refuses an unqualified delete the runtime cannot pin to one host', async () => {
+      const runtime = createWorktreeRemovalRuntime(makeTwoHostStore(REMOTE_HOST))
+      vi.mocked(getEffectiveHooks).mockReturnValue(null)
+      vi.mocked(listWorktreesStrict).mockResolvedValue([])
+      vi.mocked(removeWorktree).mockResolvedValue({})
+
+      await expect(runtime.removeManagedWorktree(SHARED_WT_ID)).rejects.toThrow(
+        /ambiguous across hosts/
+      )
+      expect(removeWorktree).not.toHaveBeenCalled()
+    })
   })
 
   it('refuses runtime Windows recovery while Git still reports the row and keeps metadata', async () => {

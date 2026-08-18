@@ -3764,7 +3764,11 @@ describe('shared agent-hook-listener', () => {
     it('restores the stashed lead state for an answered child question', () => {
       claudeEvent({ hook_event_name: 'UserPromptSubmit', prompt: 'go' })
       claudeEvent({ hook_event_name: 'SubagentStart', agent_id: 'a1', agent_type: 'probe' })
-      claudeEvent({ hook_event_name: 'Stop' })
+      // Why: the lead finished while a1 still runs, so the pane is gated 'working' and the
+      // turn-end is stamped for the eventual all-clear.
+      const leadStop = claudeEvent({ hook_event_name: 'Stop' })
+      const stamp = leadStop?.payload.turnCompletedAt
+      expect(typeof stamp).toBe('number')
       const wait = claudeEvent({
         hook_event_name: 'PreToolUse',
         tool_name: 'AskUserQuestion',
@@ -3775,11 +3779,19 @@ describe('shared agent-hook-listener', () => {
 
       // Why: the lead already finished; the answer resumes the child, so the
       // emitted state is gated up to working only while that child still runs.
-      expect(clearClaudeAnsweredQuestionWait(state, PANE_KEY)).toEqual({ state: 'working' })
-      expect(state.claudeLeadStateByPaneKey.get(PANE_KEY)).toEqual({ state: 'done' })
+      // The stamped turn-end is preserved so the later drain can pair with it.
+      expect(clearClaudeAnsweredQuestionWait(state, PANE_KEY)).toEqual({
+        state: 'working',
+        turnCompletedAt: stamp
+      })
+      expect(state.claudeLeadStateByPaneKey.get(PANE_KEY)).toEqual({
+        state: 'done',
+        turnCompletedAt: stamp
+      })
 
       const drained = claudeEvent({ hook_event_name: 'SubagentStop', agent_id: 'a1' })
       expect(drained?.payload.state).toBe('done')
+      expect(drained?.payload.turnCompletedAt).toBe(stamp)
     })
 
     it('falls back to working when no lead record exists', () => {

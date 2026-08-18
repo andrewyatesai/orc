@@ -5542,7 +5542,10 @@ describe('registerPtyHandlers', () => {
           kill: (ptyId: string) => boolean
         }
 
-        expect(controller.kill('ssh:ssh-1@@relay-pty')).toBe(true)
+        // Why (#14977): a detached relay outlives its provider, so an unregistered
+        // provider is lost contact — tombstone the lease but never fabricate a
+        // confirmed kill from silence.
+        expect(controller.kill('ssh:ssh-1@@relay-pty')).toBe(false)
 
         expect(localShutdown).not.toHaveBeenCalled()
         expect(store.markSshRemotePtyLease).toHaveBeenCalledWith('ssh-1', 'relay-pty', 'terminated')
@@ -5572,7 +5575,9 @@ describe('registerPtyHandlers', () => {
           kill: (ptyId: string) => boolean
         }
 
-        expect(controller.kill('remote-pty')).toBe(true)
+        // Why (#14977): lost contact with the SSH provider is an unconfirmed stop,
+        // not a confirmed kill, even though the lease is tombstoned.
+        expect(controller.kill('remote-pty')).toBe(false)
 
         expect(store.markSshRemotePtyLease).toHaveBeenCalledWith(
           'ssh-1',
@@ -5606,7 +5611,9 @@ describe('registerPtyHandlers', () => {
           stopAndWait: (ptyId: string) => Promise<boolean>
         }
 
-        await expect(controller.stopAndWait('remote-pty')).resolves.toBe(true)
+        // Why (#14977): stopAndWait cannot confirm a kill it never issued, so a
+        // missing SSH provider resolves as an unconfirmed stop, not success.
+        await expect(controller.stopAndWait('remote-pty')).resolves.toBe(false)
 
         expect(store.recordSshRemotePtyKillIntent).toHaveBeenCalledWith('ssh-1', 'remote-pty')
         expect(store.markSshRemotePtyLease).toHaveBeenCalledWith(
@@ -5614,6 +5621,52 @@ describe('registerPtyHandlers', () => {
           'remote-pty',
           'terminated'
         )
+      })
+
+      it('reports an unconfirmed stop, not a confirmed kill, when the SSH provider is gone (#14977)', () => {
+        // Why: the pre-fix branch returned true here — a fabricated confirmed kill
+        // from lost contact. A detached relay outlives its provider, so losing the
+        // provider is not evidence the remote process stopped. This pins that the
+        // controller still tombstones + closes the pane but never claims success.
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+        const store = {
+          markSshRemotePtyLease: vi.fn(),
+          recordSshRemotePtyKillIntent: vi.fn()
+        }
+        const runtime = {
+          setPtyController: vi.fn(),
+          onPtyExit: vi.fn()
+        }
+        setPtyOwnership('remote-pty', 'ssh-1')
+        handlers.clear()
+        mainWindow.webContents.send.mockReset()
+        registerPtyHandlers(
+          mainWindow as never,
+          runtime as never,
+          undefined,
+          undefined,
+          undefined,
+          store as never
+        )
+        const controller = runtime.setPtyController.mock.calls[0]?.[0] as {
+          kill: (ptyId: string) => boolean
+        }
+
+        // Not a confirmed kill: lost contact is unverifiable, so the stop is unconfirmed.
+        expect(controller.kill('remote-pty')).toBe(false)
+        // The lease is still tombstoned so reconnect cannot revive it, and the
+        // renderer still receives the synthetic exit so the pane closes.
+        expect(store.recordSshRemotePtyKillIntent).toHaveBeenCalledWith('ssh-1', 'remote-pty')
+        expect(store.markSshRemotePtyLease).toHaveBeenCalledWith('ssh-1', 'remote-pty', 'terminated')
+        expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:exit', {
+          id: 'remote-pty',
+          code: -1
+        })
+        // The reason is recorded so lost contact is diagnosable, never silent.
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('its SSH provider is no longer registered')
+        )
+        warnSpy.mockRestore()
       })
 
       it('preserves an SSH lease when runtime controller kill shutdown fails transiently', async () => {

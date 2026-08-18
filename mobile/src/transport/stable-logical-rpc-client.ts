@@ -38,7 +38,9 @@ export type StableLogicalRpcClient = RpcClient & {
   // The path the user is waiting on while a scheduled Relay recovery is active —
   // the still-bound active path can't name it. Null once connected.
   getPendingPath(): MobileConnectionPath | null
-  setRecoveryPath(path: MobileConnectionPath | null): void
+  setRecoveryPath(path: MobileConnectionPath | null, attempt?: number): void
+  // Recovery attempts share the connection-path signal so status-only changes rerender.
+  setRecoveryAttempt(attempt: number): void
   onConnectionPathChange(listener: () => void): () => void
   getGeneration(): number
 }
@@ -149,7 +151,7 @@ export function createStableLogicalRpcClient(
     },
 
     getState: () => state,
-    getReconnectAttempt: () => activeSession.getReconnectAttempt(),
+    getReconnectAttempt: () => connectionPath.reconnectAttempt(activeSession.getReconnectAttempt()),
     getLastConnectedAt: () => activeSession.getLastConnectedAt(),
     onStateChange(listener) {
       stateListeners.add(listener)
@@ -244,7 +246,8 @@ export function createStableLogicalRpcClient(
     // Why: a previous session that recovers mid-recovery makes the pending path a lie —
     // once we're connected the user is no longer waiting on anything.
     getPendingPath: () => connectionPath.pending(),
-    setRecoveryPath: (path) => connectionPath.setRecovery(path),
+    setRecoveryPath: (path, attempt) => connectionPath.setRecovery(path, attempt),
+    setRecoveryAttempt: (attempt) => connectionPath.setRecoveryAttempt(attempt),
     onConnectionPathChange: (listener) => connectionPath.subscribe(listener),
     getGeneration: () => generation
   }

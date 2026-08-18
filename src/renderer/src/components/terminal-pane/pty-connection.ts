@@ -2494,6 +2494,7 @@ export function connectPanePty(
 
   const agentCompletionCoordinator = createAgentCompletionCoordinator({
     paneKey: cacheKey,
+    statusLane: 'pty',
     getPtyId: () => transport.getPtyId(),
     getSettings: () => useAppStore.getState().settings,
     inspectProcess: inspectRuntimeTerminalProcess,
@@ -3089,6 +3090,10 @@ export function connectPanePty(
     registerSideEffectFactConsumerForPty(ptyId)
     syncHiddenRendererPtyDelivery()
     deps.syncPanePtyLayoutBinding(pane.id, ptyId)
+    // Why: binding a live PTY here is the proof that this pane is current again, so
+    // lift any retirement fence left by a detach/reattach cycle before hooks arrive.
+    // Waiting for a new turn would strand a pane re-attached mid-turn or idle (STA-4114).
+    useAppStore.getState().restoreAgentPaneAuthority?.(cacheKey)
     notifyCodexPaneBoundForStaleSweep(ptyId)
     const tabPtyIds = useAppStore.getState().ptyIdsByTabId?.[deps.tabId] ?? []
     if (options.updateTabPtyId !== 'if-missing' || !tabPtyIds.includes(ptyId)) {
@@ -8000,6 +8005,9 @@ export function connectPanePty(
       registerSideEffectFactConsumerForPty(ptyId)
       syncHiddenRendererPtyDelivery()
       deps.syncPanePtyLayoutBinding(pane.id, ptyId)
+      // Why: this is the daemon-backed reattach path — the live PTY outlived the
+      // renderer, so the pane is current the moment it binds (STA-4114).
+      useAppStore.getState().restoreAgentPaneAuthority?.(cacheKey)
       notifyCodexPaneBoundForStaleSweep(ptyId)
       deps.updateTabPtyId(deps.tabId, ptyId)
       agentCompletionCoordinator.startProcessTracking()

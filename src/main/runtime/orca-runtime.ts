@@ -290,6 +290,7 @@ import { TASK_PROVIDERS } from '../../shared/task-providers'
 import { FIRST_PANE_ID } from '../../shared/pane-key'
 import { isTerminalLeafId, makePaneKey, parsePaneKey } from '../../shared/stable-pane-id'
 import { parseAppSshPtyId } from '../../shared/ssh-pty-id'
+import { getPtyExecutionHost } from '../../shared/terminal-execution-host'
 import { isLeafPtyProvenAbsent } from './terminal-leaf-liveness-demotion'
 import { createIncrementalResolvedWorktreeLookup } from './resolved-worktree-lookup'
 import { isValidHostTerminalTabId, isValidTerminalTabId } from '../../shared/terminal-tab-id'
@@ -411,6 +412,7 @@ import type {
   RuntimeTerminalSplit,
   RuntimeTerminalFocus,
   RuntimeTerminalClose,
+  RuntimeTerminalListHostScope,
   RuntimeTerminalListResult,
   RuntimeTerminalOrphanAdoptionRequest,
   RuntimeTerminalOrphanAdoptionResult,
@@ -936,6 +938,10 @@ import {
   stripOrcaProvenanceMetaUpdates,
   UNREGISTERED_MISSING_WORKTREE_MESSAGE
 } from '../worktree-removal-safety'
+import {
+  resolveWorktreeRemovalMetadata,
+  resolveWorktreeRemovalRepoOwner
+} from '../worktree-removal-repo-owner'
 import { prefetchWorktreeCreateBase } from '../worktree-create-base-prefetch'
 import { invalidateAuthorizedRootsCache } from '../ipc/filesystem-auth'
 import { prepareLocalWorktreeRootForRepo } from '../worktree-root-preparation'
@@ -1198,6 +1204,7 @@ type RuntimeStore = {
   removeWorkspaceLineage?: Store['removeWorkspaceLineage']
   getGitHubCache: Store['getGitHubCache']
   getWorkspaceSession?: Store['getWorkspaceSession']
+  getWorkspaceSessionHostIds?: Store['getWorkspaceSessionHostIds']
   setWorkspaceSession?: Store['setWorkspaceSession']
   flushOrThrow?: Store['flushOrThrow']
   persistPtyBinding?: Store['persistPtyBinding']
@@ -1704,6 +1711,9 @@ type HeadlessSeedMetadata = {
 type PtyControllerLivenessInventory = Readonly<{
   livePtyIds: Set<string>
   allLivePtyIds: ReadonlySet<string>
+  // Which execution hosts this listing actually queried; knowledge of a host is
+  // not coverage of it, so scope reporting must distinguish the two.
+  queriedHostIds: ReadonlySet<ExecutionHostId>
 }>
 
 type RuntimePtyController = {
@@ -1767,6 +1777,10 @@ type RuntimePtyController = {
   // Why: exact-id mobile polls should not enumerate every local and SSH PTY.
   hasPty?(ptyId: string): boolean | null
   listProcesses?(): Promise<PtyProcessInfo[]>
+  listProcessesWithHostScope?(): Promise<{
+    processes: PtyProcessInfo[]
+    hostIds: ExecutionHostId[]
+  }>
   serializeBuffer?(
     ptyId: string,
     opts?: { scrollbackRows?: number; altScreenForcesZeroRows?: boolean }
@@ -2653,6 +2667,13 @@ async function hasLocalWorktreeBaseRef(
 export type RuntimeRendererReloadFence = Readonly<{
   revision: number
   recovery: 'renderer' | 'headless' | 'reloading'
+}>
+
+// Why: a subscription id is stable across reconnects, so holding the string is not
+// proof of ownership. This handle is the only safe way to tear down a registration.
+export type SubscriptionRegistration = Readonly<{
+  /** Tears down only if this registration still owns the id; otherwise a no-op. */
+  releaseIfCurrent: () => void
 }>
 
 export class OrcaRuntimeService {
@@ -11599,7 +11620,9 @@ export class OrcaRuntimeService {
       // Why: the stable id is about to belong to a newer connection; detach
       // the old owner before its asynchronous cleanup can overlap the rebind.
       this.removeSubscriptionConnectionIndex(subscriptionId)
-      this.cleanupSubscription(subscriptionId)
+      // Why: evict by the owner we captured, never by the key — a keyed evict
+      // would resolve to whoever holds the id at call time.
+      this.cleanupOwnedSubscription(subscriptionId, existing)
     }
     this.subscriptionCleanups.set(subscriptionId, cleanup)
     if (connectionId) {
@@ -11613,10 +11636,65 @@ export class OrcaRuntimeService {
     }
   }
 
+  // Why: teardown keyed only by a string tears down whoever owns that key *now*.
+  // A mobile reconnect rebinds the stable `${terminal}:${clientId}` id, so a late
+  // teardown from the dead connection would kill the replacement stream (STA-4510).
+  // Callers that own a registration must go through this handle instead.
+  registerOwnedSubscriptionCleanup(
+    subscriptionId: string,
+    cleanup: () => void | Promise<void>,
+    connectionId?: string
+  ): SubscriptionRegistration {
+    this.registerSubscriptionCleanup(subscriptionId, cleanup, connectionId)
+    return {
+      releaseIfCurrent: () => this.cleanupOwnedSubscription(subscriptionId, cleanup)
+    }
+  }
+
   cleanupSubscription(subscriptionId: string): void {
     void this.cleanupSubscriptionAndWait(subscriptionId).catch((error) => {
       console.error(`[runtime] subscription cleanup failed for ${subscriptionId}:`, error)
     })
+  }
+
+  // Why: a client-supplied unsubscribe names a stable id it may no longer own — a
+  // reconnect or make-before-break migration rebinds that id to a newer connection,
+  // and honoring the stale message would kill the live stream (STA-4510).
+  // Returns whether the subscription was actually torn down.
+  cleanupSubscriptionIfOwnedByConnection(
+    subscriptionId: string,
+    connectionId: string | undefined
+  ): boolean {
+    // Why: an absent connectionId means a connection-less caller — the local
+    // unix-socket dispatch path, gated by the 0o600 metadata token. That tier keeps
+    // unconditional teardown authority; this guard scopes socket clients only.
+    if (!connectionId) {
+      this.cleanupSubscription(subscriptionId)
+      return true
+    }
+    // Why: an id with no registration is already gone, not a refusal. Reporting
+    // false there would tell a retrying client to keep chasing a dead id.
+    if (!this.subscriptionCleanups.has(subscriptionId)) {
+      return true
+    }
+    if (this.subscriptionConnectionByEntry.get(subscriptionId) !== connectionId) {
+      return false
+    }
+    this.cleanupSubscription(subscriptionId)
+    return true
+  }
+
+  private cleanupOwnedSubscription(
+    subscriptionId: string,
+    expectedCleanup: () => void | Promise<void>
+  ): void {
+    // Why: the ownership check is synchronous and cleanupSubscriptionAndWait re-reads
+    // the map before its first await, so nothing can rebind in between. Delegating
+    // preserves the in-flight join, the retain-on-failure, and the retry contract.
+    if (this.subscriptionCleanups.get(subscriptionId) !== expectedCleanup) {
+      return
+    }
+    this.cleanupSubscription(subscriptionId)
   }
 
   retrySubscriptionCleanupAfter(
@@ -14605,6 +14683,12 @@ export class OrcaRuntimeService {
 
     return {
       terminals: listedTerminals,
+      hostScope: this.buildTerminalListHostScope(
+        targetWorktreeId,
+        matchingTerminals,
+        worktreesById.values(),
+        controllerInventory?.queriedHostIds ?? new Set()
+      ),
       ...(visualLayouts.length > 0 ? { visualLayouts } : {}),
       topologyRevisions: Object.fromEntries(
         [...new Set(matchingTerminals.map((terminal) => terminal.worktreeId))].map((worktreeId) => [
@@ -17336,15 +17420,19 @@ export class OrcaRuntimeService {
     return this.store?.getRepos() ?? []
   }
 
+  // Why a stable field and not a per-call closure: enrichment dedupes coalesced callers by callback
+  // identity, so a fresh closure per call would stack up for the length of a slow sweep.
+  private readonly onRepoGitRemoteIdentitiesChanged = (): void => {
+    this.invalidateResolvedWorktreeCache()
+    this.notifyReposChanged()
+  }
+
   enrichMissingRepoGitRemoteIdentities(): void {
     if (!this.store) {
       return
     }
     enrichMissingRepoGitRemoteIdentities(this.store, {
-      onChanged: () => {
-        this.invalidateResolvedWorktreeCache()
-        this.notifyReposChanged()
-      }
+      onChanged: this.onRepoGitRemoteIdentitiesChanged
     })
   }
 
@@ -23178,10 +23266,21 @@ export class OrcaRuntimeService {
   }
 
   private async resolveWorktreeRemovalTarget(
-    worktreeSelector: string
+    worktreeSelector: string,
+    requiredHostId?: ExecutionHostId
   ): Promise<RuntimeWorktreeRemovalTarget> {
     try {
-      const worktree = await this.resolveWorktreeSelector(worktreeSelector)
+      // Why (STA-4343): a repo id can be registered once per execution host, so an
+      // exact id must resolve against the confirmed host rather than whichever
+      // owner the host-blind selector scan reaches first.
+      const exactTarget = parseExactWorktreeIdSelector(worktreeSelector)
+      const worktree =
+        exactTarget && requiredHostId
+          ? ((await this.resolveExplicitWorktreeIdScoped(exactTarget.id, requiredHostId)) ??
+            (() => {
+              throw new Error('selector_not_found')
+            })())
+          : await this.resolveWorktreeSelector(worktreeSelector)
       const removalTarget = {
         id: worktree.id,
         repoId: worktree.repoId,
@@ -23196,7 +23295,13 @@ export class OrcaRuntimeService {
       }
       const removalTarget = parseExactWorktreeIdSelector(worktreeSelector)
       const meta = removalTarget ? this.store?.getWorktreeMeta(removalTarget.id) : undefined
-      if (!removalTarget || !meta) {
+      // Why (STA-4343): a same-id row owned by another host must not satisfy a
+      // host-qualified delete through this catalog-skipping fallback.
+      if (
+        !removalTarget ||
+        !meta ||
+        (requiredHostId !== undefined && meta.hostId !== requiredHostId)
+      ) {
         throw error
       }
       // Why: delete requests can arrive after Git no longer lists the worktree.
@@ -23319,7 +23424,20 @@ export class OrcaRuntimeService {
       throw new Error(`No preserved branch cleanup is pending for "${branchName}".`)
     }
 
-    const repo = this.store.getRepo(removalTarget.repoId)
+    // Why (STA-4343): resolve the repo owned by the confirmed host so a preserved
+    // branch is deleted on the row the user acted on, not a same-id host `getRepo`
+    // happens to return first.
+    const repoOwner = resolveWorktreeRemovalRepoOwner(
+      this.store,
+      removalTarget.repoId,
+      cleanupTarget.hostId
+    )
+    if (repoOwner.kind === 'ambiguous') {
+      throw new Error(
+        `Workspace identity is ambiguous across hosts: ${removalTarget.id}. Retry with an explicit host.`
+      )
+    }
+    const repo = repoOwner.kind === 'resolved' ? repoOwner.repo : undefined
     if (!repo) {
       throw new Error('repo_not_found')
     }
@@ -23386,13 +23504,13 @@ export class OrcaRuntimeService {
     }
     const store = this.store
     const cleanupHostId = parseExecutionHostId(hostId)?.id
-    const removalTarget = await this.resolveWorktreeRemovalTarget(worktreeSelector)
+    const removalTarget = await this.resolveWorktreeRemovalTarget(worktreeSelector, cleanupHostId)
     const cleanupScopeKey = preservedBranchCleanupScopeKey({
       worktreeId: removalTarget.id,
       hostId: cleanupHostId
     })
     const optionsKey = getRuntimeWorktreeRemovalOptionsKey(force, runHooks, allowUnverifiedPtyStop)
-    const inFlightRemoval = this.removeManagedWorktreeInFlight.get(removalTarget.id)
+    const inFlightRemoval = this.removeManagedWorktreeInFlight.get(cleanupScopeKey)
     if (inFlightRemoval) {
       if (inFlightRemoval.optionsKey === optionsKey) {
         return inFlightRemoval.promise
@@ -23401,9 +23519,18 @@ export class OrcaRuntimeService {
     }
 
     // Why: runtime callers can race the same workspace through CLI/mobile
-    // retries. Share one destructive Git/filesystem operation per worktree ID.
+    // retries. Share one destructive operation per host-qualified workspace.
     const removal = (async (): Promise<RemoveWorktreeResult & { warning?: string }> => {
-      const repo = store.getRepo(removalTarget.repoId)
+      // Why (STA-4343): a repo id can exist once per host. Honor the caller's host
+      // qualifier, and refuse an unqualified delete the runtime cannot pin to one
+      // owner rather than deleting a same-id workspace on another host.
+      const repoOwner = resolveWorktreeRemovalRepoOwner(store, removalTarget.repoId, cleanupHostId)
+      if (repoOwner.kind === 'ambiguous') {
+        throw new Error(
+          `Workspace identity is ambiguous across hosts: ${removalTarget.id}. Retry with an explicit host.`
+        )
+      }
+      const repo = repoOwner.kind === 'resolved' ? repoOwner.repo : undefined
       if (!repo) {
         throw new Error('repo_not_found')
       }
@@ -23457,7 +23584,12 @@ export class OrcaRuntimeService {
         : hasLocalWorktreeGitOptions
           ? await listWorktreesStrict(repo.path, localWorktreeGitOptions)
           : await listWorktreesStrict(repo.path)
-      const removedMeta = store.getWorktreeMeta(removalTarget.id)
+      const removedMeta = resolveWorktreeRemovalMetadata(
+        store,
+        removalTarget.repoId,
+        removalTarget.id,
+        cleanupHostId ?? getRepoExecutionHostId(repo)
+      )
       const removedPushTarget = removedMeta?.pushTarget ?? removalTarget.pushTarget
       const registeredWorktree = findRegisteredDeletableWorktree(
         repo.path,
@@ -23920,7 +24052,7 @@ export class OrcaRuntimeService {
         ...(warning ? { warning } : {})
       }
     })()
-    this.removeManagedWorktreeInFlight.set(removalTarget.id, { optionsKey, promise: removal })
+    this.removeManagedWorktreeInFlight.set(cleanupScopeKey, { optionsKey, promise: removal })
     try {
       const result = await removal
       this.emitWorktreeLifecycle({
@@ -23930,8 +24062,8 @@ export class OrcaRuntimeService {
       })
       return result
     } finally {
-      if (this.removeManagedWorktreeInFlight.get(removalTarget.id)?.promise === removal) {
-        this.removeManagedWorktreeInFlight.delete(removalTarget.id)
+      if (this.removeManagedWorktreeInFlight.get(cleanupScopeKey)?.promise === removal) {
+        this.removeManagedWorktreeInFlight.delete(cleanupScopeKey)
       }
     }
   }
@@ -28183,12 +28315,13 @@ export class OrcaRuntimeService {
   }
 
   private async resolveExplicitWorktreeIdScoped(
-    worktreeId: string
+    worktreeId: string,
+    requiredHostId?: ExecutionHostId
   ): Promise<ResolvedWorktree | null> {
     if (!this.store) {
       return null
     }
-    return await resolveScopedWorktreeIdRow(this.repoWorktreeRowDeps(), worktreeId)
+    return await resolveScopedWorktreeIdRow(this.repoWorktreeRowDeps(), worktreeId, requiredHostId)
   }
 
   private async listRepoWorktreesForResolution(
@@ -28572,14 +28705,33 @@ export class OrcaRuntimeService {
     if (targetWorktreeId === FLOATING_TERMINAL_WORKTREE_ID) {
       const targetedLiveness = this.refreshFloatingWorkspacePtyLiveness()
       if (targetedLiveness !== null) {
-        return { livePtyIds: targetedLiveness, allLivePtyIds: targetedLiveness }
+        return {
+          livePtyIds: targetedLiveness,
+          allLivePtyIds: targetedLiveness,
+          queriedHostIds: new Set([LOCAL_EXECUTION_HOST_ID])
+        }
       }
     }
     if (!this.ptyController?.listProcesses) {
       return null
     }
+    // Why: the local host is always queried; the controller's scoped variant
+    // names every host it reached, and the fallback infers SSH hosts from the
+    // owner an app PTY id embeds — a mirrored runtime row is never coverage.
+    const processInventory = this.ptyController.listProcessesWithHostScope
+      ? this.ptyController.listProcessesWithHostScope()
+      : this.ptyController.listProcesses().then((processes) => {
+          const hostIds = new Set<ExecutionHostId>([LOCAL_EXECUTION_HOST_ID])
+          for (const process of processes) {
+            const hostId = getPtyExecutionHost(process.id)
+            if (hostId && hostId !== 'foreign' && parseExecutionHostId(hostId)?.kind === 'ssh') {
+              hostIds.add(hostId)
+            }
+          }
+          return { processes, hostIds: [...hostIds] }
+        })
     const sessionsResult = await withTimeoutResult(
-      this.ptyController.listProcesses(),
+      processInventory,
       deadline === undefined
         ? PTY_CONTROLLER_LIST_TIMEOUT_MS
         : Math.max(1, Math.min(PTY_CONTROLLER_LIST_TIMEOUT_MS, deadline - Date.now()))
@@ -28588,7 +28740,8 @@ export class OrcaRuntimeService {
       // Why: a transient controller failure is not evidence that retained PTYs exited.
       return null
     }
-    const sessions = sessionsResult.value
+    const sessions = sessionsResult.value.processes
+    const queriedHostIds = new Set(sessionsResult.value.hostIds)
     const controllerIdentityByPtyId = new Map<
       string,
       { handle: string; incarnationId: string; wslDistro?: string | null }
@@ -28719,7 +28872,8 @@ export class OrcaRuntimeService {
     this.pruneDisconnectedPtyRecords()
     return {
       livePtyIds: targetWorktreeId ? selectedLivePtyIds : allLivePtyIds,
-      allLivePtyIds
+      allLivePtyIds,
+      queriedHostIds
     }
   }
 
@@ -28969,7 +29123,8 @@ export class OrcaRuntimeService {
       connected: provenAbsent ? false : leaf.connected,
       writable: provenAbsent ? false : leaf.writable,
       lastOutputAt: leaf.lastOutputAt,
-      preview: leaf.preview
+      preview: leaf.preview,
+      ...this.terminalExecutionHostField(leaf.ptyId, leaf.worktreeId)
     }
   }
 
@@ -30648,7 +30803,125 @@ export class OrcaRuntimeService {
       connected: pty.connected,
       writable: pty.connected,
       lastOutputAt: pty.lastOutputAt,
-      preview: pty.preview
+      preview: pty.preview,
+      ...this.terminalExecutionHostField(pty.ptyId, pty.worktreeId)
+    }
+  }
+
+  // Why: the PTY id names its own host when it has one; only a host-less id may
+  // fall back to the worktree's. A foreign id with no owner stays unset rather
+  // than inheriting a local worktree's host and reading as local.
+  private terminalExecutionHostField(
+    ptyId: string | null,
+    worktreeId: string
+  ): { executionHostId?: ExecutionHostId } {
+    const fromPtyId = getPtyExecutionHost(ptyId)
+    if (fromPtyId === 'foreign') {
+      return {}
+    }
+    const hostId = fromPtyId ?? this.tryGetWorkspaceSessionHostIdForWorktree(worktreeId)
+    return hostId ? { executionHostId: hostId } : {}
+  }
+
+  // The execution host a worktree/folder-workspace runs on, or null when no
+  // catalog can name it — an unnameable host is "unverifiable", never "local".
+  private tryGetWorkspaceSessionHostIdForWorktree(worktreeId: string): ExecutionHostId | null {
+    const scope = parseWorkspaceKey(worktreeId)
+    if (scope?.type === 'folder') {
+      const workspace = this.store
+        ?.getFolderWorkspaces?.()
+        .find((entry) => entry.id === scope.folderWorkspaceId)
+      if (!workspace) {
+        return null
+      }
+      // The fork names a folder workspace's remote host only through its inferred
+      // SSH connection; a null connection is the local host running Orca.
+      const connectionId = this.resolveFolderWorkspaceConnectionId(workspace)
+      return connectionId ? toSshExecutionHostId(connectionId) : LOCAL_EXECUTION_HOST_ID
+    }
+    const resolvedWorktreeId = scope?.type === 'worktree' ? scope.worktreeId : worktreeId
+    const repo = this.store?.getRepo?.(getRepoIdFromWorktreeId(resolvedWorktreeId))
+    return repo ? getRepoExecutionHostId(repo) : LOCAL_EXECUTION_HOST_ID
+  }
+
+  // Every execution host known to this runtime; knowledge is not coverage.
+  private listKnownExecutionHostIds(
+    additionalHostIds: Iterable<ExecutionHostId> = [],
+    includeConfiguredHosts = true
+  ): Set<ExecutionHostId> {
+    const hostIds = new Set<ExecutionHostId>([LOCAL_EXECUTION_HOST_ID])
+    for (const hostId of this.store?.getWorkspaceSessionHostIds?.() ?? []) {
+      hostIds.add(hostId)
+    }
+    for (const hostId of additionalHostIds) {
+      hostIds.add(hostId)
+    }
+    if (!includeConfiguredHosts) {
+      return hostIds
+    }
+    const repos = this.store?.getRepos?.() ?? []
+    for (const repo of repos) {
+      hostIds.add(getRepoExecutionHostId(repo))
+    }
+    const projectGroups = this.store?.getProjectGroups?.() ?? []
+    for (const workspace of this.store?.getFolderWorkspaces?.() ?? []) {
+      const connection = inferFolderWorkspacePathConnection({
+        folderPath: workspace.folderPath,
+        projectGroupId: workspace.projectGroupId,
+        connectionId: workspace.connectionId ?? null,
+        projectGroups,
+        repos
+      })
+      if (connection.kind === 'ssh') {
+        hostIds.add(toSshExecutionHostId(connection.connectionId))
+      }
+    }
+    return hostIds
+  }
+
+  // A worktree-scoped request answers for one host only, so name the hosts it
+  // skipped: absence from a scoped listing is not evidence a worker exited.
+  private buildTerminalListHostScope(
+    targetWorktreeId: string | null,
+    terminals: readonly RuntimeTerminalSummary[],
+    worktrees: Iterable<ResolvedWorktree>,
+    queriedHostIds: ReadonlySet<ExecutionHostId>
+  ): RuntimeTerminalListHostScope {
+    const knownHostIds = this.listKnownExecutionHostIds(
+      queriedHostIds,
+      targetWorktreeId !== FLOATING_TERMINAL_WORKTREE_ID
+    )
+    let resolvedTargetHostId: ExecutionHostId | null = null
+    for (const worktree of worktrees) {
+      if (worktree.hostId) {
+        knownHostIds.add(worktree.hostId)
+        if (worktree.id === targetWorktreeId) {
+          resolvedTargetHostId = worktree.hostId
+        }
+      }
+    }
+    for (const terminal of terminals) {
+      if (terminal.executionHostId) {
+        knownHostIds.add(terminal.executionHostId)
+      }
+    }
+    const scopedHostId = targetWorktreeId
+      ? (resolvedTargetHostId ?? this.tryGetWorkspaceSessionHostIdForWorktree(targetWorktreeId))
+      : null
+    if (scopedHostId) {
+      knownHostIds.add(scopedHostId)
+    }
+    const candidates = targetWorktreeId ? (scopedHostId ? [scopedHostId] : []) : knownHostIds
+    // Paired runtimes own a separate control plane. Mirrored rows are evidence
+    // for those rows only; this runtime cannot claim their complete inventory.
+    const coveredHostIds = new Set(
+      [...candidates].filter(
+        (hostId) => queriedHostIds.has(hostId) && parseExecutionHostId(hostId)?.kind !== 'runtime'
+      )
+    )
+    return {
+      hostIds: [...coveredHostIds].sort(),
+      omittedHostIds: [...knownHostIds].filter((hostId) => !coveredHostIds.has(hostId)).sort()
     }
   }
 

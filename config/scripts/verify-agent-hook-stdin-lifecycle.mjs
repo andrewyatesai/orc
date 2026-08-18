@@ -318,11 +318,11 @@ async function verifyInstalledLauncher(home, payload) {
   const command = findStrings(settings).find(
     (value) => value.includes('claude-hook.sh') && value.includes('if [ -f ')
   )
-  // Why: the installed launcher must resolve $HOME at runtime (never a baked path)
+  // Why: the installed launcher must resolve ${HOME-} at runtime (never a baked path)
   // and still guard readability and drain a missing script.
   if (
     !command ||
-    !command.includes('"$HOME/.orca/agent-hooks/claude-hook.sh"') ||
+    !command.includes('"${HOME-}/.orca/agent-hooks/claude-hook.sh"') ||
     !command.includes('] && [ -r ') ||
     !command.includes('else { command -p cat')
   ) {

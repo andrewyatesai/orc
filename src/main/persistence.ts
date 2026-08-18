@@ -148,6 +148,10 @@ import {
   parsePaneKey
 } from '../shared/stable-pane-id'
 import {
+  findCrossHostPaneTabIds,
+  withoutPaneTabIds
+} from './persistence-cross-host-pane-tab-ids'
+import {
   setMigrationUnsupportedPty,
   setMigrationUnsupportedPtyPersistenceListener
 } from './agent-hooks/migration-unsupported-pty-state'
@@ -1157,6 +1161,25 @@ function normalizeNotificationSettings(value: unknown): NotificationSettings {
   }
 }
 
+/**
+ * Whether normalization had to repair the persisted notification block. Callers use this to mark the
+ * load dirty; an in-memory-only repair is redone on every launch until some other write lands.
+ * A missing block is not a repair — nothing on disk was overridden.
+ */
+export function persistedNotificationSettingsRepaired(
+  value: unknown,
+  normalized: NotificationSettings
+): boolean {
+  if (value === undefined) {
+    return false
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return true
+  }
+  const raw = value as Record<string, unknown>
+  return Object.entries(normalized).some(([key, normalizedValue]) => raw[key] !== normalizedValue)
+}
+
 function normalizeAutomationRunWorkspaceDisplayName(value: string | null): string | null {
   const trimmed = value?.trim()
   return trimmed ? trimmed : null
@@ -2106,7 +2129,11 @@ function normalizeTerminalLayoutSnapshotForPersistence(
     preferredLeafIdsInOrder.length === inputLeafIdsInOrder.length &&
     new Set(preferredLeafIdsInOrder).size === preferredLeafIdsInOrder.length
   const leafIdByInputLeafId = new Map<string, string>()
-  const claimedLeafIds = new Set<string>()
+  // Why pre-seeded: a stable leaf later in the input keeps its own id, so handing that id to an
+  // earlier non-terminal leaf would recreate the duplicate this pass exists to remove.
+  const claimedLeafIds = new Set(
+    inputLeafIdsInOrder.filter((leafId) => counts.get(leafId) === 1 && isTerminalLeafId(leafId))
+  )
   for (const [index, leafId] of inputLeafIdsInOrder.entries()) {
     const count = counts.get(leafId) ?? 0
     if (count !== 1 || leafIdByInputLeafId.has(leafId)) {
@@ -2195,7 +2222,8 @@ function normalizeTerminalLayoutSnapshotForPersistence(
 
 function normalizeWorkspaceSessionPaneIdentities(
   session: WorkspaceSessionState,
-  priorLayoutsByTabId: Record<string, TerminalLayoutSnapshot> = {}
+  priorLayoutsByTabId: Record<string, TerminalLayoutSnapshot> = {},
+  options: { skipAliasTabIds?: ReadonlySet<string> } = {}
 ): {
   session: WorkspaceSessionState
   changed: boolean
@@ -2217,19 +2245,23 @@ function normalizeWorkspaceSessionPaneIdentities(
     )
     terminalLayoutsByTabId[tabId] = normalized.snapshot
     leafIdByInputLeafIdByTabId.set(tabId, normalized.leafIdByInputLeafId)
-    const migrationEntries = collectMigrationUnsupportedPtyEntries({
-      session,
-      tabId,
-      inputLayout: layout,
-      normalizedLayout: normalized.snapshot,
-      leafIdByInputLeafId: normalized.leafIdByInputLeafId
-    })
-    // Why: old split layouts can generate enough alias rows to exceed V8's argument limit if spread into push().
-    for (const entry of migrationEntries.migrationUnsupportedEntries) {
-      migrationUnsupportedEntries.push(entry)
-    }
-    for (const entry of migrationEntries.legacyPaneKeyAliasEntries) {
-      legacyPaneKeyAliasEntries.push(entry)
+    // Why skip: a tab id shared across host partitions has no host segment in its legacy alias keys,
+    // so registering aliases for it would route one host's pane at another host's terminal.
+    if (!options.skipAliasTabIds?.has(tabId)) {
+      const migrationEntries = collectMigrationUnsupportedPtyEntries({
+        session,
+        tabId,
+        inputLayout: layout,
+        normalizedLayout: normalized.snapshot,
+        leafIdByInputLeafId: normalized.leafIdByInputLeafId
+      })
+      // Why: old split layouts can generate enough alias rows to exceed V8's argument limit if spread into push().
+      for (const entry of migrationEntries.migrationUnsupportedEntries) {
+        migrationUnsupportedEntries.push(entry)
+      }
+      for (const entry of migrationEntries.legacyPaneKeyAliasEntries) {
+        legacyPaneKeyAliasEntries.push(entry)
+      }
     }
     const leafIdByPtyId = new Map<string, string>()
     const duplicatePtyIds = new Set<string>()
@@ -2257,27 +2289,48 @@ function normalizeWorkspaceSessionPaneIdentities(
   }
 }
 
+type WorkspaceSessionPaneIdentityRemap = {
+  leafIdByInputLeafIdByTabId: Map<string, Map<string, string>>
+  leafIdByPtyIdByTabId: Map<string, Map<string, string>>
+}
+
 function remapSshRemotePtyLeaseLeafIds(
   leases: SshRemotePtyLease[],
-  leafIdByInputLeafIdByTabId: Map<string, Map<string, string>>,
-  leafIdByPtyIdByTabId: Map<string, Map<string, string>>
+  remapsByHostId: ReadonlyMap<ExecutionHostId, WorkspaceSessionPaneIdentityRemap>,
+  hostIdsWithWorkspaceSessions: ReadonlySet<ExecutionHostId> = new Set(remapsByHostId.keys())
 ): { leases: SshRemotePtyLease[]; changed: boolean } {
   let changed = false
   const nextLeases = leases.map((lease) => {
-    if (lease.leafId === undefined || isTerminalLeafId(lease.leafId)) {
+    if (lease.leafId === undefined) {
       return lease
     }
+    const hostId = toSshExecutionHostId(lease.targetId)
+    // Why: remap inside the lease's own host partition so a tab id reused across machines can't
+    // pull the leaf from the wrong host. Legacy unpartitioned state kept SSH panes in local, so
+    // only fall back to local when this host has no partition of its own.
+    const remap =
+      remapsByHostId.get(hostId) ??
+      (hostIdsWithWorkspaceSessions.has(hostId)
+        ? undefined
+        : remapsByHostId.get(LOCAL_EXECUTION_HOST_ID))
     const remappedLeafId = lease.tabId
-      ? leafIdByInputLeafIdByTabId.get(lease.tabId)?.get(lease.leafId)
+      ? remap?.leafIdByInputLeafIdByTabId.get(lease.tabId)?.get(lease.leafId)
       : undefined
     const leafIdForPty = lease.tabId
-      ? leafIdByPtyIdByTabId.get(lease.tabId)?.get(lease.ptyId)
+      ? remap?.leafIdByPtyIdByTabId.get(lease.tabId)?.get(lease.ptyId)
       : undefined
-    changed = true
     const nextLeafId = remappedLeafId ?? leafIdForPty
     if (nextLeafId) {
+      if (nextLeafId === lease.leafId) {
+        return lease
+      }
+      changed = true
       return { ...lease, leafId: nextLeafId }
     }
+    if (isTerminalLeafId(lease.leafId)) {
+      return lease
+    }
+    changed = true
     const next = { ...lease }
     // Why: unmatched legacy leaf ids are ambiguous after migration; don't re-persist them as durable pane identity.
     delete next.leafId
@@ -2286,8 +2339,8 @@ function remapSshRemotePtyLeaseLeafIds(
   return { leases: nextLeases, changed }
 }
 
-/** Combines per-tab leaf maps from separate host partitions; an already-mapped tab keeps its mapping. */
-function mergeLeafIdMapsByTabId(
+/** Acknowledgement keys lack host metadata, so an already-mapped tab keeps its mapping. */
+function mergeAcknowledgementLeafIdMapsByTabId(
   target: Map<string, Map<string, string>>,
   source: Map<string, Map<string, string>>
 ): Map<string, Map<string, string>> {
@@ -2305,9 +2358,14 @@ function normalizePersistedPaneIdentityState(state: PersistedState): {
   migrationUnsupportedEntries: MigrationUnsupportedPtyEntry[]
   legacyPaneKeyAliasEntries: LegacyPaneKeyAliasEntry[]
 } {
-  const normalizedSession = normalizeWorkspaceSessionPaneIdentities(state.workspaceSession, {})
-  let leafIdByInputLeafIdByTabId = normalizedSession.leafIdByInputLeafIdByTabId
-  let leafIdByPtyIdByTabId = normalizedSession.leafIdByPtyIdByTabId
+  const crossHostTabIds = findCrossHostPaneTabIds(state)
+  const normalizedSession = normalizeWorkspaceSessionPaneIdentities(state.workspaceSession, {}, {
+    skipAliasTabIds: crossHostTabIds
+  })
+  let acknowledgementLeafIdByInputLeafIdByTabId = normalizedSession.leafIdByInputLeafIdByTabId
+  const remapsByHostId = new Map<ExecutionHostId, WorkspaceSessionPaneIdentityRemap>([
+    [LOCAL_EXECUTION_HOST_ID, normalizedSession]
+  ])
   const hostSessionLegacyPaneKeyAliasEntries: LegacyPaneKeyAliasEntry[] = []
   // Why: SSH/runtime hosts keep their own session blob, and their legacy leaves need the same UUID
   // rewrite — otherwise their leases and read markers still point at `pane:1` after migration.
@@ -2323,15 +2381,14 @@ function normalizePersistedPaneIdentityState(state: PersistedState): {
       if (!hostSession) {
         continue
       }
-      const normalizedHostSession = normalizeWorkspaceSessionPaneIdentities(hostSession, {})
+      const normalizedHostSession = normalizeWorkspaceSessionPaneIdentities(hostSession, {}, {
+        skipAliasTabIds: crossHostTabIds
+      })
       normalizedHostSessions[hostId] = normalizedHostSession.session
-      leafIdByInputLeafIdByTabId = mergeLeafIdMapsByTabId(
-        leafIdByInputLeafIdByTabId,
+      remapsByHostId.set(hostId, normalizedHostSession)
+      acknowledgementLeafIdByInputLeafIdByTabId = mergeAcknowledgementLeafIdMapsByTabId(
+        acknowledgementLeafIdByInputLeafIdByTabId,
         normalizedHostSession.leafIdByInputLeafIdByTabId
-      )
-      leafIdByPtyIdByTabId = mergeLeafIdMapsByTabId(
-        leafIdByPtyIdByTabId,
-        normalizedHostSession.leafIdByPtyIdByTabId
       )
       for (const entry of normalizedHostSession.legacyPaneKeyAliasEntries) {
         hostSessionLegacyPaneKeyAliasEntries.push(entry)
@@ -2341,8 +2398,7 @@ function normalizePersistedPaneIdentityState(state: PersistedState): {
   }
   const remappedLeases = remapSshRemotePtyLeaseLeafIds(
     state.sshRemotePtyLeases ?? [],
-    leafIdByInputLeafIdByTabId,
-    leafIdByPtyIdByTabId
+    remapsByHostId
   )
   const mergedMigrationUnsupportedEntries: MigrationUnsupportedPtyEntry[] = []
   const mergedLegacyPaneKeyAliasEntries = mergeLegacyPaneKeyAliasEntries([
@@ -2350,10 +2406,11 @@ function normalizePersistedPaneIdentityState(state: PersistedState): {
     ...legacyMigrationUnsupportedRowsToAliasEntries(state.migrationUnsupportedPtyEntries ?? []),
     ...normalizedSession.legacyPaneKeyAliasEntries,
     ...hostSessionLegacyPaneKeyAliasEntries
-  ])
+    // Rows an older build wrote for a now-colliding tab id would keep the ambiguous routing alive.
+  ]).filter((entry) => !crossHostTabIds.has(parsePaneKey(entry.stablePaneKey)?.tabId ?? ''))
   const remappedAcknowledgements = remapAcknowledgedAgentPaneKeys(
     state.ui?.acknowledgedAgentsByPaneKey,
-    leafIdByInputLeafIdByTabId
+    withoutPaneTabIds(acknowledgementLeafIdByInputLeafIdByTabId, crossHostTabIds)
   )
   const migrationUnsupportedChanged = !migrationUnsupportedEntriesEqual(
     state.migrationUnsupportedPtyEntries ?? [],
@@ -3625,6 +3682,22 @@ export class Store {
         ) {
           this.loadNeedsSave = true
         }
+        const normalizedNotifications = normalizeNotificationSettings(parsed.settings?.notifications)
+        // Why: a type-flipped notification field is repaired in memory only; without a dirty mark the
+        // bad value stays on disk and the repair reruns on every launch.
+        if (
+          persistedNotificationSettingsRepaired(parsed.settings?.notifications, normalizedNotifications)
+        ) {
+          this.loadNeedsSave = true
+        }
+        // Why: a hand-corrupted null lineage map is repaired to {} below; mark dirty so the repair
+        // reaches disk instead of being redone on every load.
+        if (
+          (parsed.worktreeLineageById as unknown) === null ||
+          (parsed.workspaceLineageByChildKey as unknown) === null
+        ) {
+          this.loadNeedsSave = true
+        }
         result = {
           ...defaults,
           ...parsed,
@@ -3720,7 +3793,7 @@ export class Store {
             openInApplications: normalizeOpenInApplications(parsed.settings?.openInApplications, {
               seedDefaults: true
             }),
-            notifications: normalizeNotificationSettings(parsed.settings?.notifications),
+            notifications: normalizedNotifications,
             sourceControlAi: migratedSourceControlAi,
             sourceControlGroupOrder: normalizedSourceControlGroupOrder,
             // Why: rollback builds still read commitMessageAi, so refresh the legacy projection from sourceControlAi for compat.
@@ -3856,6 +3929,20 @@ export class Store {
             ) {
               this.loadNeedsSave = true
             }
+            const rawExplorerView = parsed.ui?.rightSidebarExplorerView
+            const rightSidebarExplorerView = normalizeRightSidebarExplorerView(
+              rawExplorerView,
+              parsed.ui?.rightSidebarTab
+            )
+            // Why: without a dirty mark the legacy "Search tab, no explorer view" repair stays
+            // in memory only, so a profile that never writes again redoes it on every launch.
+            if (
+              rawExplorerView === undefined
+                ? rightSidebarExplorerView !== defaults.ui.rightSidebarExplorerView
+                : rawExplorerView !== rightSidebarExplorerView
+            ) {
+              this.loadNeedsSave = true
+            }
             return {
               ...defaults.ui,
               // Why: missing card properties follow the persisted layout mode; explicit choices are preserved below.
@@ -3868,10 +3955,7 @@ export class Store {
               rightSidebarTab: normalizeRightSidebarTab(parsed.ui?.rightSidebarTab),
               // Why here and not in getUI: only the raw payload still shows the legacy
               // "Search tab, no explorer view" shape — the defaults spread above fills in 'files'.
-              rightSidebarExplorerView: normalizeRightSidebarExplorerView(
-                parsed.ui?.rightSidebarExplorerView,
-                parsed.ui?.rightSidebarTab
-              ),
+              rightSidebarExplorerView,
               setupGuideSidebarDismissed,
               usagePercentageDisplayChangeNoticeDismissed,
               setupGuideBrowserMilestoneMigrated:
@@ -4519,10 +4603,18 @@ export class Store {
 
   /**
    * Record a background-resolved git username; kept out of updateRepo's whitelist so the renderer can't write it directly.
+   * Takes the probed repo, not just its id: the same id can exist on several execution hosts, and an
+   * id-only lookup would write one host's username onto a sibling host's row and hydration cache key.
    * @returns true when the hydrated value changed.
    */
-  setResolvedRepoGitUsername(id: string, username: string): boolean {
-    const repo = this.state.repos.find((r) => r.id === id)
+  setResolvedRepoGitUsername(
+    target: Pick<Repo, 'id' | 'connectionId' | 'executionHostId'>,
+    username: string
+  ): boolean {
+    const targetHostId = getRepoExecutionHostId(target)
+    const repo = this.state.repos.find(
+      (r) => r.id === target.id && getRepoExecutionHostId(r) === targetHostId
+    )
     if (!repo) {
       return false
     }
@@ -4650,11 +4742,13 @@ export class Store {
     const group = (this.state.projectGroups ?? []).find(
       (entry) => entry.id === input.projectGroupId
     )
-    // Why trim: the guard accepts a padded path, so persist the same value it validated.
+    // Why no trim on input: persist the exact path the guard validated so an intentional trailing
+    // space survives. Why trim the group fallback: a whitespace-only parentPath is not a real path,
+    // so it must fail the guard below instead of persisting as a folderPath.
     const folderPath =
       typeof input.folderPath === 'string' && input.folderPath.trim().length > 0
-        ? input.folderPath.trim()
-        : group?.parentPath
+        ? input.folderPath
+        : group?.parentPath?.trim()
     if (!group || !folderPath) {
       throw new Error('Folder-backed project group not found.')
     }
@@ -4715,7 +4809,7 @@ export class Store {
       workspace.name = normalizeFolderWorkspaceName(updates.name, workspace.name)
     }
     if (typeof updates.folderPath === 'string' && updates.folderPath.trim().length > 0) {
-      workspace.folderPath = updates.folderPath.trim()
+      workspace.folderPath = updates.folderPath
     }
     if (updates.linkedTask !== undefined) {
       workspace.linkedTask = updates.linkedTask
@@ -5391,17 +5485,17 @@ export class Store {
       ...definedUpdates,
       name:
         updates.name !== undefined ? updates.name.trim() || 'Untitled automation' : current.name,
-      precheck: Object.hasOwn(updates, 'precheck')
-        ? normalizeAutomationPrecheck(updates.precheck)
+      precheck: Object.hasOwn(definedUpdates, 'precheck')
+        ? normalizeAutomationPrecheck(definedUpdates.precheck)
         : normalizeAutomationPrecheck(current.precheck),
       projectId: repoId,
-      runContext: Object.hasOwn(updates, 'runContext')
-        ? (updates.runContext ?? null)
+      runContext: Object.hasOwn(definedUpdates, 'runContext')
+        ? (definedUpdates.runContext ?? null)
         : updates.projectId !== undefined
           ? contexts.runContext
           : (current.runContext ?? contexts.runContext),
-      sourceContext: Object.hasOwn(updates, 'sourceContext')
-        ? (updates.sourceContext ?? null)
+      sourceContext: Object.hasOwn(definedUpdates, 'sourceContext')
+        ? (definedUpdates.sourceContext ?? null)
         : updates.projectId !== undefined
           ? contexts.sourceContext
           : (current.sourceContext ?? contexts.sourceContext),
@@ -5411,20 +5505,23 @@ export class Store {
       workspaceMode,
       workspaceId:
         workspaceMode === 'existing'
-          ? Object.hasOwn(updates, 'workspaceId')
-            ? (updates.workspaceId ?? null)
+          ? Object.hasOwn(definedUpdates, 'workspaceId')
+            ? (definedUpdates.workspaceId ?? null)
             : current.workspaceId
           : null,
       baseBranch:
         workspaceMode === 'new_per_run'
-          ? Object.hasOwn(updates, 'baseBranch')
-            ? (updates.baseBranch ?? null)
+          ? Object.hasOwn(definedUpdates, 'baseBranch')
+            ? (definedUpdates.baseBranch ?? null)
             : (current.baseBranch ?? null)
           : null,
       setupDecision:
         workspaceMode === 'new_per_run'
-          ? Object.hasOwn(updates, 'setupDecision')
-            ? normalizeAutomationSetupDecisionForWorkspaceMode(workspaceMode, updates.setupDecision)
+          ? Object.hasOwn(definedUpdates, 'setupDecision')
+            ? normalizeAutomationSetupDecisionForWorkspaceMode(
+                workspaceMode,
+                definedUpdates.setupDecision
+              )
             : normalizeAutomationSetupDecisionForWorkspaceMode(workspaceMode, current.setupDecision)
           : undefined,
       reuseSession:
@@ -6494,6 +6591,18 @@ export class Store {
     return this.state.workspaceSessionsByHostId?.[resolved] ?? getDefaultWorkspaceSession()
   }
 
+  /** Every execution host that owns a workspace-session partition, including the implicit local one. */
+  getWorkspaceSessionHostIds(): ExecutionHostId[] {
+    const hostIds = new Set<ExecutionHostId>([LOCAL_EXECUTION_HOST_ID])
+    for (const key of Object.keys(this.state.workspaceSessionsByHostId ?? {})) {
+      const hostId = normalizeExecutionHostId(key)
+      if (hostId) {
+        hostIds.add(hostId)
+      }
+    }
+    return [...hostIds]
+  }
+
   readTerminalScrollbackSnapshot(ref: string): string | null {
     return readTerminalScrollbackSnapshotSync(ref, this.terminalScrollbackSnapshotStorage)
   }
@@ -6675,10 +6784,15 @@ export class Store {
       registerPersistedPaneKeyAlias(entry)
     }
     session = normalized.session
+    // Why: only the local session is being rewritten here, so remap local leases against it while
+    // leaving leases owned by hosts that keep their own partition untouched.
+    const remapsByHostId = new Map<ExecutionHostId, WorkspaceSessionPaneIdentityRemap>([
+      [LOCAL_EXECUTION_HOST_ID, normalized]
+    ])
     const remappedLeases = remapSshRemotePtyLeaseLeafIds(
       this.state.sshRemotePtyLeases ?? [],
-      normalized.leafIdByInputLeafIdByTabId,
-      normalized.leafIdByPtyIdByTabId
+      remapsByHostId,
+      new Set(this.getWorkspaceSessionHostIds())
     )
     if (remappedLeases.changed) {
       this.state.sshRemotePtyLeases = remappedLeases.leases

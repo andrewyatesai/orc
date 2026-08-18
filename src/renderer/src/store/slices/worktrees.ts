@@ -28,6 +28,7 @@ import {
   type WorktreeSlice
 } from './worktree-helpers'
 import { splitWorktreeIdForFilesystem } from '../../../../shared/worktree-id'
+import { hasChangedLineageAncestor } from './worktree-pin-ancestor-reveal'
 import {
   remapClosedTerminalTabSnapshotCwds,
   type ClosedTerminalTabSnapshot
@@ -2958,7 +2959,9 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       )
     } catch (err) {
       console.error('Failed to update worktree lineage:', err)
+      // Best-effort recovery must not mask the original cause: rethrow so the caller toasts the failure.
       await refreshWorktreeLineageBestEffort(ownerSettings, set)
+      throw err
     }
   },
 
@@ -2972,7 +2975,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       )
     } catch (err) {
       console.error('Failed to assign worktree parent:', err)
-      // Unlike the update path this rethrows, so the recovery refresh must not mask the original cause.
+      // Best-effort recovery must not mask the original cause: rethrow so the caller toasts the failure.
       await refreshWorktreeLineageBestEffort(ownerSettings, set)
       throw err
     }
@@ -4388,6 +4391,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     )
     // Skip worktrees already in the target state so a no-op toggle doesn't scroll the viewport away.
     const updates = new Map<string, Partial<WorktreeMeta>>()
+    const changedWorktreeIds = new Set<string>()
     let didChange = false
     let revealWorktreeId: string | null = null
     for (const worktreeId of worktreeIds) {
@@ -4396,6 +4400,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
         continue
       }
       didChange = true
+      changedWorktreeIds.add(worktreeId)
       const workspaceScope = parseWorkspaceKey(worktreeId)
       if (workspaceScope?.type === 'folder') {
         void get().updateWorktreeMeta(worktreeId, { isPinned })
@@ -4408,6 +4413,22 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     }
     if (!didChange) {
       return
+    }
+    // Why: toggling an unfocused pinned ancestor moves the focused descendant into
+    // (or out of) the Pinned section, so follow it to keep focus visible. Skip the
+    // duplicate-in-groups policy where the descendant never leaves its natural group.
+    if (
+      revealWorktreeId === null &&
+      activeSidebarWorktreeId !== null &&
+      get().settings?.showPinnedWorktreesInGroups !== true &&
+      hasChangedLineageAncestor({
+        worktreeId: activeSidebarWorktreeId,
+        changedWorktreeIds,
+        lineageById: get().worktreeLineageById,
+        getKnownWorktreeById: (id) => get().getKnownWorktreeById(id)
+      })
+    ) {
+      revealWorktreeId = activeSidebarWorktreeId
     }
     // updateWorktreesMeta applies the store update synchronously, so the reveal below sees the row already rendered.
     if (updates.size > 0) {

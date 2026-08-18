@@ -219,9 +219,20 @@
       "why": [
         "+22 on orca-runtime.ts from +300-delta batch 4: the #14207 worktree-scan admin-fingerprint timeout block (WORKTREE_SCAN_ADMIN_FINGERPRINT_TIMEOUT_MS / WORKTREE_SCAN_FALLBACK_ALLOWANCE_MS + withTimeout on the reuse-decision adminFingerprint probe). pty.ts flat 6382, shim flat 2823. Accepted attach-kind; decomposition still owed."
       ]
+    },
+    {
+      "date": "2026-08-17",
+      "head": "delta79",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36628,
+        "src/main/ipc/pty.ts": 6382
+      },
+      "why": [
+        "+300-window +79 cadence sync attach-kind: orca-runtime.ts 36628->36901 (host-scope terminal listing 8ca4ed945e, STA-4510 owned-subscription teardown, worktree-removal repo-owner routing 64de8dd6, repo-git-remote-identity enrichment), pty.ts 6382->6411 (liveness/host-scope). shim flat 2823. In-place OrcaRuntimeService methods; decomposition still owed."
+      ]
     }
   ],
   "shimWholeFileLoc": 2823,
-  "src/main/runtime/orca-runtime.ts": 36628,
-  "src/main/ipc/pty.ts": 6382
+  "src/main/runtime/orca-runtime.ts": 36901,
+  "src/main/ipc/pty.ts": 6411
 }

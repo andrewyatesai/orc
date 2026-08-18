@@ -31,6 +31,7 @@ export default function MobilePage(): React.JSX.Element {
   const [iosChannel, setIosChannel] = useState<IosChannel>('preview')
 
   const [pairQrDataUrl, setPairQrDataUrl] = useState<string | null>(null)
+  const [pairQrSize, setPairQrSize] = useState<number | null>(null)
   const [pairingUrl, setPairingUrl] = useState<string | null>(null)
   // Mode the displayed QR actually encodes; can be 'local-only' under an
   // Anywhere selection when Relay provisioning degraded server-side.
@@ -73,6 +74,7 @@ export default function MobilePage(): React.JSX.Element {
     hasGeneratedRef,
     pairingRequestIdRef,
     setPairQrDataUrl,
+    setPairQrSize,
     setPairingUrl,
     setPairLoading,
     setEncodedConnectionMode
@@ -99,6 +101,7 @@ export default function MobilePage(): React.JSX.Element {
     hasGeneratedRef,
     pairingRequestIdRef,
     setPairQrDataUrl,
+    setPairQrSize,
     setPairingUrl,
     setPairLoading,
     regenerate: (mode, opts) => void generatePairing(opts.rotate, undefined, mode)
@@ -217,6 +220,7 @@ export default function MobilePage(): React.JSX.Element {
   const enterFlow = (): void => {
     hasGeneratedRef.current = false
     setPairQrDataUrl(null)
+    setPairQrSize(null)
     setPairingUrl(null)
     setEncodedConnectionMode(null)
     showFirstPairingFlow()
@@ -227,6 +231,7 @@ export default function MobilePage(): React.JSX.Element {
   const pairAnotherDevice = (): void => {
     hasGeneratedRef.current = false
     setPairQrDataUrl(null)
+    setPairQrSize(null)
     setPairingUrl(null)
     setEncodedConnectionMode(null)
     showPairAnotherDeviceFlow()
@@ -276,6 +281,7 @@ export default function MobilePage(): React.JSX.Element {
       connectionMode={connectionMode}
       handleConnectionModeChange={handleConnectionModeChange}
       pairQrDataUrl={pairQrDataUrl}
+      pairQrSize={pairQrSize}
       pairingUrl={pairingUrl}
       relayDegraded={
         pairQrDataUrl != null &&

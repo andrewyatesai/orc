@@ -134,6 +134,7 @@ import {
   getCyclicProjectedWorktreeLineageIds,
   getWorktreeLineageAncestors
 } from './worktree-lineage-projection'
+import { isPinnedSectionWorktree } from './pinned-section-worktrees'
 import { getWorktreeIdsWithLiveAgent } from '@/lib/worktree-activity-state'
 import { getEmptyProjectPlaceholderRepoIds } from './empty-project-placeholder-repos'
 import {
@@ -1164,12 +1165,14 @@ function findPreferredRenderRowIndexForWorktree(
 
 export function getPinnedWorktreeRevealCollapsedGroupKeys({
   worktree,
-  collapsedGroups
+  collapsedGroups,
+  inPinnedSection = worktree.isPinned
 }: {
   worktree: Worktree
   collapsedGroups: ReadonlySet<string>
+  inPinnedSection?: boolean
 }): string[] {
-  if (!worktree.isPinned) {
+  if (!inPinnedSection) {
     return []
   }
   const keys: string[] = []
@@ -2165,10 +2168,12 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
           }
 
           const groupKeys =
-            targetWorktree.isPinned && pinnedDisplayPolicy === 'single-location'
+            pinnedDisplayPolicy === 'single-location' &&
+            isPinnedSectionWorktree(targetWorktree, worktrees, worktreeLineageById, worktreeMap)
               ? getPinnedWorktreeRevealCollapsedGroupKeys({
                   worktree: targetWorktree,
-                  collapsedGroups
+                  collapsedGroups,
+                  inPinnedSection: true
                 })
               : getGroupKeysForWorktree(
                   groupBy,
@@ -5577,7 +5582,10 @@ const WorktreeList = React.memo(function WorktreeList({
       return collapsedGroups
     }
     const next = new Set(collapsedGroups)
-    if (targetWorktree.isPinned) {
+    if (
+      pinnedDisplayPolicy === 'single-location' &&
+      isPinnedSectionWorktree(targetWorktree, visibleWorktrees, worktreeLineageById, worktreeMap)
+    ) {
       next.delete(PINNED_GROUP_KEY)
     } else {
       for (const groupKey of getGroupKeysForWorktree(
@@ -5606,11 +5614,13 @@ const WorktreeList = React.memo(function WorktreeList({
     agentSendTargetWorktreeId,
     collapsedGroups,
     groupBy,
+    pinnedDisplayPolicy,
     prCache,
     projectGroups,
     projectGrouping,
     repoMap,
     settings,
+    visibleWorktrees,
     workspaceStatuses,
     worktreeLineageById,
     worktreeMap

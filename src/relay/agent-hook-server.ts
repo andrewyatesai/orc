@@ -29,6 +29,11 @@ import {
   type HookListenerState
 } from '../shared/agent-hook-listener'
 import {
+  createHookTransportInterferenceTracker,
+  describeHookTransportInterference,
+  isHookRequestTruncatedError
+} from '../shared/agent-hook-transport-interference'
+import {
   REMOTE_AGENT_HOOK_ENV,
   type AgentHookRelayEnvelope,
   type AgentHookSource
@@ -99,6 +104,9 @@ export class RelayAgentHookServer {
   private endpointFilePath: string
   private endpointFileWritten = false
   private state: HookListenerState = createHookListenerState()
+  private transportInterference = createHookTransportInterferenceTracker((report) => {
+    process.stderr.write(`${describeHookTransportInterference(report)}\n`)
+  })
   // Why: shared status cache drops wire-envelope fields; this sidecar holds source/env/version so replay matches the live POST path.
   // Invariant: keys mirror state.lastStatusByPaneKey, populated/cleared in lockstep.
   private lastEnvelopeMetaByPaneKey = new Map<
@@ -268,7 +276,10 @@ export class RelayAgentHookServer {
       res.end()
       return
     }
+    // Why: track our own destroy so the slowloris cap can't be misread as outside interference.
+    let destroyedBySlowlorisCap = false
     req.setTimeout(HOOK_REQUEST_SLOWLORIS_MS, () => {
+      destroyedBySlowlorisCap = true
       req.destroy()
     })
     try {
@@ -297,6 +308,11 @@ export class RelayAgentHookServer {
       res.writeHead(204)
       res.end()
     } catch (err) {
+      // Why (#11217): a remote host can run the same IDS; count truncations here so a blocked SSH
+      // relay reports the cause instead of an anonymous "hook request failed".
+      if (isHookRequestTruncatedError(err) && !destroyedBySlowlorisCap) {
+        this.transportInterference.record({ source: null, error: err })
+      }
       // Why: hooks fail open (204 on any error) so a buggy agent never blocks the run; still log so the 204 doesn't mask bugs.
       process.stderr.write(
         `[relay-hook-server] hook request failed: ${err instanceof Error ? err.message : String(err)}\n`
@@ -327,6 +343,7 @@ export class RelayAgentHookServer {
       compactTrigger: event.compactTrigger,
       toolUseId: event.toolUseId,
       toolAgentId: event.toolAgentId,
+      teammateName: event.teammateName,
       toolAgentType: event.toolAgentType,
       ...(event.providerSession ? { providerSession: event.providerSession } : {}),
       ...(event.providerSessionOnly ? { providerSessionOnly: true } : {}),

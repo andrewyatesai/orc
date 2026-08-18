@@ -39,6 +39,8 @@ type HeroFlowProps = {
   onOpenInstallUrl: () => void
   onCopyInstallUrl: () => void
   pairQrDataUrl: string | null
+  /** Natural bitmap size (px) so the pairing QR paints at an integer pitch. */
+  pairQrSize?: number | null
   pairingUrl: string | null
   /** True when the shown QR degraded to local-only under an Anywhere selection. */
   relayDegraded: boolean
@@ -69,6 +71,7 @@ export function HeroFlow({
   onOpenInstallUrl,
   onCopyInstallUrl,
   pairQrDataUrl,
+  pairQrSize = null,
   pairingUrl,
   relayDegraded,
   pairLoading,
@@ -87,6 +90,16 @@ export function HeroFlow({
   onDone
 }: HeroFlowProps): React.JSX.Element {
   const isLast = stepIdx === 1
+  // Why: drive the pairing QR track off the encoder's natural bitmap size so the
+  // image paints 1:1 (pixelated) instead of being downscaled into a fixed box.
+  // Null keeps the CSS default track (--mp-qr-large-size) for pre-mint states.
+  const pairingLayoutStyle =
+    pairQrSize == null
+      ? undefined
+      : ({
+          '--mp-pairing-qr-image-size': `${pairQrSize}px`,
+          '--mp-pairing-qr-frame-size': `${pairQrSize + 20}px`
+        } as React.CSSProperties)
   const screenRefs = useRef<(HTMLDivElement | null)[]>([])
   const [viewportHeight, setViewportHeight] = useState<number>()
 
@@ -223,7 +236,7 @@ export function HeroFlow({
           aria-hidden={stepIdx !== 1}
           inert={stepIdx !== 1}
         >
-          <div className="mp-pairing-layout">
+          <div className="mp-pairing-layout" style={pairingLayoutStyle}>
             <div className="mp-step2-copy mp-pairing-copy">
               <div className="mp-eyebrow-row">
                 <div className="mp-step-num">2</div>

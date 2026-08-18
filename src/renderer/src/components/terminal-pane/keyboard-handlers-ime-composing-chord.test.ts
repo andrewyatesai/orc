@@ -9,6 +9,7 @@
 import { cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTerminalKeyboardShortcuts } from './keyboard-handlers'
+import { TERMINAL_IME_DEFERRED_CHORD_ABANDON_MS } from './terminal-ime-deferred-chord'
 import type { PtyTransport } from './pty-transport'
 
 type Pane = {
@@ -18,20 +19,42 @@ type Pane = {
   atermController: null
 }
 
-function createHarness(): { pane: Pane; wire: string[] } {
+/** Live compositionend registrations on the terminal element, so a deferral that never disposes
+ *  is visible. Installed after the harness's own listener so only the deferral's own is counted. */
+function trackDeferralListeners(element: HTMLElement): () => number {
+  const live = new Set<EventListenerOrEventListenerObject>()
+  const { addEventListener, removeEventListener } = element
+  element.addEventListener = function (type, listener, options): void {
+    if (type === 'compositionend' && listener) {
+      live.add(listener)
+    }
+    addEventListener.call(this, type, listener, options)
+  }
+  element.removeEventListener = function (type, listener, options): void {
+    if (type === 'compositionend' && listener) {
+      live.delete(listener)
+    }
+    removeEventListener.call(this, type, listener, options)
+  }
+  return () => live.size
+}
+
+function createHarness(): { pane: Pane; wire: string[]; deferralListenerCount: () => number } {
   // Every byte reaching the pty, in arrival order, whichever route it took.
   const wire: string[] = []
   const element = document.createElement('div')
   // aterm forwards the committed glyph synchronously from its own compositionend handler; model
   // that here so the assertion is about the merged order of the glyph and the chord.
   element.addEventListener('compositionend', () => wire.push('다'))
+  // Installed after the harness's own listener so only the deferral's own registration is counted.
+  const deferralListenerCount = trackDeferralListeners(element)
   const pane: Pane = {
     id: 1,
     leafId: 'leaf-1',
     terminal: { getSelection: () => '', focus: vi.fn(), element },
     atermController: null
   }
-  return { pane, wire }
+  return { pane, wire, deferralListenerCount }
 }
 
 function mountShortcuts(pane: Pane, wire: string[]) {
@@ -149,6 +172,54 @@ describe('a cursor chord pressed during a composition', () => {
     window.dispatchEvent(cmdArrowLeft())
 
     expect(wire).toEqual(['\x01'])
+    unmount()
+  })
+
+  // STA-4476: an indefinite wait has no exit of its own. Without an owner the listener outlives the
+  // pane and a later composition on the same element flushes the stale chord against a rebound pty.
+  it('drops the held chord and its listener when the pane tears down', () => {
+    const { pane, wire, deferralListenerCount } = createHarness()
+    const { unmount } = mountShortcuts(pane, wire)
+
+    window.dispatchEvent(cmdArrowLeft({ isComposing: true }))
+    expect(deferralListenerCount()).toBeGreaterThan(0)
+
+    unmount()
+    pane.terminal.element.dispatchEvent(new Event('compositionend'))
+    vi.runAllTimers()
+
+    // The glyph still commits, but the chord that outlived the pane must not reach the pty.
+    expect(wire).toEqual(['다'])
+    expect(deferralListenerCount()).toBe(0)
+  })
+
+  it('drops the held chord and its listener on blur', () => {
+    const { pane, wire, deferralListenerCount } = createHarness()
+    const { unmount } = mountShortcuts(pane, wire)
+
+    window.dispatchEvent(cmdArrowLeft({ isComposing: true }))
+    window.dispatchEvent(new Event('blur'))
+    pane.terminal.element.dispatchEvent(new Event('compositionend'))
+    vi.runAllTimers()
+
+    expect(wire).toEqual(['다'])
+    expect(deferralListenerCount()).toBe(0)
+    unmount()
+  })
+
+  // A composition that never commits must not strand the wait forever. The chord is discarded,
+  // never sent late — a late send is #12871 again.
+  it('abandons a chord whose composition never ends', () => {
+    const { pane, wire, deferralListenerCount } = createHarness()
+    const { unmount } = mountShortcuts(pane, wire)
+
+    window.dispatchEvent(cmdArrowLeft({ isComposing: true }))
+    vi.advanceTimersByTime(TERMINAL_IME_DEFERRED_CHORD_ABANDON_MS + 1)
+    pane.terminal.element.dispatchEvent(new Event('compositionend'))
+    vi.runAllTimers()
+
+    expect(wire).toEqual(['다'])
+    expect(deferralListenerCount()).toBe(0)
     unmount()
   })
 })

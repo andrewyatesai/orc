@@ -43,13 +43,28 @@ export type TokenizeCustomCommandResult =
   | { ok: true; tokens: string[] }
   | { ok: false; error: string }
 
+/**
+ * `'escape'` (default) is POSIX: a backslash quotes the next byte, so `foo\ bar`
+ * is one token. `'literal'` is for a command that will run on native Windows,
+ * where `\` is the path separator — eating it turns
+ * `C:\Windows\System32\powershell.exe` into `C:WindowsSystem32powershell.exe`,
+ * a path that then "cannot be found" (#11375). Opt-in rather than sniffed from
+ * `process.platform` here, because the same template can be parsed on one host
+ * and executed on another.
+ */
+export type CommandTemplateBackslash = 'escape' | 'literal'
+
 // Why: deliberately POSIX-shell-style only for *grouping* (single + double
 // quotes, backslash escapes inside double quotes). We do NOT expand `$VAR`,
 // command substitution, backticks, globs, or `~`. The user's intent is
 // "spawn this exact CLI" — adding shell semantics on top would create
 // surprising behavior across platforms (especially Windows) and a security
 // surface we don't need.
-export function tokenizeCustomCommandTemplate(template: string): TokenizeCustomCommandResult {
+export function tokenizeCustomCommandTemplate(
+  template: string,
+  backslash: CommandTemplateBackslash = 'escape'
+): TokenizeCustomCommandResult {
+  const backslashEscapes = backslash === 'escape'
   const tokens: string[] = []
   let current = ''
   let inToken = false
@@ -59,7 +74,7 @@ export function tokenizeCustomCommandTemplate(template: string): TokenizeCustomC
   while (i < template.length) {
     const ch = template[i]
     if (quote) {
-      if (ch === '\\' && quote === '"' && i + 1 < template.length) {
+      if (backslashEscapes && ch === '\\' && quote === '"' && i + 1 < template.length) {
         current += template[i + 1]
         i += 2
         continue
@@ -84,7 +99,7 @@ export function tokenizeCustomCommandTemplate(template: string): TokenizeCustomC
       continue
     }
 
-    if (ch === '\\' && i + 1 < template.length) {
+    if (backslashEscapes && ch === '\\' && i + 1 < template.length) {
       current += template[i + 1]
       inToken = true
       i += 2

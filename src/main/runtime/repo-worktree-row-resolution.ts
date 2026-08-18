@@ -1,5 +1,5 @@
 import { splitWorktreeId, splitWorktreeIdForFilesystem } from '../../shared/worktree-id'
-import { getRepoExecutionHostId } from '../../shared/execution-host'
+import { getRepoExecutionHostId, type ExecutionHostId } from '../../shared/execution-host'
 import { isFolderRepo } from '../../shared/repo-kind'
 import { projectResolvedWorktreeLineage } from '../../shared/resolved-worktree-lineage'
 import { withTimeout } from '../../shared/promise-timeout-fallback'
@@ -157,16 +157,23 @@ export async function resolveRepoWorktreeRows(
  */
 export async function resolveScopedWorktreeIdRow(
   deps: RepoWorktreeRowDeps,
-  worktreeId: string
+  worktreeId: string,
+  requiredHostId?: ExecutionHostId
 ): Promise<RepoWorktreeRow | null> {
   const { store } = deps
   const parsed = splitWorktreeIdForFilesystem(worktreeId)
   if (!parsed?.repoId || !parsed.worktreePath) {
     return null
   }
-  const owners = store.getRepos().filter((repo) => repo.id === parsed.repoId)
+  const owners = store
+    .getRepos()
+    .filter(
+      (repo) =>
+        repo.id === parsed.repoId &&
+        (requiredHostId === undefined || getRepoExecutionHostId(repo) === requiredHostId)
+    )
   // Why: one repo id can be registered on several execution hosts, and only the fleet scan decides
-  // between their rows. Hand those back to the unscoped path rather than guessing.
+  // between unqualified rows. A host qualifier narrows the same-id set without scanning other owners.
   if (owners.length !== 1) {
     return null
   }

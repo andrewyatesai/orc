@@ -196,6 +196,7 @@ type StoreState = {
   removeAgentStatus: ReturnType<typeof vi.fn>
   dropAgentStatus: ReturnType<typeof vi.fn>
   retireAgentPaneAuthority: ReturnType<typeof vi.fn>
+  restoreAgentPaneAuthority: ReturnType<typeof vi.fn>
   setPaneForegroundAgent: ReturnType<typeof vi.fn>
   clearPaneForegroundAgent: ReturnType<typeof vi.fn>
   markTerminalTabUnread: ReturnType<typeof vi.fn>
@@ -871,6 +872,7 @@ describe('connectPanePty', () => {
       removeAgentStatus: vi.fn(),
       dropAgentStatus: vi.fn(),
       retireAgentPaneAuthority: vi.fn(),
+      restoreAgentPaneAuthority: vi.fn(),
       setPaneForegroundAgent: vi.fn((paneKey: string, entry: PaneForegroundAgentEntry) => {
         mockStoreState.paneForegroundAgentByPaneKey[paneKey] = entry
       }),
@@ -4805,6 +4807,11 @@ describe('connectPanePty', () => {
     // Why: the restored shell keeps the CODEX_HOME it was spawned with, and this
     // bind is the first moment the daemon PTY can be inspected for it.
     expect(notifyCodexPaneBoundForStaleSweep).toHaveBeenCalledWith('pty-daemon-reattach')
+    // Why: binding a live PTY here lifts any retirement fence a prior detach/reattach
+    // left, so a pane re-attached mid-turn or idle is not suppressed forever (STA-4114).
+    expect(mockStoreState.restoreAgentPaneAuthority).toHaveBeenCalledWith(
+      makePaneKey('tab-1', LEAF_1)
+    )
   })
 
   it('drops xterm onData while pane is replaying restored bytes', async () => {

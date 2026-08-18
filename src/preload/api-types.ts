@@ -3371,6 +3371,8 @@ export type PreloadApi = {
     dropByTabPrefix: (tabId: string) => void
     /** Permanently retire one pane's hook authority while siblings stay live. */
     retirePaneAuthority: (paneKey: string) => void
+    /** Lift one pane's retirement fence when a live PTY re-attaches to it. Closed tabs stay retired. */
+    restorePaneAuthority: (paneKey: string) => void
     /** Move hook authority when a live pane is detached into another tab. */
     transferPaneAuthority: (args: {
       fromPaneKey: string
@@ -3391,6 +3393,8 @@ export type PreloadApi = {
       | {
           available: true
           qrDataUrl: string
+          /** Natural bitmap width and height in pixels (integer pixels-per-module). */
+          qrSize: number
           pairingUrl: string
           /** Null when no direct address was advertised — the QR pairs over Relay alone. */
           endpoint: string | null

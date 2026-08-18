@@ -5,6 +5,8 @@ import type { RuntimeTerminalProcessInspection } from '@/runtime/runtime-termina
 
 export type AgentCompletionStatusSnapshot = ParsedAgentStatusPayload & {
   stateStartedAt?: number
+  /** Renderer-local boundary used only to reject a delayed cross-host completion. */
+  localStateStartedAt?: number
   /** Raw agent hook event name (e.g. UserPromptSubmit, PreToolUse, Stop), when
    *  the hook IPC path forwards it. Absent on the OSC/title and remote-runtime
    *  paths, which carry no hook event identity. */
@@ -40,6 +42,8 @@ export type AgentCompletionStatusRepairSignal =
 
 export type AgentCompletionCoordinatorOptions = {
   paneKey: string
+  /** Which status stream feeds this coordinator; paired hook/pty lanes on one pane reconcile a background-turn stamped tail by lane. */
+  statusLane?: 'hook' | 'pty'
   getPtyId: () => string | null
   getSettings: () => Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
   inspectProcess: (
@@ -75,6 +79,7 @@ export type AgentCompletionCoordinator = {
   observeTitleWorking: () => void
   observeOutputActivity: () => void
   observeHookStatus: (payload: AgentCompletionStatusSnapshot) => void
+  seedHookStatus: (payload: AgentCompletionStatusSnapshot) => void
   startProcessTracking: () => void
   hasPendingHookDoneCompletion: () => boolean
   resetCompletionState: (options?: { requireFreshWorking?: boolean }) => void

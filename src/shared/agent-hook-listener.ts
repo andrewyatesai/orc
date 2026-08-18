@@ -77,6 +77,7 @@ import {
   resolveGrokSessionsDir
 } from './grok-session-paths'
 import { sweepStaleAgentHookEndpointTemps } from './agent-hook-endpoint-temp-cleanup'
+import { classifyTruncatedHookRequest } from './agent-hook-transport-interference'
 import { assertJsonTextStructureWithinLimits } from './json-text-structure-limit'
 
 /** Maximum request body size accepted by the listener (1 MB). */
@@ -154,8 +155,10 @@ export type ClaudeLeadTurnState = {
   waitingAgentId?: string
   /** Tool call that owns the wait; late completions from parallel sibling tools must not dismiss its card. */
   waitingToolUseId?: string
+  /** End time of the lead turn closed while background inventory kept the pane `working`. Repeated on the later all-clear `done`. */
+  turnCompletedAt?: number
   /** Lead state a child-induced wait displaced, restored when the wait clears; can't invent 'working' since the done-gate only downgrades done→working, never back. */
-  stateBeforeWait?: Pick<ClaudeLeadTurnState, 'state' | 'interrupted'>
+  stateBeforeWait?: Pick<ClaudeLeadTurnState, 'state' | 'interrupted' | 'turnCompletedAt'>
 }
 
 type CodexLeadTurnState = {
@@ -340,6 +343,8 @@ export type AgentHookEventPayload = {
   toolUseId?: string
   /** Claude agent/subagent identifier when the hook source exposes one. */
   toolAgentId?: string
+  /** Claude teammate name carried by TeammateIdle. */
+  teammateName?: string
   /** Agent/subagent type from the source hook payload, when present. */
   toolAgentType?: string
   /** Provider-owned conversation/session id needed to resume a sleeping agent. */
@@ -523,12 +528,20 @@ export function readRequestBody(req: IncomingMessage): Promise<unknown> {
         settleReject(error)
       }
     }
+    // Why (#11217): a body cut short of its own Content-Length is the fingerprint of an IDS
+    // resetting the connection mid-inspection. Classify on every path that ends the request without
+    // 'end' — a peer RST surfaces as 'error' (ECONNRESET) and only a local destroy reaches 'close' first.
+    const settleUnfinished = (fallback: Error): void => {
+      settleReject(
+        classifyTruncatedHookRequest(req.headers['content-length'], byteLength) ?? fallback
+      )
+    }
     const onError = (err: Error): void => {
-      settleReject(err)
+      settleUnfinished(err)
     }
     // Why: req.destroy() (slowloris timer) emits 'close' but not 'end'/'error'; without this the promise never settles and buffers leak.
     const onClose = (): void => {
-      settleReject(new Error('aborted'))
+      settleUnfinished(new Error('aborted'))
     }
     req.on('data', onData)
     req.on('end', onEnd)
@@ -1767,6 +1780,17 @@ function extractAmpToolFields(
   return {}
 }
 
+/**
+ * Retires any cached tool fields. PermissionRequest is the only OpenCode-family event that
+ * carries them, and isNewTurnEvent is false for this family, so nothing else ever resets the
+ * cache — without an explicit retire, resolveToolState inherits one answered permission onto
+ * every later frame in the pane and the row reads a resolved command as the live tool.
+ */
+const OPENCODE_TOOL_FIELDS_RETIRED: ToolSnapshot = {
+  hasToolUpdate: true,
+  hasToolInputField: true
+}
+
 function extractOpenCodeToolFields(
   eventName: unknown,
   hookPayload: Record<string, unknown>
@@ -1774,7 +1798,7 @@ function extractOpenCodeToolFields(
   if (eventName === 'MessagePart' && hookPayload.role === 'assistant') {
     const text = readString(hookPayload, 'text')
     if (text) {
-      return { lastAssistantMessage: capOpenCodeHookText(text) }
+      return { ...OPENCODE_TOOL_FIELDS_RETIRED, lastAssistantMessage: capOpenCodeHookText(text) }
     }
   }
   if (eventName === 'AskUserQuestion') {
@@ -1783,11 +1807,43 @@ function extractOpenCodeToolFields(
       ? hookPayload.tool_input
       : stripHookEnvelopeKeys(hookPayload)
     return {
-      hasToolUpdate: true,
+      ...OPENCODE_TOOL_FIELDS_RETIRED,
       interactivePrompt: deriveInteractivePrompt('AskUserQuestion', toolInputSource)
     }
   }
-  return {}
+  if (eventName === 'PermissionRequest') {
+    // Why: the payload is permission.asked's event.properties — `permission` names what is
+    // being requested and `metadata`/`patterns` say which command or path it covers. Without
+    // them the row is a bare 'waiting' that cannot tell the user what to approve.
+    // The SDK types `metadata` as Record<string, unknown>, so these keys come from the tools
+    // themselves: bash sends `command`, edit sends `filepath`, webfetch sends `url` (verified
+    // against opencode 1.18.18). `file_path`/`path` cover tools that spell it the common way.
+    // `diff` is deliberately absent — edit ships the whole patch and it would swamp the row.
+    const metadata = hookPayload.metadata
+    const metadataInput =
+      metadata !== null && typeof metadata === 'object' && !Array.isArray(metadata)
+        ? readFirstString(metadata as Record<string, unknown>, [
+            'command',
+            'filepath',
+            'file_path',
+            'path',
+            'url'
+          ])
+        : undefined
+    const patterns = Array.isArray(hookPayload.patterns)
+      ? hookPayload.patterns.filter(
+          (pattern): pattern is string => typeof pattern === 'string' && pattern.length > 0
+        )
+      : []
+    return toolUpdate(
+      {
+        toolName: readString(hookPayload, 'permission'),
+        toolInput: metadataInput ?? (patterns.length > 0 ? patterns.join(', ') : undefined)
+      },
+      { hasToolInputField: hasAnyOwnField(hookPayload, ['metadata', 'patterns']) }
+    )
+  }
+  return OPENCODE_TOOL_FIELDS_RETIRED
 }
 
 function extractCursorToolFields(
@@ -2685,15 +2741,23 @@ function clearClaudePendingWaitForAgent(
     return
   }
   state.claudeLeadStateByPaneKey.set(paneKey, lead.stateBeforeWait ?? { state: 'working' })
+  // Why: the child's own tool card dies with its wait, but its completion text is lead context that must outlive it.
+  const previousTool = state.lastToolByPaneKey.get(paneKey)
+  state.lastToolByPaneKey.set(
+    paneKey,
+    previousTool?.lastAssistantMessage
+      ? { lastAssistantMessage: previousTool.lastAssistantMessage }
+      : {}
+  )
 }
 
 /** Clear an AskUserQuestion wait after the answer is typed (answering emits no hook event; the caller infers it from the submit keystroke). Restores the stashed pre-wait lead state or 'working', drops the cached card, and returns the pane state to emit (gated up to 'working' while children run). */
 export function clearClaudeAnsweredQuestionWait(
   state: HookListenerState,
   paneKey: string
-): Pick<ClaudeLeadTurnState, 'state' | 'interrupted'> {
+): Pick<ClaudeLeadTurnState, 'state' | 'interrupted' | 'turnCompletedAt'> {
   const lead = state.claudeLeadStateByPaneKey.get(paneKey)
-  const restored =
+  const restored: Pick<ClaudeLeadTurnState, 'state' | 'interrupted' | 'turnCompletedAt'> =
     lead?.state === 'waiting'
       ? (lead.stateBeforeWait ?? { state: 'working' as const })
       : { state: 'working' as const }
@@ -2707,7 +2771,14 @@ export function clearClaudeAnsweredQuestionWait(
   )
   const roster = state.claudeSubagentRosterByPaneKey.get(paneKey)
   return restored.state === 'done' && claudeRosterHasWorkingSubagent(roster)
-    ? { state: 'working' }
+    ? {
+        state: 'working',
+        // Why: the lead already finished; keep its end time so the later background drain still pairs with the announcement.
+        ...(restored.interrupted ? { interrupted: true as const } : {}),
+        ...(restored.turnCompletedAt !== undefined
+          ? { turnCompletedAt: restored.turnCompletedAt }
+          : {})
+      }
     : restored
 }
 
@@ -2742,7 +2813,9 @@ function buildClaudeCachedLeadStatusPayload(
     stateName:
       leadState === 'done' && claudeRosterHasWorkingSubagent(roster) ? 'working' : leadState,
     updateToolSnapshot: false,
-    interrupted: lead?.interrupted
+    interrupted: lead?.interrupted,
+    // Why: draining the last background child is this turn's all-clear; the stamp lets a consumer pair it with the announcement already sent.
+    turnCompletedAt: lead?.turnCompletedAt
   })
 }
 
@@ -2852,7 +2925,8 @@ function normalizeClaudeEvent(
     }
     // Why: approval granted — update the tool snapshot (drop the pending card) as the lead's own next tool event would.
     // Restore the stashed lead state, not this child's 'working': the lead may already be done, and the done-gate never upgrades working back to done once the roster drains.
-    const restored = lead.stateBeforeWait ?? { state: 'working' as const }
+    const restored: Pick<ClaudeLeadTurnState, 'state' | 'interrupted' | 'turnCompletedAt'> =
+      lead.stateBeforeWait ?? { state: 'working' as const }
     state.claudeLeadStateByPaneKey.set(paneKey, restored)
     const roster = state.claudeSubagentRosterByPaneKey.get(paneKey)
     return buildClaudeStatusPayload(state, eventName, promptText, paneKey, hookPayload, {
@@ -2861,7 +2935,8 @@ function normalizeClaudeEvent(
           ? 'working'
           : restored.state,
       updateToolSnapshot: true,
-      interrupted: restored.interrupted
+      interrupted: restored.interrupted,
+      turnCompletedAt: restored.turnCompletedAt
     })
   }
 
@@ -2900,23 +2975,39 @@ function normalizeClaudeEvent(
         ? previousLead.stateBeforeWait
         : {
             state: previousLead.state,
-            ...(previousLead.interrupted ? { interrupted: true as const } : {})
+            ...(previousLead.interrupted ? { interrupted: true as const } : {}),
+            // Why: a child's permission pause displaces an already-finished lead; keep the end time so the later drain is still that turn's tail.
+            ...(previousLead.turnCompletedAt !== undefined
+              ? { turnCompletedAt: previousLead.turnCompletedAt }
+              : {})
           }
       : undefined
   // Why: carry the wait's owning tool_use_id forward — a PermissionRequest form of the same AskUserQuestion arrives without one, so inherit the prior owner so parallel-sibling completions stay identifiable.
   const waitingToolUseId = eventToolUseId ?? previousLead?.waitingToolUseId
-  state.claudeLeadStateByPaneKey.set(paneKey, {
-    state: stateName,
-    ...(interrupted ? { interrupted } : {}),
-    ...(isWaitingInducing && eventAgentId ? { waitingAgentId: eventAgentId } : {}),
-    ...(isAskUserQuestionWait && waitingToolUseId !== undefined ? { waitingToolUseId } : {}),
-    ...(stateBeforeWait ? { stateBeforeWait } : {})
-  })
 
   // Why: a lead Stop isn't "done" while subagents/teammates run (would show a finished row mid-flight); Claude re-wakes the lead, so a later empty-roster Stop resolves to done.
   const roster = state.claudeSubagentRosterByPaneKey.get(paneKey)
   const effectiveState =
     stateName === 'done' && claudeRosterHasWorkingSubagent(roster) ? 'working' : stateName
+  // Why: the lead already ended — the pane stays `working` only because background inventory is still registered. `stateStartedAt` is pinned for that whole run, so this end time is the per-turn identity and the later all-clear's pair key.
+  const turnCompletedAt =
+    eventAgentId === undefined &&
+    (eventName === 'Stop' || eventName === 'StopFailure') &&
+    stateName === 'done' &&
+    effectiveState === 'working' &&
+    interrupted !== true
+      ? Date.now()
+      : undefined
+
+  state.claudeLeadStateByPaneKey.set(paneKey, {
+    state: stateName,
+    ...(interrupted ? { interrupted } : {}),
+    ...(isWaitingInducing && eventAgentId ? { waitingAgentId: eventAgentId } : {}),
+    ...(isAskUserQuestionWait && waitingToolUseId !== undefined ? { waitingToolUseId } : {}),
+    ...(stateBeforeWait ? { stateBeforeWait } : {}),
+    ...(turnCompletedAt !== undefined ? { turnCompletedAt } : {})
+  })
+
   if (
     (eventName === 'Stop' || eventName === 'StopFailure') &&
     eventAgentId === undefined &&
@@ -2931,7 +3022,8 @@ function normalizeClaudeEvent(
   return buildClaudeStatusPayload(state, eventName, promptText, paneKey, hookPayload, {
     stateName: effectiveState,
     updateToolSnapshot: true,
-    interrupted
+    interrupted,
+    turnCompletedAt
   })
 }
 
@@ -2941,7 +3033,12 @@ function buildClaudeStatusPayload(
   promptText: string,
   paneKey: string,
   hookPayload: Record<string, unknown>,
-  options: { stateName: AgentStatusState; updateToolSnapshot: boolean; interrupted?: boolean }
+  options: {
+    stateName: AgentStatusState
+    updateToolSnapshot: boolean
+    interrupted?: boolean
+    turnCompletedAt?: number
+  }
 ): ParsedAgentStatusPayload | null {
   // Why: child-driven refreshes are roster bookkeeping, not lead tool activity; read the cached snapshot without merging so they can't clear a live AskUserQuestion card or clobber the tool preview.
   const snapshot = options.updateToolSnapshot
@@ -2964,6 +3061,7 @@ function buildClaudeStatusPayload(
     interactivePrompt: snapshot.interactivePrompt,
     lastAssistantMessage: snapshot.lastAssistantMessage,
     interrupted: options.interrupted,
+    turnCompletedAt: options.turnCompletedAt,
     subagents: claudeRosterToSnapshots(state.claudeSubagentRosterByPaneKey.get(paneKey))
   })
 }
@@ -4373,6 +4471,10 @@ export function normalizeHookPayload(
         compactTrigger,
         toolUseId: readFirstString(hookPayloadRecord, ['tool_use_id', 'toolUseId']),
         toolAgentId: readFirstString(hookPayloadRecord, ['agent_id', 'agentId']),
+        teammateName:
+          source === 'claude' && eventName === 'TeammateIdle'
+            ? readString(hookPayloadRecord, 'teammate_name')
+            : undefined,
         toolAgentType: readString(hookPayloadRecord, 'agent_type'),
         ...(providerSession ? { providerSession } : {}),
         ...(providerSessionOnly ? { providerSessionOnly: true } : {}),

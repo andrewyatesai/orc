@@ -151,4 +151,14 @@ describe('HeroFlow height', () => {
     renderFlow(1, { pairQrDataUrl: 'data:image/png;base64,qr' })
     expect(screen.queryByTestId('relay-degraded-notice')).not.toBeInTheDocument()
   })
+
+  it('drives the pairing QR track off the encoder-reported natural bitmap size', () => {
+    renderFlow(1, { pairQrDataUrl: 'data:image/png;base64,qr', pairQrSize: 218 })
+
+    const image = screen.getByRole('img', { name: 'Pairing QR' })
+    const layout = image.closest('.mp-pairing-layout') as HTMLElement
+    // image = 218px natural bitmap; frame = image + 20px (10px padding each side).
+    expect(layout.style.getPropertyValue('--mp-pairing-qr-image-size')).toBe('218px')
+    expect(layout.style.getPropertyValue('--mp-pairing-qr-frame-size')).toBe('238px')
+  })
 })

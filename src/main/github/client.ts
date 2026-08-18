@@ -68,7 +68,10 @@ import {
   isCommitPartOfMergedPR,
   type MergedPRCommitMembership
 } from './merged-pr-commit-membership'
-import { getSshGitProvider } from '../providers/ssh-git-dispatch'
+import {
+  getSshGitProvider,
+  SSH_GIT_PROVIDER_UNAVAILABLE_MESSAGE
+} from '../providers/ssh-git-dispatch'
 import { resolveDefaultBaseRefViaExec } from '../git/repo'
 import {
   defaultBaseRefToBranchName,
@@ -2313,14 +2316,24 @@ async function getCurrentHeadOid(
   connectionId?: string | null,
   localGitOptions: { wslDistro?: string } = {}
 ): Promise<string | null> {
+  // Why (#14945): with connectionId set but the SSH provider unregistered, a
+  // client-side rev-parse would run against the remote repoPath — on a machine
+  // with a same-named local path that silently answers for the wrong repo, and
+  // this OID feeds shouldHideMergedImplicitPR. Fail closed instead: propagate so
+  // the caller treats it as indeterminate, matching repo-default-branch.ts.
+  const provider = connectionId ? getSshGitProvider(connectionId) : null
+  if (connectionId && !provider) {
+    throw new Error(SSH_GIT_PROVIDER_UNAVAILABLE_MESSAGE)
+  }
+  if (provider) {
+    const result = await provider.exec(['rev-parse', 'HEAD'], repoPath)
+    return result.stdout.trim() || null
+  }
   try {
-    const provider = connectionId ? getSshGitProvider(connectionId) : null
-    const result = provider
-      ? await provider.exec(['rev-parse', 'HEAD'], repoPath)
-      : await gitExecFileAsync(['rev-parse', 'HEAD'], {
-          cwd: repoPath,
-          ...(localGitOptions.wslDistro ? { wslDistro: localGitOptions.wslDistro } : {})
-        })
+    const result = await gitExecFileAsync(['rev-parse', 'HEAD'], {
+      cwd: repoPath,
+      ...(localGitOptions.wslDistro ? { wslDistro: localGitOptions.wslDistro } : {})
+    })
     return result.stdout.trim() || null
   } catch {
     return null
@@ -2336,6 +2349,12 @@ async function getRepoDefaultBranchName(
 ): Promise<string | null> {
   try {
     const provider = connectionId ? getSshGitProvider(connectionId) : null
+    // Why (#14945): a dropped SSH provider must not fall back to local git — the
+    // repoPath is remote, so a local run could answer for the wrong repo's
+    // default branch. Take the unknown (null) path, matching repo-default-branch.ts.
+    if (connectionId && !provider) {
+      return null
+    }
     const baseRef = await resolveDefaultBaseRefViaExec((argv) =>
       provider
         ? provider.exec(argv, repoPath)
@@ -2817,14 +2836,26 @@ async function probeTrackedUpstreamBranches(
   upstreamsByBranchName: Map<string, TrackedUpstreamBranch | null>
 }> {
   const args = ['for-each-ref', '--format=%(refname)%00%(upstream)', 'refs/heads']
+  // Why (#14945): fail closed when connectionId is set but the SSH provider is
+  // gone — a local for-each-ref against the remote repoPath answers for the
+  // wrong repository. Propagate so the probe stays unverifiable rather than
+  // degrading into a caching soft-failure (probeFailed) that hides the drop.
+  const provider = connectionId ? getSshGitProvider(connectionId) : null
+  if (connectionId && !provider) {
+    throw new Error(SSH_GIT_PROVIDER_UNAVAILABLE_MESSAGE)
+  }
+  if (provider) {
+    const result = await provider.exec(args, repoPath)
+    return {
+      probeFailed: false,
+      upstreamsByBranchName: parseTrackedUpstreamBranches(result.stdout)
+    }
+  }
   try {
-    const provider = connectionId ? getSshGitProvider(connectionId) : null
-    const result = provider
-      ? await provider.exec(args, repoPath)
-      : await gitExecFileAsync(args, {
-          cwd: repoPath,
-          ...(localGitOptions.wslDistro ? { wslDistro: localGitOptions.wslDistro } : {})
-        })
+    const result = await gitExecFileAsync(args, {
+      cwd: repoPath,
+      ...(localGitOptions.wslDistro ? { wslDistro: localGitOptions.wslDistro } : {})
+    })
     return {
       probeFailed: false,
       upstreamsByBranchName: parseTrackedUpstreamBranches(result.stdout)

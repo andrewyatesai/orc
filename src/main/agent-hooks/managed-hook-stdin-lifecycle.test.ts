@@ -69,6 +69,7 @@ vi.mock('os', async (importOriginal) => {
 
 import { AntigravityHookService } from '../antigravity/hook-service'
 import { ClaudeHookService } from '../claude/hook-service'
+import { getRemoteManagedCommand } from '../claude/hook-settings'
 import { CodexHookService } from '../codex/hook-service'
 import { CommandCodeHookService } from '../command-code/hook-service'
 import { CopilotHookService } from '../copilot/hook-service'
@@ -406,6 +407,18 @@ describe('Windows managed hook stdin structure', () => {
 })
 
 describe.skipIf(process.platform === 'win32')('managed hook stdin lifecycle', () => {
+  // Why: cursor-agent parses the registered command's stdout as a permission gate and
+  // blocks the tool call on empty output, so the production remote command must emit {}
+  // even when the managed lifecycle script is absent (#14818).
+  it('emits neutral JSON when the Claude lifecycle script is missing', async () => {
+    const command = getRemoteManagedCommand('/home/dev/.orca/agent-hooks/claude-hook.sh')
+    const result = await runPosixHook(command)
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdinErrors).toHaveLength(0)
+    expect(JSON.parse(result.stdout.trim())).toEqual({})
+  })
+
   it('captures stdin before every possible whole-script success exit', async () => {
     const scripts = await generatePosixScripts()
     for (const [agent, script] of scripts) {

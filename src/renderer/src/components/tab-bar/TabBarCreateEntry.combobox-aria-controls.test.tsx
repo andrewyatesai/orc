@@ -13,7 +13,11 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 // aria-controls rather than its translated aria-label. Pin that structural
 // contract here so a rename breaks this unit test alongside the e2e string.
 const searchMock = vi.hoisted(() => ({
-  snapshot: { query: '', results: [] as OpenTabSearchResult[] } as OpenTabSearchSnapshot
+  snapshot: {
+    query: '',
+    results: [] as OpenTabSearchResult[],
+    entries: null
+  } as OpenTabSearchSnapshot
 }))
 const entryOptionsMock = vi.hoisted(() => ({ options: [] as TabEntryOption[] }))
 
@@ -69,7 +73,7 @@ function setQuery(value: string): void {
 }
 
 beforeEach(() => {
-  searchMock.snapshot = { query: '', results: [] }
+  searchMock.snapshot = { query: '', results: [], entries: null }
   entryOptionsMock.options = []
   container = document.createElement('div')
   document.body.appendChild(container)

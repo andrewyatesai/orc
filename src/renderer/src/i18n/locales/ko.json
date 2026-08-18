@@ -579,13 +579,15 @@
           "missing": "폴더를 찾을 수 없습니다",
           "notDirectory": "경로가 폴더가 아닙니다",
           "ambiguousConnection": "연결을 확인할 수 없습니다",
-          "unavailable": "폴더를 확인할 수 없습니다"
+          "unavailable": "폴더를 확인할 수 없습니다",
+          "unrecognized": "폴더를 사용할 수 없습니다"
         },
         "description": {
           "missing": "Orca가 {{path}}을(를) 찾을 수 없습니다. 이 폴더 워크스페이스를 제거하고 다시 가져오세요.",
           "notDirectory": "{{path}}이(가) 존재하지만 폴더가 아닙니다.",
           "ambiguousConnection": "Orca가 이 폴더 범위를 소유한 SSH 연결을 확인할 수 없습니다.",
-          "unavailable": "Orca가 지금 이 폴더를 확인할 수 없습니다. 런타임 또는 SSH 연결을 확인한 후 다시 시도하세요."
+          "unavailable": "Orca가 지금 이 폴더를 확인할 수 없습니다. 런타임 또는 SSH 연결을 확인한 후 다시 시도하세요.",
+          "unrecognized": "Orca가 {{path}}을(를) 사용할 수 없으며 이 버전에서는 이유를 인식하지 못합니다. 자세한 내용을 보려면 Orca를 업데이트하세요."
         },
         "createError": {
           "title": {
@@ -668,7 +670,8 @@
             "toast": {
               "restartFallbackUnavailableNone": "None of the {{value0}} cookies could be loaded, and the restart fallback was unavailable. The previous cookies for this profile were replaced. Try the import again.",
               "restartFallbackUnavailablePartial": "Imported {{value0}} of {{value1}} cookies. The rest could not be loaded, and the restart fallback was unavailable. Try the import again.",
-              "googleCookiesSkipped": "Google 쿠키를 가져오지 않았습니다. {{value0}}에서 이 프로필로 Orca 브라우저를 연 다음 Google에 로그인하세요."
+              "googleCookiesSkipped": "Google 쿠키를 가져오지 않았습니다. {{value0}}에서 이 프로필로 Orca 브라우저를 연 다음 Google에 로그인하세요.",
+              "unrecognizedWarning": "쿠키 가져오기가 이 버전의 Orca가 인식하지 못하는 경고와 함께 완료되었습니다. 자세한 내용을 보려면 Orca를 업데이트한 다음 쿠키를 사용하기 전에 이 프로필을 확인하세요."
             }
           }
         }
@@ -14085,6 +14088,13 @@
           "e81a02d61b": "저장하기 전에 유효한 5개 필드 크론을 입력하세요.",
           "968e66d686": "5개 필드 크론을 입력하세요.",
           "cadb7b0bc9": "유효하지 않은"
+        },
+        "AutomationAgentFilterMenu": {
+          "agent": "에이전트",
+          "all": "전체",
+          "926e785e4d": "agents 검색...",
+          "491043ee45": "검색어와 일치하는 agents가 없습니다.",
+          "clear": "필터 지우기"
         },
         "AutomationDetail": {
           "007c8ad874": "프롬프트",
