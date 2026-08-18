@@ -162,7 +162,7 @@ export default function WorkspaceKanbanDrawer({
   const areaSelectionOverlayRef = useRef<HTMLDivElement>(null)
   const [dragOverStatus, setDragOverStatus] = useState<WorkspaceStatus | null>(null)
   const [pinDragOver, setPinDragOver] = useState(false)
-  const { canCreateWorktree, createWorktreeForStatus } = useWorkspaceKanbanCreateWorktree()
+  const { createWorktreeForStatus } = useWorkspaceKanbanCreateWorktree()
   const visibleWorktreeIdSet = useVisibleWorkspaceKanbanWorktreeIds({
     allWorktrees,
     repoMap
@@ -870,7 +870,6 @@ export default function WorkspaceKanbanDrawer({
               columnWidth={columnWidth}
               isResizingColumn={isResizingColumn}
               dragOverStatus={dragOverStatus}
-              canCreateWorktree={canCreateWorktree}
               selectedWorktreeIds={selectedWorktreeIds}
               selectedWorktrees={renderedSelectedWorktrees}
               onDragOver={handleDragOver}

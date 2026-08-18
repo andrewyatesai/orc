@@ -11783,6 +11783,9 @@
             "preview": "预览版",
             "stable": "稳定版"
           },
+          "androidHelp": {
+            "guide": "安装指南"
+          },
           "relayDegradedNotice": "无法连接 Relay — 此二维码仅在局域网或 Tailscale 内可用。"
         },
         "MobilePage": {

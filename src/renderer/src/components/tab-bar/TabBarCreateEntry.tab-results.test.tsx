@@ -58,7 +58,8 @@ const tabResult: OpenTabSearchResult = {
   tabId: 'tab-1',
   entityId: 'term-1',
   groupId: 'g',
-  relativePath: null
+  relativePath: null,
+  occupantAgent: null
 }
 
 const worktree: Worktree = {
@@ -108,6 +109,7 @@ function workspaceEntriesForTab1(title: string): OpenTabSearchEntries {
     titleSearchText: title,
     secondarySearchTexts: [],
     agentMetadata: [],
+    occupantAgent: null,
     isCurrentTab: false,
     isCurrentWorktree: true
   }

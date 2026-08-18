@@ -3,11 +3,7 @@ import type { RmOptions } from 'node:fs'
 import { lstat, readFile, rm } from 'node:fs/promises'
 import { win32 } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import {
-  buildWslLoginShellCommand,
-  escapeWslShCommandForWindows,
-  quotePosixShell
-} from '../shared/wsl-login-shell-command'
+import { buildWslExecArgs, quotePosixShell } from '../shared/wsl-login-shell-command'
 import { toLinuxPath } from './wsl'
 import type { ReadPath, StatPath } from './worktree-orphan-gitdir-proof'
 
@@ -58,19 +54,21 @@ function execFileText(
   })
 }
 
-function runWslLoginShellCommand(distro: string, command: string): Promise<ExecFileTextResult> {
-  return execFileText(
-    'wsl.exe',
-    [
-      '-d',
-      distro,
-      '--',
-      'sh',
-      '-lc',
-      escapeWslShCommandForWindows(buildWslLoginShellCommand(command))
-    ],
-    { timeout: WSL_FILE_OPERATION_TIMEOUT_MS }
-  )
+/**
+ * Run a filesystem command inside the distro.
+ *
+ * Why no login shell: statPath/readPath/rm are coreutils at standard paths plus
+ * shell builtins and need nothing from the user's PATH. A login shell would only
+ * add its rc/motd to the stdout these callers parse -- stock Ubuntu's sudo hint
+ * makes statPath see no valid type and prepends the banner to every read -- so
+ * the fix is to not start one rather than to fence what it prints. `--exec`
+ * passes argv verbatim, so the stat probe's `$target` reaches the shell intact
+ * without any Windows-side escaping.
+ */
+function runWslCommand(distro: string, command: string): Promise<ExecFileTextResult> {
+  return execFileText('wsl.exe', buildWslExecArgs(distro, ['sh', '-c', command]), {
+    timeout: WSL_FILE_OPERATION_TIMEOUT_MS
+  })
 }
 
 function isWslMissingPathError(error: unknown): boolean {
@@ -104,7 +102,7 @@ export function getLocalWorktreePathAccess(
   return {
     statPath: async (path) => {
       const target = quotePosixShell(toLinuxPath(path))
-      const { stdout } = await runWslLoginShellCommand(
+      const { stdout } = await runWslCommand(
         distro,
         [
           `target=${target}`,
@@ -120,7 +118,7 @@ export function getLocalWorktreePathAccess(
     },
     readPath: async (path) => {
       const target = quotePosixShell(toLinuxPath(path))
-      const { stdout } = await runWslLoginShellCommand(distro, `cat -- ${target}`)
+      const { stdout } = await runWslCommand(distro, `cat -- ${target}`)
       return stdout
     }
   }
@@ -138,7 +136,7 @@ export async function removeLocalWorktreePath(
 
   // Why: WSL-owned worktree directories may be POSIX paths that Node on
   // Windows cannot delete safely. Run the deletion inside the selected distro.
-  await runWslLoginShellCommand(distro, `rm -rf -- ${quotePosixShell(toLinuxPath(targetPath))}`)
+  await runWslCommand(distro, `rm -rf -- ${quotePosixShell(toLinuxPath(targetPath))}`)
 }
 
 async function removeHostWorktreePath(targetPath: string): Promise<void> {

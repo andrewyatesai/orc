@@ -2,10 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import {
-  buildWslInteractiveLoginShellCommand,
-  escapeWslShCommandForWindows
-} from '../../shared/wsl-login-shell-command'
+import { buildWslInteractiveLoginShellCommand } from '../../shared/wsl-login-shell-command'
 import { resolveSetupRunnerCommand } from '../../shared/setup-runner-command'
 import { resolveWindowsShellLaunchArgs } from './windows-shell-args'
 import {
@@ -16,7 +13,10 @@ import { buildNuSourceCommand } from '../../shared/nushell-shell'
 
 function expectedWslArgs(linuxCwd: string, distro?: string): string[] {
   const command = `cd '${linuxCwd}' && export PATH="$HOME/.local/bin:$PATH" && ${buildWslInteractiveLoginShellCommand()}`
-  const shellArgs = ['--', 'sh', '-c', escapeWslShCommandForWindows(command)]
+  // Why spelled out rather than calling buildWslExecArgs: deriving the
+  // expectation from the helper under test would still pass if it regressed
+  // to the `--` separator.
+  const shellArgs = ['--exec', 'sh', '-c', command]
   return distro ? ['-d', distro, ...shellArgs] : shellArgs
 }
 
@@ -325,7 +325,7 @@ describe('resolveWindowsShellLaunchArgs', () => {
     // The injected sh cmd must not break out of the surrounding single quotes
     // when the path contains a ' character.
     expect(result.shellArgs[3]).toContain("cd '/mnt/c/weird'\\''path'")
-    expect(result.shellArgs[3]).toContain('exec "\\$_orca_wsl_shell" -l')
+    expect(result.shellArgs[3]).toContain('exec "$_orca_wsl_shell" -l')
   })
 
   it('falls back to /mnt/c when cwd is not a drive-letter path', () => {
@@ -334,9 +334,7 @@ describe('resolveWindowsShellLaunchArgs', () => {
       '\\\\server\\share',
       'C:\\userhome\\alice'
     )
-    expect(result.shellArgs[3]).toContain(
-      'cd \'/mnt/c\' && export PATH="\\$HOME/.local/bin:\\$PATH"'
-    )
+    expect(result.shellArgs[3]).toContain('cd \'/mnt/c\' && export PATH="$HOME/.local/bin:$PATH"')
   })
 
   it('keeps WSL UNC worktree cwd inside the matching distro', () => {

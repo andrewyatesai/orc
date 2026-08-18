@@ -40,6 +40,9 @@ export type RpcClientContextValue = {
   // Why: the path a scheduled Relay recovery is dialing (null when connected or
   // when no relay recovery is in flight); drives the "Connecting via Relay…" verdict.
   getPendingPath: (hostId: string) => MobileConnectionPath | null
+  // Why: the desktop has repeatedly refused this device's relay credential; drives
+  // the "re-pair with your desktop" verdict that outranks a pending Relay recovery.
+  isPairingRejected: (hostId: string) => boolean
   subscribeHostState: (hostId: string, listener: (state: ConnectionState) => void) => () => void
   getAllClients: () => Array<{ hostId: string; client: RpcClient }>
   subscribeAllHosts: (listener: () => void) => () => void
@@ -254,6 +257,10 @@ export function RpcClientProvider({ children }: { children: ReactNode }) {
     return clientPendingPath(storeRef.current.get(hostId)?.client)
   }, [])
 
+  const isPairingRejected = useCallback((hostId: string): boolean => {
+    return clientPairingRejected(storeRef.current.get(hostId)?.client)
+  }, [])
+
   const subscribeHostState = useCallback(
     (hostId: string, listener: (state: ConnectionState) => void) => {
       let set = stateListenersRef.current.get(hostId)
@@ -323,6 +330,7 @@ export function RpcClientProvider({ children }: { children: ReactNode }) {
       getLastConnectedAt,
       getActivePath,
       getPendingPath,
+      isPairingRejected,
       subscribeHostState,
       getAllClients,
       subscribeAllHosts,
@@ -338,6 +346,7 @@ export function RpcClientProvider({ children }: { children: ReactNode }) {
       getLastConnectedAt,
       getActivePath,
       getPendingPath,
+      isPairingRejected,
       subscribeHostState,
       getAllClients,
       subscribeAllHosts,
@@ -443,4 +452,9 @@ function clientActivePath(client: RpcClient | undefined): MobileConnectionPath {
 function clientPendingPath(client: RpcClient | undefined): MobileConnectionPath | null {
   const logical = client as Partial<StableLogicalRpcClient> | undefined
   return logical?.getPendingPath?.() ?? null
+}
+
+function clientPairingRejected(client: RpcClient | undefined): boolean {
+  const logical = client as Partial<StableLogicalRpcClient> | undefined
+  return logical?.isPairingRejected?.() ?? false
 }

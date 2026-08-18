@@ -11787,6 +11787,9 @@
             "preview": "Preview",
             "stable": "Stable"
           },
+          "androidHelp": {
+            "guide": "Install guide"
+          },
           "relayDegradedNotice": "Relay couldn’t be reached — this code only works on your LAN or Tailscale."
         },
         "MobilePage": {

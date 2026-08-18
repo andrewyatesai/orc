@@ -58,7 +58,7 @@ import {
 import { useHostClient, useForceReconnect } from '../../../../src/transport/client-context'
 import {
   useLastConnectedAt,
-  usePendingConnectionPath,
+  useRelayRecoveryStatus,
   useReconnectAttempt
 } from '../../../../src/transport/client-context-connection-metrics'
 import {
@@ -721,7 +721,7 @@ export default function SessionScreen() {
   const { client, state: connState } = useHostClient(hostId)
   const reconnectAttempts = useReconnectAttempt(hostId)
   const lastConnectedAt = useLastConnectedAt(hostId)
-  const pendingConnectionPath = usePendingConnectionPath(hostId)
+  const relayRecovery = useRelayRecoveryStatus(hostId)
   const forceReconnectHost = useForceReconnect()
   // Why: also bounces the route to the host index if the host proves this worktree is gone.
   const worktreeName = useSessionWorktreeName({
@@ -4064,7 +4064,13 @@ export default function SessionScreen() {
         // the render-synced ref sees that switch while this closure would not,
         // so comparing against the ref keeps the anchor from being nulled out.
         // Closing the final tab clears active identity even when the anchor moved.
-        if (shouldResetActiveIdentityAfterClose(activeSessionTabIdRef.current, tab.id, remainingTabs.length)) {
+        if (
+          shouldResetActiveIdentityAfterClose(
+            activeSessionTabIdRef.current,
+            tab.id,
+            remainingTabs.length
+          )
+        ) {
           activeSessionTabTypeRef.current = null
           activeSessionTabIdRef.current = null
           setActiveSessionTabId(null)
@@ -4179,7 +4185,7 @@ export default function SessionScreen() {
     reconnectAttempts,
     lastConnectedAt,
     endpoint: hostEndpoint,
-    pendingPath: pendingConnectionPath
+    ...relayRecovery
   })
   const showConnectionRetry =
     connectionVerdict.kind === 'warning' || connectionVerdict.kind === 'unreachable'

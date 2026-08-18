@@ -12,6 +12,7 @@ import {
   writeFileSync
 } from 'node:fs'
 import path from 'node:path'
+import { DEV_BUNDLE_ID, getDevBundlePlistPatches } from './dev-electron-bundle-identity.mjs'
 
 function readGitValue(repoRoot, args) {
   try {
@@ -132,10 +133,11 @@ export function prepareMacDevElectronApp(
 
   const title = env.ORCA_DEV_DOCK_TITLE || DEFAULT_DEV_DOCK_TITLE
   const identityKey = env.ORCA_DEV_INSTANCE_KEY || repoRoot
-  // v6: bundle the notification-status helper (real permission readout) and
-  // ad-hoc re-sign after plist edits so Notification Center accepts the
-  // bundle; bumping forces stale cached copies to be recreated.
-  const bundleLayoutVersion = 'dock-title-app-preserve-framework-symlinks-v6'
+  // v7: stop patching the branch title into Info.plist so every dev bundle signs to one cdhash
+  // (macOS Keychain ACLs match on it — the branch title moved to the .app dir name). Earlier: v6
+  // bundled the notification-status helper and ad-hoc re-signed. Bumping forces stale copies to be
+  // recreated; the marker also carries the patch values, so a changed patch alone triggers a rebuild.
+  const bundleLayoutVersion = 'stable-cdhash-dock-name-from-bundle-dir-v7'
   const hash = createHash('sha1')
     .update(
       `${sourceAppPath}\0${electronVersion ?? ''}\0${title}\0${identityKey}\0${bundleLayoutVersion}`
@@ -143,17 +145,28 @@ export function prepareMacDevElectronApp(
     .digest('hex')
     .slice(0, 12)
   const distDir = path.join(repoRoot, 'out', 'electron-dev', hash)
-  // Why: macOS uses the bundle's filesystem display name for direct launches
-  // from electron-vite and the CLI, even when Info.plist is patched.
+  // Why: macOS uses the bundle's filesystem display name for direct launches from electron-vite and
+  // the CLI. This is what carries the per-branch name now that Info.plist no longer does, and it sits
+  // outside the code signature, so varying it does not disturb the cdhash.
   const appBundleName = `${sanitizeMacAppBundleName(title)}.app`
   const appPath = path.join(distDir, appBundleName)
   const markerPath = path.join(distDir, 'orca-dev-electron-app.json')
   // Why: one stable id for every dev instance. Per-instance ids registered a
   // new macOS Notification Settings entry for each branch x Electron version.
-  const bundleId = 'com.stablyai.orca.dev'
+  const bundleId = DEV_BUNDLE_ID
   env.ORCA_DEV_MACOS_BUNDLE_ID = bundleId
+  // Why the patches are in the marker: bundleLayoutVersion alone does not cover them, so a cache
+  // built before a patch value changed would be reused and keep presenting the old identity.
   const expectedMarker = JSON.stringify(
-    { title, appBundleName, bundleId, sourceAppPath, electronVersion, bundleLayoutVersion },
+    {
+      title,
+      appBundleName,
+      bundleId,
+      sourceAppPath,
+      electronVersion,
+      bundleLayoutVersion,
+      plistPatches: getDevBundlePlistPatches()
+    },
     null,
     2
   )
@@ -201,9 +214,14 @@ export function prepareMacDevElectronApp(
   restoreElectronFrameworkSymlinks(appPath)
 
   const plistPath = path.join(appPath, 'Contents', 'Info.plist')
-  setPlistValue(plistPath, 'CFBundleName', title, execFile)
-  setPlistValue(plistPath, 'CFBundleDisplayName', title, execFile)
-  setPlistValue(plistPath, 'CFBundleIdentifier', bundleId, execFile)
+  // Why every value here is constant: Info.plist is inside the signature seal, so a branch-varying
+  // value (CFBundleName/CFBundleDisplayName used to carry the branch title) changed the ad-hoc cdhash
+  // per branch, and macOS Keychain ACLs match on that cdhash — every branch read as a different app
+  // and re-prompted. Patching these keys is fine; varying them is not. The Dock takes its label from
+  // the .app directory name (see appBundleName), which is outside the signature, so per-branch survives.
+  for (const { key, value } of getDevBundlePlistPatches()) {
+    setPlistValue(plistPath, key, value, execFile)
+  }
 
   // Why: the helper reads the app's real macOS notification authorization.
   // Non-fatal: without swiftc the permission card falls back to probes.

@@ -10,7 +10,6 @@ export type WorktreePaletteCreateActionState = {
 export function getWorktreePaletteCreateActionState({
   query
 }: {
-  canCreateWorktree: boolean
   query: string
 }): WorktreePaletteCreateActionState {
   const createWorktreeName = query.trim()
@@ -20,6 +19,8 @@ export function getWorktreePaletteCreateActionState({
       showCreateAction: false
     }
   }
+  // Why no project gate: the composer can add the first project inline, so
+  // creation stays offered with zero projects.
   const showCreateAction = createWorktreeName.length > 0
   return {
     createWorktreeName,

@@ -11783,6 +11783,9 @@
             "preview": "Vista previa",
             "stable": "Estable"
           },
+          "androidHelp": {
+            "guide": "Guía de instalación"
+          },
           "relayDegradedNotice": "No se pudo contactar con Relay: este código solo funciona en tu LAN o Tailscale."
         },
         "MobilePage": {

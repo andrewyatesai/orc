@@ -1,5 +1,6 @@
 import { resolveWorktreeDisplayName } from './worktree-default-display-name'
 import type { MatchRange } from './worktree-palette-search'
+import type { TuiAgent } from '../../../shared/types'
 import type {
   SearchableWorkspaceTab,
   WorkspaceTabContentType
@@ -11,6 +12,7 @@ export type WorkspaceTabPaletteSearchResult = {
   worktreeId: string
   groupId: string
   contentType: WorkspaceTabContentType
+  occupantAgent: TuiAgent | null
   title: string
   secondaryText: string
   repoName: string
@@ -124,6 +126,7 @@ export function searchWorkspaceTabs(
       worktreeId: entry.worktree.id,
       groupId: entry.tab.groupId,
       contentType: entry.tab.contentType,
+      occupantAgent: entry.occupantAgent,
       title: entry.title,
       secondaryText: entry.secondaryText,
       repoName: entry.repoName,

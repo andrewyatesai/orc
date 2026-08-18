@@ -31,11 +31,7 @@ import { pickResumeWorktree } from '../src/worktree/resume-worktree'
 import { WORKTREE_PS_FULL_LIMIT } from '../src/worktree/worktree-catalog-snapshot-client'
 import type { RpcClient } from '../src/transport/rpc-client'
 import { sendSingleFlightRequest } from '../src/transport/request-single-flight'
-import {
-  useCloseHost,
-  useForceReconnect,
-  usePrimeHosts
-} from '../src/transport/client-context'
+import { useCloseHost, useForceReconnect, usePrimeHosts } from '../src/transport/client-context'
 import { useAllHostClients } from '../src/transport/use-all-host-clients'
 import {
   resolveHomeHostConnectionState,
@@ -327,6 +323,13 @@ export default function HomeScreen() {
   )
   const hostPendingPaths = useMemo(
     () => Object.fromEntries(allClients.map(({ hostId, pendingPath }) => [hostId, pendingPath])),
+    [allClients]
+  )
+  const hostPairingRejected = useMemo(
+    () =>
+      Object.fromEntries(
+        allClients.map(({ hostId, pairingRejected }) => [hostId, pairingRejected])
+      ),
     [allClients]
   )
   const closeHostClient = useCloseHost()
@@ -801,7 +804,8 @@ export default function HomeScreen() {
               reconnectAttempts: attempts,
               lastConnectedAt,
               endpoint: item.endpoint,
-              pendingPath: hostPendingPaths[item.id] ?? null
+              pendingPath: hostPendingPaths[item.id] ?? null,
+              pairingRejected: hostPairingRejected[item.id] ?? false
             })
             return (
               <MobileHostCard
@@ -972,7 +976,11 @@ export default function HomeScreen() {
           if (!host) {
             return []
           }
-          const state = resolveHomeHostConnectionState(host.id, hostStates[host.id], autoConnectHostIds)
+          const state = resolveHomeHostConnectionState(
+            host.id,
+            hostStates[host.id],
+            autoConnectHostIds
+          )
           const isLive =
             state === 'connected' ||
             state === 'connecting' ||

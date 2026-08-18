@@ -50,7 +50,7 @@ export function wslUncDirectoryExists(uncPath: string): boolean | null {
     return null
   }
   try {
-    execFileSync('wsl.exe', ['-d', info.distro, '--', 'test', '-d', info.linuxPath], {
+    execFileSync('wsl.exe', ['-d', info.distro, '--exec', 'test', '-d', info.linuxPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 5000
     })
@@ -194,7 +194,7 @@ export function getWslHome(distro: string): string | null {
   }
 
   try {
-    const home = execFileSync('wsl.exe', ['-d', distro, '--', 'bash', '-c', 'echo $HOME'], {
+    const home = execFileSync('wsl.exe', ['-d', distro, '--exec', 'bash', '-c', 'echo $HOME'], {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 5000
@@ -219,7 +219,7 @@ export async function getWslHomeAsync(distro: string): Promise<string | null> {
 
   try {
     const home = (
-      await execFileUtf8('wsl.exe', ['-d', distro, '--', 'bash', '-c', 'echo $HOME'])
+      await execFileUtf8('wsl.exe', ['-d', distro, '--exec', 'bash', '-c', 'echo $HOME'])
     ).trim()
 
     if (!home || !home.startsWith('/')) {

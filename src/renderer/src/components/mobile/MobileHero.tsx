@@ -7,6 +7,7 @@ import { NetworkInterfacePicker } from './NetworkInterfacePicker'
 import { MobilePairingConnectionOptions } from '../settings/MobilePairingConnectionOptions'
 import { MobileRelayBetaNotice } from '../settings/MobileRelayBetaNotice'
 import { getChannelTagline, type InstallCopy, type IosChannel } from './mobile-platform-copy'
+import { MobileAndroidInstallHelp } from './MobileAndroidInstallHelp'
 import { WindowsFirewallNotice } from './WindowsFirewallNotice'
 import type { MobilePairingConnectionMode } from '../../../../shared/mobile-pairing-connection-mode'
 export { HeroIntro } from './MobileHeroIntro'
@@ -36,6 +37,7 @@ type HeroFlowProps = {
   installCopy: InstallCopy
   iosChannel: IosChannel
   onIosChannelChange: (next: IosChannel) => void
+  onOpenAndroidInstallGuide: () => void
   onOpenInstallUrl: () => void
   onCopyInstallUrl: () => void
   pairQrDataUrl: string | null
@@ -68,6 +70,7 @@ export function HeroFlow({
   installCopy,
   iosChannel,
   onIosChannelChange,
+  onOpenAndroidInstallGuide,
   onOpenInstallUrl,
   onCopyInstallUrl,
   pairQrDataUrl,
@@ -210,6 +213,9 @@ export function HeroFlow({
                   {translate('auto.components.mobile.MobileHero.aa97420ba4', 'Copy install link')}
                 </button>
               </div>
+              {platform === 'android' ? (
+                <MobileAndroidInstallHelp onOpenGuide={onOpenAndroidInstallGuide} />
+              ) : null}
             </div>
             <div
               className="mp-qr mp-qr-large"

@@ -11,10 +11,7 @@ import {
   isShellProcess,
   normalizeTerminalTitle
 } from '../../shared/agent-detection'
-import {
-  agentTitleProvesAgentPresence,
-  ptyTitleProvesAgentPresence
-} from './agent-presence-proof'
+import { agentTitleProvesAgentPresence, ptyTitleProvesAgentPresence } from './agent-presence-proof'
 import { extractOscTitleScanTail } from '../../shared/osc-title-scan-tail'
 import { sortDirEntries } from '../../shared/file-name-sort'
 import { extractLastOsc7Uri, extractOscScanTail } from '../daemon/osc7-uri-extraction'
@@ -908,7 +905,6 @@ import {
 import { normalizeSparseDirectories } from '../ipc/sparse-checkout-directories'
 import type { Store } from '../persistence'
 import type { StatsCollector } from '../stats/collector'
-import { AgentDetector } from '../stats/agent-detector'
 import {
   computeValidatedBranchName,
   computeWorktreePath,
@@ -1776,8 +1772,10 @@ type RuntimePtyController = {
   resize?(ptyId: string, cols: number, rows: number): boolean
   // Why: exact-id mobile polls should not enumerate every local and SSH PTY.
   hasPty?(ptyId: string): boolean | null
-  listProcesses?(): Promise<PtyProcessInfo[]>
-  listProcessesWithHostScope?(): Promise<{
+  // Why: the caller's budget has to reach the relay. Without it an SSH list runs to
+  // the mux's own 30s default and blows every inventory refresh (STA-517).
+  listProcesses?(opts?: { deadlineMs?: number }): Promise<PtyProcessInfo[]>
+  listProcessesWithHostScope?(opts?: { deadlineMs?: number }): Promise<{
     processes: PtyProcessInfo[]
     hostIds: ExecutionHostId[]
   }>
@@ -2814,7 +2812,6 @@ export class OrcaRuntimeService {
   private worktreeScanCache = new Map<string, RuntimeWorktreeScanCache>()
   private worktreeScanInFlight = new Map<string, RuntimeWorktreeScanInFlight>()
   private cloneInFlightByPath = new Map<string, Promise<void>>()
-  private agentDetector: AgentDetector | null = null
   private ptyForegroundAgentRefreshes = new Map<string, PtyForegroundAgentRefresh>()
   // Why: shared between the exit-confirmation and foreground-agent refresh paths
   // so a title-driven exit never fires a second getForegroundProcess round-trip
@@ -3328,7 +3325,6 @@ export class OrcaRuntimeService {
     })
     if (stats) {
       this.stats = stats
-      this.agentDetector = new AgentDetector(stats)
     }
     this.getAgentStatusSnapshotFn = deps?.getAgentStatusSnapshot ?? null
     this.getAgentProviderSessionSnapshotFn =
@@ -8218,9 +8214,6 @@ export class OrcaRuntimeService {
     const cwdChanged = osc7Metadata.cwdChanged
     const agentStatusChunk = this.processAgentStatusOscForPty(ptyId, data)
     this.recordRecentPtyOutputForPathProvenance(ptyId, data)
-    // Agent detection runs on raw data before leaf processing, since the
-    // tail buffer logic normalizes away the OSC sequences we need.
-    this.agentDetector?.onData(ptyId, data, at)
     // Why: watch terminal output for advertised dev-server URLs (e.g. Vite's
     // `Network: https://local.example.com:3001/`) so the workspace ports
     // panel can surface them in place of the kernel bind address.
@@ -12755,7 +12748,6 @@ export class OrcaRuntimeService {
     this.remoteDesktopHostReclaimTargets.delete(ptyId)
     this.remoteDesktopViewerRevisions.delete(ptyId)
     this.disposeHeadlessTerminal(ptyId)
-    this.agentDetector?.onExit(ptyId)
     this.finalizePtyExitRecords(ptyId, exitCode, {
       preservesHandlelessSurface: preservesIntentionalHandlelessSurface,
       incarnationId,
@@ -22738,8 +22730,7 @@ export class OrcaRuntimeService {
       this.invalidateWorktreeScanCacheForRepo(worktree.repoId)
     }
     const shouldClearPushTarget =
-      Object.hasOwn(metaUpdates, 'pushTarget') &&
-      metaUpdates.pushTarget === null
+      Object.hasOwn(metaUpdates, 'pushTarget') && metaUpdates.pushTarget === null
     const normalizedMetaUpdates: Partial<WorktreeMeta> = shouldClearPushTarget
       ? { ...metaUpdates, pushTarget: undefined }
       : (metaUpdates as Partial<WorktreeMeta>)
@@ -23361,7 +23352,9 @@ export class OrcaRuntimeService {
       )
       return
     }
-    this.preservedBranchCleanupByScope.delete(preservedBranchCleanupScopeKey({ worktreeId, hostId }))
+    this.preservedBranchCleanupByScope.delete(
+      preservedBranchCleanupScopeKey({ worktreeId, hostId })
+    )
   }
 
   private preserveBranchHeadFallback(
@@ -23413,8 +23406,7 @@ export class OrcaRuntimeService {
               target.head === expectedHead
           )
         : []
-    const cleanupTarget =
-      exactTarget ?? (legacyMatches.length === 1 ? legacyMatches[0] : undefined)
+    const cleanupTarget = exactTarget ?? (legacyMatches.length === 1 ? legacyMatches[0] : undefined)
     if (
       !removalTarget ||
       !cleanupTarget ||
@@ -28718,9 +28710,19 @@ export class OrcaRuntimeService {
     // Why: the local host is always queried; the controller's scoped variant
     // names every host it reached, and the fallback infers SSH hosts from the
     // owner an app PTY id embeds — a mirrored runtime row is never coverage.
+    const listBudgetMs =
+      deadline === undefined
+        ? PTY_CONTROLLER_LIST_TIMEOUT_MS
+        : Math.max(1, Math.min(PTY_CONTROLLER_LIST_TIMEOUT_MS, deadline - Date.now()))
+    // Why: give each provider a deadline strictly inside our own, so a relay that
+    // never answers still leaves the aggregate time to return the providers that did
+    // — expiring at the same instant would discard the whole inventory instead (STA-517).
+    const providerListOpts = {
+      deadlineMs: Date.now() + Math.max(1, listBudgetMs - PTY_CONTROLLER_LIST_PROVIDER_MARGIN_MS)
+    }
     const processInventory = this.ptyController.listProcessesWithHostScope
-      ? this.ptyController.listProcessesWithHostScope()
-      : this.ptyController.listProcesses().then((processes) => {
+      ? this.ptyController.listProcessesWithHostScope(providerListOpts)
+      : this.ptyController.listProcesses(providerListOpts).then((processes) => {
           const hostIds = new Set<ExecutionHostId>([LOCAL_EXECUTION_HOST_ID])
           for (const process of processes) {
             const hostId = getPtyExecutionHost(process.id)
@@ -28730,12 +28732,7 @@ export class OrcaRuntimeService {
           }
           return { processes, hostIds: [...hostIds] }
         })
-    const sessionsResult = await withTimeoutResult(
-      processInventory,
-      deadline === undefined
-        ? PTY_CONTROLLER_LIST_TIMEOUT_MS
-        : Math.max(1, Math.min(PTY_CONTROLLER_LIST_TIMEOUT_MS, deadline - Date.now()))
-    )
+    const sessionsResult = await withTimeoutResult(processInventory, listBudgetMs)
     if (!sessionsResult.ok) {
       // Why: a transient controller failure is not evidence that retained PTYs exited.
       return null
@@ -29909,7 +29906,9 @@ export class OrcaRuntimeService {
       ? { providerSession: hookRow.providerSession }
       : {}
     const leaf = this.leaves.get(this.getLeafKey(tab.parentTabId, tab.leafId)) ?? null
-    const trackerOnlyTitle = this.getUnpersistedTrackedTitleForPty(pty?.ptyId ?? leaf?.ptyId ?? null)
+    const trackerOnlyTitle = this.getUnpersistedTrackedTitleForPty(
+      pty?.ptyId ?? leaf?.ptyId ?? null
+    )
     const ptyTitle = pty
       ? getLatestAgentCandidateTitle(
           { title: pty.title, updatedAt: pty.titleUpdatedAt },
@@ -34696,6 +34695,9 @@ export function resolveWorktreeScanCacheTtlMs(repo: Pick<Repo, 'path' | 'connect
     : WORKTREE_SCAN_CACHE_TTL_MS
 }
 const PTY_CONTROLLER_LIST_TIMEOUT_MS = 3000
+// Why: the slice of the list budget reserved for the aggregate to collect the providers
+// that answered after a stalled one gives up (STA-517).
+const PTY_CONTROLLER_LIST_PROVIDER_MARGIN_MS = 500
 // Why: the renderer waits 15s; leave room for the verified failure response and release the spawn fence before its caller times out.
 const WORKTREE_TERMINAL_SLEEP_TIMEOUT_MS = 12_000
 

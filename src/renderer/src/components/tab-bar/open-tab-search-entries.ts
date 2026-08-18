@@ -48,7 +48,11 @@ export type OpenTabSearchEntryState = Pick<
 // only when the menu opens or its tab set changes.
 export type OpenTabSearchAgentState = Pick<
   AppState,
-  'agentStatusByPaneKey' | 'retainedAgentsByPaneKey' | 'sleepingAgentSessionsByPaneKey'
+  | 'agentStatusByPaneKey'
+  | 'paneForegroundAgentByPaneKey'
+  | 'retainedAgentsByPaneKey'
+  | 'sleepingAgentSessionsByPaneKey'
+  | 'terminalLayoutsByTabId'
 >
 
 const EMPTY_ENTRIES: OpenTabSearchEntries = {
@@ -92,8 +96,10 @@ export function selectOpenTabSearchEntryState(
 export function selectOpenTabSearchAgentState(state: AppState): OpenTabSearchAgentState {
   return {
     agentStatusByPaneKey: state.agentStatusByPaneKey,
+    paneForegroundAgentByPaneKey: state.paneForegroundAgentByPaneKey,
     retainedAgentsByPaneKey: state.retainedAgentsByPaneKey,
-    sleepingAgentSessionsByPaneKey: state.sleepingAgentSessionsByPaneKey
+    sleepingAgentSessionsByPaneKey: state.sleepingAgentSessionsByPaneKey,
+    terminalLayoutsByTabId: state.terminalLayoutsByTabId
   }
 }
 
@@ -122,6 +128,8 @@ export function buildOpenTabSearchEntries(
       agentStatusByPaneKey: agentState.agentStatusByPaneKey,
       retainedAgentsByPaneKey: agentState.retainedAgentsByPaneKey,
       sleepingAgentSessionsByPaneKey: agentState.sleepingAgentSessionsByPaneKey,
+      terminalLayoutsByTabId: agentState.terminalLayoutsByTabId,
+      paneForegroundAgentByPaneKey: agentState.paneForegroundAgentByPaneKey,
       activeGroupIdByWorktree: state.activeGroupIdByWorktree,
       groupsByWorktree: state.groupsByWorktree,
       activeWorktreeId: state.activeWorktreeId,

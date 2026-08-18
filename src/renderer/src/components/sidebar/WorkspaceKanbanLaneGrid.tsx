@@ -18,7 +18,6 @@ type WorkspaceKanbanLaneGridProps = {
   columnWidth: number
   isResizingColumn: boolean
   dragOverStatus: WorkspaceStatus | null
-  canCreateWorktree: boolean
   selectedWorktreeIds: ReadonlySet<string>
   selectedWorktrees: readonly Worktree[]
   onDragOver: (event: React.DragEvent, statusId: string) => void
@@ -46,7 +45,6 @@ export default function WorkspaceKanbanLaneGrid({
   columnWidth,
   isResizingColumn,
   dragOverStatus,
-  canCreateWorktree,
   selectedWorktreeIds,
   selectedWorktrees,
   onDragOver,
@@ -81,7 +79,6 @@ export default function WorkspaceKanbanLaneGrid({
           columnWidth={columnWidth}
           isResizingColumn={isResizingColumn}
           isDragTarget={dragOverStatus === status.id}
-          canCreateWorktree={canCreateWorktree}
           selectedWorktreeIds={selectedWorktreeIds}
           selectedWorktrees={selectedWorktrees}
           nativeDragEnabled={false}

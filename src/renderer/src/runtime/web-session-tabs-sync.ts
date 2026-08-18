@@ -924,7 +924,13 @@ function buildMirroredAgentStatusPatch(
             tabId: entry.tabId,
             providerSession:
               existing.providerSession ??
-              (hostIdentityPredatesCurrentTurn ? undefined : entry.providerSession)
+              (hostIdentityPredatesCurrentTurn ? undefined : entry.providerSession),
+            // Why: hook-only content the byte pipeline can never see, and every OSC
+            // write blanks it, so a fenced pane's message line stayed empty forever
+            // (#12906). Host-first unlike providerSession: only the host can mint one.
+            lastAssistantMessage:
+              (hostIdentityPredatesCurrentTurn ? undefined : entry.lastAssistantMessage) ??
+              existing.lastAssistantMessage
           }
         : entry
     nextByPaneKey.set(entry.paneKey, nextEntry)
@@ -2521,7 +2527,11 @@ function applyWebSessionTabsSnapshotWithContext(
         if (nextRemoteBrowserPageHandlesByPageId[page.id]) {
           nextRemoteBrowserPageHandlesByPageId =
             nextRemoteBrowserPageHandlesByPageId === state.remoteBrowserPageHandlesByPageId
-              ? writableWebSessionTabsRecord(state, 'remoteBrowserPageHandlesByPageId', batchContext)
+              ? writableWebSessionTabsRecord(
+                  state,
+                  'remoteBrowserPageHandlesByPageId',
+                  batchContext
+                )
               : nextRemoteBrowserPageHandlesByPageId
           delete nextRemoteBrowserPageHandlesByPageId[page.id]
         }
@@ -2941,8 +2951,7 @@ export function applyWebSessionTabsStorePatch(
   let mirroredAgentStatusChanged = false
   useAppStore.setState((state) => {
     const patch = buildPatch(state)
-    mirroredAgentStatusChanged =
-      patch !== state && Object.hasOwn(patch, 'agentStatusByPaneKey')
+    mirroredAgentStatusChanged = patch !== state && Object.hasOwn(patch, 'agentStatusByPaneKey')
     return patch
   })
   // Why: paired-web snapshots bypass setAgentStatus, so arm the stale-boundary timer explicitly like local hook events do.

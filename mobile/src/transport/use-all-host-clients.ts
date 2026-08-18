@@ -53,6 +53,7 @@ export function useAllHostClients(hostIds: string[], options?: UseAllHostClients
       state: ConnectionState
       path: MobileConnectionPath
       pendingPath: MobileConnectionPath | null
+      pairingRejected: boolean
     }> = []
     for (const id of hostIds) {
       const all = ctx.getAllClients().find((entry) => entry.hostId === id)
@@ -62,7 +63,8 @@ export function useAllHostClients(hostIds: string[], options?: UseAllHostClients
           client: all.client,
           state: ctx.getState(id),
           path: ctx.getActivePath(id),
-          pendingPath: ctx.getPendingPath(id)
+          pendingPath: ctx.getPendingPath(id),
+          pairingRejected: ctx.isPairingRejected(id)
         })
       }
     }

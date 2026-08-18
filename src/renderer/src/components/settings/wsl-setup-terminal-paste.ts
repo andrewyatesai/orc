@@ -28,9 +28,9 @@ function decodeWslSetupTerminalCommand(command: string): string | null {
     return null
   }
 
-  const encoded = /-- sh -c 'eval \\"`printf %s ([A-Za-z0-9+/=]+) \| base64 -d`\\"'/.exec(
-    command
-  )?.[1]
+  // Why both separators: commands persisted before the --exec switch must still decode.
+  const encoded =
+    /(?:--|--exec) sh -c 'eval \\"`printf %s ([A-Za-z0-9+/=]+) \| base64 -d`\\"'/.exec(command)?.[1]
   if (!encoded) {
     return null
   }

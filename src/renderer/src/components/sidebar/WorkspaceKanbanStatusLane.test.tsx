@@ -50,7 +50,6 @@ function renderLane(props: {
         columnWidth={308}
         isResizingColumn={false}
         isDragTarget={false}
-        canCreateWorktree={true}
         selectedWorktreeIds={new Set()}
         selectedWorktrees={[]}
         onDragOver={vi.fn()}

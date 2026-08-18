@@ -11783,6 +11783,9 @@
             "preview": "プレビュー",
             "stable": "安定版"
           },
+          "androidHelp": {
+            "guide": "インストールガイド"
+          },
           "relayDegradedNotice": "Relay に接続できませんでした — このコードは LAN または Tailscale でのみ動作します。"
         },
         "MobilePage": {

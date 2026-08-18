@@ -246,19 +246,41 @@ function registeredPtyProviders(): RegisteredPtyProvider[] {
 
 // Why: the runtime cannot say which hosts a listing covered unless the listing
 // names them; a null connectionId is the machine running Orca (the local host).
-async function listRegisteredPtyProcessesWithHostScope(): Promise<{
+//
+// Settle each SSH provider independently and forward the caller's deadline (STA-517):
+// a single unreachable relay used to reject the whole Promise.all, so the runtime lost
+// the inventory it needs to retire exited PTYs and every retained pane stayed "active".
+// A provider that does not answer is unknown, not empty — it drops out of the aggregate
+// and its host is simply absent from hostIds (never proven dead). A local failure still
+// fails the aggregate; that is a real controller fault, not one unreachable host.
+async function listRegisteredPtyProcessesWithHostScope(opts?: { deadlineMs?: number }): Promise<{
   processes: PtyProcessInfo[]
   hostIds: ExecutionHostId[]
 }> {
   const providers = registeredPtyProviders()
   const providerSessions = await Promise.all(
-    providers.map(({ provider }) => provider.listProcesses())
+    providers.map(async ({ provider, connectionId }) => {
+      const hostId: ExecutionHostId = connectionId
+        ? toSshExecutionHostId(connectionId)
+        : LOCAL_EXECUTION_HOST_ID
+      try {
+        // Why: the deadline only bounds relay round-trips; the local provider answers in-process.
+        const processes = await (connectionId
+          ? provider.listProcesses(opts)
+          : provider.listProcesses())
+        return { processes, hostId }
+      } catch (error) {
+        if (!connectionId) {
+          throw error
+        }
+        return null
+      }
+    })
   )
+  const responding = providerSessions.filter((session) => session !== null)
   return {
-    processes: providerSessions.flat(),
-    hostIds: providers.map(({ connectionId }) =>
-      connectionId ? toSshExecutionHostId(connectionId) : LOCAL_EXECUTION_HOST_ID
-    )
+    processes: responding.flatMap((session) => session.processes),
+    hostIds: responding.map((session) => session.hostId)
   }
 }
 
@@ -4557,10 +4579,10 @@ export function registerPtyHandlers(
         return null
       }
     },
-    listProcesses: async () => {
-      return (await listRegisteredPtyProcessesWithHostScope()).processes
+    listProcesses: async (opts) => {
+      return (await listRegisteredPtyProcessesWithHostScope(opts)).processes
     },
-    listProcessesWithHostScope: listRegisteredPtyProcessesWithHostScope,
+    listProcessesWithHostScope: (opts) => listRegisteredPtyProcessesWithHostScope(opts),
     serializeBuffer: (ptyId, opts) => {
       // Why: mobile xterm must start from the desktop's exact screen state/dimensions before live TUI chunks render correctly.
       return requestSerializedBuffer(ptyId, opts)

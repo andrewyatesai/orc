@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  buildWslExecArgs,
   buildWslInteractiveLoginShellCommand,
   buildWslLoginShellCommand,
   escapeWslShCommandForWindows,
@@ -21,7 +22,7 @@ function canRunWslSh(): boolean {
     return wslShAvailable
   }
   try {
-    execFileSync('wsl.exe', ['--', 'sh', '-lc', 'true'], {
+    execFileSync('wsl.exe', ['--exec', 'sh', '-lc', 'true'], {
       timeout: WSL_TEST_COMMAND_TIMEOUT_MS
     })
     wslShAvailable = true
@@ -46,7 +47,7 @@ function expectValidShSyntax(command: string): void {
   if (!canRunWslSh()) {
     return
   }
-  execFileSync('wsl.exe', ['--', 'sh', '-n'], {
+  execFileSync('wsl.exe', ['--exec', 'sh', '-n'], {
     input: command,
     timeout: WSL_TEST_COMMAND_TIMEOUT_MS
   })
@@ -302,4 +303,61 @@ describe('wsl login shell command helpers', () => {
       expectValidShSyntax(escapeWslShCommandForWindows(command).replaceAll('\\$', '$'))
     })
   })
+})
+
+describe('buildWslExecArgs', () => {
+  it('routes through --exec so wsl.exe cannot preprocess argv', () => {
+    // Why not `--`: `wsl.exe -d <distro> -- <argv>` expands $name against the guest
+    // env before the guest runs, so a script arrives already rewritten. --exec skips
+    // that preprocessing and hands argv to the guest byte-for-byte.
+    expect(buildWslExecArgs('Ubuntu', ['sh', '-lc', 'printf "$HOME"'])).toEqual([
+      '-d',
+      'Ubuntu',
+      '--exec',
+      'sh',
+      '-lc',
+      'printf "$HOME"'
+    ])
+  })
+
+  it('omits -d for a distro-less target but still bypasses the `--` preprocessor', () => {
+    expect(buildWslExecArgs(undefined, ['sh', '-c', 'true'])).toEqual([
+      '--exec',
+      'sh',
+      '-c',
+      'true'
+    ])
+  })
+
+  it('passes argv verbatim without escaping the payload', () => {
+    // The field ref, the literal escaped dollar, and the single-quoted dollar all
+    // survive unchanged — no `\$` and no `--` separator reach the guest.
+    const args = buildWslExecArgs('Ubuntu', ['sh', '-c', `awk '{print $2}'; printf '[%s]' '$HOME'`])
+    expect(args).not.toContain('--')
+    expect(args.at(-1)).toBe(`awk '{print $2}'; printf '[%s]' '$HOME'`)
+  })
+
+  // Why on WSL: proves argv reaches the guest byte-for-byte. Each case returns
+  // DIFFERENT bytes under `--` than under `--exec`; a `sed` backreference has no
+  // `$` and would pass either way, so it is deliberately absent.
+  it.each([
+    ['awk field reference', ['sh', '-c', `echo 'a b' | awk '{print $2}'`], 'b\n'],
+    ['literal escaped dollar', ['sh', '-c', `printf '[%s]' "\\$HOME"`], '[$HOME]'],
+    ['single-quoted dollar', ['sh', '-c', `printf '[%s]' '$PATH'`], '[$PATH]'],
+    ['positional argument', ['sh', '-c', 'printf "[%s]" "$1"', 'sh', 'ARG'], '[ARG]']
+  ])(
+    'passes %s to the guest byte-for-byte',
+    (_name, shellArgs, expected) => {
+      if (!canRunWslSh()) {
+        return
+      }
+      expect(
+        execFileSync('wsl.exe', buildWslExecArgs(undefined, shellArgs), {
+          encoding: 'utf8',
+          timeout: WSL_TEST_COMMAND_TIMEOUT_MS
+        })
+      ).toBe(expected)
+    },
+    30_000
+  )
 })

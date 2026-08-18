@@ -6,8 +6,10 @@ import type {
   DashboardSnapshot
 } from '../../../../shared/dashboard-snapshot'
 import type { RepoIcon } from '../../../../shared/repo-icon'
+import type { TerminalLayoutSnapshot } from '../../../../shared/types'
 import { parsePaneKey } from '../../../../shared/stable-pane-id'
 import { getAgentRowConversationName } from '../../../../shared/agent-row-conversation-name'
+import { resolveAgentRowPaneLiveTitle } from './agent-row-pane-live-title'
 import { migrationUnsupportedToAgentStatusEntry } from '@/lib/migration-unsupported-agent-entry'
 import { applyAgentRowLineage } from './agent-row-lineage'
 import { lastEnteredDoneAt } from './agent-finished-timestamp'
@@ -77,7 +79,9 @@ function nonEmpty(value: string | undefined): string | undefined {
  *  same agent with the same name. */
 function rowConversationName(
   row: DashboardAgentRow,
-  generatedTitlesEnabled: boolean
+  generatedTitlesEnabled: boolean,
+  layout: TerminalLayoutSnapshot | undefined,
+  paneTitles: Record<number, string> | undefined
 ): string | undefined {
   const parentPaneKey = row.entry.orchestration?.parentPaneKey
   // Why: a child row rendered on its parent's tab does not own that tab's name.
@@ -88,7 +92,17 @@ function rowConversationName(
   ) {
     return undefined
   }
-  return getAgentRowConversationName(row.tab, row.agentType, generatedTitlesEnabled) ?? undefined
+  // Why: in a split tab tab.title is only the focused pane's, so this row reads
+  // its OWN leaf's live pane title; undefined on a single-pane tab keeps it.
+  const paneLiveTitle = resolveAgentRowPaneLiveTitle(
+    layout,
+    paneTitles,
+    parsePaneKey(row.paneKey)?.leafId
+  )
+  return (
+    getAgentRowConversationName(row.tab, row.agentType, generatedTitlesEnabled, paneLiveTitle) ??
+    undefined
+  )
 }
 
 /**
@@ -150,13 +164,14 @@ export function buildDashboardSnapshot(
           ]
         : liveEntries
     const terminalLayoutsByTabId = selectTerminalLayoutsForWorktree(state, worktreeId)
+    const paneTitlesByTabId = selectRuntimePaneTitlesForWorktree(state, worktreeId)
 
     const rows = applyAgentRowLineage(
       buildWorktreeAgentRows({
         tabs: state.tabsByWorktree[worktreeId] ?? [],
         entries,
         retained: selectRetainedAgentEntriesForWorktree(state, worktreeId),
-        runtimePaneTitlesByTabId: selectRuntimePaneTitlesForWorktree(state, worktreeId),
+        runtimePaneTitlesByTabId: paneTitlesByTabId,
         ptyIdsByTabId: selectLivePtyIdsForWorktree(state, worktreeId),
         terminalLayoutsByTabId,
         runtimeAgentOrchestrationByPaneKey:
@@ -219,7 +234,12 @@ export function buildDashboardSnapshot(
           !isTitleDerived &&
           (state.acknowledgedAgentsByPaneKey?.[row.paneKey] ?? 0) < row.entry.stateStartedAt,
         askSummary: bucket === 'attention' ? (row.entry.interactivePrompt ?? undefined) : undefined,
-        conversationName: rowConversationName(row, generatedTitlesEnabled)
+        conversationName: rowConversationName(
+          row,
+          generatedTitlesEnabled,
+          terminalLayoutsByTabId[row.tab.id],
+          paneTitlesByTabId[row.tab.id]
+        )
       })
     }
   }

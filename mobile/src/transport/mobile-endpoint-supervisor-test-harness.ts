@@ -16,7 +16,9 @@ export class FakeSession implements RpcClient {
     })
   )
   readonly subscribe = vi.fn(() => () => {})
-  readonly sendTerminalBinaryInput = vi.fn((_terminal: string, _payload: Uint8Array): boolean => true)
+  readonly sendTerminalBinaryInput = vi.fn(
+    (_terminal: string, _payload: Uint8Array): boolean => true
+  )
   readonly updateTerminalSubscriptionViewport = vi.fn()
   readonly notifyForeground = vi.fn()
   readonly close = vi.fn()
@@ -112,6 +114,24 @@ export class FakeLogicalClient extends FakeSession implements StableLogicalRpcCl
       }
     }
   })
+  private pairingRejected = false
+  setPairingRejected = vi.fn((rejected: boolean) => {
+    if (this.pairingRejected === rejected) {
+      return
+    }
+    this.pairingRejected = rejected
+    for (const listener of this.pathListeners) {
+      listener()
+    }
+  })
+  isPairingRejected = () => this.pairingRejected
+  // Mirrors LogicalClientConnectionPath.clearAfterConnected.
+  publishState(state: ConnectionState): void {
+    if (state === 'connected') {
+      this.pairingRejected = false
+    }
+    super.publishState(state)
+  }
   onConnectionPathChange = vi.fn((listener: () => void) => {
     this.pathListeners.add(listener)
     return () => this.pathListeners.delete(listener)

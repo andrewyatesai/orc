@@ -35,9 +35,11 @@ import {
 } from '../../shared/git-credential-prompt-env'
 import { getSpawnArgsForWindows, isWindowsBatchScript, resolveWindowsCommand } from '../win32-utils'
 import {
+  buildWslCapturedLoginShellCommand,
+  buildWslExecArgs,
   buildWslLoginShellCommand,
-  escapeWslShCommandForWindows,
-  quotePosixShell
+  quotePosixShell,
+  type WslCapturedLoginShellCommand
 } from '../../shared/wsl-login-shell-command'
 import { UNTRANSLATED_GIT_OUTPUT_ENV } from '../../shared/git-output-locale'
 import { endSubprocessStdin } from '../../shared/subprocess-stdin-write'
@@ -71,6 +73,8 @@ type ResolvedCommand = {
   wsl: WslPathInfo | null
   /** How the command reaches git under WSL, or null when not WSL-routed / not git. */
   wslMode: 'direct-git' | 'login-shell' | 'non-login-shell' | null
+  /** Present only when the caller opted into a fenced login-shell read. */
+  captured?: WslCapturedLoginShellCommand
 }
 
 /**
@@ -218,6 +222,7 @@ function resolveCommand(
   wslDistroOverride?: string,
   options: {
     useWslLoginShell?: boolean
+    captureLoginShellOutput?: boolean
     wslGitReadEnvironment?: WslGitReadEnvironment
     env?: NodeJS.ProcessEnv
   } = {}
@@ -272,16 +277,24 @@ function resolveCommand(
   }
 
   if (options.useWslLoginShell) {
+    // Why opt-in: the login shell is interactive for bash/zsh, so its rc output
+    // lands on stdout ahead of the payload. Callers that buffer the whole stream
+    // fence it; streaming consumers (git grep, ls-files -z) must not, because a
+    // marker would be glued onto their first record.
+    if (options.captureLoginShellOutput) {
+      const captured = buildWslCapturedLoginShellCommand(shellCmd)
+      return {
+        binary: 'wsl.exe',
+        args: buildWslExecArgs(wsl.distro, ['sh', '-lc', captured.command]),
+        cwd: undefined,
+        wsl,
+        wslMode: 'login-shell',
+        captured
+      }
+    }
     return {
       binary: 'wsl.exe',
-      args: [
-        '-d',
-        wsl.distro,
-        '--',
-        'sh',
-        '-lc',
-        escapeWslShCommandForWindows(buildWslLoginShellCommand(shellCmd))
-      ],
+      args: buildWslExecArgs(wsl.distro, ['sh', '-lc', buildWslLoginShellCommand(shellCmd)]),
       cwd: undefined,
       wsl,
       wslMode: 'login-shell'
@@ -290,7 +303,7 @@ function resolveCommand(
 
   return {
     binary: 'wsl.exe',
-    args: ['-d', wsl.distro, '--', 'bash', '-c', shellCmd],
+    args: buildWslExecArgs(wsl.distro, ['bash', '-c', shellCmd]),
     // Why: the `cd` inside bash -c handles the directory; a UNC cwd on the Node process is redundant and can break Node internals.
     cwd: undefined,
     wsl,
@@ -365,13 +378,13 @@ function resolveGitCommand(
 function shouldAttemptWslDirectGit(options: GitExecOptions): boolean {
   return Boolean(
     process.platform === 'win32' &&
-      options.preferWslDirectGit &&
-      !options.useConfiguredSshCommandForNetwork &&
-      !Object.entries(options.env ?? {}).some(
-        ([key, value]) =>
-          key.startsWith('GIT_') && key !== 'GIT_OPTIONAL_LOCKS' && value !== process.env[key]
-      ) &&
-      options.wslDistro
+    options.preferWslDirectGit &&
+    !options.useConfiguredSshCommandForNetwork &&
+    !Object.entries(options.env ?? {}).some(
+      ([key, value]) =>
+        key.startsWith('GIT_') && key !== 'GIT_OPTIONAL_LOCKS' && value !== process.env[key]
+    ) &&
+    options.wslDistro
   )
 }
 
@@ -380,8 +393,7 @@ function shouldAttemptWslDirectGit(options: GitExecOptions): boolean {
 // is unavailable — never revert reads to the slower login shell here.
 function resolveGitCommandWithoutProbe(args: string[], options: GitExecOptions): ResolvedCommand {
   return resolveCommand('git', args, options.cwd, options.wslDistro, {
-    useWslLoginShell:
-      options.useWslLoginShell ?? Boolean(options.useConfiguredSshCommandForNetwork)
+    useWslLoginShell: options.useWslLoginShell ?? Boolean(options.useConfiguredSshCommandForNetwork)
   })
 }
 
@@ -961,12 +973,14 @@ async function buildNetworkSshPolicyEnv(options: GitExecOptions): Promise<{
     return { env: promptEnv, mode: 'explicit-env' }
   }
 
+  // Why fenced: a login-shell banner here reads as a user-configured sshCommand,
+  // which skips the BatchMode fallback below and disarms the no-prompt guard.
   const resolved = resolveCommand(
     'git',
     ['config', '--get', 'core.sshCommand'],
     options.cwd,
     options.wslDistro,
-    { useWslLoginShell: true }
+    { useWslLoginShell: true, captureLoginShellOutput: true }
   )
   let configuredCommand = ''
   try {
@@ -978,7 +992,8 @@ async function buildNetworkSshPolicyEnv(options: GitExecOptions): Promise<{
       env: promptEnv,
       signal: options.signal
     })
-    configuredCommand = String(stdout).trim()
+    const payload = resolved.captured?.readStdout(String(stdout)) ?? String(stdout)
+    configuredCommand = payload.trim()
   } catch {
     configuredCommand = ''
   }
@@ -1125,8 +1140,11 @@ export async function gitExecFileAsyncBuffer(
   args: string[],
   options: { cwd: string; maxBuffer?: number; wslDistro?: string }
 ): Promise<{ stdout: Buffer }> {
+  // Why fenced: this returns raw blob bytes straight to the diff/blob viewer, so
+  // a login-shell banner would be prepended to displayed file content.
   const resolved = resolveCommand('git', args, options.cwd, options.wslDistro, {
-    useWslLoginShell: Boolean(options.wslDistro)
+    useWslLoginShell: Boolean(options.wslDistro),
+    captureLoginShellOutput: Boolean(options.wslDistro)
   })
   const { stdout } = (await execFileCapture(resolved.binary, resolved.args, {
     cwd: resolved.cwd,
@@ -1134,7 +1152,28 @@ export async function gitExecFileAsyncBuffer(
     maxBuffer: options.maxBuffer,
     env: untranslatedGitOutputEnv()
   })) as { stdout: Buffer }
-  return { stdout }
+  return { stdout: readCapturedGitBuffer(stdout, resolved) }
+}
+
+/**
+ * Slice a fenced payload out of raw bytes.
+ *
+ * Why bytes: blob content may be binary, so decoding to a string to find the
+ * fence would corrupt it. Returns the buffer untouched when the command was not
+ * fenced or the fence is absent.
+ */
+function readCapturedGitBuffer(stdout: Buffer, resolved: ResolvedCommand): Buffer {
+  const captured = resolved.captured
+  if (!captured) {
+    return stdout
+  }
+  const beginIndex = stdout.indexOf(captured.beginMarker, 0, 'utf8')
+  if (beginIndex === -1) {
+    return stdout
+  }
+  const payloadStart = beginIndex + Buffer.byteLength(captured.beginMarker, 'utf8')
+  const endIndex = stdout.indexOf(captured.endMarker, payloadStart, 'utf8')
+  return endIndex === -1 ? stdout.subarray(payloadStart) : stdout.subarray(payloadStart, endIndex)
 }
 
 /** Result of a streamed git command; `stoppedEarly` is true when onStdoutBytes asked to stop before the child exited. */
@@ -1325,9 +1364,7 @@ export async function gitStreamStdout(
       return await stream(resolved)
     } catch (error) {
       const stdoutBytes =
-        error && typeof error === 'object'
-          ? (error as { stdoutBytes?: unknown }).stdoutBytes
-          : null
+        error && typeof error === 'object' ? (error as { stdoutBytes?: unknown }).stdoutBytes : null
       if (
         stdoutBytes === 0 &&
         directWslGitExitCode(error, resolved) !== null &&

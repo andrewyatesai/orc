@@ -561,7 +561,7 @@ describe('runner execFile timeout handling', () => {
 
       expect(execFileMock).toHaveBeenCalledWith(
         'wsl.exe',
-        ['-d', 'Ubuntu', '--', 'bash', '-c', expect.any(String)],
+        ['-d', 'Ubuntu', '--exec', 'bash', '-c', expect.any(String)],
         expect.objectContaining({ cwd: undefined }),
         expect.any(Function)
       )
@@ -589,13 +589,13 @@ describe('runner execFile timeout handling', () => {
 
       expect(execFileMock).toHaveBeenCalledWith(
         'wsl.exe',
-        ['-d', 'Ubuntu', '--', 'sh', '-lc', expect.any(String)],
+        ['-d', 'Ubuntu', '--exec', 'sh', '-lc', expect.any(String)],
         expect.objectContaining({ cwd: undefined }),
         expect.any(Function)
       )
       const shellCommand = execFileMock.mock.calls[0]?.[1]?.[5] as string
       expect(shellCommand).toContain('getent passwd')
-      expect(shellCommand).toContain('exec "\\$_orca_wsl_shell" -ilc')
+      expect(shellCommand).toContain('exec "$_orca_wsl_shell" -ilc')
       expect(shellCommand).toContain('/mnt/c/repo')
       expect(shellCommand).toContain("'git'")
       expect(shellCommand).toContain('status')
@@ -619,7 +619,7 @@ describe('runner execFile timeout handling', () => {
 
       expect(execFileMock).toHaveBeenCalledWith(
         'wsl.exe',
-        ['-d', 'Ubuntu', '--', 'bash', '-c', expect.any(String)],
+        ['-d', 'Ubuntu', '--exec', 'bash', '-c', expect.any(String)],
         expect.objectContaining({ cwd: undefined }),
         expect.any(Function)
       )

@@ -4,7 +4,17 @@ import {
   resolveTerminalTabTitle,
   resolveUnifiedTabLabel
 } from '../../../shared/tab-title-resolution'
-import type { Tab, TabContentType, TabGroup, TerminalTab, Worktree } from '../../../shared/types'
+import type { PaneForegroundAgentEntry } from '@/store/slices/pane-foreground-agent'
+import type {
+  Tab,
+  TabContentType,
+  TabGroup,
+  TerminalLayoutSnapshot,
+  TerminalTab,
+  TuiAgent,
+  Worktree
+} from '../../../shared/types'
+import { resolveOpenTabOccupantAgent } from './open-tab-occupant-agent'
 import {
   collectAgentMetadataForTerminal,
   type AgentMetadata,
@@ -39,6 +49,8 @@ export type SearchableWorkspaceTab = {
    */
   typeSearchAliases?: readonly string[]
   agentMetadata: AgentMetadata[]
+  /** Confident occupant for the row icon; null when the pane is a plain shell. */
+  occupantAgent: TuiAgent | null
   isCurrentTab: boolean
   isCurrentWorktree: boolean
 }
@@ -66,6 +78,8 @@ export type BuildSearchableWorkspaceTabsOptions = WorkspaceTabAgentMetadataState
   activeFileIdByWorktree: Record<string, string | null | undefined>
   activeTabTypeByWorktree: Record<string, WorkspaceTabPaletteActiveTabType | undefined>
   generatedTitlesEnabled: boolean
+  terminalLayoutsByTabId?: Record<string, TerminalLayoutSnapshot | undefined>
+  paneForegroundAgentByPaneKey?: Record<string, PaneForegroundAgentEntry>
 }
 
 function getActiveUnifiedTabId({
@@ -159,7 +173,9 @@ export function buildSearchableWorkspaceTabs({
   activeFileId,
   activeFileIdByWorktree,
   activeTabTypeByWorktree,
-  generatedTitlesEnabled
+  generatedTitlesEnabled,
+  terminalLayoutsByTabId,
+  paneForegroundAgentByPaneKey
 }: BuildSearchableWorkspaceTabsOptions): SearchableWorkspaceTab[] {
   const entries: SearchableWorkspaceTab[] = []
   const openFilesById = new Map(openFiles.map((file) => [file.id, file]))
@@ -229,6 +245,17 @@ export function buildSearchableWorkspaceTabs({
             agentStatusByPaneKey,
             retainedAgentsByPaneKey,
             sleepingAgentSessionsByPaneKey
+          }),
+          occupantAgent: resolveOpenTabOccupantAgent({
+            tabId: tab.entityId,
+            // The row's resolved title, not terminalTab.title: it already carries the live label.
+            title,
+            defaultTitle: terminalTab?.defaultTitle,
+            launchAgent: terminalTab?.launchAgent,
+            layout: terminalLayoutsByTabId?.[tab.entityId],
+            agentStatusByPaneKey,
+            sleepingAgentSessionsByPaneKey,
+            paneForegroundAgentByPaneKey
           })
         })
         continue
@@ -245,7 +272,8 @@ export function buildSearchableWorkspaceTabs({
         secondaryText: file.relativePath,
         titleSearchText: title,
         secondarySearchTexts: [file.relativePath, file.filePath],
-        agentMetadata: []
+        agentMetadata: [],
+        occupantAgent: null
       })
     }
   }

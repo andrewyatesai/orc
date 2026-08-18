@@ -50,9 +50,10 @@ export class MobileEndpointSupervisor {
       minimumDwellMs: MINIMUM_DWELL_MS
     })
     this.relayReconnect = new RelayReconnectController(dependencies, this.recoverRelay.bind(this))
-    // Why: project the recovery-dial failure streak into the logical client so a
-    // continuous Relay outage escalates the connection verdict to unreachable.
-    this.relayReconnect.reportFailureCountTo(this.logical.setRecoveryAttempt)
+    // Why: project the recovery-dial failure streak and the pairing-rejection latch
+    // into the logical client so a continuous Relay outage escalates the connection
+    // verdict to unreachable, and a persistently refused pairing escalates to re-pair.
+    this.relayReconnect.reportRecoveryTo(this.logical)
     this.leaseRotation = new RelayLeaseRotationTimer(dependencies, () => {
       this.relayRotationPending = true
       void this.recoverRelay(true)

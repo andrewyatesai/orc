@@ -64,7 +64,10 @@ export default function MobilePage(): React.JSX.Element {
     stage
   } = useMobilePagePairedDevices({ stepIdx, setStepIdx })
   const installQrUrl = useMobileInstallQr(stage, platform, iosChannel)
-  const { copyInstallUrl, openInstallUrl } = useMobileInstallActions(platform, iosChannel)
+  const { copyInstallUrl, openAndroidInstallGuide, openInstallUrl } = useMobileInstallActions(
+    platform,
+    iosChannel
+  )
 
   const { generatePairing } = useMobilePairingGeneration({
     connectionMode,
@@ -275,6 +278,7 @@ export default function MobilePage(): React.JSX.Element {
       setIosChannel={setIosChannel}
       loadNetworkInterfaces={() => void loadNetworkInterfaces()}
       networkInterfaces={networkInterfaces}
+      openAndroidInstallGuide={openAndroidInstallGuide}
       openInstallUrl={openInstallUrl}
       pairAnotherDevice={pairAnotherDevice}
       pairLoading={pairLoading}

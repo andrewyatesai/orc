@@ -106,6 +106,7 @@ import {
   type SearchableWorkspaceTab,
   type WorkspaceTabPaletteSearchResult
 } from '@/lib/workspace-tab-palette-search'
+import { AgentIcon } from '@/lib/agent-catalog'
 import { activateWorkspaceTabPaletteResult } from '@/lib/workspace-tab-palette-activation'
 import {
   ORCA_BROWSER_FOCUS_REQUEST_EVENT,
@@ -543,6 +544,7 @@ function WorktreeJumpPaletteContent({
   const groupsByWorktree = useAppStore((s) => s.groupsByWorktree)
   const retainedAgentsByPaneKey = useAppStore((s) => s.retainedAgentsByPaneKey)
   const sleepingAgentSessionsByPaneKey = useAppStore((s) => s.sleepingAgentSessionsByPaneKey)
+  const paneForegroundAgentByPaneKey = useAppStore((s) => s.paneForegroundAgentByPaneKey)
   const settings = useAppStore((s) => s.settings)
   const sshTargetLabels = useAppStore((s) => s.sshTargetLabels)
   const sshConnectionStates = useAppStore((s) => s.sshConnectionStates)
@@ -615,8 +617,6 @@ function WorktreeJumpPaletteContent({
       hostLabelOverrides
     ]
   )
-  const canCreateWorktree = repos.length > 0
-
   const hasQuery = deferredQuery.trim().length > 0
   const isLoading = repos.length > 0 && Object.keys(worktreesByRepo).length === 0
 
@@ -887,7 +887,9 @@ function WorktreeJumpPaletteContent({
       activeFileId,
       activeFileIdByWorktree,
       activeTabTypeByWorktree,
-      generatedTitlesEnabled: settings?.tabAutoGenerateTitle === true
+      generatedTitlesEnabled: settings?.tabAutoGenerateTitle === true,
+      terminalLayoutsByTabId,
+      paneForegroundAgentByPaneKey
     })
   }, [
     activeFileId,
@@ -902,11 +904,13 @@ function WorktreeJumpPaletteContent({
     browserSortedWorktrees,
     groupsByWorktree,
     openFiles,
+    paneForegroundAgentByPaneKey,
     repoMap,
     retainedAgentsByPaneKey,
     settings?.tabAutoGenerateTitle,
     sleepingAgentSessionsByPaneKey,
     tabsByWorktree,
+    terminalLayoutsByTabId,
     unifiedTabsByWorktree,
     worktreeOrder
   ])
@@ -1029,7 +1033,10 @@ function WorktreeJumpPaletteContent({
 
   const recentTabPaneSources = useMemo<TabPaneInputSources>(
     () => ({
-      entriesByTabId: buildExplicitEntriesByTabId(agentStatusByPaneKey, migrationUnsupportedByPtyId),
+      entriesByTabId: buildExplicitEntriesByTabId(
+        agentStatusByPaneKey,
+        migrationUnsupportedByPtyId
+      ),
       ptyIdsByTabId,
       runtimePaneTitlesByTabId,
       terminalLayoutsByTabId
@@ -1383,10 +1390,9 @@ function WorktreeJumpPaletteContent({
   const { createWorktreeName, showCreateAction } = useMemo(
     () =>
       getWorktreePaletteCreateActionState({
-        canCreateWorktree,
         query: deferredQuery
       }),
-    [canCreateWorktree, deferredQuery]
+    [deferredQuery]
   )
 
   const listEntries = useMemo<PaletteListEntry[]>(() => {
@@ -2454,8 +2460,20 @@ function WorktreeJumpPaletteContent({
                   : undefined
                 const workspaceTabRepoName = workspaceTabRepo?.displayName ?? result.repoName
                 const workspaceTabHostBadge = getPaletteHostBadge(workspaceTabRepo, hostOptions)
-                const WorkspaceTabIcon =
-                  result.contentType === 'terminal' ? SquareTerminal : FileText
+                const workspaceTabFallback =
+                  result.contentType === 'terminal' && result.occupantAgent ? (
+                    <span
+                      className="inline-flex"
+                      data-agent-icon={result.occupantAgent}
+                      aria-hidden="true"
+                    >
+                      <AgentIcon agent={result.occupantAgent} size={14} />
+                    </span>
+                  ) : result.contentType === 'terminal' ? (
+                    <SquareTerminal className="size-3.5" aria-hidden="true" />
+                  ) : (
+                    <FileText className="size-3.5" aria-hidden="true" />
+                  )
                 // Why regardless of query: a searched-for tab is exactly when its agent status
                 // matters — the map covers every open tab, not just the frozen recent section.
                 const recentRow = recentTabRowById.get(entry.id) ?? null
@@ -2471,7 +2489,7 @@ function WorktreeJumpPaletteContent({
                       <PaletteRecentTabStatusDot
                         row={recentRow}
                         paneSources={recentTabPaneSources}
-                        fallback={<WorkspaceTabIcon className="size-3.5" aria-hidden="true" />}
+                        fallback={workspaceTabFallback}
                       />
                     </div>
                     <div className="min-w-0 flex-1">
