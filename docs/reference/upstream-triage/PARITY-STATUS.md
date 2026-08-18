@@ -4,6 +4,16 @@ Companion to [TAILING-SYSTEM.md](./TAILING-SYSTEM.md) (the process). This is the
 current *state*: where the fork sits against upstream, and what remains a human
 decision rather than a port. Update the top block on each sync.
 
+## At parity as of upstream `2f0f9a8a39`  _(2026-08-18)_
+The ledger through `2f0f9a8a39` is fully dispositioned; every mechanically-portable
+*missing* item is on `main`.
+
+- **Cadence sync** (`604169f4af..2f0f9a8a39`, +34 commits): 19 portable-missing, **14
+  ported in one wave** (`233bb6b3d4`), 14 n/a, 1 large-feature (HISTFILE feature-channel),
+  0 collides. Census re-baselined (orca-runtime.ts 36901→36903, pty.ts 6411→6433, shim
+  2823) — the STA-517 relay-deadline budget (one dead relay no longer freezes every
+  workspace) + the AgentDetector→AgentSessionTransitionRecorder refactor.
+
 ## At parity as of upstream `604169f4af`  _(2026-08-17)_
 The ledger from base `4dc777f707` (v1.4.143) through `604169f4af` is fully dispositioned,
 and every mechanically-portable *missing* item is on `main`.
