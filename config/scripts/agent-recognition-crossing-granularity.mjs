@@ -20,8 +20,18 @@ const ROOT = new URL('../..', import.meta.url).pathname
 const DISPATCH = `${ROOT}/rust/crates/orca-dispatch/src/modules/agent_recognition.rs`
 
 const arms = [...readFileSync(DISPATCH, 'utf8').matchAll(/"([a-zA-Z]+)" =>/g)].map((m) => m[1])
-const CLASSIFIER_HINTS = ['classify', 'agentTypeFrom', 'resolveAgent', 'titleAgent']
-const classifier = arms.find((arm) => CLASSIFIER_HINTS.some((h) => arm.toLowerCase().includes(h.toLowerCase())))
+
+// The refusal's claim is narrow and checkable: ONLY these three predicates are
+// routed, so no classifier exists to cross instead. Assert the exact set rather
+// than sniffing for classifier-ish NAMES — the first version of this check
+// matched four guessed substrings, which a port naming its arm
+// `agentTypeForTitle` or `detectAgent` would have walked straight past, leaving
+// the census asserting a refusal that had already stopped being true. A tripwire
+// that can silently miss is worse than no tripwire, because it reads as coverage.
+const RECORDED_ARMS = ['titleHasAgentName', 'titleHasAnyLegacyAgentName', 'isExpectedAgentProcess']
+const added = arms.filter((arm) => !RECORDED_ARMS.includes(arm))
+const removed = RECORDED_ARMS.filter((arm) => !arms.includes(arm))
+const changed = added.length > 0 || removed.length > 0
 
 const callCounts = {
   'src/shared/terminal-title-agent-type.ts': 12,
@@ -34,9 +44,17 @@ for (const [file, n] of Object.entries(callCounts)) {
 }
 console.log('  measured: 28.1 ns TS body vs 1810.9 ns wasm seam (65x; object payload, not a bare string)')
 
-console.log(
-  classifier
-    ? `\nA classifier arm exists ("${classifier}") — this refusal is stale. Cross the classifier once\nand let it own the predicates, instead of crossing the predicate a dozen times.`
-    : '\nNo classifier arm. Crossing the predicate would spend ~12 round trips (~21 us) per title\nevent to answer one question. Port the classifier first, then cross that.'
-)
-process.exit(classifier ? 1 : 0)
+if (changed) {
+  console.log('\nThe routed arm set has CHANGED — this refusal is stale, re-check the module.')
+  if (added.length > 0) {
+    console.log(`  added:   ${added.join(', ')}`)
+    console.log('  If one of those is a title classifier, cross IT once and let it own the')
+    console.log('  predicates, instead of crossing the predicate a dozen times.')
+  }
+  if (removed.length > 0) {
+    console.log(`  removed: ${removed.join(', ')}`)
+  }
+  process.exit(1)
+}
+console.log('\nOnly the three predicates are routed. Crossing one would spend ~12 round trips')
+console.log('(~21 us) per title event to answer one question. Port the classifier first.')
