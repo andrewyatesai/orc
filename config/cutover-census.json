@@ -1,0 +1,368 @@
+{
+  "$comment": [
+    "Terminal state of every parity-backed module. The gate",
+    "config/scripts/check-cutover-census.mjs re-checks these CLAIMS against the tree; it does",
+    "not infer them. A module with no entry fails the gate, which is the point — the list",
+    "cannot rot by someone adding a module and forgetting to decide about it.",
+    "states: crossed = TS no longer implements it | retained = a TS impl stays, for the stated",
+    "reason | never = deliberately held out of the shipped artifacts.",
+    "A `check` script must exit 0 while its reason still holds and non-zero once the blocker",
+    "clears, so a refusal expires instead of going stale."
+  ],
+  "modules": {
+    "agent-kind": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "agent-notification-id": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "agent-recognition": {
+      "state": "retained",
+      "reason": "Faithful and affordable per call, but the callers answer one question with a 10-12 call ladder. Port the classifier and cross that once.",
+      "check": "config/scripts/agent-recognition-crossing-granularity.mjs"
+    },
+    "agent-scratch-worktrees": {
+      "state": "crossed",
+      "reason": "agent-scratch-repo-roots.ts; the legacy* matchers are its fallback bodies"
+    },
+    "agent-status-types": {
+      "state": "crossed",
+      "reason": "agent-status-evaluation.ts; the twin import is types.ts"
+    },
+    "agent-tab-title": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "base-ref-search-result": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "branch-name-from-work": {
+      "state": "crossed",
+      "reason": "branch-leaf-naming.ts"
+    },
+    "browser-screencast-protocol": {
+      "state": "retained",
+      "reason": "Screencast frame decode: per-VIDEO-FRAME, and imported by mobile/src/transport/, which never installs a binding — the fallback would be permanent.",
+      "check": "config/scripts/mobile-reach-permanent-fallback.mjs"
+    },
+    "browser-search": {
+      "state": "retained",
+      "reason": "looksLikeSearchQuery IS crossed. buildSearchUrl is not: the core takes no options and would drop the Kagi private-session token.",
+      "check": "config/scripts/browser-search-kagi-session-gap.mjs"
+    },
+    "browser-viewport-presets": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "commit-message-agent-spec": {
+      "state": "crossed",
+      "reason": "twin import is types.ts"
+    },
+    "commit-message-generation": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "commit-message-host-key": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "commit-message-models": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "commit-message-plan": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "commit-message-prompt": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "contextual-tours": {
+      "state": "crossed",
+      "reason": "contextual-tour-id-normalization.ts + contextual-tour-lookup.ts, all three exports"
+    },
+    "cross-platform-path": {
+      "state": "retained",
+      "reason": "isWindowsAbsolutePathLike is called from inside three shims pre-ready fallbacks. A fallback that dispatches is not a fallback.",
+      "check": "config/scripts/list-fallback-load-bearing-exports.mjs"
+    },
+    "effective-upstream": {
+      "state": "crossed",
+      "reason": "git-remote-branch-split.ts"
+    },
+    "feature-education-telemetry": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "feature-interactions": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "feature-tips": {
+      "state": "crossed",
+      "reason": "feature-tip-selection.ts; FEATURE_TIPS stays as its fallback table"
+    },
+    "feature-wall-tour-depth": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "fleet-exceptions": {
+      "state": "crossed",
+      "reason": "git-wasm/fleet-exception-queue.ts; the twin import is a data const"
+    },
+    "fleet-identity": {
+      "state": "retained",
+      "reason": "Zero production consumers: nothing outside src/shared/fleet-identity/ and its own tests imports the directory. Built ahead of R1 (§8), the next unbuilt phase."
+    },
+    "git-publish-target-status": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "git-push-target": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "git-remote-error": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "git-upstream-status": {
+      "state": "crossed",
+      "reason": "git-upstream-reconciliation.ts; twin import is git-status-types.ts"
+    },
+    "github-pr-merge-methods": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "gitlab-pipeline-checks": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "gitlab-projects": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "hook-command-source-policy": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "hosted-review-refs": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "keep-tail": {
+      "state": "never",
+      "reason": "Hot path: update() runs on every pending-data change."
+    },
+    "linear-links": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "mcp-env": {
+      "state": "retained",
+      "reason": "maskMcpEnv and mcp-config.ts inspectMcpConfigContent are LIVE — McpConfigSection.tsx and settings/mcp-config-inspection.ts import them at HEAD. An earlier claim that they were dead read the working tree, where another session has an uncommitted mcp cutover."
+    },
+    "mcp": {
+      "state": "retained",
+      "reason": "A cutover to renderer/lib/git-wasm/mcp-config-content-inspection.ts is IN FLIGHT as another session uncommitted work — the shim is untracked. At HEAD the TS twin is still the live path (McpConfigSection.tsx, settings/mcp-config-inspection.ts). Re-triage when that lands."
+    },
+    "mobile-relay-pairing-offer": {
+      "state": "retained",
+      "reason": "createPairingOfferSchema is a zod schema factory: it returns a validator, not a value. Not a crossable shape."
+    },
+    "nacl-box": {
+      "state": "never",
+      "reason": "Parity-only oracle. Held out so curve25519 does not bloat the relay wasm."
+    },
+    "native-file-drop": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "nested-repo-telemetry": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "network-proxy": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "open-in-applications": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "orchestration-store": {
+      "state": "never",
+      "reason": "Parity-only oracle. Held out so rusqlite does not bloat the relay wasm."
+    },
+    "pairing": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "pi-agent-kind": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "policy": {
+      "state": "retained",
+      "reason": "decideFleetGrant IS wired. decidePlayPath and isAllowedPlayHost are referenced only by play-path-guard.ts itself — the play server they guard is not built yet."
+    },
+    "project-groups": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "protocol-compat": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "provider-backoff": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "pull-request-generation": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "quick-open-filter": {
+      "state": "retained",
+      "reason": "buildExcludePathPrefixes is not a pure function of its arguments — node:path.relative() resolves both operands against process.cwd(). The other three are per-file over an unbounded scan.",
+      "check": "config/scripts/quick-open-filter-crossing-cost.mjs"
+    },
+    "quick-open-rank": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "repo-badge-color": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "repo-icon": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "setup-runner-command": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "setup-script-imports": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "setup-script-telemetry": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "skill-metadata": {
+      "state": "crossed",
+      "reason": "main/skills/rust-skill-metadata.ts; the shared TS parser is deleted"
+    },
+    "source-control-ai": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "ssh-config-parser": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "ssh-g-config": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "stable-pane-id": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "synthetic-agent-title": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "tab-title-resolution": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "tailnet-address": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "task-claim": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "task-providers": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "task-query": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "terminal-fonts": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "terminal-quick-commands": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "terminal-stream-protocol": {
+      "state": "retained",
+      "reason": "Terminal binary framing: per-FRAME on the hottest stream in the app, and imported by mobile/src/transport/, which never installs a binding — the fallback would be permanent.",
+      "check": "config/scripts/mobile-reach-permanent-fallback.mjs"
+    },
+    "terminal-surface-id": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "terminal-tab-id": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "tui-agent-selection": {
+      "state": "crossed",
+      "reason": "tui-agent-selection-resolution.ts; twin import is types.ts"
+    },
+    "tui-agent-startup": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "uri-component": {
+      "state": "retained",
+      "reason": "Mirrors the JS globals encodeURIComponent/decodeURIComponent. There is no dedicated TS file to cut over."
+    },
+    "workspace-cleanup": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "workspace-name": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "workspace-session-schema": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    },
+    "workspace-session-terminal-buffers": {
+      "state": "crossed",
+      "reason": "workspace-session-terminal-buffer-pruning.ts; twin import is types.ts"
+    },
+    "workspace-statuses": {
+      "state": "crossed",
+      "reason": "workspace-status-normalization.ts; twin import is types.ts"
+    },
+    "worktree-id": {
+      "state": "retained",
+      "reason": "A cutover to src/shared/worktree-id-parsing.ts is IN FLIGHT as another session uncommitted work — the shim is untracked. At HEAD all 63 callers still import the twin. The core is correct and 37 vectors pin it, so this lands cheaply once that session resolves."
+    },
+    "worktree-ownership": {
+      "state": "crossed",
+      "reason": "orca-workspace-layouts.ts + worktree-ownership-policy.ts; twin import is types.ts"
+    },
+    "wsl-paths": {
+      "state": "crossed",
+      "reason": "adapter drives the core directly"
+    }
+  }
+}
