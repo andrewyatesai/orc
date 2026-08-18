@@ -20,7 +20,7 @@
     },
     "agent-recognition": {
       "state": "retained",
-      "reason": "Faithful and affordable per call, but the callers answer one question with a 10-12 call ladder. Port the classifier and cross that once.",
+      "reason": "Faithful and affordable per call, but the callers answer one question with a 10-12 call ladder. The unit of work is the CLASSIFIER, not the predicate. A complete port specification — 68 exports, 92 hazards, mapped from HEAD — is at docs/rust-migration/agent-title-classifier-port-spec.md; the port itself is not done.",
       "check": "config/scripts/agent-recognition-crossing-granularity.mjs"
     },
     "agent-scratch-worktrees": {
