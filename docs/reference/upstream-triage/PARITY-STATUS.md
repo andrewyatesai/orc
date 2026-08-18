@@ -4,9 +4,19 @@ Companion to [TAILING-SYSTEM.md](./TAILING-SYSTEM.md) (the process). This is the
 current *state*: where the fork sits against upstream, and what remains a human
 decision rather than a port. Update the top block on each sync.
 
-## At parity as of upstream `b6d5972ec4`  _(2026-08-17)_
-The ledger from base `4dc777f707` (v1.4.143) through `b6d5972ec4` is fully dispositioned,
-and every mechanically-portable *missing* item is on `main`. Three syncs got us here:
+## At parity as of upstream `604169f4af`  _(2026-08-17)_
+The ledger from base `4dc777f707` (v1.4.143) through `604169f4af` is fully dispositioned,
+and every mechanically-portable *missing* item is on `main`.
+
+- **Small cadence sync** (`b6d5972ec4..604169f4af`, +79 commits, ~1 day): the "sync small
+  and often" rule in practice — dispositioned 79 → 38 portable-missing, **all 38 ported in
+  ONE wave and merged as a single batch** (`dafbe3b230`), vs the multi-wave grinds a +300
+  becomes. 21 n/a, 7 superseded, 5 collides, 5 large-feature, 2 native. Census re-baselined
+  (orca-runtime.ts 36628→36901, pty.ts 6382→6411, shim 2823). Orchestration
+  dispatch-invariant/routing/lane commits routed to collides per
+  [orchestration/RECONCILIATION.md](../orchestration/RECONCILIATION.md).
+
+Earlier syncs to `b6d5972ec4` (below) took three passes:
 
 - **Cadence sync** (`09ec516ae5..b6d5972ec4`, +300 commits): dispositioned 299 → 132
   portable-missing (3 high · 67 med · 62 low), 109 n/a (the max-lines refactor campaign +
