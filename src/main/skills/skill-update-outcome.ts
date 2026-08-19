@@ -2,7 +2,6 @@ import {
   SUPPORTED_GLOBAL_SKILL_TOPOLOGIES,
   type SkillFreshnessInstallation
 } from '../../shared/skill-freshness'
-import { matchesUpdaterLock } from './skill-update-registration'
 
 /**
  * Names that did not land, judged from the post-run inventory.
@@ -54,5 +53,9 @@ function skillPlacementLanded(
   // yet. Everything else unrecognized (half-written, no lock entry, mismatch)
   // still fails, and `outdated` is never forgiven: lock == disk there means the
   // command provably wrote nothing.
-  return entry.status === 'unrecognized' && matchesUpdaterLock(entry, lockHash)
+  return (
+    entry.status === 'unrecognized' &&
+    lockHash !== undefined &&
+    entry.observedGitTreeSha === lockHash
+  )
 }

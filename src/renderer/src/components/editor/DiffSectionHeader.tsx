@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, ExternalLink, Eye } from 'lucide-react'
+import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react'
 import type { MouseEvent, ReactElement, ReactNode } from 'react'
 import { translate } from '@/i18n/i18n'
 
@@ -11,7 +11,6 @@ export function DiffSectionHeader({
   onToggle,
   onOpenSection,
   openSectionTitle,
-  onOpenPreview,
   trailingContent
 }: {
   path: string
@@ -22,7 +21,6 @@ export function DiffSectionHeader({
   onToggle: () => void
   onOpenSection: (event: MouseEvent) => void
   openSectionTitle: string
-  onOpenPreview?: (event: MouseEvent) => void
   trailingContent?: ReactNode
 }): ReactElement {
   return (
@@ -73,39 +71,10 @@ export function DiffSectionHeader({
       </span>
       <div className="flex items-center gap-1 shrink-0 ml-2">
         {trailingContent}
-        {onOpenPreview != null && (
-          <button
-            type="button"
-            // Why: always visible (not hover-reveal) so HTML preview matches the
-            // single-file editor header and stays usable without hover (touch).
-            className="p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors"
-            onClick={(event) => {
-              // Why: header owns stopPropagation so callers cannot forget and toggle the section.
-              event.stopPropagation()
-              onOpenPreview(event)
-            }}
-            title={translate(
-              'auto.components.editor.EditorPanelHeader.fb8331694e',
-              'Open Preview to the Side'
-            )}
-            aria-label={translate(
-              'auto.components.editor.EditorPanelHeader.fb8331694e',
-              'Open Preview to the Side'
-            )}
-          >
-            <Eye className="size-3.5" />
-          </button>
-        )}
         <button
-          // Why: always visible so open-file matches Eye preview and works without hover (touch).
-          type="button"
-          className="p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors"
-          onClick={(event) => {
-            event.stopPropagation()
-            onOpenSection(event)
-          }}
+          className="p-0.5 rounded text-muted-foreground hover:text-foreground can-hover:opacity-0 group-hover:opacity-100 transition-opacity"
+          onClick={onOpenSection}
           title={openSectionTitle}
-          aria-label={openSectionTitle}
         >
           <ExternalLink className="size-3.5" />
         </button>

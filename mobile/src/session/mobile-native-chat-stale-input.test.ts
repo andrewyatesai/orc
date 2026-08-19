@@ -7,7 +7,6 @@ import {
   markMobileNativeChatInputStale,
   resetMobileNativeChatStaleInputForTests
 } from './mobile-native-chat-stale-input'
-import { AGENT_TUI_CLEAR_INPUT_MAX } from '../../../src/shared/agent-tui-input-clear'
 
 function sendResult(accepted: boolean) {
   return {
@@ -52,7 +51,7 @@ describe('mobile native chat stale input markers', () => {
     expect(client.sendRequest).toHaveBeenCalledTimes(1)
     expect(vi.mocked(client.sendRequest).mock.calls[0]?.[1]).toMatchObject({
       terminal: 'term-1',
-      text: AGENT_TUI_CLEAR_INPUT_MAX,
+      text: '\x15',
       enter: false,
       client: { id: 'device', type: 'mobile' }
     })

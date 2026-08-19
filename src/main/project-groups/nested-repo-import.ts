@@ -1,5 +1,13 @@
 import type { NestedRepoScanResult, ProjectGroup, ProjectGroupImportMode } from '../../shared/types'
-import { getRuntimePathBasename, isPathInsideOrEqual, isRuntimePathAbsolute, normalizeRuntimePathForComparison, relativePathInsideRoot, resolveRuntimePath } from '../../shared/cross-platform-path-resolution'
+import {
+  getRuntimePathBasename,
+  isPathInsideOrEqual,
+  isRuntimePathAbsolute,
+  normalizeRuntimePathForComparison,
+  relativePathInsideRoot,
+  resolveRuntimePath
+} from '../../shared/cross-platform-path-resolution'
+
 type CreateGroupInput = {
   name: string
   parentPath?: string | null

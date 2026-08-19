@@ -11,7 +11,6 @@ type TerminalLiveInputCommitHarness = {
   readonly handlers: ReturnType<typeof useTerminalLiveInputCommit<string>>
   readonly sent: readonly string[]
   readonly setActiveSessionTabType: (next: string | undefined) => void
-  readonly setConnected: (next: boolean) => void
   readonly unmount: () => void
 }
 
@@ -56,7 +55,6 @@ function createTerminalLiveInputCommitHarness({
   // The hook keeps live-input state in refs, so a change handler alone never
   // re-renders; only a prop change (this variable) re-runs the pending-clear effect.
   let currentActiveSessionTabType: string | undefined = 'terminal'
-  let currentConnected = true
   let handlers: ReturnType<typeof useTerminalLiveInputCommit<string>> | null = null
   let renderer: ReactTestRenderer | null = null
 
@@ -66,7 +64,6 @@ function createTerminalLiveInputCommitHarness({
       activeHandleRef,
       activeSessionTabType: currentActiveSessionTabType,
       activeSessionTabTypeRef,
-      connected: currentConnected,
       liveInputRef,
       liveInputTerminalHandles,
       liveInputTerminalHandlesRef,
@@ -97,12 +94,6 @@ function createTerminalLiveInputCommitHarness({
       // Ref and prop derive from the same activeSessionTab in the real route, so
       // they go null together during tab-list lag — keep the harness coupled.
       activeSessionTabTypeRef.current = next ?? null
-      act(() => {
-        renderer?.update(createElement(Harness))
-      })
-    },
-    setConnected: (next: boolean): void => {
-      currentConnected = next
       act(() => {
         renderer?.update(createElement(Harness))
       })
@@ -347,19 +338,6 @@ describe('terminal live input commit hook', () => {
     handlers.handleLiveInputSubmit()
 
     // Then: pending was dropped, so submit sends only the carriage return
-    await vi.waitFor(() => expect(sent).toEqual(['\r']))
-  })
-
-  it('Given held text When the connection drops Then clears the mirror so nothing replays after reconnect', async () => {
-    // Given: '한' held over a live terminal (#6713)
-    const { handlers, sent, setConnected } = createTerminalLiveInputCommitHarness()
-    handlers.handleLiveInputChange('한')
-
-    // When: the socket is cut — what reached the PTY is now unknowable
-    setConnected(false)
-    handlers.handleLiveInputSubmit()
-
-    // Then: the stale mirror was dropped, so submit sends only the carriage return
     await vi.waitFor(() => expect(sent).toEqual(['\r']))
   })
 })

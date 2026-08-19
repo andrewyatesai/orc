@@ -2,13 +2,13 @@
 // core via napi (the shared TS impl was gutted to types + data). One source of
 // truth with the parity-proven Rust port; main only consumes the guard and the
 // settings normalizer, so those are the sole exports here.
-import { requireRustGitBinding } from './daemon/rust-git-addon'
+import { dispatchToRustCore } from './rust-core-dispatch'
 import type { TaskProvider } from '../shared/task-providers'
 
+// Why 'omit': the settings normalizer's two fields are `unknown` off persisted
+// settings, where an unset provider arrives as undefined and means "not stored".
 function dispatch(fn: string, input: unknown): unknown {
-  return JSON.parse(
-    requireRustGitBinding().orcaDispatch('task-providers', fn, JSON.stringify(input ?? null))
-  )
+  return dispatchToRustCore('task-providers', fn, input, { undefinedProperties: 'omit' })
 }
 
 export function isTaskProvider(value: unknown): value is TaskProvider {

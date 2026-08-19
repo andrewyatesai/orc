@@ -6,6 +6,7 @@ import {
 } from './agent-hook-listener'
 import { MAX_AGENT_HOOK_STATUS_CACHE_PANES } from './agent-hook-status-cache'
 import { makePaneKey } from './stable-pane-identity'
+
 const LEAF_ID = '11111111-1111-4111-8111-111111111111'
 
 function claudeEvent(

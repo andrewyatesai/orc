@@ -706,43 +706,6 @@ describe('scanRemoteAiVaultSessions', () => {
       'scoped-session'
     ])
   })
-
-  it('bounds the remote scan by limit but scans every session when unlimited', async () => {
-    const provider = new MemoryRemoteProvider()
-    const sessions = [
-      { id: 'sess-new', timestamp: '2026-07-04T03:00:00.000Z', mtime: 30 },
-      { id: 'sess-mid', timestamp: '2026-07-04T02:00:00.000Z', mtime: 20 },
-      { id: 'sess-old', timestamp: '2026-07-04T01:00:00.000Z', mtime: 10 }
-    ]
-    for (const session of sessions) {
-      provider.addFile(
-        `/home/ada/.codex/sessions/${session.id}.jsonl`,
-        codexTranscript({
-          sessionId: session.id,
-          title: session.id,
-          cwd: '/home/ada/repo',
-          timestamp: session.timestamp
-        }),
-        session.mtime
-      )
-    }
-    const base = {
-      provider,
-      executionHostId: 'ssh:dev-box' as const,
-      remoteHome: '/home/ada',
-      hostPlatform: getRemoteHostPlatform('linux-x64')
-    }
-
-    const bounded = await scanRemoteAiVaultSessions({ ...base, limit: 2 })
-    expect(bounded.sessions.map((session) => session.sessionId)).toEqual(['sess-new', 'sess-mid'])
-
-    const unlimited = await scanRemoteAiVaultSessions({ ...base, limit: 2, unlimited: true })
-    expect(unlimited.sessions.map((session) => session.sessionId)).toEqual([
-      'sess-new',
-      'sess-mid',
-      'sess-old'
-    ])
-  })
 })
 
 function codexTranscript(args: {

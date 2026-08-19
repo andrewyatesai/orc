@@ -3,7 +3,7 @@ import type { GlobalSettings, OrcaWorkspaceLayout, Repo } from '../../shared/typ
 import { isWindowsAbsolutePathLike } from '../../shared/cross-platform-path'
 import { resolveRuntimePath } from '../../shared/cross-platform-path-resolution'
 import { isWslUncPath } from '../../shared/wsl-unc-paths'
-import { splitWorktreeId } from '../../shared/worktree-id'
+import { splitWorktreeId } from '../../shared/worktree-id-parsing'
 import { getWslHome, parseWslPath } from '../wsl'
 
 type WorktreePathSettings = Pick<GlobalSettings, 'nestWorkspaces' | 'workspaceDir'>

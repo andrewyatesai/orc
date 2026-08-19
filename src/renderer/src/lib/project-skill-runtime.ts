@@ -1,7 +1,6 @@
 import type { ProjectExecutionRuntimeResolution } from '../../../shared/project-execution-runtime'
 import type { SkillDiscoveryTarget } from '../../../shared/skills'
 import type { GlobalSettings } from '../../../shared/types'
-import { resolveWindowsShellStartupFamily } from '../../../shared/windows-terminal-shell'
 import { translate } from '@/i18n/i18n'
 
 export type ProjectAgentSkillRuntime = {
@@ -49,11 +48,7 @@ export function getProjectAgentSkillTerminalShellOverride(
   if (runtime?.runtime === 'wsl') {
     return 'powershell.exe'
   }
-  // Why: generated skill commands are PowerShell/cmd syntax, so a POSIX-family
-  // Windows shell (wsl.exe, Git Bash) would mangle the wrapper we hand it.
-  return resolveWindowsShellStartupFamily(settings?.terminalWindowsShell) === 'posix'
-    ? 'powershell.exe'
-    : undefined
+  return settings?.terminalWindowsShell.toLowerCase() === 'wsl.exe' ? 'powershell.exe' : undefined
 }
 
 export function getProjectSkillInstallDisabledReason(

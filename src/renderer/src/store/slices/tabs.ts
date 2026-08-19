@@ -1828,7 +1828,6 @@ export const createTabsSlice: StateCreator<AppState, [], [], TabsSlice> = (set, 
                 ? { quickCommandLabel: tab.quickCommandLabel.trim() }
                 : {}),
               ...(tab.generatedTitle?.trim() ? { generatedLabel: tab.generatedTitle.trim() } : {}),
-              ...(tab.aiVaultTitle ? { aiVaultTitle: tab.aiVaultTitle } : {}),
               customLabel: tab.customTitle,
               color: tab.color,
               sortOrder: tab.sortOrder,

@@ -2,8 +2,7 @@ import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketServer } from 'ws'
 import { generateKeyPair, publicKeyToBase64 } from './e2ee-crypto'
-import type { PairingOffer } from './pairing'
-import { encodePairingOffer, parsePairingCode } from './pairing-deep-link'
+import { encodePairingOffer, parsePairingCode, type PairingOffer } from './pairing-deep-link'
 import { sendRemoteRuntimeRequest, subscribeRemoteRuntimeRequest } from './remote-runtime-client'
 import {
   REMOTE_RUNTIME_MAX_PENDING_REQUESTS,

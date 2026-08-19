@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type {
-  SshTarget,
-  SshConnectionState,
-  SshConnectionStatus,
-  SshProviderEpoch
-} from './ssh-types'
+import type { SshTarget, SshConnectionState, SshConnectionStatus } from './ssh-types'
 
 describe('SSH types', () => {
   it('SshTarget has required fields', () => {
@@ -38,14 +33,10 @@ describe('SSH types', () => {
       targetId: 'target-1',
       status: 'connected',
       error: null,
-      reconnectAttempt: 0,
-      providerEpoch: 'provider-a' as SshProviderEpoch,
-      connectionGeneration: 1
+      reconnectAttempt: 0
     }
     expect(state.status).toBe('connected')
     expect(state.error).toBeNull()
-    expect(state.providerEpoch).toBe('provider-a')
-    expect(state.connectionGeneration).toBe(1)
   })
 
   it('Repo.connectionId is optional for backward compatibility', () => {

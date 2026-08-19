@@ -80,8 +80,6 @@ export class SshPtyProvider implements IPtyProvider {
 
   getConnectionId = (): string => this.connectionId
 
-  canProvideAuthoritativeBufferSnapshot = (_id: string): boolean => false
-
   private toRelayPtyId(id: string): string {
     return toRelaySshPtyId(this.connectionId, id)
   }

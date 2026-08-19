@@ -184,7 +184,7 @@ vi.mock('@/components/link-routing-preference-dialog', () => ({
 
 import TerminalPane from './TerminalPane'
 import { useAppStore } from '@/store'
-import { getRepoIdFromWorktreeId } from '../../../../shared/worktree-id'
+import { getRepoIdFromWorktreeId } from '../../../../shared/worktree-id-parsing'
 
 const WORKTREE_ID = 'repo-1::/tmp/repo-wt'
 const REPO_ID = getRepoIdFromWorktreeId(WORKTREE_ID)

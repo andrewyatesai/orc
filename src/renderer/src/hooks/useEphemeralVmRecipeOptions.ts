@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { LOCAL_EXECUTION_HOST_ID, type ExecutionHostId } from '../../../shared/execution-host'
 import type { OrcaVmRecipe } from '../../../shared/types'
 
 type EphemeralVmRecipeOptionsArgs = {
@@ -7,7 +6,6 @@ type EphemeralVmRecipeOptionsArgs = {
   repoId: string | null
   repoIsGit: boolean
   repoConnectionId: string | null
-  repoExecutionHostId: ExecutionHostId | null
   projectGroupTarget: boolean
   initialRecipeId?: string
 }
@@ -27,7 +25,6 @@ export function useEphemeralVmRecipeOptions(args: EphemeralVmRecipeOptionsArgs):
     Boolean(args.repoId) &&
     args.repoIsGit &&
     !args.repoConnectionId &&
-    args.repoExecutionHostId === LOCAL_EXECUTION_HOST_ID &&
     !args.projectGroupTarget
 
   const load = useCallback(

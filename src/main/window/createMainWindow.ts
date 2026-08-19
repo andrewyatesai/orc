@@ -10,7 +10,6 @@ import {
   screen
 } from 'electron'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { is } from '@electron-toolkit/utils'
 import type { Store } from '../persistence'
 import { getAppIconPath } from '../app-icon'
@@ -19,9 +18,7 @@ import { browserSessionRegistry } from '../browser/browser-session-registry'
 import { translateMain } from '../i18n/main-i18n'
 import { normalizeBrowserNavigationUrl } from '../../shared/browser-url'
 import { ORCA_BROWSER_GUEST_WEB_PREFERENCES } from '../../shared/browser-guest-web-preferences'
-import { BROWSER_WINDOW_CLOSE_ALLOWED_PRELOAD } from '../../shared/browser-window-close-policy'
 import { isCrashReportReason } from '../../shared/crash-reporting'
-import { markSystemSessionEnding } from '../crash-reporting/expected-teardown-state'
 import { trackRendererProcessGone } from '../telemetry/fork-reliability-events'
 import {
   DEFAULT_RENDERER_RECOVERY_MAX_RECOVERIES,
@@ -311,13 +308,6 @@ export function createMainWindow(
   // Why: native paste fallback is privileged IPC; only the top-level renderer may request it.
   setTrustedUIRendererWebContentsId(rendererWebContentsId)
 
-  // Why: unlike query-session-end, session-end can't be canceled, so an OS shutdown/restart
-  // that tears down the renderer is expected teardown — record it so the killed renderer that
-  // follows isn't mis-filed as a crash. Windows-only; other platforms never emit this signal.
-  if (process.platform === 'win32') {
-    mainWindow.on('session-end', markSystemSessionEnding)
-  }
-
   // Why: under E2E headless the main window stays hidden, and a hidden window
   // throttles requestAnimationFrame to near-zero on Linux/Windows — starving the
   // aterm draw scheduler the pixel-assertion specs depend on. Disable throttling
@@ -473,8 +463,6 @@ export function createMainWindow(
     mainWindow.webContents.send('window:minimized-changed', false)
   })
 
-  const browserWindowClosePreload = join(outMainDirectory(), 'browser-window-close-preload.js')
-  const browserWindowCloseAllowedPreloadPath = fileURLToPath(BROWSER_WINDOW_CLOSE_ALLOWED_PRELOAD)
   installPrivilegedWindowNavigationPolicy(mainWindow.webContents)
   mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
     const src = typeof params.src === 'string' ? params.src : ''
@@ -487,19 +475,7 @@ export function createMainWindow(
       return
     }
 
-    // Why: CLI pages opt into Chromium's native window.close via an explicit marker preload; everyone else gets the guard.
-    const allowWindowClose = [params.preload, webPreferences.preload].some(
-      (preload) =>
-        preload === BROWSER_WINDOW_CLOSE_ALLOWED_PRELOAD ||
-        preload === browserWindowCloseAllowedPreloadPath
-    )
-    delete params.preload
-    if (allowWindowClose) {
-      delete webPreferences.preload
-    } else {
-      // Why: this preload runs in the page's main world before inline scripts can call window.close().
-      webPreferences.preload = browserWindowClosePreload
-    }
+    delete webPreferences.preload
     // Why: older Electron builds expose preloadURL alongside preload; delete both so the guest can't inherit the main preload bridge.
     delete (webPreferences as Record<string, unknown>).preloadURL
     webPreferences.nodeIntegration = false

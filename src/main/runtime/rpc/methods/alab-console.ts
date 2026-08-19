@@ -16,7 +16,7 @@ import { z } from 'zod'
 import { defineMethod, type RpcAnyMethod } from '../core'
 import { countRunTasks } from '../../orchestration/run-progress'
 import { getStatus } from '../../../git/status'
-import { splitWorktreeIdForFilesystem } from '../../../../shared/worktree-id'
+import { splitWorktreeIdForFilesystem } from '../../../../shared/worktree-id-parsing'
 import {
   describeTaskClaimReconciliation,
   reconcileTaskClaim
@@ -210,6 +210,8 @@ export const ALAB_CONSOLE_METHODS: RpcAnyMethod[] = [
         // never to `mismatch`. That distinction is the whole reason a supervisor
         // can trust this row.
         reconciliations: tasks.map((task) => {
+          // Both calls read the same claim: the core composes the summary
+          // through its own reconcile, so it cannot describe a different row.
           const claim = {
             taskStatus: task.status,
             result: task.result,

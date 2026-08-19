@@ -33,13 +33,8 @@ const transport: RemoteServerUpdateTransport = {
     window.api.runtimeEnvironments
       .getStatus({ selector: environmentId, timeoutMs })
       .then((response) => unwrapRuntimeRpcResult<RuntimeStatus>(response)),
-  getUpdaterStatus: (environmentId, timeoutMs) =>
-    callRemoteUpdater<RemoteServerUpdaterSnapshot>(
-      environmentId,
-      'updater.getStatus',
-      undefined,
-      timeoutMs
-    ),
+  getUpdaterStatus: (environmentId) =>
+    callRemoteUpdater<RemoteServerUpdaterSnapshot>(environmentId, 'updater.getStatus'),
   check: (environmentId, options) =>
     callRemoteUpdater<RemoteServerUpdaterSnapshot>(environmentId, 'updater.check', options),
   download: (environmentId) =>

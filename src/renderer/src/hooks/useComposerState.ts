@@ -17,7 +17,10 @@ import { activateAndRevealWorktree, type AgentStartedTelemetry } from '@/lib/wor
 import { runBackgroundWorktreeCreation } from '@/lib/worktree-creation-flow'
 import type { WorktreeCreationRequest } from '@/lib/pending-worktree-creation'
 import { buildAgentDraftLaunchPlan, buildAgentStartupPlan } from '@/lib/tui-agent-startup'
-import { filterEnabledTuiAgents, isTuiAgentEnabled } from '../../../shared/tui-agent-selection-resolution'
+import {
+  filterEnabledTuiAgents,
+  isTuiAgentEnabled
+} from '../../../shared/tui-agent-selection-resolution'
 import {
   buildPersonalizedAgentPrompt,
   resolveAgentPersonalizationPrompt
@@ -144,7 +147,6 @@ import { useFolderWorkspaceComposerPathStatus } from '@/components/sidebar/folde
 import { submitFolderWorkspaceCreate } from '@/components/sidebar/folder-workspace-composer-submit'
 import { buildExecutionHostRegistry } from '../../../shared/execution-host-registry'
 import {
-  getRepoExecutionHostId,
   normalizeExecutionHostId,
   parseExecutionHostId,
   type ExecutionHostId
@@ -839,7 +841,6 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
     repoId: selectedRecipeRepoId,
     repoIsGit: selectedRepoIsGit,
     repoConnectionId: selectedRecipeRepoConnectionId,
-    repoExecutionHostId: selectedRepo ? getRepoExecutionHostId(selectedRepo) : null,
     projectGroupTarget: isProjectGroupTarget,
     initialRecipeId: initialEphemeralVmRecipeId
   })
@@ -2517,7 +2518,10 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
   const handleRepoChange = useCallback(
     (
       value: string,
-      options: { preserveStartFrom?: boolean; forceResetStartFrom?: boolean } = {}
+      options: {
+        preserveStartFrom?: boolean
+        forceResetStartFrom?: boolean
+      } = {}
     ): void => {
       setProjectError(null)
       if (value === repoId && !options.forceResetStartFrom) {
@@ -2944,7 +2948,11 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
                 : {})
             })
           : callRuntimeRpc<
-              | { baseBranch: string; compareBaseRef?: string; pushTarget?: GitPushTarget }
+              | {
+                  baseBranch: string
+                  compareBaseRef?: string
+                  pushTarget?: GitPushTarget
+                }
               | { error: string }
             >(
               target,

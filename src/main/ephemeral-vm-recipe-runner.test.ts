@@ -2,8 +2,8 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { PAIRING_OFFER_VERSION } from '../shared/pairing'
 import { encodePairingOffer } from '../shared/pairing-deep-link'
+import { PAIRING_OFFER_VERSION } from '../shared/pairing'
 import { getEphemeralVmRecipeResultProjectRoot } from '../shared/ephemeral-vm-recipes'
 import {
   buildEphemeralVmRecipeCleanupCommand,

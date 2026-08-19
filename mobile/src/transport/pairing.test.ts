@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { decodePairingUrl, extractPairingCodeFromUrl } from './pairing'
-import { parsePairingCode } from './pairing-deep-link'
+import { decodePairingUrl, extractPairingCodeFromUrl, parsePairingCode } from './pairing'
 import type { PairingOffer } from './types'
 
 const offer: PairingOffer = {

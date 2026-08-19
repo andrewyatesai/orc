@@ -1,6 +1,10 @@
 import { classifyTitleActivity } from './pane-agent-evidence'
 import type { ParsedAgentStatusPayload } from '../../../shared/agent-status-types'
-import { getSyntheticAgentTerminalTitle, getSyntheticAgentTitleProfile } from '../../../shared/synthetic-agent-title-resolution'
+import {
+  getSyntheticAgentTerminalTitle,
+  getSyntheticAgentTitleProfile
+} from '../../../shared/synthetic-agent-title-resolution'
+
 export function resolveAgentStatusTerminalTitle(
   payload: Pick<ParsedAgentStatusPayload, 'agentType' | 'state'>,
   currentTitle: string | undefined

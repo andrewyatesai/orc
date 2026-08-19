@@ -4,7 +4,7 @@ import {
   getLocalProjectWorktreeGitOptions,
   type LocalProjectWorktreeGitOptions
 } from '../project-runtime-git-options'
-import { splitWorktreeId } from '../../shared/worktree-id'
+import { splitWorktreeId } from '../../shared/worktree-id-parsing'
 
 function comparableLocalPath(value: string): string {
   const normalized = resolve(value)

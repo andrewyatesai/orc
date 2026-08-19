@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as ReactModule from 'react'
-import type * as TuiAgentSelectionModule from '../../../../shared/tui-agent-selection'
+import type * as TuiAgentSelectionModule from '../../../../shared/tui-agent-selection-resolution'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
 import { FloatingTerminalWindowControls } from './FloatingTerminalWindowControls'
 
@@ -61,7 +61,7 @@ vi.mock('@/lib/telemetry', () => ({
   tuiAgentToAgentKind: () => 'claude'
 }))
 
-vi.mock('../../../../shared/tui-agent-selection', async (importOriginal) => {
+vi.mock('../../../../shared/tui-agent-selection-resolution', async (importOriginal) => {
   const actual = await importOriginal<typeof TuiAgentSelectionModule>()
   return {
     ...actual,

@@ -1,6 +1,9 @@
-import { isPathInsideOrEqual, isRuntimePathAbsolute } from '../../../src/shared/cross-platform-path-resolution'
+import {
+  isPathInsideOrEqual,
+  isRuntimePathAbsolute
+} from '../../../src/shared/cross-platform-path-resolution'
 import { parseWslUncPath } from '../../../src/shared/wsl-unc-paths'
-import { splitWorktreeIdForFilesystem } from '../../../src/shared/worktree-id'
+import { splitWorktreeIdForFilesystem } from '../../../src/shared/worktree-id-parsing'
 import type { AiVaultSession } from '../../../src/shared/ai-vault-types'
 import type { Worktree } from '../worktree/workspace-list-types'
 

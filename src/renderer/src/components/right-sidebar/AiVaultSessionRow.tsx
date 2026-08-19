@@ -14,7 +14,6 @@ import { SessionInlineDetails } from './AiVaultSessionDetails'
 import { latestSessionConversationTurn } from './ai-vault-session-display'
 import { SessionActionMenuItems } from './AiVaultSessionActionMenuItems'
 import { SessionRowTrailingActions } from './SessionRowTrailingActions'
-import { aiVaultSessionDeleteBlockedReason } from './ai-vault-session-deletability'
 import type { AiVaultSessionResumeActions } from './ai-vault-session-resume'
 import {
   shouldShowAiVaultSessionWorktreeLine,
@@ -52,8 +51,7 @@ export function VaultSessionRow({
   onCopyPath,
   onOpenLog,
   onRevealLog,
-  onOpenCwd,
-  onDeleteSession
+  onOpenCwd
 }: {
   session: AiVaultSession
   liveState: AgentStatusState | null
@@ -79,12 +77,8 @@ export function VaultSessionRow({
   onOpenLog?: () => void
   onRevealLog?: () => void
   onOpenCwd?: () => void
-  onDeleteSession?: (session: AiVaultSession) => void
 }) {
   const updatedAt = session.updatedAt ?? session.modifiedAt
-  const onDelete = onDeleteSession ? () => onDeleteSession(session) : undefined
-  // Computed once per row so the dropdown and context menus can never disagree.
-  const deleteBlockedReason = onDelete ? aiVaultSessionDeleteBlockedReason(session) : undefined
   const detailsId = getSessionDetailsId(session.id)
   const latestTurn = latestSessionConversationTurn(session)
   const detailsTooltip = detailsExpanded
@@ -172,8 +166,6 @@ export function VaultSessionRow({
               onOpenLog={onOpenLog}
               onRevealLog={onRevealLog}
               onOpenCwd={onOpenCwd}
-              deleteBlockedReason={deleteBlockedReason}
-              onDelete={onDelete}
             />
           </div>
           {detailsExpanded && shouldShowAiVaultSessionWorktreeLine(worktreeInfo, { vaultScope }) ? (
@@ -238,8 +230,6 @@ export function VaultSessionRow({
           onOpenLog={onOpenLog}
           onRevealLog={onRevealLog}
           onOpenCwd={onOpenCwd}
-          deleteBlockedReason={deleteBlockedReason}
-          onDelete={onDelete}
         />
       </ContextMenuContent>
     </ContextMenu>

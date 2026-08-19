@@ -2,13 +2,13 @@
 // task_query port via napi (the shared TS impl was deleted). One source of truth
 // with the parity-proven Rust port — the GitHub client parses the saved search
 // string through the same core the renderer runs via wasm.
-import { requireRustGitBinding } from './daemon/rust-git-addon'
+import { dispatchToRustCore } from './rust-core-dispatch'
 import type { ParsedTaskQuery, TaskQueryFilterKey } from '../shared/task-query'
 
+// ParsedTaskQuery is a closed record (every field required, absences spelled
+// `null`), so no undefined-property relaxation is warranted.
 function dispatch(fn: string, input: unknown): unknown {
-  return JSON.parse(
-    requireRustGitBinding().orcaDispatch('task-query', fn, JSON.stringify(input ?? null))
-  )
+  return dispatchToRustCore('task-query', fn, input)
 }
 
 export function tokenizeSearchQuery(rawQuery: string): string[] {

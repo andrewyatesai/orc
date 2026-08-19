@@ -81,7 +81,6 @@ function createUIStore(): StoreApi<AppState> {
     rightSidebarOpen: false,
     rightSidebarWidth: 280,
     markdownTocPanelWidth: 240,
-    combinedDiffFileTreeWidth: 256,
     rightSidebarTab: 'explorer',
     rightSidebarExplorerView: 'files',
     ...createSettingsSearchState(args[0]),
@@ -1178,16 +1177,6 @@ describe('createUISlice hydratePersistedUI', () => {
     expect(store.getState().markdownTocPanelWidth).toBe(200)
   })
 
-  it('clamps persisted combined diff file tree widths into the supported range', () => {
-    const store = createUIStore()
-
-    store.getState().hydratePersistedUI(makePersistedUI({ combinedDiffFileTreeWidth: 100 }))
-    expect(store.getState().combinedDiffFileTreeWidth).toBe(200)
-
-    store.getState().hydratePersistedUI(makePersistedUI({ combinedDiffFileTreeWidth: 5_000 }))
-    expect(store.getState().combinedDiffFileTreeWidth).toBe(640)
-  })
-
   it('preserves right sidebar widths above the former 500px cap', () => {
     const store = createUIStore()
 
@@ -1869,29 +1858,6 @@ describe('createUISlice hydratePersistedUI', () => {
 })
 
 describe('createUISlice settings navigation', () => {
-  it('accepts a valid fork-specific navigation target', () => {
-    const store = createUIStore()
-
-    store.getState().openSettingsTarget({ pane: 'terminal-engine', repoId: null })
-
-    expect(store.getState().settingsNavigationTarget).toEqual({
-      pane: 'terminal-engine',
-      repoId: null
-    })
-  })
-
-  it('rejects malformed settings targets before storing them', () => {
-    const store = createUIStore()
-    const openSettingsTarget = store.getState().openSettingsTarget as unknown as (
-      target: unknown
-    ) => void
-
-    expect(() => openSettingsTarget({ page: 'orchestration' })).toThrowError(
-      'openSettingsTarget received an invalid navigation target'
-    )
-    expect(store.getState().settingsNavigationTarget).toBeNull()
-  })
-
   it('prefetches the restored default task source when provider settings drifted', () => {
     const store = createUIStore()
     const prefetchWorkItems = vi.fn()

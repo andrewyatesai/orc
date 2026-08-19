@@ -584,18 +584,14 @@ describe('createPtySubprocess', () => {
     }
 
     // Fork divergence from upstream (#8985): an unprepared spawn boundary must
-    // fail closed to the login(1) TCC wrap, never open to a direct spawn. The
-    // bash trampoline (#12562) replaced the env(1) SHELL interposition.
+    // fail closed to the login(1) TCC wrap, never open to a direct spawn.
     expect(spawnMock).toHaveBeenCalledWith(
       '/usr/bin/login',
       expect.arrayContaining([
         '-flpq',
-        '/bin/bash',
-        '--noprofile',
-        '--norc',
-        '-p',
-        '-c',
-        'orca-tcc-login'
+        '/usr/bin/env',
+        expect.stringMatching(/^SHELL=/),
+        '/bin/bash'
       ]),
       expect.objectContaining({ cwd: originalCwd })
     )

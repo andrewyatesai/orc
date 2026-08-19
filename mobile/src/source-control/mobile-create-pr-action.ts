@@ -1,4 +1,7 @@
-import type { HostedReviewCreationEligibility } from '../../../src/shared/hosted-review'
+import type {
+  HostedReviewCreationBlockedReason,
+  HostedReviewCreationEligibility
+} from '../../../src/shared/hosted-review'
 import { supportsHostedReviewCreation } from '../../../src/shared/hosted-review-creation-providers'
 import { hostedReviewCopy } from './hosted-review-copy'
 import { getMobilePrCreateBlockMessage } from './mobile-pr-create'
@@ -26,6 +29,13 @@ export type BuildMobileCreatePrActionArgs = {
   onCreatePr: (pushFirst: boolean) => void
 }
 
+const HIDDEN_BLOCKED_REASONS = new Set<HostedReviewCreationBlockedReason>([
+  'detached_head',
+  'existing_review',
+  'unsupported_provider',
+  null
+])
+
 const BUSY_ACTIONS = new Set(['create-pr', 'push-create-pr'])
 
 function hiddenAction(onPress: () => void): MobileCreatePrAction {
@@ -46,42 +56,18 @@ export function buildMobileCreatePrAction({
   onCreatePr
 }: BuildMobileCreatePrActionArgs): MobileCreatePrAction {
   const noop = () => {}
-  if (!branch || eligibilityState.kind === 'idle') {
+  if (!branch || eligibilityState.kind === 'idle' || eligibilityState.kind === 'error') {
     return hiddenAction(noop)
-  }
-  if (eligibilityState.kind === 'error') {
-    return {
-      visible: true,
-      label: 'Review status unavailable',
-      disabled: true,
-      loading: false,
-      pushFirst: false,
-      onPress: noop
-    }
   }
   const eligibility = eligibilityState.eligibility
   if (!eligibility) {
-    return {
-      visible: true,
-      label: 'Checking review status…',
-      disabled: true,
-      loading: true,
-      pushFirst: false,
-      onPress: noop
-    }
+    return hiddenAction(noop)
   }
   // Why: mirror desktop's structural provider gate (supportsHostedReviewCreation)
   // instead of relying on the host always emitting a hidden blockedReason for
   // non-creatable providers like bitbucket.
   if (!supportsHostedReviewCreation(eligibility.provider)) {
-    return {
-      visible: true,
-      label: 'Review creation unavailable for this provider',
-      disabled: true,
-      loading: false,
-      pushFirst: false,
-      onPress: noop
-    }
+    return hiddenAction(noop)
   }
   const copy = hostedReviewCopy(eligibility.provider)
   const label = `Create ${copy.titleLabel}`
@@ -107,6 +93,10 @@ export function buildMobileCreatePrAction({
       // true no-op when busy/stale, not a deferred create against stale state.
       onPress: disabled ? noop : () => onCreatePr(pushFirst)
     }
+  }
+
+  if (HIDDEN_BLOCKED_REASONS.has(eligibility.blockedReason)) {
+    return hiddenAction(noop)
   }
 
   const hint =

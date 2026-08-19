@@ -92,8 +92,7 @@ describe('worktree RPC methods', () => {
       })
     )
 
-    // Why (#11960): dirty-file force alone must not waive the PTY-stop proof.
-    expect(runtime.removeManagedWorktree).toHaveBeenCalledWith('id:wt-1', true, false, false)
+    expect(runtime.removeManagedWorktree).toHaveBeenCalledWith('id:wt-1', true, false)
     expect(response).toMatchObject({ ok: true, result: { removed: true } })
   })
 

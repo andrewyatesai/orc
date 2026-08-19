@@ -356,9 +356,7 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
       }
 
       // Why: fan out one message per recipient (independent read-tracking) but share a thread_id for correlation (Section 4.5).
-      const { terminals } = await runtime.listTerminals(undefined, undefined, {
-        includeVisualLayouts: false
-      })
+      const { terminals } = await runtime.listTerminals()
       const handles = resolveGroupAddress(
         params.to,
         from,

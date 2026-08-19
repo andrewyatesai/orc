@@ -57,7 +57,6 @@ import {
   terminateDescendantSnapshot
 } from '../pty-descendant-termination'
 import { PtyWriteUnavailableError } from '../providers/pty-write-unavailable-error'
-import { SessionNotFoundError } from './daemon-errors'
 import {
   ColdRestorePayloadCache,
   type ColdRestorePayload as CachedColdRestorePayload
@@ -804,8 +803,6 @@ export class DaemonPtyAdapter implements IPtyProvider {
         : {}),
       isReattach: true,
       isAlternateScreen: isAltScreen,
-      // Why: the snapshot ANSI has no title frame; carry lastTitle beside it so main can seed title records after a relaunch.
-      ...(result.snapshot.lastTitle ? { lastTitle: result.snapshot.lastTitle } : {}),
       // Why: carry the mid-escape tail so the renderer writes it after the reattach reset, else a split escape renders literally (#7329).
       ...(result.snapshot.pendingEscapeTailAnsi
         ? { pendingEscapeTailAnsi: result.snapshot.pendingEscapeTailAnsi }
@@ -849,31 +846,11 @@ export class DaemonPtyAdapter implements IPtyProvider {
       this.setPtyBackgrounded(id, false)
     }
 
-    // Why size-first: attach must ride the session's own geometry — a fixed
-    // 80×24 could resize a live agent's TUI — and a null size means the daemon
-    // cannot prove the session, so refuse rather than risk a create.
-    const size = await this.getAppliedSize(id)
-    if (!size) {
-      throw new SessionNotFoundError(id)
-    }
-    const result = await this.client.request<CreateOrAttachResult>('createOrAttach', {
+    await this.client.request<CreateOrAttachResult>('createOrAttach', {
       sessionId: id,
-      cols: size.cols,
-      rows: size.rows,
-      attachOnly: true
+      cols: 80,
+      rows: 24
     })
-    if (result.isNew) {
-      // Why: a pre-v31 daemon ignores attachOnly; retire its accidental spawn
-      // instead of publishing a fresh shell as an attach.
-      await this.client.request('kill', { sessionId: id, immediate: true }).catch((error) => {
-        // Why surface, not swallow: a failed retire leaves an untracked orphan shell.
-        console.warn('[daemon] attach-only retire of accidental legacy spawn failed', {
-          sessionId: id,
-          error
-        })
-      })
-      throw new SessionNotFoundError(id)
-    }
     this.clearSessionAwaitingDaemonRecovery(id)
   }
 
@@ -1367,9 +1344,6 @@ export class DaemonPtyAdapter implements IPtyProvider {
   }
 
   async listProcesses(opts?: { deadlineMs?: number }): Promise<PtyProcessInfo[]> {
-    // Why: snapshotted before the request so ids spawned mid-flight can never be
-    // reconciled away below.
-    const preRequestActiveIds = new Set(this.activeSessionIds)
     // Why: connect + listSessions share the caller's one absolute deadline so a
     // wedged handshake cannot burn the whole teardown budget before the list issues.
     await this.ensureConnected(opts?.deadlineMs)
@@ -1380,12 +1354,10 @@ export class DaemonPtyAdapter implements IPtyProvider {
     )
     const admission = new PtyProcessListAdmission()
     const processes: PtyProcessInfo[] = []
-    const aliveSessionIds = new Set<string>()
     for (const session of result.sessions) {
       if (!session.isAlive) {
         continue
       }
-      aliveSessionIds.add(session.sessionId)
       const { worktreeId } = parsePtySessionId(session.sessionId)
       processes.push(
         admission.admit({
@@ -1400,15 +1372,6 @@ export class DaemonPtyAdapter implements IPtyProvider {
           ...this.validatedAgentSessionOwners(session.agentSessionOwners)
         })
       )
-    }
-    // Why: hasPty reads activeSessionIds, and an exit missed while the socket was
-    // disconnected otherwise survives an authoritative inventory forever —
-    // defeating every absence proof built on the cache (terminal-list demotion,
-    // send guard). Ids spawned mid-flight are snapshot-protected above.
-    for (const id of preRequestActiveIds) {
-      if (!aliveSessionIds.has(id)) {
-        this.activeSessionIds.delete(id)
-      }
     }
     return processes
   }

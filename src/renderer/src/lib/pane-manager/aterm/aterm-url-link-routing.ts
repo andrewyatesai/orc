@@ -1,4 +1,4 @@
-import { openHttpLink, type HttpLinkSourceOwner } from '../../http-link-routing'
+import { openHttpLink } from '../../http-link-routing'
 import { openTerminalHttpLink } from '../../../components/terminal-pane/terminal-url-link-hit-testing'
 import { handleOscLink } from '../../../components/terminal-pane/terminal-osc-link-routing'
 import type { AtermLinkOpener, AtermOscLinkOpener } from './aterm-link-input'
@@ -18,34 +18,26 @@ export type AtermLinkContext = {
   getStartupCwd?: () => string
   /** Live pane runtime (SSH/WSL) id — per click, so remote path routing stays current. */
   getRuntimeEnvironmentId?: () => string | null
-  /** Live pane host owner — per click, so http links route on the pane's host
-   *  (local → Orca tab, runtime/SSH → system browser), not global runtime state. */
-  getSourceOwner?: () => HttpLinkSourceOwner
 }
 
 /** Build the URL opener the link input calls for kinds 0/1 (OSC-8 / URL). Reads
  *  the link context through a getter so a late-bound context (set after the
  *  controller exists) is honored; routes through orca's in-app/system-browser
  *  preference when present, else the worktree-scoped/system-browser fallback. */
-export function createAtermUrlOpener(
-  getContext: () => AtermLinkContext | undefined
-): AtermLinkOpener {
+export function createAtermUrlOpener(getContext: () => AtermLinkContext | undefined): AtermLinkOpener {
   return (url: string, opts: { forceSystemBrowser: boolean }): void => {
     const context = getContext()
-    const sourceOwner = context?.getSourceOwner?.()
     if (context?.requestOpenLinksInAppPreference) {
       openTerminalHttpLink(url, {
         worktreeId: context.worktreeId ?? '',
         forceSystemBrowser: opts.forceSystemBrowser,
-        sourceOwner,
         requestOpenLinksInAppPreference: context.requestOpenLinksInAppPreference
       })
       return
     }
     openHttpLink(url, {
       worktreeId: context?.worktreeId ?? undefined,
-      forceSystemBrowser: opts.forceSystemBrowser,
-      sourceOwner
+      forceSystemBrowser: opts.forceSystemBrowser
     })
   }
 }
@@ -67,7 +59,6 @@ export function createAtermOscLinkOpener(
       startupCwd: context?.getStartupCwd?.(),
       terminalHomePath: context?.terminalHomePath,
       runtimeEnvironmentId: context?.getRuntimeEnvironmentId?.() ?? null,
-      sourceOwner: context?.getSourceOwner?.(),
       requestOpenLinksInAppPreference: context?.requestOpenLinksInAppPreference
     })
   }

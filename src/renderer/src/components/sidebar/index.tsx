@@ -202,16 +202,14 @@ function Sidebar({
               onWorkspaceBoardDragPreviewCancel={cancelWorkspaceBoardDragPreview}
             />
 
-            <div className="relative shrink-0">
-              <SetupScriptPromptCard />
+            <SetupScriptPromptCard />
 
-              {/* Fixed bottom toolbar */}
-              <SidebarToolbar
-                workspaceBoardOpen={workspaceBoardOpen}
-                workspaceBoardDragPreviewOpen={workspaceBoardDragPreviewOpen}
-                onWorkspaceBoardToggle={toggleWorkspaceBoard}
-              />
-            </div>
+            {/* Fixed bottom toolbar */}
+            <SidebarToolbar
+              workspaceBoardOpen={workspaceBoardOpen}
+              workspaceBoardDragPreviewOpen={workspaceBoardDragPreviewOpen}
+              onWorkspaceBoardToggle={toggleWorkspaceBoard}
+            />
           </>
         )}
 

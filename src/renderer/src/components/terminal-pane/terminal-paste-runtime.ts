@@ -1,5 +1,6 @@
 import type { TerminalPasteRuntime } from './terminal-paste-model'
 import { parseWslUncPath } from '../../../../shared/wsl-unc-paths'
+
 const REMOTE_PTY_ID_PREFIX = 'remote:'
 
 type TerminalPasteRuntimeTransport = {

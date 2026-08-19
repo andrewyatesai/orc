@@ -1,4 +1,5 @@
 import { parseWslUncPath } from './wsl-unc-paths'
+
 export function normalizeAiVaultResumeFilePath(
   filePath: string | undefined,
   platform: NodeJS.Platform

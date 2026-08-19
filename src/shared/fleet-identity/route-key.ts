@@ -7,14 +7,6 @@
  * and is NOT representable in an accountId-keyed map, which is why v3's
  * `sessionId -> accountId` map and `(provider, accountId)` queue were both
  * under-keyed. Never model this as `accountId: string | null`.
- *
- * NOT YET WIRED, and that is the intended state — R1 (§8) is the next unbuilt
- * phase, so this identity model is built ahead of the code that will consume it.
- * Nothing outside `src/shared/fleet-identity/` and its own tests imports the
- * directory. Say so here because the Rust port and the green `fleet-identity`
- * parity module make it look integrated from the outside: a cutover attempt
- * would be shimming code the app never calls. Verify with
- * `git grep -l "fleet-identity/" -- src mobile`.
  */
 
 import type { TuiAgent } from '../types'

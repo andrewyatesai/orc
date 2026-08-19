@@ -93,19 +93,6 @@ describe('UpdateCard Windows signature failures', () => {
       'true'
     )
   })
-
-  // An install failure now carries the updater's own text, so a signature verdict can arrive this way too.
-  it('routes a signature verdict raised during install to the security-stop card', () => {
-    const message =
-      'New version 1.4.200 is not signed by the application owner: publisherNames: Orca'
-    renderAfterAvailableStatus()
-
-    act(() => useAppStore.getState().setUpdateStatus({ state: 'error', message }))
-
-    expect(screen.getByText("Update Wasn't Installed")).toBeTruthy()
-    // The generic restart advice must not be prefixed onto a security stop.
-    expect(screen.queryByText(/Quit and reopen Orca/)).toBeNull()
-  })
 })
 
 describe('UpdateCard manual installation', () => {

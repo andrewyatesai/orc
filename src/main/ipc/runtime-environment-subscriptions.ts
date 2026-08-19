@@ -9,7 +9,6 @@ type RetainedRemoteRuntimeSubscription = RemoteRuntimeSubscription & {
   environmentId: string
   ownerWebContentsId: number
   removeLifecycleListeners: () => void
-  notifyClosed: () => void
 }
 const remoteRuntimeSubscriptions = new Map<string, RetainedRemoteRuntimeSubscription>()
 const getUserDataPath = (): string => app.getPath('userData')
@@ -21,19 +20,7 @@ export function closeSubscriptionsForEnvironment(environmentId: string): void {
       continue
     }
     remoteRuntimeSubscriptions.delete(subscriptionId)
-    // Why: guard the two steps independently so one failing teardown can never
-    // skip the other and strand exactly the dead handles this sweep retires.
-    try {
-      subscription.close()
-    } catch (error) {
-      console.warn('[runtime-environment-subscriptions] close failed during retirement:', error)
-    }
-    try {
-      // Why: a shared-control logical close never calls back, so notify directly.
-      subscription.notifyClosed()
-    } catch (error) {
-      console.warn('[runtime-environment-subscriptions] close notice failed:', error)
-    }
+    subscription.close()
   }
 }
 
@@ -104,21 +91,6 @@ export function registerRuntimeEnvironmentSubscriptionHandlers(): void {
         removeLifecycleListeners()
         subscription?.close()
       }
-      // Why: the renderer treats close as terminal and drops its handle, so send it
-      // once. Latch before sending so a re-entrant call cannot duplicate it, and never
-      // throw: a dying renderer must not abort its siblings' retirement.
-      let closeNotified = false
-      const notifyClosed = (): void => {
-        if (closeNotified || sender.isDestroyed()) {
-          return
-        }
-        closeNotified = true
-        try {
-          sender.send('runtimeEnvironments:subscriptionEvent', { subscriptionId, type: 'close' })
-        } catch {
-          // The renderer is gone; there is no one left to tell.
-        }
-      }
       sender.once('destroyed', closeSubscription)
       sender.on('render-process-gone', onSenderReloadOrGone)
       sender.on('did-start-loading', onSenderDidStartLoading)
@@ -132,12 +104,6 @@ export function registerRuntimeEnvironmentSubscriptionHandlers(): void {
           args.timeoutMs,
           {
             onEvent: (payload) => {
-              if (payload.type === 'close') {
-                // Why: retirement advances the generation before closing, so gating
-                // close on it stranded the renderer with a dead subscription.
-                notifyClosed()
-                return
-              }
               if (transportIsCurrent() && !sender.isDestroyed()) {
                 sender.send('runtimeEnvironments:subscriptionEvent', {
                   subscriptionId,
@@ -179,7 +145,6 @@ export function registerRuntimeEnvironmentSubscriptionHandlers(): void {
         environmentId: environment.id,
         ownerWebContentsId,
         removeLifecycleListeners,
-        notifyClosed,
         sendBinary: (bytes) => subscription?.sendBinary(bytes) ?? false,
         close: () => {
           removeLifecycleListeners()

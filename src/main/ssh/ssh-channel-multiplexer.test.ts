@@ -2,8 +2,6 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import {
   SshChannelMultiplexer,
   MAX_UNACKED_TIMESTAMPS,
-  SSH_MUX_REQUEST_TIMEOUT_CODE,
-  isSshMuxRequestTimeoutError,
   type MultiplexerTransport
 } from './ssh-channel-multiplexer'
 import { encodeFrame, MessageType, HEADER_LENGTH, encodeKeepAliveFrame } from './relay-protocol'
@@ -151,27 +149,6 @@ describe('SshChannelMultiplexer', () => {
         method: 'rpc.cancel',
         params: { id: 1 }
       })
-    })
-
-    it('tags a request timeout so callers can classify it as a timeout, not a PATH failure', async () => {
-      const promise = mux.request('agent.execNonInteractive')
-
-      for (let i = 0; i < 6; i++) {
-        vi.advanceTimersByTime(5_000)
-        transport.dataCallbacks[0](encodeKeepAliveFrame(i + 1, 0))
-      }
-      vi.advanceTimersByTime(1_000)
-
-      const error = await promise.then(
-        () => {
-          throw new Error('expected the request to reject')
-        },
-        (err: unknown) => err
-      )
-      expect(isSshMuxRequestTimeoutError(error)).toBe(true)
-      expect((error as { code?: unknown }).code).toBe(SSH_MUX_REQUEST_TIMEOUT_CODE)
-      // A generic error carrying the same phrase must NOT classify as a timeout.
-      expect(isSshMuxRequestTimeoutError(new Error('timed out after 30000ms'))).toBe(false)
     })
 
     it('uses per-request timeout overrides', async () => {

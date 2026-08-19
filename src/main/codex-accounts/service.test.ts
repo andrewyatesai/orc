@@ -1343,7 +1343,7 @@ describe('CodexAccountService config sync', () => {
       execFileSync: execFileSyncMock,
       spawn: spawnMock
     }))
-    vi.doMock('../../shared/wsl-paths', () => ({
+    vi.doMock('../../shared/wsl-unc-paths', () => ({
       parseWslUncPath: (path: string) =>
         path === wslManagedHomePath ? { distro: 'Debian', linuxPath: wslLinuxHomePath } : null
     }))
@@ -1422,7 +1422,7 @@ describe('CodexAccountService config sync', () => {
       execFileSync: execFileSyncMock,
       spawn: spawnMock
     }))
-    vi.doMock('../../shared/wsl-paths', () => ({
+    vi.doMock('../../shared/wsl-unc-paths', () => ({
       parseWslUncPath: (path: string) =>
         path === wslManagedHomePath ? { distro: 'Debian', linuxPath: wslLinuxHomePath } : null
     }))
@@ -1519,7 +1519,7 @@ describe('CodexAccountService config sync', () => {
       execFileSync: execFileSyncMock,
       spawn: spawnMock
     }))
-    vi.doMock('../../shared/wsl-paths', () => ({
+    vi.doMock('../../shared/wsl-unc-paths', () => ({
       parseWslUncPath: (path: string) =>
         path === wslManagedHomePath ? { distro: 'Ubuntu', linuxPath: wslLinuxHomePath } : null
     }))
@@ -1650,7 +1650,7 @@ describe('CodexAccountService config sync', () => {
       execFileSync: execFileSyncMock,
       spawn: spawnMock
     }))
-    vi.doMock('../../shared/wsl-paths', () => ({
+    vi.doMock('../../shared/wsl-unc-paths', () => ({
       parseWslUncPath: (path: string) =>
         path === wslManagedHomePath ? { distro: 'Ubuntu', linuxPath: wslLinuxHomePath } : null
     }))
@@ -1739,7 +1739,7 @@ describe('CodexAccountService config sync', () => {
       }),
       spawn: vi.fn()
     }))
-    vi.doMock('../../shared/wsl-paths', () => ({
+    vi.doMock('../../shared/wsl-unc-paths', () => ({
       parseWslUncPath: (path: string) =>
         path === wslManagedHomePath ? { distro: 'Ubuntu', linuxPath: wslLinuxHomePath } : null
     }))

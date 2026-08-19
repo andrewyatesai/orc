@@ -710,7 +710,7 @@ describe('CodexRuntimeHomeService', () => {
       getDefaultWslDistro: () => null,
       getWslHome: (distro: string) => (distro === 'Debian' ? wslHome : null)
     }))
-    vi.doMock('../../shared/wsl-paths', () => ({
+    vi.doMock('../../shared/wsl-unc-paths', () => ({
       parseWslUncPath: (candidate: string) =>
         candidate === wslRuntimeHomePath
           ? {
@@ -762,7 +762,7 @@ describe('CodexRuntimeHomeService', () => {
     } finally {
       vi.doUnmock('../codex/wsl-codex-session-bridge')
       vi.doUnmock('../wsl')
-      vi.doUnmock('../../shared/wsl-paths')
+      vi.doUnmock('../../shared/wsl-unc-paths')
       if (originalPlatform) {
         Object.defineProperty(process, 'platform', originalPlatform)
       }

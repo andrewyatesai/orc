@@ -4,7 +4,7 @@ import {
   parseExecutionHostId,
   type ExecutionHostId
 } from '../../../../../shared/execution-host'
-import { getRepoIdFromWorktreeId } from '../../../../../shared/worktree-id'
+import { getRepoIdFromWorktreeId } from '../../../../../shared/worktree-id-parsing'
 import type { Repo, WorkspaceSessionState, Worktree } from '../../../../../shared/types'
 import { warmAtermSharedWorkerForImminentPane } from './aterm-worker-prewarm'
 

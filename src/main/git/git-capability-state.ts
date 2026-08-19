@@ -1,5 +1,6 @@
 import { GitCapabilityCache } from '../../shared/git-capability-cache'
 import { parseWslUncPath } from '../../shared/wsl-unc-paths'
+
 type LocalGitCapabilityTarget = {
   cwd?: string
   wslDistro?: string

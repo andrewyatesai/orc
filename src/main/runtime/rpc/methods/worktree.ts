@@ -5,7 +5,6 @@ import {
 } from '../../../automations/workspace-provenance'
 import { buildCliWorkspaceProvenance } from '../../../../shared/cli-workspace-provenance'
 import { defineMethod, type RpcMethod } from '../core'
-import { resolveWorktreeCatalogSnapshot } from '../worktree-catalog-snapshot'
 import { resolveRuntimeNavigationTarget } from '../../../../shared/runtime-navigation'
 import {
   WorktreeCreate,
@@ -27,14 +26,7 @@ export const WORKTREE_METHODS: RpcMethod[] = [
   defineMethod({
     name: 'worktree.ps',
     params: WorktreePsParams,
-    handler: async (params, { runtime }) => {
-      const result = await runtime.getWorktreePs(params.limit)
-      // Why: callers that never send the field get the byte-exact legacy response.
-      if (params.afterSnapshotId === undefined) {
-        return result
-      }
-      return resolveWorktreeCatalogSnapshot(result, params.afterSnapshotId)
-    }
+    handler: async (params, { runtime }) => runtime.getWorktreePs(params.limit)
   }),
   defineMethod({
     name: 'worktree.list',
@@ -259,8 +251,7 @@ export const WORKTREE_METHODS: RpcMethod[] = [
       const result = await runtime.removeManagedWorktree(
         params.worktree,
         params.force === true,
-        params.runHooks === true,
-        params.allowUnverifiedPtyStop === true
+        params.runHooks === true
       )
       return { removed: true, ...result }
     }

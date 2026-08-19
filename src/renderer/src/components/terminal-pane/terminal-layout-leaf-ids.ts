@@ -1,8 +1,6 @@
 import type { TerminalLayoutSnapshot, TerminalPaneLayoutNode } from '../../../../shared/types'
-import type { TerminalLeafId } from '../../../../shared/stable-pane-id'
-import { isTerminalLeafId } from '../../../../shared/stable-pane-identity'
+import { isTerminalLeafId, type TerminalLeafId } from '../../../../shared/stable-pane-identity'
 import { mintStablePaneId } from '@/lib/pane-manager/mint-stable-pane-id'
-import { normalizeTerminalLayoutPtyOwnership } from './terminal-layout-pty-ownership'
 
 const EMPTY_TERMINAL_LAYOUT: TerminalLayoutSnapshot = {
   root: null,
@@ -126,10 +124,9 @@ function getRemappedLeafId(
   return rewrite.nextLeafIdByInputLeafId.get(leafId) ?? null
 }
 
-function normalizeTerminalLayoutLeafIds(snapshot: TerminalLayoutSnapshot | null | undefined): {
-  snapshot: TerminalLayoutSnapshot
-  changed: boolean
-} {
+export function normalizeTerminalLayoutSnapshot(
+  snapshot: TerminalLayoutSnapshot | null | undefined
+): { snapshot: TerminalLayoutSnapshot; changed: boolean } {
   if (!snapshot?.root) {
     const nextSnapshot = snapshot ?? EMPTY_TERMINAL_LAYOUT
     const activeLeafId = resolveRootlessTerminalLayoutLeafId(nextSnapshot)
@@ -207,24 +204,6 @@ function normalizeTerminalLayoutLeafIds(snapshot: TerminalLayoutSnapshot | null 
       ...(titlesByLeafId ? { titlesByLeafId } : {})
     },
     changed: true
-  }
-}
-
-export function normalizeTerminalLayoutSnapshot(
-  snapshot: TerminalLayoutSnapshot | null | undefined
-): { snapshot: TerminalLayoutSnapshot; changed: boolean } {
-  const ptyOwnership = normalizeTerminalLayoutPtyOwnership(snapshot ?? EMPTY_TERMINAL_LAYOUT)
-  const leafIds = normalizeTerminalLayoutLeafIds(ptyOwnership.snapshot)
-  const activeLeafId = leafIds.snapshot.root
-    ? leafIds.snapshot.activeLeafId
-    : resolveRootlessTerminalLayoutLeafId(leafIds.snapshot)
-  return {
-    snapshot:
-      activeLeafId === leafIds.snapshot.activeLeafId
-        ? leafIds.snapshot
-        : { ...leafIds.snapshot, activeLeafId },
-    changed:
-      ptyOwnership.changed || leafIds.changed || activeLeafId !== leafIds.snapshot.activeLeafId
   }
 }
 

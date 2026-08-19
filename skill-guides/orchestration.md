@@ -98,7 +98,6 @@ Rules:
 - Omit `--from` unless impersonating another terminal; Orca auto-resolves it from the current terminal.
 - `check` and `check --unread` return unread matches and mark them read. Use `--peek` for unread matches without consuming them; use `--all` for read and unread history without consuming anything. If an older CLI rejects `--peek` as an unknown flag, use `--all` and filter unread rows yourself.
 - Message **one** live agent handle per worker. Use `startupTerminal.handle` from the create response when present; if it is missing or later returns `terminal_handle_stale`, re-resolve with `orca terminal list --worktree ... --json` and continue with the replacement only.
-- `terminal list --json` omits `visualLayouts` because handle recovery does not need topology. Add `--include-visual-layouts` only for explicit tab and pane inspection.
 - `orca orchestration check --unread --inject --json` renders unread mail for the agent terminal that runs it; it does not remotely wake another terminal. Use `orchestration dispatch --inject` to deliver a tracked task, or `terminal send` when an existing agent needs a free-form prompt.
 - While supervising workers manually, use `check --wait --types worker_done,escalation,decision_gate --timeout-ms <n>` instead of sleep/poll loops. Reply to `decision_gate` messages with `orca orchestration reply --id <msg_id> --body <answer> --json`, then keep waiting.
 - Treat a `check --wait` timeout or `{count:0}` as a checkpoint, not a worker failure. Long coding tasks routinely run 15-60 minutes; keep using rolling waits unless you receive `worker_done`/`escalation`, the terminal exits or disappears, or the user explicitly asks you to stop.
@@ -223,7 +222,7 @@ Sidebar lineage and orchestration lifecycle are related but not identical. A sam
 Other terminal commands coordinators often need:
 
 ```bash
-orca terminal list [--worktree <selector>] [--include-visual-layouts] [--json]
+orca terminal list [--worktree <selector>] [--json]
 orca terminal create [--worktree <selector>] [--title <text>] [--command <cmd>] [--json]
 orca terminal split --terminal <handle> [--direction horizontal|vertical] [--command <cmd>] [--json]
 orca terminal wait --terminal <handle> --for tui-idle --timeout-ms <n> --json

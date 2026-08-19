@@ -635,6 +635,188 @@
         "fallback": ""
       },
       "expected": "Run build"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "AI Vault conversation name keeps a Codex thread stable across spinner/cwd OSC titles",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "aiVaultTitle": {
+            "agent": "codex",
+            "sessionId": "codex-session",
+            "title": "Repair provider-native tab titles"
+          },
+          "title": "\u280b albacore"
+        },
+        "generatedTitlesEnabled": false,
+        "fallback": ""
+      },
+      "expected": "Repair provider-native tab titles"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "manual rename outranks the vault title",
+      "input": {
+        "tab": {
+          "customTitle": "Manual label",
+          "quickCommandLabel": "Run tests",
+          "aiVaultTitle": {
+            "agent": "claude",
+            "sessionId": "claude-session",
+            "title": "Claude conversation"
+          },
+          "title": "claude working"
+        },
+        "generatedTitlesEnabled": false,
+        "fallback": ""
+      },
+      "expected": "Manual label"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "quick-command label outranks the vault title",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "quickCommandLabel": "Run tests",
+          "aiVaultTitle": {
+            "agent": "claude",
+            "sessionId": "claude-session",
+            "title": "Claude conversation"
+          },
+          "title": "claude working"
+        },
+        "generatedTitlesEnabled": false,
+        "fallback": ""
+      },
+      "expected": "Run tests"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "a native OC | session title outranks the vault title",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "aiVaultTitle": {
+            "agent": "codex",
+            "sessionId": "codex-session",
+            "title": "Codex conversation"
+          },
+          "generatedTitle": "Orca generated",
+          "title": "OC | OpenCode native"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "OC | OpenCode native"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "the vault title outranks the generated title",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "aiVaultTitle": {
+            "agent": "codex",
+            "sessionId": "codex-session",
+            "title": "Codex conversation"
+          },
+          "generatedTitle": "Orca generated",
+          "title": "\u280b albacore"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Codex conversation"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "a whitespace-only vault title is blank and falls through to the generated title",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "aiVaultTitle": { "agent": "codex", "sessionId": "codex-session", "title": "   " },
+          "generatedTitle": "Refactor auth",
+          "title": "\u280b albacore"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Refactor auth"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "a null vault record is absent, not blank",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "aiVaultTitle": null,
+          "generatedTitle": "Refactor auth",
+          "title": "\u280b albacore"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Refactor auth"
+    },
+    {
+      "function": "resolveUnifiedTabLabel",
+      "note": "the vault title outranks the generated unified label",
+      "input": {
+        "tab": {
+          "customLabel": null,
+          "aiVaultTitle": {
+            "agent": "claude",
+            "sessionId": "claude-session",
+            "title": "Vault conversation"
+          },
+          "generatedLabel": "Fix flaky tests",
+          "label": "Codex working"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Vault conversation"
+    },
+    {
+      "function": "resolveUnifiedTabLabel",
+      "note": "quick-command label outranks the vault title on the unified ladder too",
+      "input": {
+        "tab": {
+          "customLabel": null,
+          "quickCommandLabel": "Run build",
+          "aiVaultTitle": {
+            "agent": "claude",
+            "sessionId": "claude-session",
+            "title": "Vault conversation"
+          },
+          "generatedLabel": "Fix flaky tests",
+          "label": "OC | Native Stable Session"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Run build"
+    },
+    {
+      "function": "resolveUnifiedTabLabel",
+      "note": "the vault title is used with generated labels disabled, ahead of the fallback",
+      "input": {
+        "tab": {
+          "customLabel": null,
+          "aiVaultTitle": {
+            "agent": "codex",
+            "sessionId": "codex-session",
+            "title": "Vault conversation"
+          },
+          "generatedLabel": "Fix flaky tests",
+          "label": "\u280b albacore"
+        },
+        "generatedTitlesEnabled": false,
+        "fallback": "Untitled"
+      },
+      "expected": "Vault conversation"
     }
   ]
 }

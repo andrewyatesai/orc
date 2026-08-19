@@ -14,49 +14,23 @@ export type DictationSlice = {
   refreshModelStates: () => Promise<void>
 }
 
-function sameSpeechModelState(a: SpeechModelState, b: SpeechModelState): boolean {
-  return a.id === b.id && a.status === b.status && a.progress === b.progress && a.error === b.error
-}
+export const createDictationSlice: StateCreator<AppState, [], [], DictationSlice> = (set) => ({
+  dictationState: 'idle',
+  partialTranscript: '',
+  activeModelId: null,
+  modelStates: [],
 
-// Why: every getModelStates reply is a fresh array, so without this each no-op
-// refresh re-renders every subscriber — including the open speech-model menu.
-function resolveModelStates(
-  previous: SpeechModelState[],
-  next: SpeechModelState[]
-): SpeechModelState[] {
-  if (previous.length !== next.length) {
-    return next
-  }
-  return previous.every((state, index) => sameSpeechModelState(state, next[index]))
-    ? previous
-    : next
-}
+  setDictationState: (state) => set({ dictationState: state }),
+  setPartialTranscript: (text) => set({ partialTranscript: text }),
+  setActiveModelId: (id) => set({ activeModelId: id }),
+  setModelStates: (states) => set({ modelStates: states }),
 
-export const createDictationSlice: StateCreator<AppState, [], [], DictationSlice> = (set) => {
-  const setModelStates = (states: SpeechModelState[]): void => {
-    set((prev) => {
-      const modelStates = resolveModelStates(prev.modelStates, states)
-      return modelStates === prev.modelStates ? prev : { modelStates }
-    })
-  }
-
-  return {
-    dictationState: 'idle',
-    partialTranscript: '',
-    activeModelId: null,
-    modelStates: [],
-
-    setDictationState: (state) => set({ dictationState: state }),
-    setPartialTranscript: (text) => set({ partialTranscript: text }),
-    setActiveModelId: (id) => set({ activeModelId: id }),
-    setModelStates,
-
-    refreshModelStates: async () => {
-      try {
-        setModelStates(await window.api.speech.getModelStates())
-      } catch (err) {
-        console.error('Failed to fetch model states:', err)
-      }
+  refreshModelStates: async () => {
+    try {
+      const states = await window.api.speech.getModelStates()
+      set({ modelStates: states })
+    } catch (err) {
+      console.error('Failed to fetch model states:', err)
     }
   }
-}
+})

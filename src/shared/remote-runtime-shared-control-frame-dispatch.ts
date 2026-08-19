@@ -1,8 +1,9 @@
 import type { parseRemoteRuntimeRpcFrame } from './remote-runtime-request-frames'
 import { logUnknownSharedControlResponse } from './remote-runtime-shared-control-diagnostics-log'
-import type { SharedControlRetiredRequestIds } from './remote-runtime-shared-control-retired-request-ids'
-import { sendRetiredSharedControlCleanupRequest } from './remote-runtime-shared-control-subscription-close'
-import { handleSharedControlLogicalResponse } from './remote-runtime-shared-control-subscriptions'
+import {
+  handleSharedControlLogicalResponse,
+  sendSharedControlCleanupRequest
+} from './remote-runtime-shared-control-subscriptions'
 import {
   refreshSharedControlPendingRequestTimeouts,
   resolveSharedControlPendingResponse
@@ -19,7 +20,6 @@ export function dispatchSharedControlFrame(args: {
   frame: SharedControlFrame
   pendingRequests: Map<string, SharedControlPendingRequest<unknown>>
   subscriptions: Map<string, SharedControlLogicalSubscription<unknown>>
-  retiredRequestIds: SharedControlRetiredRequestIds
   deviceToken: string
   send: (payload: unknown) => boolean
 }): void {
@@ -36,27 +36,18 @@ export function dispatchSharedControlFrame(args: {
       subscription,
       response,
       request: (method, params) =>
-        sendRetiredSharedControlCleanupRequest({
-          retiredRequestIds: args.retiredRequestIds,
+        sendSharedControlCleanupRequest({
           deviceToken: args.deviceToken,
           method,
           params,
           send: args.send
         })
     })
-    if (!args.subscriptions.has(response.id)) {
-      args.retiredRequestIds.retire(response.id)
-    }
     return
   }
 
   if (args.pendingRequests.has(response.id)) {
     resolveSharedControlPendingResponse(args.pendingRequests, response.id, response)
-    args.retiredRequestIds.retire(response.id)
-    return
-  }
-
-  if (args.retiredRequestIds.has(response.id)) {
     return
   }
 

@@ -1,6 +1,10 @@
 import { parseWslUncPath } from '../../../../shared/wsl-unc-paths'
-import { splitWorktreeIdForFilesystem } from '../../../../shared/worktree-id'
-import { isPathInsideOrEqual, isRuntimePathAbsolute, normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path-resolution'
+import { splitWorktreeIdForFilesystem } from '../../../../shared/worktree-id-parsing'
+import {
+  isPathInsideOrEqual,
+  isRuntimePathAbsolute,
+  normalizeRuntimePathForComparison
+} from '../../../../shared/cross-platform-path-resolution'
 import type { TerminalLayoutSnapshot, Worktree } from '../../../../shared/types'
 
 type TerminalPtyContext = {

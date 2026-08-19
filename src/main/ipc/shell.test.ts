@@ -317,13 +317,9 @@ describe('registerShellHandlers', () => {
       expect(resolveCliCommandMock).toHaveBeenCalledWith(EXTERNAL_EDITOR_CLI_COMMAND, {
         platform: process.platform
       })
-      expect(getSpawnArgsForWindowsMock).toHaveBeenCalledWith(
-        'editor-cli',
-        [normalize(workspacePath)],
-        {
-          detachedGui: false
-        }
-      )
+      expect(getSpawnArgsForWindowsMock).toHaveBeenCalledWith('editor-cli', [
+        normalize(workspacePath)
+      ])
       expect(spawnMock).toHaveBeenCalledWith('editor-cli', [normalize(workspacePath)], {
         detached: true,
         stdio: 'ignore',
@@ -344,13 +340,9 @@ describe('registerShellHandlers', () => {
       expect(resolveCliCommandMock).toHaveBeenCalledWith(EXTERNAL_EDITOR_CLI_COMMAND, {
         platform: process.platform
       })
-      expect(getSpawnArgsForWindowsMock).toHaveBeenCalledWith(
-        'editor-cli',
-        [normalize(workspacePath)],
-        {
-          detachedGui: false
-        }
-      )
+      expect(getSpawnArgsForWindowsMock).toHaveBeenCalledWith('editor-cli', [
+        normalize(workspacePath)
+      ])
       expect(spawnMock).toHaveBeenCalledWith('editor-cli', [normalize(workspacePath)], {
         detached: true,
         stdio: 'ignore',
@@ -369,13 +361,9 @@ describe('registerShellHandlers', () => {
         ok: true
       })
       expect(resolveCliCommandMock).toHaveBeenCalledWith('cursor', { platform: process.platform })
-      expect(getSpawnArgsForWindowsMock).toHaveBeenCalledWith(
-        'editor-cli',
-        [normalize(workspacePath)],
-        {
-          detachedGui: false
-        }
-      )
+      expect(getSpawnArgsForWindowsMock).toHaveBeenCalledWith('editor-cli', [
+        normalize(workspacePath)
+      ])
     })
 
     it.runIf(process.platform === 'win32')(
@@ -389,13 +377,11 @@ describe('registerShellHandlers', () => {
         await expect(handler({}, { path: workspacePath, command: 'code' })).resolves.toEqual({
           ok: true
         })
-        expect(getSpawnArgsForWindowsMock).toHaveBeenCalledWith(
-          codeShim,
-          ['--remote', 'wsl+Ubuntu Preview', '/home/Ada Lovelace/project'],
-          {
-            detachedGui: false
-          }
-        )
+        expect(getSpawnArgsForWindowsMock).toHaveBeenCalledWith(codeShim, [
+          '--remote',
+          'wsl+Ubuntu Preview',
+          '/home/Ada Lovelace/project'
+        ])
       }
     )
 
@@ -411,53 +397,13 @@ describe('registerShellHandlers', () => {
           ok: true
         })
         expect(resolveCliCommandMock).not.toHaveBeenCalled()
-        expect(getSpawnArgsForWindowsMock).toHaveBeenCalledWith(
-          nvimPath,
-          [normalize(workspacePath)],
-          {
-            detachedGui: false
-          }
-        )
+        expect(getSpawnArgsForWindowsMock).toHaveBeenCalledWith(nvimPath, [
+          normalize(workspacePath)
+        ])
         expect(spawnMock).toHaveBeenCalledWith(nvimPath, [normalize(workspacePath)], {
           detached: true,
           stdio: 'ignore',
           windowsHide: false
-        })
-      } finally {
-        if (platformDescriptor) {
-          Object.defineProperty(process, 'platform', platformDescriptor)
-        }
-      }
-    })
-
-    it('detaches JetBrains batch shims on Windows but leaves other launchers waiting', async () => {
-      const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform')
-      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
-      // Why: the IDE command must be a trusted "Open in" launcher to reach spawn.
-      settings.openInApplications = [
-        ...configuredOpenInApplications(),
-        { id: 'idea', label: 'IntelliJ IDEA', command: 'idea' }
-      ]
-      const workspacePath = normalize(resolve('workspace'))
-      const ideaShim = 'C:\\Users\\me\\AppData\\Local\\JetBrains\\Toolbox\\scripts\\idea.cmd'
-      const codeShim = 'C:\\Tools\\code.cmd'
-      const handler = getHandler('shell:openInExternalEditor')
-
-      try {
-        resolveCliCommandMock.mockReturnValueOnce(ideaShim)
-        await expect(handler({}, { path: workspacePath, command: 'idea' })).resolves.toEqual({
-          ok: true
-        })
-        expect(getSpawnArgsForWindowsMock).toHaveBeenLastCalledWith(ideaShim, [workspacePath], {
-          detachedGui: true
-        })
-
-        resolveCliCommandMock.mockReturnValueOnce(codeShim)
-        await expect(handler({}, { path: workspacePath, command: 'code' })).resolves.toEqual({
-          ok: true
-        })
-        expect(getSpawnArgsForWindowsMock).toHaveBeenLastCalledWith(codeShim, [workspacePath], {
-          detachedGui: false
         })
       } finally {
         if (platformDescriptor) {
@@ -474,24 +420,18 @@ describe('registerShellHandlers', () => {
       await expect(handler({}, { path: workspacePath, command: 'cursor' })).resolves.toEqual({
         ok: true
       })
-      expect(getSpawnArgsForWindowsMock).toHaveBeenCalledWith(
-        '/usr/local/bin/cursor',
-        ['--new-window', normalize(workspacePath)],
-        {
-          detachedGui: false
-        }
-      )
+      expect(getSpawnArgsForWindowsMock).toHaveBeenCalledWith('/usr/local/bin/cursor', [
+        '--new-window',
+        normalize(workspacePath)
+      ])
       resolveCliCommandMock.mockReturnValueOnce('C:\\Cursor\\cursor.cmd')
       await expect(handler({}, { path: workspacePath, command: 'cursor' })).resolves.toEqual({
         ok: true
       })
-      expect(getSpawnArgsForWindowsMock).toHaveBeenLastCalledWith(
-        'C:\\Cursor\\cursor.cmd',
-        ['--new-window', normalize(workspacePath)],
-        {
-          detachedGui: false
-        }
-      )
+      expect(getSpawnArgsForWindowsMock).toHaveBeenLastCalledWith('C:\\Cursor\\cursor.cmd', [
+        '--new-window',
+        normalize(workspacePath)
+      ])
     })
 
     it('falls back to VS Code when command is blank', async () => {
@@ -518,13 +458,9 @@ describe('registerShellHandlers', () => {
       expect(resolveCliCommandMock).toHaveBeenCalledWith(EXTERNAL_EDITOR_CLI_COMMAND, {
         platform: process.platform
       })
-      expect(getSpawnArgsForWindowsMock).toHaveBeenCalledWith(
-        'editor-cli',
-        [normalize(workspacePath)],
-        {
-          detachedGui: false
-        }
-      )
+      expect(getSpawnArgsForWindowsMock).toHaveBeenCalledWith('editor-cli', [
+        normalize(workspacePath)
+      ])
       expect(spawnMock).toHaveBeenCalledWith('platform-runner', ['platform-arg'], {
         detached: true,
         stdio: 'ignore',
@@ -634,13 +570,11 @@ describe('registerShellHandlers', () => {
         handler({}, { path: remotePath, command: 'code', connectionId: 'ssh-1' })
       ).resolves.toEqual({ ok: true })
       expect(statMock).not.toHaveBeenCalled()
-      expect(getSpawnArgsForWindowsMock).toHaveBeenCalledWith(
-        '/usr/local/bin/code',
-        ['--remote', 'ssh-remote+builder', remotePath],
-        {
-          detachedGui: false
-        }
-      )
+      expect(getSpawnArgsForWindowsMock).toHaveBeenCalledWith('/usr/local/bin/code', [
+        '--remote',
+        'ssh-remote+builder',
+        remotePath
+      ])
     })
 
     it('preserves Windows-form SSH paths and uses the manual port-22 authority', async () => {
@@ -661,13 +595,11 @@ describe('registerShellHandlers', () => {
         handler({}, { path: remotePath, command: 'code', connectionId: 'ssh-1' })
       ).resolves.toEqual({ ok: true })
       expect(statMock).not.toHaveBeenCalled()
-      expect(getSpawnArgsForWindowsMock).toHaveBeenCalledWith(
-        'C:\\Tools\\code.cmd',
-        ['--remote', 'ssh-remote+Ada@win-builder.example.com', remotePath],
-        {
-          detachedGui: false
-        }
-      )
+      expect(getSpawnArgsForWindowsMock).toHaveBeenCalledWith('C:\\Tools\\code.cmd', [
+        '--remote',
+        'ssh-remote+Ada@win-builder.example.com',
+        remotePath
+      ])
     })
 
     it('opens a manual port-22 target with a host-only authority when username is blank', async () => {
@@ -686,13 +618,11 @@ describe('registerShellHandlers', () => {
       await expect(
         handler({}, { path: '/srv/project', command: 'code', connectionId: 'ssh-1' })
       ).resolves.toEqual({ ok: true })
-      expect(getSpawnArgsForWindowsMock).toHaveBeenCalledWith(
-        '/usr/local/bin/code',
-        ['--remote', 'ssh-remote+builder.example.com', '/srv/project'],
-        {
-          detachedGui: false
-        }
-      )
+      expect(getSpawnArgsForWindowsMock).toHaveBeenCalledWith('/usr/local/bin/code', [
+        '--remote',
+        'ssh-remote+builder.example.com',
+        '/srv/project'
+      ])
     })
 
     it('rejects relative SSH paths before resolving or spawning a launcher', async () => {

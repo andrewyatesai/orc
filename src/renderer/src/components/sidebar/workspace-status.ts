@@ -1,8 +1,23 @@
 import React from 'react'
 import { CircleDot } from 'lucide-react'
 import type { WorkspaceStatus, WorkspaceStatusDefinition } from '../../../../shared/types'
-import { DEFAULT_WORKSPACE_STATUS_COLOR_ID, DEFAULT_WORKSPACE_STATUS_ICON_ID, DEFAULT_WORKSPACE_STATUS_ID, DEFAULT_WORKSPACE_STATUSES, WORKSPACE_STATUS_COLOR_IDS, WORKSPACE_STATUS_ICON_IDS } from '../../../../shared/workspace-statuses'
-import { getWorkspaceStatus, getWorkspaceStatusFromGroupKey, getWorkspaceStatusGroupKey, isWorkspaceStatusId } from '../../../../shared/workspace-status-normalization'
+import {
+  DEFAULT_WORKSPACE_STATUS_COLOR_ID,
+  DEFAULT_WORKSPACE_STATUS_ICON_ID,
+  DEFAULT_WORKSPACE_STATUS_ID,
+  DEFAULT_WORKSPACE_STATUSES,
+  WORKSPACE_STATUS_COLOR_IDS,
+  WORKSPACE_STATUS_ICON_IDS
+} from '../../../../shared/workspace-statuses'
+// Re-exported below with no call of its own: WorktreeList, WorktreeContextMenu,
+// workspace-kanban-sidebar-drop and workspace-kanban-worktree-groups reach the
+// Rust-backed board rules ONLY through this barrel.
+import {
+  getWorkspaceStatus,
+  getWorkspaceStatusFromGroupKey,
+  getWorkspaceStatusGroupKey,
+  isWorkspaceStatusId
+} from '../../../../shared/workspace-status-normalization'
 import { translate } from '@/i18n/i18n'
 import { createLocalizedCatalog } from '@/i18n/localized-catalog'
 import {

@@ -71,11 +71,7 @@ function installExecCommandClipboardDocument(execCommandResult = true): {
   const execCommand = vi.fn((command: string) => {
     if (command === 'copy') {
       for (const listener of listeners.slice()) {
-        listener({
-          clipboardData: { setData },
-          preventDefault: vi.fn(),
-          stopImmediatePropagation: vi.fn()
-        })
+        listener({ clipboardData: { setData }, preventDefault: vi.fn() })
       }
     }
     return execCommandResult

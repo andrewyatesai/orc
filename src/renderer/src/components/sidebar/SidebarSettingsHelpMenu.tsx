@@ -96,6 +96,7 @@ export function SidebarSettingsHelpMenu(): React.JSX.Element {
   const settingsShortcut = useShortcutKeyDetails('app.settings')
   const [menuOpen, setMenuOpen] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [showAdminOptions, setShowAdminOptions] = useState(false)
   const [isRestartingOrca, setIsRestartingOrca] = useState(false)
   const lastShowOnboardingAtRef = React.useRef(0)
   const updateCheckModifiersRef = React.useRef(NO_UPDATE_CHECK_MODIFIERS)
@@ -108,6 +109,15 @@ export function SidebarSettingsHelpMenu(): React.JSX.Element {
   const handleMenuOpenChange = (open: boolean): void => {
     setMenuOpen(open)
     updateCheckModifiersRef.current = NO_UPDATE_CHECK_MODIFIERS
+    if (!open) {
+      setShowAdminOptions(false)
+    }
+  }
+
+  const revealAdminOptions = (altKey: boolean): void => {
+    // Why: onboarding replay and restart stay off the default Help menu; holding
+    // Option/Alt before opening is an intentional power-user affordance.
+    setShowAdminOptions(altKey)
   }
 
   const handleShowOnboarding = (): void => {
@@ -212,6 +222,8 @@ export function SidebarSettingsHelpMenu(): React.JSX.Element {
                     'Help'
                   )}
                   className="text-muted-foreground"
+                  onPointerDown={(event) => revealAdminOptions(event.altKey)}
+                  onClick={(event) => revealAdminOptions(event.altKey)}
                 >
                   <CircleHelp className="size-3.5" />
                 </Button>
@@ -257,17 +269,19 @@ export function SidebarSettingsHelpMenu(): React.JSX.Element {
                 />
               </DropdownMenuItem>
             ) : null}
-            <DropdownMenuItem
-              className="whitespace-nowrap"
-              onClick={handleShowOnboarding}
-              onSelect={handleShowOnboarding}
-            >
-              <School className="size-3.5" />
-              {translate(
-                'auto.components.sidebar.SidebarSettingsHelpMenu.b7e4d2a19c',
-                'Onboarding'
-              )}
-            </DropdownMenuItem>
+            {showAdminOptions ? (
+              <DropdownMenuItem
+                className="whitespace-nowrap"
+                onClick={handleShowOnboarding}
+                onSelect={handleShowOnboarding}
+              >
+                <School className="size-3.5" />
+                {translate(
+                  'auto.components.sidebar.SidebarSettingsHelpMenu.b7e4d2a19c',
+                  'Onboarding'
+                )}
+              </DropdownMenuItem>
+            ) : null}
             <ExternalMenuItem
               label={translate(
                 'auto.components.sidebar.SidebarSettingsHelpMenu.cdc87f897e',
@@ -326,14 +340,18 @@ export function SidebarSettingsHelpMenu(): React.JSX.Element {
                 'Check for Updates'
               )}
             </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={handleRestartOrca} disabled={isRestartingOrca}>
-              <RotateCw className="size-3.5" />
-              {translate(
-                'auto.components.sidebar.SidebarSettingsHelpMenu.ad3d3ed7f1',
-                'Restart Orca'
-              )}
-            </DropdownMenuItem>
+            {showAdminOptions ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={handleRestartOrca} disabled={isRestartingOrca}>
+                  <RotateCw className="size-3.5" />
+                  {translate(
+                    'auto.components.sidebar.SidebarSettingsHelpMenu.ad3d3ed7f1',
+                    'Restart Orca'
+                  )}
+                </DropdownMenuItem>
+              </>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

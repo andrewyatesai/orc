@@ -1,6 +1,7 @@
 import type { TuiAgent } from '../../../shared/types'
 import { TUI_AGENT_AUTO_PICK_ORDER } from '../../../shared/tui-agent-selection'
 import { isTuiAgentEnabled, pickTuiAgent } from '../../../shared/tui-agent-selection-resolution'
+
 export function pickQuickWorkspaceAgent(
   preferred: TuiAgent | 'blank' | null | undefined,
   detectedAgentIds: Iterable<TuiAgent> | null,

@@ -67,8 +67,7 @@ function registryFor(
             lastSeenAt: 0
           }
         : null,
-    updateLastSeen: vi.fn(),
-    updateLastSeenDeferred: vi.fn()
+    updateLastSeen: vi.fn()
   } as unknown as DeviceRegistry
 }
 
@@ -135,9 +134,8 @@ describe('MobileSocketWiring', () => {
     const transport = new FakeTransport()
     const onText = vi.fn()
     const onClose = vi.fn()
-    const deviceRegistry = registryFor('device-1', 'valid-token', 'runtime')
     const wiring = new MobileSocketWiring({
-      deviceRegistry,
+      deviceRegistry: registryFor('device-1', 'valid-token', 'runtime'),
       getWarmServerSecretKey: () => desktop.secretKey,
       onText,
       onBinary: vi.fn(),
@@ -167,9 +165,6 @@ describe('MobileSocketWiring', () => {
     transport.receive(ws, encrypt('{"id":"rpc-1","method":"status.get"}', sharedKey))
 
     expect(transport.setClientId).toHaveBeenCalledWith(ws, 'valid-token')
-    // Why: e2ee_authenticated must refresh lastSeen off the disk path, never inline.
-    expect(deviceRegistry.updateLastSeenDeferred).toHaveBeenCalledWith('device-1')
-    expect(deviceRegistry.updateLastSeen).not.toHaveBeenCalled()
     expect(onText).toHaveBeenCalledOnce()
     expect(onText.mock.calls[0]?.[0]).toMatchObject({
       device: { deviceId: 'device-1', deviceToken: 'valid-token', scope: 'runtime' },

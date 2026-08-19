@@ -1,9 +1,12 @@
 import type { AppState } from '@/store/types'
 import { getIndexedRepoMap, getIndexedWorktreeMap } from '@/store/worktree-repo-index'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../shared/constants'
-import { getRepoIdFromWorktreeId } from '../../../shared/worktree-id'
+import { getRepoIdFromWorktreeId } from '../../../shared/worktree-id-parsing'
 import { parseWorkspaceKey } from '../../../shared/workspace-scope'
-import { isPathInsideOrEqual, normalizeRuntimePathForComparison } from '../../../shared/cross-platform-path-resolution'
+import {
+  isPathInsideOrEqual,
+  normalizeRuntimePathForComparison
+} from '../../../shared/cross-platform-path-resolution'
 import {
   getFolderWorkspaceCandidateRepos,
   getFolderWorkspaceConnectionId

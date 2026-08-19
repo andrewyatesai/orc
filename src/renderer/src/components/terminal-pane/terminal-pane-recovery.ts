@@ -20,13 +20,6 @@ export type TerminalPaneRecoveryReason =
   | 'write-stalled'
   | 'replay-wedged'
   | 'input-undeliverable'
-  // The paired runtime that owns the PTY refused this write and said so on the
-  // wire. Distinct from 'input-undeliverable' because it skips the liveness
-  // probe: main's registry holds no entry for a `remote:` id, so `pty:hasPty`
-  // routes it to the local provider and answers a fabricated "dead". The
-  // rejection frame is the evidence instead — it came from the process that
-  // owns the PTY, over a connection that is by construction still up.
-  | 'input-rejected-by-host'
   // A restore was requested for a certified-dead pipeline (reveal path).
   | 'restore-blocked'
 
@@ -43,9 +36,7 @@ type RecoveryRequest = {
   /** Remote panes (runtime mirrors, app-SSH) must prove the PTY alive before
    *  an input-undeliverable remount: pty:hasPty answers null for ids the local
    *  registry doesn't own, and treating null as "proceed" would let a
-   *  disconnected remote pane churn reconnects on every cooldown window. That
-   *  churn needs a *disconnected* pane, which is why 'input-rejected-by-host'
-   *  is exempt: its evidence arrives over a live connection. */
+   *  disconnected remote pane churn reconnects on every cooldown window. */
   requireAuthoritativeLiveness?: boolean
   /** The provider rejected the write because its endpoint stopped accepting
    *  writes, so re-attach MAY land on a *fresh* shell (a respawn; a transient
@@ -192,9 +183,7 @@ function cancelPendingRecoveryRetry(tabId: string): void {
  *
  * For 'input-undeliverable' the PTY is liveness-checked first: a dead PTY is
  * the dead-session reconcile's job (it tears down and reports "Process
- * exited"), and remounting there would race it. 'input-rejected-by-host' skips
- * that probe — see the reason's declaration. Nothing here destroys a session
- * either way: a remount rebuilds the renderer over the PTY it already had.
+ * exited"), and remounting there would race it.
  */
 export async function requestTerminalPaneRecovery(request: RecoveryRequest): Promise<boolean> {
   if (!isCurrentTerminalRecoveryRequest(request)) {
@@ -210,8 +199,6 @@ export async function requestTerminalPaneRecovery(request: RecoveryRequest): Pro
     }
     return false
   }
-  // 'input-rejected-by-host' is deliberately absent: no local probe can speak
-  // for the id it carries, and its evidence already came from the PTY's owner.
   if (request.reason === 'input-undeliverable') {
     if (!request.ptyId) {
       return false
@@ -289,9 +276,7 @@ export async function requestTerminalPaneRecovery(request: RecoveryRequest): Pro
     // would suppress input on a pane that never recovered.
     armTerminalInputQuarantine(request.tabId)
   }
-  // warn, not error: recovery is an expected, healthy remount over a still-live
-  // PTY — surfacing it as an error trips crash dashboards on a non-failure.
-  console.warn(
+  console.error(
     `[terminal] recovering pane tab ${request.tabId} — ${request.reason} with a live PTY (${request.ptyId ?? 'unbound'}); remounting to rebuild the renderer`
   )
   recordRendererCrashBreadcrumb('terminal_pane_recovery_remount', {

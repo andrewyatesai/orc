@@ -20,10 +20,7 @@
 import type { MemorySnapshot, SessionMemory, WorktreeMemory } from '../../../../shared/types'
 import { parsePtySessionId } from '../../../../shared/pty-session-id-format'
 import { parsePaneKey as parseStablePaneKey } from '../../../../shared/stable-pane-identity'
-import {
-  getRepoIdFromWorktreeId,
-  getWorktreePathBasenameFromId
-} from '../../../../shared/worktree-id'
+import { getRepoIdFromWorktreeId, getWorktreePathBasenameFromId } from '../../../../shared/worktree-id-parsing'
 import type {
   DaemonSession,
   MergeContext,

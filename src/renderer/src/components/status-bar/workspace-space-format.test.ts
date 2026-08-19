@@ -22,8 +22,7 @@ describe('workspace space format helpers', () => {
 
   it('formats scan times as relative age labels', () => {
     const now = new Date('2026-05-14T22:15:00Z').getTime()
-    // Pinned to 'en' so the expectation matches the UI language, not the machine's OS locale.
-    const formatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
+    const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
 
     expect(getWorkspaceSpaceScanTimeLabel(now - 2 * 60_000, now)).toBe(
       formatter.format(-2, 'minute')

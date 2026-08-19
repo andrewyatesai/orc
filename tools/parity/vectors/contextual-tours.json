@@ -15,12 +15,7 @@
         null,
         "workspace-creation"
       ],
-      "expected": [
-        "tasks",
-        "workspace-agent-sessions",
-        "browser",
-        "workspace-creation"
-      ]
+      "expected": ["tasks", "workspace-agent-sessions", "browser", "workspace-creation"]
     },
     {
       "function": "normalizeContextualTourIds",
@@ -47,17 +42,98 @@
       "expected": false
     },
     {
+      "function": "getContextualTour",
+      "note": "automations tour: minimal optional fields",
+      "input": "automations",
+      "expected": {
+        "id": "automations",
+        "steps": [
+          {
+            "id": "automations-intro",
+            "title": "What is an automation?",
+            "body": "Automations run agent work on a schedule. Add an automation by clicking this button.",
+            "targetSelector": "[data-contextual-tour-target=\"automations-create\"]",
+            "requiredForStart": true
+          },
+          {
+            "id": "automations-results",
+            "title": "Find the results",
+            "body": "Runs show when automations ran, what happened, and where to inspect their output.",
+            "targetSelector": "[data-contextual-tour-target=\"automations-runs\"]"
+          }
+        ]
+      }
+    },
+    {
+      "function": "getContextualTour",
+      "note": "workspace-agent-sessions tour: primary action, placement, pulse, advance-on-interaction",
+      "input": "workspace-agent-sessions",
+      "expected": {
+        "id": "workspace-agent-sessions",
+        "steps": [
+          {
+            "title": "Split a terminal pane",
+            "body": "Open a second terminal pane with {terminal.splitRight}, or right-click the pane for split options.",
+            "targetSelector": "[data-contextual-tour-target=\"terminal-pane-split-target\"], [data-contextual-tour-target=\"workspace-agent-terminal-tip\"]",
+            "requiredForStart": true,
+            "preferredPlacement": "bottom",
+            "primaryAction": {
+              "kind": "split-terminal-pane",
+              "label": "Split terminal"
+            },
+            "advanceOnFeatureInteraction": "terminal-pane-split"
+          },
+          {
+            "title": "Start another task in parallel",
+            "body": "Each worktree gets its own branch, so parallel work stays separate.",
+            "targetSelector": "[data-contextual-tour-target=\"workspace-create-control\"]",
+            "preferredPlacement": "right",
+            "targetPulse": true,
+            "hidePrimaryAction": true
+          }
+        ]
+      }
+    },
+    {
+      "function": "getContextualTour",
+      "note": "workspace-creation tour: allowedActiveModals and step control",
+      "input": "workspace-creation",
+      "expected": {
+        "id": "workspace-creation",
+        "allowedActiveModals": ["new-workspace-composer"],
+        "steps": [
+          {
+            "title": "Pick a project",
+            "body": "Orca isolates each task in its own worktree, branched off your base.",
+            "targetSelector": "[data-contextual-tour-target=\"workspace-creation-project\"]",
+            "requiredForStart": true
+          },
+          {
+            "title": "Name it, or start from existing work",
+            "body": "Start from a linked task for a short issue or PR name. Or leave it blank to auto-name it from your first agent message.",
+            "targetSelector": "[data-contextual-tour-target=\"workspace-creation-name\"]",
+            "control": {
+              "kind": "auto-rename-branch-from-work"
+            }
+          },
+          {
+            "title": "Choose what agent starts the work",
+            "body": "Pick the agent that should be opened when this worktree is created.",
+            "targetSelector": "[data-contextual-tour-target=\"workspace-creation-agent\"]"
+          }
+        ]
+      }
+    },
+    {
       "function": "isContextualTourId",
-      "note": "floating-workspace is a known id — the one `CONTEXTUAL_TOUR_IDS` omits, which these two functions do not read (they match on the enum)",
+      "note": "floating-workspace is a known id (the id the Rust ids const omitted)",
       "input": "floating-workspace",
       "expected": true
     },
     {
       "function": "isContextualTourId",
       "note": "an array is not an id",
-      "input": [
-        "tasks"
-      ],
+      "input": ["tasks"],
       "expected": false
     },
     {
@@ -90,7 +166,7 @@
     },
     {
       "function": "getContextualTour",
-      "note": "workspace-board: one vector per tour, so no tour can drift unseen — this is the guard the three-tour sample did not provide",
+      "note": "workspace-board tour: two steps — the tune-density step was removed (#5389)",
       "input": "workspace-board",
       "expected": {
         "id": "workspace-board",
@@ -112,37 +188,7 @@
     },
     {
       "function": "getContextualTour",
-      "note": "workspace-agent-sessions: one vector per tour, so no tour can drift unseen — this is the guard the three-tour sample did not provide",
-      "input": "workspace-agent-sessions",
-      "expected": {
-        "id": "workspace-agent-sessions",
-        "steps": [
-          {
-            "title": "Split a terminal pane",
-            "body": "Open a second terminal pane with {terminal.splitRight}, or right-click the pane for split options.",
-            "targetSelector": "[data-contextual-tour-target=\"terminal-pane-split-target\"], [data-contextual-tour-target=\"workspace-agent-terminal-tip\"]",
-            "requiredForStart": true,
-            "preferredPlacement": "bottom",
-            "primaryAction": {
-              "kind": "split-terminal-pane",
-              "label": "Split terminal"
-            },
-            "advanceOnFeatureInteraction": "terminal-pane-split"
-          },
-          {
-            "title": "Start another task in parallel",
-            "body": "Each worktree gets its own branch, so parallel work stays separate.",
-            "targetSelector": "[data-contextual-tour-target=\"workspace-create-control\"]",
-            "preferredPlacement": "right",
-            "targetPulse": true,
-            "hidePrimaryAction": true
-          }
-        ]
-      }
-    },
-    {
-      "function": "getContextualTour",
-      "note": "browser: one vector per tour, so no tour can drift unseen — this is the guard the three-tour sample did not provide",
+      "note": "browser tour: grab, annotate, then the stay-logged-in import step (#4836/#4902)",
       "input": "browser",
       "expected": {
         "id": "browser",
@@ -171,7 +217,7 @@
     },
     {
       "function": "getContextualTour",
-      "note": "tasks: one vector per tour, so no tour can drift unseen — this is the guard the three-tour sample did not provide",
+      "note": "tasks tour: three steps, nothing optional past requiredForStart",
       "input": "tasks",
       "expected": {
         "id": "tasks",
@@ -197,30 +243,7 @@
     },
     {
       "function": "getContextualTour",
-      "note": "automations: one vector per tour, so no tour can drift unseen — this is the guard the three-tour sample did not provide",
-      "input": "automations",
-      "expected": {
-        "id": "automations",
-        "steps": [
-          {
-            "id": "automations-intro",
-            "title": "What is an automation?",
-            "body": "Automations run agent work on a schedule. Add an automation by clicking this button.",
-            "targetSelector": "[data-contextual-tour-target=\"automations-create\"]",
-            "requiredForStart": true
-          },
-          {
-            "id": "automations-results",
-            "title": "Find the results",
-            "body": "Runs show when automations ran, what happened, and where to inspect their output.",
-            "targetSelector": "[data-contextual-tour-target=\"automations-runs\"]"
-          }
-        ]
-      }
-    },
-    {
-      "function": "getContextualTour",
-      "note": "floating-workspace: one vector per tour, so no tour can drift unseen — this is the guard the three-tour sample did not provide",
+      "note": "floating-workspace tour: left placements and surface fallbacks (#5062)",
       "input": "floating-workspace",
       "expected": {
         "id": "floating-workspace",
@@ -237,38 +260,6 @@
             "body": "Open agents, scratch terminals, notes, and browser tabs without cluttering the worktree you’re focused on.",
             "targetSelector": "[data-contextual-tour-target=\"floating-workspace-new-markdown\"], [data-contextual-tour-target=\"floating-workspace-surface\"]",
             "preferredPlacement": "left"
-          }
-        ]
-      }
-    },
-    {
-      "function": "getContextualTour",
-      "note": "workspace-creation: one vector per tour, so no tour can drift unseen — this is the guard the three-tour sample did not provide",
-      "input": "workspace-creation",
-      "expected": {
-        "id": "workspace-creation",
-        "allowedActiveModals": [
-          "new-workspace-composer"
-        ],
-        "steps": [
-          {
-            "title": "Pick a project",
-            "body": "Orca isolates each task in its own worktree, branched off your base.",
-            "targetSelector": "[data-contextual-tour-target=\"workspace-creation-project\"]",
-            "requiredForStart": true
-          },
-          {
-            "title": "Name it, or start from existing work",
-            "body": "Start from a linked task for a short issue or PR name. Or leave it blank to auto-name it from your first agent message.",
-            "targetSelector": "[data-contextual-tour-target=\"workspace-creation-name\"]",
-            "control": {
-              "kind": "auto-rename-branch-from-work"
-            }
-          },
-          {
-            "title": "Choose what agent starts the work",
-            "body": "Pick the agent that should be opened when this worktree is created.",
-            "targetSelector": "[data-contextual-tour-target=\"workspace-creation-agent\"]"
           }
         ]
       }

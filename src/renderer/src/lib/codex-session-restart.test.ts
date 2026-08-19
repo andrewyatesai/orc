@@ -78,8 +78,7 @@ describe('markLiveCodexSessionsForRestart', () => {
           ...originalWindow?.api?.pty,
           getForegroundProcess: vi.fn(),
           hasChildProcesses: vi.fn().mockResolvedValue(false),
-          inspectProcess: vi.fn(),
-          confirmForegroundProcess: vi.fn().mockResolvedValue(null)
+          inspectProcess: vi.fn()
         },
         codexAccounts: {
           ...originalWindow?.api?.codexAccounts,
@@ -761,8 +760,7 @@ describe('markRestoredStaleCodexSessionsForRestart', () => {
           hasChildProcesses: vi.fn().mockResolvedValue(false),
           inspectProcess: vi
             .fn()
-            .mockResolvedValue({ foregroundProcess: 'codex', hasChildProcesses: false }),
-          confirmForegroundProcess: vi.fn().mockResolvedValue(null)
+            .mockResolvedValue({ foregroundProcess: 'codex', hasChildProcesses: false })
         },
         codexAccounts: {
           ...originalWindow?.api?.codexAccounts,

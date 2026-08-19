@@ -9,11 +9,7 @@ import { extractExecError, parseRetryAfterMs } from '../git/exec-error'
 // WSL-aware routing. Repo-scoped callers should use the runner exports below.
 export const execFileAsync = promisify(execFile)
 export { ghExecFileAsync, gitExecFileAsync, extractExecError, parseRetryAfterMs }
-export {
-  classifyGhError,
-  classifyListIssuesError,
-  classifyListPrsError
-} from './gh-error-classification'
+export { classifyGhError, classifyListIssuesError } from './gh-error-classification'
 export {
   _getOwnerRepoCacheSize,
   _resetOwnerRepoCache,

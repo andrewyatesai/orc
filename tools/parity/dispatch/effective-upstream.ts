@@ -1,10 +1,8 @@
-// TS dispatch for the effective-upstream parity module. `splitRemoteBranchName`
-// was CUT OVER, so this drives the SHIM — and config/vitest.parity.config.ts
-// installs no setup file, which means the seam is unbound here and the shim
-// answers from its `parity` fallback. That is the deleted body, so this leg is
-// still a real differential (fallback vs Rust), not a self-comparison.
+// TS dispatch for the effective-upstream parity module: maps the shared vector
+// function names to the real `src/shared/git-effective-upstream.ts` exports so
+// the harness compares the live TS reference against the Rust port.
 
-import { splitRemoteBranchName } from '../../../src/shared/git-remote-branch-split'
+import { splitRemoteBranchName } from '../../../src/shared/git-effective-upstream'
 
 export function dispatch(fn: string, input: unknown): unknown {
   switch (fn) {

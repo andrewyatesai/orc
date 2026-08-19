@@ -6,7 +6,7 @@ import {
   createWorkspaceCleanupFingerprint
 } from '../rust-workspace-cleanup'
 import type { WorkspaceCleanupCandidate } from '../../shared/workspace-cleanup'
-import { splitWorktreeId } from '../../shared/worktree-id'
+import { splitWorktreeId } from '../../shared/worktree-id-parsing'
 import {
   getNewestWorkspaceCleanupDiffCommentAt,
   getWorkspaceCleanupInactivityReasonsForWorkspace,

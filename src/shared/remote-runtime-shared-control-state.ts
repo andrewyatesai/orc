@@ -10,7 +10,6 @@ import type {
   SharedControlReadyWaiter
 } from './remote-runtime-shared-control-types'
 import { getSubscriptionId, isEndResult } from './remote-runtime-shared-control-protocol'
-import { withReconnectJitter } from './reconnect-jitter'
 import { tagRuntimeSubscriptionReplayResponse } from './runtime-subscription-replay'
 
 export function buildSharedControlDiagnostics(args: {
@@ -217,4 +216,11 @@ export function scheduleSharedControlReconnect(args: {
     timer.unref()
   }
   return { timer, reconnectAttempt: args.reconnectAttempt + 1 }
+}
+
+function withReconnectJitter(delayMs: number): number {
+  // Why: when a remote host restarts, all passive subscriptions reconnect
+  // together. A small one-sided jitter avoids synchronized retry spikes.
+  const jitterMs = Math.floor(delayMs * 0.2 * Math.random())
+  return delayMs + jitterMs
 }

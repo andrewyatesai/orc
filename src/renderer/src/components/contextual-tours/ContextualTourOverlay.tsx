@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { useAppStore } from '@/store'
-import type {
-  ContextualTourId,
-  ContextualTourStepAction
+import {
+  getContextualTour,
+  type ContextualTourId,
+  type ContextualTourStepAction
 } from '../../../../shared/contextual-tours'
-import { getContextualTour } from '../../../../shared/contextual-tour-lookup'
 import type { ContextualTourOutcome } from '../../../../shared/feature-education-telemetry'
 import {
   trackContextualTourOutcome,

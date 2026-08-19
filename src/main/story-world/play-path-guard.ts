@@ -16,14 +16,6 @@
  * `NUL.js`), NTFS alternate data streams (`game.js::$DATA`) and trailing
  * dot/space filenames — all of which Windows resolves to something other than
  * the file that was asked for.
- *
- * NOT YET WIRED, and that is the intended state: `decidePlayPath` and
- * `isAllowedPlayHost` are referenced only by this file and its tests, because
- * the play server they guard is not built yet. The guard lands before the
- * surface it contains, on purpose. Noted here because the Rust port and the
- * green `policy` parity module make it look live — `decideFleetGrant`, in that
- * same parity module, IS wired (`main/runtime/fleet-grant-registry.ts`), so the
- * module being green says nothing about this half.
  */
 
 import { realpathSync } from 'node:fs'

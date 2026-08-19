@@ -33,8 +33,6 @@ export default defineConfig({
     setupFiles: [
       resolve('config/vitest-warning-filter.ts'),
       resolve('config/vitest-dom-storage-polyfill.ts'),
-      // Why: happy-dom drops MutationObserver callbacks on GC; keep them alive like a browser does.
-      resolve('config/scripts/happy-dom-mutation-observer-retention.ts'),
       resolve('config/vitest-orca-dispatch-seam.ts')
     ],
     include: [

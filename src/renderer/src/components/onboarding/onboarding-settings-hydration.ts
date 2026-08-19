@@ -1,5 +1,6 @@
 import type { GlobalSettings, TuiAgent } from '../../../../shared/types'
 import { collapseDefaultTuiAgentToBuiltin } from '../../../../shared/tui-agent-selection-resolution'
+
 export type OnboardingSettingsHydrationUpdate = {
   settingsHydrated: boolean
   theme?: GlobalSettings['theme']

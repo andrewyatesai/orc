@@ -209,7 +209,6 @@ export function useMobileSourceControlState(params: MobileSourceControlStatePara
   const createPrAction = useMobileSourceControlCreatePrAction({
     client,
     connState,
-    hostId,
     worktreeId,
     status,
     hasUncommittedChanges: entries.length > 0,

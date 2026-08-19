@@ -1,10 +1,9 @@
-import type { SetupRunnerCommandPlatform, SetupRunnerCommandShell } from './setup-runner-command'
 import { resolveSetupRunnerCommand } from './setup-runner-command-resolution'
+import type { SetupRunnerCommandPlatform, SetupRunnerCommandShell } from './setup-runner-command'
 import type { AgentStartupShell } from './tui-agent-startup-shell'
 
 const DEFAULT_WAIT_TIMEOUT_SECONDS = 2 * 60 * 60
 export const SETUP_AGENT_SEQUENCE_STARTUP_COMMAND_ENV = 'ORCA_SEQUENCED_STARTUP_COMMAND'
-export const SETUP_AGENT_SEQUENCE_STARTUP_SCRIPT_ENV = 'ORCA_SEQUENCED_STARTUP_SCRIPT'
 
 export type SequencedSetupAgentCommands = {
   setupCommand: string
@@ -57,19 +56,16 @@ export function createSequencedSetupAgentCommands(args: {
     }
   }
 
-  const startupScript = buildPosixStartupScript(
-    args.startupCommand,
-    markerPath,
-    nonce,
-    waitTimeoutSeconds
-  )
   return {
     setupCommand: buildPosixSetupCommand(resolution.command, markerPath, nonce),
-    // Why: long worktree paths can push the gate past a PTY's canonical input cap and drop its submit byte.
-    startupCommand: `bash -lc 'eval "$${SETUP_AGENT_SEQUENCE_STARTUP_SCRIPT_ENV}"'`,
+    startupCommand: buildPosixStartupCommand(
+      args.startupCommand,
+      markerPath,
+      nonce,
+      waitTimeoutSeconds
+    ),
     startupEnv: {
-      [SETUP_AGENT_SEQUENCE_STARTUP_COMMAND_ENV]: args.startupCommand,
-      [SETUP_AGENT_SEQUENCE_STARTUP_SCRIPT_ENV]: startupScript
+      [SETUP_AGENT_SEQUENCE_STARTUP_COMMAND_ENV]: args.startupCommand
     }
   }
 }
@@ -91,7 +87,7 @@ function buildPosixSetupCommand(setupCommand: string, markerPath: string, nonce:
   return `bash -lc ${quotePosixArg(script)}`
 }
 
-function buildPosixStartupScript(
+function buildPosixStartupCommand(
   startupCommand: string,
   markerPath: string,
   nonce: string,
@@ -126,7 +122,7 @@ function buildPosixStartupScript(
     'done'
   ].join(' ')
 
-  return script
+  return `bash -lc ${quotePosixArg(script)}`
 }
 
 function buildPosixStartupSuccessCommand(startupCommand: string): string {

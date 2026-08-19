@@ -12,7 +12,7 @@ import {
   statSync,
   realpathSync
 } from 'node:fs'
-import { rename, mkdir, rm, copyFile, stat, access } from 'node:fs/promises'
+import { rename, mkdir, rm, copyFile } from 'node:fs/promises'
 import { join, dirname, basename, isAbsolute, resolve, sep } from 'node:path'
 import {
   writeTmpDurableSync,
@@ -139,7 +139,12 @@ import {
   migrateWorkspaceSessionSshTargetId
 } from './ssh/ssh-target-id-migration'
 import { isWslUncPath } from '../shared/wsl-unc-paths'
-import { isTerminalLeafId, makePaneKey, parseLegacyNumericPaneKey, parsePaneKey } from '../shared/stable-pane-identity'
+import {
+  isTerminalLeafId,
+  makePaneKey,
+  parseLegacyNumericPaneKey,
+  parsePaneKey
+} from '../shared/stable-pane-identity'
 import {
   setMigrationUnsupportedPty,
   setMigrationUnsupportedPtyPersistenceListener
@@ -152,13 +157,16 @@ import {
   pruneAutomationRuns
 } from '../shared/automation-run-retention'
 import { pruneWorkspaceSessionBrowserHistory } from '../shared/workspace-session-browser-history'
+import { FOLDER_WORKSPACE_INSTANCE_SEPARATOR } from '../shared/worktree-id'
 import {
-  FOLDER_WORKSPACE_INSTANCE_SEPARATOR,
   getRepoIdFromWorktreeId,
   getWorktreePathBasenameFromId
-} from '../shared/worktree-id'
+} from '../shared/worktree-id-parsing'
 import { isWindowsAbsolutePathLike } from '../shared/cross-platform-path'
-import { isPathInsideOrEqual, normalizeRuntimePathForComparison } from '../shared/cross-platform-path-resolution'
+import {
+  isPathInsideOrEqual,
+  normalizeRuntimePathForComparison
+} from '../shared/cross-platform-path-resolution'
 import { normalizeTerminalQuickCommands } from './rust-terminal-quick-commands'
 import { normalizeTaskProviderSettings } from './rust-task-providers'
 import { normalizeAutoRenameBranchFromWorkDefaultOn } from '../shared/auto-rename-branch-from-work-settings'
@@ -171,8 +179,16 @@ import {
   legacyTerminalScrollbackBytesToRows,
   normalizeDesktopTerminalScrollbackRows
 } from '../shared/terminal-scrollback-policy'
-import { compareFeatureInteractionUsageBuckets, getFeatureInteractionCategory, getFeatureInteractionUsageBucket, type FeatureInteractionId } from '../shared/feature-interactions'
-import { normalizeFeatureInteractions, normalizeFeatureInteractionTelemetryBuckets } from '../shared/feature-interaction-state'
+import {
+  compareFeatureInteractionUsageBuckets,
+  getFeatureInteractionCategory,
+  getFeatureInteractionUsageBucket,
+  type FeatureInteractionId
+} from '../shared/feature-interactions'
+import {
+  normalizeFeatureInteractions,
+  normalizeFeatureInteractionTelemetryBuckets
+} from '../shared/feature-interaction-state'
 import { normalizeContextualTourIds } from '../shared/contextual-tour-id-normalization'
 import { normalizeFeatureTipIds } from '../shared/feature-tip-selection'
 import {
@@ -181,9 +197,13 @@ import {
 } from '../shared/codex-reset-credit-attempt-ledger'
 import { normalizeManualRepoOrder } from '../shared/manual-repo-order'
 import { DEFAULT_WORKSPACE_STATUS_ID } from '../shared/workspace-statuses'
-import { clampWorkspaceBoardColumnWidth, clampWorkspaceBoardOpacity, normalizePersistedWorkspaceStatuses, normalizeWorkspaceStatuses } from '../shared/workspace-status-normalization'
+import {
+  clampWorkspaceBoardColumnWidth,
+  clampWorkspaceBoardOpacity,
+  normalizePersistedWorkspaceStatuses,
+  normalizeWorkspaceStatuses
+} from '../shared/workspace-status-normalization'
 import { clampMarkdownTocPanelWidth } from '../shared/markdown-toc-panel-width'
-import { clampCombinedDiffFileTreeWidth } from '../shared/combined-diff-file-tree-width'
 import { isLegacyRepoForExternalWorktreeVisibility } from '../shared/worktree-ownership-policy'
 import { sanitizeRepoIcon } from './rust-repo-icon'
 import { normalizeRepoBadgeColor } from './rust-repo-badge-color'
@@ -723,14 +743,6 @@ function parseWorkspaceSessionsByHostId(
 
 function backupPath(dataFile: string, index: number): string {
   return `${dataFile}.bak.${index}`
-}
-
-/** existsSync's non-blocking twin: existsSync is an access(F_OK) probe, so access() is the exact analogue. */
-async function exists(path: string): Promise<boolean> {
-  return access(path).then(
-    () => true,
-    () => false
-  )
 }
 
 function buildWorkspaceDirHistoryForUpdate(
@@ -1534,18 +1546,10 @@ function sanitizeRepoUpstream(value: unknown): Repo['upstream'] | undefined {
   if (!value || typeof value !== 'object') {
     return undefined
   }
-  const candidate = value as { owner?: unknown; repo?: unknown; host?: unknown }
+  const candidate = value as { owner?: unknown; repo?: unknown }
   const owner = typeof candidate.owner === 'string' ? candidate.owner.trim() : ''
   const repo = typeof candidate.repo === 'string' ? candidate.repo.trim() : ''
-  if (!owner || !repo) {
-    return undefined
-  }
-  // Why: an `upstream` remote may live on a different server than `origin`, so
-  // dropping the host forced consumers to re-infer it from origin and could bind
-  // a GHES parent to a same-named github.com repo. Absent host stays absent so
-  // records written before this survive unchanged.
-  const host = typeof candidate.host === 'string' ? candidate.host.trim() : ''
-  return host ? { owner, repo, host } : { owner, repo }
+  return owner && repo ? { owner, repo } : undefined
 }
 
 function sanitizeGitRemoteIdentity(value: unknown): GitRemoteIdentity | null | undefined {
@@ -2303,7 +2307,10 @@ function normalizePersistedPaneIdentityState(state: PersistedState): {
 function remapAcknowledgedAgentPaneKeys(
   acknowledgements: PersistedState['ui']['acknowledgedAgentsByPaneKey'],
   leafIdByInputLeafIdByTabId: Map<string, Map<string, string>>
-): { acknowledgements: PersistedState['ui']['acknowledgedAgentsByPaneKey']; changed: boolean } {
+): {
+  acknowledgements: PersistedState['ui']['acknowledgedAgentsByPaneKey']
+  changed: boolean
+} {
   if (!acknowledgements || Object.keys(acknowledgements).length === 0) {
     return { acknowledgements, changed: false }
   }
@@ -2917,8 +2924,6 @@ export class Store {
   private writeTimer: ReturnType<typeof setTimeout> | null = null
   private pendingWrite: Promise<void> | null = null
   private writeGeneration = 0
-  // Prevent a sync flush from interleaving a second rotation with awaited ring mutations.
-  private backupRotationInFlight = false
   // Why: after a profile transfer rewrites this file on disk, a late flush of stale in-memory state would resurrect the moved project.
   private writesFrozen = false
   // Why: exact ciphertext strings that failed to decrypt at load (encryption available but wrong key). buildStateToSave
@@ -3072,52 +3077,28 @@ export class Store {
     }
   }
 
-  // Why separate from the sync twin: a statSync here parks the Electron main thread in uninterruptible
-  // sleep on a stalled SMB/NFS profile mount. Error semantics are deliberately identical: rotate.
-  private async shouldRotateBackupsAsync(dataFile: string): Promise<boolean> {
-    try {
-      const mtime = (await stat(backupPath(dataFile, 0))).mtimeMs
-      return Date.now() - mtime >= BACKUP_MIN_INTERVAL_MS
-    } catch {
-      return true
-    }
-  }
-
   // Why: rotate current file into the .bak ring so load() can recover if a later primary write is truncated or corrupt.
   private async rotateBackupsAsync(dataFile: string): Promise<void> {
-    if (this.backupRotationInFlight) {
+    if (!existsSync(dataFile)) {
       return
     }
-    this.backupRotationInFlight = true
-    try {
-      if (!(await this.shouldRotateBackupsAsync(dataFile))) {
-        return
+    await rm(backupPath(dataFile, BACKUP_COUNT - 1)).catch((err: unknown) => {
+      if (err && (err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.error('[persistence] Failed to remove oldest backup:', err)
       }
-      if (!(await exists(dataFile))) {
-        return
+    })
+    for (let i = BACKUP_COUNT - 2; i >= 0; i--) {
+      const src = backupPath(dataFile, i)
+      const dst = backupPath(dataFile, i + 1)
+      if (existsSync(src)) {
+        await rename(src, dst).catch((err) => {
+          console.error('[persistence] Failed to rotate backup', src, '->', dst, err)
+        })
       }
-      await rm(backupPath(dataFile, BACKUP_COUNT - 1)).catch((err: unknown) => {
-        if (err && (err as NodeJS.ErrnoException).code !== 'ENOENT') {
-          console.error('[persistence] Failed to remove oldest backup:', err)
-        }
-      })
-      for (let i = BACKUP_COUNT - 2; i >= 0; i--) {
-        const src = backupPath(dataFile, i)
-        const dst = backupPath(dataFile, i + 1)
-        // Why probe instead of rename-then-swallow-ENOENT: a degraded mount rejects a rename of an
-        // absent slot with ESTALE/EIO, which would log once per empty slot on every debounced save.
-        if (await exists(src)) {
-          await rename(src, dst).catch((err) => {
-            console.error('[persistence] Failed to rotate backup', src, '->', dst, err)
-          })
-        }
-      }
-      await copyFile(dataFile, backupPath(dataFile, 0)).catch((err) => {
-        console.error('[persistence] Failed to snapshot current file to .bak.0:', err)
-      })
-    } finally {
-      this.backupRotationInFlight = false
     }
+    await copyFile(dataFile, backupPath(dataFile, 0)).catch((err) => {
+      console.error('[persistence] Failed to snapshot current file to .bak.0:', err)
+    })
   }
 
   private rotateBackupsSync(dataFile: string): void {
@@ -4188,15 +4169,18 @@ export class Store {
         await rm(tmpFile).catch(() => {})
       }
     }
-    // Why (#1158): rotate only after the primary rename while this write still owns its generation.
+    // Why (issue #1158): rotate backups only after rename succeeded, and let a concurrent flush own rotation.
     if (this.writeGeneration !== gen) {
       return
     }
-    await this.rotateBackupsAsync(dataFile)
+    const now = Date.now()
+    if (this.shouldRotateBackups(now, dataFile)) {
+      await this.rotateBackupsAsync(dataFile)
+    }
   }
 
   // Why: sync variant only for flush() at shutdown, where the process may exit before an async write completes.
-  private writeToDiskSync(opts: { force?: boolean; skipBackupRotation?: boolean } = {}): void {
+  private writeToDiskSync(opts: { force?: boolean } = {}): void {
     if (this.writesFrozen) {
       return
     }
@@ -4231,7 +4215,7 @@ export class Store {
       }
     }
     const now = Date.now()
-    if (!opts.skipBackupRotation && this.shouldRotateBackups(now, dataFile)) {
+    if (this.shouldRotateBackups(now, dataFile)) {
       this.rotateBackupsSync(dataFile)
     }
   }
@@ -4246,10 +4230,7 @@ export class Store {
     // Why: bump writeGeneration so an in-flight async write skips its rename and can't overwrite this sync write.
     this.writeGeneration++
     this.pendingWrite = null
-    this.writeToDiskSync({
-      force: asyncWriteWasInFlight,
-      skipBackupRotation: this.backupRotationInFlight
-    })
+    this.writeToDiskSync({ force: asyncWriteWasInFlight })
   }
 
   flushActiveViewPreferenceOrThrow(): void {
@@ -6093,9 +6074,6 @@ export class Store {
       osc52ClipboardDefaultOnNoticePending:
         this.state.ui?.osc52ClipboardDefaultOnNoticePending === true,
       markdownTocPanelWidth: clampMarkdownTocPanelWidth(this.state.ui?.markdownTocPanelWidth),
-      combinedDiffFileTreeWidth: clampCombinedDiffFileTreeWidth(
-        this.state.ui?.combinedDiffFileTreeWidth
-      ),
       visibleWorkspaceHostIds: normalizeVisibleExecutionHostIds(
         this.state.ui?.visibleWorkspaceHostIds
       ),
@@ -6195,9 +6173,6 @@ export class Store {
       ),
       markdownTocPanelWidth: clampMarkdownTocPanelWidth(
         sanitizedUpdates.markdownTocPanelWidth ?? this.state.ui?.markdownTocPanelWidth
-      ),
-      combinedDiffFileTreeWidth: clampCombinedDiffFileTreeWidth(
-        sanitizedUpdates.combinedDiffFileTreeWidth ?? this.state.ui?.combinedDiffFileTreeWidth
       ),
       visibleWorkspaceHostIds:
         updates.visibleWorkspaceHostIds !== undefined

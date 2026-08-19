@@ -112,8 +112,9 @@ import {
 import { GLOBAL_FLAGS, specPaths } from './args'
 import { RuntimeRpcFailureError } from './runtime-client'
 import { buildWorktree, okFixture, queueFixtures, worktreeListFixture } from './test-fixtures'
-import { PAIRING_OFFER_VERSION } from '../shared/pairing'
 import { encodePairingOffer } from '../shared/pairing-deep-link'
+import { PAIRING_OFFER_VERSION } from '../shared/pairing'
+
 describe('COMMAND_SPECS collision check', () => {
   it('has no duplicate command or alias paths', () => {
     // Why: first-match resolution would silently shadow duplicate aliases.
@@ -2805,7 +2806,7 @@ describe('orca cli worktree awareness', () => {
     })
   })
 
-  it('starts an agent worktree in the background unless activation is explicit', async () => {
+  it('passes agent prompt and setup policy through worktree.create', async () => {
     queueFixtures(
       callMock,
       worktreeListFixture([buildWorktree('/tmp/repo', 'main', 'abc', 'repo-1')]),
@@ -2843,7 +2844,7 @@ describe('orca cli worktree awareness', () => {
       linkedIssue: undefined,
       comment: undefined,
       runHooks: false,
-      activate: false,
+      activate: true,
       setupDecision: 'run',
       parentWorktree: undefined,
       cwdParentWorktree: 'id:repo-1::/tmp/repo',
@@ -2855,7 +2856,7 @@ describe('orca cli worktree awareness', () => {
     })
   })
 
-  it('infers the repo and honors explicit activation on worktree.create', async () => {
+  it('infers the repo from the current worktree on worktree.create', async () => {
     queueFixtures(
       callMock,
       worktreeListFixture([buildWorktree('/tmp/repo', 'main', 'abc', 'repo-1')]),
@@ -2877,7 +2878,6 @@ describe('orca cli worktree awareness', () => {
         'codex',
         '--prompt',
         'hi',
-        '--activate',
         '--json'
       ],
       '/tmp/repo/src'
@@ -3637,9 +3637,7 @@ describe('orca cli worktree awareness', () => {
 
     expect(callMock).toHaveBeenNthCalledWith(2, 'terminal.list', {
       worktree: 'id:repo::/tmp/repo/feature',
-      limit: undefined,
-      // Why: --json opts out of the visualLayouts payload unless --include-visual-layouts is set.
-      includeVisualLayouts: false
+      limit: undefined
     })
   })
 

@@ -9,9 +9,21 @@
 // and both URL PARSERS — `getLinearOrganizationUrlKeyFromIssueUrl` is refused
 // rather than cut over, for the measured reason recorded in its header.
 //
+// SINKS — traced 2026-08-16, not assumed (an earlier revision of this header
+// claimed "every return value is fed to `window.api.shell.openUrl`", which is
+// true of the two settings URLs and NOT of the team URL). No built URL is
+// PERSISTED: nothing here reaches settings, worktree metadata or a store on
+// disk, and none is a Map or React key (teams key by `id`) or equality-compared.
+// The team URL does travel further than openUrl, though — `LinearTeam.url` is
+// re-fetched per request in main, held in the renderer's in-memory
+// `linearTeamCache` and mobile React state, and surfaced to agents through
+// `orca-runtime.linearTeamSummary`. Every read of it is a truthiness gate or an
+// `openUrl`. Contrast the PARSERS in the twin, whose org key IS persisted —
+// which is why they are held to a stricter bar there.
+//
 // PRE-READY CONTRACT — `parity` ×3, and it is FORCED, not chosen:
-//  * Every return value is fed to `window.api.shell.openUrl`, so a wrong URL
-//    opens someone else's Linear workspace. `buildLinearPersonalApiKeySettingsUrl`
+//  * A wrong URL opens someone else's Linear workspace.
+//    `buildLinearPersonalApiKeySettingsUrl`
 //    and `buildLinearWorkspaceApiSettingsUrl` are TOTAL — the global
 //    `linear.app/settings/…` URL is the twin's REAL answer for a blank slug, so
 //    returning it pre-ready is indistinguishable from an answer and silently

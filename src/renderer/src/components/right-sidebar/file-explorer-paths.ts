@@ -1,5 +1,10 @@
 import { joinPath, normalizeRelativePath } from '@/lib/path'
-import { isPathInsideOrEqual, normalizeRuntimePathForComparison, normalizeRuntimePathSeparators, relativePathInsideRoot } from '../../../../shared/cross-platform-path-resolution'
+import {
+  isPathInsideOrEqual,
+  normalizeRuntimePathForComparison,
+  normalizeRuntimePathSeparators,
+  relativePathInsideRoot
+} from '../../../../shared/cross-platform-path-resolution'
 import { splitPathSegments } from './path-tree'
 
 export function normalizeAbsolutePath(path: string): string {

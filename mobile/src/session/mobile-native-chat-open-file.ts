@@ -1,5 +1,4 @@
 import type { RuntimeTerminalPathResolution } from '../../../src/shared/runtime-types'
-import { splitFilePathLineSuffix } from '../components/markdown-file-path-detection'
 import type { RpcClient } from '../transport/rpc-client'
 
 export async function resolveMobileNativeChatWorktreePath(args: {
@@ -9,11 +8,9 @@ export async function resolveMobileNativeChatWorktreePath(args: {
   terminal: string | null
 }): Promise<string | null> {
   try {
-    // Strip an agent-style :line(:col) citation tail; only the file resolves.
-    const { path: pathText } = splitFilePathLineSuffix(args.pathText)
     const response = await args.client.sendRequest('files.resolveTerminalPath', {
       worktree: `id:${args.worktreeId}`,
-      pathText,
+      pathText: args.pathText,
       ...(args.terminal ? { terminal: args.terminal } : {})
     })
     if (!response.ok) {

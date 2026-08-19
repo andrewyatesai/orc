@@ -12,14 +12,6 @@
  * Kept independent of RouteKey on purpose: §3a rule 1 — health may be
  * account-scoped, but credential mutation must be store-scoped, and an
  * account-keyed drain cannot answer whether a physical store is unused.
- *
- * NOT YET WIRED, and that is the intended state — R1 (§8) is the next unbuilt
- * phase, so this identity model is built ahead of the code that will consume it.
- * Nothing outside `src/shared/fleet-identity/` and its own tests imports the
- * directory. Say so here because the Rust port and the green `fleet-identity`
- * parity module make it look integrated from the outside: a cutover attempt
- * would be shimming code the app never calls. Verify with
- * `git grep -l "fleet-identity/" -- src mobile`.
  */
 
 export type CredentialSurface =

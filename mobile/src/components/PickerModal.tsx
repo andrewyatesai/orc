@@ -20,7 +20,6 @@ type Props<T extends string = string> = {
   onSelect: (value: T) => void
   onLongSelect?: (value: T) => void
   onClose: () => void
-  onAfterClose?: () => void
   zIndex?: number
 }
 
@@ -37,11 +36,10 @@ export function PickerModal<T extends string = string>({
   onSelect,
   onLongSelect,
   onClose,
-  onAfterClose,
   zIndex
 }: Props<T>) {
   return (
-    <BottomDrawer visible={visible} onClose={onClose} onAfterClose={onAfterClose} zIndex={zIndex}>
+    <BottomDrawer visible={visible} onClose={onClose} zIndex={zIndex}>
       <View style={styles.header}>
         <Text style={styles.title}>{title}</Text>
       </View>
@@ -74,9 +72,6 @@ function PickerModalContent<T extends string = string>({
           <View key={opt.value}>
             {i > 0 && <View style={styles.separator} />}
             <Pressable
-              accessible
-              accessibilityRole="button"
-              accessibilityState={{ disabled: Boolean(opt.disabled), selected: isSelected }}
               disabled={opt.disabled}
               style={({ pressed }) => [
                 styles.row,

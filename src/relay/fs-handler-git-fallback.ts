@@ -9,7 +9,10 @@
 import { spawn } from 'node:child_process'
 import { fileListingCancellationError } from '../shared/file-listing-cancellation'
 import type { SearchOptions, SearchResult } from './fs-handler-utils'
-import { shouldExcludeQuickOpenRelPath, shouldIncludeQuickOpenPath } from '../shared/quick-open-filter'
+import {
+  shouldExcludeQuickOpenRelPath,
+  shouldIncludeQuickOpenPath
+} from '../shared/quick-open-filter'
 import { buildGitLsFilesArgsForQuickOpen } from '../shared/quick-open-listing-arguments'
 import {
   expandQuickOpenGitFileListing,

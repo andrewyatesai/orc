@@ -51,14 +51,6 @@ import {
   setActivityTerminalPortals,
   type ActivityTerminalPortalTarget
 } from './activity-terminal-portal'
-import {
-  reconcileActivityPortalThreads,
-  resolveActivityPortalSwap
-} from './activity-portal-thread-reconciliation'
-import {
-  createActivityPortalReadinessLatch,
-  type ActivityPortalReadinessStatus
-} from './activity-portal-readiness-oscillation'
 import type { Repo, TerminalTab, Worktree } from '../../../../shared/types'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
 import {
@@ -73,7 +65,6 @@ import { parsePaneKey } from '../../../../shared/stable-pane-identity'
 import { isClipboardTextByteLengthOverLimit } from '../../../../shared/clipboard-text'
 import { migrationUnsupportedToAgentStatusEntry } from '@/lib/migration-unsupported-agent-entry'
 import { translate } from '@/i18n/i18n'
-import { formatUiRelativeTime } from '@/i18n/relative-time-format'
 import {
   getActivityThreadTaskTitle,
   getActivityThreadWorkspaceTitle,
@@ -140,10 +131,11 @@ type ActivityThreadGroup = {
 type ActivityTerminalPortalReadiness = {
   target: HTMLElement | null
   paneKey: string | null
-  status: ActivityPortalReadinessStatus
+  status: 'loading' | 'ready' | 'unavailable'
 }
 
 type ActivityTerminalPortalDomStatus = {
+  hasSelectedRoot: boolean
   ready: boolean
   unavailable: boolean
 }
@@ -169,12 +161,24 @@ const absoluteDateFormatter = new Intl.DateTimeFormat(undefined, {
   minute: '2-digit'
 })
 
+const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+
 function formatAbsoluteDate(timestamp: number): string {
   return absoluteDateFormatter.format(new Date(timestamp))
 }
 
 function formatRelativeTime(timestamp: number): string {
-  return formatUiRelativeTime(timestamp - Date.now())
+  const diffMs = timestamp - Date.now()
+  const diffMinutes = Math.round(diffMs / 60_000)
+  if (Math.abs(diffMinutes) < 60) {
+    return relativeTimeFormatter.format(diffMinutes, 'minute')
+  }
+  const diffHours = Math.round(diffMinutes / 60)
+  if (Math.abs(diffHours) < 24) {
+    return relativeTimeFormatter.format(diffHours, 'hour')
+  }
+  const diffDays = Math.round(diffHours / 24)
+  return relativeTimeFormatter.format(diffDays, 'day')
 }
 
 function findActivityTerminalPane(
@@ -247,7 +251,7 @@ function getSelectedActivityTerminalPortalStatus(
 ): ActivityTerminalPortalDomStatus {
   const parsed = parsePaneKey(paneKey)
   if (!parsed) {
-    return { ready: false, unavailable: true }
+    return { hasSelectedRoot: false, ready: false, unavailable: true }
   }
   let selectedRoot: HTMLElement | null = null
   for (const candidate of target.querySelectorAll<HTMLElement>('[data-terminal-tab-id]')) {
@@ -257,12 +261,12 @@ function getSelectedActivityTerminalPortalStatus(
     }
   }
   if (!selectedRoot) {
-    return { ready: false, unavailable: false }
+    return { hasSelectedRoot: false, ready: false, unavailable: false }
   }
 
   const { foundAnyPane, pane: selectedPane } = findActivityTerminalPane(selectedRoot, parsed.leafId)
   if (!selectedPane) {
-    return { ready: false, unavailable: foundAnyPane }
+    return { hasSelectedRoot: true, ready: false, unavailable: foundAnyPane }
   }
 
   const unavailable = hasInlineDisplayNoneBetween(selectedPane, selectedRoot)
@@ -274,12 +278,13 @@ function getSelectedActivityTerminalPortalStatus(
     selectedPane.querySelector<HTMLElement>('[data-pty-id]') !== null
   const hasXtermScreen = selectedPane.querySelector<HTMLElement>('.xterm-screen') !== null
   return {
+    hasSelectedRoot: true,
     ready: isVisibleRoot && !hasUnisolatedSibling && hasPtyBinding && hasXtermScreen,
     unavailable
   }
 }
 
-export function useActivityTerminalPortalStatus(
+function useActivityTerminalPortalStatus(
   target: HTMLElement | null,
   paneKey: string | null,
   forceUnavailable = false
@@ -291,70 +296,75 @@ export function useActivityTerminalPortalStatus(
   })
 
   useLayoutEffect(() => {
-    let disposed = false
-    let readinessFrame: number | null = null
-    let pendingStatus: ActivityTerminalPortalReadiness['status'] | null = null
-
-    // Why: subscription churn can otherwise chain layout-effect updates past React's root-wide limit.
-    const scheduleReadiness = (status: ActivityTerminalPortalReadiness['status']): void => {
-      if (disposed) {
-        return
-      }
-      pendingStatus = status
-      if (readinessFrame !== null) {
-        return
-      }
-      readinessFrame = requestAnimationFrame(() => {
-        readinessFrame = null
-        const nextStatus = pendingStatus
-        pendingStatus = null
-        if (disposed || nextStatus === null) {
-          return
-        }
-        setReadiness((prev) =>
-          prev.target === target && prev.paneKey === paneKey && prev.status === nextStatus
-            ? prev
-            : { target, paneKey, status: nextStatus }
-        )
-      })
-    }
-
-    const disposeFrame = (): void => {
-      disposed = true
-      if (readinessFrame !== null) {
-        cancelAnimationFrame(readinessFrame)
-        readinessFrame = null
-      }
-    }
-
     if (!target || !paneKey) {
-      scheduleReadiness('loading')
-      return disposeFrame
+      setReadiness((prev) =>
+        prev.target === null && prev.paneKey === null && prev.status === 'loading'
+          ? prev
+          : { target: null, paneKey: null, status: 'loading' }
+      )
+      return
     }
     if (forceUnavailable) {
-      scheduleReadiness('unavailable')
-      return disposeFrame
+      setReadiness((prev) =>
+        prev.target === target && prev.paneKey === paneKey && prev.status === 'unavailable'
+          ? prev
+          : { target, paneKey, status: 'unavailable' }
+      )
+      return
     }
 
-    const readinessLatch = createActivityPortalReadinessLatch()
+    let disposed = false
+    let readyFrame: number | null = null
+    let sawUnreadySelectedRoot = false
 
     const updateReadiness = (status: ActivityTerminalPortalReadiness['status']): void => {
-      scheduleReadiness(readinessLatch.next(status))
+      setReadiness((prev) =>
+        prev.target === target && prev.paneKey === paneKey && prev.status === status
+          ? prev
+          : { target, paneKey, status }
+      )
+    }
+
+    const cancelReadyFrame = (): void => {
+      if (readyFrame !== null) {
+        cancelAnimationFrame(readyFrame)
+        readyFrame = null
+      }
     }
 
     const checkReadiness = (): void => {
       const status = getSelectedActivityTerminalPortalStatus(target, paneKey)
       if (status.unavailable) {
+        cancelReadyFrame()
         updateReadiness('unavailable')
         return
       }
       if (status.ready) {
-        updateReadiness('ready')
+        if (!sawUnreadySelectedRoot) {
+          cancelReadyFrame()
+          updateReadiness('ready')
+          return
+        }
+        if (readyFrame !== null) {
+          return
+        }
+        // Why: PTY id can appear before xterm paints replayed output; wait one frame so Activity's cover hides the blank frame.
+        readyFrame = requestAnimationFrame(() => {
+          readyFrame = null
+          if (!disposed && getSelectedActivityTerminalPortalStatus(target, paneKey).ready) {
+            updateReadiness('ready')
+          }
+        })
         return
       }
+      if (status.hasSelectedRoot) {
+        sawUnreadySelectedRoot = true
+      }
+      cancelReadyFrame()
       updateReadiness('loading')
     }
 
+    updateReadiness('loading')
     checkReadiness()
 
     const observer = new MutationObserver(checkReadiness)
@@ -366,7 +376,8 @@ export function useActivityTerminalPortalStatus(
     })
 
     return () => {
-      disposeFrame()
+      disposed = true
+      cancelReadyFrame()
       observer.disconnect()
     }
   }, [target, paneKey, forceUnavailable])
@@ -1501,12 +1512,27 @@ export default function ActivityPrototypePage(): React.JSX.Element {
           (tab) => tab.id === displayedTabId
         )
       : false
-  const { visibleThread, stagedThread } = reconcileActivityPortalThreads({
-    selectedThread,
-    displayedThread,
-    selectedHasLiveTab: Boolean(selectedHasLiveTab),
-    displayedHasLiveTab: Boolean(displayedHasLiveTab)
-  })
+  const displayedIsSelectedTerminal =
+    selectedThread &&
+    displayedThread &&
+    displayedThread.worktree.id === selectedThread.worktree.id &&
+    displayedThread.tab.id === selectedThread.tab.id
+  const visibleThread =
+    selectedThread && selectedHasLiveTab
+      ? displayedThread && displayedHasLiveTab && displayedThread.paneKey !== selectedThread.paneKey
+        ? displayedIsSelectedTerminal
+          ? selectedThread
+          : displayedThread
+        : selectedThread
+      : null
+  const stagedThread =
+    selectedThread &&
+    selectedHasLiveTab &&
+    visibleThread &&
+    visibleThread.paneKey !== selectedThread.paneKey &&
+    !displayedIsSelectedTerminal
+      ? selectedThread
+      : null
   const inactivePortalSlotId = otherActivityTerminalSlot(activePortalSlotId)
   const portalTargetBySlot = {
     primary: primaryPortalTargetEl,
@@ -1579,27 +1605,18 @@ export default function ActivityPrototypePage(): React.JSX.Element {
   ])
 
   useLayoutEffect(() => {
-    const swap = resolveActivityPortalSwap({
-      selectedThread,
-      selectedHasLiveTab: Boolean(selectedHasLiveTab),
-      visibleThread,
-      stagedThread,
-      visiblePortalReady,
-      stagedPortalReady,
-      stagedPortalUnavailable
-    })
-    if (swap?.kind === 'clear') {
+    if (!selectedThread || !selectedHasLiveTab) {
       setDisplayedPaneKey(null)
       return
     }
-    if (swap?.kind === 'swap-staged') {
+    if (stagedThread && (stagedPortalReady || stagedPortalUnavailable)) {
       // Why: a stale selected pane must swap to the unavailable state, not leave the previous pane visible under the new row.
       setActivePortalSlotId(inactivePortalSlotId)
-      setDisplayedPaneKey(swap.paneKey)
+      setDisplayedPaneKey(stagedThread.paneKey)
       return
     }
-    if (swap?.kind === 'settle-visible') {
-      setDisplayedPaneKey(swap.paneKey)
+    if (!stagedThread && visibleThread?.paneKey === selectedThread.paneKey && visiblePortalReady) {
+      setDisplayedPaneKey(selectedThread.paneKey)
     }
   }, [
     inactivePortalSlotId,

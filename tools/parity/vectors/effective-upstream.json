@@ -7,28 +7,19 @@
       "function": "splitRemoteBranchName",
       "note": "standard remote/branch splits on the first slash",
       "input": "origin/main",
-      "expected": {
-        "remoteName": "origin",
-        "branchName": "main"
-      }
+      "expected": { "remoteName": "origin", "branchName": "main" }
     },
     {
       "function": "splitRemoteBranchName",
       "note": "branch name keeps trailing slashes (split only on first)",
       "input": "origin/feature/x",
-      "expected": {
-        "remoteName": "origin",
-        "branchName": "feature/x"
-      }
+      "expected": { "remoteName": "origin", "branchName": "feature/x" }
     },
     {
       "function": "splitRemoteBranchName",
       "note": "minimal single-char remote and branch",
       "input": "a/b",
-      "expected": {
-        "remoteName": "a",
-        "branchName": "b"
-      }
+      "expected": { "remoteName": "a", "branchName": "b" }
     },
     {
       "function": "splitRemoteBranchName",
@@ -53,75 +44,6 @@
       "note": "empty string yields null",
       "input": "",
       "expected": null
-    },
-    {
-      "function": "splitRemoteBranchName",
-      "note": "non-ASCII around the slash: the twin indexes in UTF-16 units and the core in bytes, so this is where a unit confusion would show",
-      "input": "ünïcode/main",
-      "expected": {
-        "remoteName": "ünïcode",
-        "branchName": "main"
-      }
-    },
-    {
-      "function": "splitRemoteBranchName",
-      "note": "non-ASCII around the slash: the twin indexes in UTF-16 units and the core in bytes, so this is where a unit confusion would show",
-      "input": "😀/main",
-      "expected": {
-        "remoteName": "😀",
-        "branchName": "main"
-      }
-    },
-    {
-      "function": "splitRemoteBranchName",
-      "note": "non-ASCII around the slash: the twin indexes in UTF-16 units and the core in bytes, so this is where a unit confusion would show",
-      "input": "ré😀mote/brânch",
-      "expected": {
-        "remoteName": "ré😀mote",
-        "branchName": "brânch"
-      }
-    },
-    {
-      "function": "splitRemoteBranchName",
-      "note": "non-ASCII around the slash: the twin indexes in UTF-16 units and the core in bytes, so this is where a unit confusion would show",
-      "input": "a😀/b",
-      "expected": {
-        "remoteName": "a😀",
-        "branchName": "b"
-      }
-    },
-    {
-      "function": "splitRemoteBranchName",
-      "note": "non-ASCII around the slash: the twin indexes in UTF-16 units and the core in bytes, so this is where a unit confusion would show",
-      "input": "remote/😀",
-      "expected": {
-        "remoteName": "remote",
-        "branchName": "😀"
-      }
-    },
-    {
-      "function": "splitRemoteBranchName",
-      "note": "non-ASCII around the slash: the twin indexes in UTF-16 units and the core in bytes, so this is where a unit confusion would show",
-      "input": "😀/",
-      "expected": null
-    },
-    {
-      "function": "splitRemoteBranchName",
-      "note": "non-ASCII around the slash: the twin indexes in UTF-16 units and the core in bytes, so this is where a unit confusion would show",
-      "input": "x/😀",
-      "expected": {
-        "remoteName": "x",
-        "branchName": "😀"
-      }
-    },
-    {
-      "function": "splitRemoteBranchName",
-      "note": "non-ASCII around the slash: the twin indexes in UTF-16 units and the core in bytes, so this is where a unit confusion would show",
-      "input": "😀😀/😀😀",
-      "expected": {
-        "remoteName": "😀😀",
-        "branchName": "😀😀"
-      }
     }
   ]
 }

@@ -82,9 +82,7 @@ export const TERMINAL_HANDLERS: Record<string, CommandHandler> = {
   'terminal list': async ({ flags, client, cwd, json }) => {
     const result = await client.call<RuntimeTerminalListResult>('terminal.list', {
       worktree: await getOptionalWorktreeSelector(flags, 'worktree', cwd, client),
-      limit: getOptionalPositiveIntegerFlag(flags, 'limit'),
-      // Why: agent JSON calls dominate; topology stays available through an explicit opt-in.
-      includeVisualLayouts: !json || flags.has('include-visual-layouts')
+      limit: getOptionalPositiveIntegerFlag(flags, 'limit')
     })
     printResult(result, json, formatTerminalList)
   },

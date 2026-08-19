@@ -1,7 +1,12 @@
 import type { GlobalSettings } from '../../../../shared/types'
 import type { FeatureInteractionState } from '../../../../shared/feature-interactions'
+import {
+  getCompletedFeatureTipIds,
+  getOrderedUnseenFeatureTips,
+  isFeatureTipId
+} from '../../../../shared/feature-tip-selection'
 import { FEATURE_TIPS, type FeatureTip, type FeatureTipId } from '../../../../shared/feature-tips'
-import { getCompletedFeatureTipIds, getOrderedUnseenFeatureTips, isFeatureTipId } from '../../../../shared/feature-tip-selection'
+
 export function getFeatureTipForModal(args: {
   cliInstalled: boolean
   modalData: Record<string, unknown>

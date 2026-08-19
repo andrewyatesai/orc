@@ -63,10 +63,7 @@ export async function scanAiVaultSessions(
   // "one core pegged" reports need to show whether transcript scanning is the
   // subsystem burning CPU, and how much of each scan the cache absorbed.
   return withSpan('aiVault.scan', async (span) => {
-    // 'unlimited' resolves to no bound: slice/early-stop compare against Infinity.
-    const limit = options.unlimited
-      ? Number.POSITIVE_INFINITY
-      : clampPositiveInteger(options.limit, DEFAULT_LIMIT)
+    const limit = clampPositiveInteger(options.limit, DEFAULT_LIMIT)
     const limitPerAgent = clampPositiveInteger(options.limitPerAgent, DEFAULT_SCAN_LIMIT_PER_AGENT)
     const platform = options.platform ?? process.platform
     const executionHostId = options.executionHostId ?? LOCAL_EXECUTION_HOST_ID

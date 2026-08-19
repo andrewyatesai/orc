@@ -19,7 +19,6 @@ import {
   ModifierDoubleTapDetector,
   toModifierDoubleTapEvent
 } from '../../shared/modifier-double-tap-detector'
-import type { BrowserFindSource } from '../../shared/browser-find-source'
 
 type ResolveRenderer = (browserTabId: string) => Electron.WebContents | null
 type ShouldForwardDictationShortcut = () => boolean
@@ -262,7 +261,6 @@ export function setupGuestShortcutForwarding(args: {
   shouldForwardDictationShortcut?: ShouldForwardDictationShortcut
   isMobileEmulatorEnabled?: IsMobileEmulatorEnabled
   getKeybindings?: () => KeybindingOverrides | undefined
-  resolveWorkspaceId?: (browserTabId: string) => string | null
 }): () => void {
   const {
     browserTabId,
@@ -270,8 +268,7 @@ export function setupGuestShortcutForwarding(args: {
     resolveRenderer,
     shouldForwardDictationShortcut,
     isMobileEmulatorEnabled,
-    getKeybindings,
-    resolveWorkspaceId
+    getKeybindings
   } = args
   let ctrlTabSwitching = false
   const doubleTapDetector = new ModifierDoubleTapDetector()
@@ -395,15 +392,7 @@ export function setupGuestShortcutForwarding(args: {
       renderer.send('ui:reloadBrowserPage')
     } else if (keybindingMatchesAction('browser.find', input, process.platform, keybindings)) {
       // Why: guest-native find UI is invisible behind Orca's chrome; forward so the renderer opens its own find-in-page bar.
-      const browserWorkspaceId = resolveWorkspaceId?.(browserTabId)
-      if (browserWorkspaceId) {
-        const source: BrowserFindSource = {
-          browserPageId: browserTabId,
-          browserWorkspaceId
-        }
-        // Why: active browser splits share one renderer; preserve the registered guest owner so only its Find bar opens.
-        renderer.send('ui:findInBrowserPage', source)
-      }
+      renderer.send('ui:findInBrowserPage')
     } else if (keybindingMatchesAction('browser.back', input, process.platform, keybindings)) {
       // Why: macOS Logitech side-button remaps arrive as history keystrokes, not mouse events; forward so the renderer can goBack().
       renderer.send('ui:browserHistoryNavigate', 'back')

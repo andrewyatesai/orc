@@ -56,28 +56,6 @@ describe('mobile rpc-client connection timeout', () => {
     client.close()
   })
 
-  it('recovers a wedged handshake when RN omits onclose after the timeout', () => {
-    const states: string[] = []
-    const client = connect('ws://desktop.invalid', 'token', 'server-key', (state) => {
-      states.push(state)
-    })
-
-    const socket = mockSockets[0]!
-    // Reach 'handshaking' but never deliver e2ee_ready/e2ee_authenticated.
-    socket.open()
-    expect(client.getState()).toBe('handshaking')
-
-    // RN can omit onclose for a wedged transport — the timeout must self-heal.
-    socket.emitCloseOnClose = false
-    vi.advanceTimersByTime(5_000)
-
-    expect(socket.close).toHaveBeenCalledTimes(1)
-    expect(client.getState()).toBe('reconnecting')
-    expect(states).toContain('reconnecting')
-
-    client.close()
-  })
-
   it('ignores stale socket opens after reconnect swaps in a new socket', () => {
     const client = connect('ws://desktop.invalid', 'token', 'server-key')
     const firstSocket = mockSockets[0]!

@@ -581,7 +581,7 @@ describe('WebSocketTransport', () => {
   it('reaps a half-open client that stops responding to pings', async () => {
     // Why: regression cover for the half-open-socket leak that would
     // strand mobile clients in the connection pool until OS TCP keepalive
-    // (~2 hours) reaped them. With the heartbeat, a run of consecutive ping
+    // (~2 hours) reaped them. With the heartbeat, two consecutive ping
     // ticks without a pong should cause terminate() to fire and free the
     // slot. Verifying via the server's connection-close handler, which
     // is what frees up the MAX_WS_CONNECTIONS budget in production.

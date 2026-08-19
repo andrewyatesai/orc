@@ -237,9 +237,8 @@ export const WORKTREE_HANDLERS: Record<string, CommandHandler> = {
       ...linearIssueLink,
       comment: getOptionalStringFlag(flags, 'comment'),
       runHooks: flags.get('run-hooks') === true,
-      // Why (#11445): agent worktrees start in the background — the agent still
-      // launches via startupAgent; only explicit --activate/--run-hooks focuses.
-      activate: flags.get('activate') === true || flags.get('run-hooks') === true,
+      activate:
+        flags.get('activate') === true || flags.get('run-hooks') === true || Boolean(startupAgent),
       ...(setupDecision ? { setupDecision } : {}),
       parentWorktree: explicitParentWorktree,
       ...(explicitParentWorkspace ? { parentWorkspace: explicitParentWorkspace } : {}),
@@ -282,8 +281,6 @@ export const WORKTREE_HANDLERS: Record<string, CommandHandler> = {
     const result = await client.call<RuntimeWorktreeRemoveResult>('worktree.rm', {
       worktree: await getRequiredWorktreeSelector(flags, 'worktree', cwd, client),
       force: flags.get('force') === true,
-      // Why (#11960): --force is explicit here, so it may also waive PTY-stop proof.
-      allowUnverifiedPtyStop: flags.get('force') === true,
       runHooks: flags.get('run-hooks') === true
     })
     printHookWarning(result.result, json)

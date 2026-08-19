@@ -1,13 +1,17 @@
 import { useMemo } from 'react'
 import { parseWslUncPath } from '../../../../shared/wsl-unc-paths'
-import { splitWorktreeIdForFilesystem } from '../../../../shared/worktree-id'
+import { splitWorktreeIdForFilesystem } from '../../../../shared/worktree-id-parsing'
 import {
   getRepoExecutionHostId,
   LOCAL_EXECUTION_HOST_ID,
   normalizeExecutionHostId,
   type ExecutionHostId
 } from '../../../../shared/execution-host'
-import { createNormalizedPathInsideOrEqualMatcher, isRuntimePathAbsolute, normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path-resolution'
+import {
+  createNormalizedPathInsideOrEqualMatcher,
+  isRuntimePathAbsolute,
+  normalizeRuntimePathForComparison
+} from '../../../../shared/cross-platform-path-resolution'
 import type { AiVaultSession } from '../../../../shared/ai-vault-types'
 import type { Repo, Worktree } from '../../../../shared/types'
 import { aiVaultWorktreeCompactPath } from './ai-vault-session-worktree-affordances'

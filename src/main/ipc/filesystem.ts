@@ -30,7 +30,6 @@ import type {
 } from '../../shared/types'
 import type { GitHistoryOptions, GitHistoryResult } from '../../shared/git-history'
 import type { SshMutationExpectation } from '../../shared/ssh-types'
-import { sortDirEntries } from '../../shared/file-name-sort'
 import { assertSshMutationExpectation } from '../ssh/ssh-connection-generation'
 import {
   buildRgArgs,
@@ -124,7 +123,7 @@ import {
 import { listRepoWorktrees } from '../repo-worktrees'
 import { recordCrashBreadcrumb } from '../crash-reporting/crash-breadcrumb-store'
 import { buildReadDirErrorBreadcrumb, type ReadDirThrowSite } from './readdir-error-diagnostics'
-import { splitWorktreeId } from '../../shared/worktree-id'
+import { splitWorktreeId } from '../../shared/worktree-id-parsing'
 import { getRuntimePathBasename } from '../../shared/cross-platform-path-resolution'
 import type { LocalProjectWorktreeGitOptions } from '../project-runtime-git-options'
 import { registerLocalLogTailHandlers } from './local-log-tail'
@@ -510,9 +509,7 @@ export function registerFilesystemHandlers(
         if (args.connectionId) {
           throwSite = 'ssh-provider'
           const provider = requireSshFilesystemProvider(args.connectionId)
-          // Why: re-sort locally — the remote relay may be an older build with
-          // lexicographic ordering.
-          return sortDirEntries(await provider.readDir(args.dirPath))
+          return await provider.readDir(args.dirPath)
         }
         throwSite = 'authorize'
         const dirPath = await resolveAuthorizedPath(args.dirPath, store)
@@ -527,7 +524,12 @@ export function registerFilesystemHandlers(
             isSymlink: entry.isSymbolicLink()
           }))
         )
-        return sortDirEntries(mapped)
+        return mapped.sort((a, b) => {
+          if (a.isDirectory !== b.isDirectory) {
+            return a.isDirectory ? -1 : 1
+          }
+          return a.name.localeCompare(b.name)
+        })
       } catch (error: unknown) {
         recordCrashBreadcrumb(
           'fs_readdir_error',

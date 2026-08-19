@@ -6,11 +6,6 @@ import {
   type MobileNativeChatSendOutcome
 } from './mobile-native-chat-send'
 import { healMobileNativeChatStaleInput } from './mobile-native-chat-stale-input'
-import { classifyMobileNativeChatSend } from './mobile-native-chat-send-classification'
-import {
-  acquireMobileNativeChatTerminalWrite,
-  releaseMobileNativeChatTerminalWrite
-} from './mobile-native-chat-terminal-write-lock'
 import type { MobileNativeChatSendOrigin } from './use-mobile-native-chat-drafts'
 
 export type MobileNativeChatMessageSend = {
@@ -36,8 +31,6 @@ export function useMobileNativeChatMessageSend(args: {
   enabled: boolean
   handleRef: MutableRefObject<string | null>
   deviceTokenRef: MutableRefObject<string | null>
-  /** Active tab's agent — classification is per-agent (command catalogs differ). */
-  agentRef: MutableRefObject<string | null>
   captureSendOrigin: (text: string) => MobileNativeChatSendOrigin | null
   clearDraftForSend: (origin: MobileNativeChatSendOrigin, text: string) => void
   restoreRejectedDraft: (origin: MobileNativeChatSendOrigin, text: string) => void
@@ -54,7 +47,6 @@ export function useMobileNativeChatMessageSend(args: {
     enabled,
     handleRef,
     deviceTokenRef,
-    agentRef,
     captureSendOrigin,
     clearDraftForSend,
     restoreRejectedDraft,
@@ -112,19 +104,12 @@ export function useMobileNativeChatMessageSend(args: {
           ? { mobileClient: { id: deviceTokenRef.current, type: 'mobile' } }
           : {})
       })
-      // Why (desktop parity): a slash/skill send dispatches into the agent's own
-      // TUI, not the conversation — the transcript never echoes it as a user
-      // turn, so an optimistic bubble would sit at "Queued" forever and the
-      // unconfirmed hold could never observe a landing.
-      const classification = classifyMobileNativeChatSend(agentRef.current, text)
       if (outcome === 'unknown') {
-        if (classification === 'chat') {
-          // Why: an ack-lost send usually WAS delivered (issue seen on cellular
-          // relay) — verify via the transcript echo instead of a false "not sent".
-          holdUnconfirmedSend(origin, text, () =>
-            onSendError('Delivery unconfirmed — check chat before retrying')
-          )
-        }
+        // Why: an ack-lost send usually WAS delivered (issue seen on cellular
+        // relay) — verify via the transcript echo instead of a false "not sent".
+        holdUnconfirmedSend(origin, text, () =>
+          onSendError('Delivery unconfirmed — check chat before retrying')
+        )
         return 'unknown'
       }
       if (outcome === 'rejected') {
@@ -134,16 +119,13 @@ export function useMobileNativeChatMessageSend(args: {
         onSendError('Message not sent')
         return 'rejected'
       }
-      if (classification === 'chat') {
-        // `images` are local preview URIs for the optimistic echo only — the actual
-        // image bytes already rode along as a bracketed paste before this text send.
-        acceptSend(origin, text, images)
-      }
+      // `images` are local preview URIs for the optimistic echo only — the actual
+      // image bytes already rode along as a bracketed paste before this text send.
+      acceptSend(origin, text, images)
       return 'accepted'
     },
     [
       acceptSend,
-      agentRef,
       captureSendOrigin,
       clearDraftForSend,
       client,
@@ -170,26 +152,11 @@ export function useMobileNativeChatMessageSend(args: {
     [sendWithOutcome]
   )
 
-  // A question answer is not composer text, so it never syncs the draft. It
-  // reaches this send directly (not through the image hook's locked path), so
-  // it takes the per-terminal write lock itself: an answer landing mid-flight
-  // in an image paste sequence would interleave bytes into the PTY.
+  // A question answer is not composer text, so it never syncs the draft.
   const answerQuestion = useCallback(
-    async (text: string): Promise<boolean> => {
-      const terminal = handleRef.current
-      if (terminal && !acquireMobileNativeChatTerminalWrite(terminal)) {
-        onSendError('Answer not sent')
-        return false
-      }
-      try {
-        return (await sendMessage(text, undefined, false)) !== 'rejected'
-      } finally {
-        if (terminal) {
-          releaseMobileNativeChatTerminalWrite(terminal)
-        }
-      }
-    },
-    [handleRef, onSendError, sendMessage]
+    async (text: string): Promise<boolean> =>
+      (await sendMessage(text, undefined, false)) !== 'rejected',
+    [sendMessage]
   )
 
   return { send, sendWithOutcome, answerQuestion }

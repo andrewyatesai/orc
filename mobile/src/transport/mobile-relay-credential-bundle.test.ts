@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const asyncStorage = vi.hoisted(() => ({
-  getItem: vi.fn(),
-  setItem: vi.fn()
-}))
 const secureStore = vi.hoisted(() => ({
   getItemAsync: vi.fn(),
   setItemAsync: vi.fn(),
@@ -11,7 +7,6 @@ const secureStore = vi.hoisted(() => ({
 }))
 const platform = vi.hoisted(() => ({ OS: 'ios' }))
 
-vi.mock('@react-native-async-storage/async-storage', () => ({ default: asyncStorage }))
 vi.mock('expo-secure-store', () => ({
   WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'WHEN_UNLOCKED_THIS_DEVICE_ONLY',
   ...secureStore
@@ -25,7 +20,6 @@ import {
   writeMobileRelayCredentialBundle
 } from './mobile-relay-credential-bundle'
 import type { MobileRelayPairingJournal } from './mobile-relay-pairing-journal'
-import { resetPairingKeychainForTests } from './pairing-keychain'
 
 const journal = {
   metadata: {
@@ -68,11 +62,8 @@ describe('mobile relay credential bundle', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    resetPairingKeychainForTests()
     platform.OS = 'ios'
     stored = null
-    asyncStorage.getItem.mockResolvedValue(null)
-    asyncStorage.setItem.mockResolvedValue(undefined)
     secureStore.getItemAsync.mockImplementation(async () => stored)
     secureStore.setItemAsync.mockImplementation(async (_key: string, value: string) => {
       stored = value

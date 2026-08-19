@@ -1,7 +1,7 @@
 import { resolve } from 'node:path'
 import type { Store } from '../persistence'
 import { isLinkedIssueNumber } from '../../shared/source-control-ai-action-variables'
-import { splitWorktreeIdForFilesystem } from '../../shared/worktree-id'
+import { splitWorktreeIdForFilesystem } from '../../shared/worktree-id-parsing'
 
 export type LinkedIssueLookupArgs = {
   worktreeId?: string

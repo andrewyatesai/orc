@@ -2,8 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   detectFilePathSegments,
   isFilePathCodeSpan,
-  normalizeFilePath,
-  splitFilePathLineSuffix
+  normalizeFilePath
 } from './markdown-file-path-detection'
 
 describe('detectFilePathSegments', () => {
@@ -172,58 +171,9 @@ describe('isFilePathCodeSpan', () => {
     expect(isFilePathCodeSpan('node_modules/@scope/pkg/file.ts')).toBe(true)
   })
 
-  it('accepts POSIX absolute paths and :line citations', () => {
-    expect(isFilePathCodeSpan('/home/me/wt/src/app.tsx')).toBe(true)
-    expect(isFilePathCodeSpan('src/foo.ts:42')).toBe(true)
-    expect(isFilePathCodeSpan('src/foo.ts:42:7')).toBe(true)
-    expect(isFilePathCodeSpan('MobileNativeChatComposer.tsx:23')).toBe(true)
-    expect(isFilePathCodeSpan(String.raw`C:\repo\Main.tsx:12`)).toBe(true)
-  })
-
   it('rejects emails and git URLs with a mid-token @', () => {
     expect(isFilePathCodeSpan('git@github.com:user/repo.git')).toBe(false)
     expect(isFilePathCodeSpan('user@host.com/path/file.txt')).toBe(false)
-  })
-})
-
-describe('splitFilePathLineSuffix', () => {
-  it('splits :line and :line:col suffixes', () => {
-    expect(splitFilePathLineSuffix('src/foo.ts:42')).toEqual({
-      path: 'src/foo.ts',
-      line: 42,
-      column: null
-    })
-    expect(splitFilePathLineSuffix('src/foo.ts:42:7')).toEqual({
-      path: 'src/foo.ts',
-      line: 42,
-      column: 7
-    })
-  })
-
-  it('keeps Windows drive colons intact', () => {
-    expect(splitFilePathLineSuffix(String.raw`C:\repo\a.ts`)).toEqual({
-      path: String.raw`C:\repo\a.ts`,
-      line: null,
-      column: null
-    })
-    expect(splitFilePathLineSuffix(String.raw`C:\repo\a.ts:12`)).toEqual({
-      path: String.raw`C:\repo\a.ts`,
-      line: 12,
-      column: null
-    })
-  })
-
-  it('ignores non-numeric and zero suffixes', () => {
-    expect(splitFilePathLineSuffix('src/foo.ts')).toEqual({
-      path: 'src/foo.ts',
-      line: null,
-      column: null
-    })
-    expect(splitFilePathLineSuffix('src/foo.ts:0')).toEqual({
-      path: 'src/foo.ts:0',
-      line: null,
-      column: null
-    })
   })
 })
 

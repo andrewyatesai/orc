@@ -3,8 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { repairTranslatedValue } from './locale-translation-policy.mjs'
 
 describe('locale-translation-policy es round 5', () => {
-  // Why: #12113 — brand names stay Latin, but generic workflow nouns keep their Spanish.
-  it('keeps brand names English and generic workflow terms translated', () => {
+  it('keeps protected workflow terms in English', () => {
     expect(
       repairTranslatedValue({
         key: 'auto.components.LinearIssueMarkdownDescriptionEditor.d9c47069ef',
@@ -44,7 +43,7 @@ describe('locale-translation-policy es round 5', () => {
         localeValue: 'mensaje de confirmación',
         locale: 'es'
       })
-    ).toBe('mensaje de confirmación')
+    ).toBe('mensaje de Commit')
     expect(
       repairTranslatedValue({
         key: 'auto.components.workspace.cleanup.WorkspaceCleanupDialog.0b1766738a',
@@ -52,7 +51,7 @@ describe('locale-translation-policy es round 5', () => {
         localeValue: 'repositorio',
         locale: 'es'
       })
-    ).toBe('repositorio')
+    ).toBe('Repo')
     expect(
       repairTranslatedValue({
         key: 'auto.components.sidebar.add.repo.local.start.actions.fb4fc5380e',
@@ -60,6 +59,6 @@ describe('locale-translation-policy es round 5', () => {
         localeValue: 'Proyecto local, repositorio de Git o carpeta con muchos repositorios',
         locale: 'es'
       })
-    ).toBe('Proyecto local, repositorio de Git o carpeta con muchos repositorios')
+    ).toBe('Proyecto local, repo de Git o carpeta con muchos repos')
   })
 })

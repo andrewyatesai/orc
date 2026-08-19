@@ -387,24 +387,10 @@ export class ModelManager {
     progress?: number,
     error?: string
   ): void {
-    const previous = this.modelStates.get(modelId)
-    // Whole-percent state matches the UI and prevents chunk-level IPC/poll churn.
-    const reportedProgress =
-      status === 'downloading' && progress !== undefined
-        ? Math.round(progress * 100) / 100
-        : progress
-    if (
-      status === 'downloading' &&
-      previous?.status === 'downloading' &&
-      previous.error === error &&
-      previous.progress === reportedProgress
-    ) {
-      return
-    }
-    const state: SpeechModelState = { id: modelId, status, progress: reportedProgress, error }
+    const state: SpeechModelState = { id: modelId, status, progress, error }
     this.modelStates.set(modelId, state)
-    // Repeated non-download states can be the requesting window's only resync signal.
-    const progressValue = reportedProgress ?? (status === 'extracting' ? 0.95 : -1)
+    // Why: notify on every state change (not just progress) so extracting/ready/error transitions reach the UI.
+    const progressValue = progress ?? (status === 'extracting' ? 0.95 : -1)
     for (const callback of this.progressCallbacks) {
       callback(modelId, progressValue)
     }

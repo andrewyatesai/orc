@@ -31,34 +31,24 @@ import type { AgentProviderSessionMetadata } from './agent-session-resume'
 // Promoted from `src/main/agent-hooks/server.ts` so the relay can import it
 // without dragging Electron in (the shared listener module is the only place
 // that consumes it from the relay side).
-const AGENT_HOOK_SOURCES = [
-  'claude',
-  'codex',
-  'gemini',
-  'antigravity',
-  'amp',
-  'opencode',
-  'mimo-code',
-  'cursor',
-  'pi',
-  'omp',
-  'droid',
-  'command-code',
-  'grok',
-  'copilot',
-  'hermes',
-  'devin',
-  'kimi'
-] as const
-
-export type AgentHookSource = (typeof AGENT_HOOK_SOURCES)[number]
-
-const AGENT_HOOK_SOURCE_SET: ReadonlySet<string> = new Set(AGENT_HOOK_SOURCES)
-
-/** Narrows an untrusted wire/persisted value to a known hook source. */
-export function isAgentHookSource(value: unknown): value is AgentHookSource {
-  return typeof value === 'string' && AGENT_HOOK_SOURCE_SET.has(value)
-}
+export type AgentHookSource =
+  | 'claude'
+  | 'codex'
+  | 'gemini'
+  | 'antigravity'
+  | 'amp'
+  | 'opencode'
+  | 'mimo-code'
+  | 'cursor'
+  | 'pi'
+  | 'omp'
+  | 'droid'
+  | 'command-code'
+  | 'grok'
+  | 'copilot'
+  | 'hermes'
+  | 'devin'
+  | 'kimi'
 
 /** Env marker used by the remote relay. It is a transport/location marker, not
  *  a dev-vs-prod build tag, so main-process env mismatch diagnostics ignore it. */
@@ -82,10 +72,6 @@ export type AgentHookRelayEnvelope = {
   promptInteractionKey?: string
   /** Hook discriminator preserved for main-process transition rules. */
   hookEventName?: string
-  /** Claude's provider-owned user-prompt UUID. */
-  providerPromptId?: string
-  /** Active Claude compact generation, keyed by provider prompt identity. */
-  compactTrigger?: 'manual' | 'auto'
   /** Claude tool execution id, when the source hook provides one. */
   toolUseId?: string
   /** Claude subagent identity, when the source hook provides one. */

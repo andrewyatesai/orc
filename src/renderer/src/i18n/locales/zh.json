@@ -11724,7 +11724,8 @@
             "searchGitLab": "搜索 GitLab MR 和议题",
             "searchBranches": "搜索分支",
             "searchLinear": "搜索 Linear 议题",
-            "workspaceName": "工作区名称"
+            "workspaceName": "工作区名称",
+            "branchSearchFailed": "分支搜索失败，无法列出分支。"
           },
           "ProjectHostSetupCombobox": {
             "empty": "此项目没有已就绪的主机。",

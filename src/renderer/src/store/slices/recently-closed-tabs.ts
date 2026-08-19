@@ -3,115 +3,6 @@ import type { AppState } from '../types'
 import { getExplicitRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { isWindowsAbsolutePathLike } from '../../../../shared/cross-platform-path'
 import { relativePathInsideRoot } from '../../../../shared/cross-platform-path-resolution'
-export type RecentlyClosedTabPosition = {
-  tabBarIndex?: number
-  groupId?: string
-  groupIndex?: number
-}
-
-export function getRecentlyClosedTabPosition(
-  state: Pick<AppState, 'tabBarOrderByWorktree' | 'groupsByWorktree' | 'unifiedTabsByWorktree'>,
-  worktreeId: string,
-  entityId: string
-): RecentlyClosedTabPosition | undefined {
-  const tabBarOrder = state.tabBarOrderByWorktree?.[worktreeId]
-  const unifiedTabs = state.unifiedTabsByWorktree?.[worktreeId] ?? []
-  const tabBarIndex = tabBarOrder?.indexOf(entityId) ?? -1
-  const unifiedTab = unifiedTabs.find((tab) => tab.entityId === entityId)
-  const group = unifiedTab
-    ? (state.groupsByWorktree?.[worktreeId] ?? []).find(
-        (candidate) => candidate.id === unifiedTab.groupId
-      )
-    : undefined
-  const groupIndex = group?.tabOrder.indexOf(unifiedTab?.id ?? '') ?? -1
-  const groupTabEntityIds = group
-    ? group.tabOrder.map((tabId) => unifiedTabs.find((tab) => tab.id === tabId)?.entityId)
-    : []
-  const tabBarGroupEntityIds = group
-    ? (tabBarOrder ?? [])
-        .map((tabId) => unifiedTabs.find((tab) => tab.entityId === tabId))
-        .filter((tab) => tab?.groupId === group.id)
-        .map((tab) => tab?.entityId)
-    : []
-  // Why: the flat tab-bar index is only trustworthy when it agrees with the group's
-  // own order; group-drag reorders diverge the two, so fall back to the group index.
-  const groupOrderMatchesTabBar =
-    !group ||
-    (groupTabEntityIds.length === tabBarGroupEntityIds.length &&
-      groupTabEntityIds.every((id, index) => id === tabBarGroupEntityIds[index]))
-  if (tabBarIndex < 0 && (!group || groupIndex < 0)) {
-    return undefined
-  }
-
-  return {
-    ...(tabBarIndex >= 0 && groupOrderMatchesTabBar ? { tabBarIndex } : {}),
-    ...(group && groupIndex >= 0 ? { groupId: group.id, groupIndex } : {})
-  }
-}
-
-export function insertTabAtRecentlyClosedPosition(
-  order: readonly string[],
-  tabId: string,
-  position?: RecentlyClosedTabPosition
-): string[] {
-  const nextOrder = order.filter((id) => id !== tabId)
-  const index = position?.tabBarIndex
-  if (index === undefined) {
-    return [...nextOrder, tabId]
-  }
-  nextOrder.splice(Math.min(Math.max(index, 0), nextOrder.length), 0, tabId)
-  return nextOrder
-}
-
-export function restoreRecentlyClosedTabPosition(
-  getState: () => Pick<
-    AppState,
-    | 'tabBarOrderByWorktree'
-    | 'groupsByWorktree'
-    | 'unifiedTabsByWorktree'
-    | 'setTabBarOrder'
-    | 'reorderUnifiedTabs'
-  >,
-  worktreeId: string,
-  entityId: string,
-  position?: RecentlyClosedTabPosition
-): void {
-  if (!position) {
-    return
-  }
-  const state = getState()
-  const order = state.tabBarOrderByWorktree?.[worktreeId]
-  if (order && typeof state.setTabBarOrder === 'function') {
-    state.setTabBarOrder(worktreeId, insertTabAtRecentlyClosedPosition(order, entityId, position))
-  }
-
-  if (position?.groupIndex === undefined) {
-    return
-  }
-  const unifiedTab = (getState().unifiedTabsByWorktree?.[worktreeId] ?? []).find(
-    (candidate) =>
-      candidate.entityId === entityId &&
-      (position.groupId === undefined || candidate.groupId === position.groupId)
-  )
-  if (!unifiedTab) {
-    return
-  }
-  const group = (getState().groupsByWorktree?.[worktreeId] ?? []).find(
-    (candidate) => candidate.id === unifiedTab.groupId
-  )
-  if (!group) {
-    return
-  }
-  if (typeof getState().reorderUnifiedTabs === 'function') {
-    getState().reorderUnifiedTabs(
-      group.id,
-      insertTabAtRecentlyClosedPosition(group.tabOrder, unifiedTab.id, {
-        tabBarIndex: position.groupIndex
-      }),
-      { recordInteraction: false }
-    )
-  }
-}
 
 /** Snapshot of a terminal tab captured at user-initiated close time. Reopen
  *  recreates a fresh shell in the same startup directory (Ghostty semantics) —
@@ -121,7 +12,6 @@ export type ClosedTerminalTabSnapshot = {
   shellOverride?: string
   customTitle?: string
   color?: string
-  position?: RecentlyClosedTabPosition
 }
 
 export type RecentlyClosedTabKind = 'terminal' | 'browser' | 'editor'
@@ -243,7 +133,7 @@ export const createRecentlyClosedTabsSlice: StateCreator<
       return false
     }
 
-    const tab = get().createTab(worktreeId, snapshot.position?.groupId, snapshot.shellOverride, {
+    const tab = get().createTab(worktreeId, undefined, snapshot.shellOverride, {
       ...(snapshot.startupCwd ? { startupCwd: snapshot.startupCwd } : {}),
       activate: true
     })
@@ -254,7 +144,13 @@ export const createRecentlyClosedTabsSlice: StateCreator<
       get().setTabColor(tab.id, snapshot.color)
     }
     get().setActiveTabType('terminal')
-    restoreRecentlyClosedTabPosition(get, worktreeId, tab.id, snapshot.position)
+    // Why: with a stored order the strip appends unknown ids last already, but
+    // an explicit append keeps the reopened tab at the end even after future
+    // reorders write the stored order back.
+    const order = get().tabBarOrderByWorktree[worktreeId]
+    if (order && !order.includes(tab.id)) {
+      get().setTabBarOrder(worktreeId, [...order, tab.id])
+    }
     return true
   },
 

@@ -72,13 +72,6 @@ void i18n
     }
   })
 
-// The active UI locale as a BCP-47 tag safe to hand to Intl formatters. i18n.language
-// is always a real tag here — a SupportedUiLocale or the en-XA pseudo-locale — so no
-// synthetic-tag guard is needed; the fallback only covers the pre-init window.
-export function getIntlLocale(): string {
-  return i18n.language || DEFAULT_LOCALE
-}
-
 export function translate(key: string, fallback: string, options?: TOptions): string {
   const value = i18n.t(key, { defaultValue: fallback, ...options })
   return isPseudoLocalizationLocale(i18n.language) ? pseudoLocalizeString(value) : value

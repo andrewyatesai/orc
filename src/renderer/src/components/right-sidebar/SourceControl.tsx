@@ -124,8 +124,8 @@ import {
   buildActiveOpenRowKeys
 } from './source-control-active-open-file-keys'
 import {
-  filterAndSortSourceControlPathEntries,
   filterSourceControlGroupedPathEntries,
+  filterSourceControlPathEntries,
   getSourceControlFileFilterState
 } from './source-control-file-filter'
 import { getCommitMessageTextareaRows } from './source-control-commit-message-rows'
@@ -149,7 +149,7 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import { BaseRefPicker } from '@/components/settings/BaseRefPicker'
-import { useConfirmationDialog } from '@/components/confirmation-dialog-context'
+import { useConfirmationDialog } from '@/components/confirmation-dialog'
 import { formatDiffComment, formatDiffComments } from '@/lib/diff-comments-format'
 import { getDiffCommentLineLabel, getDiffCommentSource } from '@/lib/diff-comment-compat'
 import { DiffNotesSendMenu } from '@/components/editor/DiffNotesSendMenu'
@@ -198,7 +198,10 @@ import { GitHistoryPanel, type GitHistoryPanelState } from './GitHistoryPanel'
 import { useGitHistoryCommitActions } from './useGitHistoryCommitActions'
 // Fork: hosted-review ref normalizers live in the Rust core via the wasm wrapper.
 import { normalizeHostedReviewHeadRef } from '@/lib/git-wasm/hosted-review-refs'
-import { isBehindOnlyUpstream, shouldForcePushWithLeaseForUpstream } from '../../../../shared/git-upstream-reconciliation'
+import {
+  isBehindOnlyUpstream,
+  shouldForcePushWithLeaseForUpstream
+} from '../../../../shared/git-upstream-reconciliation'
 import type {
   DiffComment,
   GitBranchChangeEntry,
@@ -269,7 +272,6 @@ import {
   createPrIntentRunTokenMatches,
   getCreatePrIntentCommitFailureNoticeMessage,
   getCreatePrIntentStagePaths,
-  resolveCreatePrIntentGeneratedReviewFields,
   resolveCreatePrIntentReviewBase,
   resolveCreatePrIntentRemoteStep,
   type CreatePrIntentRunToken
@@ -1796,7 +1798,7 @@ function SourceControlInner(): React.JSX.Element {
   )
 
   const filteredBranchEntries = useMemo(
-    () => filterAndSortSourceControlPathEntries(branchEntries, fileFilterState),
+    () => filterSourceControlPathEntries(branchEntries, fileFilterState),
     [branchEntries, fileFilterState]
   )
 
@@ -3494,33 +3496,17 @@ function SourceControlInner(): React.JSX.Element {
             })
             return false
           }
-          const resolved = resolveCreatePrIntentGeneratedReviewFields(fields, generated)
-          if (!resolved.ok) {
-            setCreatePrIntentNoticeForWorktree(token.worktreeId, {
-              tone: 'destructive',
-              message:
-                resolved.error ??
-                translate(
-                  'auto.components.right.sidebar.SourceControl.createPrIntentEmptyGeneratedBody',
-                  'Generated review details did not include a description. Retry Create PR.'
-                )
-            })
-            return false
+          if (generated.success) {
+            fields = {
+              // Why: intent auto-submits, so generated details must not retarget the review without confirmation.
+              base: fields.base,
+              title: generated.fields.title.trim() || fields.title,
+              body: generated.fields.body,
+              draft: generated.fields.draft
+            }
           }
-          fields = resolved.fields
         } catch (error) {
           console.warn('[SourceControl] Create PR intent detail generation failed', error)
-          setCreatePrIntentNoticeForWorktree(token.worktreeId, {
-            tone: 'destructive',
-            message:
-              error instanceof Error
-                ? error.message
-                : translate(
-                    'auto.components.right.sidebar.SourceControl.createPrIntentGenerateDetailsFailed',
-                    'Could not generate review details. Retry Create PR.'
-                  )
-          })
-          return false
         }
       }
 

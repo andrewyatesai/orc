@@ -67,7 +67,6 @@ export function useAppShellViewModel() {
   const persistedUIReady = useAppStore((s) => s.persistedUIReady)
   const rightSidebarWidth = useAppStore((s) => s.rightSidebarWidth)
   const markdownTocPanelWidth = useAppStore((s) => s.markdownTocPanelWidth)
-  const combinedDiffFileTreeWidth = useAppStore((s) => s.combinedDiffFileTreeWidth)
   const rightSidebarOpen = useAppStore((s) => s.rightSidebarOpen)
   const rightSidebarTab = useAppStore((s) => s.rightSidebarTab)
   const rightSidebarExplorerView = useAppStore((s) => s.rightSidebarExplorerView)
@@ -146,7 +145,6 @@ export function useAppShellViewModel() {
     persistedUIReady,
     rightSidebarWidth,
     markdownTocPanelWidth,
-    combinedDiffFileTreeWidth,
     rightSidebarOpen,
     rightSidebarTab,
     rightSidebarExplorerView,

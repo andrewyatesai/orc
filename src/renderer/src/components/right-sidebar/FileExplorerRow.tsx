@@ -363,19 +363,17 @@ export async function downloadRemoteFile(
     if (result.canceled) {
       return
     }
-    // Why: the save dialog can rename the download, so label with the saved name the Open action opens, not the remote node's (#12959).
-    const savedName = basename(result.destinationPath)
     toast.success(
       node.isDirectory
         ? translate(
             'auto.components.right.sidebar.FileExplorerRow.a4029c996b',
             "Downloaded folder '{{value0}}'",
-            { value0: savedName }
+            { value0: node.name }
           )
         : translate(
             'auto.components.right.sidebar.FileExplorerRow.bce4d4e44f',
             "Downloaded '{{value0}}'",
-            { value0: savedName }
+            { value0: node.name }
           ),
       {
         action: {

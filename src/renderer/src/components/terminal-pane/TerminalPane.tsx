@@ -49,8 +49,8 @@ import type { TerminalKittyKeyboardModeTracker } from '../../../../shared/termin
 import {
   applyExpandedLayoutTo,
   cancelPendingPaneSizeRefreshFrames,
-  restoreExpandedLayoutFrom,
-  useExpandCollapseActions
+  createExpandCollapseActions,
+  restoreExpandedLayoutFrom
 } from './expand-collapse'
 import { useTerminalKeyboardShortcuts, type SearchState } from './keyboard-handlers'
 import type { MacOptionAsAlt } from './terminal-shortcut-policy'
@@ -103,10 +103,16 @@ import { resolveTerminalLayoutActiveLeafId } from './terminal-layout-leaf-ids'
 import { shouldPreserveTerminalScrollbackBuffers } from '../../../../shared/workspace-session-terminal-buffer-pruning'
 import {
   getMobileFitOverridePtyIds,
-  getFitOverrideForPty
+  getFitOverrideForPty,
+  onOverrideChange
 } from '@/lib/pane-manager/mobile-fit-overrides'
 import { shouldShowMobileDriverOverlay } from './mobile-driver-overlay-visibility'
-import { getAllDrivers, getDriverForPty, isPtyLocked } from '@/lib/pane-manager/mobile-driver-state'
+import {
+  getAllDrivers,
+  getDriverForPty,
+  isPtyLocked,
+  onDriverChange
+} from '@/lib/pane-manager/mobile-driver-state'
 import { shouldChatTakeOverMobileSurface } from '../native-chat/native-chat-send-eligibility'
 import { canToggleNativeChat } from '../native-chat/native-chat-availability'
 import {
@@ -117,16 +123,18 @@ import {
 import { isNativeChatTranscriptLocalReadable } from '@/lib/native-chat-transcript-readability'
 import { resolvePaneKeyForManager } from '@/lib/pane-manager/pane-key-resolution'
 import { safeFit, safeFitAndThen } from '@/lib/pane-manager/pane-tree-ops'
+import { applyDesktopFitFallbackAfterReplay } from './desktop-fit-fallback'
 import { clearTerminalScrollbackAndFollowOutput } from '@/lib/pane-manager/terminal-scrollback-clear'
 import { captureTerminalShutdownLayout } from './terminal-shutdown-layout-capture'
-import { useMobileOverlayTicks } from './use-mobile-overlay-ticks'
+import { getOverrideAffectedPanes, getPanesNeedingOverrideFit } from './override-affected-panes'
 import {
   inspectRuntimeTerminalProcess,
   isRemoteRuntimePtyId
 } from '@/runtime/runtime-terminal-inspection'
 import {
   clearWebRuntimeTerminalBuffer,
-  closeWebRuntimeTerminal
+  closeWebRuntimeTerminal,
+  updateWebRuntimePaneLayout
 } from '@/runtime/web-runtime-session'
 import {
   armPrimarySelectionNativePasteSuppression,
@@ -147,13 +155,9 @@ import {
   planTerminalLiveLayoutInsertions
 } from './terminal-live-layout-reconciliation'
 import type { TerminalQuickCommand, TerminalQuickCommandScope } from '../../../../shared/types'
-import {
-  createRemotePaneLayoutPusher,
-  type RemotePaneLayoutPusher
-} from './remote-pane-layout-push'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
 import { isRuntimeOwnedSshTargetId } from '../../../../shared/execution-host'
-import { getRepoIdFromWorktreeId } from '../../../../shared/worktree-id'
+import { getRepoIdFromWorktreeId } from '../../../../shared/worktree-id-parsing'
 import { refitAndRefreshAllTerminalPanes } from '@/lib/pane-manager/pane-manager-registry'
 import {
   getTerminalQuickCommandScope,
@@ -214,7 +218,6 @@ import {
   type TerminalPasteSource,
   type TerminalPasteTextOptions
 } from './terminal-paste-coordinator'
-import { appendTerminalErrorMessage } from './terminal-error-accumulation'
 import { formatTerminalPasteExecutionError } from './terminal-paste-errors'
 import { resolveTerminalPasteRuntime } from './terminal-paste-runtime'
 import { getTerminalPasteSshRemotePlatform } from './terminal-paste-ssh-platform'
@@ -414,7 +417,111 @@ export default function TerminalPane({
   >({})
   const [sessionStateSaveFailureOpen, setSessionStateSaveFailureOpen] = useState(false)
   const daemonActions = useDaemonActions()
-  const { refreshMobileOverlays } = useMobileOverlayTicks({ managerRef, paneTransportsRef })
+  // Why: override state lives in a Map for perf; this counter forces a re-render on override change so the mobile-fit banner toggles.
+  const [, setOverrideTick] = useState(0)
+  useEffect(() => {
+    const pendingFitFrames = new Set<number>()
+    const pendingFallbackTimers = new Set<number>()
+
+    const scheduleFitFrame = (callback: () => void): void => {
+      const frameId = window.requestAnimationFrame(() => {
+        pendingFitFrames.delete(frameId)
+        callback()
+      })
+      pendingFitFrames.add(frameId)
+    }
+
+    const scheduleFallbackTimer = (callback: () => void): void => {
+      const timerId = window.setTimeout(() => {
+        pendingFallbackTimers.delete(timerId)
+        callback()
+      }, 100)
+      pendingFallbackTimers.add(timerId)
+    }
+
+    const unsubscribe = onOverrideChange((event) => {
+      setOverrideTick((n) => n + 1)
+      const manager = managerRef.current
+      if (!manager) {
+        return
+      }
+      // Why: pane IDs are per-tab, so resolve the affected PTY through this tab's live transport bindings, not global pane IDs.
+      const getAffectedPanes = (): ReturnType<typeof manager.getPanes> =>
+        getOverrideAffectedPanes(
+          manager.getPanes(),
+          (paneId) => paneTransportsRef.current.get(paneId)?.getPtyId(),
+          event.ptyId
+        )
+      if (event.mode === 'mobile-fit' || event.mode === 'remote-desktop-fit') {
+        // Why: when mobile drives, xterm must shrink to phone dims or the wide desktop grid garbles the phone-wrapped stream.
+        // Why: override events fan out to every terminal tab; skip the rAF unless this tab has a mis-parked pane.
+        const panesNeedingFit = getPanesNeedingOverrideFit(
+          getAffectedPanes(),
+          event.cols,
+          event.rows
+        )
+        if (panesNeedingFit.length === 0) {
+          return
+        }
+        scheduleFitFrame(() => {
+          for (const pane of getPanesNeedingOverrideFit(
+            getAffectedPanes(),
+            event.cols,
+            event.rows
+          )) {
+            safeFit(pane)
+          }
+        })
+        return
+      }
+      if (event.mode === 'desktop-fit') {
+        // Why: fitAddon.fit() measures the DOM, so run under rAF after layout settles; the timeout is a safety net if fit silently threw.
+        const fitAffectedPanes = (): void => {
+          for (const pane of getAffectedPanes()) {
+            safeFit(pane)
+          }
+        }
+        scheduleFitFrame(fitAffectedPanes)
+        // Why: direct-resize fallback if safeFit no-op'd, only while xterm is still at the prior mobile-fit dims; else event.cols/rows is a stale baseline that clobbers the fit.
+        scheduleFallbackTimer(() => {
+          for (const pane of getAffectedPanes()) {
+            // Why: skip 0×0 hidden panes; forcing desktop dims with no DOM geometry leaves a mismatched grid (fallback is only for the visible pane that failed to refit).
+            const rect = pane.container.getBoundingClientRect()
+            if (rect.width === 0 || rect.height === 0) {
+              continue
+            }
+            applyDesktopFitFallbackAfterReplay(pane, {
+              ...event,
+              // Why: the timeout/replay queue can outlive this pane binding; never apply old server dims to a replacement PTY.
+              shouldApply: () => getAffectedPanes().includes(pane)
+            })
+          }
+        })
+      }
+    })
+
+    return () => {
+      unsubscribe()
+      for (const frameId of pendingFitFrames) {
+        window.cancelAnimationFrame(frameId)
+      }
+      pendingFitFrames.clear()
+      for (const timerId of pendingFallbackTimers) {
+        window.clearTimeout(timerId)
+      }
+      pendingFallbackTimers.clear()
+    }
+  }, [])
+
+  // Why: driver state lives in a Map for perf; this counter re-renders on driver flips so the lock banner toggles. See docs/mobile-presence-lock.md.
+  const [, setDriverTick] = useState(0)
+  useEffect(
+    () =>
+      onDriverChange(() => {
+        setDriverTick((n) => n + 1)
+      }),
+    []
+  )
 
   // Pane title state keyed by ephemeral paneId, persisted via titlesByLeafId; ref keeps persistLayoutSnapshot closures fresh.
   const [paneTitles, setPaneTitles] = useState<Record<number, string>>({})
@@ -422,8 +529,6 @@ export default function TerminalPane({
   paneTitlesRef.current = paneTitles
   const removedTitleLeafIdsRef = useRef<Set<string>>(new Set())
   const clearedScrollbackLeafIdsRef = useRef<Set<string>>(new Set())
-  const remotePaneLayoutPusherRef = useRef<RemotePaneLayoutPusher | null>(null)
-  remotePaneLayoutPusherRef.current ??= createRemotePaneLayoutPusher()
   const [paneTitleOverlayRects, setPaneTitleOverlayRects] = useState<
     Record<number, PaneTitleOverlayRect>
   >({})
@@ -490,15 +595,8 @@ export default function TerminalPane({
       setSessionStateSaveFailureOpen(true)
       return
     }
-    setTerminalError((prev) => appendTerminalErrorMessage(prev, message))
+    setTerminalError((prev) => (prev ? `${prev}\n${message}` : message))
   })
-  /** Dismissal is the only signal that the user has seen the surface, so it must also release the transports' repeat-suppression memory. */
-  const dismissTerminalError = useCallback(() => {
-    setTerminalError(null)
-    for (const transport of paneTransportsRef.current.values()) {
-      transport.notifyErrorSurfaceDismissed?.()
-    }
-  }, [])
   const onPtyRecoveryStateRef = useRef(
     (paneId: number, state: PtyTransportRecoveryState | null) => {
       setPtyRecoveryStatesByPaneId((previous) =>
@@ -1028,7 +1126,13 @@ export default function TerminalPane({
       (ptyId) => typeof ptyId === 'string' && isRemoteRuntimePtyId(ptyId)
     )
     if (hasRemotePane) {
-      remotePaneLayoutPusherRef.current?.push({ worktreeId, tabId, layout })
+      void updateWebRuntimePaneLayout({
+        worktreeId,
+        tabId,
+        root: layout.root,
+        expandedLeafId: layout.expandedLeafId,
+        ...(layout.titlesByLeafId ? { titlesByLeafId: layout.titlesByLeafId } : {})
+      })
     }
     for (const leafId of currentLeafIds) {
       clearedScrollbackLeafIds.delete(leafId)
@@ -1215,7 +1319,7 @@ export default function TerminalPane({
     refreshPaneSizes,
     syncExpandedLayout,
     toggleExpandPane
-  } = useExpandCollapseActions({
+  } = createExpandCollapseActions({
     expandedPaneIdRef,
     expandedStyleSnapshotRef,
     containerRef,
@@ -2696,7 +2800,7 @@ export default function TerminalPane({
       // Why: the banner was rendered for this PTY; if the slot now holds a different terminal, bail so a stale portal can't reclaim it.
       const currentPtyId = paneTransportsRef.current.get(pane.id)?.getPtyId() ?? null
       if (currentPtyId !== ptyId) {
-        refreshMobileOverlays()
+        setOverrideTick((n) => n + 1)
         return
       }
       const restored = await restoreTerminalFitToDesktop(ptyId, settingsRef.current ?? undefined)
@@ -2706,7 +2810,7 @@ export default function TerminalPane({
         pane.terminal.focus()
       }
     },
-    [refreshMobileOverlays, scheduleRestoredTerminalRefit]
+    [scheduleRestoredTerminalRefit]
   )
 
   const restoreAllTerminalFits = useCallback(
@@ -3059,7 +3163,7 @@ export default function TerminalPane({
       {terminalError && isActive && !showSshReconnectOverlay ? (
         <TerminalErrorToast
           error={terminalError}
-          onDismiss={dismissTerminalError}
+          onDismiss={() => setTerminalError(null)}
           onRestartDaemon={() => daemonActions.setPending('restart')}
         />
       ) : null}

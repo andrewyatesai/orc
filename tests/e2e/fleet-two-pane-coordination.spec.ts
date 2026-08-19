@@ -12,7 +12,7 @@ import { waitForPtyShellEcho } from './terminal-pty-readiness'
 import { nodeTerminalCommand } from './terminal-node-command'
 import { buildFreshShellProbeInputSequence } from './terminal-probe-input-sequence'
 import { RuntimeClient } from '../../src/cli/runtime-client'
-import { splitWorktreeIdForFilesystem } from '../../src/shared/worktree-id'
+import { splitWorktreeIdForFilesystem } from '../../src/shared/worktree-id-parsing'
 
 // R0's LIVE acceptance: two real panes coordinate through the real store.
 //

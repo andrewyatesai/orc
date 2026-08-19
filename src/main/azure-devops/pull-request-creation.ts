@@ -1,11 +1,5 @@
 import type { CreateHostedReviewInput, CreateHostedReviewResult } from '../../shared/hosted-review'
-import {
-  azureDevOpsApiVersionForOrigin,
-  azureDevOpsAuthHeadersForUrl,
-  isAzureDevOpsPreviewVersionRejection,
-  markAzureDevOpsPreviewApiVersionOrigin,
-  resolveAzureDevOpsGitApiBaseUrl
-} from './azure-devops-api-request'
+import { azureDevOpsAuthHeadersForUrl } from './azure-devops-api-request'
 import {
   normalizeHostedReviewBaseRef,
   normalizeHostedReviewHeadRef
@@ -26,6 +20,7 @@ import { getAzureDevOpsRepoRef, type AzureDevOpsRepoRef } from './repository-ref
 const CREATE_REQUEST_TIMEOUT_MS = 60_000
 
 type AzureDevOpsCreateAuthConfig = {
+  apiBaseUrl: string | null
   pat: string | null
   accessToken: string | null
   username: string | null
@@ -36,8 +31,16 @@ function envValue(name: string): string | null {
   return value.length > 0 ? value : null
 }
 
+function normalizeApiBaseUrl(value: string): string {
+  return value
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/_apis$/i, '')
+}
+
 function getAuthConfig(): AzureDevOpsCreateAuthConfig {
   return {
+    apiBaseUrl: envValue('ORCA_AZURE_DEVOPS_API_BASE_URL'),
     pat: envValue('ORCA_AZURE_DEVOPS_TOKEN') ?? envValue('ORCA_AZURE_DEVOPS_PAT'),
     accessToken: envValue('ORCA_AZURE_DEVOPS_ACCESS_TOKEN'),
     username: envValue('ORCA_AZURE_DEVOPS_USERNAME')
@@ -50,49 +53,11 @@ export function isAzureDevOpsReviewCreationAuthenticated(): boolean {
 }
 
 function apiUrl(repo: AzureDevOpsRepoRef, path: string): URL {
-  const baseUrl = resolveAzureDevOpsGitApiBaseUrl(repo)
+  const config = getAuthConfig()
+  const baseUrl = config.apiBaseUrl ? normalizeApiBaseUrl(config.apiBaseUrl) : repo.apiBaseUrl
   const url = new URL(`${baseUrl.replace(/\/+$/, '')}${path}`)
-  url.searchParams.set('api-version', azureDevOpsApiVersionForOrigin(url.origin))
+  url.searchParams.set('api-version', '7.1')
   return url
-}
-
-// Why (STA-3494): Azure DevOps Server 400s versioned requests without -preview;
-// the rejection happens before the PR is created, so one retry is safe.
-async function requestCreatePullRequest(
-  repo: AzureDevOpsRepoRef,
-  path: string,
-  requestBody: unknown
-): Promise<RawAzureDevOpsPullRequest> {
-  const url = apiUrl(repo, path)
-  // Why: gate the token per attempt with the same https + trusted-host binding as the
-  // read path so a repo-remote-derived http/wrong-host base never gets the PAT.
-  const send = (target: URL): Promise<RawAzureDevOpsPullRequest> =>
-    requestHostedReviewJson<RawAzureDevOpsPullRequest>(
-      target,
-      {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-          ...azureDevOpsAuthHeadersForUrl(target)
-        },
-        body: JSON.stringify(requestBody)
-      },
-      CREATE_REQUEST_TIMEOUT_MS
-    )
-  try {
-    return await send(url)
-  } catch (error) {
-    if (
-      url.searchParams.get('api-version')?.endsWith('-preview') ||
-      !(error instanceof HostedReviewApiRequestError) ||
-      !isAzureDevOpsPreviewVersionRejection(error.status, error.message)
-    ) {
-      throw error
-    }
-    markAzureDevOpsPreviewApiVersionOrigin(url.origin)
-    return send(apiUrl(repo, path))
-  }
 }
 
 function encodePathSegment(value: string): string {
@@ -232,10 +197,24 @@ export async function createAzureDevOpsPullRequest(
   }
 
   try {
-    const raw = await requestCreatePullRequest(
+    const requestUrl = apiUrl(
       repo,
-      `/_apis/git/repositories/${encodePathSegment(repo.repository)}/pullRequests`,
-      requestBody
+      `/_apis/git/repositories/${encodePathSegment(repo.repository)}/pullRequests`
+    )
+    const raw = await requestHostedReviewJson<RawAzureDevOpsPullRequest>(
+      requestUrl,
+      {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          // Why: gate the token with the same https + trusted-host binding as the
+          // read path so a repo-remote-derived http/wrong-host base never gets the PAT.
+          ...azureDevOpsAuthHeadersForUrl(requestUrl)
+        },
+        body: JSON.stringify(requestBody)
+      },
+      CREATE_REQUEST_TIMEOUT_MS
     )
     const created = mapAzureDevOpsPullRequest(raw, 'neutral', repo.webBaseUrl)
     if (created) {

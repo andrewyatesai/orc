@@ -4,7 +4,8 @@ import {
   type OrcaDeepLinkOrigin,
   type OrcaDeepLinkUiEvent
 } from '../../shared/orca-deep-link'
-import { getRepoIdFromWorktreeId, WORKTREE_ID_SEPARATOR } from '../../shared/worktree-id'
+import { WORKTREE_ID_SEPARATOR } from '../../shared/worktree-id'
+import { getRepoIdFromWorktreeId } from '../../shared/worktree-id-parsing'
 
 export const DEEP_LINK_UI_CHANNEL = 'ui:deepLink'
 

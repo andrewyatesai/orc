@@ -7,6 +7,7 @@ import {
   Settings,
   ChevronRight,
   Terminal,
+  Plus,
   RefreshCw,
   PowerOff,
   Edit3,
@@ -25,22 +26,16 @@ import {
 } from '../src/components/AccountUsage'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { loadHosts } from '../src/transport/host-store'
-import { useOpenMobileHostEdit } from '../src/transport/use-open-mobile-host-edit'
 import { removeHostAndCloseClient } from '../src/transport/host-removal-lifecycle'
 import { pickResumeWorktree } from '../src/worktree/resume-worktree'
-import { WORKTREE_PS_FULL_LIMIT } from '../src/worktree/worktree-catalog-snapshot-client'
 import type { RpcClient } from '../src/transport/rpc-client'
 import { sendSingleFlightRequest } from '../src/transport/request-single-flight'
 import {
+  useAllHostClients,
   useCloseHost,
   useForceReconnect,
   usePrimeHosts
 } from '../src/transport/client-context'
-import { useAllHostClients } from '../src/transport/use-all-host-clients'
-import {
-  resolveHomeHostConnectionState,
-  selectHomeAutoConnectHostIds
-} from '../src/transport/home-host-auto-connect'
 import { classifyConnection } from '../src/transport/connection-health'
 import { subscribeToDesktopNotifications } from '../src/notifications/mobile-notifications'
 import {
@@ -51,7 +46,6 @@ import type { ConnectionState, HostProfile } from '../src/transport/types'
 import { triggerMediumImpact } from '../src/platform/haptics'
 import { OrcaLogo } from '../src/components/OrcaLogo'
 import { MobileHostCard } from '../src/components/MobileHostCard'
-import { MobileHomeQuickActions } from '../src/components/MobileHomeQuickActions'
 import { TaskProviderLogo } from '../src/components/TaskProviderLogo'
 import { ActionSheetModal, type ActionSheetAction } from '../src/components/ActionSheetModal'
 import { ConfirmModal } from '../src/components/ConfirmModal'
@@ -64,10 +58,15 @@ import {
   type TaskProvider
 } from '../src/tasks/mobile-task-providers'
 import { useResponsiveLayout } from '../src/layout/responsive-layout'
-import { useOpenMobileSession } from '../src/session/use-open-mobile-session'
-import { useOpenMobileTasks } from '../src/tasks/use-open-mobile-tasks'
-import { hostNewWorktreeRoute } from '../src/host-route-action-state'
-import { hostEndpointLabel } from '../src/transport/host-endpoint-label'
+
+function endpointLabel(endpoint: string): string {
+  try {
+    const url = new URL(endpoint)
+    return `${url.hostname}${url.port ? `:${url.port}` : ''}`
+  } catch {
+    return endpoint
+  }
+}
 
 type StatsSummary = {
   totalAgentsSpawned: number
@@ -185,7 +184,8 @@ function fetchWorktreeInfo(
     })
   }
 
-  sendSingleFlightRequest(client, hostId, 'worktree.ps', { limit: WORKTREE_PS_FULL_LIMIT })
+  // Why: worktree.ps defaults to 200 and silently truncates; request all so counts are accurate.
+  sendSingleFlightRequest(client, hostId, 'worktree.ps', { limit: 10000 })
     .then((response) => {
       if (disposed()) {
         return
@@ -293,9 +293,6 @@ function repoColor(name: string): string {
 
 export default function HomeScreen() {
   const router = useRouter()
-  const openMobileHostEdit = useOpenMobileHostEdit()
-  const openMobileSession = useOpenMobileSession()
-  const openMobileTasks = useOpenMobileTasks()
   const insets = useSafeAreaInsets()
   // Why: cap/center content on wide/tablet canvases so cards don't stretch edge-to-edge on iPad.
   const { isWideLayout, contentMaxWidth } = useResponsiveLayout()
@@ -318,9 +315,7 @@ export default function HomeScreen() {
 
   // Why: shared clients from the per-host store, not N independent WebSockets. See docs/mobile-shared-client-per-host.md.
   const hostIds = useMemo(() => hosts.map((h) => h.id), [hosts])
-  // Why (#11642): only the most-recent credentialed hosts auto-connect on mount; the rest connect on demand when tapped.
-  const autoConnectHostIds = useMemo(() => selectHomeAutoConnectHostIds(hosts), [hosts])
-  const allClients = useAllHostClients(hostIds, { autoConnectHostIds })
+  const allClients = useAllHostClients(hostIds)
   const hostPaths = useMemo(
     () => Object.fromEntries(allClients.map(({ hostId, path }) => [hostId, path])),
     [allClients]
@@ -602,11 +597,10 @@ export default function HomeScreen() {
     return items
   }, [sortedHosts, hostStates, accountsByHost])
 
-  const connectedHosts = useMemo(
-    () => sortedHosts.filter((host) => hostStates[host.id] === 'connected'),
+  const primaryConnectedHost = useMemo(
+    () => sortedHosts.find((host) => hostStates[host.id] === 'connected') ?? null,
     [sortedHosts, hostStates]
   )
-  const primaryConnectedHost = connectedHosts[0] ?? null
   const primaryTaskProviders = primaryConnectedHost
     ? (taskProvidersByHost[primaryConnectedHost.id] ?? ['github'])
     : []
@@ -615,9 +609,10 @@ export default function HomeScreen() {
       if (!primaryConnectedHost) {
         return
       }
-      openMobileTasks(primaryConnectedHost.id, provider)
+      const suffix = provider ? `?taskSource=${provider}` : ''
+      router.push(`/h/${primaryConnectedHost.id}/tasks${suffix}`)
     },
-    [openMobileTasks, primaryConnectedHost]
+    [primaryConnectedHost, router]
   )
   const renderTaskHomeCard = () => (
     <Pressable
@@ -784,11 +779,7 @@ export default function HomeScreen() {
           }
           ItemSeparatorComponent={CardGap}
           renderItem={({ item }) => {
-            const state = resolveHomeHostConnectionState(
-              item.id,
-              hostStates[item.id],
-              autoConnectHostIds
-            )
+            const state = hostStates[item.id] ?? 'connecting'
             const attempts = hostAttempts[item.id] ?? 0
             const lastConnectedAt = hostLastConnected[item.id] ?? null
             const info = worktreeInfo[item.id]
@@ -812,10 +803,6 @@ export default function HomeScreen() {
                   triggerMediumImpact()
                   setActionTarget(item)
                 }}
-                onOpenActions={() => {
-                  triggerMediumImpact()
-                  setActionTarget(item)
-                }}
               />
             )
           }}
@@ -828,11 +815,9 @@ export default function HomeScreen() {
                   <Pressable
                     style={({ pressed }) => [styles.resumeCard, pressed && styles.hostCardPressed]}
                     onPress={() =>
-                      openMobileSession({
-                        hostId: resumeWorktree.hostId,
-                        worktreeId: resumeWorktree.worktree.worktreeId,
-                        name: resumeWorktree.worktree.displayName || resumeWorktree.worktree.repo
-                      })
+                      router.push(
+                        `/h/${resumeWorktree.hostId}/session/${encodeURIComponent(resumeWorktree.worktree.worktreeId)}`
+                      )
                     }
                   >
                     <View style={styles.resumeIcon}>
@@ -869,11 +854,36 @@ export default function HomeScreen() {
               )}
 
               {/* ─── Quick actions ─── */}
-              <MobileHomeQuickActions
-                connectedHosts={connectedHosts}
-                onPairDesktop={() => router.push('/pair-scan')}
-                onCreateWorkspace={(hostId) => router.push(hostNewWorktreeRoute(hostId))}
-              />
+              <Text style={[styles.sectionHeading, { marginTop: spacing.xl }]}>Quick Actions</Text>
+              <View style={styles.quickActions}>
+                <Pressable
+                  style={({ pressed }) => [styles.quickAction, pressed && styles.hostCardPressed]}
+                  onPress={() => router.push('/pair-scan')}
+                >
+                  <View style={styles.quickActionIcon}>
+                    <QrCode size={16} color={colors.textSecondary} />
+                  </View>
+                  <Text style={styles.quickActionLabel}>Pair Desktop</Text>
+                </Pressable>
+                <Pressable
+                  disabled={!primaryConnectedHost}
+                  style={({ pressed }) => [
+                    styles.quickAction,
+                    !primaryConnectedHost && styles.quickActionDisabled,
+                    pressed && styles.hostCardPressed
+                  ]}
+                  onPress={() => {
+                    if (primaryConnectedHost) {
+                      router.push(`/h/${primaryConnectedHost.id}?action=newWorktree`)
+                    }
+                  }}
+                >
+                  <View style={styles.quickActionIcon}>
+                    <Plus size={16} color={colors.textSecondary} />
+                  </View>
+                  <Text style={styles.quickActionLabel}>New Workspace</Text>
+                </Pressable>
+              </View>
 
               {/* ─── Account usage ─── */}
               {accountsHosts.length > 0 ? (
@@ -961,13 +971,13 @@ export default function HomeScreen() {
       <ActionSheetModal
         visible={actionTarget != null}
         title={actionTarget?.name}
-        message={actionTarget ? hostEndpointLabel(actionTarget.endpoint) : undefined}
+        message={actionTarget ? endpointLabel(actionTarget.endpoint) : undefined}
         actions={(() => {
           const host = actionTarget
           if (!host) {
             return []
           }
-          const state = resolveHomeHostConnectionState(host.id, hostStates[host.id], autoConnectHostIds)
+          const state = hostStates[host.id] ?? 'connecting'
           const isLive =
             state === 'connected' ||
             state === 'connecting' ||
@@ -1000,7 +1010,7 @@ export default function HomeScreen() {
             closeBeforePress: true,
             onPress: () => {
               setActionTarget(null)
-              openMobileHostEdit(host.id)
+              router.push(`/h/${host.id}/edit`)
             }
           })
           items.push({
@@ -1308,9 +1318,38 @@ const styles = StyleSheet.create({
     marginTop: 4
   },
 
-  // Shared by the Tasks home card; quick-action buttons live in MobileHomeQuickActions.
+  /* ─── Quick actions ─── */
+  quickActions: {
+    flexDirection: 'row',
+    gap: spacing.sm
+  },
+  quickAction: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: colors.bgPanel,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    borderRadius: radii.card,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    gap: 10
+  },
   quickActionDisabled: {
     opacity: 0.45
+  },
+  quickActionIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  quickActionLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary
   },
 
   /* ─── Empty state ─── */

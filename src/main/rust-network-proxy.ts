@@ -3,13 +3,13 @@
 // parity-proven Rust port. The env-precedence getters stay pure TS here — main
 // is their only consumer and they are not in the parity oracle — composing the
 // napi-backed normalizers.
-import { requireRustGitBinding } from './daemon/rust-git-addon'
+import { dispatchToRustCore } from './rust-core-dispatch'
 import type { NetworkProxySettings, ProxyUrlValidationResult } from '../shared/network-proxy'
 
+// Why 'omit': both NetworkProxySettings fields are optional, and an unset proxy
+// key is what the Rust struct reads as None.
 function dispatch(fn: string, input: unknown): unknown {
-  return JSON.parse(
-    requireRustGitBinding().orcaDispatch('network-proxy', fn, JSON.stringify(input ?? null))
-  )
+  return dispatchToRustCore('network-proxy', fn, input, { undefinedProperties: 'omit' })
 }
 
 export function normalizeProxyUrl(value: unknown): ProxyUrlValidationResult {

@@ -1,4 +1,5 @@
 import { toWindowsWslPath } from '../../shared/wsl-unc-paths'
+
 export type ParsedFileUriPath = {
   path: string
   hostname: string

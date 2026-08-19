@@ -78,7 +78,7 @@ vi.mock('@/store/selectors', () => ({
   useWorktreeMap: () => new Map([[mocks.activeWorktree.id, mocks.activeWorktree]])
 }))
 
-vi.mock('@/components/confirmation-dialog-context', () => ({
+vi.mock('@/components/confirmation-dialog', () => ({
   useConfirmationDialog: () => vi.fn().mockResolvedValue(true)
 }))
 

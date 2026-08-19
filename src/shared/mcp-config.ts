@@ -1,10 +1,6 @@
-import {
-  isMcpConfigInspectionNameWithinLimit,
-  isMcpConfigInspectionTextWithinLimit,
-  MCP_CONFIG_INSPECTION_MAX_SERVERS
-} from './mcp-config-inspection-limits'
-import { summarizeMcpServer } from './mcp-server-inspection'
-
+// MCP config candidates, types, and directory discovery. `inspectMcpConfigContent`
+// is now the Rust `mcp` core (rust/crates/orca-config/src/mcp.rs); the renderer
+// reaches it through src/renderer/src/lib/git-wasm/mcp-config-content-inspection.ts.
 export { maskMcpEnv } from './mcp-server-inspection'
 
 export type McpConfigFormat = 'workspace' | 'cursor' | 'claude'
@@ -109,76 +105,6 @@ export function canInspectLocalMcpConfigRoot(rootPath: string, isWindowsHost: bo
   return !/^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/]+[\\/][^\\/]+)/.test(rootPath)
 }
 
-export function inspectMcpConfigContent(
-  candidate: McpConfigCandidate,
-  content: string | null
-): McpConfigInspection {
-  if (content === null) {
-    return { candidate, exists: false, status: 'missing', servers: [] }
-  }
-  if (!isMcpConfigInspectionTextWithinLimit(content)) {
-    return {
-      candidate,
-      exists: true,
-      status: 'invalid',
-      servers: [],
-      error: 'MCP config exceeds the inspection size limit.'
-    }
-  }
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(content)
-  } catch (error) {
-    return {
-      candidate,
-      exists: true,
-      status: 'invalid',
-      servers: [],
-      error: error instanceof Error ? error.message : 'Invalid JSON'
-    }
-  }
-
-  const rawServers = extractObjectAtPath(parsed, candidate.serversPath)
-  if (!rawServers) {
-    return { candidate, exists: true, status: 'valid', servers: [] }
-  }
-  const serverEntries = collectMcpServerEntries(rawServers)
-  if (!serverEntries) {
-    return {
-      candidate,
-      exists: true,
-      status: 'invalid',
-      servers: [],
-      error: 'MCP server collection exceeds the inspection limits.'
-    }
-  }
-
-  return {
-    candidate,
-    exists: true,
-    status: 'valid',
-    servers: serverEntries.map(([name, entry]) => summarizeMcpServer(name, entry))
-  }
-}
-
-function collectMcpServerEntries(rawServers: Record<string, unknown>): [string, unknown][] | null {
-  const entries: [string, unknown][] = []
-  for (const name in rawServers) {
-    if (!Object.prototype.hasOwnProperty.call(rawServers, name)) {
-      continue
-    }
-    if (
-      entries.length >= MCP_CONFIG_INSPECTION_MAX_SERVERS ||
-      !isMcpConfigInspectionNameWithinLimit(name)
-    ) {
-      return null
-    }
-    entries.push([name, rawServers[name]])
-  }
-  return entries
-}
-
 function getRelativeParentDir(relativePath: string): string {
   const normalizedPath = relativePath.replace(/\\/g, '/')
   const separatorIndex = normalizedPath.lastIndexOf('/')
@@ -189,20 +115,4 @@ function getRelativeBasename(relativePath: string): string {
   const normalizedPath = relativePath.replace(/\\/g, '/')
   const separatorIndex = normalizedPath.lastIndexOf('/')
   return separatorIndex === -1 ? normalizedPath : normalizedPath.slice(separatorIndex + 1)
-}
-
-function extractObjectAtPath(
-  value: unknown,
-  pathSegments: string[]
-): Record<string, unknown> | null {
-  let current = value
-  for (const segment of pathSegments) {
-    if (!current || typeof current !== 'object' || Array.isArray(current)) {
-      return null
-    }
-    current = (current as Record<string, unknown>)[segment]
-  }
-  return current && typeof current === 'object' && !Array.isArray(current)
-    ? (current as Record<string, unknown>)
-    : null
 }

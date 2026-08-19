@@ -1,7 +1,10 @@
-import { isRuntimePathAbsolute, normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path-resolution'
+import {
+  isRuntimePathAbsolute,
+  normalizeRuntimePathForComparison
+} from '../../../../shared/cross-platform-path-resolution'
 import type { ProjectHostSetupProjection } from '../../../../shared/project-host-setup-projection'
 import type { Worktree } from '../../../../shared/types'
-import { splitWorktreeIdForFilesystem } from '../../../../shared/worktree-id'
+import { splitWorktreeIdForFilesystem } from '../../../../shared/worktree-id-parsing'
 
 export function deriveAiVaultWorkspaceScopePaths(
   activeWorktree: Pick<Worktree, 'id' | 'path' | 'priorWorktreeIds' | 'repoId'> | null,

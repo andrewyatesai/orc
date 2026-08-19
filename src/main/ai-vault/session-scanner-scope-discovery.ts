@@ -2,7 +2,10 @@ import { createReadStream } from 'node:fs'
 import { readdir, stat } from 'node:fs/promises'
 import { createInterface } from 'node:readline'
 import { extname, join } from 'node:path'
-import { isPathInsideOrEqual, normalizeRuntimePathSeparators } from '../../shared/cross-platform-path-resolution'
+import {
+  isPathInsideOrEqual,
+  normalizeRuntimePathSeparators
+} from '../../shared/cross-platform-path-resolution'
 import type { AiVaultScanIssue } from '../../shared/ai-vault-types'
 import { parseWslUncPath } from '../../shared/wsl-unc-paths'
 import type { FileWithMtime } from './session-scanner-types'

@@ -12,6 +12,7 @@ import type {
 import { folderWorkspaceKey } from '../../../../shared/workspace-scope'
 import type * as WorktreeListModule from './WorktreeList'
 import { cloneDefaultWorkspaceStatuses } from '../../../../shared/workspace-status-normalization'
+
 const mockStore = vi.hoisted(() => ({
   state: {} as Record<string, unknown>
 }))
@@ -914,30 +915,6 @@ describe('WorktreeList lineage child card renderer', () => {
     expect(markup).toContain('data-workspace-status-drop-target=""')
     expect(markup).toContain('data-repo-header-collapse-affordance=""')
     expect(markup).toContain('aria-expanded="true"')
-  })
-
-  it('renders a collapse chevron on the pinned section header with worktrees', async () => {
-    setPinnedFixtureState()
-    const markup = await renderWorktreeListMarkup()
-
-    expect(markup).toContain('Pinned')
-    expect(markup).toContain('data-workspace-pin-drop-target=""')
-    expect(markup).toContain('data-repo-header-collapse-affordance=""')
-    expect(markup).toContain('aria-expanded="true"')
-  })
-
-  it('renders collapsed pinned section header affordance state', async () => {
-    setPinnedFixtureState()
-    mockStore.state = {
-      ...mockStore.state,
-      collapsedGroups: new Set(['pinned'])
-    }
-    const markup = await renderWorktreeListMarkup()
-
-    expect(markup).toContain('data-workspace-pin-drop-target=""')
-    expect(markup).toContain('data-repo-header-collapse-affordance=""')
-    expect(markup).toContain('aria-expanded="false"')
-    expect(markup).toContain('-rotate-90')
   })
 
   it('renders a collapse chevron on grouped repo headers with worktrees', async () => {

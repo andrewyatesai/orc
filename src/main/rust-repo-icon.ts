@@ -1,16 +1,16 @@
 // Main-process repo-icon sanitizer/builders, driven by the Rust repo-icon core
 // via napi (the shared TS impl was gutted to types/data).
-import { requireRustGitBinding } from './daemon/rust-git-addon'
+import { dispatchToRustCore } from './rust-core-dispatch'
 import type { RepoIcon } from '../shared/repo-icon'
 
 // `sanitizeRepoIcon` is tri-state; the Rust side encodes JS `undefined` as this
 // sentinel string (JSON can't carry undefined), so map it back on the way out.
 const SANITIZE_UNDEFINED = '__undefined__'
 
+// Why 'omit': the sanitizer takes an `unknown` persisted icon whose optional
+// `label` may be undefined, which the Rust enum reads as an absent field.
 function dispatch(fn: string, input: unknown): unknown {
-  return JSON.parse(
-    requireRustGitBinding().orcaDispatch('repo-icon', fn, JSON.stringify(input ?? null))
-  )
+  return dispatchToRustCore('repo-icon', fn, input, { undefinedProperties: 'omit' })
 }
 
 export function sanitizeRepoIcon(value: unknown): RepoIcon | null | undefined {

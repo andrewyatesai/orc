@@ -330,22 +330,7 @@ export function useTerminalKeyboardShortcuts({
       }
       const state = useAppStore.getState()
       const paneKey = makePaneKey(tabId, activePane.leafId)
-      // Why: foreground titles only recover trust on local Windows ConPTY panes;
-      // gate the title so SSH/relay panes cannot forge a Pi/Droid CSI-u encoding.
-      const terminalTitle = isLocalWindowsConptyPaneForCtrlArrow({
-        isWindows,
-        userAgent: navigator.userAgent,
-        state,
-        worktreeId,
-        tabId,
-        paneId: activePane.id,
-        paneCwd: paneCwdRef.current,
-        fallbackCwd,
-        transport: paneTransportsRef.current.get(activePane.id) ?? null
-      })
-        ? state.runtimePaneTitlesByTabId[tabId]?.[activePane.id]
-        : undefined
-      return resolveWindowsShiftEnterEncodingForPane(state, paneKey, terminalTitle)
+      return resolveWindowsShiftEnterEncodingForPane(state, paneKey)
     }
 
     // Why: host metadata is live and can hydrate after the terminal mounts;
@@ -533,9 +518,9 @@ export function useTerminalKeyboardShortcuts({
               // Why: this direct shortcut write does not pass through PTY onData,
               // so no-OSC shells need an explicit post-write confirmation ladder.
               const binding = panePtyBindings?.get(pane.id) as
-                | (IDisposable & { requestWindowsShiftEnterReconfirmation?: () => void })
+                | (IDisposable & { requestDroidReconfirmation?: () => void })
                 | undefined
-              binding?.requestWindowsShiftEnterReconfirmation?.()
+              binding?.requestDroidReconfirmation?.()
             }
           }
         }

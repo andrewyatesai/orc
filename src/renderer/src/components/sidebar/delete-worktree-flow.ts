@@ -8,7 +8,10 @@ import { showDeleteWorktreeFailureToast } from './delete-worktree-failure-toast'
 import { getWorkspaceDeleteLineage } from './workspace-delete-lineage'
 import { resolveSshWorkspaceForget } from './ssh-workspace-forget-resolution'
 import { isPairedWebClientWindow } from '@/lib/desktop-window-chrome'
-import { isPathInsideOrEqual, normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path-resolution'
+import {
+  isPathInsideOrEqual,
+  normalizeRuntimePathForComparison
+} from '../../../../shared/cross-platform-path-resolution'
 import type { Worktree } from '../../../../shared/types'
 import { translate } from '@/i18n/i18n'
 
@@ -43,18 +46,16 @@ export async function runWorktreeDeletesInParallel(
   targets: readonly Pick<Worktree, 'id' | 'displayName' | 'repoId' | 'path'>[],
   options: WorktreeDeleteWithToastOptions = {}
 ): Promise<string[]> {
-  // Why: refresh races can leave duplicate rows, but a destructive command must run once per identity.
-  const uniqueTargets = Array.from(new Map(targets.map((target) => [target.id, target])).values())
   // Why: capture the viewed workspace before any delete so we can focus one survivor after the batch settles, not per delete.
   const activeWorktreeIdBefore = useAppStore.getState().activeWorktreeId
   const commitBatchFocus = activeWorktreeIdBefore
     ? prepareActiveWorktreeFocusAfterDelete(activeWorktreeIdBefore)
     : null
   // Why: mark every target deleting up front for immediate in-flight feedback, even though deletes serialize per repo.
-  useAppStore.getState().markWorktreesDeleting(uniqueTargets.map((target) => target.id))
+  useAppStore.getState().markWorktreesDeleting(targets.map((target) => target.id))
   // Why: worktree remove/prune/branch -D race on shared ref locks; group by repoId to serialize per repo (cross-repo stays parallel).
-  const groups = new Map<string, (typeof uniqueTargets)[number][]>()
-  for (const target of uniqueTargets) {
+  const groups = new Map<string, (typeof targets)[number][]>()
+  for (const target of targets) {
     const group = groups.get(target.repoId)
     if (group) {
       group.push(target)
@@ -94,7 +95,7 @@ export async function runWorktreeDeletesInParallel(
   if (activeWorktreeIdBefore && deletedSet.has(activeWorktreeIdBefore)) {
     commitBatchFocus?.()
   }
-  return uniqueTargets.filter((target) => deletedSet.has(target.id)).map((target) => target.id)
+  return targets.filter((target) => deletedSet.has(target.id)).map((target) => target.id)
 }
 
 /**
@@ -135,11 +136,7 @@ export function runWorktreeDeleteWithToast(
         onForceDelete: () => {
           // Why: recapture at click time — the user may have navigated away while the toast was open, so focus only hands off if still viewed.
           const commitForceFocus = prepareActiveWorktreeFocusAfterDelete(worktreeId)
-          // Why (#11960): the user clicked Force Delete on a failure toast, so this
-          // retry may waive the PTY-stop proof the first attempt could not satisfy.
-          const forceRemoval = useAppStore
-            .getState()
-            .removeWorktree(worktreeId, true, { allowUnverifiedPtyStop: true })
+          const forceRemoval = useAppStore.getState().removeWorktree(worktreeId, true)
           forceRemoval
             .then((forceResult) => {
               if (!forceResult.ok) {
@@ -271,8 +268,7 @@ export function runWorktreeBatchDelete(
 ): boolean {
   const state = useAppStore.getState()
   const worktreeMap = getWorktreeMapFromState(state)
-  // Why: a stale selection can list the same id twice; collapse it so a destructive delete runs once per identity.
-  const targets = Array.from(new Set(worktreeIds))
+  const targets = worktreeIds
     .map((id) => worktreeMap.get(id) ?? null)
     .filter((worktree): worktree is Worktree => worktree != null && !worktree.isMainWorktree)
 

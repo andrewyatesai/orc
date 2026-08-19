@@ -1080,11 +1080,6 @@ describe('useIpcEvents browser tab create routing', () => {
 
     expect(acquireBrowserAutomationVisibility).toHaveBeenCalledWith('page-new')
     expect(acquireBrowserAutomationVisibility).not.toHaveBeenCalledWith('page-active')
-    expect(state.createBrowserTab).toHaveBeenCalledWith(
-      'wt-1',
-      'https://example.com',
-      expect.objectContaining({ allowWindowClose: true })
-    )
     expect(replyTabCreate).toHaveBeenCalledWith({
       requestId: 'req-create',
       browserPageId: 'page-new'
@@ -1499,8 +1494,6 @@ describe('useIpcEvents updater integration', () => {
       clearRemoteDetectedAgents: vi.fn(),
       clearRemovedSshTargetState,
       clearTabPtyId,
-      clearDirectSshTargetPtyBindings: vi.fn(),
-      retryDirectSshTargetPanes: vi.fn(),
       repos: [{ id: 'repo-1', connectionId: 'conn-1' }],
       worktreesByRepo: {
         'repo-1': [{ id: 'wt-1', repoId: 'repo-1', hostId: 'ssh:conn-1' }]
@@ -4860,7 +4853,6 @@ describe('useIpcEvents agent status snapshot integration', () => {
     drop?: (paneKey: string) => void
     remoteWorkspace?: Record<string, unknown>
     runtime?: Record<string, unknown>
-    ssh?: Record<string, unknown>
   }): Record<string, unknown> {
     return {
       api: {
@@ -4953,14 +4945,12 @@ describe('useIpcEvents agent status snapshot integration', () => {
           listTargets: () => Promise.resolve([]),
           listPortForwards: () => Promise.resolve([]),
           listDetectedPorts: () => Promise.resolve([]),
-          listRemovedTargetLabels: () => Promise.resolve({}),
           getState: () => Promise.resolve(null),
           onStateChanged: () => () => {},
           onCredentialRequest: () => () => {},
           onCredentialResolved: () => () => {},
           onPortForwardsChanged: () => () => {},
-          onDetectedPortsChanged: () => () => {},
-          ...args.ssh
+          onDetectedPortsChanged: () => () => {}
         },
         agentStatus: {
           onSet: args.onSet,
@@ -5320,202 +5310,6 @@ describe('useIpcEvents agent status snapshot integration', () => {
       expectWorktreeRouting('wt-1'),
       undefined
     )
-  })
-
-  it('applies a burst leading-edge first, then coalesces the rest into one deferred batch', async () => {
-    // Why: each live status event is its own IPC task, so N events used to pay
-    // N full render passes (STA-3328 mechanism 2). The leading event must stay
-    // synchronous (zero added latency); followers within the burst window must
-    // apply together on one later task, in arrival order.
-    vi.useFakeTimers()
-    const setAgentStatus = vi.fn()
-    const onSetListenerRef: { current: ((data: AgentStatusSetData) => void) | null } = {
-      current: null
-    }
-    const storeState: StoreLike = buildStoreState({
-      setAgentStatus,
-      workspaceSessionReady: true,
-      tabsByWorktree: {
-        'wt-1': [{ id: 'tab-future', ptyId: 'pty-1', worktreeId: 'wt-1', title: 'Future Tab' }]
-      },
-      terminalLayoutsByTabId: {
-        'tab-future': {
-          root: { type: 'leaf', leafId: FUTURE_LEAF_ID },
-          activeLeafId: FUTURE_LEAF_ID,
-          expandedLeafId: null
-        }
-      }
-    })
-
-    stubReactSyncEffect()
-    vi.doMock('../store', () => ({
-      useAppStore: {
-        subscribe: vi.fn(() => () => {}),
-        getState: () => storeState
-      }
-    }))
-    stubAuxiliaryModules()
-    vi.stubGlobal(
-      'window',
-      buildWindowApi({
-        onSet: (cb) => {
-          onSetListenerRef.current = cb
-          return () => {}
-        }
-      })
-    )
-
-    try {
-      const { useIpcEvents } = await import('./useIpcEvents')
-      useIpcEvents()
-      if (typeof onSetListenerRef.current !== 'function') {
-        throw new Error('Expected agentStatus.onSet listener to be registered')
-      }
-      const emit = (receivedAt: number, prompt: string): void => {
-        onSetListenerRef.current!({
-          paneKey: FUTURE_PANE_KEY,
-          state: 'working',
-          prompt,
-          agentType: 'claude',
-          receivedAt,
-          stateStartedAt: receivedAt
-        })
-      }
-
-      emit(1_700_000_000_000, 'first')
-      expect(setAgentStatus).toHaveBeenCalledTimes(1)
-
-      emit(1_700_000_000_001, 'second')
-      emit(1_700_000_000_002, 'third')
-      expect(setAgentStatus).toHaveBeenCalledTimes(1)
-
-      vi.advanceTimersByTime(40)
-      expect(setAgentStatus).toHaveBeenCalledTimes(3)
-      expect(setAgentStatus.mock.calls[1][1]).toEqual(expect.objectContaining({ prompt: 'second' }))
-      expect(setAgentStatus.mock.calls[2][1]).toEqual(expect.objectContaining({ prompt: 'third' }))
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('preserves queued set-clear order for working removal and done retention', async () => {
-    vi.useFakeTimers()
-    let storeState: StoreLike
-    const setAgentStatus = vi.fn(
-      (
-        paneKey: string,
-        payload: { state: string },
-        _title: unknown,
-        timing: { updatedAt: number }
-      ) => {
-        storeState.agentStatusByPaneKey = {
-          ...(storeState.agentStatusByPaneKey as Record<string, unknown>),
-          [paneKey]: { ...payload, updatedAt: timing.updatedAt }
-        }
-      }
-    )
-    const removeAgentStatus = vi.fn((paneKey: string) => {
-      const next = { ...(storeState.agentStatusByPaneKey as Record<string, unknown>) }
-      delete next[paneKey]
-      storeState.agentStatusByPaneKey = next
-    })
-    const onSetListenerRef: { current: ((data: AgentStatusSetData) => void) | null } = {
-      current: null
-    }
-    const onClearListenerRef: { current: ((data: { paneKey: string }) => void) | null } = {
-      current: null
-    }
-    storeState = buildStoreState({
-      setAgentStatus,
-      removeAgentStatus,
-      workspaceSessionReady: true,
-      tabsByWorktree: {
-        'wt-1': [{ id: 'tab-future', ptyId: 'pty-1', worktreeId: 'wt-1', title: 'Future Tab' }]
-      },
-      terminalLayoutsByTabId: {
-        'tab-future': {
-          root: { type: 'leaf', leafId: FUTURE_LEAF_ID },
-          activeLeafId: FUTURE_LEAF_ID,
-          expandedLeafId: null
-        }
-      }
-    })
-
-    stubReactSyncEffect()
-    vi.doMock('../store', () => ({
-      useAppStore: {
-        subscribe: vi.fn(() => () => {}),
-        getState: () => storeState
-      }
-    }))
-    stubAuxiliaryModules()
-    vi.stubGlobal(
-      'window',
-      buildWindowApi({
-        onSet: (cb) => {
-          onSetListenerRef.current = cb
-          return () => {}
-        },
-        onClear: (cb) => {
-          onClearListenerRef.current = cb as (data: { paneKey: string }) => void
-          return () => {}
-        }
-      })
-    )
-
-    try {
-      const { useIpcEvents } = await import('./useIpcEvents')
-      useIpcEvents()
-      if (
-        typeof onSetListenerRef.current !== 'function' ||
-        typeof onClearListenerRef.current !== 'function'
-      ) {
-        throw new Error('Expected agentStatus listeners to be registered')
-      }
-      const emit = (
-        receivedAt: number,
-        prompt: string,
-        state: AgentStatusSetData['state'] = 'working'
-      ): void => {
-        onSetListenerRef.current!({
-          paneKey: FUTURE_PANE_KEY,
-          state,
-          prompt,
-          agentType: 'claude',
-          receivedAt,
-          stateStartedAt: receivedAt
-        })
-      }
-
-      emit(1_700_000_000_000, 'leading')
-      emit(1_700_000_000_001, 'queued')
-      expect(setAgentStatus).toHaveBeenCalledTimes(1)
-
-      onClearListenerRef.current({ paneKey: FUTURE_PANE_KEY })
-      expect(removeAgentStatus).toHaveBeenCalledWith(FUTURE_PANE_KEY)
-      expect(storeState.agentStatusByPaneKey).toEqual({})
-
-      vi.advanceTimersByTime(40)
-      expect(setAgentStatus).toHaveBeenCalledTimes(2)
-      expect(storeState.agentStatusByPaneKey).toEqual({})
-
-      emit(1_700_000_000_002, 'task')
-      emit(1_700_000_000_003, 'task', 'done')
-      expect(setAgentStatus).toHaveBeenCalledTimes(3)
-
-      onClearListenerRef.current({ paneKey: FUTURE_PANE_KEY })
-
-      expect(setAgentStatus).toHaveBeenCalledTimes(4)
-      expect(setAgentStatus.mock.calls[3][1]).toEqual(expect.objectContaining({ state: 'done' }))
-      expect(removeAgentStatus).toHaveBeenCalledTimes(1)
-      expect(storeState.agentStatusByPaneKey).toEqual({
-        [FUTURE_PANE_KEY]: expect.objectContaining({ state: 'done' })
-      })
-      vi.advanceTimersByTime(40)
-      expect(setAgentStatus).toHaveBeenCalledTimes(4)
-    } finally {
-      vi.useRealTimers()
-    }
   })
 
   it('does not recurse when flushing a pending status re-enters via the store subscriber', async () => {
@@ -8266,108 +8060,6 @@ describe('useIpcEvents agent status snapshot integration', () => {
     })
 
     expect(setAgentStatus).toHaveBeenCalledTimes(1)
-  })
-
-  // Why: reattach hydration fetches a port snapshot; if a live push lands while
-  // that fetch is in flight, resolving the stale snapshot must NOT clobber the
-  // fresher push, or the Ports panel rows vanish after hydration (#11713).
-  it('lets a mid-fetch port push win over the stale initial snapshot (#11713)', async () => {
-    const targetId = 'ssh-target-ports'
-    const connectedState = {
-      targetId,
-      status: 'connected' as const,
-      error: null,
-      reconnectAttempt: 0
-    }
-    const liveForward = {
-      id: 'forward-live',
-      targetId,
-      localPort: 17860,
-      remoteHost: '127.0.0.1',
-      remotePort: 7860,
-      status: 'active' as const
-    }
-    const detectedPort = {
-      port: 7860,
-      pid: 42,
-      processName: 'python',
-      command: 'python -m http.server 7860'
-    }
-
-    let resolveForwards: (value: unknown[]) => void = () => {}
-    const forwardsSnapshot = new Promise<unknown[]>((resolve) => {
-      resolveForwards = resolve
-    })
-    let forwardListener: ((data: { targetId: string; forwards: unknown[] }) => void) | undefined
-
-    const sshConnectionStates = new Map<string, typeof connectedState>()
-    const setPortForwards = vi.fn()
-    const setDetectedPorts = vi.fn()
-    const store = buildStoreState({
-      sshConnectionStates,
-      setSshConnectionState: (id: string, state: typeof connectedState) => {
-        sshConnectionStates.set(id, state)
-      },
-      setPortForwards,
-      setDetectedPorts,
-      setSshTargetsMetadata: vi.fn(),
-      setRemovedSshTargetLabels: vi.fn(),
-      setRemoteWorkspaceSyncStatus: vi.fn()
-    })
-
-    stubReactSyncEffect()
-    stubAuxiliaryModules()
-    vi.doMock('../store', () => ({
-      useAppStore: {
-        subscribe: vi.fn(() => () => {}),
-        getState: () => store
-      }
-    }))
-    vi.stubGlobal(
-      'window',
-      buildWindowApi({
-        onSet: () => () => {},
-        ssh: {
-          listTargets: () => Promise.resolve([{ id: targetId }]),
-          getState: () => Promise.resolve(connectedState),
-          listPortForwards: () => forwardsSnapshot,
-          listDetectedPorts: () => Promise.resolve([detectedPort]),
-          onPortForwardsChanged: (
-            listener: (data: { targetId: string; forwards: unknown[] }) => void
-          ) => {
-            forwardListener = listener
-            return () => {}
-          }
-        }
-      })
-    )
-
-    const flush = async (): Promise<void> => {
-      for (let tick = 0; tick < 15; tick += 1) {
-        await Promise.resolve()
-      }
-    }
-
-    const { useIpcEvents } = await import('./useIpcEvents')
-    useIpcEvents()
-
-    // Let the hydration IIFE advance to the parked port-forward snapshot await.
-    await flush()
-    if (!forwardListener) {
-      throw new Error('Expected onPortForwardsChanged listener to be registered')
-    }
-
-    // A live push lands while the snapshot fetch is still in flight, then the
-    // snapshot resolves EMPTY (the pre-push server view).
-    forwardListener({ targetId, forwards: [liveForward] })
-    resolveForwards([])
-    await flush()
-
-    // The push value survives; the stale empty snapshot never overwrites it.
-    expect(setPortForwards).toHaveBeenCalledTimes(1)
-    expect(setPortForwards).toHaveBeenLastCalledWith(targetId, [liveForward])
-    // The un-raced detected-port stream still applies its snapshot.
-    expect(setDetectedPorts).toHaveBeenCalledWith(targetId, [detectedPort])
   })
 })
 

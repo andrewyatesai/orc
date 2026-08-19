@@ -69,34 +69,3 @@ export function mergeAiVaultListResults(
     scannedAt: new Date().toISOString()
   }
 }
-
-/**
- * Failure-result constructors for the three scan sources. They live beside
- * `aiVaultScanIssueResult` rather than in the IPC module because they are the same
- * kind of thing it is — a scan that could not run, expressed as an empty result
- * carrying its reason — and the IPC file's job is registering handlers.
- */
-export function runtimeScanIssueResult(
-  executionHostId: ExecutionHostId,
-  environmentId: string,
-  message: string
-): AiVaultListResult {
-  return aiVaultScanIssueResult({ executionHostId, path: environmentId, message })
-}
-
-/** Discovery itself failed, so no host can be named. */
-export function runtimeHostDiscoveryIssueResult(message: string): AiVaultListResult {
-  return aiVaultScanIssueResult({ path: 'runtime environments', message })
-}
-
-export function sshScanIssueResult(args: {
-  executionHostId: `ssh:${string}`
-  targetId: string
-  message: string
-}): AiVaultListResult {
-  return aiVaultScanIssueResult({
-    executionHostId: args.executionHostId,
-    path: args.targetId,
-    message: args.message
-  })
-}

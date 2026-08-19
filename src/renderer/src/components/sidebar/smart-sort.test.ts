@@ -13,6 +13,7 @@ import {
   type AgentStatusEntry
 } from '../../../../shared/agent-status-types'
 import { makePaneKey } from '../../../../shared/stable-pane-identity'
+
 const NOW = new Date('2026-03-27T12:00:00.000Z').getTime()
 const LEAF_ID_1 = '11111111-1111-4111-8111-111111111111'
 const LEAF_ID_2 = '22222222-2222-4222-8222-222222222222'

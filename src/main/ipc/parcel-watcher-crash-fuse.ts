@@ -1,32 +1,21 @@
-const CRASH_WINDOW_MS = 2 * 60_000
+const CRASH_WINDOW_MS = 30_000
 const MAX_CRASHES_PER_WINDOW = 3
 
 export class WatcherProcessCrashFuse {
   private crashTimes: number[] = []
-  private open = false
 
   recordCrash(now = Date.now()): void {
-    // Why: once tripped the fuse latches — the child restart cadence would
-    // otherwise let old crashes age out of the window and re-arm a fork bomb.
-    if (this.open) {
-      return
-    }
     this.removeExpired(now)
     this.crashTimes.push(now)
-    this.open = this.crashTimes.length >= MAX_CRASHES_PER_WINDOW
   }
 
   isOpen(now = Date.now()): boolean {
-    if (this.open) {
-      return true
-    }
     this.removeExpired(now)
-    return false
+    return this.crashTimes.length >= MAX_CRASHES_PER_WINDOW
   }
 
   reset(): void {
     this.crashTimes = []
-    this.open = false
   }
 
   private removeExpired(now: number): void {

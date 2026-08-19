@@ -39,7 +39,6 @@ export type StartupHydrationActions = Pick<
   | 'hydrateRuntimeEnvironmentStatuses'
   | 'hydratePersistedUI'
   | 'fetchReposForAllHosts'
-  | 'awaitLocalRepoCatalogSettlement'
   | 'fetchProjectGroupsForAllHosts'
   | 'fetchFolderWorkspacesForAllHosts'
   | 'fetchWorktrees'
@@ -225,9 +224,6 @@ export async function runAppStartupHydration({
             : undefined
       })
     )
-    // Why (#11611): a concurrent desktop-promotion refresh can start another local catalog fetch; block on the newest one at both seams so hydration reads present repos and PTY identities survive.
-    const awaitLocalCatalogSettled = () => actions.awaitLocalRepoCatalogSettlement()
-    await timeRendererStartupStep('repo-catalog-settlement', awaitLocalCatalogSettled)
     // Why: folder workspaces merge against projectGroups (repos.ts fetchFolderWorkspacesForAllHosts),
     // so keep this two-step catalog chain internally ordered; it is otherwise independent of
     // repos/worktrees/session and overlaps the session-scoped hydration chain below.
@@ -297,8 +293,6 @@ export async function runAppStartupHydration({
     }
     const sessionRead = sessionOutcome.value
     await keybindingsPromise
-    // Why (#11611): the concurrent join can race a promotion refresh; re-await the newest settlement before store hydration reads a half-applied catalog.
-    await timeRendererStartupStep('repo-catalog-final-settlement', awaitLocalCatalogSettled)
     if (isCancelled()) {
       return
     }

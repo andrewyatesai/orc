@@ -39,7 +39,10 @@ import {
   SettingsSubsectionHeader,
   SettingsSwitchRow
 } from './SettingsFormControls'
-import { isTuiAgentEnabled, normalizeDisabledTuiAgents } from '../../../../shared/tui-agent-selection-resolution'
+import {
+  isTuiAgentEnabled,
+  normalizeDisabledTuiAgents
+} from '../../../../shared/tui-agent-selection-resolution'
 import {
   resolveTuiAgentLaunchArgs,
   resolveTuiAgentLaunchEnv

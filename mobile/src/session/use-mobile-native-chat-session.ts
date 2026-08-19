@@ -1,8 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  createNativeChatTranscriptRetention,
-  encodeNativeChatTranscriptIdentity
-} from '../../../src/shared/native-chat-transcript-retention'
 import type { NativeChatMessage } from '../../../src/shared/native-chat-types'
 import { buildNativeChatSubscriptionId } from '../../../src/shared/native-chat-stream-unsubscribe'
 import type { RpcClient } from '../transport/rpc-client'
@@ -17,10 +13,6 @@ export type MobileNativeChatStatus = 'idle' | 'loading' | 'waiting-session' | 'r
 export type MobileNativeChatSession = {
   messages: NativeChatMessage[]
   status: MobileNativeChatStatus
-  /** True while an unsettled read is in flight (including the retained list held
-   *  across a same-source reconnect). Consumers that infer state from an empty
-   *  transcript must gate on this rather than on `messages.length`. */
-  transcriptLoading: boolean
   error?: string
   /** True when an older page may exist (the last read filled the window). */
   hasMore: boolean
@@ -44,21 +36,11 @@ type ReadSessionResult =
  *  an ordered tail); live appends merge by id so order stays stable. */
 export function useMobileNativeChatSession(args: {
   client: RpcClient | null
-  /** Stable host/workspace source; unlike `client`, it survives a manual reconnect. */
-  sourceIdentity: string
   agent: string | null
   sessionId: string | null
   transcriptPath: string | null
 }): MobileNativeChatSession {
-  const { client, sourceIdentity, agent, sessionId, transcriptPath } = args
-  // Keys the retained transcript: a client swap under an unchanged identity is a
-  // reconnect (keep the list); any component change is a real source switch.
-  const identity = encodeNativeChatTranscriptIdentity([
-    sourceIdentity,
-    agent,
-    sessionId,
-    transcriptPath
-  ])
+  const { client, agent, sessionId, transcriptPath } = args
   const [messages, setMessages] = useState<NativeChatMessage[]>([])
   const [status, setStatus] = useState<MobileNativeChatStatus>('idle')
   const [error, setError] = useState<string | undefined>(undefined)
@@ -75,12 +57,6 @@ export function useMobileNativeChatSession(args: {
   const sessionIdRef = useRef<string | null>(sessionId)
   sessionIdRef.current = sessionId
   const streamGenerationRef = useRef(0)
-  // Whether this subscription already delivered its base snapshot; later
-  // snapshots on the same subscription are reconnect replays, not fresh bases.
-  const snapshotSeenRef = useRef(false)
-  // Holds the last settled transcript per identity so a client swap (manual retry)
-  // keeps the conversation on screen instead of flashing an empty spinner.
-  const transcriptRetentionRef = useRef(createNativeChatTranscriptRetention())
 
   // Replace the base list (read results are an ordered tail). Resets the merger
   // cache so the index is rebuilt once over the new base.
@@ -96,7 +72,6 @@ export function useMobileNativeChatSession(args: {
     streamGenerationRef.current += 1
     limitRef.current = INITIAL_LIMIT
     loadingEarlierRef.current = false
-    snapshotSeenRef.current = false
     setLoadingEarlier(false)
     setList([])
     setError(undefined)
@@ -127,11 +102,20 @@ export function useMobileNativeChatSession(args: {
           return
         }
         const frame = raw as MobileNativeChatStreamFrame
+        if (frame.type === 'replacement' || frame.type === 'snapshot') {
+          // Why: replacement and reconnect snapshots are authoritative windows;
+          // stale page limits/results must not constrain the fresh generation.
+          streamGenerationRef.current += 1
+          limitRef.current = INITIAL_LIMIT
+          loadingEarlierRef.current = false
+          setLoadingEarlier(false)
+        }
+        const replaceSnapshot = frame.type === 'snapshot'
         const applied = applyMobileNativeChatStreamFrame({
           merger: mergerRef.current,
           frame,
           limit: limitRef.current,
-          replaceSnapshot: !snapshotSeenRef.current
+          replaceSnapshot
         })
         if (applied.kind === 'ignored') {
           return
@@ -141,28 +125,11 @@ export function useMobileNativeChatSession(args: {
           setError(applied.error)
           return
         }
-        if (frame.type === 'snapshot') {
-          snapshotSeenRef.current = true
-        }
-        if (applied.windowReplaced || frame.type === 'snapshot') {
-          // Why: any authoritative window (and any replay merge) invalidates an
-          // in-flight older-page request; stale results must not land on it.
-          streamGenerationRef.current += 1
-          loadingEarlierRef.current = false
-          setLoadingEarlier(false)
-        }
-        if (applied.windowReplaced) {
-          // Only a genuinely fresh window resets the grown read window — an
-          // overlapping reconnect replay keeps the paged-in history and limit.
-          limitRef.current = INITIAL_LIMIT
-          beforeOffsetRef.current = applied.beforeOffset ?? null
-          setHasMore(applied.hasMore ?? applied.messages.length >= INITIAL_LIMIT)
-        }
         setMessages(applied.messages)
-        if (!applied.windowReplaced && applied.hasMore != null) {
+        if (applied.hasMore != null) {
           setHasMore(applied.hasMore)
         }
-        if (!applied.windowReplaced && applied.beforeOffset != null) {
+        if (applied.beforeOffset != null) {
           beforeOffsetRef.current = applied.beforeOffset
         }
         if (applied.cursorInvalidated) {
@@ -173,9 +140,6 @@ export function useMobileNativeChatSession(args: {
           setLoadingEarlier(false)
           beforeOffsetRef.current = null
         }
-        // Capture with the effect's own identity (no render-lag), so a later
-        // same-identity reconnect can keep this exact list visible.
-        transcriptRetentionRef.current.capture(identity, applied.messages)
         setStatus('ready')
       }
     )
@@ -184,7 +148,7 @@ export function useMobileNativeChatSession(args: {
       cancelled = true
       unsubscribe()
     }
-  }, [client, identity, agent, sessionId, transcriptPath, setList])
+  }, [client, agent, sessionId, transcriptPath, setList])
 
   const loadEarlier = useCallback(() => {
     if (!client || !agent || !sessionId || loadingEarlierRef.current || !hasMore) {
@@ -251,23 +215,5 @@ export function useMobileNativeChatSession(args: {
     })()
   }, [client, agent, sessionId, transcriptPath, hasMore, setList])
 
-  // While a same-identity read is re-loading (a reconnect), keep the retained
-  // transcript on screen; a real source switch has a different identity and so
-  // falls through to the freshly-cleared (empty) list.
-  const visibleMessages = transcriptRetentionRef.current.visible({
-    identity,
-    messages,
-    settled: status !== 'loading',
-    loading: status === 'loading'
-  })
-
-  return {
-    messages: visibleMessages,
-    status,
-    transcriptLoading: status === 'loading',
-    error,
-    hasMore,
-    loadingEarlier,
-    loadEarlier
-  }
+  return { messages, status, error, hasMore, loadingEarlier, loadEarlier }
 }

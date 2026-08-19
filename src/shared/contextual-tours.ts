@@ -30,8 +30,6 @@ export type ContextualTourStepAction = {
 export type ContextualTourStepPlacement = 'top' | 'right' | 'bottom' | 'left'
 
 export type ContextualTourStep = {
-  // Stable anchor for localized copy — position-keyed translations shift onto the wrong step when one is inserted.
-  id?: string
   title: string
   body: string
   targetSelector: string
@@ -148,16 +146,14 @@ export const CONTEXTUAL_TOURS = [
     id: 'automations',
     steps: [
       {
-        id: 'automations-intro',
         title: 'What is an automation?',
         body: 'Automations run agent work on a schedule. Add an automation by clicking this button.',
         targetSelector: '[data-contextual-tour-target="automations-create"]',
         requiredForStart: true
       },
       {
-        id: 'automations-results',
         title: 'Find the results',
-        body: 'Runs show when automations ran, what happened, and where to inspect their output.',
+        body: 'Runs show when automations executed, what happened, and where to inspect their output.',
         targetSelector: '[data-contextual-tour-target="automations-runs"]'
       }
     ]
@@ -211,9 +207,19 @@ export const CONTEXTUAL_TOURS = [
 
 export const CONTEXTUAL_TOUR_IDS = CONTEXTUAL_TOURS.map((tour) => tour.id)
 
-// All three functions moved onto the Rust `orca_config::contextual_tours` core:
-// the two id predicates to `contextual-tour-id-normalization.ts`, the catalog
-// lookup to `contextual-tour-lookup.ts` (renderer-only, hence the separate
-// file). Each keeps its deleted body as a `parity` pre-ready fallback over the
-// data below, which stays here — the catalog is authored in TS and the core
-// mirrors it, pinned tour-by-tour by the parity vectors.
+// `isContextualTourId` and `normalizeContextualTourIds` were cut over to
+// `orca_config::contextual_tours`; import them from
+// `./contextual-tour-id-normalization`. The catalog above stays here: it is the
+// data both the shim's fallback and this lookup read.
+//
+// `getContextualTour` is deliberately NOT on that seam. The core carries its own
+// copy of the step tables, and the SHIPPED cores' copy is stale — measured, not
+// assumed: `orca_git_wasm_bg.wasm` and `orca_node.node` still answer
+// `workspace-board` with the tune-density step removed by #5389, and `browser`
+// without the "Stay logged in" import step from #4836/#4902. Routing this would
+// delete a live tour step at the wasm-ready edge. The core's tables are fixed
+// and pinned by vectors now, so this becomes routable once the blobs are
+// rebuilt — see docs/rust-migration/ported-modules.md.
+export function getContextualTour(id: ContextualTourId): ContextualTour {
+  return CONTEXTUAL_TOURS.find((tour) => tour.id === id)!
+}

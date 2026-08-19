@@ -19,7 +19,10 @@ import {
   CLOSED_AGENT_STATUS_TAB_IDS_MAX,
   _internals
 } from './server'
-import { AGENT_STATUS_MAX_FIELD_LENGTH, AGENT_STATUS_STALE_AFTER_MS } from '../../shared/agent-status-types'
+import {
+  AGENT_STATUS_MAX_FIELD_LENGTH,
+  AGENT_STATUS_STALE_AFTER_MS
+} from '../../shared/agent-status-types'
 import { parseAgentStatusPayload } from '../../shared/agent-status-evaluation'
 import {
   createHookListenerState,
@@ -27,6 +30,7 @@ import {
   type HookListenerState
 } from '../../shared/agent-hook-listener'
 import { makePaneKey } from '../../shared/stable-pane-identity'
+
 const { getCohortAtEmitMock, trackMock } = vi.hoisted(() => ({
   getCohortAtEmitMock: vi.fn(),
   trackMock: vi.fn()

@@ -10,7 +10,10 @@ import { buildAgentStartupPlan } from '@/lib/tui-agent-startup'
 import { tuiAgentToAgentKind } from '@/lib/telemetry'
 import { useAppStore } from '@/store'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
-import { collapseDefaultTuiAgentToBuiltin, isTuiAgentEnabled } from '../../../../shared/tui-agent-selection-resolution'
+import {
+  collapseDefaultTuiAgentToBuiltin,
+  isTuiAgentEnabled
+} from '../../../../shared/tui-agent-selection-resolution'
 import {
   resolveTuiAgentLaunchArgs,
   resolveTuiAgentLaunchEnv

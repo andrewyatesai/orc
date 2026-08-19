@@ -9,8 +9,7 @@
 // forever. `getContextualTour` still reads the TS catalog — the shipped cores'
 // step tables are stale, so it is not routed (see the twin's header).
 
-import type { ContextualTourId } from '../../../src/shared/contextual-tours'
-import { getContextualTour } from '../../../src/shared/contextual-tour-lookup'
+import { getContextualTour, type ContextualTourId } from '../../../src/shared/contextual-tours'
 import {
   isContextualTourId,
   normalizeContextualTourIds

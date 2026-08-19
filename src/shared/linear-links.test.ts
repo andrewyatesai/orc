@@ -32,17 +32,33 @@ describe('linear links', () => {
     expect(parseLinearIssueInput('not an issue')).toBeNull()
   })
 
-  // Pins the refusal recorded on the function: `new URL` re-encodes the pathname
-  // and IDNA-maps the host, and `orca_core::linear_links::parse_absolute_url`
-  // does neither — so wiring this to the core turns these red instead of
-  // silently changing a persisted `linkedLinearIssueOrganizationUrlKey`.
+  // One input per divergence class in the refusal on the function — each was
+  // measured to get a DIFFERENT answer from the shipped core, so wiring this to
+  // `parse_absolute_url` turns these red instead of silently rewriting a
+  // persisted `linkedLinearIssueOrganizationUrlKey`.
   it('keeps the WHATWG-normalized answer the Rust parse does not reproduce', () => {
+    // Pathname re-encoded (core: 'acme inc').
     expect(getLinearOrganizationUrlKeyFromIssueUrl('https://linear.app/acme inc/issue/ENG-1')).toBe(
       'acme%20inc'
     )
+    // Tab stripped anywhere in the input (core: 'ac\tme').
+    expect(getLinearOrganizationUrlKeyFromIssueUrl('https://linear.app/ac\tme/issue/ENG-1')).toBe(
+      'acme'
+    )
+    // Host percent-decoded (core: null).
     expect(getLinearOrganizationUrlKeyFromIssueUrl('https://linear%2eapp/acme/issue/ENG-1')).toBe(
       'acme'
     )
+    // Scheme-relative single slash accepted (core: null).
+    expect(getLinearOrganizationUrlKeyFromIssueUrl('https:/linear.app/acme/issue/ENG-1')).toBe(
+      'acme'
+    )
+    // The two WIDENINGS — the core answers where the twin refuses.
+    // Host case-folded only for special schemes (core: 'evil').
     expect(getLinearOrganizationUrlKeyFromIssueUrl('foo://LINEAR.APP/evil/issue/ENG-1')).toBeNull()
+    // A port makes a file: URL unparseable (core: 'acme').
+    expect(
+      getLinearOrganizationUrlKeyFromIssueUrl('file://linear.app:443/acme/issue/ENG-1')
+    ).toBeNull()
   })
 })

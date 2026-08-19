@@ -351,10 +351,8 @@ pub const CONTEXTUAL_TOURS: [ContextualTour; 7] = [
     },
 ];
 
-/// The TS twin DERIVES this (`CONTEXTUAL_TOURS.map(tour => tour.id)`), so a
-/// hand-written mirror here is drift waiting to happen — it already was, missing
-/// `floating-workspace` (#5062). The test below pins it to the catalog, which is
-/// the comparison the old mirror-vs-mirror assert could not make.
+/// The TS twin derives this with `CONTEXTUAL_TOURS.map(tour => tour.id)`, so it
+/// is every catalog id in catalog order — including `floating-workspace`.
 pub const CONTEXTUAL_TOUR_IDS: [ContextualTourId; 7] = [
     ContextualTourId::WorkspaceBoard,
     ContextualTourId::WorkspaceAgentSessions,
@@ -397,15 +395,6 @@ pub fn normalize_contextual_tour_ids(value: &Value) -> Vec<ContextualTourId> {
 
 #[cfg(test)]
 mod tests {
-    /// The twin derives its id list from the catalog; this is that derivation.
-    #[test]
-    fn lists_every_catalog_id_in_catalog_order() {
-        assert_eq!(
-            CONTEXTUAL_TOUR_IDS.to_vec(),
-            CONTEXTUAL_TOURS.iter().map(|tour| tour.id).collect::<Vec<_>>()
-        );
-    }
-
     use super::*;
     use serde_json::json;
 
@@ -485,7 +474,7 @@ mod tests {
     fn points_the_workspace_board_tour_at_the_board_center_and_done_lane() {
         let tour = find(ContextualTourId::WorkspaceBoard);
 
-        // Two steps: the tune-density step is not in the TS catalog.
+        // Two steps: the tune-density walkthrough step was removed upstream (#5389).
         assert_eq!(
             tour.steps.iter().map(|step| step.title).collect::<Vec<_>>(),
             vec!["Plan work on the board", "Move work through lanes"]
@@ -504,20 +493,56 @@ mod tests {
     }
 
     #[test]
-    fn orders_the_browser_tour_as_grab_annotate_then_stay_logged_in() {
+    fn orders_the_browser_tour_as_grab_annotate_then_import_cookies() {
         let tour = find(ContextualTourId::Browser);
 
         assert_eq!(
             tour.steps.iter().map(|step| step.title).collect::<Vec<_>>(),
             vec!["Grab page context for agents", "Mark design feedback in place", "Stay logged in"]
         );
-        for step in tour.steps {
-            assert_eq!(step.preferred_placement, Some(ContextualTourStepPlacement::Bottom));
-        }
+        assert_eq!(
+            tour.steps[0].target_selector,
+            "[data-contextual-tour-target=\"browser-grab-control\"]"
+        );
+        assert_eq!(tour.steps[0].preferred_placement, Some(ContextualTourStepPlacement::Bottom));
+        assert_eq!(
+            tour.steps[1].target_selector,
+            "[data-contextual-tour-target=\"browser-annotation-control\"]"
+        );
+        assert_eq!(tour.steps[1].preferred_placement, Some(ContextualTourStepPlacement::Bottom));
+        assert_eq!(
+            tour.steps[2].body,
+            "Bring your existing logins into Orca to stay signed in immediately."
+        );
+        // Prefers the always-visible Import button, falling back to the overflow
+        // menu's Import Cookies row once the hint button is dismissed.
         assert_eq!(
             tour.steps[2].target_selector,
             "[data-contextual-tour-target=\"browser-import-hint\"], [data-contextual-tour-target=\"browser-import-cookies-control\"]"
         );
+        assert_eq!(tour.steps[2].preferred_placement, Some(ContextualTourStepPlacement::Bottom));
+    }
+
+    #[test]
+    fn defines_the_floating_workspace_tour_on_the_action_list_with_a_surface_fallback() {
+        let tour = find(ContextualTourId::FloatingWorkspace);
+
+        assert_eq!(
+            tour.steps.iter().map(|step| step.title).collect::<Vec<_>>(),
+            vec!["Run an agent across every repo", "Or use it as a scratchpad"]
+        );
+        assert_eq!(tour.steps[0].required_for_start, Some(true));
+        assert_eq!(tour.steps[0].preferred_placement, Some(ContextualTourStepPlacement::Left));
+        assert_eq!(tour.steps[1].preferred_placement, Some(ContextualTourStepPlacement::Left));
+    }
+
+    #[test]
+    fn lists_every_catalog_id_including_floating_workspace() {
+        assert_eq!(
+            CONTEXTUAL_TOUR_IDS.to_vec(),
+            CONTEXTUAL_TOURS.iter().map(|tour| tour.id).collect::<Vec<_>>()
+        );
+        assert!(CONTEXTUAL_TOUR_IDS.contains(&ContextualTourId::FloatingWorkspace));
     }
 
     #[test]

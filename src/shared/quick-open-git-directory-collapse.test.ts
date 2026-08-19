@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 import { buildGitLsFilesArgsForQuickOpen } from './quick-open-listing-arguments'
+
 const execFileAsync = promisify(execFile)
 const tempDirs: string[] = []
 

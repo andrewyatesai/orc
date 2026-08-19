@@ -6,8 +6,9 @@ import { requireRustGitBinding } from '../daemon/rust-git-addon'
 // behind the napi boundary — the sole path (the addon is a required main-process
 // dependency). Only the `unknown`→typed guards live here in JS — they own the
 // JS-boundary "Invalid PR push target …" messages the Rust value-rule validator never
-// produces. The pure TS `assertGitPushTargetShape` (shared) still backs the addon-less
-// SSH relay and the differential parity oracle; it is NOT a runtime fallback here.
+// produces. The pure TS validator is gone; the addon-less SSH relay and main's own IPC
+// handlers reach the SAME Rust rules through src/shared/git-push-target-shape.ts on the
+// orca-dispatch seam, which is also this shim's oracle in tests.
 
 function assertString(value: unknown, name: string): asserts value is string {
   if (typeof value !== 'string') {
@@ -17,8 +18,8 @@ function assertString(value: unknown, name: string): asserts value is string {
 
 /**
  * Validate a push target's shape using the native value-rule validator. Behaviour —
- * including exact error message and ordering — is identical to the shared TS
- * `assertGitPushTargetShape`.
+ * including exact error message and ordering — is identical to the seam shim
+ * `src/shared/git-push-target-shape.ts`.
  */
 export function assertGitPushTargetShapeNative(
   target: unknown

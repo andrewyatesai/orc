@@ -8,14 +8,11 @@ describe('serve desktop activation wiring', () => {
   it('routes second-instance and app activation through one safety gate', () => {
     expect(source).toContain('createServeDesktopActivationGate({')
     // Deep-links PR1: the second-instance callback composes the activation
-    // gate FIRST (forwarding argv so a duplicate `orca serve` can't promote the
-    // headless server to a window, #11935), then routes any OS-relayed orca://
-    // argv through the router.
+    // gate FIRST, then routes any OS-relayed orca:// argv through the router.
     expect(source).toContain('acquireSingleInstanceLock(app, (argv) => {')
-    expect(source).toContain('requestDesktopActivation(argv)')
+    expect(source).toContain('requestDesktopActivation()')
     expect(source).toContain("deepLinkRouter.routeRaw(raw, { source: 'os' })")
-    // Why: the activate wrapper drops Electron's (event, hasVisibleWindows) so it isn't read as argv.
-    expect(source).toContain("app.on('activate', () => requestDesktopActivation())")
+    expect(source).toContain("app.on('activate', requestDesktopActivation)")
     expect(source).toContain('getDesktopWindowStatus: getDesktopWindowStatus')
   })
 

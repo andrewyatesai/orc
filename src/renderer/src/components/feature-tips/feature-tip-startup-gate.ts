@@ -1,5 +1,8 @@
 import type { FeatureTipId } from '../../../../shared/feature-tips'
-import { getCompletedFeatureTipIds, getOrderedUnseenFeatureTips } from '../../../../shared/feature-tip-selection'
+import {
+  getCompletedFeatureTipIds,
+  getOrderedUnseenFeatureTips
+} from '../../../../shared/feature-tip-selection'
 import type { CliInstallStatus } from '../../../../shared/cli-install-types'
 import type { FeatureInteractionState } from '../../../../shared/feature-interactions'
 import type { GlobalSettings, OnboardingState } from '../../../../shared/types'

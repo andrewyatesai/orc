@@ -9,7 +9,6 @@ import {
 } from './AutomationCustomCronPanel'
 import {
   AUTOMATION_SCHEDULE_PRESET_OPTIONS,
-  getAutomationSchedulePresetLabel,
   getSchedulePresetDraft
 } from './AutomationSchedulePicker'
 import { isValidAutomationCronSchedule } from '../../../../shared/automation-schedules'
@@ -36,12 +35,6 @@ const BASE_DRAFT: AutomationDraft = {
 describe('AutomationSchedulePicker', () => {
   it('offers custom cron as a selectable cadence', () => {
     expect(AUTOMATION_SCHEDULE_PRESET_OPTIONS).toContainEqual(['custom', 'Custom cron'])
-  })
-
-  it('resolves every cadence label through the translate() seam', () => {
-    for (const [preset, englishLabel] of AUTOMATION_SCHEDULE_PRESET_OPTIONS) {
-      expect(getAutomationSchedulePresetLabel(preset)).toBe(englishLabel)
-    }
   })
 
   it('seeds custom cron from the current simple schedule', () => {

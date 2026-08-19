@@ -2,7 +2,6 @@ import type { AgentType } from '../../../../shared/agent-status-types'
 import {
   getAgentSessionOptionCatalog,
   mergeCatalogModels,
-  mergeDiscoveredAuthoritativeModels,
   type CatalogModel
 } from '../../../../shared/agent-session-option-catalog'
 
@@ -73,11 +72,7 @@ export function ensureNativeChatModelEnrichment(args: {
       if (!discovered || discovered.length === 0) {
         return
       }
-      // Why: an authoritative probe replaces the seed's membership (retiring stale ids),
-      // while the plain merge only extends it.
-      entry.models = catalog.discoveredModelsAreAuthoritative
-        ? mergeDiscoveredAuthoritativeModels(catalog.models, discovered)
-        : mergeCatalogModels(catalog.models, discovered)
+      entry.models = mergeCatalogModels(catalog.models, discovered)
       for (const listener of entry.listeners) {
         listener([...entry.models])
       }

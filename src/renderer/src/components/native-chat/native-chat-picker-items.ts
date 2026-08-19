@@ -218,10 +218,31 @@ export function applyPickerSuggestion(
   return { draft: nextBefore + after, caret: nextBefore.length, insertedToken }
 }
 
-// Send classification now lives in the shared slash-command module so the mobile
-// app imports the same logic (Metro can't reach this renderer file); re-exported
-// here to keep desktop import paths stable.
-export {
-  classifyNativeChatSend,
-  type NativeChatSendClassification
-} from '../../../../shared/native-chat-slash-commands'
+export type NativeChatSendClassification = 'chat' | 'command' | 'unknown-token'
+
+export function classifyNativeChatSend(
+  draft: string,
+  commands: readonly SlashCommandSuggestion[],
+  pickerSkillOriginToken: string | null,
+  skillPrefix: '/' | '$' | null
+): NativeChatSendClassification {
+  // Why: the supported TUIs only treat a line-leading token as a command, so a
+  // draft with leading whitespace is prose; trimming here would claim a "Ran"
+  // line for text the agent never dispatched.
+  const firstToken = draft.split(/\s/, 1)[0] ?? ''
+  if (pickerSkillOriginToken && firstToken === pickerSkillOriginToken) {
+    return 'chat'
+  }
+  if (commands.some((command) => firstToken === `/${command.name}`)) {
+    return 'command'
+  }
+  if (firstToken.startsWith('/')) {
+    return 'unknown-token'
+  }
+  // Why: `$` is Codex grammar only. For other agents a leading `$PATH`-style
+  // token is ordinary prose and must keep its bubble and attachments.
+  if (skillPrefix === '$' && firstToken.startsWith('$')) {
+    return 'unknown-token'
+  }
+  return 'chat'
+}

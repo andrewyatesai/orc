@@ -263,9 +263,8 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
     }
     if (effectiveAgent) {
       // Why: direct task launch creates and starts the workspace in separate
-      // steps so agent detection can overlap git worktree creation. Persist the
-      // chosen agent once known so removal safety and ownership see it — reopen
-      // no longer relaunches from this field.
+      // steps so agent detection can overlap git worktree creation. Persist
+      // the chosen agent once known so empty-worktree reopen can recreate it.
       void store.updateWorktreeMeta(worktreeId, { createdWithAgent: effectiveAgent }).catch(() => {
         // Non-critical: activation still has the explicit startup below.
       })

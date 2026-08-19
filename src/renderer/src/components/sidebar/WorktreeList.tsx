@@ -95,11 +95,9 @@ import {
   type PinnedWorktreeDisplayPolicy
 } from './worktree-list-groups'
 import {
-  buildLineageRowRekeyMap,
   estimateRenderRowSize,
   extractWorktreeVirtualRowIndexes,
   getActiveStickyIndexesForScroll,
-  getRenderRowKey,
   getStickyHeaderIndexes,
   getVirtualRowTransform,
   pruneStaleVirtualRowElementCache,
@@ -172,7 +170,6 @@ import {
   getWorkspaceKanbanSidebarDropTarget,
   hasWorkspaceKanbanSidebarDropBoard,
   isWorkspaceKanbanSidebarDropPointInBoard,
-  resolveWorkspaceKanbanSidebarFullLaneDropIndex,
   updateWorkspaceKanbanSidebarDropTargetVisual
 } from './workspace-kanban-sidebar-drop'
 import {
@@ -240,7 +237,10 @@ import { ProjectGroupNameDialog } from './ProjectGroupNameDialog'
 import { ProjectGroupDeleteDialog } from './ProjectGroupDeleteDialog'
 import { selectProjectGroupRemovalTargets } from '@/store/slices/project-group-removal-targets'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
-import { effectiveExternalWorktreeVisibility, isLegacyRepoForExternalWorktreeVisibility } from '../../../../shared/worktree-ownership-policy'
+import {
+  effectiveExternalWorktreeVisibility,
+  isLegacyRepoForExternalWorktreeVisibility
+} from '../../../../shared/worktree-ownership-policy'
 import { RepoIconGlyph } from '@/components/repo/repo-icon'
 import { RepoForkIndicator } from '@/components/repo/repo-fork-indicator'
 import ImportedWorktreesVisibilityLine from './ImportedWorktreesVisibilityLine'
@@ -1209,9 +1209,30 @@ function buildRenderableRows(rows: HostSectionRow[]): RenderRow[] {
   return renderRows
 }
 
-// Why: getRenderRowKey lives with the other virtual-row helpers now; keep the
-// long-standing import path working for callers that reach for it here.
-export { getRenderRowKey }
+export function getRenderRowKey(row: RenderRow): string {
+  if (row.type === 'host-header') {
+    return `host:${row.hostId}`
+  }
+  if (row.type === 'header') {
+    return `hdr:${row.key}`
+  }
+  if (row.type === 'lineage-group') {
+    return `lineage-group:${row.key}`
+  }
+  if (row.type === 'imported-worktrees-card') {
+    return `imported:${row.key}`
+  }
+  if (row.type === 'new-external-worktrees-inbox') {
+    return `inbox:${row.key}`
+  }
+  if (row.type === 'pending-creation') {
+    return `pending:${row.creationId}`
+  }
+  if (row.type === 'folder-workspace') {
+    return `folder-workspace:${row.folderWorkspace.id}`
+  }
+  return `wt:${row.rowKey}`
+}
 
 export function getWorktreeDragGroups(rows: HostSectionRow[]): WorktreeDragGroup[] {
   const groups: WorktreeDragGroup[] = []
@@ -2410,7 +2431,6 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
     [renderRows]
   )
   const activeRenderRowKeys = useMemo(() => new Set(renderRows.map(getRenderRowKey)), [renderRows])
-  const lineageRowRekeys = useMemo(() => buildLineageRowRekeyMap(renderRows), [renderRows])
   const totalSize = virtualizer.getTotalSize()
   const virtualItems = virtualizer.getVirtualItems()
   const activeStickyIndexes = getActiveStickyIndexesForScroll({
@@ -2468,7 +2488,6 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
     getItemElementKey: getVirtualRowKey,
     getRowKey: getRenderRowKey,
     itemElementSelector: '[data-worktree-virtual-row]',
-    rekeyedRowKeys: lineageRowRekeys,
     rows: renderRows,
     scrollElementRef: scrollRef,
     scrollOffsetRef,
@@ -3201,12 +3220,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
         onDropWorktreesOnWorkspaceBoard({
           worktreeIds: drag.reorderDraggedIds,
           status: boardDropTarget.status,
-          // Why: the target counts rendered cards, but the groups are the full
-          // lane. Board search can make those two differ.
-          dropIndex: resolveWorkspaceKanbanSidebarFullLaneDropIndex(
-            boardDropTarget.status,
-            boardDropTarget.dropIndex
-          ),
+          dropIndex: boardDropTarget.dropIndex,
           groups: getWorkspaceKanbanSidebarDropGroups()
         })
       } else {
@@ -4193,13 +4207,10 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
                   projectGroupPathStatus.reason === 'ambiguous-connection')
               const projectGroupDepth = row.projectGroupDepth ?? 0
               const isHeaderCollapsed = collapsedGroups.has(row.key)
-              // Why: repo/project/status/pinned share compact section chrome; flat "All" stays a simple label.
+              // Why: repo/project and status headers share compact section chrome; flat "All" stays a simple label.
               const showHeaderCollapseAffordance =
                 row.count > 0 &&
-                (isRepoHeader ||
-                  isProjectGroupHeader ||
-                  headerWorkspaceStatus !== null ||
-                  isPinnedHeader)
+                (isRepoHeader || isProjectGroupHeader || headerWorkspaceStatus !== null)
               // Why: non-project headers like "All" are flat-list labels; don't reserve project hierarchy indent.
               const headerPaddingLeft =
                 isRepoHeader || isProjectGroupHeader

@@ -22,11 +22,11 @@
 
 import { useMemo } from 'react'
 import { translate } from '@/i18n/i18n'
-import type { FleetException } from './fleet-exceptions'
 import {
   collapseExceptionsByTask,
   unwiredExceptionSources
-} from '../../lib/git-wasm/fleet-exception-queue'
+} from '@/lib/git-wasm/fleet-exception-queue'
+import type { FleetException } from './fleet-exceptions'
 import { useFleetSnapshot } from './use-fleet-orchestration-poll'
 
 function ExceptionRow({ exception }: { exception: FleetException }): React.JSX.Element {

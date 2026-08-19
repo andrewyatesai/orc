@@ -3,6 +3,7 @@ import type {
   AgentStatusOrchestrationContext
 } from '../../../shared/agent-status-types'
 import { parseLegacyNumericPaneKey, parsePaneKey } from '../../../shared/stable-pane-identity'
+
 export type AgentStatusPaneIdentity = { tabId: string; paneId: string }
 
 export function parseAgentStatusPaneIdentity(

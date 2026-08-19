@@ -130,22 +130,16 @@ vi.mock('./ssh2-module', async () => {
 })
 
 const {
-  findSystemSshMock,
   getOrcaControlSocketPathMock,
   removeControlSocketPathMock,
   spawnSystemSshCommandMock,
   spawnSystemSshMock
 } = vi.hoisted(() => ({
-  findSystemSshMock: vi.fn<() => string | null>(),
   getOrcaControlSocketPathMock: vi.fn(),
   removeControlSocketPathMock: vi.fn(),
   spawnSystemSshMock: vi.fn(),
   spawnSystemSshCommandMock: vi.fn()
 }))
-
-// Why: security-key transport selection scans the real ~/.ssh defaults, so a developer's own
-// FIDO2 key would otherwise decide which transport these tests take.
-vi.mock('./system-ssh-binary', () => ({ findSystemSsh: findSystemSshMock }))
 
 vi.mock('./ssh-system-fallback', () => ({
   getOrcaControlSocketPath: getOrcaControlSocketPathMock,
@@ -173,8 +167,6 @@ import {
   type SshConnectionCallbacks
 } from './ssh-connection'
 import { resolveWithSshG, type SshResolvedConfig } from './ssh-config-parser'
-import { CONNECT_TIMEOUT_MS, RECONNECT_BACKOFF_MS } from './ssh-connection-utils'
-import { FLAP_DELAY_CAP_MS } from './ssh-reconnect-ladder'
 import {
   downloadFileViaSystemSsh,
   uploadDirectoryViaSystemSsh,
@@ -266,15 +258,6 @@ function createFailingSystemCommandChannel(
   return channel
 }
 
-// A probe that never answers — the shape a FIDO2/system-transport host takes when the network drops.
-function createHangingSystemCommandChannel(): ReturnType<typeof createSystemCommandChannel> {
-  const channel = new EventEmitter() as ReturnType<typeof createSystemCommandChannel>
-  channel.stdin = { end: vi.fn(), write: vi.fn() }
-  channel.stderr = new EventEmitter()
-  channel.close = vi.fn()
-  return channel
-}
-
 function createPendingSystemSshProcess() {
   const stdout = new EventEmitter()
   return {
@@ -335,8 +318,6 @@ describe('SshConnection', () => {
     vi.mocked(writeFileViaSystemSsh).mockResolvedValue(undefined)
     vi.mocked(resolveWithSshG).mockReset()
     vi.mocked(resolveWithSshG).mockResolvedValue(null)
-    findSystemSshMock.mockReset()
-    findSystemSshMock.mockReturnValue(null)
     vi.unstubAllEnvs()
     // Keep host-key verification off the real ~/.ssh/known_hosts so the suite is deterministic.
     vi.stubEnv('ORCA_SSH_KNOWN_HOSTS_PATH', join(tmpdir(), 'orca-nonexistent-known-hosts'))
@@ -501,46 +482,6 @@ describe('SshConnection', () => {
     expect(clientInstances).toHaveLength(2)
     expect(states).toEqual(['connecting', 'connected', 'reconnecting', 'connecting', 'connected'])
     expect(conn.getState().status).toBe('connected')
-  })
-
-  it('escalates the reconnect delay step across repeated post-handshake flaps (Finding A)', async () => {
-    // Shipped zeroed reconnectAttempt on every successful reconnect and read it back for the delay
-    // index, so a host that keeps dropping after a good handshake re-entered at step 0 (1000ms)
-    // forever and never reached 'reconnection-failed'. The ladder advances the delay step per drop.
-    vi.useFakeTimers()
-    try {
-      const reconnectingSteps: number[] = []
-      const statuses: string[] = []
-      const conn = new SshConnection(
-        createTarget(),
-        createCallbacks({
-          onStateChange: vi.fn((_id, state) => {
-            statuses.push(state.status)
-            if (state.status === 'reconnecting') {
-              reconnectingSteps.push(state.reconnectAttempt)
-            }
-          })
-        })
-      )
-
-      const initialConnect = conn.connect()
-      await vi.advanceTimersByTimeAsync(100)
-      await initialConnect
-      expect(conn.getState().status).toBe('connected')
-
-      for (let flap = 0; flap < 4; flap++) {
-        emitSshEvent('close') // production disconnect handler -> scheduleReconnect
-        expect(conn.getState().status).toBe('reconnecting')
-        // Let the ladder's scheduled retry fire and hand-shake back to 'connected'.
-        await vi.advanceTimersByTimeAsync(FLAP_DELAY_CAP_MS + 100)
-        expect(conn.getState().status).toBe('connected')
-      }
-
-      expect(reconnectingSteps).toEqual([0, 1, 2, 3])
-      expect(statuses).not.toContain('reconnection-failed')
-    } finally {
-      vi.useRealTimers()
-    }
   })
 
   it('transitions through connecting → connected states', async () => {
@@ -1204,40 +1145,6 @@ describe('SshConnection', () => {
         resolvedConfig: expect.objectContaining({ proxyUseFdpass: true })
       }
     )
-  })
-
-  it('keeps a system-transport target on the ladder after a probe timeout', async () => {
-    vi.useFakeTimers()
-    try {
-      vi.mocked(resolveWithSshG).mockResolvedValue(createResolvedConfig())
-      const statuses: string[] = []
-      const conn = new SshConnection(
-        createTarget(),
-        createCallbacks({
-          onStateChange: vi.fn((_id, state) => statuses.push(state.status))
-        })
-      )
-      await conn.connect()
-      expect(conn.usesSystemSshTransport()).toBe(true)
-
-      // The probe times out with OpenSSH prose, not an errno the transient code table matches.
-      spawnSystemSshCommandMock.mockImplementation(() => createHangingSystemCommandChannel())
-      statuses.length = 0
-      const reconnected = conn.reconnect()
-      await vi.advanceTimersByTimeAsync(CONNECT_TIMEOUT_MS)
-      await reconnected
-
-      // Shipped published 'error' here, stranding FIDO2 hosts with no path back short of a restart.
-      expect(statuses).not.toContain('error')
-      expect(conn.getState().status).toBe('reconnecting')
-
-      const probesBefore = spawnSystemSshCommandMock.mock.calls.length
-      // Advance past the ladder's first backoff step so the parked target actually re-probes.
-      await vi.advanceTimersByTimeAsync(RECONNECT_BACKOFF_MS[0] + CONNECT_TIMEOUT_MS)
-      expect(spawnSystemSshCommandMock.mock.calls.length).toBeGreaterThan(probesBefore)
-    } finally {
-      vi.useRealTimers()
-    }
   })
 
   it('allows concurrent exec commands for system SSH with an Orca ControlMaster socket', async () => {

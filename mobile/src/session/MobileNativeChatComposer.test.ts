@@ -90,28 +90,8 @@ describe('MobileNativeChatComposer', () => {
 
     await act(async () => sendButton().props.onPress())
 
-    expect(onSend).toHaveBeenCalledWith(' hello')
+    expect(onSend).toHaveBeenCalledWith('hello')
     expect(onChangeText).not.toHaveBeenCalled()
-  })
-
-  it('preserves leading whitespace so prose is not turned into a slash command', async () => {
-    const onSend = vi.fn().mockResolvedValue(true)
-    const restore = suppressRendererWarning()
-    try {
-      await act(async () => {
-        renderer = create(
-          createElement(MobileNativeChatComposer, {
-            value: ' /clear is prose ',
-            onChangeText: vi.fn(),
-            onSend
-          })
-        )
-      })
-    } finally {
-      restore()
-    }
-    await act(async () => sendButton().props.onPress())
-    expect(onSend).toHaveBeenCalledWith(' /clear is prose')
   })
 
   it('keeps the draft when the send is rejected', async () => {
@@ -121,7 +101,7 @@ describe('MobileNativeChatComposer', () => {
 
     await act(async () => sendButton().props.onPress())
 
-    expect(onSend).toHaveBeenCalledWith(' hello')
+    expect(onSend).toHaveBeenCalledWith('hello')
     expect(onChangeText).not.toHaveBeenCalled()
   })
 
@@ -222,8 +202,7 @@ describe('MobileNativeChatComposer', () => {
           createElement(MobileNativeChatComposer, {
             value: '/c',
             onChangeText: vi.fn(),
-            onSend: vi.fn().mockResolvedValue(true),
-            agent: 'claude'
+            onSend: vi.fn().mockResolvedValue(true)
           })
         )
       })
@@ -254,36 +233,6 @@ describe('MobileNativeChatComposer', () => {
       input().props.onSelectionChange({ nativeEvent: { selection: { end: 7 } } })
     )
     expect(input().props.selection).toBeUndefined()
-  })
-
-  it('serves the active agent’s shared command catalog with descriptions', async () => {
-    const restore = suppressRendererWarning()
-    try {
-      await act(async () => {
-        renderer = create(
-          createElement(MobileNativeChatComposer, {
-            value: '/',
-            onChangeText: vi.fn(),
-            onSend: vi.fn().mockResolvedValue(true),
-            agent: 'codex'
-          })
-        )
-      })
-    } finally {
-      restore()
-    }
-    const input = renderer!.root.find((node) => node.type === 'TextInput') as {
-      props: { onSelectionChange: (e: { nativeEvent: { selection: { end: number } } }) => void }
-    }
-    await act(async () => input.props.onSelectionChange({ nativeEvent: { selection: { end: 1 } } }))
-    const texts = renderer!.root
-      .findAll((node) => node.type === 'Text')
-      .map((node) => (node.props as { children?: unknown }).children)
-    // Codex-only commands from the shared catalog, with their description rows —
-    // and none of the old hardcoded provider-agnostic list's phantom entries.
-    expect(texts).toContain('/permissions')
-    expect(texts).toContain('Choose what Codex is allowed to do')
-    expect(texts).not.toContain('/cost')
   })
 
   it('wires the mic for hold vs toggle dictation like the terminal composer', async () => {

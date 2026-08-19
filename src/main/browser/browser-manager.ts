@@ -937,16 +937,11 @@ export class BrowserManager {
   private retireStaleGuestWebContents(previousWebContentsId: number): void {
     // Why: after a renderer-process swap, stop the dead guest id resolving to the live page so stale callbacks don't hit the wrong session.
     this.cleanupGuestPolicyAttachment(previousWebContentsId)
+    this.tabIdByWebContentsId.delete(previousWebContentsId)
   }
 
   private cleanupGuestPolicyAttachment(guestWebContentsId: number): void {
-    const browserTabId = this.tabIdByWebContentsId.get(guestWebContentsId)
-    const isPrimaryGuest = browserTabId !== undefined
-    // Why: a self-closing guest (window.close) fully retires — drop the reverse map too so a stale id can't resolve to a dead page.
-    if (browserTabId && this.webContentsIdByTabId.get(browserTabId) === guestWebContentsId) {
-      this.webContentsIdByTabId.delete(browserTabId)
-    }
-    this.tabIdByWebContentsId.delete(guestWebContentsId)
+    const isPrimaryGuest = this.tabIdByWebContentsId.has(guestWebContentsId)
     this.certificateTrustController?.onGuestRetired(guestWebContentsId)
     const policyCleanup = this.policyCleanupByGuestId.get(guestWebContentsId)
     if (policyCleanup) {
@@ -1072,8 +1067,7 @@ export class BrowserManager {
         this.cancelDownloadInternal(downloadId, 'Tab closed before download completed.')
       }
     }
-    // Why: cleanupGuestPolicyAttachment above already dropped the tab->wc mapping, so reuse the id captured before it ran.
-    const wcId = guestWebContentsId
+    const wcId = this.webContentsIdByTabId.get(browserTabId)
     if (wcId !== undefined) {
       this.tabIdByWebContentsId.delete(wcId)
       // Why: webview.remove() does not synchronously destroy the guest, so its
@@ -1723,8 +1717,7 @@ export class BrowserManager {
           resolveRendererWebContents(this.rendererWebContentsIdByTabId, tabId),
         shouldForwardDictationShortcut: () => this.shouldForwardDictationShortcut?.() ?? false,
         isMobileEmulatorEnabled: () => this.settingsResolver?.().mobileEmulatorEnabled !== false,
-        getKeybindings: () => this.settingsResolver?.().keybindings,
-        resolveWorkspaceId: (tabId) => this.workspaceIdByPageId.get(tabId) ?? null
+        getKeybindings: () => this.settingsResolver?.().keybindings
       })
     )
   }

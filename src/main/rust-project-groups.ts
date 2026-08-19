@@ -6,12 +6,13 @@
 // TS (render-hot sort comparator / Infinity / module const — the JSON boundary
 // is the wrong tool there).
 import type { ProjectGroup, ProjectGroupCreatedFrom, Repo } from '../shared/types'
-import { requireRustGitBinding } from './daemon/rust-git-addon'
+import { dispatchToRustCore } from './rust-core-dispatch'
 
+// Why 'omit': the payloads carry whole `Repo` records (repoIcon?, kind?,
+// gitUsername?, …) and an optional `fallback`, all of which the Rust structs read
+// as serde `Option` — an absent key is the contract, not a dropped one.
 function dispatch(fn: string, input: unknown): unknown {
-  return JSON.parse(
-    requireRustGitBinding().orcaDispatch('project-groups', fn, JSON.stringify(input ?? null))
-  )
+  return dispatchToRustCore('project-groups', fn, input, { undefinedProperties: 'omit' })
 }
 
 function createProjectGroupId(): string {

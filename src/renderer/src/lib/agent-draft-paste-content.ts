@@ -7,7 +7,6 @@ import {
   wrapTerminalBracketedPasteText
 } from '@/components/terminal-pane/terminal-bracketed-paste'
 import { sendRuntimePtyInputVerified } from '@/runtime/runtime-terminal-inspection'
-import { runTerminalPtyInputTransaction } from '@/components/terminal-pane/terminal-pty-input-transaction'
 
 // Why: bracketed paste markers let supported TUIs treat generated prompt text
 // as one paste instead of echoing character-by-character or triggering edits.
@@ -21,22 +20,7 @@ const AGENT_DRAFT_PASTE_INERT_ESCAPE = '\u241b'
 
 export type AgentDraftPtyInputWriter = (data: string) => boolean | Promise<boolean>
 
-// Why: serialize with any concurrent paste/submit on this PTY so writes from
-// two flows can't interleave into one corrupted bracketed frame.
-export function sendAgentDraftPasteContent(
-  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
-  ptyId: string,
-  content: string,
-  writePty?: AgentDraftPtyInputWriter
-): Promise<boolean> {
-  return runTerminalPtyInputTransaction(ptyId, () =>
-    sendAgentDraftPasteContentNow(settings, ptyId, content, writePty)
-  )
-}
-
-// Why: callers that must keep extra PTY writes (e.g. submit Enter) inside the same
-// transaction take the lock themselves; taking it again here would deadlock.
-export async function sendAgentDraftPasteContentNow(
+export async function sendAgentDraftPasteContent(
   settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
   ptyId: string,
   content: string,

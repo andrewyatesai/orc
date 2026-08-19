@@ -33,13 +33,7 @@ function getDaemonAdapters(): DaemonPtyAdapter[] {
 // the old `instanceof DegradedDaemonPtyProvider` check silently missed the latter.
 function isDaemonDegraded(): boolean {
   const provider = getDaemonProvider()
-  // Why: a recovered degraded provider re-routes fresh spawns back to the daemon,
-  // so only report degraded while it still falls back to the in-process provider.
-  return (
-    provider === null ||
-    (provider instanceof DegradedDaemonPtyProvider &&
-      provider.routesFreshSpawnsToLocalProvider === true)
-  )
+  return provider === null || provider instanceof DegradedDaemonPtyProvider
 }
 
 async function collectSessions(adapters: DaemonPtyAdapter[]): Promise<DaemonSessionInfo[]> {

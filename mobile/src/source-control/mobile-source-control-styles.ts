@@ -207,10 +207,11 @@ const baseStyles = StyleSheet.create({
     fontWeight: '600'
   },
   createPrBlock: {
-    marginTop: spacing.md
+    marginTop: spacing.md,
+    gap: spacing.xs
   },
   createPrButton: {
-    height: 42,
+    minHeight: 42,
     borderRadius: radii.button,
     backgroundColor: colors.textPrimary,
     alignItems: 'center',
@@ -235,12 +236,10 @@ const baseStyles = StyleSheet.create({
   createPrButtonTextDisabled: {
     color: colors.textSecondary
   },
-  createPrButtonHint: {
+  createPrHint: {
+    color: colors.textMuted,
     fontSize: typography.metaSize,
-    fontWeight: '600',
-    lineHeight: 16,
-    textAlign: 'center',
-    flexShrink: 1
+    lineHeight: 16
   }
 })
 

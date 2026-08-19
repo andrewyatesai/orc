@@ -2,7 +2,10 @@
 // It lives in /shared (not renderer) so the mobile package can reuse it —
 // Metro only watches mobile/ + repo-root src/shared, never src/renderer.
 // INVARIANT: /shared is a leaf — this module must NOT import from src/renderer.
-import { isPathInsideOrEqual, normalizeRuntimePathForComparison, normalizeRuntimePathSeparators } from './cross-platform-path-resolution'
+import {
+  isPathInsideOrEqual,
+  normalizeRuntimePathSeparators
+} from './cross-platform-path-resolution'
 import { isClipboardTextByteLengthOverLimit } from './clipboard-text'
 import { parseWslUncPath } from './wsl-unc-paths'
 import type {
@@ -143,27 +146,11 @@ export function folderLabel(pathValue: string | null): string {
   if (!pathValue) {
     return 'Unknown location'
   }
-  // NFC so one folder renders the same header whichever spelling (macOS NFD vs
-  // agent-recorded NFC) reaches the group first.
-  const parts = normalizeRuntimePathSeparators(pathValue.normalize('NFC'))
-    .split('/')
-    .filter(Boolean)
+  const parts = normalizeRuntimePathSeparators(pathValue).split('/').filter(Boolean)
   if (parts.length >= 2) {
     return parts.slice(-2).join('/')
   }
   return parts[0] ?? pathValue
-}
-
-/**
- * Why comparison-normalized: cwd is copied verbatim out of agent transcripts, so
- * one folder arrives with and without a trailing slash and in both NFD/NFC — each
- * spelling otherwise became its own group under an identical `folderLabel`. Also
- * avoids blanket lowercasing, which merged distinct case-sensitive POSIX folders.
- * The `folder:` prefix matches the folder project key so project grouping and its
- * fallback agree.
- */
-export function folderGroupKey(pathValue: string | null): string {
-  return pathValue ? `folder:${normalizeRuntimePathForComparison(pathValue)}` : 'unknown'
 }
 
 export function agentLabel(agent: AiVaultAgent): string {
@@ -269,7 +256,11 @@ function getGroupIdentity(
       }
     }
   }
-  return { key: folderGroupKey(session.cwd), label: folderLabel(session.cwd) }
+  return { key: getFolderGroupKey(session.cwd), label: folderLabel(session.cwd) }
+}
+
+function getFolderGroupKey(pathValue: string | null): string {
+  return pathValue ? normalizeRuntimePathSeparators(pathValue).toLowerCase() : 'unknown'
 }
 
 function isAiVaultSessionInWorkspacePath(workspacePath: string, sessionCwd: string): boolean {

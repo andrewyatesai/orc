@@ -6,6 +6,7 @@ import {
 } from '@/runtime/web-runtime-session'
 import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
+import { findWorktreeById } from '@/store/slices/worktree-helpers'
 import { activateAndRevealWorktree } from './worktree-activation'
 import type { WorkspaceTabPaletteSearchResult } from './workspace-tab-palette-search'
 
@@ -19,30 +20,27 @@ export type WorkspaceTabPaletteActivationResult =
   | { status: 'activated' }
   | { status: 'failed'; reason: WorkspaceTabPaletteActivationFailure }
 
-// Why: callers outside Cmd+J hold only the identifiers, not a full search result.
-export type WorkspaceTabPaletteActivationTarget = Pick<
-  WorkspaceTabPaletteSearchResult,
-  'contentType' | 'entityId' | 'groupId' | 'tabId' | 'worktreeId'
->
-
 type WorkspaceTabPaletteActivationState = Pick<
   AppState,
   | 'activateTab'
+  | 'activeGroupIdByWorktree'
   | 'focusGroup'
-  | 'getKnownWorktreeById'
   | 'groupsByWorktree'
   | 'openFiles'
+  | 'repos'
+  | 'settings'
   | 'setActiveFile'
   | 'setActiveTab'
   | 'setActiveTabType'
   | 'unifiedTabsByWorktree'
+  | 'worktreesByRepo'
 >
 
 function validateTarget(
   state: WorkspaceTabPaletteActivationState,
-  result: WorkspaceTabPaletteActivationTarget
+  result: WorkspaceTabPaletteSearchResult
 ): WorkspaceTabPaletteActivationFailure | null {
-  if (!state.getKnownWorktreeById(result.worktreeId)) {
+  if (!findWorktreeById(state.worktreesByRepo, result.worktreeId)) {
     return 'missing-worktree'
   }
   const group = (state.groupsByWorktree[result.worktreeId] ?? []).find(
@@ -74,7 +72,7 @@ function validateTarget(
 }
 
 export function activateWorkspaceTabPaletteResult(
-  result: WorkspaceTabPaletteActivationTarget
+  result: WorkspaceTabPaletteSearchResult
 ): WorkspaceTabPaletteActivationResult {
   const initialState = useAppStore.getState()
   const initialFailure = validateTarget(initialState, result)

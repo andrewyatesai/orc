@@ -39,7 +39,6 @@ import { createPinnedTabCloseConfirmSlice } from './slices/pinned-tab-close-conf
 import { createRecentlyClosedTabsSlice } from './slices/recently-closed-tabs'
 import { createOrcaProfilesSlice } from './slices/orca-profiles'
 import { createNewIssueDraftSlice } from './slices/new-issue-draft'
-import { createTaskCreationDraftsSlice } from './slices/task-creation-drafts'
 import { createRemoteServerUpdatesSlice } from './slices/remote-server-updates'
 import { e2eConfig } from '@/lib/e2e-config'
 import type { createWebRuntimeSessionTerminal } from '@/runtime/web-runtime-session'
@@ -49,7 +48,6 @@ import {
   registerRendererMemoryProfileContributor,
   summarizeStateCollectionSizes
 } from '@/lib/renderer-memory-profile'
-import { estimateStateCollectionKB } from '@/lib/state-collection-byte-estimate'
 
 export const useAppStore = create<AppState>()((...a) => {
   // Why: the inner api is only reachable here, before create() copies subscribe onto the hook.
@@ -94,7 +92,6 @@ export const useAppStore = create<AppState>()((...a) => {
     ...createRecentlyClosedTabsSlice(...a),
     ...createOrcaProfilesSlice(...a),
     ...createNewIssueDraftSlice(...a),
-    ...createTaskCreationDraftsSlice(...a),
     ...createRemoteServerUpdatesSlice(...a)
   }
 })
@@ -105,12 +102,6 @@ registerHttpLinkStoreAccessor(() => useAppStore.getState())
 // so OOM crash reports identify what grew without a local repro.
 registerRendererMemoryProfileContributor('store', () =>
   summarizeStateCollectionSizes(useAppStore.getState(), 20)
-)
-
-// Why bytes too: counts miss value-weight growth (97b9e86d leaked ~700MB while
-// its biggest slice grew by 4 entries); sampled KB names what got FAT.
-registerRendererMemoryProfileContributor('storeKB', () =>
-  estimateStateCollectionKB(useAppStore.getState(), 16)
 )
 
 export type { AppState } from './types'

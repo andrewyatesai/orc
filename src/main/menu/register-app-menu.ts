@@ -8,7 +8,6 @@ import {
 import type { UpdateCheckOptions } from '../../shared/types'
 import { translateMain } from '../i18n/main-i18n'
 import { buildAppModeSubmenu } from './app-mode-menu-section'
-import { dispatchCoordinatedPaste } from './coordinated-paste-dispatch'
 import type { AppModeId } from '../../shared/app-mode/app-mode-id'
 import type { AppModeSource } from '../../shared/app-mode/resolve-app-mode'
 import { openCoordinatorWindow } from '../coordinator-window'
@@ -186,7 +185,11 @@ function buildAndApplyMenu(options: RegisterAppMenuOptions): void {
       {
         label: translateMain('menu.paste', 'Paste'),
         accelerator: 'CmdOrCtrl+V',
-        click: () => dispatchCoordinatedPaste(isMac)
+        click: () => {
+          // Why: a focused terminal/native-chat pane is not a native editable
+          // control, so raw Electron paste cannot know which Orca surface owns it.
+          BrowserWindow.getFocusedWindow()?.webContents.send('ui:appMenuPaste')
+        }
       },
       { role: 'selectAll' }
     ]

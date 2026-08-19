@@ -1,5 +1,4 @@
-import type { TerminalLeafId } from '../../../../shared/stable-pane-id'
-import { isTerminalLeafId } from '../../../../shared/stable-pane-identity'
+import { isTerminalLeafId, type TerminalLeafId } from '../../../../shared/stable-pane-identity'
 import { mintStablePaneId } from './mint-stable-pane-id'
 import type { ManagedPaneInternal } from './pane-manager-types'
 

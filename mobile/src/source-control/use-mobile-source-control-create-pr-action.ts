@@ -6,7 +6,6 @@ import type { MobileGitStatusResult } from './mobile-git-status'
 type Params = {
   client: Parameters<typeof useMobileHostedReviewEligibility>[0]['client']
   connState: Parameters<typeof useMobileHostedReviewEligibility>[0]['connState']
-  hostId: string
   worktreeId: string
   status: MobileGitStatusResult | null
   hasUncommittedChanges: boolean
@@ -17,7 +16,6 @@ type Params = {
 export function useMobileSourceControlCreatePrAction({
   client,
   connState,
-  hostId,
   worktreeId,
   status,
   hasUncommittedChanges,
@@ -28,7 +26,6 @@ export function useMobileSourceControlCreatePrAction({
   const eligibilityState = useMobileHostedReviewEligibility({
     client,
     connState,
-    hostId,
     worktreeId,
     branch: status?.branch,
     hasUpstream: upstream?.hasUpstream,

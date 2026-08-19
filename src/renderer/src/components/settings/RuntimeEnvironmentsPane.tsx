@@ -557,14 +557,10 @@ export function RuntimeEnvironmentsPane({
       await window.api.runtimeEnvironments.disconnect({ selector: environment.id })
       // Why: disconnect is non-destructive; keep the saved server but show the
       // user that this live client is no longer attached to it.
-      useAppStore.getState().setRuntimeEnvironmentStatus(
-        environment.id,
-        {
-          status: null,
-          checkedAt: Date.now()
-        },
-        { suppressDisconnectToast: true }
-      )
+      useAppStore.getState().setRuntimeEnvironmentStatus(environment.id, {
+        status: null,
+        checkedAt: Date.now()
+      })
       if (mountedRef.current) {
         setDetailsByEnvironmentId((current) => ({
           ...current,

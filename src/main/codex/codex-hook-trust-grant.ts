@@ -35,7 +35,6 @@ import {
   resolveCodexTrustGrantHost,
   type CodexTrustGrantHost
 } from './codex-trust-grant-host'
-import { isCodexStateDbBackfillPending } from './codex-state-db'
 
 // Why: a transiently hung app-server must not block launch prep on every pane.
 // The legacy lane remains available while a short, host-scoped cooldown runs.
@@ -75,7 +74,9 @@ const diagnostics = {
 export type CodexTrustGrantDiagnostics = typeof diagnostics
 const transientRetryAfterByHost = new Map<string, number>()
 
-export const getCodexTrustGrantDiagnostics = (): CodexTrustGrantDiagnostics => ({ ...diagnostics })
+export function getCodexTrustGrantDiagnostics(): CodexTrustGrantDiagnostics {
+  return { ...diagnostics }
+}
 
 type GrantSessionRunnerSync = (
   request: CodexHookTrustGrantRequest
@@ -190,10 +191,6 @@ export function grantManagedCodexHookTrust(
     if (ledgerEntries !== null) {
       diagnostics.ledgerHits += 1
       return { lane: 'rpc', entries: ledgerEntries }
-    }
-    if (isCodexStateDbBackfillPending(plan.runtimeHomePath)) {
-      // Why: a short trust RPC can refresh Codex's abandoned lease and strand every pane again.
-      return fallback(plan, 'retry-cached')
     }
 
     const hostKey = getCodexAppServerHostKey(plan.host)

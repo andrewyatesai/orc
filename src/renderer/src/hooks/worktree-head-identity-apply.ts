@@ -1,5 +1,6 @@
 import type { Worktree, WorktreeHeadIdentity } from '../../../shared/types'
 import { normalizeRuntimePathForComparison } from '../../../shared/cross-platform-path-resolution'
+
 export type WorktreeHeadIdentityApplyDeps = {
   getWorktreesForRepo: (repoId: string) => Worktree[] | undefined
   updateWorktreeGitIdentity: (

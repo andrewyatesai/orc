@@ -16273,21 +16273,19 @@
     },
     {
       "function": "decodePairingOffer",
-      "note": "lone surrogate escape inside endpoint",
+      "note": "lone surrogate escape inside endpoint — serde_json refuses the document; the deep-link shim mirrors that refusal, so this is a hard gate now",
       "input": {
         "url": "orca://pair?code=eyJ2IjoyLCJlbmRwb2ludCI6ImFcdWQ4MDBiIiwiZGV2aWNlVG9rZW4iOiJ0IiwicHVibGljS2V5QjY0IjoiQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQT0ifQ",
         "nowMs": 1783872000000
-      },
-      "allowDivergence": "serde_json rejects a lone-surrogate escape that JSON.parse admits, so the port answers null where the twin returns the offer"
+      }
     },
     {
       "function": "decodePairingOffer",
-      "note": "number out of f64 range on an unknown (stripped) key",
+      "note": "number out of f64 range on an unknown (stripped) key — serde_json refuses the document; the deep-link shim mirrors that refusal, so this is a hard gate now",
       "input": {
         "url": "orca://pair?code=eyJ2IjoyLCJlbmRwb2ludCI6ImEiLCJkZXZpY2VUb2tlbiI6InQiLCJwdWJsaWNLZXlCNjQiOiJBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBPSIsImp1bmsiOjFlNDAwfQ",
         "nowMs": 1783872000000
-      },
-      "allowDivergence": "serde_json rejects a number outside f64 range anywhere in the document; the twin parses it to Infinity on a key zod then strips"
+      }
     },
     {
       "function": "decodePairingOffer",

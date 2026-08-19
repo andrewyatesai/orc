@@ -1,5 +1,8 @@
 import type { WorkspaceCleanupCandidate } from '../../../../shared/workspace-cleanup'
-import { isPathInsideOrEqual, normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path-resolution'
+import {
+  isPathInsideOrEqual,
+  normalizeRuntimePathForComparison
+} from '../../../../shared/cross-platform-path-resolution'
 import type { WorkspaceCleanupFailure } from '@/store/slices/workspace-cleanup'
 import { translate } from '@/i18n/i18n'
 

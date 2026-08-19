@@ -58,21 +58,4 @@ describe('native chat session option enrichment', () => {
     ensureNativeChatModelEnrichment({ agent: 'claude', hostKey: 'local', discover })
     expect(discover).not.toHaveBeenCalled()
   })
-
-  it('lets an authoritative grok probe retire the seed while lending its effort menu', async () => {
-    const listener = vi.fn()
-    subscribeNativeChatEnrichedModels('grok', 'local', listener)
-    // A listing that no longer carries the seeded grok-4.5 must drop it, not merely
-    // extend the seed the way the additive path would.
-    ensureNativeChatModelEnrichment({
-      agent: 'grok',
-      hostKey: 'local',
-      discover: () => Promise.resolve([{ id: 'grok-build', label: 'Grok Build', options: [] }])
-    })
-    await vi.waitFor(() => expect(listener).toHaveBeenCalledOnce())
-
-    const models = readNativeChatEnrichedModels('grok', 'local')!
-    expect(models.map((model) => model.id)).toEqual(['grok-build'])
-    expect(models[0].options.map((option) => option.id)).toEqual(['effort'])
-  })
 })

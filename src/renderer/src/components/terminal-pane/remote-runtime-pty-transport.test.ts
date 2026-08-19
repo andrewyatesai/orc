@@ -127,44 +127,6 @@ describe('createRemoteRuntimePtyTransport', () => {
     )
   }
 
-  function subscribedTerminalHandles(): string[] {
-    return subscriptionSendBinary.mock.calls
-      .map((call) => decodeTerminalStreamFrame(call[0]))
-      .flatMap((frame) => {
-        if (frame?.opcode !== TerminalStreamOpcode.Subscribe) {
-          return []
-        }
-        const payload = decodeTerminalStreamJson<{ terminal: string }>(frame.payload)
-        return payload ? [payload.terminal] : []
-      })
-  }
-
-  function readyHostSessionInventoryResponse(terminal: string, hostTabId = 'host-tab-1'): unknown {
-    return {
-      ok: true,
-      result: {
-        worktree: 'wt-1',
-        publicationEpoch: 'epoch-ready',
-        snapshotVersion: 2,
-        activeGroupId: null,
-        activeTabId: `${hostTabId}::pane:1`,
-        activeTabType: 'terminal',
-        tabs: [
-          {
-            type: 'terminal',
-            id: `${hostTabId}::pane:1`,
-            parentTabId: hostTabId,
-            leafId: 'pane:1',
-            title: 'Terminal',
-            isActive: true,
-            status: 'ready',
-            terminal
-          }
-        ]
-      }
-    }
-  }
-
   beforeEach(() => {
     vi.resetModules()
     vi.doUnmock('../../runtime/remote-runtime-terminal-multiplexer')
@@ -265,8 +227,7 @@ describe('createRemoteRuntimePtyTransport', () => {
     await vi.waitFor(() =>
       expect(latestSubscribePayload().capabilities).toEqual({
         ackOutput: 1,
-        desktopViewportClaims: 1,
-        writeUnavailable: 1
+        desktopViewportClaims: 1
       })
     )
     expect(runtimeSubscribe).toHaveBeenCalledWith(
@@ -297,27 +258,6 @@ describe('createRemoteRuntimePtyTransport', () => {
     expect(transport.isConnected()).toBe(true)
     transport.destroy?.()
   })
-
-  // Why: retained gauges would inflate every later high-water profile.
-  it.each(['detach', 'destroy'] as const)(
-    'drops its side-effect gauge from the census on %s',
-    async (teardown) => {
-      await import('./pty-side-effect-pending-census')
-      const { collectRendererMemoryProfileCounts } = await import('@/lib/renderer-memory-profile')
-      const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
-      expect(collectRendererMemoryProfileCounts()['ptySideEffects.processors']).toBe(0)
-
-      const transport = createRemoteRuntimePtyTransport('env-1', { worktreeId: 'wt-1' })
-      transport.attach({ existingPtyId: 'remote:terminal-1', callbacks: {} })
-      await vi.waitFor(() => expect(subscriptionSendBinary).toHaveBeenCalled())
-      expect(collectRendererMemoryProfileCounts()['ptySideEffects.processors']).toBe(1)
-
-      transport[teardown]?.()
-
-      expect(collectRendererMemoryProfileCounts()['ptySideEffects.processors']).toBe(0)
-      transport.destroy?.()
-    }
-  )
 
   it('recovers when the first restored-terminal subscription attempt is offline', async () => {
     vi.useFakeTimers()
@@ -557,9 +497,7 @@ describe('createRemoteRuntimePtyTransport', () => {
     expect(
       runtimeCall.mock.calls.filter(([args]) => args.method === 'terminal.create')
     ).toHaveLength(1)
-    // Why: a recoverable create timeout must not dead-end the pane; it stays disconnected (Reconnect banner live), not surfaced fatal.
-    expect(onError).not.toHaveBeenCalled()
-    expect(transport.getRecoveryState?.().phase).toBe('disconnected')
+    expect(onError).toHaveBeenCalledTimes(1)
     transport.destroy?.()
   })
 
@@ -4595,239 +4533,6 @@ describe('createRemoteRuntimePtyTransport', () => {
     expect(onError).not.toHaveBeenCalled()
     expect(onConnect).toHaveBeenCalled()
     expect(onData).toHaveBeenCalledWith('live-after-overflow', expect.objectContaining({ seq: 1 }))
-  })
-
-  it('retries inventory and reattaches the same HUB handle after a stream ends', async () => {
-    vi.useFakeTimers()
-    try {
-      const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
-      const onPtyExit = vi.fn()
-      const onPtyRebind = vi.fn()
-      const transport = createRemoteRuntimePtyTransport('hub-env', {
-        worktreeId: 'wt-1',
-        tabId: 'web-terminal-host-tab-1',
-        leafId: 'pane:1',
-        onPtyExit,
-        onPtyRebind
-      })
-
-      resolvedPaneHandle = 'terminal-stable'
-      transport.attach({
-        existingPtyId: 'remote:hub-env@@terminal-stable',
-        cols: 100,
-        rows: 30,
-        callbacks: {}
-      })
-      // Why: wait for THIS pane's own subscribe frame (not any binary send) so the
-      // seam is measured, never a leaked stray frame.
-      await vi.waitFor(() =>
-        expect(subscribedTerminalHandles()).toEqual(['terminal-stable'])
-      )
-      const oldStreamId = latestSubscribePayload().streamId
-      emitSnapshot(oldStreamId, 'before stream end')
-      expect(transport.isConnected()).toBe(true)
-
-      let inventoryAvailable = false
-      let hostListCalls = 0
-      runtimeCall.mockImplementation(async (args: { method: string }) => {
-        if (args.method !== 'session.tabs.list') {
-          return { ok: true, result: {} }
-        }
-        hostListCalls += 1
-        if (!inventoryAvailable) {
-          throw new Error('runtime reconnect in progress')
-        }
-        return readyHostSessionInventoryResponse('terminal-stable')
-      })
-
-      subscriptionCallbacks?.onResponse({
-        ok: true,
-        result: { type: 'end', streamId: oldStreamId, code: 0 }
-      })
-      await vi.advanceTimersByTimeAsync(16_000)
-
-      // One recovery window elapsed with inventory unavailable: bounded retries, no reattach yet.
-      expect(subscribedTerminalHandles()).toEqual(['terminal-stable'])
-      expect(hostListCalls).toBeGreaterThan(1)
-      expect(hostListCalls).toBeLessThan(25)
-
-      inventoryAvailable = true
-      // Prefer-replacement times its window out on the unchanged handle, then
-      // reattaches from the ready evidence it observed. Advance until it does.
-      for (let i = 0; i < 40 && subscribedTerminalHandles().length < 2; i += 1) {
-        await vi.advanceTimersByTimeAsync(1_000)
-      }
-
-      expect(hostListCalls).toBeLessThan(40)
-      expect(subscribedTerminalHandles()).toEqual(['terminal-stable', 'terminal-stable'])
-      expect(onPtyRebind).not.toHaveBeenCalled()
-      expect(onPtyExit).not.toHaveBeenCalled()
-      expect(transport.getPtyId()).toBe('remote:hub-env@@terminal-stable')
-      expect(transport.isConnected()).toBe(false)
-
-      emitSnapshot(latestSubscribePayload().streamId, 'same handle reattached')
-      expect(transport.isConnected()).toBe(true)
-      transport.destroy?.()
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('caps unavailable host inventory at two recovery windows', async () => {
-    vi.useFakeTimers()
-    try {
-      resolvedPaneHandle = 'terminal-stable'
-      const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
-      const transport = createRemoteRuntimePtyTransport('hub-env', {
-        worktreeId: 'wt-1',
-        tabId: 'web-terminal-host-tab-1',
-        leafId: 'pane:1'
-      })
-
-      transport.attach({
-        existingPtyId: 'remote:hub-env@@terminal-stable',
-        callbacks: {}
-      })
-      await vi.waitFor(() => expect(subscriptionSendBinary).toHaveBeenCalled())
-      const oldStreamId = latestSubscribePayload().streamId
-      emitSnapshot(oldStreamId, 'before inventory outage')
-
-      let hostListCalls = 0
-      runtimeCall.mockImplementation(async (args: { method: string }) => {
-        if (args.method === 'session.tabs.list') {
-          hostListCalls += 1
-          throw new Error('runtime reconnect in progress')
-        }
-        return { ok: true, result: {} }
-      })
-
-      subscriptionCallbacks?.onResponse({
-        ok: true,
-        result: { type: 'end', streamId: oldStreamId, code: 0 }
-      })
-      await vi.advanceTimersByTimeAsync(32_000)
-
-      const callsAfterTwoWindows = hostListCalls
-      expect(callsAfterTwoWindows).toBeGreaterThan(25)
-      expect(callsAfterTwoWindows).toBeLessThan(40)
-      await vi.advanceTimersByTimeAsync(20_000)
-      expect(hostListCalls).toBe(callsAfterTwoWindows)
-      expect(transport.getRecoveryState?.().phase).toBe('recovering')
-
-      await vi.advanceTimersByTimeAsync(9_000)
-      expect(transport.getRecoveryState?.().phase).toBe('disconnected')
-      expect(subscribedTerminalHandles()).toEqual(['terminal-stable'])
-      transport.destroy?.()
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('reattaches from prior ready evidence when the trailing inventory poll fails', async () => {
-    vi.useFakeTimers()
-    try {
-      resolvedPaneHandle = 'terminal-stable'
-      const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
-      const onPtyExit = vi.fn()
-      const transport = createRemoteRuntimePtyTransport('hub-env', {
-        worktreeId: 'wt-1',
-        tabId: 'web-terminal-host-tab-1',
-        leafId: 'pane:1',
-        onPtyExit
-      })
-
-      transport.attach({
-        existingPtyId: 'remote:hub-env@@terminal-stable',
-        callbacks: {}
-      })
-      await vi.waitFor(() => expect(subscriptionSendBinary).toHaveBeenCalled())
-      const oldStreamId = latestSubscribePayload().streamId
-      emitSnapshot(oldStreamId, 'before trailing inventory failure')
-
-      let hostListCalls = 0
-      runtimeCall.mockImplementation(async (args: { method: string }) => {
-        if (args.method !== 'session.tabs.list') {
-          return { ok: true, result: {} }
-        }
-        hostListCalls += 1
-        if (hostListCalls === 1) {
-          return readyHostSessionInventoryResponse('terminal-stable')
-        }
-        throw new Error('final inventory poll failed')
-      })
-
-      subscriptionCallbacks?.onResponse({
-        ok: true,
-        result: { type: 'end', streamId: oldStreamId, code: 0 }
-      })
-      await vi.advanceTimersByTimeAsync(16_000)
-
-      expect(hostListCalls).toBeGreaterThan(1)
-      expect(hostListCalls).toBeLessThan(25)
-      expect(subscribedTerminalHandles()).toEqual(['terminal-stable', 'terminal-stable'])
-      expect(onPtyExit).not.toHaveBeenCalled()
-      expect(transport.isConnected()).toBe(false)
-      emitSnapshot(latestSubscribePayload().streamId, 'reattached from ready evidence')
-      expect(transport.isConnected()).toBe(true)
-      transport.destroy?.()
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('strengthens repeated same-handle end recovery until it disconnects', async () => {
-    vi.useFakeTimers()
-    try {
-      resolvedPaneHandle = 'terminal-flapping'
-      const { createRemoteRuntimePtyTransport } = await import('./remote-runtime-pty-transport')
-      const transport = createRemoteRuntimePtyTransport('hub-env', {
-        worktreeId: 'wt-1',
-        tabId: 'web-terminal-host-tab-1',
-        leafId: 'pane:1'
-      })
-
-      transport.attach({
-        existingPtyId: 'remote:hub-env@@terminal-flapping',
-        callbacks: {}
-      })
-      await vi.waitFor(() => expect(subscriptionSendBinary).toHaveBeenCalled())
-      runtimeCall.mockImplementation(async (args: { method: string }) =>
-        args.method === 'session.tabs.list'
-          ? readyHostSessionInventoryResponse('terminal-flapping')
-          : { ok: true, result: {} }
-      )
-      emitSnapshot(latestSubscribePayload().streamId, 'initial stream')
-
-      for (let cycle = 0; cycle < 2; cycle += 1) {
-        const endingStreamId = latestSubscribePayload().streamId
-        subscriptionCallbacks?.onResponse({
-          ok: true,
-          result: { type: 'end', streamId: endingStreamId, code: 0 }
-        })
-        await vi.advanceTimersByTimeAsync(16_000)
-        expect(subscribedTerminalHandles()).toHaveLength(cycle + 2)
-        emitSnapshot(latestSubscribePayload().streamId, `same handle cycle ${cycle}`)
-        expect(transport.isConnected()).toBe(true)
-      }
-
-      subscriptionCallbacks?.onResponse({
-        ok: true,
-        result: { type: 'end', streamId: latestSubscribePayload().streamId, code: 0 }
-      })
-      await vi.advanceTimersByTimeAsync(16_000)
-
-      expect(subscribedTerminalHandles()).toEqual([
-        'terminal-flapping',
-        'terminal-flapping',
-        'terminal-flapping'
-      ])
-      expect(transport.isConnected()).toBe(false)
-      await vi.advanceTimersByTimeAsync(45_000)
-      expect(transport.getRecoveryState?.().phase).toBe('disconnected')
-      transport.destroy?.()
-    } finally {
-      vi.useRealTimers()
-    }
   })
 
   describe('federated replay geometry (fed §2.4)', () => {

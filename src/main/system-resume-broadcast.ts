@@ -1,6 +1,5 @@
 import { BrowserWindow, powerMonitor } from 'electron'
 import { recordCrashBreadcrumb } from './crash-reporting/crash-breadcrumb-store'
-import { publishSystemResume, publishSystemSuspend } from './system-power-lifecycle'
 
 export const SYSTEM_RESUMED_CHANNEL = 'system:resumed'
 
@@ -46,7 +45,6 @@ export function registerSystemResumeBroadcast(
     // span is visibly inconsistent with surviving heartbeats, while under-reporting
     // leaves a long gap looking unexplained -- the false freeze this exists to rule out.
     suspendedAt ??= now()
-    publishSystemSuspend()
   }
 
   const onResume = (): void => {
@@ -55,7 +53,6 @@ export function registerSystemResumeBroadcast(
     if (suspendedForMs !== null && suspendedForMs >= MIN_REPORTABLE_SUSPEND_MS) {
       recordCrashBreadcrumb('system_slept', { suspendedForMs })
     }
-    publishSystemResume()
     for (const window of getWindows()) {
       if (!window.isDestroyed()) {
         window.webContents.send(SYSTEM_RESUMED_CHANNEL)

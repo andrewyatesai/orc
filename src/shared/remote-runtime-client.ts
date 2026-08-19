@@ -20,7 +20,6 @@ import {
   RuntimeRpcEnvelopeSchema,
   type RuntimeRpcResponse
 } from './runtime-rpc-envelope'
-import type { RuntimeStatus } from './runtime-types'
 import { SESSION_TAB_CLOSE_INTENT_RUNTIME_CAPABILITY } from './protocol-version'
 // Re-export so existing value importers of `RemoteRuntimeClientError` are
 // unaffected; the class lives in a ws-free module so type-only consumers
@@ -79,40 +78,11 @@ export type RemoteRuntimeSubscriptionCallbacks<TResult = unknown> = {
   onClose?: () => void
 }
 
-export function sendRemoteRuntimeRequest<TResult>(
+export async function sendRemoteRuntimeRequest<TResult>(
   pairing: PairingOffer,
   method: string,
   params: unknown,
   timeoutMs: number
-): Promise<RuntimeRpcResponse<TResult>> {
-  return sendRemoteRuntimeRequestOnSocket<TResult>(pairing, method, params, timeoutMs)
-}
-
-// Why: dispatch a compat `status.get` and then the real request over a single
-// authenticated socket. `validateStatus` inspects the status frame first; the
-// command frame only goes out once it returns without throwing.
-export function sendRemoteRuntimeRequestWithStatusPreflight<TResult>(
-  pairing: PairingOffer,
-  method: string,
-  params: unknown,
-  timeoutMs: number,
-  validateStatus: (response: RuntimeRpcResponse<RuntimeStatus>) => void
-): Promise<RuntimeRpcResponse<TResult>> {
-  return sendRemoteRuntimeRequestOnSocket<TResult>(
-    pairing,
-    method,
-    params,
-    timeoutMs,
-    validateStatus
-  )
-}
-
-async function sendRemoteRuntimeRequestOnSocket<TResult>(
-  pairing: PairingOffer,
-  method: string,
-  params: unknown,
-  timeoutMs: number,
-  validateStatus?: (response: RuntimeRpcResponse<RuntimeStatus>) => void
 ): Promise<RuntimeRpcResponse<TResult>> {
   if (!isSafeTimerDelayMs(timeoutMs)) {
     throw new RemoteRuntimeClientError(
@@ -121,15 +91,6 @@ async function sendRemoteRuntimeRequestOnSocket<TResult>(
     )
   }
   const requestId = randomUUID()
-  const statusRequestId = validateStatus ? randomUUID() : null
-  const serializedStatusRequest = statusRequestId
-    ? serializeRemoteRuntimeRpcRequest({
-        requestId: statusRequestId,
-        deviceToken: pairing.deviceToken,
-        method: 'status.get',
-        params: undefined
-      })
-    : null
   const serializedAuth = serializeRemoteRuntimePayload({
     type: 'e2ee_auth',
     deviceToken: pairing.deviceToken,
@@ -146,8 +107,6 @@ async function sendRemoteRuntimeRequestOnSocket<TResult>(
     )
   }
   let serializedRequest = takeRemoteRuntimePreparedRequest(pendingRequest)
-  let awaitingRequestId = statusRequestId ?? requestId
-  let awaitingStatus = statusRequestId !== null
   return await new Promise<RuntimeRpcResponse<TResult>>((resolve, reject) => {
     const keyPair = generateKeyPair()
     const serverPublicKey = publicKeyFromBase64(pairing.publicKeyB64)
@@ -371,16 +330,6 @@ async function sendRemoteRuntimeRequestOnSocket<TResult>(
         return
       }
       state = 'ready'
-      // Why: probe compat on this same socket before the command, so a preflight
-      // never opens a second authenticated connection.
-      if (serializedStatusRequest) {
-        ws?.send(encrypt(serializedStatusRequest, sharedKey))
-        return
-      }
-      sendRequestedRpc()
-    }
-
-    function sendRequestedRpc(): void {
       const request = serializedRequest
       serializedRequest = null
       if (request === null) {
@@ -425,7 +374,8 @@ async function sendRemoteRuntimeRequestOnSocket<TResult>(
         })
         return
       }
-      if (parsed.data.id !== awaitingRequestId) {
+      const response = parsed.data as RuntimeRpcResponse<TResult>
+      if (response.id !== requestId) {
         finish({
           ok: false,
           error: new RemoteRuntimeClientError(
@@ -435,27 +385,6 @@ async function sendRemoteRuntimeRequestOnSocket<TResult>(
         })
         return
       }
-      if (awaitingStatus && validateStatus) {
-        try {
-          validateStatus(parsed.data as RuntimeRpcResponse<RuntimeStatus>)
-        } catch (error) {
-          finish({
-            ok: false,
-            error:
-              error instanceof Error
-                ? error
-                : new RemoteRuntimeClientError('runtime_error', String(error))
-          })
-          return
-        }
-        awaitingStatus = false
-        awaitingRequestId = requestId
-        // Why: the preflight consumed a round-trip; hand the command a fresh budget.
-        refreshTimeout()
-        sendRequestedRpc()
-        return
-      }
-      const response = parsed.data as RuntimeRpcResponse<TResult>
       finish({ ok: true, response })
     }
   }).finally(() => releaseRemoteRuntimePreparedRequest(pendingRequest))

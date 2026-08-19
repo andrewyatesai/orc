@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import type { NativeChatMessage } from '../../../src/shared/native-chat-types'
-import { reconcileLandedEchoes, type UnconfirmedSend } from './mobile-native-chat-draft-reconcile'
-import {
-  imagePreviewBindings,
-  mergeLandedImagePreviews
-} from './mobile-native-chat-image-preview-echo'
+import { normalizedUserText, type UnconfirmedSend } from './mobile-native-chat-draft-reconcile'
+import { isImageSourceUserTurn } from './mobile-native-chat-image-transcript-markers'
 import { mobileNativeChatScopeKey } from './mobile-native-chat-scope-key'
 
 export type MobileNativeChatPendingMessage = {
@@ -25,11 +22,97 @@ export type MobileNativeChatSendOrigin = {
 }
 
 const NO_PENDING_MESSAGES: MobileNativeChatPendingMessage[] = []
-const NO_IMAGE_PREVIEWS: Record<string, string[]> = {}
 
 // How long an ack-lost send waits for its transcript echo before the UI surfaces
 // that delivery remains unconfirmed.
 const UNCONFIRMED_SEND_DEADLINE_MS = 20_000
+
+// Match each entry to a NEW transcript echo: one whose index is after the entry's
+// captured tail (prepended history has index <= tail) and not already claimed by
+// another entry. Shared by the unconfirmed-send hold and the optimistic-pending
+// clear so paged-in identical turns can never satisfy either path.
+//
+// Returns the landed entries and the survivors with their baselines advanced past
+// every echo this pass consumed. Persisting the claim in the survivor's baseline is
+// what stops a later transcript change (e.g. an assistant append) from recomputing
+// claims fresh and re-matching an already-consumed echo to a surviving duplicate
+// before that survivor's own echo lands (cx2). A survivor is a duplicate whose own
+// echo has not arrived yet, so it can never match anything at or below the max
+// consumed index; advancing only-forward loses no legitimate future match.
+function reconcileLandedEchoes<
+  T extends { normalizedText: string; baselineTailMessageId: string | null; images?: string[] }
+>(messages: readonly NativeChatMessage[], entries: readonly T[]): { landed: T[]; survivors: T[] } {
+  const messageIndexById = new Map<string, number>()
+  const userMessagesByText = new Map<string, Array<{ id: string; index: number }>>()
+  for (const [index, message] of messages.entries()) {
+    messageIndexById.set(message.id, index)
+    if (message.role !== 'user') {
+      continue
+    }
+    // `[Image: source: …]` turns — and any other text-less user turn — key by ''
+    // so an image-only send, which has no caption to match, claims one of those
+    // and never an unrelated text echo.
+    const key = isImageSourceUserTurn(message) ? '' : (normalizedUserText(message) ?? '')
+    const current = userMessagesByText.get(key) ?? []
+    current.push({ id: message.id, index })
+    userMessagesByText.set(key, current)
+  }
+
+  const tailIndexOf = (entry: T): number | undefined =>
+    entry.baselineTailMessageId ? messageIndexById.get(entry.baselineTailMessageId) : -1
+
+  const claimedMessageIds = new Set<string>()
+  const landed: T[] = []
+  const nonLanded: T[] = []
+  let maxConsumedIndex = -1
+  const claimEchoes = (key: string, tailIndex: number, limit: number): number => {
+    let claims = 0
+    for (const message of userMessagesByText.get(key) ?? []) {
+      if (claims >= limit) {
+        break
+      }
+      if (message.index > tailIndex && !claimedMessageIds.has(message.id)) {
+        claimedMessageIds.add(message.id)
+        maxConsumedIndex = Math.max(maxConsumedIndex, message.index)
+        claims++
+      }
+    }
+    return claims
+  }
+  for (const entry of entries) {
+    const tailIndex = tailIndexOf(entry)
+    // Baseline message paged out of the transcript: can't validate an echo, so hold.
+    if (tailIndex === undefined) {
+      nonLanded.push(entry)
+      continue
+    }
+    // An image-only send reserves one echo turn per ridden-along image, so a later
+    // photo send cannot mistake this send's second image for its own echo.
+    const claimed =
+      entry.normalizedText === ''
+        ? claimEchoes('', tailIndex, entry.images?.length || 1)
+        : claimEchoes(entry.normalizedText, tailIndex, 1)
+    if (claimed > 0) {
+      landed.push(entry)
+    } else {
+      nonLanded.push(entry)
+    }
+  }
+
+  const consumedBaselineId = maxConsumedIndex >= 0 ? messages[maxConsumedIndex].id : null
+  const survivors =
+    consumedBaselineId === null
+      ? nonLanded
+      : nonLanded.map((entry) => {
+          const tailIndex = tailIndexOf(entry)
+          // Advance only-forward: never regress a survivor whose baseline already sits
+          // past this pass's consumed echoes (its echo is further ahead still).
+          return tailIndex !== undefined && tailIndex < maxConsumedIndex
+            ? { ...entry, baselineTailMessageId: consumedBaselineId }
+            : entry
+        })
+  return { landed, survivors }
+}
 
 export function useMobileNativeChatDrafts(args: {
   hostId: string
@@ -41,9 +124,6 @@ export function useMobileNativeChatDrafts(args: {
   composerText: string
   setComposerText: Dispatch<SetStateAction<string>>
   pending: MobileNativeChatPendingMessage[]
-  /** Phone-local previews rebound to the authoritative turn that replaced the
-   *  optimistic image bubble, keyed by that message id. */
-  imagePreviewsByMessageId: Record<string, string[]>
   captureSendOrigin: (text: string) => MobileNativeChatSendOrigin | null
   /** Clear the composer at send time, before the RPC settles. */
   clearDraftForSend: (origin: MobileNativeChatSendOrigin, text: string) => void
@@ -63,12 +143,6 @@ export function useMobileNativeChatDrafts(args: {
   const [pendingBySession, setPendingBySession] = useState<
     Record<string, MobileNativeChatPendingMessage[]>
   >({})
-  // Keyed by pendingKey → { authoritative message id → local preview URIs }.
-  const [imagePreviewsBySession, setImagePreviewsBySession] = useState<
-    Record<string, Record<string, string[]>>
-  >({})
-  const pendingBySessionRef = useRef(pendingBySession)
-  pendingBySessionRef.current = pendingBySession
   const pendingCounterRef = useRef(0)
   const messagesRef = useRef(messages)
   messagesRef.current = messages
@@ -237,37 +311,25 @@ export function useMobileNativeChatDrafts(args: {
   // Why: trigger only on a transcript change (like the unconfirmed-send hold), not
   // on `pending`. Reconciling survivors against the same window would let a second
   // effect run re-consume an echo already claimed by a bubble removed in the first.
-  // Reads pending through a ref (never a dep) so a just-accepted bubble is seen
-  // without re-arming the effect on the pending change it would itself cause.
   useEffect(() => {
     if (!pendingKey) {
       return
     }
-    const current = pendingBySessionRef.current[pendingKey] ?? NO_PENDING_MESSAGES
-    if (current.length === 0) {
-      return
-    }
-    // Clear a bubble only when a NEW echo lands after its captured tail; paged-in
-    // older identical turns (index <= tail) must not drop it — the real echo may
-    // not have arrived yet. One echo is claimed per bubble (duplicate sends each
-    // need their own). Same guard as the unconfirmed-send hold. Surviving bubbles
-    // keep their baselines advanced past the consumed echoes so a later transcript
-    // change can't re-consume one of them (cx2).
-    const { landed, survivors, claimedMessageIdsByEntry } = reconcileLandedEchoes(messages, current)
-    if (landed.length === 0) {
-      return
-    }
-    // Hand each landed photo's local URIs to the authoritative turn its echo
-    // claimed, so the phone-local image survives the optimistic-bubble teardown.
-    const previewBindings = landed.flatMap((entry) =>
-      imagePreviewBindings(entry, claimedMessageIdsByEntry.get(entry) ?? [])
-    )
-    if (previewBindings.length > 0) {
-      setImagePreviewsBySession((previous) =>
-        mergeLandedImagePreviews(previous, pendingKey, previewBindings)
-      )
-    }
     setPendingBySession((previous) => {
+      const current = previous[pendingKey] ?? NO_PENDING_MESSAGES
+      if (current.length === 0) {
+        return previous
+      }
+      // Clear a bubble only when a NEW echo lands after its captured tail; paged-in
+      // older identical turns (index <= tail) must not drop it — the real echo may
+      // not have arrived yet. One echo is claimed per bubble (duplicate sends each
+      // need their own). Same guard as the unconfirmed-send hold. Surviving bubbles
+      // keep their baselines advanced past the consumed echoes so a later transcript
+      // change can't re-consume one of them (cx2).
+      const { landed, survivors } = reconcileLandedEchoes(messages, current)
+      if (landed.length === 0) {
+        return previous
+      }
       if (survivors.length > 0) {
         return { ...previous, [pendingKey]: survivors }
       }
@@ -281,9 +343,6 @@ export function useMobileNativeChatDrafts(args: {
     composerText: draftKey ? (drafts[draftKey] ?? '') : '',
     setComposerText,
     pending,
-    imagePreviewsByMessageId: pendingKey
-      ? (imagePreviewsBySession[pendingKey] ?? NO_IMAGE_PREVIEWS)
-      : NO_IMAGE_PREVIEWS,
     captureSendOrigin,
     clearDraftForSend,
     restoreRejectedDraft,

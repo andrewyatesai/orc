@@ -8,7 +8,6 @@ import type {
 } from '../../../preload/api-types'
 import type { RuntimeRpcResponse } from '../../../shared/runtime-rpc-envelope'
 import type { PosixTerminalShellDetection } from '../../../shared/posix-terminal-shell'
-import type { AiVaultDeleteSessionArgs } from '../../../shared/ai-vault-session-deletion'
 import type { AiVaultListArgs, AiVaultListResult } from '../../../shared/ai-vault-types'
 import type {
   AiVaultPrepareSessionResumeArgs,
@@ -50,7 +49,10 @@ import {
   normalizeWorktreeCardProperties,
   ONBOARDING_FLOW_VERSION
 } from '../../../shared/constants'
-import { legacyBaseRefSearchResult } from '../lib/git-wasm/base-ref-search-result'
+import {
+  BaseRefDetailsUnavailableError,
+  legacyBaseRefSearchResults
+} from '../lib/git-wasm/base-ref-search-result'
 import {
   createDefaultLocalOrcaProfile,
   DEFAULT_LOCAL_ORCA_PROFILE_ID
@@ -131,11 +133,11 @@ import {
 } from '../../../shared/clipboard-image'
 import { sanitizeWebRuntimeWorkspaceSession } from './web-workspace-session'
 import { GIT_REMOTE_OPERATION_RPC_TIMEOUT_MS } from '../../../shared/git-remote-operation-timeout'
-import type {
-  FeatureInteractionId,
-  FeatureInteractionState
-} from '../../../shared/feature-interactions'
-import { normalizeFeatureInteractions } from '../../../shared/feature-interaction-state'
+import {
+  normalizeFeatureInteractions,
+  type FeatureInteractionId,
+  type FeatureInteractionState
+} from '../../../shared/feature-interaction-state'
 import type { ContextualTourId } from '../../../shared/contextual-tours'
 import { normalizeContextualTourIds } from '../../../shared/contextual-tour-id-normalization'
 import { translate } from '@/i18n/i18n'
@@ -165,7 +167,10 @@ let activeEnvironment: StoredWebRuntimeEnvironment | null = readStoredWebRuntime
 let activeClient: WebRuntimeClient | null = null
 let activeClientEnvironmentId: string | null = null
 let cachedWorktrees: { loadedAt: number; worktrees: Worktree[] } | null = null
-let cachedDetectedWorktrees: { loadedAt: number; worktrees: Worktree[] } | null = null
+let cachedDetectedWorktrees: {
+  loadedAt: number
+  worktrees: Worktree[]
+} | null = null
 const runtimeCallQueuePool = new RuntimeRpcCallQueuePool()
 
 function blobToBase64(blob: Blob): Promise<string> {
@@ -1413,15 +1418,6 @@ function createAiVaultApi(): NonNullable<Partial<PreloadApi>['aiVault']> {
       callRuntimeResult<AiVaultPrepareSessionResumeResult>('aiVault.prepareSessionResume', args),
     // Why: no server-side RPC for subagent transcript listing yet, so report an empty (not erroring) result.
     listSubagentSessions: () => Promise.resolve({ sessions: [], issues: [] }),
-    // Why: session deletion is local-only and has no runtime RPC; a web client's
-    // sessions are runtime-hosted, so report the same non-local rejection the UI
-    // already gates on rather than pretend to delete.
-    deleteSession: (args: AiVaultDeleteSessionArgs) =>
-      Promise.resolve({
-        outcome: 'rejected',
-        agent: args.agent,
-        reason: 'non-local-host' as const
-      }),
     onWindowFocused: () => noopUnsubscribe
   }
 }
@@ -1556,7 +1552,12 @@ function createReposApi(): NonNullable<Partial<PreloadApi>['repos']> {
         query,
         limit
       })
-      return result.refDetails ?? result.refs.map(legacyBaseRefSearchResult)
+      const details = result.refDetails ?? legacyBaseRefSearchResults(result.refs)
+      if (!details) {
+        // Why: null is "cannot derive", not "no matches" — reject so the picker shows a failure instead of an empty branch list.
+        throw new BaseRefDetailsUnavailableError()
+      }
+      return details
     },
     onChanged: () => noopUnsubscribe
   }
@@ -1646,14 +1647,11 @@ function createWorktreesApi(): NonNullable<Partial<PreloadApi>['worktrees']> {
         targetBranch,
         isCrossRepository
       }),
-    remove: async ({ worktreeId, force, allowUnverifiedPtyStop, skipArchive }) => {
+    remove: async ({ worktreeId, force, skipArchive }) => {
       invalidateRuntimeWorktreeCaches()
       return callRuntimeResult<RemoveWorktreeResult>('worktree.rm', {
         worktree: toRuntimeWorktreeSelector(worktreeId),
         force,
-        // Why (#11960): the web client renders the same Force Delete affordances, so
-        // dropping this field here would leave paired clients permanently wedged.
-        allowUnverifiedPtyStop,
         runHooks: skipArchive !== true
       })
     },
@@ -3070,7 +3068,7 @@ function createPtyApi(): NonNullable<Partial<PreloadApi>['pty']> {
     getSize: () => Promise.resolve(null),
     listSessions: () => Promise.resolve([]),
     getAuthoritativeBufferSnapshotCapabilities: (ids) =>
-      Promise.resolve(ids.map((id) => ({ id, authoritative: false }))),
+      ids.map((id) => ({ id, authoritative: false })),
     hasPty: () => Promise.resolve(null),
     getMainBufferSnapshot: () => Promise.resolve(null),
     // Why: remote-runtime PTYs skip local main (no side-effect source); renderer byte parsing stays authoritative.
@@ -3243,7 +3241,11 @@ async function callRuntimeResultWithOwner<TResult>(
   method: string,
   params?: unknown,
   timeoutMs?: number
-): Promise<{ result: TResult; hostId: ExecutionHostId; environmentId: string }> {
+): Promise<{
+  result: TResult
+  hostId: ExecutionHostId
+  environmentId: string
+}> {
   const environmentId = requireActiveEnvironment().id
   const result = await callRuntimeResult<TResult>(method, params, timeoutMs)
   return { result, hostId: toRuntimeExecutionHostId(environmentId), environmentId }

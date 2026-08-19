@@ -34,20 +34,7 @@ describe('usePersistedAiVaultViewOptions', () => {
     expect(restored.result.current.hideEmptySessions).toBe(true)
   })
 
-  it('allows clearing every agent so a single agent can be re-enabled', () => {
-    const hook = renderHook(() => usePersistedAiVaultViewOptions())
-
-    act(() => hook.result.current.setAllAgentsEnabled(false))
-    expect(hook.result.current.agents).toEqual([])
-
-    act(() => hook.result.current.setAgentEnabled('claude', true))
-    expect(hook.result.current.agents).toEqual(['claude'])
-
-    act(() => hook.result.current.setAllAgentsEnabled(true))
-    expect(hook.result.current.agents).toEqual([...AI_VAULT_AGENTS])
-  })
-
-  it('allows disabling the last remaining agent', () => {
+  it('keeps at least one agent enabled', () => {
     const hook = renderHook(() => usePersistedAiVaultViewOptions())
     const lastEnabled = AI_VAULT_AGENTS[0]
 
@@ -59,7 +46,7 @@ describe('usePersistedAiVaultViewOptions', () => {
     expect(hook.result.current.agents).toEqual([lastEnabled])
 
     act(() => hook.result.current.setAgentEnabled(lastEnabled, false))
-    expect(hook.result.current.agents).toEqual([])
+    expect(hook.result.current.agents).toEqual([lastEnabled])
   })
 
   it('keeps in-memory options usable when persistence fails', () => {

@@ -2,22 +2,8 @@ import type { IPtyProvider } from '../providers/types'
 import type { OrcaRuntimeService } from './orca-runtime'
 import { listRegisteredPtys } from '../memory/pty-registry'
 import { isPathInsideOrEqual } from '../../shared/cross-platform-path-resolution'
-import { splitWorktreeId, splitWorktreeIdForFilesystem } from '../../shared/worktree-id'
+import { splitWorktreeId, splitWorktreeIdForFilesystem } from '../../shared/worktree-id-parsing'
 import { mapWithConcurrency } from '../../shared/map-with-concurrency'
-import {
-  isUnstoppedPtyRemovalError,
-  WORKTREE_TEARDOWN_FORCE_HINT,
-  WORKTREE_TEARDOWN_TIMEOUT_PREFIX
-} from '../../shared/worktree-removal'
-import { settleBeforeDeadline } from './settle-before-deadline'
-import { createWorktreeSweepTracker, settleSweepsForForcedRemoval } from './forced-sweep-settlement'
-import {
-  describeError,
-  describeFailedPtySweep,
-  describeUnstoppedPtys,
-  verifyUnstoppedPtys,
-  type UnstoppedPtyVerdict
-} from './unstopped-pty-verification'
 
 // Why: normal inventories still coalesce into one process scan, while a stale
 // or pathological inventory cannot fan out unbounded provider/RPC shutdowns.
@@ -29,16 +15,7 @@ export type WorktreeTeardownDeps = {
   onPtyStopped?: (ptyId: string) => void
   timeoutMs?: number
   requirePhysicalStop?: boolean
-  /** Explicit Force Delete only: warn instead of throwing when a stop stays unproven (#11960). */
-  allowUnverifiedStop?: boolean
   includeLocalRegistry?: boolean
-  // Why: `repoId::path` ids repeat across hosts, so a destructive sweep names its
-  // owner (exact id + owning connection) or it stops a same-id workspace's terminals
-  // on another host. Absent, the runtime-graph sweep stays host-agnostic (#12388-parity).
-  resolvedWorktreeId?: string
-  resolvedConnectionId?: string
-  /** Set false to skip the provider inventory sweep — an external host's inventory must never sweep local sessions. */
-  includeProviderInventory?: boolean
 }
 
 export type WorktreeTeardownResult = {
@@ -49,10 +26,8 @@ export type WorktreeTeardownResult = {
 
 export const WORKTREE_PROCESS_SWEEP_TIMEOUT_MS = 10_000
 
-// Why: keep each bounded stop RPC settling before the sweep deadline itself, so
-// a wedged provider surfaces as a stop failure rather than as the outer timeout.
-// (The recheck this margin once also reserved time for now runs on its own
-// budget — see verifyUnstoppedPtys — because sharing this one wedged #11960.)
+// Why: reserve time after bounded stop RPCs to recheck whether a reported
+// failure actually left a live PTY before the outer sweep deadline (#10106).
 export const WORKTREE_TEARDOWN_RPC_MARGIN_MS = 500
 
 // Absolute deadline (epoch ms) threaded into provider RPCs on the destructive
@@ -82,21 +57,18 @@ export function teardownRpcDeadline(sweepDeadline: number): number {
  *
  * Sweeps are best-effort by default. Destructive removal callers set
  * `requirePhysicalStop` so a timeout or unproven stop blocks filesystem work.
- * `allowUnverifiedStop` waives that proof so the gate can never wedge a
- * workspace permanently (#11960) — it must come only from an explicit Force
- * Delete or `--force`, never from the `force` an ordinary confirmed delete
- * already sets to skip the dirty-file prompt.
  */
 export async function killAllProcessesForWorktree(
   worktreeId: string,
   deps: WorktreeTeardownDeps
 ): Promise<WorktreeTeardownResult> {
-  const sweepBudgetMs = Math.max(1, deps.timeoutMs ?? WORKTREE_PROCESS_SWEEP_TIMEOUT_MS)
-  const deadline = Date.now() + sweepBudgetMs
-  const deadlineError = new Error(
-    `${WORKTREE_TEARDOWN_TIMEOUT_PREFIX} ${worktreeId}. ${WORKTREE_TEARDOWN_FORCE_HINT}`
-  )
-  const sweeps = createWorktreeSweepTracker()
+  const result: WorktreeTeardownResult = {
+    runtimeStopped: 0,
+    providerStopped: 0,
+    registryStopped: 0
+  }
+  const deadline = Date.now() + Math.max(1, deps.timeoutMs ?? WORKTREE_PROCESS_SWEEP_TIMEOUT_MS)
+  const deadlineError = new Error(`Timed out waiting for physical PTY teardown: ${worktreeId}`)
   const stopAttempts = new Map<string, Promise<boolean>>()
   const stopPty = (
     ptyId: string,
@@ -125,16 +97,7 @@ export async function killAllProcessesForWorktree(
   // destructive removal closed (#9625).
   const runtimeSweep = deps.runtime
     ? settleBeforeDeadline(
-        sweeps.track(() =>
-          deps.runtime!.stopTerminalsForWorktree(worktreeId, {
-            deadline,
-            stopPty,
-            // Why: fence the runtime-graph sweep to the owning host so a same-id
-            // workspace on another connection keeps its terminals (#12388-parity).
-            ...(deps.resolvedWorktreeId ? { resolvedWorktreeId: deps.resolvedWorktreeId } : {}),
-            ...(deps.resolvedConnectionId ? { resolvedConnectionId: deps.resolvedConnectionId } : {})
-          })
-        ),
+        () => deps.runtime!.stopTerminalsForWorktree(worktreeId, { deadline, stopPty }),
         { stopped: 0 },
         deadline,
         deps.requirePhysicalStop ? deadlineError : undefined,
@@ -145,83 +108,44 @@ export async function killAllProcessesForWorktree(
           )
       )
     : Promise.resolve({ stopped: 0 })
-  const providerSweep =
-    deps.includeProviderInventory === false
-      ? Promise.resolve(0)
-      : settleBeforeDeadline(
-          sweeps.track(() =>
-            sweepProviderByPrefix(
-              worktreeId,
-              deps.localProvider,
-              deadline,
-              stopPty,
-              deps.onPtyStopped,
-              deps.requirePhysicalStop
-            )
-          ),
-          0,
-          deadline,
-          deps.requirePhysicalStop ? deadlineError : undefined
-        )
+  const providerSweep = settleBeforeDeadline(
+    () =>
+      sweepProviderByPrefix(
+        worktreeId,
+        deps.localProvider,
+        deadline,
+        stopPty,
+        deps.onPtyStopped,
+        deps.requirePhysicalStop
+      ),
+    0,
+    deadline,
+    deps.requirePhysicalStop ? deadlineError : undefined
+  )
   const registrySweep =
     deps.includeLocalRegistry === false
       ? Promise.resolve(0)
       : settleBeforeDeadline(
-          sweeps.track(() =>
+          () =>
             sweepRegistryForWorktree(
               worktreeId,
               deps.localProvider,
               deadline,
               stopPty,
               deps.onPtyStopped
-            )
-          ),
+            ),
           0,
           deadline,
           deps.requirePhysicalStop ? deadlineError : undefined
         )
-  // Why: a rejection here can outlive this call, and only one of the two paths
-  // below observes every promise, so mark them all handled up front.
-  for (const sweep of [runtimeSweep, providerSweep, registrySweep]) {
-    void sweep.catch(() => undefined)
-  }
-  let runtimeResult: { stopped: number }
-  let providerStopped: number
-  let registryStopped: number
-  if (deps.allowUnverifiedStop) {
-    const forced = await settleSweepsForForcedRemoval(
-      worktreeId,
-      { runtime: runtimeSweep, provider: providerSweep, registry: registrySweep },
-      sweeps,
-      deadlineError
-    )
-    if (forced.incomplete) {
-      return forced.stopped
-    }
-    runtimeResult = { stopped: forced.stopped.runtimeStopped }
-    providerStopped = forced.stopped.providerStopped
-    registryStopped = forced.stopped.registryStopped
-  } else {
-    // Why: without the waiver a rejection aborts the removal and nothing is
-    // deleted, so failing fast is safe — and keeps a dead host reporting
-    // immediately instead of after the full sweep budget.
-    try {
-      ;[runtimeResult, providerStopped, registryStopped] = await Promise.all([
-        runtimeSweep,
-        providerSweep,
-        registrySweep
-      ])
-    } catch (error) {
-      // Why (#11960): this rejection is the provider's own wording, which the force
-      // classifier cannot recognise — so the wedge Force Delete exists for was the one
-      // failure that never offered it. Re-word it, keeping the original as the cause.
-      throw deps.requirePhysicalStop && !isUnstoppedPtyRemovalError(describeError(error))
-        ? new Error(`${describeFailedPtySweep(worktreeId, error)}. ${WORKTREE_TEARDOWN_FORCE_HINT}`, {
-            cause: error
-          })
-        : error
-    }
-  }
+  const [runtimeResult, providerStopped, registryStopped] = await Promise.all([
+    runtimeSweep,
+    providerSweep,
+    registrySweep
+  ])
+  result.runtimeStopped = runtimeResult.stopped
+  result.providerStopped = providerStopped
+  result.registryStopped = registryStopped
   if (deps.requirePhysicalStop) {
     // Why: a bounded stop RPC can report failure for a PTY that has actually
     // already exited (e.g. Windows "Session not found"); recheck a fresh
@@ -231,28 +155,81 @@ export async function killAllProcessesForWorktree(
       [...stopAttempts].map(async ([ptyId, stopped]) => [ptyId, await stopped] as const)
     )
     const failedPtyIds = stopResults.filter(([, stopped]) => !stopped).map(([ptyId]) => ptyId)
-    const verdict: UnstoppedPtyVerdict =
-      failedPtyIds.length === 0
-        ? { status: 'exited' }
-        : await verifyUnstoppedPtys(failedPtyIds, deps.localProvider, sweepBudgetMs)
-    if (verdict.status === 'exited') {
-      for (const ptyId of failedPtyIds) {
-        clearStoppedPtyState(ptyId, deps.onPtyStopped)
-      }
-    } else {
-      const summary = describeUnstoppedPtys(worktreeId, failedPtyIds, verdict)
-      if (!deps.allowUnverifiedStop) {
-        throw new Error(`${summary}. ${WORKTREE_TEARDOWN_FORCE_HINT}`)
-      }
-      // Why: force is the documented escape hatch, so removal continues — but the
-      // registry rows stay put. Dropping them would unregister a PTY we just saw
-      // alive, so a retry could no longer find it and the user could never see it
-      // (the discoverability half of #11960).
-      console.warn(`[worktree-teardown] forcing removal despite unstopped PTYs — ${summary}`)
+    const failedPtysExited =
+      failedPtyIds.length === 0 ||
+      (await verifyFailedPtysExited(failedPtyIds, deps.localProvider, deadline))
+    if (!failedPtysExited) {
+      throw new Error(`Failed to physically stop every PTY for worktree: ${worktreeId}`)
+    }
+    for (const ptyId of failedPtyIds) {
+      clearStoppedPtyState(ptyId, deps.onPtyStopped)
     }
   }
 
-  return { runtimeStopped: runtimeResult.stopped, providerStopped, registryStopped }
+  return result
+}
+
+// Why: a stop RPC that reports failure may have raced a PTY that already
+// exited; a fresh inventory that omits it proves the leaf is gone. A missing
+// or timed-out inventory is treated as still-live so deletion fails closed.
+async function verifyFailedPtysExited(
+  failedPtyIds: readonly string[],
+  provider: IPtyProvider,
+  deadline: number
+): Promise<boolean> {
+  const sessions = await settleBeforeDeadline(
+    () => provider.listProcesses({ deadlineMs: deadline }),
+    null,
+    deadline
+  ).catch(() => null)
+  if (!sessions) {
+    return false
+  }
+  const livePtyIds = new Set(sessions.map((session) => session.id))
+  return failedPtyIds.every((ptyId) => !livePtyIds.has(ptyId))
+}
+
+async function settleBeforeDeadline<T>(
+  run: () => Promise<T>,
+  fallback: T,
+  deadline: number,
+  failClosedError?: Error,
+  failClosedOnRunError: (error: unknown) => boolean = () => true
+): Promise<T> {
+  const remaining = deadline - Date.now()
+  if (remaining <= 0) {
+    if (failClosedError) {
+      throw failClosedError
+    }
+    return fallback
+  }
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const finish = (value: T): void => {
+      if (settled) {
+        return
+      }
+      settled = true
+      clearTimeout(timer)
+      resolve(value)
+    }
+    const fail = (error: unknown): void => {
+      if (settled) {
+        return
+      }
+      settled = true
+      clearTimeout(timer)
+      reject(error)
+    }
+    const timer = setTimeout(
+      () => (failClosedError ? fail(failClosedError) : finish(fallback)),
+      remaining
+    )
+    timer.unref?.()
+    void run().then(finish, (error: unknown) =>
+      failClosedError && failClosedOnRunError(error) ? fail(error) : finish(fallback)
+    )
+  })
 }
 
 async function sweepProviderByPrefix(

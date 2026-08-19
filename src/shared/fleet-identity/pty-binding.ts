@@ -11,14 +11,6 @@
  * Persisting bindings into the live-PTY registry is R1 (§8.2b) and deliberately
  * belongs in main-owned `PersistedState`, never `GlobalSettings` — routing
  * safety state through the generic renderer settings IPC would expose it.
- *
- * NOT YET WIRED, and that is the intended state — R1 (§8) is the next unbuilt
- * phase, so this identity model is built ahead of the code that will consume it.
- * Nothing outside `src/shared/fleet-identity/` and its own tests imports the
- * directory. Say so here because the Rust port and the green `fleet-identity`
- * parity module make it look integrated from the outside: a cutover attempt
- * would be shimming code the app never calls. Verify with
- * `git grep -l "fleet-identity/" -- src mobile`.
  */
 
 import type { PtyIncarnationId } from '../pty-incarnation'

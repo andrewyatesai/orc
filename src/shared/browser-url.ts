@@ -1,15 +1,13 @@
 import { ORCA_BROWSER_BLANK_URL } from './constants'
-// `looksLikeSearchQuery` moved to `browser-search-query-detection.ts` on the
-// orca-dispatch seam; `normalizeBrowserNavigationUrl` below still calls it, once
-// per navigation. `buildSearchUrl` stays here — the core takes no options, so
-// crossing it would drop the Kagi private-session link.
-import { looksLikeSearchQuery } from './browser-search-query-detection'
-
-export { looksLikeSearchQuery }
 
 const LOCAL_ADDRESS_PATTERN =
   /^(?:localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[[0-9a-f:]+\])(?::\d+)?(?:[/?#].*)?$/i
 
+// Why: bare words like "react hooks" should trigger a search, but inputs that
+// look like domain names ("example.com", "foo.bar/path") should navigate directly.
+// A single-word input containing a dot with a valid TLD-like suffix is treated as
+// a URL attempt, not a search query.
+const LOOKS_LIKE_URL_PATTERN = /^[^\s]+\.[a-z]{2,}(\/.*)?$/i
 const WINDOWS_ABSOLUTE_PATH_PATTERN = /^[A-Za-z]:[\\/].*$/
 const WINDOWS_UNC_PATH_PATTERN = /^\\\\[^\s\\/]+[\\/][^\\/]+(?:[\\/].*)?$/
 const UNIX_ABSOLUTE_PATH_PATTERN = /^\/.*$/
@@ -226,6 +224,19 @@ export function buildSearchUrl(
     }
   }
   return `${SEARCH_ENGINE_URLS[engine]}${encodeURIComponent(query)}`
+}
+
+export function looksLikeSearchQuery(input: string): boolean {
+  if (input.includes(' ')) {
+    return true
+  }
+  if (LOOKS_LIKE_URL_PATTERN.test(input)) {
+    return false
+  }
+  if (input.includes('.') || input.includes(':')) {
+    return false
+  }
+  return true
 }
 
 function absolutePathToFileUrl(filePath: string): string {

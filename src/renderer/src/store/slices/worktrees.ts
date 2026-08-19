@@ -22,11 +22,10 @@ import type { RuntimeWorktreeListResult } from '../../../../shared/runtime-types
 import {
   findWorktreeById,
   applyWorktreeUpdates,
-  withoutErasedRequiredWorktreeFields,
   getRepoIdFromWorktreeId,
   type WorktreeSlice
 } from './worktree-helpers'
-import { splitWorktreeIdForFilesystem } from '../../../../shared/worktree-id'
+import { splitWorktreeIdForFilesystem } from '../../../../shared/worktree-id-parsing'
 import {
   remapClosedTerminalTabSnapshotCwds,
   type ClosedTerminalTabSnapshot
@@ -49,7 +48,6 @@ import {
 import { toRuntimeWorktreeSelector } from '../../runtime/runtime-worktree-selector'
 import { getHostedReviewCacheKey, refreshHostedReviewCard } from './hosted-review'
 import { routeListingBranchSwitchesThroughGitIdentity } from './worktree-listing-branch-switch'
-import { preserveConcurrentManualOrderInListing } from './worktree-listing-manual-order'
 import { isPositiveHostedReviewNumber } from '../../../../shared/hosted-review'
 import { getGitHubPRCacheKey, getLegacyGitHubPRCacheKey } from './github-cache-key'
 import { moveFocusToRendererBeforeFocusedWebviewHidden } from './browser-webview-cleanup'
@@ -59,7 +57,6 @@ import { forgetAgentHibernationTabOutput } from '@/lib/agent-hibernation-output-
 import { forgetForegroundTerminalTabs } from '@/lib/foreground-terminal-tabs'
 import { forgetAgentStartupDeliveriesForTabs } from '@/lib/agent-startup-delivery-guards'
 import { branchName } from '@/lib/git-utils'
-import { resolveWorktreeDisplayName } from '@/lib/worktree-default-display-name'
 import { markInputQuietSchedulerInput, scheduleAfterInputQuiet } from '@/lib/input-quiet-scheduler'
 import { clearSessionCommitDraftForWorktree } from '@/lib/source-control-commit-draft-session'
 import {
@@ -192,81 +189,37 @@ function shouldDeferActivationTerminalPrep(): boolean {
   return typeof window !== 'undefined' && import.meta.env.MODE !== 'test'
 }
 
-function localBaseRefRefreshFailureDetail(result: LocalBaseRefRefreshResult): string {
-  const ownerWorktreePath = result.ownerWorktreePath?.trim()
-  switch (result.status) {
-    case 'skipped_dirty_worktree':
-      // Create already succeeded — guide cleanup + manual base update, not "try again".
-      return ownerWorktreePath
-        ? translate(
-            'auto.store.slices.worktrees.localBaseRefRefreshFailedDetailDirtyNamed',
-            'The worktree at {{value0}} (where local {{value1}} is checked out) has uncommitted changes. Commit, stash, or discard those changes, then update local {{value1}} manually.',
-            { value0: ownerWorktreePath, value1: result.localBranch }
-          )
-        : translate(
-            'auto.store.slices.worktrees.localBaseRefRefreshFailedDetailDirty',
-            'The worktree where local {{value0}} is checked out has uncommitted changes. Commit, stash, or discard those changes, then update local {{value0}} manually.',
-            { value0: result.localBranch }
-          )
-    case 'skipped_not_fast_forward':
-      return translate(
-        'auto.store.slices.worktrees.localBaseRefRefreshFailedDetailNotFastForward',
-        'Local {{value0}} does not exist or cannot be fast-forwarded cleanly from the remote base. Check for local-only commits before updating it manually.',
-        { value0: result.localBranch }
-      )
-    case 'skipped_error':
-      return translate(
-        'auto.store.slices.worktrees.localBaseRefRefreshFailedDetailError',
-        'Git returned an error while updating local {{value0}}. Check the repo for locked refs or unusual worktree state, then update local {{value0}} manually.',
-        { value0: result.localBranch }
-      )
-    case 'updated':
-      return ''
-  }
-}
-
-function showLocalBaseRefRefreshToast(
-  result: LocalBaseRefRefreshResult | undefined,
-  createdWorktree?: Pick<Worktree, 'id' | 'displayName' | 'branch' | 'path'>
-): void {
+function showLocalBaseRefRefreshToast(result: LocalBaseRefRefreshResult | undefined): void {
   if (!result || result.status === 'updated') {
     return
   }
 
-  const worktreeName = createdWorktree ? resolveWorktreeDisplayName(createdWorktree).trim() : ''
-  const detail = localBaseRefRefreshFailureDetail(result)
+  let reason: string
+  switch (result.status) {
+    case 'skipped_dirty_worktree':
+      reason =
+        'the worktree where it is checked out has uncommitted changes. Commit, stash, or discard those changes, then try again.'
+      break
+    case 'skipped_not_fast_forward':
+      reason =
+        'the local branch does not exist or cannot be fast-forwarded cleanly from the remote base. Check for local-only commits before updating it manually.'
+      break
+    case 'skipped_error':
+      reason =
+        'Git returned an error while updating the local ref. Check the repo for locked refs or unusual worktree state, then try again.'
+      break
+  }
 
-  // Why: Infinity so create-time failures aren't buried; id is per worktree so each create stays attributable.
   toast.warning(
-    worktreeName
-      ? translate(
-          'auto.store.slices.worktrees.localBaseRefRefreshFailedForWorktree',
-          'Local {{value0}} was not refreshed for "{{value1}}"',
-          { value0: result.localBranch, value1: worktreeName }
-        )
-      : translate('auto.store.slices.worktrees.14bc053a47', 'Local {{value0}} was not refreshed', {
-          value0: result.localBranch
-        }),
+    translate('auto.store.slices.worktrees.14bc053a47', 'Local {{value0}} was not refreshed', {
+      value0: result.localBranch
+    }),
     {
-      id: `local-base-ref-refresh-failed:${createdWorktree?.id ?? 'unknown'}:${result.localBranch}`,
-      description: worktreeName
-        ? translate(
-            'auto.store.slices.worktrees.localBaseRefRefreshFailedDescriptionNamed',
-            'Workspace "{{value0}}" was created from {{value1}}, but Orca could not fast-forward local {{value2}}. {{value3}}',
-            {
-              value0: worktreeName,
-              value1: result.baseRef,
-              value2: result.localBranch,
-              value3: detail
-            }
-          )
-        : translate(
-            'auto.store.slices.worktrees.903b51c2ed',
-            'Workspace created from {{value0}}, but Orca could not fast-forward local {{value1}}. {{value2}}',
-            { value0: result.baseRef, value1: result.localBranch, value2: detail }
-          ),
-      duration: Infinity,
-      dismissible: true
+      description: translate(
+        'auto.store.slices.worktrees.903b51c2ed',
+        'Workspace created from {{value0}}, but Orca could not fast-forward local {{value1}} because {{value2}}',
+        { value0: result.baseRef, value1: result.localBranch, value2: reason }
+      )
     }
   )
 }
@@ -706,10 +659,8 @@ function notifyRuntimeScopeForbiddenIfNeeded(error: unknown): boolean {
 function applyDetectedWorktreeUpdates(
   detectedWorktreesByRepo: AppState['detectedWorktreesByRepo'],
   worktreeId: string,
-  rawUpdates: Partial<WorktreeMeta>
+  updates: Partial<WorktreeMeta>
 ): AppState['detectedWorktreesByRepo'] {
-  // Why: mirrors applyWorktreeUpdates — detected rows feed the same palette.
-  const updates = withoutErasedRequiredWorktreeFields(rawUpdates)
   let changed = false
   const nextByRepo: AppState['detectedWorktreesByRepo'] = {}
 
@@ -2478,21 +2429,13 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
         useLocalOwner && ownerSettings?.activeRuntimeEnvironmentId
           ? { ...ownerSettings, activeRuntimeEnvironmentId: null }
           : ownerSettings
-      const listing = await listDetectedWorktreesForRepoCoalesced(settings, repoId, {
+      const detected = await listDetectedWorktreesForRepoCoalesced(settings, repoId, {
         executionHostId: hostId,
         requireAuthoritative: options?.requireAuthoritative
       })
-      if (options?.requireAuthoritative && !listing.authoritative) {
+      if (options?.requireAuthoritative && !detected.authoritative) {
         return false
       }
-      const stateAtListing = get()
-      const listingMatchOptions = worktreeHostMatchOptions(stateAtListing, repoId, hostId)
-      const detected = preserveConcurrentManualOrderInListing(
-        listing,
-        requestStartedWorktrees,
-        stateAtListing.worktreesByRepo[repoId],
-        (worktree) => worktreeMatchesHost(worktree, hostId, listingMatchOptions)
-      )
       let incoming = toVisibleWorktrees(detected, hostId, setup)
       const latestState = get()
       if (repoHasExecutionHost(latestState, repoId, hostId, ownerWasMissingAtStart)) {
@@ -2636,18 +2579,10 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
           const hostId = getRepoExecutionHostId(r)
           const setup = getProjectHostSetupForRepoHost(requestStartedState, r.id, hostId)
           const settings = settingsForKnownRepoOwner(requestStartedState.settings, r)
-          const listing = await listDetectedWorktreesForRepoCoalesced(settings, r.id, {
+          const detected = await listDetectedWorktreesForRepoCoalesced(settings, r.id, {
             executionHostId: hostId,
             reuseRecentCompatibilityFailure: true
           })
-          const stateAtListing = get()
-          const listingMatchOptions = worktreeHostMatchOptions(stateAtListing, r.id, hostId)
-          const detected = preserveConcurrentManualOrderInListing(
-            listing,
-            requestStartedWorktrees,
-            stateAtListing.worktreesByRepo[r.id],
-            (worktree) => worktreeMatchesHost(worktree, hostId, listingMatchOptions)
-          )
           let incoming = toVisibleWorktrees(detected, hostId, setup)
           const latestState = get()
           if (repoHasExecutionHost(latestState, r.id, hostId, false)) {
@@ -2728,18 +2663,10 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
           const requestStartedWorktrees = requestStartedState.worktreesByRepo[r.id]
           const hostId = getRepoExecutionHostId(r)
           const setup = getProjectHostSetupForRepoHost(requestStartedState, r.id, hostId)
-          const listing = await listDetectedWorktreesForRepoCoalesced(
+          const detected = await listDetectedWorktreesForRepoCoalesced(
             settingsForKnownRepoOwner(requestStartedState.settings, r),
             r.id,
             { executionHostId: hostId, reuseRecentCompatibilityFailure: true }
-          )
-          const stateAtListing = get()
-          const listingMatchOptions = worktreeHostMatchOptions(stateAtListing, r.id, hostId)
-          const detected = preserveConcurrentManualOrderInListing(
-            listing,
-            requestStartedWorktrees,
-            stateAtListing.worktreesByRepo[r.id],
-            (worktree) => worktreeMatchesHost(worktree, hostId, listingMatchOptions)
           )
           let incoming = toVisibleWorktrees(detected, hostId, setup)
           const latestState = get()
@@ -3295,7 +3222,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
               sortEpoch: s.sortEpoch + 1
             }
           })
-          showLocalBaseRefRefreshToast(result.localBaseRefRefresh, result.worktree)
+          showLocalBaseRefRefreshToast(result.localBaseRefRefresh)
           showLocalBaseRefUpdateSuggestionToast(result.localBaseRefUpdateSuggestion, {
             updateSettings: get().updateSettings,
             getSettings: () => get().settings,
@@ -3459,13 +3386,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
         ? window.api.worktrees.forgetLocal({ worktreeId, hostId })
         : target.kind === 'local'
           ? (removalGenerationGuard?.assertCurrent(),
-            window.api.worktrees.remove({
-              worktreeId,
-              hostId,
-              force,
-              allowUnverifiedPtyStop: options?.allowUnverifiedPtyStop === true,
-              skipArchive
-            }))
+            window.api.worktrees.remove({ worktreeId, hostId, force, skipArchive }))
           : (removalGenerationGuard?.assertCurrent(),
             callRuntimeRpc<RemoveWorktreeResult>(
               target,
@@ -3473,7 +3394,6 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
               {
                 worktree: toRuntimeWorktreeSelector(worktreeId),
                 force,
-                allowUnverifiedPtyStop: options?.allowUnverifiedPtyStop === true,
                 runHooks: !skipArchive
               },
               { timeoutMs: 60_000 }
@@ -3785,11 +3705,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       // Why: git refusing a non-force delete for dirty/untracked files is a handled user decision, not an app error.
       console.warn('Failed to remove worktree:', err)
       const error = err instanceof Error ? err.message : String(err)
-      const forceDeleteReason = classifyWorktreeForceDeleteReason(
-        error,
-        force,
-        options?.allowUnverifiedPtyStop === true
-      )
+      const forceDeleteReason = classifyWorktreeForceDeleteReason(error, force)
       const locked = isLockedWorktreeRemovalError(error)
       set((s) => ({
         deleteStateByWorktreeId: {

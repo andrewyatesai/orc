@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  hasSleepableWorkspaceActivity,
   isContextWorktreeDeletable,
   shouldUseNativeContextMenu,
   shouldIgnoreNestedWorktreeContextMenuScope,
@@ -213,6 +214,28 @@ describe('parent picker context menu affordance', () => {
     } as HTMLElement
 
     expect(getWorktreeParentPickerAnchor(scope, 'child')).toBe(scope)
+  })
+})
+
+describe('hasSleepableWorkspaceActivity', () => {
+  it('treats preserved empty PTY arrays as slept, not live', () => {
+    expect(
+      hasSleepableWorkspaceActivity('wt-1', { 'wt-1': [{ id: 'tab-1' }] }, { 'tab-1': [] }, {})
+    ).toBe(false)
+  })
+
+  it('detects live terminal and browser activity', () => {
+    expect(
+      hasSleepableWorkspaceActivity(
+        'wt-1',
+        { 'wt-1': [{ id: 'tab-1' }] },
+        { 'tab-1': ['pty-1'] },
+        {}
+      )
+    ).toBe(true)
+    expect(hasSleepableWorkspaceActivity('wt-1', {}, {}, { 'wt-1': [{ id: 'browser-1' }] })).toBe(
+      true
+    )
   })
 })
 

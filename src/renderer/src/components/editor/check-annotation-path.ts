@@ -1,5 +1,9 @@
 import type { PRCheckAnnotation } from '../../../../shared/types'
-import { relativePathInsideRoot, resolveRuntimePath } from '../../../../shared/cross-platform-path-resolution'
+import {
+  relativePathInsideRoot,
+  resolveRuntimePath
+} from '../../../../shared/cross-platform-path-resolution'
+
 const WORKFLOW_PSEUDO_ANNOTATION_PATH = '.github'
 
 function isRootedAnnotationPath(path: string): boolean {

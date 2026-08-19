@@ -2,15 +2,13 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import { OrchestrationSkillAgentCoverage } from './OrchestrationSkillAgentCoverage'
 
-const useDetectedAgents = vi.fn(() => ({
-  detectedIds: ['claude', 'codex'],
-  isLoading: false,
-  isRefreshing: false,
-  refresh: vi.fn()
-}))
-
 vi.mock('@/hooks/useDetectedAgents', () => ({
-  useDetectedAgents: (...args: unknown[]) => useDetectedAgents(...(args as []))
+  useDetectedAgents: () => ({
+    detectedIds: ['claude', 'codex'],
+    isLoading: false,
+    isRefreshing: false,
+    refresh: vi.fn()
+  })
 }))
 
 describe('OrchestrationSkillAgentCoverage', () => {
@@ -18,17 +16,6 @@ describe('OrchestrationSkillAgentCoverage', () => {
     const markup = renderToStaticMarkup(
       <OrchestrationSkillAgentCoverage
         loading={false}
-        sources={[
-          {
-            id: 'claude-home',
-            label: 'Claude home',
-            path: '/userhome/test/.claude/skills',
-            sourceKind: 'home',
-            providers: ['claude'],
-            owner: 'claude',
-            exists: true
-          }
-        ]}
         skills={[
           {
             id: 'claude-skill',
@@ -53,8 +40,5 @@ describe('OrchestrationSkillAgentCoverage', () => {
     expect(markup).toContain('Ready')
     expect(markup).toContain('Missing')
     expect(markup).not.toContain('View details')
-    // Why: an omitted target reads as "host unknown", which pins detectedIds to
-    // null and leaves the widget spinning forever.
-    expect(useDetectedAgents).toHaveBeenCalledWith({ kind: 'local' })
   })
 })

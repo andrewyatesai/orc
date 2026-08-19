@@ -1,4 +1,4 @@
-import { exceedsRasterImagePreviewLimits } from './raster-image-base64-preview'
+import { readRasterImagePreviewDimensionsFromBase64 } from './raster-image-base64-preview'
 import { isKnownRasterImageMimeType } from './raster-image-preview-limits'
 
 // Builds an inline `data:` URI for base64 image bytes, shared by the desktop
@@ -19,9 +19,7 @@ export function buildImageDataUri(
   if (!cleaned) {
     return null
   }
-  // Only suppress when the header says the image is too large to render safely. An unreadable
-  // header is not evidence of an oversized image, and the decoder handles formats we cannot parse.
-  if (exceedsRasterImagePreviewLimits(cleaned, mimeType)) {
+  if (readRasterImagePreviewDimensionsFromBase64(cleaned, mimeType) === null) {
     return null
   }
   return `data:${mimeType};base64,${cleaned}`

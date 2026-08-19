@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => {
     repos: unknown[]
     settings: Record<string, unknown>
     activeGroupIdByWorktree: Record<string, string>
-    getKnownWorktreeById: ReturnType<typeof vi.fn>
     focusGroup: ReturnType<typeof vi.fn>
     activateTab: ReturnType<typeof vi.fn>
     setActiveTab: ReturnType<typeof vi.fn>
@@ -51,7 +50,6 @@ const mocks = vi.hoisted(() => {
     repos: [],
     settings: {},
     activeGroupIdByWorktree: { 'wt-1': 'group-1' },
-    getKnownWorktreeById: vi.fn(),
     focusGroup: vi.fn(),
     activateTab: vi.fn(),
     setActiveTab: vi.fn(),
@@ -103,7 +101,7 @@ function makeResult(
     groupId: 'group-1',
     contentType: 'terminal',
     title: 'Terminal',
-    secondaryText: '',
+    secondaryText: 'Terminal tab',
     repoName: 'repo/orca',
     worktreeName: 'Palette Worktree',
     titleRange: null,
@@ -154,11 +152,6 @@ describe('activateWorkspaceTabPaletteResult', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     resetStore()
-    mocks.store.getKnownWorktreeById.mockImplementation((worktreeId: string) =>
-      Object.values(mocks.store.worktreesByRepo)
-        .flat()
-        .find((worktree) => worktree.id === worktreeId)
-    )
     mocks.activateAndRevealWorktree.mockReturnValue(true)
     mocks.getRuntimeEnvironmentIdForWorktree.mockReturnValue('runtime-1')
     mocks.isWebRuntimeSessionActive.mockReturnValue(false)

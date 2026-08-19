@@ -86,17 +86,15 @@ export function sendSharedControlCleanupRequest(args: {
   method: string
   params: unknown
   send: (payload: unknown) => boolean
-}): string | null {
+}): void {
   // Why: cleanup is best-effort and often runs during teardown; send it
   // synchronously so close() cannot race the async request path.
-  const requestId = randomUUID()
-  const sent = args.send({
-    id: requestId,
+  args.send({
+    id: randomUUID(),
     deviceToken: args.deviceToken,
     method: args.method,
     params: args.params
   })
-  return sent ? requestId : null
 }
 
 export function replaySharedControlSubscriptions(args: {

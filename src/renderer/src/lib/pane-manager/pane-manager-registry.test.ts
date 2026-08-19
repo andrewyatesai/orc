@@ -1,10 +1,7 @@
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
-import { collectRendererMemoryProfileCounts } from '../renderer-memory-profile'
 import {
   forEachLivePaneForDesyncSentinel,
   getLivePaneCensus,
-  getLivePaneMemoryProfileCounts,
-  presentAllTerminalPanesWithoutAtlasClear,
   refitAndRefreshAllTerminalPanes,
   registerLivePaneManager,
   resetAndRefreshAllTerminalWebglAtlases,
@@ -115,46 +112,6 @@ describe('pane manager registry', () => {
     expect(broken.resetWebglTextureAtlases).toHaveBeenCalledTimes(1)
     expect(broken.refreshAllPanes).not.toHaveBeenCalled()
     expect(healthy.resetWebglTextureAtlases).toHaveBeenCalledTimes(1)
-    expect(healthy.refreshAllPanes).toHaveBeenCalledTimes(1)
-  })
-
-  it('presents every registered manager without resetting their atlases', () => {
-    const first = {
-      resetWebglTextureAtlases: vi.fn<() => void>(),
-      refreshAllPanes: vi.fn<() => void>()
-    }
-    const second = {
-      resetWebglTextureAtlases: vi.fn<() => void>(),
-      refreshAllPanes: vi.fn<() => void>()
-    }
-    registerLivePaneManager(first)
-    registeredManagers.push(first)
-    registerLivePaneManager(second)
-    registeredManagers.push(second)
-
-    presentAllTerminalPanesWithoutAtlasClear()
-
-    expect(first.refreshAllPanes).toHaveBeenCalledTimes(1)
-    expect(second.refreshAllPanes).toHaveBeenCalledTimes(1)
-    expect(first.resetWebglTextureAtlases).not.toHaveBeenCalled()
-    expect(second.resetWebglTextureAtlases).not.toHaveBeenCalled()
-  })
-
-  it('continues presenting later managers when one manager throws', () => {
-    const broken = {
-      refreshAllPanes: vi.fn<() => void>(() => {
-        throw new Error('pane disposed')
-      })
-    }
-    registerLivePaneManager(broken)
-    registeredManagers.push(broken)
-    const healthy = { refreshAllPanes: vi.fn<() => void>() }
-    registerLivePaneManager(healthy)
-    registeredManagers.push(healthy)
-
-    expect(() => presentAllTerminalPanesWithoutAtlasClear()).not.toThrow()
-
-    expect(broken.refreshAllPanes).toHaveBeenCalledTimes(1)
     expect(healthy.refreshAllPanes).toHaveBeenCalledTimes(1)
   })
 
@@ -276,73 +233,5 @@ describe('pane manager registry', () => {
     registeredManagers.push(healthy)
 
     expect(getLivePaneCensus()).toEqual({ managers: 2, panes: 1 })
-  })
-
-  it('estimates scrollback bytes from pane buffers, skipping non-buffer terminals', () => {
-    // 5000 rows x 200 cols x 16B/cell = 15.6MB -> 15625KB.
-    const buffered = {
-      resetWebglTextureAtlases: vi.fn<() => void>(),
-      getPanes: () => [
-        { id: 1, terminal: { cols: 200, buffer: { active: { length: 5000 } } } },
-        { id: 2, terminal: {} }
-      ]
-    }
-    registerLivePaneManager(buffered)
-    registeredManagers.push(buffered)
-
-    expect(getLivePaneMemoryProfileCounts()).toEqual({
-      managers: 1,
-      estPanes: 2,
-      estBufferKB: 15_625
-    })
-  })
-
-  it('bounds manager and pane sampling while extrapolating totals', () => {
-    let sampledPaneWrappers = 0
-    const managers = Array.from({ length: 100 }, () => ({
-      resetWebglTextureAtlases: vi.fn<() => void>(),
-      getPaneCount: vi.fn(() => 100),
-      getPanes: vi.fn((limit = 100) => {
-        const count = Math.min(limit, 100)
-        sampledPaneWrappers += count
-        return Array.from({ length: count }, (_, id) => ({
-          id,
-          terminal: { cols: 100, buffer: { active: { length: 64 } } }
-        }))
-      })
-    }))
-    for (const manager of managers) {
-      registerLivePaneManager(manager)
-      registeredManagers.push(manager)
-    }
-
-    expect(getLivePaneMemoryProfileCounts()).toEqual({
-      managers: 100,
-      estPanes: 10_000,
-      estBufferKB: 1_000_000
-    })
-    expect(managers.reduce((sum, manager) => sum + manager.getPaneCount.mock.calls.length, 0)).toBe(
-      64
-    )
-    expect(managers.reduce((sum, manager) => sum + manager.getPanes.mock.calls.length, 0)).toBe(3)
-    expect(sampledPaneWrappers).toBe(256)
-    expect(managers[0].getPanes).toHaveBeenCalledWith(256)
-    expect(managers[1].getPanes).toHaveBeenCalledWith(156)
-    expect(managers[2].getPanes).toHaveBeenCalledWith(56)
-    expect(managers[3].getPanes).not.toHaveBeenCalled()
-  })
-
-  it('contributes the pane census to renderer memory profile counts', () => {
-    const manager = {
-      resetWebglTextureAtlases: vi.fn<() => void>(),
-      getPanes: () => [{ id: 1, terminal: { cols: 100, buffer: { active: { length: 64 } } } }]
-    }
-    registerLivePaneManager(manager)
-    registeredManagers.push(manager)
-
-    const counts = collectRendererMemoryProfileCounts()
-    expect(counts['terminals.managers']).toBe(1)
-    expect(counts['terminals.estPanes']).toBe(1)
-    expect(counts['terminals.estBufferKB']).toBe(100)
   })
 })

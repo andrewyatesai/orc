@@ -23,7 +23,6 @@ import {
   type ParkVerdictFlipRecord
 } from './terminal-park-verdict-flip-telemetry'
 import { getTerminalParkingPolicyOverrides } from './terminal-parking-e2e-overrides'
-import { selectSleepingRecordParkExemptTabIds } from './sleeping-record-park-exemption'
 import {
   canWatcherCoverParkedTerminalTab,
   disposeParkedTerminalWatchersForWorktree,
@@ -81,13 +80,6 @@ export function useTerminalTabColdParking(args: {
   )
   const terminalRemoteParkingEnabled = useAppStore(
     (state) => state.settings?.terminalRemotePaneParking !== false
-  )
-  const sleepingAgentSessionsByPaneKey = useAppStore(
-    (state) => state.sleepingAgentSessionsByPaneKey
-  )
-  const sleepingRecordOwnedTabIds = useMemo(
-    () => selectSleepingRecordParkExemptTabIds(sleepingAgentSessionsByPaneKey, worktreeId),
-    [sleepingAgentSessionsByPaneKey, worktreeId]
   )
   const terminalTabHiddenSinceRef = useRef(new Map<string, number>())
   const terminalTabParkingTimersRef = useRef(new Map<string, number>())
@@ -231,14 +223,7 @@ export function useTerminalTabColdParking(args: {
           tabId: terminalTab.id
         }) !== null
       if (
-        (coldParkTerminalPanes ||
-          (!isVisible &&
-            coldParkedTerminalTabIds.has(terminalTab.id) &&
-            // Why: a pane owning a consumable sleeping-session record must stay
-            // mountable on an active worktree — parked it can never cold-restore,
-            // so the agent's resume strands until the user reveals the tab.
-            // Scoped to per-tab parks: the worktree-level park clears on activation.
-            !sleepingRecordOwnedTabIds.has(terminalTab.id))) &&
+        (coldParkTerminalPanes || (!isVisible && coldParkedTerminalTabIds.has(terminalTab.id))) &&
         !hasActivityTerminalPortal &&
         // Why: the hidden-measuring startup probe needs mounted panes; gate
         // here too so the reveal lands in the same render that starts it.
@@ -267,7 +252,6 @@ export function useTerminalTabColdParking(args: {
     activationDeferredMountTabIds,
     isWorktreeActive,
     shouldMeasureHiddenWorktree,
-    sleepingRecordOwnedTabIds,
     terminalTabs,
     worktreeId
   ])

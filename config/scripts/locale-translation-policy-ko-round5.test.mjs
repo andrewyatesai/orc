@@ -45,7 +45,7 @@ describe('locale-translation-policy ko round 5', () => {
         localeValue: '에이전트가 Orca CLI 사용 방법을 알 수 있도록 Orca 기술을 설치합니다.',
         locale: 'ko'
       })
-    ).toBe('에이전트가 Orca CLI를 사용하도록 Orca 스킬을 설치하세요.')
+    ).toBe('agents가 Orca CLI를 사용하도록 Orca 스킬을 설치하세요.')
     expect(
       repairTranslatedValue({
         key: 'auto.components.editor.MarkdownPreview.322afab6ff',
@@ -92,8 +92,7 @@ describe('locale-translation-policy ko round 5', () => {
     ).toBe('파이프라인')
   })
 
-  // Why: #12113 — brand names stay Latin, but generic workflow nouns keep their Korean.
-  it('keeps brand names English and generic workflow terms translated', () => {
+  it('keeps protected workflow terms in English', () => {
     expect(
       repairTranslatedValue({
         key: 'auto.components.feature.wall.BrowserAnimatedVisual.04096318ab',
@@ -101,7 +100,7 @@ describe('locale-translation-policy ko round 5', () => {
         localeValue: '터미널 1',
         locale: 'ko'
       })
-    ).toBe('터미널 1')
+    ).toBe('Terminal 1')
     expect(
       repairTranslatedValue({
         key: 'auto.components.skills.SkillsPage.38e0951c3a',
@@ -109,7 +108,7 @@ describe('locale-translation-policy ko round 5', () => {
         localeValue: '에이전트 스킬',
         locale: 'ko'
       })
-    ).toBe('에이전트 스킬')
+    ).toBe('Agent 스킬')
     expect(
       repairTranslatedValue({
         key: 'auto.components.LinearIssueMarkdownDescriptionEditor.d9c47069ef',
@@ -125,7 +124,7 @@ describe('locale-translation-policy ko round 5', () => {
         localeValue: '푸시되지 않은 커밋',
         locale: 'ko'
       })
-    ).toBe('푸시되지 않은 커밋')
+    ).toBe('푸시되지 않은 commits')
     expect(
       repairTranslatedValue({
         key: 'auto.components.workspace.cleanup.WorkspaceCleanupDialog.0b1766738a',
@@ -133,7 +132,7 @@ describe('locale-translation-policy ko round 5', () => {
         localeValue: '레포',
         locale: 'ko'
       })
-    ).toBe('레포')
+    ).toBe('Repo')
     expect(
       repairTranslatedValue({
         key: 'auto.components.sidebar.add.repo.local.start.actions.fb4fc5380e',
@@ -141,7 +140,7 @@ describe('locale-translation-policy ko round 5', () => {
         localeValue: '로컬 프로젝트, Git 저장소 또는 저장소가 많은 폴더',
         locale: 'ko'
       })
-    ).toBe('로컬 프로젝트, Git 저장소 또는 저장소가 많은 폴더')
+    ).toBe('로컬 프로젝트, Git repo 또는 repos가 많은 폴더')
   })
 
   it('re-glues Korean particles after Latin terms without gluing content words', () => {

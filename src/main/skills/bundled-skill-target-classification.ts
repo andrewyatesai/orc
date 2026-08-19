@@ -129,13 +129,10 @@ export async function classifyBundledSkillTarget(args: {
     const observed = await observeSkillPackage(topology.resolvedPath)
     // Why: a later release can reintroduce identical bytes, so exact current
     // identity wins over whichever snapshot the search happens to match.
-    // officialPaths scopes tolerance to what the current bundle owns, so an agent CLI's
-    // sidecar beside untouched official bytes stays replaceable instead of user-owned.
-    const officialPaths = new Set(args.entry.files.map((file) => file.path))
     const snapshot =
       observed.observedDigest === args.entry.packageDigest
         ? args.entry
-        : matchingKnownSnapshot(observed, knownSnapshots(args.artifacts, args.entry), officialPaths)
+        : matchingKnownSnapshot(observed, knownSnapshots(args.artifacts, args.entry))
     if (!snapshot) {
       return {
         state: 'unrecognized',

@@ -55,8 +55,7 @@ vi.mock('./gh-utils', () => ({
   release: releaseMock,
   _resetOwnerRepoCache: vi.fn(),
   classifyGhError: (stderr: string) => ({ type: 'unknown', message: stderr }),
-  classifyListIssuesError: (stderr: string) => ({ type: 'unknown', message: stderr }),
-  classifyListPrsError: (stderr: string) => ({ type: 'unknown', message: stderr })
+  classifyListIssuesError: (stderr: string) => ({ type: 'unknown', message: stderr })
 }))
 
 vi.mock('../git/runner', () => ({

@@ -50,8 +50,7 @@ export const WorktreeDetectedListParams = z.object({
 })
 
 export const WorktreePsParams = z.object({
-  limit: OptionalFiniteNumber,
-  afterSnapshotId: z.string().min(1).max(128).nullable().optional()
+  limit: OptionalFiniteNumber
 })
 
 export const WorktreeSortOrder = z.object({
@@ -192,10 +191,7 @@ export const WorktreePrefetchCreateBase = z.object({
 })
 
 export const WorktreeSet = WorktreeSelector.extend({
-  // Why: '' is the blanking contract — "fall back to the branch/folder name".
-  // OptionalString coerced it to undefined, so on remote/SSH hosts clearing the
-  // name was dropped here and the old name came back on the next refresh.
-  displayName: OptionalPlainString,
+  displayName: OptionalString,
   // Why: empty comments are meaningful metadata updates, so use the plain
   // string parser instead of OptionalString's empty-as-undefined behavior.
   comment: OptionalPlainString,
@@ -244,10 +240,6 @@ export const WorktreeSet = WorktreeSelector.extend({
 
 export const WorktreeRemove = WorktreeSelector.extend({
   force: OptionalBoolean,
-  // Why (#11960): the CLI's --force is an unambiguous force affordance, but the
-  // desktop sets `force` for an ordinary confirmed delete too, so the PTY-stop
-  // waiver travels on its own field.
-  allowUnverifiedPtyStop: OptionalBoolean,
   runHooks: OptionalBoolean
 })
 

@@ -1,10 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import {
-  briefToolArg,
-  describeToolInput,
-  summarizeToolInput,
-  toolFilePath
-} from './mobile-native-chat-tool-summary'
+import { briefToolArg, summarizeToolInput, toolFilePath } from './mobile-native-chat-tool-summary'
 
 describe('summarizeToolInput', () => {
   it('passes short strings through, collapsing whitespace', () => {
@@ -55,13 +50,6 @@ describe('toolFilePath', () => {
     expect(toolFilePath({ command: 'ls' })).toBeNull()
     expect(toolFilePath('x')).toBeNull()
     expect(toolFilePath(null)).toBeNull()
-  })
-})
-
-describe('describeToolInput', () => {
-  it('is re-exported and labels rows with the path or primary argument', () => {
-    expect(describeToolInput({ file_path: 'src/a.ts', offset: 3 })).toBe('src/a.ts')
-    expect(describeToolInput('{"cmd":"git status"}')).toBe('git status')
   })
 })
 

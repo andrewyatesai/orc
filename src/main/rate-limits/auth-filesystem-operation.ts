@@ -1,4 +1,5 @@
 import { parseWslUncPath } from '../../shared/wsl-unc-paths'
+
 const MAX_CONCURRENT_WSL_AUTH_OPERATIONS = 2
 const activeWslOperationDistros = new Set<string>()
 const queuedWslOperations: QueuedWslOperation<unknown>[] = []

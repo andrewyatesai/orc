@@ -15,7 +15,11 @@ import {
   X
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { collapseDefaultTuiAgentToBuiltin, filterEnabledTuiAgents, isTuiAgentEnabled } from '../../../../shared/tui-agent-selection-resolution'
+import {
+  collapseDefaultTuiAgentToBuiltin,
+  filterEnabledTuiAgents,
+  isTuiAgentEnabled
+} from '../../../../shared/tui-agent-selection-resolution'
 import type { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { installWindowVisibilityInterval } from '@/lib/window-visibility-interval'
@@ -66,7 +70,7 @@ import type { PreflightStatus } from '../../../../preload/api-types'
 import type { RuntimeStatus } from '../../../../shared/runtime-types'
 import type { TaskSourceContext } from '../../../../shared/task-source-context'
 import type { OrcaHooks, Repo, Worktree } from '../../../../shared/types'
-import { getWorktreePathBasenameFromId } from '../../../../shared/worktree-id'
+import { getWorktreePathBasenameFromId } from '../../../../shared/worktree-id-parsing'
 import {
   buildAutomationCronSchedule,
   buildAutomationRrule,

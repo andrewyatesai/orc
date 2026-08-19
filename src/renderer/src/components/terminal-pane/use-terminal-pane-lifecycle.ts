@@ -44,16 +44,12 @@ import type { LinkHandlerDeps } from './terminal-link-handlers'
 import type { TerminalPathExistsCache } from './terminal-path-exists-cache'
 import { handleOscLink } from './terminal-osc-link-routing'
 import { buildAtermPaneLinkContext } from './aterm-pane-link-context'
-import { resolveTerminalHttpLinkSourceOwner } from './terminal-http-link-source-owner'
 import type { AtermLinkContext } from '@/lib/pane-manager/aterm/aterm-url-link-routing'
 import {
   installHttpLinkClickFallback,
   type TerminalLinkRoutingPreferenceRequester
 } from './terminal-url-link-hit-testing'
-import {
-  resolveLocalhostHttpLinkDisplayUrl,
-  type HttpLinkSourceOwner
-} from '@/lib/http-link-routing'
+import { resolveLocalhostHttpLinkDisplayUrl } from '@/lib/http-link-routing'
 import type {
   GlobalSettings,
   SetupSplitDirection,
@@ -218,12 +214,8 @@ function reportActiveRendererPtyForPane(
   }
 }
 
-async function formatTerminalUrlTooltip(
-  url: string,
-  openLinkHint: string,
-  sourceOwner?: HttpLinkSourceOwner
-): Promise<string | null> {
-  const labeledUrl = await resolveLocalhostHttpLinkDisplayUrl(url, sourceOwner)
+async function formatTerminalUrlTooltip(url: string, openLinkHint: string): Promise<string | null> {
+  const labeledUrl = await resolveLocalhostHttpLinkDisplayUrl(url)
   if (!labeledUrl) {
     return null
   }
@@ -730,11 +722,6 @@ export function useTerminalPaneLifecycle({
         return ptyId ? getRemoteRuntimePtyEnvironmentId(ptyId) : null
       }
     }
-    // Why: http link routing (Orca tab vs system browser) is decided by the
-    // clicked pane's transport owner, not the global active runtime — a
-    // workspace-bound remote pane is remote even when no runtime is globally active.
-    const getSourceOwnerForPane = (paneId: number) =>
-      resolveTerminalHttpLinkSourceOwner(paneTransportsRef.current.get(paneId))
 
     // Pending file-link-opener install timers (per pane), cleared on teardown so
     // the bounded poll can't outlive the effect.
@@ -773,8 +760,7 @@ export function useTerminalPaneLifecycle({
             terminalHomePath,
             requestOpenLinksInAppPreference,
             getPaneLinkCwd,
-            getRuntimeEnvironmentIdForPane: linkDeps.getRuntimeEnvironmentIdForPane,
-            getSourceOwnerForPane
+            getRuntimeEnvironmentIdForPane: linkDeps.getRuntimeEnvironmentIdForPane
           },
           pane.id
         )
@@ -1259,7 +1245,6 @@ export function useTerminalPaneLifecycle({
         fileLinkClickFallbackDisposablesRef.current.set(pane.id, fileLinkClickFallbackDisposable)
         const httpLinkClickFallbackDisposable = installHttpLinkClickFallback(pane.terminal, {
           ...linkDeps,
-          getSourceOwner: () => getSourceOwnerForPane(pane.id),
           requestOpenLinksInAppPreference
         })
         httpLinkClickFallbackDisposables.set(pane.id, httpLinkClickFallbackDisposable)
@@ -1356,7 +1341,6 @@ export function useTerminalPaneLifecycle({
               ...linkDeps,
               startupCwd: getPaneLinkCwd(pane.id),
               runtimeEnvironmentId: linkDeps.getRuntimeEnvironmentIdForPane?.(pane.id) ?? null,
-              sourceOwner: getSourceOwnerForPane(pane.id),
               requestOpenLinksInAppPreference
             })
             // Why: link activation can steal focus before the click's mouseup reaches xterm, stranding its drag-select
@@ -1371,11 +1355,7 @@ export function useTerminalPaneLifecycle({
             const hoverToken = oscTooltipHoverToken
             pane.linkTooltip.textContent = `${text} (${urlOpenLinkHint})`
             pane.linkTooltip.style.display = ''
-            void formatTerminalUrlTooltip(
-              text,
-              urlOpenLinkHint,
-              getSourceOwnerForPane(pane.id)
-            ).then((nextText) => {
+            void formatTerminalUrlTooltip(text, urlOpenLinkHint).then((nextText) => {
               if (hoverToken === oscTooltipHoverToken && nextText) {
                 pane.linkTooltip.textContent = nextText
               }
@@ -1697,7 +1677,6 @@ export function useTerminalPaneLifecycle({
           runtimeEnvironmentId: activePane
             ? (linkDeps.getRuntimeEnvironmentIdForPane?.(activePane.id) ?? null)
             : null,
-          sourceOwner: activePane ? getSourceOwnerForPane(activePane.id) : { kind: 'local' },
           requestOpenLinksInAppPreference
         })
         // Why: Cmd/Ctrl+click on a plain-text URL takes focus away from the

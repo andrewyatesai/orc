@@ -18,9 +18,6 @@ import {
   exitTrailingEmptyOrderedListItem
 } from './rich-markdown-list-continuation'
 import { deleteAdjacentEmptyParagraph } from './rich-markdown-empty-paragraph-delete'
-import { handleRichMarkdownTableBackspace } from './rich-markdown-table-row-delete'
-import { handleRichMarkdownTableEnter } from './rich-markdown-table-enter'
-import { handleRichMarkdownTableTab } from './rich-markdown-table-tab'
 import { handleRichMarkdownCitationKey } from './rich-markdown-citation-keyboard'
 import type { RichMarkdownHtmlSuperscriptLinkContext } from './rich-markdown-html-superscript-link-context'
 import { handleRichMarkdownLinkShortcut } from './rich-markdown-link-shortcut'
@@ -132,8 +129,7 @@ export function createRichMarkdownKeyHandler(
         !isComposingMarkdownInput(event, ed) &&
         (convertEmptyNestedOrderedItemToContinuation(ed) ||
           collapseEmptyListContinuationParagraph(ed) ||
-          deleteAdjacentEmptyParagraph(ed, 'backward') ||
-          handleRichMarkdownTableBackspace(ed))
+          deleteAdjacentEmptyParagraph(ed, 'backward'))
       ) {
         event.preventDefault()
         return true
@@ -168,25 +164,12 @@ export function createRichMarkdownKeyHandler(
         event.preventDefault()
         return true
       }
-      // Why: table Enter (cell below / add row) must run before ProseMirror
-      // inserts an in-cell paragraph that GFM serialization cannot keep — but
-      // the slash/doc-link menus own Enter while open (their blocks run later).
-      if (
-        ed &&
-        !ctx.slashMenuRef.current &&
-        !ctx.docLinkMenuRef.current &&
-        !isComposingMarkdownInput(event, ed) &&
-        handleRichMarkdownTableEnter(ed)
-      ) {
-        event.preventDefault()
-        return true
-      }
     }
 
-    // Tab/Shift-Tab: table cell nav first, then list indent/outdent, code-block
-    // spaces, and prevent focus escaping the editor.
-    // When the slash menu or doc-link menu is open, Tab selects a row instead
-    // (handled in the menu blocks below).
+    // Tab/Shift-Tab: indent/outdent lists, insert spaces in code blocks,
+    // and prevent focus from escaping the editor. When the slash menu or
+    // doc-link menu is open, Tab selects a row instead (handled in the
+    // menu blocks below).
     if (event.key === 'Tab' && !ctx.slashMenuRef.current && !ctx.docLinkMenuRef.current) {
       event.preventDefault()
       const ed = ctx.editorRef.current
@@ -194,12 +177,6 @@ export function createRichMarkdownKeyHandler(
         return true
       }
       flushPendingProseMirrorSelection(ed)
-
-      // Why: Orca's Tab handler runs before TipTap Table shortcuts and used to
-      // always sink/lift lists, so table cell Tab/Shift-Tab never fired.
-      if (!isComposingMarkdownInput(event, ed) && handleRichMarkdownTableTab(ed, event.shiftKey)) {
-        return true
-      }
 
       if (event.shiftKey) {
         if (!ed.commands.liftListItem('listItem')) {

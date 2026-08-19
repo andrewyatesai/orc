@@ -6,8 +6,7 @@ import type { OrcaCloudAuthConfig } from '../../orca-profiles/profile-cloud-auth
 import { DeviceRegistry } from '../device-registry'
 import { RelayRevokeOutbox } from './relay-revoke-outbox'
 import type { MobilePairingConnectionContext, OrcaRuntimeRpcServer } from '../runtime-rpc'
-import { DesktopRelayService } from './desktop-relay-service'
-import { pairingAuthorizationForContext } from './relay-pairing-authorization'
+import { DesktopRelayService, pairingAuthorizationForContext } from './desktop-relay-service'
 
 const relayHostId = 'AbCdEf0123_-xyZ9'
 
@@ -65,49 +64,6 @@ describe('pairingAuthorizationForContext', () => {
         relayHostId
       )
     ).toThrow('stale_relay_connection')
-  })
-})
-
-describe('liveness safety net lifecycle', () => {
-  afterEach(() => vi.useRealTimers())
-
-  it('fences hard: the tick stops on fence and re-arms on the next auth mutation', async () => {
-    // Why: a tick surviving the pre-sign-out fence could catch the window
-    // before the profile wipe and briefly resurrect a broker.
-    vi.useFakeTimers()
-    const coordinator = {
-      reconcile: vi.fn(),
-      ensureLive: vi.fn(),
-      fenceAndCloseNow: vi.fn(),
-      stop: vi.fn()
-    }
-    const service = Object.create(DesktopRelayService.prototype) as DesktopRelayService
-    Object.assign(service, {
-      coordinator,
-      demandLedger: { nextPendingExpiry: () => null },
-      // Fork start() defers refreshDemand (which arms the net) until the E2EE identity is warm.
-      runtimeRpc: { resolveE2EEIdentity: () => Promise.resolve({ ok: true as const }) },
-      stopped: false,
-      livenessTimer: null,
-      demandExpiryTimer: null
-    })
-
-    service.start()
-    await vi.advanceTimersByTimeAsync(5 * 60_000)
-    expect(coordinator.ensureLive).toHaveBeenCalledTimes(1)
-
-    service.fenceAndCloseNow()
-    expect(coordinator.fenceAndCloseNow).toHaveBeenCalledOnce()
-    vi.advanceTimersByTime(30 * 60_000)
-    expect(coordinator.ensureLive).toHaveBeenCalledTimes(1)
-
-    service.authMutated()
-    vi.advanceTimersByTime(5 * 60_000)
-    expect(coordinator.ensureLive).toHaveBeenCalledTimes(2)
-
-    service.stop()
-    vi.advanceTimersByTime(30 * 60_000)
-    expect(coordinator.ensureLive).toHaveBeenCalledTimes(2)
   })
 })
 

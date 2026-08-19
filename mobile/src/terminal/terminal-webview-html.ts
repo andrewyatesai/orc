@@ -3,7 +3,6 @@ import type { RuntimeMobileTerminalTheme } from '../../../src/shared/runtime-typ
 import { colors } from '../theme/mobile-theme'
 import { TERMINAL_TEXT_SCALES } from '../storage/preferences'
 import { TERMINAL_PATH_TAP_JS } from './terminal-path-tap-injected'
-import { TERMINAL_KEYBOARD_AVOIDANCE_METRICS_JS } from './terminal-keyboard-avoidance-metrics-injected'
 import { XTERM_ENGINE_CSS, XTERM_ENGINE_JS } from './terminal-webview-engine.generated'
 import { TERMINAL_REFLOW_JS } from './terminal-webview-reflow-injected'
 import { TERMINAL_SURFACE_SWAP_JS } from './terminal-webview-surface-swap-injected'
@@ -12,7 +11,6 @@ import { TERMINAL_WEBVIEW_THEME_JS } from './terminal-webview-theme-injected'
 import { TERMINAL_QUERY_REPLY_JS } from './terminal-webview-query-reply-injected'
 import { URL_TAP_WEBVIEW_JS } from './terminal-webview-url-tap'
 import { TERMINAL_WEBGL_RECOVERY_JS } from './terminal-webview-webgl-recovery-injected'
-import { TERMINAL_WHEEL_SCROLL_JS } from './terminal-webview-wheel-scroll-injected'
 
 const DEFAULT_TERMINAL_THEME: RuntimeMobileTerminalTheme['theme'] = {
   background: colors.terminalBg,
@@ -38,13 +36,6 @@ const DEFAULT_TERMINAL_THEME: RuntimeMobileTerminalTheme['theme'] = {
   brightCyan: '#7dcfff',
   brightWhite: '#c0caf5'
 }
-
-export const MOBILE_TERMINAL_CARET_OPTIONS = {
-  cursorBlink: false,
-  cursorStyle: 'bar',
-  showCursorImmediately: true,
-  cursorInactiveStyle: 'block'
-} as const
 
 // Why: TUI escape codes assume the desktop's cols/rows, so init xterm at those dims and fit the phone via a measured CSS scale() instead of resizing.
 export const XTERM_HTML = `<!DOCTYPE html>
@@ -286,7 +277,6 @@ window.onerror = function(msg) {
         if (cols < MIN_FIT_COLS) return;
         var rows = Math.max(8, Math.floor(window.innerHeight / cellH));
         term.resize(cols, rows);
-        emitKeyboardAvoidanceMetrics();
       }
       applyFitScale('text-scale');
     });
@@ -698,7 +688,6 @@ ${TERMINAL_WEBGL_RECOVERY_JS}
     initRows = rows || 24;
     firstDataPending = true;
     smoothScrollOffsetY = 0;
-    wheelAccumDeltaY = 0;
     mouseModeScanTail = '';
     trackedMouseTrackingMode = 'none';
     sgrMouseMode = false;
@@ -735,12 +724,11 @@ ${TERMINAL_WEBGL_RECOVERY_JS}
       // Why: xterm suppresses parser-generated query replies when disableStdin
       // is true. Native accepts only validated reply grammars from onData.
       disableStdin: false,
-      cursorBlink: ${MOBILE_TERMINAL_CARET_OPTIONS.cursorBlink},
-      cursorStyle: ${JSON.stringify(MOBILE_TERMINAL_CARET_OPTIONS.cursorStyle)},
-      // Native TextInput owns focus; initialize xterm's otherwise-gated main-buffer caret.
-      showCursorImmediately: ${MOBILE_TERMINAL_CARET_OPTIONS.showCursorImmediately},
-      // A full inactive cell remains visible under the terminal's phone-fit scale.
-      cursorInactiveStyle: ${JSON.stringify(MOBILE_TERMINAL_CARET_OPTIONS.cursorInactiveStyle)},
+      cursorBlink: false,
+      cursorStyle: 'bar',
+      // Why: native TextInput owns mobile keyboard focus, so xterm stays inactive.
+      // Match its active bar while still honoring application cursor-hide sequences.
+      cursorInactiveStyle: 'bar',
       convertEol: false,
       allowProposedApi: true
     });
@@ -802,7 +790,6 @@ ${TERMINAL_WEBGL_RECOVERY_JS}
     if (!term) return;
     initRows = rows || initRows;
     term.resize(cols || term.cols, rows || term.rows);
-    emitKeyboardAvoidanceMetrics();
     applyFitScale('resize-msg');
     notify({ type: 'ready', cols: cols, rows: rows });
   }
@@ -959,7 +946,6 @@ ${TERMINAL_WEBGL_RECOVERY_JS}
       initialOscLinkEvictionReady = false;
       if (term) { term.clear(); term.reset(); }
       emitModesIfChanged();
-      emitKeyboardAvoidanceMetrics();
       resetEvictionCounter();
       if (selMode === 'select') {
         notify({ type: 'selection-evicted' });
@@ -1102,7 +1088,17 @@ ${TERMINAL_WEBGL_RECOVERY_JS}
     sgrMousePixelsMode: false
   };
 
-  ${TERMINAL_KEYBOARD_AVOIDANCE_METRICS_JS}
+  function emitKeyboardAvoidanceMetrics() {
+    if (!term) return;
+    var alt = false;
+    try { alt = term.buffer && term.buffer.active && term.buffer.active.type === 'alternate'; } catch (e) {}
+    notify({
+      type: 'keyboard-avoidance-metrics',
+      cursorY: term.buffer && term.buffer.active ? term.buffer.active.cursorY : 0,
+      rows: term.rows || 0,
+      altScreen: alt
+    });
+  }
 
   function attachTermObservers() {
     if (!term) return;
@@ -1638,10 +1634,6 @@ ${TERMINAL_WEBGL_RECOVERY_JS}
   // terminal-webview-tap-dispatch-injected.ts (extracted for max-lines).
   ${TERMINAL_TAP_DISPATCH_JS}
 
-  // External mouse / trackpad scroll: see
-  // terminal-webview-wheel-scroll-injected.ts (extracted for max-lines).
-  ${TERMINAL_WHEEL_SCROLL_JS}
-
   btnCopy.addEventListener('click', function(e) {
     e.preventDefault();
     e.stopPropagation();
@@ -1697,8 +1689,6 @@ ${TERMINAL_WEBGL_RECOVERY_JS}
     // replacement needs gesture handlers or tab-switch replays stop scrolling.
     targetSurface.addEventListener('mousedown', function(e) { e.preventDefault(); e.stopPropagation(); }, true);
     targetSurface.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); }, true);
-
-    attachSurfaceWheelHandler(targetSurface);
 
     targetSurface.addEventListener('touchstart', function(e) {
       if (dispatcherShouldBlockSurface()) return;

@@ -41,7 +41,6 @@ import { translate } from '@/i18n/i18n'
 import { AiVaultPanelHeader } from './AiVaultPanelHeader'
 import { AiVaultSessionVirtualList } from './AiVaultSessionVirtualList'
 import { useAiVaultSessionRefresh } from './ai-vault-session-refresh'
-import { useAiVaultSessionDeleteAction } from './ai-vault-session-delete-action'
 import {
   buildAiVaultHostScopeOptions,
   buildRuntimeAiVaultHostScopeOptions,
@@ -82,7 +81,6 @@ export default function AiVaultPanel(): React.JSX.Element {
     setGroup,
     setHideEmptySessions,
     setAgentEnabled,
-    setAllAgentsEnabled,
     resetViewOptions
   } = usePersistedAiVaultViewOptions()
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set())
@@ -144,7 +142,6 @@ export default function AiVaultPanel(): React.JSX.Element {
     scopePaths,
     executionHostScope
   )
-  const deleteSession = useAiVaultSessionDeleteAction({ refresh })
   // Deliberately blind to the active repo/worktree: rebuilding these ~500-entry
   // maps on every worktree switch is what made switching visibly slow (#10841 era).
   const sessionProjectById = useMemo(
@@ -323,7 +320,6 @@ export default function AiVaultPanel(): React.JSX.Element {
         onScopeChange={handleScopeChange}
         onExecutionHostScopeChange={onExecutionHostScopeChange}
         onAgentEnabledChange={setAgentEnabled}
-        onAllAgentsEnabledChange={setAllAgentsEnabled}
         onSortChange={setSort}
         onGroupChange={setGroup}
         onHideEmptySessionsChange={setHideEmptySessions}
@@ -353,7 +349,6 @@ export default function AiVaultPanel(): React.JSX.Element {
         loading={loading}
         sessionsCount={sessions.length}
         filteredSessionsCount={filteredSessions.length}
-        noAgentsSelected={agents.length === 0}
         error={error}
         vaultScope={scope}
         buildResumeStartup={launchActions.buildResumeStartup}
@@ -389,7 +384,6 @@ export default function AiVaultPanel(): React.JSX.Element {
             void window.api.shell.openPath(session.cwd)
           }
         }}
-        onDeleteSession={(session) => void deleteSession(session)}
       />
       {launchActions.continuationRequest && (
         <AgentSessionContinuationDialog

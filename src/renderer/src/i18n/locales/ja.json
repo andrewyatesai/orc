@@ -11724,7 +11724,8 @@
             "searchGitLab": "GitLab MR と Issue を検索",
             "searchBranches": "ブランチを検索",
             "searchLinear": "Linear Issue を検索",
-            "workspaceName": "ワークスペース名"
+            "workspaceName": "ワークスペース名",
+            "branchSearchFailed": "ブランチ検索に失敗したため、ブランチを一覧表示できません。"
           },
           "ProjectHostSetupCombobox": {
             "empty": "No hosts are ready for this project.",

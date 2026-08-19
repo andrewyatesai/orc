@@ -1,15 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { AlertCircle, FileCode2, LoaderCircle, Plus, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { useMountedRef } from '@/hooks/useMountedRef'
 import type { Repo, Worktree } from '../../../../shared/types'
-import { getRepoIdFromWorktreeId } from '../../../../shared/worktree-id'
+import { getRepoIdFromWorktreeId } from '../../../../shared/worktree-id-parsing'
 import {
   canInspectLocalMcpConfigRoot,
-  inspectMcpConfigContent,
   MCP_CONFIG_CANDIDATES,
   MCP_STARTER_CONFIG
 } from '../../../../shared/mcp-config'
+import {
+  getGitWasmAvailability,
+  subscribeGitWasmAvailability,
+  type GitWasmAvailability
+} from '../../lib/git-wasm/git-wasm-availability'
+import { inspectMcpConfigContent } from '../../lib/git-wasm/mcp-config-content-inspection'
 import { useAppStore } from '../../store'
 import { joinPath } from '../../lib/path'
 import { extractIpcErrorMessage } from '../../lib/ipc-error'
@@ -17,7 +22,10 @@ import { Button } from '../ui/button'
 import { isWindowsUserAgent } from '../terminal-pane/pane-helpers'
 import { McpConfigFileRow, type LoadedMcpConfigInspection } from './McpConfigFileRow'
 import { McpMissingConfigList } from './McpMissingConfigList'
-import { loadMcpConfigInspections } from './mcp-config-inspection'
+import {
+  loadMcpConfigInspections,
+  McpConfigInspectionUnavailableError
+} from './mcp-config-inspection'
 import { translate } from '@/i18n/i18n'
 import { captureDirectSshMutationExpectation } from '@/lib/ssh-mutation-expectation'
 
@@ -29,6 +37,13 @@ const EMPTY_WORKTREES: Worktree[] = []
 
 function countServers(configs: LoadedMcpConfigInspection[]): number {
   return configs.reduce((sum, config) => sum + config.servers.length, 0)
+}
+
+// `pending` resolves itself — the load below re-runs on the availability edge.
+function inspectionCoreMessage(availability: GitWasmAvailability): string {
+  return availability === 'unavailable'
+    ? 'MCP config inspection is unavailable in this session. Relaunch Orca to retry.'
+    : 'Preparing MCP config inspection.'
 }
 
 export function McpConfigSection({ repo }: McpConfigSectionProps): React.JSX.Element {
@@ -48,6 +63,13 @@ export function McpConfigSection({ repo }: McpConfigSectionProps): React.JSX.Ele
   const mountedRef = useMountedRef()
   const [inspectionUnavailableMessage, setInspectionUnavailableMessage] = useState<string | null>(
     null
+  )
+  // Third arg: this pane is server-rendered by RepositoryPane's search index, and
+  // the availability flag is a plain module read that is valid there too.
+  const coreAvailability = useSyncExternalStore(
+    subscribeGitWasmAvailability,
+    getGitWasmAvailability,
+    getGitWasmAvailability
   )
 
   const connectionId = repo.connectionId ?? undefined
@@ -140,7 +162,9 @@ export function McpConfigSection({ repo }: McpConfigSectionProps): React.JSX.Ele
       if (mountedRef.current) {
         setConfigs(missingInspections)
         setInspectionUnavailableMessage(
-          extractIpcErrorMessage(error, 'Unable to inspect MCP configs.')
+          error instanceof McpConfigInspectionUnavailableError
+            ? inspectionCoreMessage(coreAvailability)
+            : extractIpcErrorMessage(error, 'Unable to inspect MCP configs.')
         )
       }
     } finally {
@@ -148,7 +172,17 @@ export function McpConfigSection({ repo }: McpConfigSectionProps): React.JSX.Ele
         setLoading(false)
       }
     }
-  }, [connectionId, isWindows, missingInspections, mountedRef, sshConnectionStatus, targetRootPath])
+    // `coreAvailability` is a real dependency: it re-runs the load on the ready
+    // edge, which is what turns the not-ready refusal back into a real answer.
+  }, [
+    connectionId,
+    coreAvailability,
+    isWindows,
+    missingInspections,
+    mountedRef,
+    sshConnectionStatus,
+    targetRootPath
+  ])
 
   const clearCreateConfirmResetTimer = useCallback((): void => {
     if (createConfirmResetTimerRef.current !== null) {

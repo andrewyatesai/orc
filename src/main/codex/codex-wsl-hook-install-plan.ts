@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { posix as pathPosix, win32 as pathWin32 } from 'node:path'
 import { parseWslUncPath } from '../../shared/wsl-unc-paths'
+
 export type CodexWslRuntimeHookTarget = {
   runtime?: 'host' | 'wsl'
   wslDistro?: string | null

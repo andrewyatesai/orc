@@ -1,6 +1,5 @@
 import { recordTerminalWebglDiagnostic } from '../../../../shared/terminal-webgl-diagnostics'
 import type { AtermRainPulse } from '../../../../shared/aterm-rain-signal'
-import { registerRendererMemoryProfileContributor } from '../renderer-memory-profile'
 import type { PaneRenderingDiagnostics } from './pane-manager-types'
 
 type RegisteredPaneManager = {
@@ -8,7 +7,7 @@ type RegisteredPaneManager = {
   fitAllPanes?: () => void
   refreshAllPanes?: () => void
   getRenderingDiagnostics?: () => PaneRenderingDiagnostics[]
-  getPanes?: (limit?: number) => { id: number; terminal: unknown }[]
+  getPanes?: () => { id: number; terminal: unknown }[]
   getPaneCount?: () => number
 }
 
@@ -161,20 +160,6 @@ export function resetAndRefreshAllTerminalWebglAtlases(): void {
   }
 }
 
-/** Repaint every live pane from its current buffer WITHOUT the heavy
- *  re-rasterize reset. Used while the rate-cap suppresses a full atlas recovery:
- *  the live grid still presents, but the cross-manager scheduleDraw storm is
- *  skipped so a sustained stream can't churn every pane each settle. */
-export function presentAllTerminalPanesWithoutAtlasClear(): void {
-  for (const manager of liveManagers) {
-    try {
-      manager.refreshAllPanes?.()
-    } catch {
-      // A disposing manager must not block sibling panes from presenting.
-    }
-  }
-}
-
 /**
  * Per-pane WebGL renderer state across all live managers, for the one-paste
  * freeze report. Lets a post-wake garble report show, per pane, whether it
@@ -256,83 +241,3 @@ export function refitAndRefreshAllTerminalPanes(): void {
     }
   }
 }
-
-// Rough aterm grid-cell cost (packed cell + object overhead); ranking matters,
-// not accuracy.
-const BYTES_PER_TERMINAL_CELL = 16
-const BYTES_PER_KILOBYTE = 1024
-const MANAGER_SAMPLE_LIMIT = 64
-const PANE_SAMPLE_LIMIT = 256
-
-type BufferedTerminal = {
-  cols?: number
-  buffer?: { active?: { length?: number } }
-}
-
-/**
- * Memory-profile census over live pane managers. Mounted panes are the
- * dominant highwater cost the store census can't see (97b9e86d: heap ~1.3GB
- * while all store slices summed to ~15MB) — eviction-exempt panes accumulate
- * mounted forever, each retaining rows x cols of scrollback.
- */
-export function getLivePaneMemoryProfileCounts(): Record<string, number> {
-  let sampledManagers = 0
-  let paneCount = 0
-  let sampledPanes = 0
-  let sampledBufferBytes = 0
-  for (const manager of liveManagers) {
-    if (sampledManagers >= MANAGER_SAMPLE_LIMIT) {
-      break
-    }
-    sampledManagers += 1
-    const remainingPaneSamples = Math.max(0, PANE_SAMPLE_LIMIT - sampledPanes)
-    let managerPanes: { id: number; terminal: unknown }[] = []
-    try {
-      if (remainingPaneSamples > 0) {
-        managerPanes = manager.getPanes?.(remainingPaneSamples) ?? []
-      }
-    } catch {
-      managerPanes = []
-    }
-    let managerPaneCount: number | undefined
-    try {
-      managerPaneCount = manager.getPaneCount?.()
-    } catch {
-      managerPaneCount = undefined
-    }
-    paneCount +=
-      typeof managerPaneCount === 'number' && Number.isFinite(managerPaneCount)
-        ? Math.max(0, managerPaneCount)
-        : managerPanes.length
-    const panesToInspect = Math.min(managerPanes.length, remainingPaneSamples)
-    for (let index = 0; index < panesToInspect; index += 1) {
-      const pane = managerPanes[index]
-      const terminal = pane.terminal as BufferedTerminal | null | undefined
-      const rows = terminal?.buffer?.active?.length
-      const cols = terminal?.cols
-      if (
-        typeof rows === 'number' &&
-        Number.isFinite(rows) &&
-        rows > 0 &&
-        typeof cols === 'number' &&
-        Number.isFinite(cols) &&
-        cols > 0
-      ) {
-        sampledBufferBytes += rows * cols * BYTES_PER_TERMINAL_CELL
-      }
-    }
-    sampledPanes += panesToInspect
-  }
-  const managerScale = sampledManagers === 0 ? 0 : liveManagers.size / sampledManagers
-  const estPanes = Math.round(paneCount * managerScale)
-  const paneScale = sampledPanes === 0 ? 0 : estPanes / sampledPanes
-  return {
-    managers: liveManagers.size,
-    estPanes,
-    estBufferKB: Math.round((sampledBufferBytes * paneScale) / BYTES_PER_KILOBYTE)
-  }
-}
-
-// Why here: contributors push in (crash-diagnostics stays a leaf); same-name
-// re-registration on dev HMR overwrites, so no disposal hook is needed.
-registerRendererMemoryProfileContributor('terminals', getLivePaneMemoryProfileCounts)

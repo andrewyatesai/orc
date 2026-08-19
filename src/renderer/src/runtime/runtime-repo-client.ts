@@ -1,5 +1,8 @@
 import type { BaseRefSearchResult, GlobalSettings } from '../../../shared/types'
-import { legacyBaseRefSearchResult } from '../lib/git-wasm/base-ref-search-result'
+import {
+  BaseRefDetailsUnavailableError,
+  legacyBaseRefSearchResults
+} from '../lib/git-wasm/base-ref-search-result'
 import { callRuntimeRpc, getActiveRuntimeTarget } from './runtime-rpc-client'
 import { isRuntimeRepoRefSearchQueryWithinLimit } from './runtime-repo-search-bounds'
 import type { ExecutionHostId } from '../../../shared/execution-host'
@@ -73,5 +76,10 @@ export async function searchRuntimeRepoBaseRefDetails(
     refDetails?: BaseRefSearchResult[]
     truncated: boolean
   }>(target, 'repo.searchRefs', { repo: repoId, query, limit }, { timeoutMs: 15_000 })
-  return result.refDetails ?? result.refs.map(legacyBaseRefSearchResult)
+  const details = result.refDetails ?? legacyBaseRefSearchResults(result.refs)
+  if (!details) {
+    // Why: null is "cannot derive", not "no matches" — reject so the picker shows a failure instead of an empty branch list.
+    throw new BaseRefDetailsUnavailableError()
+  }
+  return details
 }

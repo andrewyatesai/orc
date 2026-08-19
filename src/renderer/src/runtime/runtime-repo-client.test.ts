@@ -6,6 +6,15 @@ import {
   searchRuntimeRepoBaseRefDetails,
   searchRuntimeRepoBaseRefs
 } from './runtime-repo-client'
+import type * as RuntimeRpcClient from './runtime-rpc-client'
+
+// Why: the legacy `refs`-only reply path needs a stubbed RPC; the rest of the
+// module (target resolution) must stay real so the existing cases still route.
+const callRuntimeRpcMock = vi.fn()
+vi.mock('./runtime-rpc-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof RuntimeRpcClient>()),
+  callRuntimeRpc: (...args: unknown[]) => callRuntimeRpcMock(...args)
+}))
 
 const getBaseRefDefault = vi.fn()
 const searchBaseRefs = vi.fn()
@@ -76,5 +85,33 @@ describe('runtime repo client search bounds', () => {
       limit: 20,
       hostId: 'ssh:server'
     })
+  })
+})
+
+describe('legacy refs-only replies when the derivation core is unavailable', () => {
+  it('rejects rather than resolving to rows the picker would read as real', async () => {
+    // No init-git-wasm-for-test import in this file, so the core is not ready —
+    // the same state a terminally failed wasm load leaves the renderer in.
+    callRuntimeRpcMock.mockResolvedValue({ refs: ['origin/main'], truncated: false })
+
+    await expect(
+      searchRuntimeRepoBaseRefDetails({ activeRuntimeEnvironmentId: 'env-1' }, 'repo-1', 'main', 20)
+    ).rejects.toThrow(/git core failed to load/)
+  })
+
+  it('does not degrade into the empty result set that means "no branches matched"', async () => {
+    callRuntimeRpcMock.mockResolvedValue({ refs: ['origin/main'], truncated: false })
+
+    const outcome = await searchRuntimeRepoBaseRefDetails(
+      { activeRuntimeEnvironmentId: 'env-1' },
+      'repo-1',
+      'main',
+      20
+    ).then(
+      (results) => ({ resolved: results }),
+      () => ({ resolved: null })
+    )
+
+    expect(outcome.resolved).toBeNull()
   })
 })

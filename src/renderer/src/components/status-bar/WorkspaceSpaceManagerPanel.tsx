@@ -1603,8 +1603,7 @@ export function WorkspaceSpaceManagerPanel(): React.JSX.Element {
       // Why: Space keeps normal deletes non-force so uncommitted work is not
       // discarded silently; a failed row gets this explicit recovery path.
       const commitFocus = prepareActiveWorktreeFocusAfterDelete(worktree.worktreeId)
-      // Why (#11960): explicit force recovery, so it may also waive PTY-stop proof.
-      void removeWorktree(worktree.worktreeId, true, { allowUnverifiedPtyStop: true })
+      void removeWorktree(worktree.worktreeId, true)
         .then((result) => {
           if (!result.ok) {
             toast.error(

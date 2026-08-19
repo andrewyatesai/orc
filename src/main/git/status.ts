@@ -54,7 +54,6 @@ import { getLargeDiffRenderLimit } from '../../shared/large-diff-render-limit'
 import { InFlightPromiseDedupe, stableInFlightKey } from '../../shared/in-flight-promise-dedupe'
 import type { GitRuntimeOptions } from './git-runtime-options'
 import { gitOptionsForWorktree } from './git-runtime-options'
-import { GitStatusReadLeaseOwner } from './git-status-read-lease-owner'
 import { parseGitRevListFirstParentOid } from '../../shared/git-rev-list-output'
 import {
   beginGitStatusLineStatsCacheWrite,
@@ -101,12 +100,12 @@ const effectiveUpstreamStatusInFlight = new Map<string, Promise<GitUpstreamStatu
 const retiredEffectiveUpstreamStatusInFlight = new Map<string, Promise<GitUpstreamStatus>>()
 const gitDiffReadDedupe = new InFlightPromiseDedupe<GitDiffResult>()
 const effectiveUpstreamStatusWriteGeneration = new Map<string, number>()
-const statusReadLeaseOwner = new GitStatusReadLeaseOwner<GitStatusResult>()
+const statusReadsInFlight = new Map<string, Promise<GitStatusResult>>()
 
 // Why: clear both diff and status in-flight caches; clearing only diff would let getStatus() join a pre-mutation read.
 export function invalidateGitReadCaches(): void {
   gitDiffReadDedupe.clear()
-  statusReadLeaseOwner.invalidate()
+  statusReadsInFlight.clear()
   clearGitStatusLineStatsCache()
   clearSubmodulePathsCache()
   resolvedUpstreamNameCache.clear()
@@ -219,12 +218,25 @@ export async function getStatus(
   options: GetStatusOptions = {}
 ): Promise<GitStatusResult> {
   gitDiffReadDedupe.clear()
-  // Why: coalesce even cancellable reads onto one physical scan — the shared read
-  // runs on its own signal and only aborts once every live caller has cancelled.
+  if (options.signal) {
+    return runGetStatus(worktreePath, options)
+  }
+  // Why: dedupe only concurrent identical reads; after settle, callers must run a fresh read.
   const cacheKey = getStatusReadKey(worktreePath, options)
-  return statusReadLeaseOwner.lease(cacheKey, options.signal, (sharedSignal) =>
-    runGetStatus(worktreePath, { ...options, signal: sharedSignal })
-  )
+  const inFlightStatus = statusReadsInFlight.get(cacheKey)
+  if (inFlightStatus) {
+    return inFlightStatus
+  }
+
+  const statusPromise = runGetStatus(worktreePath, options)
+  statusReadsInFlight.set(cacheKey, statusPromise)
+  try {
+    return await statusPromise
+  } finally {
+    if (statusReadsInFlight.get(cacheKey) === statusPromise) {
+      statusReadsInFlight.delete(cacheKey)
+    }
+  }
 }
 
 function getStatusReadKey(worktreePath: string, options: GetStatusOptions): string {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import * as crossPlatformPath from '../../../shared/cross-platform-path-resolution'
+import * as pathResolution from '../../../shared/cross-platform-path-resolution'
 import {
   WORKSPACE_FILE_PATHS_MIME,
   WORKSPACE_FILE_PATH_MIME,
@@ -9,7 +9,7 @@ import {
 } from './workspace-file-drag'
 
 vi.mock('../../../shared/cross-platform-path-resolution', async (importOriginal) => {
-  const actual = await importOriginal<typeof crossPlatformPath>()
+  const actual = await importOriginal<typeof pathResolution>()
   return {
     ...actual,
     normalizeRuntimePathForComparison: vi.fn(actual.normalizeRuntimePathForComparison)
@@ -61,9 +61,7 @@ describe('workspace file drag payloads', () => {
   })
 
   it('normalizes each accepted path once while pruning Windows-style nested duplicates', () => {
-    const normalizePathForComparison = vi.mocked(
-      crossPlatformPath.normalizeRuntimePathForComparison
-    )
+    const normalizePathForComparison = vi.mocked(pathResolution.normalizeRuntimePathForComparison)
     normalizePathForComparison.mockClear()
     const transfer = new FakeDataTransfer()
     const paths = [

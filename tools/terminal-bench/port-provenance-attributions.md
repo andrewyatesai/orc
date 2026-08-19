@@ -54,6 +54,76 @@ divergence under a green checkmark.
 | `orca-terminal::color_scheme_protocol` | mode-2031 reply-decision scan API, withdrawn-toggle handling (2dac0741b) | scan API absent | re-port the reply-decision scan |
 | `orca-core::protocol_version` | +10 runtime capabilities across 12 commits (versions still 3/2/2) | capability list stale at 7 entries | sync constants; only a daemon test + dispatch adapter consume the Rust list today, so risk is drift-at-a-distance, not live breakage |
 
+#### Correction (2026-08-15): the list was five short of complete
+
+`src/shared/synthetic-agent-title.ts` was re-pinned to HEAD in the attribution
+table below, citing 88068f55b ("Preserve native OpenCode session titles", #9080)
+as absorbed. It was not: `orca-core::synthetic_agent_title` still knew 5 of the
+twin's 8 agents and had neither `titleIdentityGroup` nor
+`synthesizeTerminalTitle`, so it answered `"OpenCode ready"` where the twin
+answers `null`. The row belonged in this table on 08-13, and the verification
+sentence above — "every vector-backed module in the drift set is therefore
+behaviorally in sync at HEAD" — is a coverage claim, not a fidelity one: the
+corpus had no vector for any of it. The re-port landed 2026-08-15 (14 derived
+divergences → 0, corpus 13 → 37 cases), so the pin is correct **now** and is
+deliberately left alone rather than moved back and re-pinned. Two more rows in
+the same table were in the same state and have since been re-ported by parallel
+work (`tab-title-resolution`, `workspace-session-terminal-buffers`).
+Run `pnpm parity:twin-derived` before believing any "absorbed" attribution.
+
+The `workspace-session-terminal-buffers` row (`src/shared/…`, re-pinned to
+39964149c citing e05223005, "perf(P5): stream deep scrollback restore past the
+512KB sync replay limit") is the sharpest instance, because the cited commit is
+the one that was NOT absorbed. e05223005 is what moved the cap from
+`buffer.slice(-LIMIT)` to `clampUtf8TextTail(buffer, BYTE_LIMIT)` and added the
+`opts.bufferByteLimit` override; the Rust core kept the UTF-16 slice, so it
+persisted 2× the intended payload for accented text and 3× for CJK. A separate
+un-absorbed change hid in the same row — `executionHostId` on the repo shape, so
+runtime-host panes had the only scrollback they can restore from deleted. On
+08-13 the row belonged in the NOT-re-pinned table above, owed "re-port the
+byte-unit cap + the execution-host branch". **Do not move it now**: the re-port
+landed 2026-08-15 (1 derived divergence → 0, corpus 8 → 29 cases), so the pin is
+correct at HEAD, and moving the row back would re-open a gate on work that is
+done. Recorded here so the next reader knows the 08-13 attribution was wrong
+rather than lucky.
+
+The `tab-title-resolution` row (`src/shared/tab-title-resolution.ts`, re-pinned
+to 00f384966 citing f8b57aac5 + 88068f55b) is the third instance, and again the
+cited commit is the un-absorbed one. 88068f55b added the native-OpenCode step
+between the quick-command label and the generated title; neither Rust resolver
+had it, and the sibling twin it calls, `src/shared/opencode-terminal-title.ts`,
+was not ported at all — that file is not in the manifest under any module, so no
+gate was watching it. On 08-13 the row belonged in the NOT-re-pinned table above,
+owed "re-port both resolvers + port `isOpenCodeNativeTitle`". **Do not move it
+now**: the re-port landed 2026-08-15 (`resolveTerminalTabTitle` with
+`title: 'OC | Native Stable Session'` answers the session title again; corpus
+17 → 47 cases, twin-derived stale 0), so the pin is correct at HEAD. What a
+regeneration SHOULD change: the `tab-title-resolution` entry pins exactly one
+file per side, so add `src/shared/opencode-terminal-title.ts` to its `ts` list
+and `rust/crates/orca-core/src/opencode_terminal_title.rs` to its `rust` list.
+Otherwise the next drift in the predicate is invisible — it would hide behind a
+resolver file that did not move.
+
+The `mcp` / `mcp-env` row (`src/shared/mcp-config.ts`, re-pinned to 879aad7dd
+citing "oom(foundation): bound shared readers/limits + add BoundedMap primitive",
+#10299) is the fourth. That commit is exactly the one the port did not absorb: it
+added all four MCP inspection bounds, and `orca-config::mcp` had none of them, so
+a 300-server config read `valid` with 300 summaries where the twin reads
+`invalid` with `servers: []`, and a 300 KiB config was parsed where the twin
+refuses it before `JSON.parse`. On 08-13 the row belonged in the NOT-re-pinned
+table above, owed "re-port the four inspection bounds". **Do not move it now**:
+the re-port landed 2026-08-15 (7 derived divergences → 0 stale, corpus 9 → 30
+cases), so the pin is correct at HEAD. What a regeneration SHOULD change: both
+modules pin `src/shared/mcp-config.ts` and nothing else, but the behaviour lives
+in two siblings the manifest does not track at all —
+`src/shared/mcp-server-inspection.ts` (`summarizeMcpServer`, `inspectMcpEnv`,
+`maskMcpEnv`: every per-server bound and the `String(x)` env coercion) and
+`src/shared/mcp-config-inspection-limits.ts` (the caps themselves). Both moved in
+879aad7dd and neither could have reported drift. Add them to the `ts` list of
+`mcp`, add `mcp-server-inspection.ts` + `mcp-config-inspection-limits.ts` to
+`mcp-env`, and add `rust/crates/orca-text/src/mcp_config_inspection_limits.rs` to
+the `rust` list of both.
+
 ### Registered by this regeneration
 
 - `fleet-exceptions`, `fleet-identity`, `task-claim` — new parity modules from

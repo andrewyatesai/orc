@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { PAIRING_OFFER_VERSION } from './pairing'
 import { encodePairingOffer } from './pairing-deep-link'
+import { PAIRING_OFFER_VERSION } from './pairing'
 import {
   EphemeralVmRuntimeStoreError,
   getEphemeralVmRuntimeStorePath,

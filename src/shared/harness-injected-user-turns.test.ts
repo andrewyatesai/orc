@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  isCompactContinuationUserTurnText,
-  isKnownHarnessInjectedUserTurnText
-} from './harness-injected-user-turns'
+import { isKnownHarnessInjectedUserTurnText } from './harness-injected-user-turns'
 
 describe('isKnownHarnessInjectedUserTurnText', () => {
   it('matches every known harness tag, including attribute-carrying forms', () => {
@@ -104,21 +101,5 @@ describe('isKnownHarnessInjectedUserTurnText', () => {
     expect(
       isKnownHarnessInjectedUserTurnText('<channel>general</channel> explain this feed element')
     ).toBe(false)
-  })
-})
-
-describe('isCompactContinuationUserTurnText', () => {
-  it('matches only the post-compaction continuation prompt (case/space-insensitive)', () => {
-    expect(
-      isCompactContinuationUserTurnText(
-        '  This session is being continued from a previous conversation that ran out of context.'
-      )
-    ).toBe(true)
-    // A real user turn that merely mentions continuation is not the harness prompt.
-    expect(isCompactContinuationUserTurnText('continue from where we left off')).toBe(false)
-    // Other harness-injected turns are not the compact continuation.
-    expect(isCompactContinuationUserTurnText('<system-reminder>context</system-reminder>')).toBe(
-      false
-    )
   })
 })

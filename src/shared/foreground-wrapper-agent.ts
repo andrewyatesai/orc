@@ -3,6 +3,7 @@ import {
   type RecognizedAgentProcess
 } from './agent-process-recognition'
 import { getSyntheticAgentTitleProfile } from './synthetic-agent-title-resolution'
+
 export type ForegroundAgentCandidate = {
   pid: number
   ppid: number

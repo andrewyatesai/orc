@@ -116,8 +116,7 @@ async function collectRuntimePtyLiveness(state: AppState): Promise<RuntimePtyLiv
           {
             worktree: toRuntimeWorktreeSelector(worktreeId),
             limit: 10_000,
-            requireFreshPtyLiveness: true,
-            includeVisualLayouts: false
+            requireFreshPtyLiveness: true
           },
           { timeoutMs: 10_000 }
         )

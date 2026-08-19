@@ -16,9 +16,6 @@ export type PreflightSlice = {
   preflightStatusError: string | null
 
   refreshPreflightStatus: (options?: { force?: boolean }) => Promise<void>
-  /** Drops any cached/in-flight preflight result so a runtime session that just
-   * went unreachable stops reporting the last host's git/gh state. */
-  invalidatePreflightStatus: () => void
 }
 
 let nonForcedPreflightRequest: { key: string; promise: Promise<void> } | null = null
@@ -53,19 +50,6 @@ export const createPreflightSlice: StateCreator<AppState, [], [], PreflightSlice
   preflightStatusContextKey: null,
   preflightStatusLoading: false,
   preflightStatusError: null,
-
-  invalidatePreflightStatus: () => {
-    latestPreflightRequestId += 1
-    nonForcedPreflightRequest = null
-    forcedPreflightRequest = null
-    set({
-      preflightStatus: null,
-      preflightStatusChecked: false,
-      preflightStatusContextKey: null,
-      preflightStatusLoading: false,
-      preflightStatusError: null
-    })
-  },
 
   refreshPreflightStatus: async (options) => {
     const force = options?.force === true

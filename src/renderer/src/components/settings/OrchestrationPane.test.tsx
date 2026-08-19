@@ -10,8 +10,6 @@ import { OrchestrationPane } from './OrchestrationPane'
 const INSTALL_COMMAND =
   'npx skills add https://github.com/andrewyatesai/orca-alab --skill orchestration --global'
 const UPDATE_COMMAND = INSTALL_COMMAND
-const WINDOWS_INSTALL_COMMAND =
-  'cmd.exe /d /s /c "where.exe npx >nul 2>nul & if errorlevel 1 (echo ERROR: npx was not found. Install Node.js LTS from https://nodejs.org/ to get npx. & echo Then close this terminal and start skill setup again - a new terminal picks up the updated PATH. & exit /b 1) else (npx skills add https://github.com/andrewyatesai/orca-alab --skill orchestration --global)"'
 
 const mocks = vi.hoisted(() => ({
   dialogProps: [] as Record<string, unknown>[],
@@ -70,17 +68,6 @@ vi.mock('@/hooks/useInstalledAgentSkills', () => ({
         installed: true,
         fileCount: 1,
         updatedAt: null
-      }
-    ],
-    sources: [
-      {
-        id: 'home-claude',
-        label: 'Claude home',
-        path: '/userhome/test/.claude/skills',
-        sourceKind: 'home',
-        providers: ['claude'],
-        owner: 'claude',
-        exists: true
       }
     ],
     refresh: vi.fn()
@@ -179,8 +166,8 @@ describe('OrchestrationPane', () => {
 
     expect(mocks.panelProps.at(-1)).toEqual(
       expect.objectContaining({
-        command: WINDOWS_INSTALL_COMMAND,
-        installedCommand: WINDOWS_INSTALL_COMMAND
+        command: INSTALL_COMMAND,
+        installedCommand: UPDATE_COMMAND
       })
     )
 
@@ -215,10 +202,10 @@ describe('OrchestrationPane', () => {
 
     expect(mocks.dialogProps.at(-1)).toEqual(
       expect.objectContaining({
-        command: WINDOWS_INSTALL_COMMAND,
+        command: INSTALL_COMMAND,
         open: true
       })
     )
-    expect(rendered.textContent).toContain(WINDOWS_INSTALL_COMMAND)
+    expect(rendered.textContent).toContain(INSTALL_COMMAND)
   })
 })

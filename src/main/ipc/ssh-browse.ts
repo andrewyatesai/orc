@@ -2,7 +2,6 @@ import { ipcMain } from 'electron'
 import type { SshConnectionManager } from '../ssh/ssh-connection'
 import type { SshExecOptions } from '../ssh/ssh-connection-utils'
 import { powerShellCommand, powerShellLiteral } from '../ssh/ssh-remote-powershell'
-import { sortDirEntries } from '../../shared/file-name-sort'
 
 export type RemoteDirEntry = {
   name: string
@@ -211,8 +210,13 @@ async function runBrowseCommand(
         }
       }
 
-      // Sort: directories first, then natural name order (matches the Explorer)
-      sortDirEntries(entries)
+      // Sort: directories first, then alphabetical
+      entries.sort((a, b) => {
+        if (a.isDirectory !== b.isDirectory) {
+          return a.isDirectory ? -1 : 1
+        }
+        return a.name.localeCompare(b.name)
+      })
 
       resolveOnce({ entries, resolvedPath })
     }

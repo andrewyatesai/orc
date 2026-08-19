@@ -24,37 +24,27 @@ const executionHostIdSchema = z.string().transform((value, ctx): `runtime:${stri
   return z.NEVER
 })
 
-export const AiVaultListSessionsParams = z
-  .object({
-    limit: z
-      .unknown()
-      .transform((value) =>
-        typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
-      )
-      .pipe(z.union([z.number().int(), z.undefined()]))
-      .optional(),
-    // Comprehensive history: scan without a recency bound (overrides `limit`).
-    unlimited: OptionalBoolean,
-    force: OptionalBoolean,
-    scopePaths: z
-      .array(z.string().min(1).max(AI_VAULT_SCOPE_PATH_MAX_LENGTH))
-      // Why: clamp instead of reject — scope paths only ever widen discovery, and
-      // rejecting would hard-break older/uncapped producers (web client, pre-cap
-      // desktop parents) that send more than the bound.
-      .transform((paths) => paths.slice(0, AI_VAULT_SCOPE_PATHS_MAX_COUNT))
-      .optional(),
-    // Why: desktop/web callers name the runtime host they are addressing; mobile
-    // omits it. The scan itself is host-local either way, so the id must never
-    // change what is scanned — it only restamps the shared cached result.
-    executionHostId: executionHostIdSchema.optional()
-  })
-  // Why: an explicit `unlimited` request may carry any `limit`; only bounded
-  // scans are capped, so a large limit no longer blocks a comprehensive scan.
-  .superRefine((params, ctx) => {
-    if (params.unlimited !== true && params.limit && params.limit > AI_VAULT_LIMIT_MAX) {
-      ctx.addIssue({ code: 'custom', path: ['limit'], message: 'Limit exceeds maximum' })
-    }
-  })
+export const AiVaultListSessionsParams = z.object({
+  limit: z
+    .unknown()
+    .transform((value) =>
+      typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
+    )
+    .pipe(z.union([z.number().int().max(AI_VAULT_LIMIT_MAX), z.undefined()]))
+    .optional(),
+  force: OptionalBoolean,
+  scopePaths: z
+    .array(z.string().min(1).max(AI_VAULT_SCOPE_PATH_MAX_LENGTH))
+    // Why: clamp instead of reject — scope paths only ever widen discovery, and
+    // rejecting would hard-break older/uncapped producers (web client, pre-cap
+    // desktop parents) that send more than the bound.
+    .transform((paths) => paths.slice(0, AI_VAULT_SCOPE_PATHS_MAX_COUNT))
+    .optional(),
+  // Why: desktop/web callers name the runtime host they are addressing; mobile
+  // omits it. The scan itself is host-local either way, so the id must never
+  // change what is scanned — it only restamps the shared cached result.
+  executionHostId: executionHostIdSchema.optional()
+})
 
 export const AiVaultPrepareSessionResumeParams = z.object({
   agent: z.enum(AI_VAULT_AGENTS),
@@ -69,9 +59,7 @@ export const AI_VAULT_METHODS: RpcMethod[] = [
     params: AiVaultListSessionsParams,
     handler: async (params, { runtime }) => {
       const result = await runtime.listAiVaultSessions({
-        // Why: an unlimited scan ignores any bounded limit the client also sent.
-        limit: params.unlimited ? undefined : params.limit,
-        unlimited: params.unlimited,
+        limit: params.limit,
         force: params.force,
         scopePaths: params.scopePaths
       })

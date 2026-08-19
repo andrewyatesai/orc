@@ -86,9 +86,7 @@ describe('locale-translation-policy zh round 5', () => {
     ).toBe('集成')
   })
 
-  // Why: #12113 — 终端 is the correct rendering and survives; only the 端子 ("electrical
-  // connector") mistranslation still reverts to Latin.
-  it('keeps terminal translated but reverts the 端子 mistranslation', () => {
+  it('keeps Terminal as a product surface term', () => {
     expect(
       repairTranslatedValue({
         key: 'auto.components.settings.Settings.3de4bbb841',
@@ -96,7 +94,7 @@ describe('locale-translation-policy zh round 5', () => {
         localeValue: '终端',
         locale: 'zh'
       })
-    ).toBe('终端')
+    ).toBe('Terminal')
     expect(
       repairTranslatedValue({
         key: 'auto.components.feature.wall.BrowserAnimatedVisual.04096318ab',
@@ -104,7 +102,7 @@ describe('locale-translation-policy zh round 5', () => {
         localeValue: '终端 1',
         locale: 'zh'
       })
-    ).toBe('终端 1')
+    ).toBe('Terminal 1')
     expect(
       repairTranslatedValue({
         key: 'auto.components.agent.AgentCombobox.986f946354',
@@ -120,7 +118,7 @@ describe('locale-translation-policy zh round 5', () => {
         localeValue: '分体式端子右',
         locale: 'zh'
       })
-    ).toBe('向右拆分终端')
+    ).toBe('向右拆分 Terminal')
     expect(
       repairTranslatedValue({
         key: 'auto.components.settings.TerminalAppearanceSection.abcb4dd019',
@@ -128,7 +126,7 @@ describe('locale-translation-policy zh round 5', () => {
         localeValue: '终端Cursor',
         locale: 'zh'
       })
-    ).toBe('终端 Cursor')
+    ).toBe('Terminal Cursor')
     expect(
       repairTranslatedValue({
         key: 'auto.components.terminal.FloatingTerminalPanel.3215fc73e9',
@@ -139,8 +137,7 @@ describe('locale-translation-policy zh round 5', () => {
     ).toBe('新 Terminal')
   })
 
-  // Why: #12113 — brand names stay Latin, but generic workflow nouns keep their Chinese.
-  it('keeps brand names English and generic workflow terms translated', () => {
+  it('keeps workflow terms in English', () => {
     expect(
       repairTranslatedValue({
         key: 'auto.components.sidebar.SidebarNav.9c95e1ce91',
@@ -148,7 +145,7 @@ describe('locale-translation-policy zh round 5', () => {
         localeValue: '代理',
         locale: 'zh'
       })
-    ).toBe('代理')
+    ).toBe('Agents')
     expect(
       repairTranslatedValue({
         key: 'auto.components.GitHubItemDialog.28986b3747',
@@ -156,7 +153,7 @@ describe('locale-translation-policy zh round 5', () => {
         localeValue: '已启动 AI 代理处理失败的检查。',
         locale: 'zh'
       })
-    ).toBe('已启动 AI 代理处理失败的检查。')
+    ).toBe('已启动 AI agent 处理失败的检查。')
     expect(
       repairTranslatedValue({
         key: 'auto.components.LinearIssueMarkdownDescriptionEditor.d9c47069ef',
@@ -180,7 +177,7 @@ describe('locale-translation-policy zh round 5', () => {
         localeValue: '次提交',
         locale: 'zh'
       })
-    ).toBe('次提交')
+    ).toBe('commits')
     expect(
       repairTranslatedValue({
         key: 'auto.store.slices.worktrees.d1d78a7baa',
@@ -190,7 +187,7 @@ describe('locale-translation-policy zh round 5', () => {
           'Git 无法安全删除分支“{{value0}}”{{value1}}，因此 Orca 保留它以避免丢失本地提交。',
         locale: 'zh'
       })
-    ).toBe('Git 无法安全删除分支“{{value0}}”{{value1}}，因此 Orca 保留它以避免丢失本地提交。')
+    ).toBe('Git 无法安全删除分支“{{value0}}”{{value1}}，因此 Orca 保留它以避免丢失本地 commits。')
   })
 
   it('does not confuse proxy copy with Agent terminology', () => {
@@ -237,7 +234,7 @@ describe('locale-translation-policy zh round 5', () => {
         localeValue: '本地项目、Git 存储库或包含多个存储库的文件夹',
         locale: 'zh'
       })
-    ).toBe('本地项目、Git 仓库或包含多个仓库的文件夹')
+    ).toBe('本地项目、Git repo 或包含多个 repos 的文件夹')
   })
 
   it('keeps product, provider, code, and shell tokens untranslated', () => {

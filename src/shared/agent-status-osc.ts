@@ -1,5 +1,6 @@
 import type { ParsedAgentStatusPayload } from './agent-status-types'
 import { parseAgentStatusPayload } from './agent-status-evaluation'
+
 const OSC_AGENT_STATUS_PREFIX = '\x1b]9999;'
 
 export type ProcessedAgentStatusChunk = {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ExternalLink, FolderPlus, GitBranchPlus, Star, X } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { installWindowVisibilityInterval } from '../lib/window-visibility-interval'
 import { useAppStore } from '../store'
 import { isGitRepoKind } from '../../../shared/repo-kind'
 import type { Repo } from '../../../shared/types'
@@ -14,14 +15,28 @@ import { useShortcutKeyDetails, type ShortcutKeyComboDetails } from '@/hooks/use
 import { useMountedRef } from '@/hooks/useMountedRef'
 import logo from '../../../../resources/logo.svg'
 import { translate } from '@/i18n/i18n'
-import { hasGitHubBackedProject, type PreflightIssue } from './landing-preflight-issues'
-import { useLandingPreflightRuntime } from './landing-preflight-runtime'
+import {
+  getLandingPreflightIssues,
+  hasGitHubBackedProject,
+  type PreflightIssue,
+  type LandingPreflightStatus
+} from './landing-preflight-issues'
 import { ORCA_ALAB_PUBLIC_REPOSITORY_URL } from '../../../shared/repository-endpoints'
 
 type ShortcutItem = {
   id: string
   shortcut: ShortcutKeyComboDetails
   action: string
+}
+
+async function checkLandingPreflight(force = false): Promise<LandingPreflightStatus | null> {
+  try {
+    return await window.api.preflight.check(force ? { force: true } : undefined)
+  } catch (error) {
+    // Why: an offline remote runtime should retain the last-known banner state.
+    console.warn('[Landing] preflight check unavailable:', error)
+    return null
+  }
 }
 
 type StarState = 'loading' | 'starred' | 'not-starred' | 'web-fallback' | 'hidden'
@@ -235,8 +250,75 @@ export default function Landing(): React.JSX.Element {
   const hasGitHubProject = useMemo(() => hasGitHubBackedProject(repos), [repos])
   const showGitHubSupportFooter = repos.length === 0 || hasGitHubProject
 
-  // Why: the runtime-aware slice probes the active remote host instead of the renderer host.
-  const { preflightIssues } = useLandingPreflightRuntime()
+  const [preflightIssues, setPreflightIssues] = useState<PreflightIssue[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    const refreshPreflight = (force = false): void => {
+      void checkLandingPreflight(force).then((status) => {
+        if (cancelled || !status) {
+          return
+        }
+        setPreflightIssues(
+          getLandingPreflightIssues(status, { hasGitHubBackedProject: hasGitHubProject })
+        )
+      })
+    }
+
+    // oxlint-disable-next-line react-doctor/no-initialize-state -- Why: preflight status is read from an external IPC probe on mount and focus.
+    refreshPreflight()
+
+    // Why: users often install/authenticate gh outside Orca. Re-check when the
+    // window becomes active again so the landing warning clears without relaunch.
+    const handleWindowActive = (): void => {
+      if (document.visibilityState === 'visible') {
+        refreshPreflight(true)
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleWindowActive)
+    window.addEventListener('focus', handleWindowActive)
+
+    return () => {
+      cancelled = true
+      document.removeEventListener('visibilitychange', handleWindowActive)
+      window.removeEventListener('focus', handleWindowActive)
+    }
+  }, [hasGitHubProject])
+
+  useEffect(() => {
+    if (preflightIssues.length === 0) {
+      return
+    }
+
+    let cancelled = false
+    // Why: some users complete `gh auth login` without ever leaving the Orca
+    // window. Poll only while a warning is visible so the banner self-clears —
+    // and only while the WINDOW is visible, so a backgrounded Landing screen
+    // stops spawning gh/glab auth-status probes every 30s (a `force` check that
+    // bypasses the cache). handleWindowActive above force-refreshes on re-show,
+    // so pausing while hidden loses nothing.
+    const stop = installWindowVisibilityInterval({
+      run: () => {
+        void checkLandingPreflight(true).then((status) => {
+          if (cancelled || !status) {
+            return
+          }
+          setPreflightIssues(
+            getLandingPreflightIssues(status, { hasGitHubBackedProject: hasGitHubProject })
+          )
+        })
+      },
+      // The sibling visibilitychange/focus effect already refreshes on re-show.
+      runOnVisible: () => {},
+      intervalMs: 30000
+    })
+
+    return () => {
+      cancelled = true
+      stop()
+    }
+  }, [hasGitHubProject, preflightIssues.length])
 
   const createWorktreeShortcut = useShortcutKeyDetails('workspace.create')
   const previousWorktreeShortcut = useShortcutKeyDetails('worktree.navigateUp')

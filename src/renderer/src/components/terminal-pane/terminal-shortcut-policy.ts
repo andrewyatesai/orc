@@ -8,7 +8,7 @@ import {
   matchCustomKeybinding,
   type ResolvedCustomKeybinding
 } from '../../../../shared/custom-keybindings'
-import { resolveCtrlEnterAction, type WindowsShiftEnterEncoding } from './terminal-ctrl-enter'
+import type { WindowsShiftEnterEncoding } from './terminal-windows-shift-enter'
 
 export type TerminalShortcutEvent = {
   key: string
@@ -118,7 +118,7 @@ export function resolveTerminalShortcutAction(
   optionKeyLocation: number = 0,
   isWindows: boolean = false,
   keybindings?: KeybindingOverrides,
-  // Why: lazy so local native Windows ConPTY lookup runs only on Ctrl+Arrow and Ctrl+Enter, not every keystroke.
+  // Why: lazy so execution-host lookup (local native Windows ConPTY) runs only on Ctrl+Arrow, not every keystroke.
   isLocalWindowsConptyPane?: () => boolean,
   // Why: stands the legacy readline-compat rewrites down once the pane's app negotiates an enhanced key protocol.
   // The fork feeds the aterm engine's negotiated signal (atermAppKeyProtocolNegotiated(keyboardModeBits())) — which
@@ -259,9 +259,10 @@ export function resolveTerminalShortcutAction(
     event.key === 'Enter' &&
     !kittyKeyboardActive()
   ) {
-    // Why: negotiated kitty stood down above; resolveCtrlEnterAction keeps the CSI-u chord for TUIs but protects a
-    // local Windows ConPTY shell that would otherwise print the escape verbatim into the prompt (#12329).
-    return resolveCtrlEnterAction(isLocalWindowsConptyPane, getWindowsShiftEnterEncoding)
+    // Why: legacy encoding collapses Ctrl+Enter to a bare CR, so forward kitty CSI-u (modifier 5 = Ctrl) so the chord
+    // reaches TUIs; with kitty/modifyOtherKeys negotiated the engine encoder already emits the app's chosen form, so
+    // this stands down. No Windows fallback yet (#2418).
+    return { type: 'sendInput', data: '\x1b[13;5u' }
   }
 
   if (

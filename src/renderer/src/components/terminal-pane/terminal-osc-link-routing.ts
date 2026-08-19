@@ -9,7 +9,6 @@ import {
   openTerminalHttpLink,
   type TerminalLinkRoutingPreferenceRequester
 } from './terminal-url-link-hit-testing'
-import type { HttpLinkSourceOwner } from '@/lib/http-link-routing'
 
 type TerminalLinkEvent = Pick<MouseEvent, 'metaKey' | 'ctrlKey'> &
   Partial<Pick<MouseEvent, 'button' | 'shiftKey' | 'preventDefault' | 'stopPropagation'>>
@@ -31,7 +30,6 @@ export function handleOscLink(
   event: TerminalLinkEvent | undefined,
   deps: Pick<LinkHandlerDeps, 'worktreeId' | 'worktreePath'> &
     Partial<Pick<LinkHandlerDeps, 'runtimeEnvironmentId' | 'startupCwd' | 'terminalHomePath'>> & {
-      sourceOwner?: HttpLinkSourceOwner
       requestOpenLinksInAppPreference?: TerminalLinkRoutingPreferenceRequester
     }
 ): boolean {
@@ -85,11 +83,6 @@ export function handleOscLink(
     openTerminalHttpLink(parsed.toString(), {
       worktreeId: deps.worktreeId,
       forceSystemBrowser: Boolean(event?.shiftKey),
-      sourceOwner:
-        deps.sourceOwner ??
-        (deps.runtimeEnvironmentId
-          ? { kind: 'runtime', runtimeEnvironmentId: deps.runtimeEnvironmentId }
-          : { kind: 'local' }),
       requestOpenLinksInAppPreference: deps.requestOpenLinksInAppPreference
     })
     return true

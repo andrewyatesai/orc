@@ -667,7 +667,7 @@ describe('groupAiVaultSessions', () => {
     ]
 
     expect(groupAiVaultSessions(sessions, 'folder')).toEqual([
-      { key: 'folder:/userhome/ada/repo/app', label: 'repo/app', sessions }
+      { key: '/userhome/ada/repo/app', label: 'repo/app', sessions }
     ])
     expect(groupAiVaultSessions(sessions, 'agent').map((group) => group.label)).toEqual([
       'Claude',
@@ -698,7 +698,7 @@ describe('groupAiVaultSessions', () => {
 
   it('falls back to folder grouping when project metadata is unavailable', () => {
     expect(groupAiVaultSessions([baseSession], 'project')).toEqual([
-      { key: 'folder:/userhome/ada/repo/app', label: 'repo/app', sessions: [baseSession] }
+      { key: '/userhome/ada/repo/app', label: 'repo/app', sessions: [baseSession] }
     ])
   })
 })

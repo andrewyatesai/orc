@@ -27,7 +27,7 @@ describe('locale-translation-policy ja round 5', () => {
         localeValue: '遊ぶ',
         locale: 'ja'
       })
-    ).toBe('再生')
+    ).toBe('Play')
     expect(
       repairTranslatedValue({
         key: 'auto.components.TaskPage.8396825a14',
@@ -102,8 +102,7 @@ describe('locale-translation-policy ja round 5', () => {
     ).toBe('まずプロジェクトを追加')
   })
 
-  // Why: #12113 — brand names stay Latin, but generic workflow nouns keep their Japanese.
-  it('keeps brand names English and generic workflow terms translated', () => {
+  it('keeps protected workflow terms in English', () => {
     expect(
       repairTranslatedValue({
         key: 'auto.components.status.bar.WorkspaceSpaceManagerPanel.e9528a89b3',
@@ -119,7 +118,7 @@ describe('locale-translation-policy ja round 5', () => {
         localeValue: 'エージェントのスキル',
         locale: 'ja'
       })
-    ).toBe('エージェントのスキル')
+    ).toBe('Agent のスキル')
     expect(
       repairTranslatedValue({
         key: 'auto.components.tab.bar.TabBar.3d5d6c960d',
@@ -135,7 +134,7 @@ describe('locale-translation-policy ja round 5', () => {
         localeValue: 'コミット',
         locale: 'ja'
       })
-    ).toBe('コミット')
+    ).toBe('commits')
     expect(
       repairTranslatedValue({
         key: 'auto.components.mobile.slides.WorktreeListSlide.22971156df',
@@ -143,7 +142,7 @@ describe('locale-translation-policy ja round 5', () => {
         localeValue: 'リポ',
         locale: 'ja'
       })
-    ).toBe('リポ')
+    ).toBe('Repo')
     expect(
       repairTranslatedValue({
         key: 'auto.components.sidebar.add.repo.local.start.actions.fb4fc5380e',
@@ -152,6 +151,6 @@ describe('locale-translation-policy ja round 5', () => {
           'ローカル プロジェクト、Git リポジトリ、または多数のリポジトリを含むフォルダー',
         locale: 'ja'
       })
-    ).toBe('ローカルプロジェクト、Git リポジトリ、または多数のリポジトリを含むフォルダー')
+    ).toBe('ローカルプロジェクト、Git repo、または多数の repos を含むフォルダー')
   })
 })

@@ -7,7 +7,7 @@ import type { AgentStatusState } from '../../../../shared/agent-status-types'
 import { useRepoById } from '@/store/selectors'
 import { resolveRepoBadgeColor } from '@/lib/git-wasm/repo-badge-color'
 import { DEFAULT_REPO_BADGE_COLOR } from '../../../../shared/constants'
-import { splitWorktreeIdForFilesystem } from '../../../../shared/worktree-id'
+import { splitWorktreeIdForFilesystem } from '../../../../shared/worktree-id-parsing'
 import {
   isAiVaultSessionRecoverableEmpty,
   type AiVaultScope,

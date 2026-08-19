@@ -131,10 +131,10 @@ describe('canParkTerminalWorktreeRenderers', () => {
     expect(canParkTerminalWorktreeRenderers(base)).toBe(true)
   })
 
-  it('keeps a previously mounted v19 terminal eligible for ordinary parking', async () => {
+  it('keeps a previously mounted v19 terminal eligible for ordinary parking', () => {
     const legacyPtyId = 'repo::/worktree@@session-1'
     clearTerminalProviderSnapshotCapabilities()
-    await synchronizeTerminalProviderSnapshotCapabilities([legacyPtyId], async (ids) =>
+    synchronizeTerminalProviderSnapshotCapabilities([legacyPtyId], (ids) =>
       ids.map((id) => ({ id, authoritative: false }))
     )
 

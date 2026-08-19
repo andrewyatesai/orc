@@ -55,7 +55,6 @@ export function handleCombinedDiffFileTreeNavigation({
   sections,
   sectionIndexByKey,
   toggleSection,
-  loadSection,
   scrollToIndex
 }: {
   mode: CombinedDiffFileTreeMode
@@ -63,7 +62,6 @@ export function handleCombinedDiffFileTreeNavigation({
   sections: readonly { collapsed: boolean }[]
   sectionIndexByKey: ReadonlyMap<string, number>
   toggleSection: (index: number) => void
-  loadSection?: (index: number) => void
   scrollToIndex: (index: number) => void
 }): number | null {
   const index = getCombinedDiffFileTreeNavigationIndex({ mode, entry, sectionIndexByKey })
@@ -74,7 +72,6 @@ export function handleCombinedDiffFileTreeNavigation({
   if (sections[index].collapsed) {
     toggleSection(index)
   }
-  loadSection?.(index)
   scrollToIndex(index)
   return index
 }

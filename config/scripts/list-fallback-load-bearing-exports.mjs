@@ -64,9 +64,7 @@ for (const [path, text] of shims) {
       if (!name || name.startsWith('type ')) {
         continue
       }
-      if (
-        !new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(fallbackBodies)
-      ) {
+      if (!new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(fallbackBodies)) {
         continue
       }
       const key = `${relative(ROOT, target)}::${name}`
@@ -76,9 +74,7 @@ for (const [path, text] of shims) {
 }
 
 console.log(`${shims.length} shim files dispatch on the seam.`)
-console.log(
-  `${loadBearing.size} exports are called from inside a pre-ready fallback and cannot cross:\n`
-)
+console.log(`${loadBearing.size} exports are called from inside a pre-ready fallback and cannot cross:\n`)
 for (const key of [...loadBearing.keys()].sort()) {
   console.log(`  ${key}`)
   console.log(`      needed by: ${loadBearing.get(key).sort().join(', ')}`)

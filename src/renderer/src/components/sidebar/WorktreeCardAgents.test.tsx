@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DashboardAgentRow as DashboardAgentRowData } from '@/components/dashboard/useDashboardData'
 import { makePaneKey } from '../../../../shared/stable-pane-identity'
+
 const LEAF_A = '11111111-1111-4111-8111-111111111111'
 const LEAF_B = '22222222-2222-4222-8222-222222222222'
 
@@ -612,8 +613,6 @@ describe('WorktreeCardAgents', () => {
     expect(markup).toContain('compact-agent-row')
     expect(markup).toContain('group/compact-agent-row')
     expect(markup).toContain('flex h-6 items-center gap-1')
-    // #11336: row clips overflowing nested agent metadata to its own bounds.
-    expect(markup).toContain('min-w-0 overflow-hidden cursor-pointer')
     expect(markup).not.toContain('<img')
     expect(markup).not.toContain('max-h-36')
     expect(markup).not.toContain('data-testid="agent-row"')

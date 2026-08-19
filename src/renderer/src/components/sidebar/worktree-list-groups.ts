@@ -39,12 +39,10 @@ import {
   LOCAL_EXECUTION_HOST_ID,
   getRepoExecutionHostId,
   getWorktreeExecutionHostId,
-  toSshExecutionHostId,
   type ExecutionHostId
 } from '../../../../shared/execution-host'
 import { parseWslUncPath } from '../../../../shared/wsl-unc-paths'
 import { isWindowsAbsolutePathLike } from '../../../../shared/cross-platform-path'
-import { normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path-resolution'
 import {
   getCyclicProjectedWorktreeLineageIds,
   getLineageRenderInfo
@@ -179,43 +177,28 @@ type WorktreeGroupEntry = {
 type ProjectGroupingIndex = {
   projectById: Map<string, Project>
   setupByRepoId: Map<string, ProjectHostSetup>
-  surfaceKeysRequiringSetupGroups: Set<string>
+  projectIdsRequiringSetupGroups: Set<string>
 }
 
 const projectGroupingIndexCache = new WeakMap<ProjectGroupingModel, ProjectGroupingIndex | null>()
 
-// Why: provisioned and folder setups are not independent Git checkouts.
+// Why: `provisioned` setups are ephemeral recipe-created runtime copies that
+// nest under the project header; every other method is a real user checkout. See #5374.
 function isDistinctUserCheckout(setup: ProjectHostSetup): boolean {
-  return setup.setupMethod !== 'provisioned' && setup.kind !== 'folder'
+  return setup.setupMethod !== 'provisioned'
 }
 
-// Why: execution target and filesystem namespace independently identify a surface.
 function getProjectSetupSurfaceKey(setup: ProjectHostSetup): string {
-  return `${setup.projectId}::${setup.hostId}::${getExecutionSurface(setup)}::${getPathSurface(setup)}`
-}
-
-function getExecutionSurface(setup: ProjectHostSetup): string {
-  const connectionId = setup.connectionId?.trim()
-  if (connectionId) {
-    return toSshExecutionHostId(connectionId)
-  }
-  return setup.executionHostId?.trim() || setup.hostId
-}
-
-// Why: projection twins differ by row identity, not checkout directory.
-function getCheckoutIdentity(setup: ProjectHostSetup): string {
-  return normalizeRuntimePathForComparison(setup.path.trim()) || setup.repoId || setup.id
-}
-
-function getPathSurface(setup: ProjectHostSetup): string {
   const wslPath = parseWslUncPath(setup.path)
   if (wslPath) {
-    return `wsl:${wslPath.distro.toLowerCase()}`
+    // Why: Windows host and WSL on one machine are separate execution surfaces;
+    // only duplicate checkouts within one surface make project grouping ambiguous.
+    return `${setup.projectId}::${setup.hostId}::wsl:${wslPath.distro.toLowerCase()}`
   }
   if (isWindowsAbsolutePathLike(setup.path)) {
-    return 'windows-host'
+    return `${setup.projectId}::${setup.hostId}::windows-host`
   }
-  return 'default'
+  return `${setup.projectId}::${setup.hostId}::default`
 }
 
 function buildProjectGroupingIndex(model?: ProjectGroupingModel): ProjectGroupingIndex | null {
@@ -232,7 +215,9 @@ function buildProjectGroupingIndex(model?: ProjectGroupingModel): ProjectGroupin
     projectGroupingIndexCache.set(model, null)
     return null
   }
-  const checkoutsByProjectSurface = new Map<string, Set<string>>()
+  // Count real user checkouts per host surface (provisioned copies excluded so
+  // they keep nesting); more than one on a surface makes that project ambiguous.
+  const checkoutsByProjectSurface = new Map<string, { projectId: string; count: number }>()
   for (const setup of projectHostSetups) {
     if (!isDistinctUserCheckout(setup)) {
       continue
@@ -240,21 +225,21 @@ function buildProjectGroupingIndex(model?: ProjectGroupingModel): ProjectGroupin
     const key = getProjectSetupSurfaceKey(setup)
     const existing = checkoutsByProjectSurface.get(key)
     if (existing) {
-      existing.add(getCheckoutIdentity(setup))
+      existing.count += 1
     } else {
-      checkoutsByProjectSurface.set(key, new Set([getCheckoutIdentity(setup)]))
+      checkoutsByProjectSurface.set(key, { projectId: setup.projectId, count: 1 })
     }
   }
-  const surfaceKeysRequiringSetupGroups = new Set<string>()
-  for (const [surfaceKey, checkouts] of checkoutsByProjectSurface) {
-    if (checkouts.size > 1) {
-      surfaceKeysRequiringSetupGroups.add(surfaceKey)
+  const projectIdsRequiringSetupGroups = new Set<string>()
+  for (const { projectId, count } of checkoutsByProjectSurface.values()) {
+    if (count > 1) {
+      projectIdsRequiringSetupGroups.add(projectId)
     }
   }
   const index = {
     projectById: new Map(projects.map((project) => [project.id, project])),
     setupByRepoId: new Map(projectHostSetups.map((setup) => [setup.repoId, setup])),
-    surfaceKeysRequiringSetupGroups
+    projectIdsRequiringSetupGroups
   }
   projectGroupingIndexCache.set(model, index)
   return index
@@ -283,10 +268,11 @@ function getProjectGroupingForRepo(
     }
   }
   if (
-    projectIndex?.surfaceKeysRequiringSetupGroups.has(getProjectSetupSurfaceKey(setup)) &&
+    projectIndex?.projectIdsRequiringSetupGroups.has(setup.projectId) &&
     isDistinctUserCheckout(setup)
   ) {
-    // Why: only the ambiguous surface needs checkout-specific headers.
+    // Why: independent user checkouts of one project on the same host surface
+    // can't be safely merged, so each keeps its own sidebar entry. See #5374.
     return {
       key: `project:${project.id}::setup:${repoId}`,
       label: repo?.displayName ?? setup.displayName,

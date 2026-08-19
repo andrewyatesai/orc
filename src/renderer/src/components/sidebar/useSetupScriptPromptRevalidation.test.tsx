@@ -18,10 +18,6 @@ function effectiveSetup(repoId: string): SetupScriptPromptInspection {
   return { status: 'ok', repoId, hasEffectiveSetup: true, hasSharedHooks: true, candidate: null }
 }
 
-function inspectionError(repoId: string): SetupScriptPromptInspection {
-  return { status: 'error', repoId }
-}
-
 type HarnessProps = {
   activeRepo: Repo | null
   isDismissed: boolean
@@ -83,23 +79,6 @@ describe('useSetupScriptPromptRevalidation', () => {
       isDismissed: false,
       sidebarOpen: true,
       promptState: missingSetup('repo-1'),
-      requestRevalidation
-    })
-
-    await dispatchWindowFocus()
-
-    expect(requestRevalidation).toHaveBeenCalledTimes(1)
-  })
-
-  it('re-inspects on window focus while the prompt is in an error state', async () => {
-    // Why: an unreadable orca.yaml now reports `error`; revalidating recovers it
-    // instead of pinning the failed verdict until the card remounts.
-    const requestRevalidation = vi.fn()
-    await render({
-      activeRepo: GIT_REPO,
-      isDismissed: false,
-      sidebarOpen: true,
-      promptState: inspectionError('repo-1'),
       requestRevalidation
     })
 

@@ -5,6 +5,7 @@ import { getExecutionHostIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { parseExecutionHostId } from '../../../shared/execution-host'
 import { parseWorkspaceKey } from '../../../shared/workspace-scope'
 import { parseWslUncPath } from '../../../shared/wsl-unc-paths'
+
 export function getAiVaultResumeCodexHome(
   codexHome: string | null,
   platform: NodeJS.Platform

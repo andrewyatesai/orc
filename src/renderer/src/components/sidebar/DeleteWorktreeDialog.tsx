@@ -266,9 +266,7 @@ const DeleteWorktreeDialog = React.memo(function DeleteWorktreeDialog() {
         // the shared toast wrapper. Close immediately because workspace cards
         // already show the deleting state while the retry runs.
         const commitFocus = prepareActiveWorktreeFocusAfterDelete(worktreeId)
-        // Why (#11960): this IS the explicit Force Delete, so it may also waive
-        // the PTY-stop proof — unlike the confirmed delete in the branch below.
-        const deletePromise = removeWorktree(worktreeId, true, { allowUnverifiedPtyStop: true })
+        const deletePromise = removeWorktree(worktreeId, true)
         closeModal()
         deletePromise
           .then((result) => {

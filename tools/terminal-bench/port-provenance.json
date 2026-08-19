@@ -12,7 +12,11 @@
       "origin": "parity (rust-sole: TS impl deleted, wasm oracle)",
       "label": "rust:[rust/crates/orca-core/src/agent_kind.rs] <- ts:[(none: rust-sole)]",
       "ts": [],
-      "tsAbsent": ["src/agent-kind.ts", "src/main/agent-kind.ts", "src/shared/agent-kind.ts"],
+      "tsAbsent": [
+        "src/agent-kind.ts",
+        "src/main/agent-kind.ts",
+        "src/shared/agent-kind.ts"
+      ],
       "rust": [
         {
           "path": "rust/crates/orca-core/src/agent_kind.rs",
@@ -603,7 +607,7 @@
     },
     {
       "id": "git-publish-target-status",
-      "origin": "parity",
+      "origin": "parity (rust-sole: shared TS impl gutted, wasm oracle)",
       "label": "rust:[rust/crates/orca-git/src/push_target.rs] <- ts:[src/shared/git-publish-target-status.ts, src/main/git/push-target-validation.ts]",
       "ts": [
         {
@@ -612,7 +616,7 @@
         },
         {
           "path": "src/shared/git-publish-target-status.ts",
-          "sha256": "0159ffeb48e17d231c1469e02e83e52ed93f84590101fd65324cd2f4034a711f"
+          "sha256": "caaead226785765651d6d137a9e366bb1c49e812acead61bbe885fdf0394ec7d"
         }
       ],
       "tsAbsent": [],
@@ -681,18 +685,26 @@
     {
       "id": "git-upstream-status",
       "origin": "parity",
-      "label": "rust:[rust/crates/orca-core/src/git_upstream_status.rs] <- ts:[src/shared/git-upstream-status.ts]",
+      "label": "rust:[rust/crates/orca-core/src/git_upstream_status.rs] <- ts:[src/shared/git-upstream-reconciliation.ts, src/shared/git-status-types.ts]",
       "ts": [
         {
-          "path": "src/shared/git-upstream-status.ts",
-          "sha256": "9159045dea27bcdba5be19c8b98c56c28f7179ab69ff0052dcc71c4b6011049e"
+          "path": "src/shared/git-status-types.ts",
+          "sha256": "862105ec7141da9794ff5ff47bdc8559866a821a00815b8c2e7c928386e97ca4"
+        },
+        {
+          "path": "src/shared/git-upstream-reconciliation.ts",
+          "sha256": "a58c0e6b948738fbe3eabab8f5aa75acdea5fb9fcbbe3248cbdb2be07f1d628e"
         }
       ],
-      "tsAbsent": [],
+      "tsAbsent": [
+        "src/git-upstream-status.ts",
+        "src/main/git-upstream-status.ts",
+        "src/shared/git-upstream-status.ts"
+      ],
       "rust": [
         {
           "path": "rust/crates/orca-core/src/git_upstream_status.rs",
-          "sha256": "b1696ceaa782a7ca1064bacb53b5edaaadace61939e09100cad4d28041c9fa7c"
+          "sha256": "cfd5c766f490998e9f91cbc6a32cf5410d28b86751dd0abfba9deea5c6914981"
         }
       ],
       "vectors": "tools/parity/vectors/git-upstream-status.json",
@@ -945,12 +957,12 @@
     },
     {
       "id": "native-file-drop",
-      "origin": "parity",
+      "origin": "parity (rust-sole: TS drag-gate + path router deleted, wasm oracle)",
       "label": "rust:[rust/crates/orca-core/src/native_file_drop.rs] <- ts:[src/shared/native-file-drop.ts]",
       "ts": [
         {
           "path": "src/shared/native-file-drop.ts",
-          "sha256": "7cb7a0768a682e0a6c10b61a411056c8e0af3a30a3eed634f8f7a067bfa7c375"
+          "sha256": "21ca1bb806e4ac9a682b078015c811ec3fa262e7edda883c5ad793cf4d412c8b"
         }
       ],
       "tsAbsent": [],
@@ -968,12 +980,12 @@
     },
     {
       "id": "nested-repo-telemetry",
-      "origin": "parity",
+      "origin": "parity (rust-sole: TS impl deleted, wasm oracle)",
       "label": "rust:[rust/crates/orca-core/src/nested_repo_telemetry.rs] <- ts:[src/shared/nested-repo-telemetry.ts]",
       "ts": [
         {
           "path": "src/shared/nested-repo-telemetry.ts",
-          "sha256": "dcd544111cdae09fcda96b5d84289938d6377c6a41a1cddb0523ad325643ec95"
+          "sha256": "3d787d0199d3e8e015ca9a25e16bf9984f08c67f5df1d6a1d5b4fb06272a8a97"
         }
       ],
       "tsAbsent": [],
@@ -1327,7 +1339,7 @@
       "ts": [
         {
           "path": "src/shared/git-publish-target-status.ts",
-          "sha256": "0159ffeb48e17d231c1469e02e83e52ed93f84590101fd65324cd2f4034a711f"
+          "sha256": "caaead226785765651d6d137a9e366bb1c49e812acead61bbe885fdf0394ec7d"
         }
       ],
       "tsAbsent": [],
@@ -1859,7 +1871,9 @@
       "origin": "parity (rust-sole: TS impl deleted, wasm oracle)",
       "label": "rust:[rust/crates/orca-text/src/quick_open_rank.rs] <- ts:[(none: rust-sole)]",
       "ts": [],
-      "tsAbsent": ["src/shared/quick-open-rank.ts"],
+      "tsAbsent": [
+        "src/shared/quick-open-rank.ts"
+      ],
       "rust": [
         {
           "path": "rust/crates/orca-text/src/quick_open_rank.rs",
@@ -2322,12 +2336,12 @@
     },
     {
       "id": "terminal-surface-id",
-      "origin": "parity",
+      "origin": "parity (rust-sole: TS impl deleted, wasm oracle)",
       "label": "rust:[rust/crates/orca-core/src/terminal_surface_id.rs] <- ts:[src/shared/terminal-surface-id.ts]",
       "ts": [
         {
           "path": "src/shared/terminal-surface-id.ts",
-          "sha256": "7093584672a541e22c0094bfb0257f6bd8f83d4b23e1a5b077132da011f8f9da"
+          "sha256": "bfdbd07273ae9b21a92095ea6bc364f43ed265576a50fe744486dccaa7a9a5d1"
         }
       ],
       "tsAbsent": [],

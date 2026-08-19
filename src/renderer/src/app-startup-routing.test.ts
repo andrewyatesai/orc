@@ -109,31 +109,6 @@ describe('renderer startup runtime routing', () => {
     expect(startupBlock).not.toContain("actions.fetchAllWorktrees({ hydrationPurge: 'defer' })")
   })
 
-  it('waits for the local catalog to settle before and after session hydration (#11611)', () => {
-    const source = read(HYDRATION)
-    const startupBlockStart = source.indexOf('export async function runAppStartupHydration')
-    const startupBlockEnd = source.indexOf("timeRendererStartupSyncStep('hydrate-session-stores'")
-    const at = (needle: string): number => {
-      const idx = source.indexOf(needle, startupBlockStart)
-      return idx === -1 || idx >= startupBlockEnd ? -1 : idx
-    }
-
-    const localReposIndex = at("timeRendererStartupStep('fetch-repos-local'")
-    const settlementIndex = at("timeRendererStartupStep('repo-catalog-settlement'")
-    const sessionIndex = at("timeRendererStartupStep('session-get'")
-    const joinIndex = at('await Promise.allSettled([')
-    const finalSettlementIndex = at("timeRendererStartupStep('repo-catalog-final-settlement'")
-
-    // The first barrier waits on the newest local catalog before the session read routes on repos.
-    expect(settlementIndex).toBeGreaterThan(localReposIndex)
-    expect(settlementIndex).toBeLessThan(sessionIndex)
-    expect(source).toContain('actions.awaitLocalRepoCatalogSettlement()')
-    // The second barrier re-awaits it after the concurrent join, before store hydration reassigns PTYs.
-    expect(finalSettlementIndex).toBeGreaterThan(joinIndex)
-    expect(finalSettlementIndex).toBeLessThan(startupBlockEnd)
-    expect(finalSettlementIndex).toBeGreaterThanOrEqual(0)
-  })
-
   it('adopts the batched boot snapshot before any hydrate action, keeping each live fallback', () => {
     const source = read(HYDRATION)
     const adoptIndex = source.indexOf("'startup-snapshot-adopt'")

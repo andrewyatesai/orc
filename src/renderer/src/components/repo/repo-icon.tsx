@@ -147,20 +147,14 @@ export function RepoIconGlyph({
   iconClassName?: string
   color?: string
 }): React.JSX.Element {
-  const imageSrc = repoIcon?.type === 'image' ? repoIcon.src : null
-  // Why: private-mode GHES avatars need a session cookie, so the load fails and would
-  // render blank — track the failed src so a different icon still renders.
-  const [failedImageSrc, setFailedImageSrc] = React.useState<string | null>(null)
-
-  if (imageSrc !== null && failedImageSrc !== imageSrc) {
+  if (repoIcon?.type === 'image') {
     return (
       <span className={cn('inline-flex items-center justify-center overflow-hidden', className)}>
         <img
-          src={imageSrc}
+          src={repoIcon.src}
           alt=""
           className={cn('size-full object-contain', iconClassName)}
           draggable={false}
-          onError={() => setFailedImageSrc(imageSrc)}
         />
       </span>
     )

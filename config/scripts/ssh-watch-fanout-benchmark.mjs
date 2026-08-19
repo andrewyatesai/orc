@@ -39,13 +39,15 @@ for (const [name, value] of [
 // Why re-read the source: this benchmark's whole claim is that the normalizer is
 // the expensive part. If someone makes it cheap (or drops the NFC fold), the
 // numbers below stop meaning what the header says, so fail loudly instead.
-const PATH_SOURCE = readFileSync(
-  new URL('../../src/shared/cross-platform-path.ts', import.meta.url),
-  'utf8'
-)
+// The module was cut over: the shim owns the fan-out, and with the seam unbound
+// here it runs the same `parity` fallback the mobile/pre-wasm surfaces run.
+const PATH_MODULE = '../../src/shared/cross-platform-path-resolution.ts'
+const PATH_SOURCE = readFileSync(new URL(PATH_MODULE, import.meta.url), 'utf8')
 for (const marker of ['normalize(', 'createNormalizedPathInsideOrEqualMatcher']) {
   if (!PATH_SOURCE.includes(marker)) {
-    throw new Error(`cross-platform-path.ts no longer contains ${marker}; this benchmark is stale`)
+    throw new Error(
+      `cross-platform-path-resolution.ts no longer contains ${marker}; this benchmark is stale`
+    )
   }
 }
 
@@ -54,7 +56,7 @@ const {
   normalizeRuntimePathForComparison,
   isPathInsideOrEqual,
   createNormalizedPathInsideOrEqualMatcher
-} = await import(new URL('../../src/shared/cross-platform-path.ts', import.meta.url).href)
+} = await import(new URL(PATH_MODULE, import.meta.url).href)
 
 // Pre-fix: mirrors the original routeSshFilesystemWatchNotification inner loop.
 function routeBefore(roots, events, sink) {

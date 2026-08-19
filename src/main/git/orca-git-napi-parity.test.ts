@@ -10,7 +10,8 @@ import { isBinaryBuffer } from '../../shared/binary-buffer'
 // orca-git's unit tests and the relay's differential tests. What remains here:
 // status streaming↔one-shot self-consistency, absolute goldens for the
 // C-quoted decode (its shared TS was deleted; the relay runs the same core
-// via wasm), parity against the STILL-LIVE push-target shape guard, and
+// via wasm), parity between the napi value-rule export and the seam shim main
+// IPC + the relay now call (both Rust — this pins napi against wasm), and
 // transcribed goldens for count and line-stats (both TS originals are deleted —
 // the renderer now runs line-stats through the same Rust core via wasm).
 //
@@ -307,8 +308,9 @@ suite('orca-git napi surface', () => {
   describe('validateGitPushTargetRules', () => {
     // Reuse the differential goldens the parity harness already runs against
     // orca_core::git_push_target — this proves the napi export matches BOTH the
-    // pure TS validator and the recorded expectations for the value rules (the
-    // unknown→typed guards are a JS-only concern, so vectors carry typed inputs).
+    // recorded expectations and the seam shim (wasm) main IPC + the relay call
+    // for the value rules (the unknown→typed guards are a JS-only concern, so
+    // vectors carry typed inputs).
     const vectors = JSON.parse(
       readFileSync(
         new URL('../../../tools/parity/vectors/git-push-target.json', import.meta.url),
@@ -322,7 +324,7 @@ suite('orca-git napi surface', () => {
       }[]
     }
 
-    const tsValueRule = (rn: string, bn: string, url: string | null): string | null => {
+    const seamValueRule = (rn: string, bn: string, url: string | null): string | null => {
       try {
         assertGitPushTargetShape(
           url === null
@@ -340,7 +342,7 @@ suite('orca-git napi surface', () => {
         const url = c.input.remoteUrl ?? null
         const napi = git.validateGitPushTargetRules(c.input.remoteName, c.input.branchName, url)
         expect(napi).toBe(c.expected.ok ? null : (c.expected.error ?? null))
-        expect(napi).toBe(tsValueRule(c.input.remoteName, c.input.branchName, url))
+        expect(napi).toBe(seamValueRule(c.input.remoteName, c.input.branchName, url))
       })
     }
   })

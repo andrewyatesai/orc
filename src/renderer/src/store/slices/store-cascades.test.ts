@@ -5183,7 +5183,7 @@ describe('shutdownWorktreeTerminals (sleep) — agent status hygiene', () => {
     })
   })
 
-  it('captures allowlisted done live sleeping pane sessions during manual sleep', async () => {
+  it('skips allowlisted done live sleeping pane sessions during manual sleep', async () => {
     const store = createTestStore()
     const wt = 'repo1::/path/wt1'
 
@@ -5234,12 +5234,7 @@ describe('shutdownWorktreeTerminals (sleep) — agent status hygiene', () => {
     })
 
     const state = store.getState()
-    expect(state.sleepingAgentSessionsByPaneKey['tab-1:live']).toMatchObject({
-      origin: 'worktree-sleep',
-      state: 'done',
-      providerSession: { key: 'session_id', id: 'live-session' }
-    })
-    // Outside the allowlist, so manual sleep never claimed it.
+    expect(state.sleepingAgentSessionsByPaneKey['tab-1:live']).toBeUndefined()
     expect(state.sleepingAgentSessionsByPaneKey['tab-1:retained']).toBeUndefined()
   })
 

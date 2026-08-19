@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest'
 import type { RpcClient } from '../transport/rpc-client'
 import type { RpcResponse, RpcSuccess } from '../transport/types'
 import { pasteMobileNativeChatImagePaths } from './mobile-native-chat-image-send'
-import { AGENT_TUI_CLEAR_INPUT_MAX } from '../../../src/shared/agent-tui-input-clear'
 
 function sendResult(accepted: boolean, id = 'send'): RpcSuccess {
   return { id, ok: true, result: { send: { accepted } }, _meta: { runtimeId: 'r' } }
@@ -43,7 +42,7 @@ describe('pasteMobileNativeChatImagePaths', () => {
       method: 'terminal.send',
       params: {
         terminal: 'term-1',
-        text: AGENT_TUI_CLEAR_INPUT_MAX,
+        text: '\x15',
         enter: false,
         client: { id: 'device-9', type: 'mobile' }
       }

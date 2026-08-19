@@ -4,7 +4,6 @@ import { DatabaseSync } from 'node:sqlite'
 import { join } from 'node:path'
 
 type ChromiumCookieTestRow = {
-  domain?: string
   name: string
   value: string
   encryptedValue?: Buffer
@@ -62,7 +61,7 @@ export function createChromiumCookieTestDatabase(
   rows.forEach((row, index) => {
     insert.run(
       133_000_000_000_000 + index,
-      row.domain ?? '.example.com',
+      '.example.com',
       row.name,
       row.value,
       row.encryptedValue ?? Buffer.alloc(0),

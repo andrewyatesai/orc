@@ -15,7 +15,6 @@ import {
   publicKeyToBase64
 } from './web-e2ee'
 import { SESSION_TAB_CLOSE_INTENT_RUNTIME_CAPABILITY } from '../../../shared/protocol-version'
-import { withReconnectJitter } from '../../../shared/reconnect-jitter'
 
 type WebRuntimeConnectionState =
   | 'disconnected'
@@ -641,9 +640,8 @@ export class WebRuntimeClient {
     if (this.reconnectTimer || this.intentionallyClosed) {
       return
     }
-    const delay = withReconnectJitter(
+    const delay =
       RECONNECT_DELAYS_MS[Math.min(this.reconnectAttempt, RECONNECT_DELAYS_MS.length - 1)]
-    )
     this.reconnectAttempt += 1
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null

@@ -3,13 +3,13 @@
 // via napi orcaDispatch (the shared TS impl was deleted). Same status →
 // (check status, conclusion) split src/main/gitlab/mappers.ts relied on — one
 // source of truth with the Rust port.
-import { requireRustGitBinding } from './daemon/rust-git-addon'
+import { dispatchToRustCore } from './rust-core-dispatch'
 import type { PRCheckDetail } from '../shared/types'
 
+// Both payloads are closed (a status string, or status + a required boolean), so
+// the codec's default reject-everything-JSON-would-mangle applies unrelaxed.
 function dispatch(fn: string, input: unknown): unknown {
-  return JSON.parse(
-    requireRustGitBinding().orcaDispatch('gitlab-pipeline-checks', fn, JSON.stringify(input))
-  )
+  return dispatchToRustCore('gitlab-pipeline-checks', fn, input)
 }
 
 // The Rust dispatch reads the status as a bare string (input.as_str()), so the

@@ -1,5 +1,6 @@
 import type { RuntimeRpcResponse } from '../../../../shared/runtime-rpc-envelope'
 import { makePaneKey } from '../../../../shared/stable-pane-identity'
+
 type CopyTerminalHandleDeps = {
   tabId: string
   leafId: string

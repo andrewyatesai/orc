@@ -47,25 +47,19 @@ export function useNativeChatSessionOptions(args: {
       return null
     }
     const scopeKey = targetPtyId ?? terminalTabId
-    // Resolve the reported model against the same list the picker shows, so a
-    // scraped name lands on an id the host actually lists rather than a seed
-    // family the picker would have to invent.
-    const discoveredModels = discoveryContext
-      ? readNativeChatEnrichedModels(agent, discoveryContext.hostKey)
-      : null
     const reportedValues =
-      agent === 'claude'
-        ? readClaudeSessionOptionsFromTerminalScreen(
-            readTerminalScreen?.(),
-            discoveredModels ?? undefined
-          )
-        : null
+      agent === 'claude' ? readClaudeSessionOptionsFromTerminalScreen(readTerminalScreen?.()) : null
     let settingsWrite = Promise.resolve()
     return createNativeChatPtySessionOptions({
       agent,
       scopeKey,
       ...(targetPtyId ? { fallbackScopeKey: terminalTabId } : {}),
-      ...(discoveryContext ? { initialModels: discoveredModels ?? undefined } : {}),
+      ...(discoveryContext
+        ? {
+            initialModels:
+              readNativeChatEnrichedModels(agent, discoveryContext.hostKey) ?? undefined
+          }
+        : {}),
       mode: targetPtyId ? 'live' : 'draft',
       reportedValues,
       dispatchCommand,
@@ -122,12 +116,9 @@ export function useNativeChatSessionOptions(args: {
           // The mounted renderer buffer remains a transport-neutral fallback.
         }
       }
-      const models = discoveryContext
-        ? readNativeChatEnrichedModels(agent, discoveryContext.hostKey)
-        : null
       const reportedValues =
-        readClaudeSessionOptionsFromTerminalScreen(authoritativeScreen, models ?? undefined) ??
-        readClaudeSessionOptionsFromTerminalScreen(readTerminalScreen?.(), models ?? undefined)
+        readClaudeSessionOptionsFromTerminalScreen(authoritativeScreen) ??
+        readClaudeSessionOptionsFromTerminalScreen(readTerminalScreen?.())
       if (!cancelled && reportedValues) {
         surface.reportSessionOptions(reportedValues)
       }
@@ -136,7 +127,7 @@ export function useNativeChatSessionOptions(args: {
     return () => {
       cancelled = true
     }
-  }, [agent, discoveryContext, readTerminalScreen, surface, targetPtyId])
+  }, [agent, readTerminalScreen, surface, targetPtyId])
 
   useEffect(() => {
     if (!surface || !discoveryContext) {

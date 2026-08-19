@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makePaneKey } from '../../../../shared/stable-pane-identity'
+
 const storeMock = vi.hoisted(() => ({
   state: {
     settings: { experimentalTerminalAttention: true },

@@ -31,7 +31,6 @@ type AiVaultPanelHeaderProps = {
   onScopeChange: (scope: AiVaultScope) => void
   onExecutionHostScopeChange: (scope: ExecutionHostScope) => void
   onAgentEnabledChange: (agent: AiVaultAgent, enabled: boolean) => void
-  onAllAgentsEnabledChange: (enabled: boolean) => void
   onSortChange: (sort: AiVaultSort) => void
   onGroupChange: (group: AiVaultGroup) => void
   onHideEmptySessionsChange: (hideEmptySessions: boolean) => void
@@ -59,7 +58,6 @@ export function AiVaultPanelHeader({
   onScopeChange,
   onExecutionHostScopeChange,
   onAgentEnabledChange,
-  onAllAgentsEnabledChange,
   onSortChange,
   onGroupChange,
   onHideEmptySessionsChange,
@@ -121,7 +119,6 @@ export function AiVaultPanelHeader({
             hideEmptySessions={hideEmptySessions}
             adjustmentCount={adjustmentCount}
             onAgentEnabledChange={onAgentEnabledChange}
-            onAllAgentsEnabledChange={onAllAgentsEnabledChange}
             onSortChange={onSortChange}
             onGroupChange={onGroupChange}
             onHideEmptySessionsChange={onHideEmptySessionsChange}

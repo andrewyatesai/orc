@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { assertGitPushTargetShape } from '../../shared/git-push-target-shape'
 import { assertGitPushTargetShapeNative } from './rust-push-target-validation'
 
-// The Rust-preferring wrapper must be a byte-for-byte behavioural drop-in for the
-// canonical pure-TS validator — same accept/reject AND same error message. This
-// covers the value rules, the unknown→typed guards, and the ordering subtlety the
-// golden vectors don't reach: remoteUrl's type guard is deferred until after the
-// name/branch value rules. When the addon is present this exercises the Rust path;
-// when absent the wrapper falls through to the canonical validator.
+// main's two push-target entry points must stay byte-for-byte behavioural
+// drop-ins for each other — same accept/reject AND same error message: this napi
+// wrapper (src/main/git/*) and the orca-dispatch-seam shim main's IPC handlers
+// and the relay call. The pure-TS validator they were both ported from is gone,
+// so the oracle is now the seam shim (wasm-backed under vitest). This covers the
+// value rules, the unknown→typed guards, and the ordering subtlety the golden
+// vectors don't reach: remoteUrl's type guard is deferred until after the
+// name/branch value rules.
 
 function outcome(
   validate: (target: unknown) => void,

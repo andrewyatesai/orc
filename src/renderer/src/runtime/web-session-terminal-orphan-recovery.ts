@@ -91,8 +91,7 @@ async function recoverTerminalOrphans(
     params: {
       worktree: toRuntimeWorktreeSelector(snapshot.worktree),
       handles: [...candidateHandles],
-      requireFreshPtyLiveness: true,
-      includeVisualLayouts: false
+      requireFreshPtyLiveness: true
     },
     timeoutMs: 15_000
   })

@@ -3,8 +3,8 @@ import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { PAIRING_OFFER_VERSION } from '../../shared/pairing'
 import { encodePairingOffer } from '../../shared/pairing-deep-link'
+import { PAIRING_OFFER_VERSION } from '../../shared/pairing'
 import {
   getServeUpdateHandoffPath,
   parseServeUpdateHandoffState

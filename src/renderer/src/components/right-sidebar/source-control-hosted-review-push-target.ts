@@ -1,7 +1,7 @@
 import type { GitPushTarget, GitUpstreamStatus } from '../../../../shared/types'
 import type { HostedReviewState } from '../../../../shared/hosted-review'
 import { isPositiveHostedReviewNumber } from '../../../../shared/hosted-review'
-import { getPublishTargetDisplayName } from '../../../../shared/git-publish-target-status'
+import { getPublishTargetDisplayName } from '../../lib/git-wasm/git-publish-target-status'
 import { gitRefTargetsBranchName } from '../../../../shared/git-remote-branch-name'
 
 export function hasUsableHostedReviewPushTarget(args: {

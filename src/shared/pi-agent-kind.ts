@@ -21,9 +21,10 @@ export type PiAgentKind = 'pi' | 'omp'
  * emit milestone `agent_end` events between steps while still working, so they
  * are treated differently from agents that only signal completion at turn end.
  *
- * Unported, not un-cut-over (same standing as `isBehindOnlyUpstream` in
- * git-upstream-status.ts): orca-text has no counterpart and the parity vectors
- * have no cases for it, so there is nothing for a shim to dispatch to.
+ * Unported, not un-cut-over: orca-text has no counterpart and the parity
+ * vectors have no cases for it, so there is nothing for a shim to dispatch to.
+ * (`isBehindOnlyUpstream` used to be cited here as the same standing; it was
+ * routed in 25d68c0562 and cut over to `git-upstream-reconciliation.ts`.)
  */
 export function isPiCompatibleAgentType(
   agentType: string | null | undefined

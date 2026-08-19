@@ -246,7 +246,10 @@ export function buildGitHubWorkItemStartupPlan(args: {
   }
 }
 
-function getGitHubWorkItemName(item: GitHubWorkItem): { seedName: string; displayName?: string } {
+function getGitHubWorkItemName(item: GitHubWorkItem): {
+  seedName: string
+  displayName?: string
+} {
   const identity = resolveGitHubWorkItemIdentity(item)
   const intent =
     identity.number !== null

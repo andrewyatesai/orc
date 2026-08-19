@@ -56,16 +56,9 @@ beforeEach(() => {
   Object.defineProperty(navigator, 'mediaDevices', {
     configurable: true,
     value: {
-      getUserMedia: vi.fn(async () => {
-        // A real audio stream exposes the same track via getTracks and
-        // getAudioTracks; the capture hook reads getAudioTracks to attach a
-        // track-lost listener, so the mock track carries the listener API too.
-        const audioTrack = { stop: trackStop, addEventListener: () => {}, removeEventListener: () => {} }
-        return {
-          getTracks: () => [audioTrack],
-          getAudioTracks: () => [audioTrack]
-        }
-      })
+      getUserMedia: vi.fn(async () => ({
+        getTracks: () => [{ stop: trackStop }]
+      }))
     }
   })
   Object.assign(window, {

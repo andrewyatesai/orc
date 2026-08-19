@@ -2,7 +2,7 @@
 // orca-core gitlab_projects core via the aggregate napi orcaDispatch (the shared
 // TS impl was deleted). One source of truth with the parity-proven Rust port —
 // same most-recent-first / dedupe / cap behavior the IPC handler relied on.
-import { requireRustGitBinding } from './daemon/rust-git-addon'
+import { dispatchToRustCore } from './rust-core-dispatch'
 import type { GitLabProjectSettings } from '../shared/types'
 
 // Mirrors orca-core::gitlab_projects::GITLAB_RECENTS_MAX (the authoritative cap):
@@ -16,12 +16,13 @@ export function computeNextGitLabRecents(
   now: Date = new Date(),
   max: number = GITLAB_RECENTS_MAX
 ): GitLabProjectSettings['recent'] {
-  // The dispatch rehydrates a Date from an ISO string — pass nowIso, not a Date.
-  return JSON.parse(
-    requireRustGitBinding().orcaDispatch(
-      'gitlab-projects',
-      'computeNextGitLabRecents',
-      JSON.stringify({ existing, host, path, nowIso: now.toISOString(), max })
-    )
-  ) as GitLabProjectSettings['recent']
+  // The dispatch rehydrates a Date from an ISO string — pass nowIso, not a Date
+  // (which the codec rejects outright rather than silently ISO-stringifying).
+  return dispatchToRustCore('gitlab-projects', 'computeNextGitLabRecents', {
+    existing,
+    host,
+    path,
+    nowIso: now.toISOString(),
+    max
+  }) as GitLabProjectSettings['recent']
 }

@@ -30,9 +30,14 @@ import type {
   Worktree
 } from '../../shared/types'
 import { isWindowsAbsolutePathLike } from '../../shared/cross-platform-path'
-import { isPathInsideOrEqual, isRuntimePathAbsolute, normalizeRuntimePathForComparison, relativePathInsideRoot, resolveRuntimePath } from '../../shared/cross-platform-path-resolution'
+import {
+  isPathInsideOrEqual,
+  isRuntimePathAbsolute,
+  normalizeRuntimePathForComparison,
+  relativePathInsideRoot,
+  resolveRuntimePath
+} from '../../shared/cross-platform-path-resolution'
 import { PhysicalExitTracker } from '../../shared/physical-exit-tracker'
-import { sortDirEntries } from '../../shared/file-name-sort'
 import type {
   RuntimeFileListResult,
   RuntimeFileOpenResult,
@@ -75,6 +80,7 @@ import {
   isWatcherProcessFailure,
   WatcherProcessFailure
 } from '../ipc/parcel-watcher-process-failure'
+import { assertNoClobberRenameDestinationAvailable } from '../../shared/filesystem-rename-collision'
 import { joinWorktreeRelativePath, normalizeRuntimeRelativePath } from './runtime-relative-paths'
 import {
   rankRuntimeMobileFilePaths,
@@ -83,7 +89,6 @@ import {
 import { beginWatcherInstall } from '../ipc/watcher-removal-gate'
 import { assertSshMutationExpectation } from '../ssh/ssh-connection-generation'
 import { toSshExecutionHostId } from '../../shared/execution-host'
-import { renameLocalPathSerializedByDestination } from '../destination-serialized-local-rename'
 
 const MOBILE_FILE_LIST_LIMIT = 5000
 const MOBILE_FILE_PATH_SEARCH_CACHE_LIMIT = 20_000
@@ -1253,9 +1258,7 @@ export class RuntimeFileCommands {
       if (!provider) {
         throw new Error(SSH_FILESYSTEM_PROVIDER_UNAVAILABLE_MESSAGE)
       }
-      // Why: re-sort locally — the remote relay may be an older build with
-      // lexicographic ordering.
-      return sortDirEntries(await provider.readDir(target.path))
+      return provider.readDir(target.path)
     }
 
     const dirPath = await resolveAuthorizedPath(target.path, this.host.requireStore())
@@ -1270,7 +1273,12 @@ export class RuntimeFileCommands {
         }
       })
     )
-    return sortDirEntries(mapped)
+    return mapped.sort((a, b) => {
+      if (a.isDirectory !== b.isDirectory) {
+        return a.isDirectory ? -1 : 1
+      }
+      return a.name.localeCompare(b.name)
+    })
   }
 
   async watchFileExplorer(
@@ -1720,7 +1728,8 @@ export class RuntimeFileCommands {
     const store = this.host.requireStore()
     const oldPath = await resolveAuthorizedPath(oldTarget.path, store, { preserveSymlink: true })
     const newPath = await resolveAuthorizedPath(newTarget.path, store, { preserveSymlink: true })
-    await renameLocalPathSerializedByDestination(oldPath, newPath)
+    await assertNoClobberRenameDestinationAvailable(oldPath, newPath)
+    await rename(oldPath, newPath)
     return { ok: true }
   }
 

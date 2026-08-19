@@ -50,16 +50,7 @@ export function useActiveProjectSkillRuntime(): ActiveProjectSkillRuntime {
       }
     )
     if (!projectRuntime) {
-      // Why: buildSkillCommandForRuntime still builds a Windows host command
-      // without a project runtime, so the terminal has to match that shell.
-      const terminalShellOverride = getProjectAgentSkillTerminalShellOverride(
-        currentPlatform,
-        runtimeState.settings,
-        undefined
-      )
-      return terminalShellOverride
-        ? { installDisabledReason: null, terminalShellOverride }
-        : EMPTY_ACTIVE_PROJECT_SKILL_RUNTIME
+      return EMPTY_ACTIVE_PROJECT_SKILL_RUNTIME
     }
 
     const agentRuntime = getProjectAgentSkillRuntime(projectRuntime, currentPlatform)

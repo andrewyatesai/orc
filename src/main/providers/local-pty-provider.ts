@@ -16,7 +16,7 @@ import { existsSync } from 'node:fs'
 import type * as pty from 'node-pty'
 import { loadNodePty } from './node-pty-lazy-load'
 import { parseWslPath, isWslAvailable } from '../wsl'
-import { splitWorktreeIdForFilesystem } from '../../shared/worktree-id'
+import { splitWorktreeIdForFilesystem } from '../../shared/worktree-id-parsing'
 import { resolvePtyExitCode } from '../../shared/pty-signal-exit-code'
 import { FLEET_GRANT_ENV_VAR } from '../../shared/fleet-grant'
 import {

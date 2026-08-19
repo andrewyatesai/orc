@@ -14,7 +14,10 @@ import {
   getVisibleExternalWorktrees
 } from '../../../../shared/external-worktree-inbox'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
-import { effectiveExternalWorktreeVisibility, isLegacyRepoForExternalWorktreeVisibility } from '../../../../shared/worktree-ownership-policy'
+import {
+  effectiveExternalWorktreeVisibility,
+  isLegacyRepoForExternalWorktreeVisibility
+} from '../../../../shared/worktree-ownership-policy'
 import { translate } from '@/i18n/i18n'
 
 export default function WorktreeVisibilityDialog(): React.JSX.Element | null {

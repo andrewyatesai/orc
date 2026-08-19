@@ -37,19 +37,6 @@ export function NetworkInterfacePicker({
       })),
     [networkInterfaces]
   )
-  // Why: a bridge-only host advertises no address by default, but the bridges are still listed here —
-  // "No interfaces found" would contradict the options right below it. Distinguish "nothing selected"
-  // (options exist) from "nothing to pick" (genuinely empty).
-  const placeholder =
-    options.length > 0
-      ? translate(
-          'auto.components.mobile.NetworkInterfacePicker.no-address-selected',
-          'No address selected'
-        )
-      : translate(
-          'auto.components.settings.MobileNetworkInterfaceSection.b2c384cfd6',
-          'No interfaces found'
-        )
 
   return (
     <AddressPicker
@@ -70,7 +57,10 @@ export function NetworkInterfacePicker({
         'auto.components.mobile.NetworkInterfacePicker.add-custom',
         'Add custom address…'
       )}
-      placeholder={placeholder}
+      placeholder={translate(
+        'auto.components.settings.MobileNetworkInterfaceSection.b2c384cfd6',
+        'No interfaces found'
+      )}
       triggerAriaLabel={translate(
         'auto.components.mobile.NetworkInterfacePicker.trigger-label',
         'Network address to advertise'

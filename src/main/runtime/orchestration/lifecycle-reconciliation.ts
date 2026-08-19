@@ -1,6 +1,7 @@
 import type { OrchestrationDb } from './db'
 import type { MessageRow } from './types'
 import { parsePaneKey } from '../../../shared/stable-pane-identity'
+
 // Why: the tab half can change on pane break-out, while opaque legacy keys
 // have no safe equivalence beyond exact equality.
 function isSamePane(assigneePaneKey: string, senderPaneKey: string): boolean {

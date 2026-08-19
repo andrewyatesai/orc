@@ -8,7 +8,6 @@ import {
   AGENT_STATUS_STALE_AFTER_MS,
   type AgentStatusEntry
 } from '../../../shared/agent-status-types'
-import { agentProviderSessionsEqual } from '../../../shared/agent-session-resume'
 import type {
   RuntimeMobileSessionTabsResult,
   RuntimeMobileSessionBrowserTab,
@@ -25,15 +24,13 @@ import type {
   TabGroup,
   TabGroupLayoutNode,
   TerminalLayoutSnapshot,
+  TerminalPaneLayoutNode,
   TerminalTab
 } from '../../../shared/types'
 import type { OpenFile } from '../store/slices/editor'
 import { isTerminalLeafId, makePaneKey, parsePaneKey } from '../../../shared/stable-pane-identity'
 import { getRemoteRuntimePtyEnvironmentId, toRemoteRuntimePtyId } from './runtime-terminal-stream'
 import { sanitizeTerminalLayoutPaneTitlesForLabels } from '@/lib/terminal-pane-title-sanitization'
-import { terminalLayoutEqual } from '@/lib/terminal-layout-equality'
-import { normalizeTerminalLayoutPtyOwnership } from '@/components/terminal-pane/terminal-layout-pty-ownership'
-import { isClientAuthoritativeAgentStatusPane } from '@/components/terminal-pane/renderer-owned-agent-status-registry'
 import {
   getExplicitRuntimeEnvironmentIdForWorktree,
   getRuntimeSessionMirrorEnvironmentIds
@@ -118,7 +115,6 @@ type MirroredTerminalTab = {
   hostTabId: string
   ptyIds: string[]
   layout: TerminalLayoutSnapshot
-  retainedSurfaceByPrunedLeafId?: ReadonlyMap<string, TerminalSurface>
 }
 
 type MirroredBrowserTab = {
@@ -589,26 +585,9 @@ function buildMirroredTerminalTabs(
         .filter((surface): surface is ReadyTerminalSurface => surface.status === 'ready')
         .map((surface) => [surface.leafId, toRemoteRuntimePtyId(surface.terminal, environmentId)])
     )
-    const layout = normalizeTerminalLayoutPtyOwnership(
-      chooseRemoteTerminalLayout(surfaces, ptyIdsByLeafId, existingLayout, requestedActiveLeafId)
-    ).snapshot
-    const layoutPtyEntries = Object.entries(layout.ptyIdsByLeafId ?? {})
-    const ptyIds = layoutPtyEntries.map(([, ptyId]) => ptyId)
-    let retainedSurfaceByPrunedLeafId: Map<string, TerminalSurface> | undefined
-    if (layoutPtyEntries.length < Object.keys(ptyIdsByLeafId).length) {
-      const retainedLeafIdByPtyId = new Map(layoutPtyEntries.map(([leafId, ptyId]) => [ptyId, leafId]))
-      const surfaceByLeafId = new Map(surfaces.map((surface) => [surface.leafId, surface]))
-      retainedSurfaceByPrunedLeafId = new Map()
-      for (const [leafId, ptyId] of Object.entries(ptyIdsByLeafId)) {
-        const retainedLeafId = retainedLeafIdByPtyId.get(ptyId)
-        if (retainedLeafId && retainedLeafId !== leafId) {
-          const retainedSurface = surfaceByLeafId.get(retainedLeafId)
-          if (retainedSurface) {
-            retainedSurfaceByPrunedLeafId.set(leafId, retainedSurface)
-          }
-        }
-      }
-    }
+    const ptyIds = surfaces
+      .map((surface) => ptyIdsByLeafId[surface.leafId]!)
+      .filter((ptyId): ptyId is string => typeof ptyId === 'string' && ptyId.length > 0)
     const launchAgent =
       activeSurface.launchAgent ?? surfaces.find((surface) => surface.launchAgent)?.launchAgent
     const ownerAgent = resolvePaneAgentOwner({
@@ -650,14 +629,8 @@ function buildMirroredTerminalTabs(
         worktreeId: snapshot.worktree,
         title,
         defaultTitle: existing?.defaultTitle ?? title,
-        // Why: the host transport carries no generated title, so rebuilding the tab
-        // without this dropped the client's agent-prompt label on every snapshot.
-        ...(existing?.generatedTitle ? { generatedTitle: existing.generatedTitle } : {}),
         ...(quickCommandLabel ? { quickCommandLabel } : {}),
         ...(startupCwd ? { startupCwd } : {}),
-        // Why: the host transport carries no AI Vault title, so a snapshot rebuild
-        // would drop the client's synced conversation name until the sync re-ran.
-        ...(existing?.aiVaultTitle ? { aiVaultTitle: existing.aiVaultTitle } : {}),
         customTitle: existing?.customTitle ?? null,
         color,
         isPinned,
@@ -669,39 +642,39 @@ function buildMirroredTerminalTabs(
       },
       hostTabId: parentTabId,
       ptyIds,
-      layout,
-      ...(retainedSurfaceByPrunedLeafId ? { retainedSurfaceByPrunedLeafId } : {})
+      layout: chooseRemoteTerminalLayout(
+        surfaces,
+        ptyIdsByLeafId,
+        existingLayout,
+        requestedActiveLeafId
+      )
     }
   })
 }
 
-function toMirroredPaneKey(surface: TerminalSurface, leafId = surface.leafId): string | null {
-  if (!isTerminalLeafId(leafId)) {
+function toMirroredPaneKey(surface: TerminalSurface): string | null {
+  if (!isTerminalLeafId(surface.leafId)) {
     return null
   }
-  return makePaneKey(toWebTerminalSurfaceTabId(surface.parentTabId), leafId)
+  return makePaneKey(toWebTerminalSurfaceTabId(surface.parentTabId), surface.leafId)
 }
 
 /** Normalises and mirrors agent status updates from the host payload, preserving ownership metadata. */
-function remapHostAgentStatus(
-  surface: TerminalSurface,
-  retainedSurface?: TerminalSurface
-): AgentStatusEntry | null {
+function remapHostAgentStatus(surface: TerminalSurface): AgentStatusEntry | null {
   if (!surface.agentStatus) {
     return null
   }
-  const paneKey = toMirroredPaneKey(surface, retainedSurface?.leafId)
+  const paneKey = toMirroredPaneKey(surface)
   if (!paneKey) {
     return null
   }
   const ownerAgent = resolvePaneAgentOwner({
-    launchAgent: retainedSurface?.launchAgent ?? surface.launchAgent,
+    launchAgent: surface.launchAgent,
     hookAgent: surface.agentStatus.agentType
   })
   return {
     ...normalizeCompatibleAgentStatusEntryForOwner(surface.agentStatus, ownerAgent),
-    paneKey,
-    tabId: toWebTerminalSurfaceTabId(surface.parentTabId)
+    paneKey
   }
 }
 
@@ -710,34 +683,11 @@ function isMirroredAgentPaneKeyForTabs(paneKey: string, tabIds: ReadonlySet<stri
   return parsed !== null && tabIds.has(parsed.tabId)
 }
 
-/** Host states the client's byte pipeline cannot observe: permission blocks and
- *  interactive question cards reach the host over its HTTP agent hook, never
- *  through PTY bytes, so they must pierce the client-authority fence. */
-function hostAgentStatusPiercesClientAuthority(entry: AgentStatusEntry): boolean {
-  return entry.state === 'blocked' || entry.interactivePrompt != null
-}
-
-/** True while this renderer's own byte-derived status owns the pane: it claimed
- *  the pane at transport creation, wrote status from bytes, and that write has
- *  not gone stale (an OSC-silent dead agent hands the pane back to the host). */
-function isFencedClientAgentStatus(
-  paneKey: string,
-  existing: AgentStatusEntry | undefined,
-  now: number
-): existing is AgentStatusEntry {
-  return (
-    existing !== undefined &&
-    isClientAuthoritativeAgentStatusPane(paneKey) &&
-    isAgentStatusFresh(existing, now)
-  )
-}
-
 /** Generates a state patch for mirrored agent statuses, merging host entries with client overrides. */
 function buildMirroredAgentStatusPatch(
   state: WebSessionTabsSyncState,
   currentTerminalTabs: readonly TerminalTab[],
   terminalSurfaceTabs: readonly TerminalSurface[],
-  mirroredTerminalTabs: readonly MirroredTerminalTab[],
   now: number
 ): Pick<WebSessionTabsSyncState, 'agentStatusByPaneKey' | 'agentStatusEpoch' | 'sortEpoch'> | null {
   const mirroredTabIds = new Set<string>()
@@ -754,51 +704,17 @@ function buildMirroredAgentStatusPatch(
     return null
   }
 
-  let retainedSurfaceByHostTabAndPrunedLeafId:
-    | Map<string, ReadonlyMap<string, TerminalSurface>>
-    | undefined
-  for (const entry of mirroredTerminalTabs) {
-    if (entry.retainedSurfaceByPrunedLeafId) {
-      retainedSurfaceByHostTabAndPrunedLeafId ??= new Map()
-      retainedSurfaceByHostTabAndPrunedLeafId.set(entry.hostTabId, entry.retainedSurfaceByPrunedLeafId)
-    }
-  }
   const nextByPaneKey = new Map<string, AgentStatusEntry>()
   for (const surface of terminalSurfaceTabs) {
-    const retainedSurface = retainedSurfaceByHostTabAndPrunedLeafId
-      ?.get(surface.parentTabId)
-      ?.get(surface.leafId)
-    const entry = remapHostAgentStatus(surface, retainedSurface)
+    const entry = remapHostAgentStatus(surface)
     if (!entry) {
       continue
     }
-    // Why: a pruned duplicate leaf remaps onto the retained pane key, so coalesce with the entry
-    // already staged this pass before falling back to the store snapshot.
-    const existing = nextByPaneKey.get(entry.paneKey) ?? state.agentStatusByPaneKey[entry.paneKey]
-    // Why: keep fresher OSC state while taking remapped ownership metadata from the authoritative host snapshot.
-    const hostIdentityPredatesCurrentTurn =
-      existing !== undefined &&
-      entry.state === 'done' &&
-      existing.state !== 'done' &&
-      existing.stateStartedAt > entry.stateStartedAt
-    // Why: cross-machine wall clocks are not comparable, so the host frame could
-    // outrank live client status forever; a proven client writer keeps its own
-    // state (still adopting the host's identity fields below) unless the host
-    // carries a state class the client's bytes can never see.
-    const clientOwnsEntry =
-      isFencedClientAgentStatus(entry.paneKey, existing, now) &&
-      !hostAgentStatusPiercesClientAuthority(entry)
+    const existing = state.agentStatusByPaneKey[entry.paneKey]
+    // Why: an active web stream can report a fresher OSC 9999 status before the next host snapshot, so don't rewind it with an older host publication.
     const nextEntry =
-      existing && (clientOwnsEntry || existing.updatedAt > entry.updatedAt)
-        ? {
-            ...normalizeCompatibleAgentStatusEntryForOwner(existing, entry.agentType),
-            paneKey: entry.paneKey,
-            worktreeId: entry.worktreeId ?? existing.worktreeId,
-            tabId: entry.tabId,
-            providerSession:
-              existing.providerSession ??
-              (hostIdentityPredatesCurrentTurn ? undefined : entry.providerSession)
-          }
+      existing && existing.updatedAt > entry.updatedAt
+        ? normalizeCompatibleAgentStatusEntryForOwner(existing, entry.agentType)
         : entry
     nextByPaneKey.set(entry.paneKey, nextEntry)
   }
@@ -813,12 +729,6 @@ function buildMirroredAgentStatusPatch(
       continue
     }
     if (nextByPaneKey.has(paneKey)) {
-      continue
-    }
-    // Why: the host surface carrying no status is not proof the agent stopped —
-    // hook-only hosts publish nothing for OSC-driven panes. Keep a live entry
-    // this renderer owns; it decays through the normal freshness boundary.
-    if (isFencedClientAgentStatus(paneKey, state.agentStatusByPaneKey[paneKey], now)) {
       continue
     }
     if (nextAgentStatusByPaneKey === state.agentStatusByPaneKey) {
@@ -878,7 +788,6 @@ function buildTerminalUnifiedTab(
     label: tab.title,
     ...(tab.quickCommandLabel?.trim() ? { quickCommandLabel: tab.quickCommandLabel.trim() } : {}),
     ...(tab.generatedTitle?.trim() ? { generatedLabel: tab.generatedTitle.trim() } : {}),
-    ...(tab.aiVaultTitle ? { aiVaultTitle: tab.aiVaultTitle } : {}),
     customLabel: tab.customTitle,
     color: tab.color,
     sortOrder: tab.sortOrder,
@@ -1437,7 +1346,6 @@ function agentStatusEntryEqual(a: AgentStatusEntry | undefined, b: AgentStatusEn
     a.lastAssistantMessage === b.lastAssistantMessage &&
     a.interrupted === b.interrupted &&
     a.promptInteractionKey === b.promptInteractionKey &&
-    agentProviderSessionsEqual(a.agentType, a.providerSession, b.providerSession) &&
     sameAgentStateHistory(a.stateHistory, b.stateHistory)
   )
 }
@@ -1456,6 +1364,59 @@ function isMirroredCommandCodeTurnBump(
     existing.state === 'working' &&
     entry.state === 'working' &&
     entry.stateStartedAt > existing.stateStartedAt
+  )
+}
+
+function sameStringRecord(
+  a: Readonly<Record<string, string>> | undefined,
+  b: Readonly<Record<string, string>> | undefined
+): boolean {
+  const left = a ?? {}
+  const right = b ?? {}
+  const leftKeys = Object.keys(left)
+  const rightKeys = Object.keys(right)
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key) => Object.prototype.hasOwnProperty.call(right, key) && left[key] === right[key]
+    )
+  )
+}
+
+function terminalLayoutNodeEqual(
+  a: TerminalPaneLayoutNode | null | undefined,
+  b: TerminalPaneLayoutNode | null | undefined
+): boolean {
+  if (!a || !b) {
+    return !a && !b
+  }
+  if (a.type !== b.type) {
+    return false
+  }
+  if (a.type === 'leaf') {
+    return b.type === 'leaf' && a.leafId === b.leafId
+  }
+  return (
+    b.type === 'split' &&
+    a.direction === b.direction &&
+    a.ratio === b.ratio &&
+    terminalLayoutNodeEqual(a.first, b.first) &&
+    terminalLayoutNodeEqual(a.second, b.second)
+  )
+}
+
+function terminalLayoutEqual(
+  a: TerminalLayoutSnapshot | undefined,
+  b: TerminalLayoutSnapshot
+): boolean {
+  return (
+    terminalLayoutNodeEqual(a?.root, b.root) &&
+    (a?.activeLeafId ?? null) === b.activeLeafId &&
+    (a?.expandedLeafId ?? null) === b.expandedLeafId &&
+    sameStringRecord(a?.ptyIdsByLeafId, b.ptyIdsByLeafId) &&
+    sameStringRecord(a?.buffersByLeafId, b.buffersByLeafId) &&
+    sameStringRecord(a?.scrollbackRefsByLeafId, b.scrollbackRefsByLeafId) &&
+    sameStringRecord(a?.titlesByLeafId, b.titlesByLeafId)
   )
 }
 
@@ -1513,9 +1474,6 @@ function terminalTabEqual(a: TerminalTab, b: TerminalTab): boolean {
     a.quickCommandLabel === b.quickCommandLabel &&
     a.startupCwd === b.startupCwd &&
     a.generatedTitle === b.generatedTitle &&
-    a.aiVaultTitle?.agent === b.aiVaultTitle?.agent &&
-    a.aiVaultTitle?.sessionId === b.aiVaultTitle?.sessionId &&
-    a.aiVaultTitle?.title === b.aiVaultTitle?.title &&
     a.customTitle === b.customTitle &&
     a.color === b.color &&
     a.sortOrder === b.sortOrder &&
@@ -1662,9 +1620,6 @@ function tabEqual(a: Tab, b: Tab): boolean {
     a.worktreeId === b.worktreeId &&
     a.contentType === b.contentType &&
     a.label === b.label &&
-    // Why: the generated label is the visible tab title; ignoring it let the
-    // equality bail keep a unified tab that disagreed with its terminal tab.
-    a.generatedLabel === b.generatedLabel &&
     a.customLabel === b.customLabel &&
     a.color === b.color &&
     a.sortOrder === b.sortOrder &&
@@ -2552,7 +2507,6 @@ export function applyWebSessionTabsSnapshot(
     state,
     currentTerminalTabs,
     terminalSurfaceTabs,
-    mirroredTerminalTabs,
     now
   )
 

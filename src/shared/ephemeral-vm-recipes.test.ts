@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { PAIRING_OFFER_VERSION } from './pairing'
 import { encodePairingOffer } from './pairing-deep-link'
+import { PAIRING_OFFER_VERSION } from './pairing'
 import {
   EPHEMERAL_VM_RECIPE_JSON_STRUCTURE_LIMITS,
   getEphemeralVmRecipeResultWarnings,

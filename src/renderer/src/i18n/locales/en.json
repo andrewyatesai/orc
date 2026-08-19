@@ -11724,7 +11724,8 @@
             "searchGitLab": "Search GitLab MRs and issues",
             "searchBranches": "Search branches",
             "searchLinear": "Search Linear issues",
-            "workspaceName": "Workspace name"
+            "workspaceName": "Workspace name",
+            "branchSearchFailed": "Branch search failed, so no branches can be listed."
           },
           "ProjectHostSetupCombobox": {
             "empty": "No hosts are ready for this project.",
@@ -14022,6 +14023,7 @@
             "8ce4f6b12e": "Open Link In Default Browser",
             "b5b87d6cbb": "Open Link In Orca Browser",
             "87eb75f7d2": "Enter a valid http(s) or localhost URL.",
+            "searchCoreUnavailable": "Search is unavailable because the Git engine failed to load. Enter a full http(s) URL.",
             "27d863542c": "Browser annotations",
             "e48569ac6d": "This site could not be reached.",
             "bbe8f15e83": "This pane is rendered from the active runtime server.",

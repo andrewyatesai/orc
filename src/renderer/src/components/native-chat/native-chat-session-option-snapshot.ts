@@ -129,15 +129,6 @@ export function buildNativeChatSessionOptionSnapshot(args: {
     })),
     modelTracked
   )
-  const trackedModelId = typeof modelTracked?.value === 'string' ? modelTracked.value : null
-  // Why: no tracked model means no `-m` was ever emitted, so the CLI runs its own default.
-  // Only a catalog that proves its seed states that default may name it — otherwise a guess
-  // (account- or config-derived) would be shown as the launch's model.
-  const defaultModelId =
-    !trackedModelId && catalog.defaultModelIsCliDefault
-      ? (models.find((model) => model.isDefault)?.id ?? null)
-      : null
-  const effectiveModelId = trackedModelId ?? defaultModelId
   const modelSettable = settableState({ mode, apply: catalog.modelApply })
   const modelAction = actionForApply(catalog.modelApply, modelTracked, mode)
   const snapshot: SessionOptionDescriptor[] = [
@@ -147,19 +138,19 @@ export function buildNativeChatSessionOptionSnapshot(args: {
       category: 'model',
       kind: {
         type: 'select',
-        ...(effectiveModelId ? { currentValue: effectiveModelId } : {}),
+        ...(typeof modelTracked?.value === 'string' ? { currentValue: modelTracked.value } : {}),
         choices: modelChoices
       },
-      valueSource: modelTracked?.source ?? (defaultModelId ? 'default' : 'unknown'),
+      valueSource: modelTracked?.source ?? 'unknown',
       ...modelSettable,
       ...(modelAction ? { action: modelAction } : {})
     }
   ]
-  if (!effectiveModelId) {
+  if (typeof modelTracked?.value !== 'string') {
     return snapshot
   }
-  const model = findCatalogModel({ ...catalog, models: [...models] }, effectiveModelId)
-  const trackedValues = record.valuesByModel[effectiveModelId] ?? {}
+  const model = findCatalogModel({ ...catalog, models: [...models] }, modelTracked.value)
+  const trackedValues = record.valuesByModel[modelTracked.value] ?? {}
   for (const option of model?.options ?? []) {
     const descriptor = optionDescriptor({
       option,

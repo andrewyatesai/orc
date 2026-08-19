@@ -9,7 +9,6 @@ import {
   persistRelayHost,
   toError
 } from './mobile-endpoint-supervisor-support'
-import { selectDialableRelayCredentials } from './mobile-relay-credential-selection'
 import {
   applyResumeConfirmation,
   mobileRelayCredentialNeedsRotation,
@@ -59,11 +58,9 @@ export class MobileEndpointSupervisor {
 
   async start(): Promise<void> {
     this.bundle = await this.dependencies.readBundle(this.host.id).catch(() => null)
-    if (this.stopped || !this.host.relay) {
+    if (this.stopped || !this.bundle || !this.host.relay) {
       return
     }
-    // Why: a Keychain race at open must not kill relay recovery for the whole
-    // process lifetime; each recovery attempt re-reads the durable bundle.
     this.unsubscribeState = this.logical.onStateChange((state) => {
       if (state === 'connected') {
         if (this.logical.getActivePath() !== 'relay') {
@@ -115,6 +112,7 @@ export class MobileEndpointSupervisor {
       this.stopped ||
       !this.foreground ||
       this.operationInFlight ||
+      !this.bundle ||
       !this.host.relay ||
       (!forceReplacement && !this.relayReconnect.needsRecovery(this.logical.getState()))
     ) {
@@ -129,15 +127,11 @@ export class MobileEndpointSupervisor {
     let lastError: Error | null = null
     let retryAfterOperation = false
     try {
-      // Why: re-read the durable bundle each gated attempt and adopt a fresher
-      // one — a relay-only phone has no direct path to refresh a snapshot.
-      const selection = await selectDialableRelayCredentials({
-        bundle: this.bundle,
-        controller: this.relayReconnect,
-        readBundle: () => this.dependencies.readBundle(this.host.id)
-      })
-      this.bundle = selection.bundle
-      for (const credential of selection.credentials) {
+      const credentials = this.relayReconnect.eligibleCredentials(
+        this.bundle.current,
+        this.bundle.grace
+      )
+      for (const credential of credentials) {
         const result = await this.tryRelayCredential(credential)
         if (result.ok) {
           retryAfterOperation = this.logical.getState() !== 'connected'
@@ -151,7 +145,7 @@ export class MobileEndpointSupervisor {
           break
         }
       }
-      if (selection.credentials.length > 0) {
+      if (credentials.length > 0) {
         // Why: cleanup may happen while a relay dial is awaiting the network;
         // record its outcome without recreating a foreground retry timer.
         const scheduleRetry = !forceReplacement && this.foreground && !this.stopped

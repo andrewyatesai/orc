@@ -66,7 +66,10 @@ function getLaunchWatchdogTimeoutMessage(label: string): string {
   return `Couldn't launch ${label} — the terminal did not start.`
 }
 
-function getTerminalLaunchState(tabId: string): { stillOpen: boolean; hasPty: boolean } {
+function getTerminalLaunchState(tabId: string): {
+  stillOpen: boolean
+  hasPty: boolean
+} {
   const state = useAppStore.getState()
   const hasPtyBinding = (state.ptyIdsByTabId[tabId]?.length ?? 0) > 0
   let stillOpen = false

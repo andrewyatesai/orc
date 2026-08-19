@@ -11,6 +11,7 @@
 // its own header. Crossing would drop every Kagi user back to unauthenticated
 // search, and no vector can see it because the corpus only calls the two-arg
 // shape.
+import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 
 const ROOT = new URL('../..', import.meta.url).pathname

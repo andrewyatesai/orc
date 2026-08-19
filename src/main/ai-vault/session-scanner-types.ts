@@ -34,8 +34,6 @@ export type AiVaultScanOptions = {
   droidProjectsDir?: string
   kimiSessionsDir?: string
   limit?: number
-  // Comprehensive history: scan every discovered transcript (overrides `limit`).
-  unlimited?: boolean
   limitPerAgent?: number
   // Active workspace/project paths whose sessions must be included regardless of
   // the recency cap (see discoverInScopeClaudeFiles).

@@ -1,7 +1,9 @@
 import { execFile } from 'node:child_process'
 import dgram from 'node:dgram'
+import { access } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import path from 'node:path'
 import { ipcMain, shell, systemPreferences } from 'electron'
-import { getMacosFullDiskAccessStatus } from '../macos-full-disk-access-status'
 import type {
   DeveloperPermissionId,
   DeveloperPermissionRequestResult,
@@ -43,6 +45,21 @@ function getMediaStatus(mediaType: 'microphone' | 'camera' | 'screen'): Develope
   }
   try {
     return systemPreferences.getMediaAccessStatus(mediaType)
+  } catch {
+    return 'unknown'
+  }
+}
+
+async function getFullDiskAccessStatus(): Promise<DeveloperPermissionStatus> {
+  const unsupported = unsupportedOffMac()
+  if (unsupported) {
+    return unsupported
+  }
+  try {
+    // Why: Safari bookmarks are TCC-protected, so read access is a practical
+    // Full Disk Access signal without touching user project contents.
+    await access(path.join(homedir(), 'Library', 'Safari', 'Bookmarks.plist'))
+    return 'granted'
   } catch {
     return 'unknown'
   }
@@ -148,7 +165,7 @@ async function getPermissionState(id: DeveloperPermissionId): Promise<DeveloperP
     case 'accessibility':
       return { id, status: getAccessibilityStatus() }
     case 'full-disk-access':
-      return { id, status: await getMacosFullDiskAccessStatus() }
+      return { id, status: await getFullDiskAccessStatus() }
     case 'automation':
     case 'local-network':
       return { id, status: unsupportedOffMac() ?? 'unknown' }

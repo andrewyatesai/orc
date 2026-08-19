@@ -24,8 +24,11 @@ import { DEFAULT_SSH_RELAY_GRACE_PERIOD_SECONDS } from '../shared/ssh-types'
 import { shouldUseShellReadyStartupDelivery } from '../shared/codex-startup-delivery'
 import { buildStartupCommandSubmission } from '../shared/startup-command-submission'
 import { resolveSetupAgentSequenceLaunchCommand } from '../shared/setup-agent-sequencing'
-import { isPathInsideOrEqual, normalizeRuntimePathForComparison } from '../shared/cross-platform-path-resolution'
-import { splitWorktreeId } from '../shared/worktree-id'
+import {
+  isPathInsideOrEqual,
+  normalizeRuntimePathForComparison
+} from '../shared/cross-platform-path-resolution'
+import { splitWorktreeId } from '../shared/worktree-id-parsing'
 import { PhysicalExitTracker } from '../shared/physical-exit-tracker'
 import {
   createShellReadyScanState,
@@ -39,7 +42,6 @@ import {
   mergeGitConfigEnvProtocol
 } from '../shared/git-credential-prompt-env'
 import { isTuiAgent } from '../shared/tui-agent-config'
-import type { TuiAgent } from '../shared/types'
 import { forceKillPosixPtyProcessGroups } from '../main/pty/posix-pty-process-groups'
 import {
   PTY_STARTUP_INGRESS_VERSION,
@@ -297,7 +299,6 @@ export type PtyEnvAugmenter = (ctx: {
   shell: string
   env: Record<string, string>
   command?: string
-  launchAgent?: TuiAgent
 }) => Record<string, string>
 
 export type RelayPtyWorktreeRemovalCoordinator = {
@@ -434,13 +435,7 @@ export class PtyHandler {
   /** Build augmented spawn env; augmenter values win over process.env/renderer env. Shared by spawn()/revive() so precedence can't drift. */
   private buildSpawnEnv(
     rendererEnv: Record<string, string> | undefined,
-    ctx: {
-      id: string
-      paneKey?: string
-      shell: string
-      command?: string
-      launchAgent?: TuiAgent
-    },
+    ctx: { id: string; paneKey?: string; shell: string; command?: string },
     envToDelete: readonly string[] = []
   ): Record<string, string> {
     // Why: claude child-session markers and Orca's NODE_ENV describe the relay
@@ -1067,21 +1062,16 @@ export class PtyHandler {
     const terminalHandle =
       typeof env?.ORCA_TERMINAL_HANDLE === 'string' ? env.ORCA_TERMINAL_HANDLE : undefined
     const command = typeof params.command === 'string' ? params.command : undefined
-    const launchAgent = isTuiAgent(params.launchAgent) ? params.launchAgent : undefined
     const terminalWindowsWslDistro =
       typeof params.terminalWindowsWslDistro === 'string' ? params.terminalWindowsWslDistro : null
     const commandDelivery = params.commandDelivery === 'provider' ? 'provider' : 'renderer'
     const shouldProviderDeliverCommand = commandDelivery === 'provider' && command !== undefined
-    const spawnEnv = this.buildSpawnEnv(
-      env,
-      { id, paneKey, shell, command, launchAgent },
-      envToDelete
-    )
+    const spawnEnv = this.buildSpawnEnv(env, { id, paneKey, shell, command }, envToDelete)
     const launchCommandHint = resolveSetupAgentSequenceLaunchCommand(spawnEnv, command)
     // Why: SSH PTYs bypass main's host-env builder, so apply the guard after the relay merges its authoritative env.
     const gitCredentialPromptGuarded = applyTerminalGitCredentialPromptGuard(spawnEnv, {
       launchCommand: launchCommandHint,
-      isUnattended: launchAgent !== undefined,
+      isUnattended: isTuiAgent(params.launchAgent),
       platform: process.platform
     })
     const shouldEmitShellReadyMarker =

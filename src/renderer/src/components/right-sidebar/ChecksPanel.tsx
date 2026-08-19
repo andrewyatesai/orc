@@ -1,6 +1,13 @@
 /* eslint-disable max-lines -- Why: the checks panel co-locates PR header, checks, comments,
 merge actions, and conflict state in one component to keep the data flow straightforward. */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore
+} from 'react'
 import {
   LoaderCircle,
   RefreshCw,
@@ -89,7 +96,7 @@ import { normalizeGlobalWindowsRuntimeDefault } from '../../../../shared/project
 import { normalizeHostedReviewHeadRef } from '@/lib/git-wasm/hosted-review-refs'
 import { getHostedReviewCacheKey, refreshHostedReviewCard } from '@/store/slices/hosted-review'
 import { toast } from 'sonner'
-import { useConfirmationDialog } from '@/components/confirmation-dialog-context'
+import { useConfirmationDialog } from '@/components/confirmation-dialog'
 import { type ChecksPanelReview, selectChecksPanelReview } from './checks-panel-review'
 import { selectReviewCacheEntry } from './review-cache-entry-selection'
 import {
@@ -144,6 +151,10 @@ import { installWindowVisibilityInterval } from '@/lib/window-visibility-interva
 import { useMountedRef } from '@/hooks/useMountedRef'
 import { callRuntimeRpc, getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import { gitLabPipelineJobsToPRChecks } from '@/lib/git-wasm/gitlab-pipeline-checks'
+import {
+  getGitWasmAvailability,
+  subscribeGitWasmAvailability
+} from '@/lib/git-wasm/git-wasm-availability'
 import { gitLabJobTraceToCheckRunDetails } from './gitlab-check-job-details'
 import { fetchGitLabMRChecks } from './gitlab-mr-checks-cache'
 import { getWorktreeGitIdentityDisplay } from '@/lib/worktree-git-identity-display'
@@ -456,6 +467,13 @@ export default function ChecksPanel(): React.JSX.Element {
 
   const [checks, setChecks] = useState<PRCheckDetail[]>([])
   const [checksLoading, setChecksLoading] = useState(false)
+  // Why: gitLabPipelineJobsToPRChecks returns a not-ready sentinel until the wasm
+  // core lands, so the GitLab poll must re-run on the ready edge instead of
+  // waiting out its 30s backoff, and must know when 'pending' turned terminal.
+  const gitWasmAvailability = useSyncExternalStore(
+    subscribeGitWasmAvailability,
+    getGitWasmAvailability
+  )
   const [comments, setComments] = useState<PRComment[]>([])
   const [commentsLoading, setCommentsLoading] = useState(false)
   const commentsRef = useRef<PRComment[]>([])
@@ -1829,6 +1847,10 @@ export default function ChecksPanel(): React.JSX.Element {
       }
       setChecksLoading(true)
       setCommentsLoading(true)
+      // Why: a not-ready sentinel leaves `checks` empty, which the list renders as
+      // "No checks configured" — hold the spinner instead so a pipeline that has
+      // simply not been mapped yet never reads as a clean one.
+      let holdChecksSpinnerForPendingCore = false
       try {
         // Why: lightweight checks path — pipeline jobs + comments only, TTL-cached
         // and inflight-deduped. Avoids re-downloading the full MR dialog bundle
@@ -1845,9 +1867,10 @@ export default function ChecksPanel(): React.JSX.Element {
         }
         const result = gitLabPipelineJobsToPRChecks(details?.pipelineJobs ?? [])
         setComments(gitLabMRCommentsToPRComments(details?.comments))
-        // Why: the Rust wasm core returns null during its ~tens-of-ms boot
-        // window; skip this poll's check update (the next poll repopulates)
-        // rather than clobbering the panel with an empty list.
+        // Why: null is "the wasm core has not answered", never "no checks" — skip
+        // this poll's update so the panel keeps its last good rows; the ready-edge
+        // effect below refetches the moment the core lands.
+        holdChecksSpinnerForPendingCore = !result && getGitWasmAvailability() === 'pending'
         if (result) {
           setChecks(result)
           const signature = JSON.stringify(
@@ -1864,11 +1887,14 @@ export default function ChecksPanel(): React.JSX.Element {
           return
         }
         console.warn('Failed to fetch GitLab MR checks:', err)
+        holdChecksSpinnerForPendingCore = false
         setChecks([])
         setComments([])
       } finally {
         if (isCurrentAsyncResult(requestKey)) {
-          setChecksLoading(false)
+          if (!holdChecksSpinnerForPendingCore) {
+            setChecksLoading(false)
+          }
           setCommentsLoading(false)
         }
       }
@@ -1915,7 +1941,10 @@ export default function ChecksPanel(): React.JSX.Element {
       run: () => fetchGitLabDetails(),
       getDelayMs: () => pollIntervalRef.current
     })
-  }, [activeGitLabReview, fetchGitLabDetails, isPanelVisible])
+    // Why gitWasmAvailability: the poller refetches on install, so re-running on the
+    // pending→ready edge maps the pipeline immediately instead of leaving the panel
+    // spinning for the rest of the backoff.
+  }, [activeGitLabReview, fetchGitLabDetails, gitWasmAvailability, isPanelVisible])
 
   // Fetch comments once when PR changes (no polling — comments change infrequently).
   const fetchComments = useCallback(
@@ -4118,14 +4147,16 @@ export default function ChecksPanel(): React.JSX.Element {
         </>
       )}
       {/* Why: with merge conflicts and no checks fetched, "No checks configured" is misleading — checks can't run until conflicts resolve. */}
-      {!(activeConflictReview && checks.length === 0 && !checksLoading) && (
-        <ChecksList
-          checks={checks}
-          checksLoading={checksLoading}
-          checkDetailsContextKey={stateRequestKey}
-          onLoadCheckDetails={handleLoadCheckDetails}
-        />
-      )}
+      {/* Why: same for a terminally-unavailable wasm core on a GitLab MR — the pipeline→row mapper can never answer, so an empty list would render a failing pipeline as clean (the load failure is already reported once by git-wasm-unavailable-report). */}
+      {!(activeConflictReview && checks.length === 0 && !checksLoading) &&
+        !(activeGitLabReview && gitWasmAvailability === 'unavailable' && checks.length === 0) && (
+          <ChecksList
+            checks={checks}
+            checksLoading={checksLoading}
+            checkDetailsContextKey={stateRequestKey}
+            onLoadCheckDetails={handleLoadCheckDetails}
+          />
+        )}
       <PRCommentsList
         comments={comments}
         commentsLoading={commentsLoading}

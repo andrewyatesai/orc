@@ -3,6 +3,7 @@ request timestamps, and follow-up scheduling against shared module state. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GitHubPRRefreshCandidate, PRInfo } from '../../shared/types'
 import { isWslUncPath } from '../../shared/wsl-unc-paths'
+
 const {
   sendMock,
   sendToTrustedUIRendererMock,

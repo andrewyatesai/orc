@@ -5,7 +5,6 @@ import { execFile } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { RelayDispatcher, RequestContext } from './dispatcher'
-import { sortDirEntries } from '../shared/file-name-sort'
 import type { RelayContext } from './context'
 // Why: RelayContext is accepted in the constructor for protocol back-compat
 // (see docs/relay-fs-allowlist-removal.md), but no longer consulted on FS ops.
@@ -157,7 +156,12 @@ export class FsHandler {
         isSymlink: entry.isSymbolicLink()
       }))
     )
-    return sortDirEntries(mapped)
+    return mapped.sort((a, b) => {
+      if (a.isDirectory !== b.isDirectory) {
+        return a.isDirectory ? -1 : 1
+      }
+      return a.name.localeCompare(b.name)
+    })
   }
 
   private async readFile(params: Record<string, unknown>) {

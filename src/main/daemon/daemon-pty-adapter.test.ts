@@ -4,7 +4,7 @@ import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { DaemonClient } from './client'
-import { DaemonProtocolError, SessionNotFoundError } from './daemon-errors'
+import { DaemonProtocolError } from './daemon-errors'
 import {
   DaemonPtyAdapter,
   isDaemonGoneError,
@@ -515,78 +515,6 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
 
       await waitFor(() => vi.mocked(lastSubprocess.write).mock.calls.length > 0)
       expect(lastSubprocess.write).toHaveBeenCalledWith("codex 'linked issue context'\n")
-    })
-  })
-
-  describe('attach (subscriber-driven, #12589)', () => {
-    // Drives the real DaemonPtyAdapter.attach; only the client transport is
-    // stubbed (unrecognized types delegate to the live server handshake).
-    function stubClientRequests(
-      handlers: Record<string, (payload?: unknown) => Promise<unknown> | unknown>
-    ): { requests: [string, unknown][] } {
-      const client = (
-        adapter as unknown as {
-          client: { request: (type: string, payload?: unknown) => Promise<unknown> }
-        }
-      ).client
-      const requests: [string, unknown][] = []
-      const original = client.request.bind(client)
-      vi.spyOn(client, 'request').mockImplementation(async (type: string, payload?: unknown) => {
-        requests.push([type, payload])
-        const handler = handlers[type]
-        return handler ? handler(payload) : original(type, payload)
-      })
-      return { requests }
-    }
-
-    it('attaches with the session applied size and attachOnly, not a hardcoded 80x24', async () => {
-      const sessionId = 'attach-applied-size'
-      const { requests } = stubClientRequests({
-        getSize: () => ({ size: { cols: 132, rows: 43 } }),
-        createOrAttach: () => ({ isNew: false, snapshot: null, pid: 1, shellState: 'ready' })
-      })
-
-      await adapter.attach(sessionId)
-
-      const create = requests.find(([type]) => type === 'createOrAttach')?.[1]
-      expect(create).toMatchObject({ sessionId, cols: 132, rows: 43, attachOnly: true })
-    })
-
-    it('refuses attach when the daemon cannot prove the session size', async () => {
-      const { requests } = stubClientRequests({ getSize: () => ({ size: null }) })
-
-      await expect(adapter.attach('attach-null-size')).rejects.toBeInstanceOf(SessionNotFoundError)
-      expect(requests.some(([type]) => type === 'createOrAttach')).toBe(false)
-    })
-
-    it('retires a pre-v31 daemon accidental spawn instead of publishing it as an attach', async () => {
-      const sessionId = 'attach-legacy-spawn'
-      const { requests } = stubClientRequests({
-        getSize: () => ({ size: { cols: 80, rows: 24 } }),
-        createOrAttach: () => ({ isNew: true, snapshot: null, pid: 2, shellState: 'ready' }),
-        kill: () => ({})
-      })
-
-      await expect(adapter.attach(sessionId)).rejects.toBeInstanceOf(SessionNotFoundError)
-      const kill = requests.find(([type]) => type === 'kill')?.[1]
-      expect(kill).toMatchObject({ sessionId, immediate: true })
-    })
-
-    it('surfaces a failed accidental-spawn retire instead of swallowing it', async () => {
-      const sessionId = 'attach-legacy-spawn-kill-fails'
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      stubClientRequests({
-        getSize: () => ({ size: { cols: 80, rows: 24 } }),
-        createOrAttach: () => ({ isNew: true, snapshot: null, pid: 3, shellState: 'ready' }),
-        kill: () => Promise.reject(new Error('kill failed'))
-      })
-
-      await expect(adapter.attach(sessionId)).rejects.toBeInstanceOf(SessionNotFoundError)
-      expect(warn).toHaveBeenCalledWith(
-        '[daemon] attach-only retire of accidental legacy spawn failed',
-        expect.objectContaining({ sessionId })
-      )
-      warn.mockRestore()
     })
   })
 
@@ -1226,12 +1154,12 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
       const ensureConnectedSpy = vi
         .spyOn(DaemonClient.prototype, 'ensureConnected')
         .mockResolvedValue()
-      const requestSpy = vi.spyOn(DaemonClient.prototype, 'request').mockImplementation((async (
-        type: string
-      ) =>
-        type === 'getSize'
-          ? { size: { cols: 80, rows: 24 } }
-          : { isNew: false, pid: 4242, shellState: 'unsupported', snapshot: null }) as never)
+      const requestSpy = vi.spyOn(DaemonClient.prototype, 'request').mockResolvedValue({
+        isNew: false,
+        pid: 4242,
+        shellState: 'unsupported',
+        snapshot: null
+      } as never)
       const notifySpy = vi.spyOn(DaemonClient.prototype, 'notify')
       const legacy = new DaemonPtyAdapter({ socketPath, tokenPath, protocolVersion: 28 })
       try {
@@ -1256,12 +1184,12 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
       const ensureConnectedSpy = vi
         .spyOn(DaemonClient.prototype, 'ensureConnected')
         .mockResolvedValue()
-      const requestSpy = vi.spyOn(DaemonClient.prototype, 'request').mockImplementation((async (
-        type: string
-      ) =>
-        type === 'getSize'
-          ? { size: { cols: 80, rows: 24 } }
-          : { isNew: false, pid: 4242, shellState: 'unsupported', snapshot: null }) as never)
+      const requestSpy = vi.spyOn(DaemonClient.prototype, 'request').mockResolvedValue({
+        isNew: false,
+        pid: 4242,
+        shellState: 'unsupported',
+        snapshot: null
+      } as never)
       const notifySpy = vi.spyOn(DaemonClient.prototype, 'notify')
       const current = new DaemonPtyAdapter({ socketPath, tokenPath, protocolVersion: 29 })
       try {
@@ -1615,21 +1543,6 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
   })
 
   describe('listProcesses', () => {
-    // Why: hasPty reads the activeSessionIds cache; an exit missed while the
-    // socket was down must not survive an authoritative inventory, or absence
-    // proofs (terminal list demotion, send guard) are defeated forever.
-    it('drops cached session ids an authoritative inventory omits', async () => {
-      const { id } = await adapter.spawn({ cols: 80, rows: 24 })
-      const staleId = 'repo::/repo/stale@@deadbeef'
-      ;(adapter as unknown as { activeSessionIds: Set<string> }).activeSessionIds.add(staleId)
-      expect(adapter.hasPty(staleId)).toBe(true)
-
-      await adapter.listProcesses()
-
-      expect(adapter.hasPty(staleId)).toBe(false)
-      expect(adapter.hasPty(id)).toBe(true)
-    })
-
     it('returns active sessions', async () => {
       await adapter.spawn({
         cols: 80,

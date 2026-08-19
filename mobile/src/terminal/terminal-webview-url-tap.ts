@@ -205,7 +205,7 @@ export const URL_TAP_WEBVIEW_JS = `
     } catch (e) { return 0; }
   }
 
-  function notifyTerminalSurfaceTap(originX, originY, focusKeyboard) {
+  function notifyTerminalSurfaceTap(originX, originY) {
     var tappedOscLink = oscLinkAtViewportPoint(originX, originY);
     if (tappedOscLink && tappedOscLink.kind === 'file') {
       notify({
@@ -245,9 +245,7 @@ export const URL_TAP_WEBVIEW_JS = `
     var clickInput = buildMouseClickInput(originX, originY);
     if (clickInput) {
       notify({ type: 'terminal-input', bytes: clickInput });
-    }
-    // Touch still needs native input focus after the TUI consumes its mouse click.
-    if (focusKeyboard || !isClickMouseTrackingMode(getMouseTrackingMode())) {
+    } else if (!isClickMouseTrackingMode(getMouseTrackingMode())) {
       notify({ type: 'terminal-tap' });
     }
   }

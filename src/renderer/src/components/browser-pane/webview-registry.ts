@@ -188,17 +188,12 @@ export function moveFocusToRendererBeforeWebviewDetach(webview: Electron.Webview
   moveFocusToRendererIfWebviewOwnsFocus(webview)
 }
 
-export function destroyPersistentWebview(
-  browserTabId: string,
-  { preserveViewport = false }: { preserveViewport?: boolean } = {}
-): void {
+export function destroyPersistentWebview(browserTabId: string): void {
   const webview = webviewRegistry.get(browserTabId)
   if (!webview) {
     // Why: the viewport can outlive a missing webview entry; tear it down on
     // explicit close paths so overlay slots do not leak parked shells.
-    if (!preserveViewport) {
-      removeBrowserPageViewport(browserTabId)
-    }
+    removeBrowserPageViewport(browserTabId)
     registeredWebContentsIds.delete(browserTabId)
     clearLiveBrowserUrl(browserTabId)
     return
@@ -216,9 +211,7 @@ export function destroyPersistentWebview(
   moveFocusToRendererBeforeWebviewDetach(webview)
   webview.remove()
   unregisterPersistentWebview(browserTabId)
-  if (!preserveViewport) {
-    removeBrowserPageViewport(browserTabId)
-  }
+  removeBrowserPageViewport(browserTabId)
   registeredWebContentsIds.delete(browserTabId)
   clearLiveBrowserUrl(browserTabId)
 }

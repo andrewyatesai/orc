@@ -5,7 +5,7 @@ import os from 'node:os'
 // Side effect: bind the napi orcaDispatch into the shared seam before any
 // runtime code runs, so src/shared modules cut over to Rust work in main.
 import './orca-dispatch-binding'
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, powerMonitor, type Tray } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, type Tray } from 'electron'
 import { electronApp, is } from '@electron-toolkit/utils'
 import {
   Store,
@@ -47,10 +47,6 @@ import { triggerStartupNotificationRegistration } from './ipc/notifications'
 import { OrcaRuntimeService } from './runtime/orca-runtime'
 import { loadAgentSessionClaimSigner } from './runtime/agent-session-claim-identity'
 import { OrcaRuntimeRpcServer } from './runtime/runtime-rpc'
-import {
-  recordRuntimeRpcStartFailure,
-  showRuntimeRpcStartupFailureDialog
-} from './runtime/runtime-rpc-startup-failure'
 import { resolveAdvertisedPairingEndpoint } from './runtime/pairing-endpoint'
 import { ServeReadinessPublisher } from './server/serve-readiness'
 import { reserveServeStdoutForReadiness } from './server/serve-stdout-boundary'
@@ -64,7 +60,6 @@ import {
   registerAppMenu,
   rebuildAppMenu
 } from './menu/register-app-menu'
-import { createGpuAccelerationAboutPanelOptions } from './menu/gpu-acceleration-about-panel'
 import { applyAppModeChange } from './ipc/app-mode-side-effects'
 import { watchAppModeSidecar } from './app-mode/app-mode-sidecar-file'
 import {
@@ -123,7 +118,6 @@ import {
 } from './startup/dev-education-suppression'
 import { maybeRedirectAppImageCliLaunch } from './startup/appimage-cli-redirect'
 import { maybeRedirectPackagedCliEntryLaunch } from './startup/packaged-cli-entry-redirect'
-import { argvRequestsServeMode, normalizeServeModeArgv } from './startup/serve-mode-argv'
 import { startFirstWindowStartupServices } from './startup/first-window-startup-services'
 import { createWslCliReconciliationStartupBarrier } from './startup/wsl-cli-reconciliation-startup-barrier'
 import { getDevInstanceIdentity } from './startup/dev-instance-identity'
@@ -136,10 +130,8 @@ import {
   acquireSingleInstanceLock,
   logSingleInstanceLockBypass,
   logSingleInstanceLockFailure,
-  shouldActivateDesktopForSecondInstance,
   shouldBypassSingleInstanceLock,
-  shouldSkipSingleInstanceLock,
-  SINGLE_INSTANCE_ALREADY_RUNNING_EXIT_CODE
+  shouldSkipSingleInstanceLock
 } from './startup/single-instance-lock'
 import { shouldDeferLaunchForUpdateInstall } from './startup/update-install-launch-gate'
 import { registerOrcaProtocolClient } from './startup/deep-link-scheme-registration'
@@ -193,10 +185,6 @@ import {
 import { setCodexTrustGrantTelemetry } from './codex/codex-trust-grant-telemetry'
 import { startCodexSessionBackfillInBackground } from './codex/codex-session-backfill'
 import { startCodexSessionIndexHealInBackground } from './codex/codex-session-index-heal'
-import {
-  startCodexStateDbBackfillRecoveryInBackground,
-  stopCodexStateDbBackfillRecoveries
-} from './codex/codex-state-db-backfill-recovery'
 import { createCodexSessionMigrationScheduler } from './codex/codex-session-migration-scheduler'
 import { prepareLegacySharedCodexSessionResume } from './codex/codex-legacy-session-resume'
 import { resolveHostCodexSessionSourceHome } from './codex/codex-session-source-home'
@@ -206,7 +194,6 @@ import { getOrcaManagedCodexHomePath, getSystemCodexHomePath } from './codex/cod
 import { normalizeRuntimePathForComparison } from '../shared/cross-platform-path-resolution'
 import type { AgentProviderSessionMetadata } from '../shared/agent-session-resume'
 import { getDefaultWslDistro } from './wsl'
-import { collectWorktreeTrashSweepRoots, sweepStaleWorktreeTrash } from './worktree-trash'
 import { ClaudeAccountService } from './claude-accounts/service'
 import { ClaudeRuntimeAuthService } from './claude-accounts/runtime-auth-service'
 import {
@@ -223,7 +210,7 @@ import { rememberBranchRenameFailureOutput } from './agent-hooks/branch-rename-f
 import { renameWorktreeFolderOnFirstWork } from './agent-hooks/first-work-folder-rename'
 import { moveWorktree } from './git/worktree'
 import { setDefaultWslDistroOverride } from './git/runner'
-import { getRepoIdFromWorktreeId } from '../shared/worktree-id'
+import { getRepoIdFromWorktreeId } from '../shared/worktree-id-parsing'
 import { parseWorkspaceKey } from '../shared/workspace-scope'
 import { classifyAtermRainPulse } from '../shared/aterm-rain-signal'
 import { setMigrationUnsupportedPtyListener } from './agent-hooks/migration-unsupported-pty-state'
@@ -242,8 +229,6 @@ import { OffscreenBrowserBackend } from './browser/offscreen-browser-backend'
 import { initializeBrowserSessionsForApp } from './browser/browser-session-startup'
 import { setUnreadDockBadgeCount } from './dock/unread-badge'
 import { AutomationService } from './automations/service'
-import { ArtifactCloudService } from './artifacts/artifact-cloud-service'
-import { isArtifactSharingEnabled } from '../shared/artifact-sharing-gate'
 import { createHeadlessAutomationOutputSnapshotBuffer } from './automations/headless-dispatch'
 import { buildHeadlessAutomationWorktreeCreateArgs } from './automations/headless-workspace-create'
 import { AgentAwakeService } from './agent-awake-service'
@@ -266,18 +251,17 @@ import {
   type ExpectedTeardownScope
 } from './crash-reporting/process-gone-classification'
 import { recordProcessGoneCrash as recordProcessGoneCrashEvent } from './crash-reporting/process-gone-recorder'
-import { resolveExpectedTeardownScope } from './crash-reporting/expected-teardown-state'
 import {
   advanceSyntheticTitleSpinnerEntries,
   type SyntheticTitleSpinnerEntry
 } from './synthetic-title-spinner'
 import { shouldSendSyntheticTitleFrame } from './synthetic-title-visibility'
 import { shouldCopySyntheticTitleFrameToPtyData } from './synthetic-title-frame-routing'
-import type { SyntheticAgentTitleProfile } from '../shared/synthetic-agent-title'
 import {
   getSyntheticAgentTitleProfile,
   shouldDriveSyntheticAgentTitleFromHook
 } from '../shared/synthetic-agent-title-resolution'
+import type { SyntheticAgentTitleProfile } from '../shared/synthetic-agent-title'
 import type { AgentStatusState } from '../shared/agent-status-types'
 import { isAskUserQuestionTool } from '../shared/agent-question-answered-intent'
 import { resolveTuiAgentPermissionMode } from '../shared/tui-agent-permissions'
@@ -342,34 +326,24 @@ const gpuCrashFallbackTracker = new GpuCrashFallbackTracker({
   threshold: DEFAULT_GPU_CRASH_FALLBACK_THRESHOLD
 })
 let gpuFallbackActiveThisLaunch = false
-let gpuFeatureStatus: Electron.GPUFeatureStatus | null = null
-
-function updateGpuAccelerationAboutPanel(): void {
-  app.setAboutPanelOptions(
-    createGpuAccelerationAboutPanelOptions({
-      appName: app.name,
-      appVersion: app.getVersion(),
-      platform: process.platform,
-      gpuFallbackActive: gpuFallbackActiveThisLaunch,
-      gpuFeatureStatus
-    })
-  )
-}
-
-app.on('gpu-info-update', () => {
-  gpuFeatureStatus = app.getGPUFeatureStatus()
-  if (app.isReady()) {
-    updateGpuAccelerationAboutPanel()
-  }
-})
 let localPtyStartupReady: Promise<void> = Promise.resolve()
 let localPtyProviderStartupReady: Promise<void> = Promise.resolve()
 const AGENT_STATE_CRASH_BREADCRUMB_MIN_INTERVAL_MS = 30_000
+const isServeMode = process.argv.includes('--serve')
+if (isServeMode) {
+  reserveServeStdoutForReadiness()
+}
+const desktopActivationGate = createServeDesktopActivationGate({
+  initialState: isServeMode ? 'initializing' : 'ready',
+  activateWindow: () => {
+    // Why: an updater replacement must not resurrect the old app bundle.
+    if (!isQuittingForUpdate()) {
+      focusExistingWindow()
+    }
+  },
+  onBlocked: (reason) => console.error(`[serve] Desktop activation blocked: ${reason}`)
+})
 // Why: on Windows a CLI launch that lost ELECTRON_RUN_AS_NODE would boot the GUI and exit silently; redirect to node mode before the lock gate below.
-// Both redirects run before the serve-argv rewrite so they still match on the launch argv verbatim.
-// It is load-bearing for the AppImage one: rewriting first replaces the `serve` positional, so its
-// command-name lookup finds a port number and strands the launch in an in-process serve. The
-// packaged-CLI one matches on the entry path instead, so order cannot affect it either way.
 const packagedCliEntryRedirect = maybeRedirectPackagedCliEntryLaunch({
   isPackaged: app.isPackaged,
   resourcesPath: process.resourcesPath,
@@ -386,26 +360,6 @@ const appImageCliRedirect = maybeRedirectAppImageCliLaunch({
 if (appImageCliRedirect.redirected) {
   app.exit(appImageCliRedirect.status)
 }
-// Why: extracted AppRun / binary launches can land CLI-form `serve` args on the
-// Electron process without the CLI rewrite that injects `--serve` (#12677).
-// Guarded so a normal GUI launch keeps its original argv array identity.
-if (argvRequestsServeMode(process.argv)) {
-  process.argv = normalizeServeModeArgv(process.argv)
-}
-const isServeMode = process.argv.includes('--serve')
-if (isServeMode) {
-  reserveServeStdoutForReadiness()
-}
-const desktopActivationGate = createServeDesktopActivationGate({
-  initialState: isServeMode ? 'initializing' : 'ready',
-  activateWindow: () => {
-    // Why: an updater replacement must not resurrect the old app bundle.
-    if (!isQuittingForUpdate()) {
-      focusExistingWindow()
-    }
-  },
-  onBlocked: (reason) => console.error(`[serve] Desktop activation blocked: ${reason}`)
-})
 
 // Kill switch for the first-work on-disk folder rename; the renderer reconciles the id change (migrateWorktreeIdentity) so it isn't mistaken for a deletion.
 const ENABLE_FIRST_WORK_FOLDER_RENAME = false
@@ -619,11 +573,7 @@ function focusExistingWindow(): void {
   })
 }
 
-function requestDesktopActivation(argv: readonly string[] = []): void {
-  // Why: a duplicate `orca serve` must not drag a headless server into opening a desktop window (#11935).
-  if (!shouldActivateDesktopForSecondInstance(argv)) {
-    return
-  }
+function requestDesktopActivation(): void {
   desktopActivationGate.requestActivation()
 }
 
@@ -680,17 +630,14 @@ function clearExpectedRendererReload(webContentsId?: number): void {
   expectedRendererReload.clear(webContentsId)
 }
 
-function getExpectedTeardownScope(
-  webContentsId?: number,
-  includeSystemSessionEnd = true
-): ExpectedTeardownScope {
-  return resolveExpectedTeardownScope({
-    isQuitting,
-    isQuittingForUpdate: isQuittingForUpdate(),
-    isExpectedRendererReload:
-      webContentsId !== undefined && expectedRendererReload.matches(webContentsId),
-    includeSystemSessionEnd
-  })
+function getExpectedTeardownScope(webContentsId?: number): ExpectedTeardownScope {
+  if (isQuitting || isQuittingForUpdate()) {
+    return 'app-shutdown'
+  }
+  if (webContentsId === undefined) {
+    return 'none'
+  }
+  return expectedRendererReload.matches(webContentsId) ? 'renderer-reload' : 'none'
 }
 
 function markRecoveryReloadInFlight(webContentsId: number, durationMs = 10_000): void {
@@ -765,8 +712,7 @@ const hasSingleInstanceLock = skipSingleInstanceLock
   : bypassSingleInstanceLock
     ? true
     : acquireSingleInstanceLock(app, (argv) => {
-        // Why: pass argv so a duplicate `orca serve` doesn't promote the live headless server to a window (#11935).
-        requestDesktopActivation(argv)
+        requestDesktopActivation()
         // A second launch relays its argv here — the only Windows/Linux path
         // for an OS-routed orca:// URL while the app is already running.
         const raw = extractDeepLinkFromArgv(argv)
@@ -784,11 +730,10 @@ if (startupDiagnosticsEnabled) {
 if (!hasSingleInstanceLock) {
   // Why: a false-negative lock loss otherwise looks like a silent crash on packaged macOS; `open --stderr` can capture this line.
   logSingleInstanceLockFailure()
-  // Why: a graceful quit is deferred pre-ready, so this launch would still walk into Linux display init and SIGSEGV (#11935).
-  app.exit(SINGLE_INSTANCE_ALREADY_RUNNING_EXIT_CODE)
+  app.quit()
 }
 
-// Why: when another process holds the lock we've already exited; skip file-writing side effects so this transient process never touches userData.
+// Why: when another process holds the lock we've already quit; skip file-writing side effects so this transient process never touches userData.
 if (hasSingleInstanceLock) {
   // Why: deferred from the pre-lock migrateStagingProfile — the Keychain copy + marker write are userData side
   // effects that only the lock-holding instance may perform. Idempotent via item probes + marker, so running it
@@ -1245,9 +1190,7 @@ function openMainWindow(): BrowserWindow {
     shouldRecoverRenderer: (details, webContentsId) =>
       shouldRecoverRendererAfterProcessGone({
         reason: details.reason,
-        // Why: a Windows OS session-end must not be filed as a crash, but the renderer
-        // should still reload and preserve PTYs — only an in-app quit blocks recovery.
-        expectedTeardown: getExpectedTeardownScope(webContentsId, false)
+        expectedTeardown: getExpectedTeardownScope(webContentsId)
       }),
     onRendererRecoveryExhausted: ({ details, recentRecoveryCount }) => {
       recordDurableCrashBreadcrumb('renderer_recovery_circuit_breaker_open', {
@@ -2034,7 +1977,6 @@ app.whenReady().then(async () => {
   electronApp.setAppUserModelId(devInstanceIdentity.appUserModelId)
   // Why: setName drives the macOS safeStorage Keychain item name; use the stable appName (not per-branch `name`) so dev branches share one key and don't re-prompt.
   app.setName(devInstanceIdentity.appName)
-  updateGpuAccelerationAboutPanel()
 
   // Why: managed WSL launchers live outside the Windows app bundle, so keep their launcher/bridge contract synced across app updates.
   managedWslCliReconciliationStatus = 'pending'
@@ -2225,9 +2167,6 @@ app.whenReady().then(async () => {
   openCodeUsage = new OpenCodeUsageStore(store)
   rateLimits = new RateLimitService()
   codexRuntimeHome = new CodexRuntimeHomeService(store)
-  // Why: a prior run can die mid-index, so Codex refuses to start until its
-  // state DB backfill finishes; supervise the managed home from launch.
-  void startCodexStateDbBackfillRecoveryInBackground(getOrcaManagedCodexHomePath())
   // Why: an incapable trust-grant host must fall back to the managed home for
   // every consumer (PTY env, rate limits, commit messages) in one place.
   codexRuntimeHome.setRealHomeLaneGate(() => isRealHomeCodexHookLaneUsable())
@@ -2491,11 +2430,6 @@ app.whenReady().then(async () => {
       : undefined
   })
   runtimeService.setAutomationService(automations)
-  runtimeService.setArtifactService(
-    new ArtifactCloudService(app.getPath('userData'), () =>
-      isArtifactSharingEnabled(store?.getSettings())
-    )
-  )
   runtimeService.setAccountServices({ claudeAccounts, codexAccounts, rateLimits })
   runtimeService.setCommitMessageAgentEnvironmentResolvers({
     // Why: Codex hooks/auth live in Orca's managed runtime home even for the default path, so every launch must resolve CODEX_HOME via runtime-home.
@@ -2515,13 +2449,6 @@ app.whenReady().then(async () => {
   // Why: externally started serve-sim processes must stay independent — only Orca-managed/attached helpers belong to a workspace.
   const emulatorBridge = new EmulatorBridge()
   runtimeService.setEmulatorBridge(emulatorBridge)
-  // Why: worktree deletion renames the checkout aside and deletes it in the background, so a quit or
-  // crash mid-delete can leave the moved directory on disk.
-  void sweepStaleWorktreeTrash(
-    collectWorktreeTrashSweepRoots(store.getRepos(), store.getSettings())
-  ).catch((error) => {
-    console.warn('[worktrees] Failed to sweep leftover worktree directories:', error)
-  })
   nativeTheme.themeSource = store.getSettings().theme ?? 'system'
   if (codexRuntimeHome.isHostSystemDefaultRealHomeSelected()) {
     // Why: establish capability before managed-hook reconciliation so an
@@ -2708,9 +2635,6 @@ app.whenReady().then(async () => {
     // Why: mobile pairing needs the stable pre-setName() path (getCanonicalUserDataPath), not a late app.getPath('userData') that drops paired devices across restarts.
     userDataPath: getCanonicalUserDataPath(),
     enableWebSocket: true,
-    // Why: STA-2370 — the desktop app binds the WS listener to loopback until the user pairs a device;
-    // `orca serve` is an explicit remote opt-in, and E2E keeps the wide bind its harness connects over.
-    exposeNetworkByDefault: Boolean(serveOptions) || isE2E,
     ...(isE2E ? { wsPort: e2eWsPort } : {}),
     ...(devWsPort !== undefined ? { wsPort: devWsPort } : {}),
     ...(serveOptions?.wsPort !== undefined
@@ -2750,8 +2674,7 @@ app.whenReady().then(async () => {
   })
 
   startTerminalRuntimeStartupServices()
-  // Why: don't forward Electron's (event, hasVisibleWindows) as argv — macOS dock re-activation always opens a window.
-  app.on('activate', () => requestDesktopActivation())
+  app.on('activate', requestDesktopActivation)
 
   if (serveOptions) {
     // Why: give managed WSL launchers a brief chance to migrate before headless PTYs go live, without slow repairs withholding all RPC readiness.
@@ -2825,19 +2748,12 @@ app.whenReady().then(async () => {
   }
 
   // Why: window and RPC startup run in parallel; registerPtyHandlers gates PTY spawns so RPC binds without racing the daemon provider swap.
-  const [win, runtimeRpcStartResult] = await Promise.all([
+  const [win] = await Promise.all([
     Promise.resolve(openMainWindow()),
-    runtimeRpc.start().then(
-      () => ({ ok: true as const }),
-      (error: unknown) => {
-        recordRuntimeRpcStartFailure(error)
-        return { ok: false as const, error }
-      }
-    )
+    runtimeRpc.start().catch((error) => {
+      console.error('[runtime] Failed to start local RPC transport:', error)
+    })
   ])
-  if (!runtimeRpcStartResult.ok) {
-    void showRuntimeRpcStartupFailureDialog(win, runtimeRpcStartResult.error)
-  }
 
   const cloudAuth = getOrcaCloudAuthConfig()
   if (cloudAuth.configured) {
@@ -2861,9 +2777,6 @@ app.whenReady().then(async () => {
         provisionRelay: (context, params) => relayService.provisionRelay(context, params)
       })
       relayService.start()
-      // Why: sleeping past relay-token expiry kills the broker with no retry
-      // timer; resume is the moment that state becomes recoverable.
-      powerMonitor.on('resume', () => desktopRelayService?.ensureLive())
     } catch (error) {
       console.warn(
         '[relay] Desktop relay startup unavailable:',
@@ -2933,9 +2846,6 @@ app.on('will-quit', (e) => {
   runtime?.getOffscreenBrowserBackend()?.destroyAll?.()
   browserManager.setBrowserGuestStateChangedListener(null)
   const emulatorShutdown = runtime?.getEmulatorBridge()?.destroyAllSessions() ?? Promise.resolve()
-  // Why: abort background Codex-index supervisors so their app-server claimants
-  // release auth.json before the process exits; quit waits bounded for drain.
-  const codexBackfillRecoveryShutdown = stopCodexStateDbBackfillRecoveries()
   killAllPty()
   // Why: notebook cells run detached (own process group) so they survive the main group's
   // quit signal; terminate them explicitly or a runaway cell keeps consuming CPU forever.
@@ -2974,8 +2884,7 @@ app.on('will-quit', (e) => {
       { name: 'daemon', promise: daemonTeardown },
       { name: 'runtime-rpc', promise: rpcStopAndClear },
       { name: 'watchers', promise: watcherShutdown },
-      { name: 'emulator', promise: emulatorShutdown },
-      { name: 'codex-backfill-recovery', promise: codexBackfillRecoveryShutdown }
+      { name: 'emulator', promise: emulatorShutdown }
     ])
       .then((pendingTeardowns) => {
         if (pendingTeardowns.length > 0) {

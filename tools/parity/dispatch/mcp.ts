@@ -1,22 +1,11 @@
-// TS dispatch for the mcp parity module: maps the shared vector function names
-// to the real `src/shared/mcp-config.ts` exports so the harness compares the
-// live TS reference against the Rust port (`orca-config::mcp`).
-
-import {
-  inspectMcpConfigContent,
-  type McpConfigCandidate
-} from '../../../src/shared/mcp-config'
+// TS dispatch for the mcp parity module. The shared TS impl was gutted to
+// types/data (the Rust `orca_config::mcp` core is the sole impl — the renderer
+// reaches it through the git-wasm shim), so this adapter drives the SAME wasm:
+// the vectors' recorded goldens pin that surface, and the harness's TS-vs-Rust
+// diff degenerates to wasm-vs-binary (drift between the two Rust entry points
+// would still surface here).
+import { gitWasmOracle } from './orca-git-wasm-oracle'
 
 export function dispatch(fn: string, input: unknown): unknown {
-  switch (fn) {
-    case 'inspectMcpConfigContent': {
-      const { candidate, content } = input as {
-        candidate: McpConfigCandidate
-        content: string | null
-      }
-      return inspectMcpConfigContent(candidate, content)
-    }
-    default:
-      throw new Error(`unknown function ${fn}`)
-  }
+  return JSON.parse(gitWasmOracle().orcaDispatch('mcp', fn, JSON.stringify(input ?? null)))
 }

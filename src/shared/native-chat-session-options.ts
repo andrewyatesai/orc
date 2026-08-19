@@ -6,9 +6,7 @@ export type SessionOptionSelectChoice = {
   description?: string
 }
 
-/** `default` is the catalog's own value shown before anything is observed —
- *  truthful to display, but never evidence about a running agent. */
-export type SessionOptionValueSource = 'applied' | 'dispatched' | 'reported' | 'default' | 'unknown'
+export type SessionOptionValueSource = 'applied' | 'dispatched' | 'reported' | 'unknown'
 
 /** Closed set of reasons an option is not settable in the current mode. A key
  *  (not free English) so the producer and the localized label stay in sync —

@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AppState } from '@/store/types'
 import { planMobileTerminalTabMount } from './mobile-terminal-tab-mount'
-import type { TerminalTabPtyOwnershipState } from './terminal-tab-for-pty-id'
 
-function state(tabCount = 1): TerminalTabPtyOwnershipState {
+type PlannerState = Pick<AppState, 'tabsByWorktree' | 'terminalLayoutsByTabId'>
+
+function state(tabCount = 1): PlannerState {
   return {
     tabsByWorktree: {
       wt: Array.from({ length: tabCount }, (_, index) => ({
@@ -11,8 +12,7 @@ function state(tabCount = 1): TerminalTabPtyOwnershipState {
         ptyId: `wt@@${index}`
       }))
     } as unknown as AppState['tabsByWorktree'],
-    terminalLayoutsByTabId: {},
-    ptyIdsByTabId: {}
+    terminalLayoutsByTabId: {}
   }
 }
 
@@ -47,22 +47,6 @@ describe('planMobileTerminalTabMount', () => {
     }
 
     expect(planMobileTerminalTabMount(s, { worktreeId: 'wt', ptyId: 'wt@@173' })).toBeNull()
-  })
-
-  it('mounts the tab whose pane is mounted when a stale layout row also claims the pty', () => {
-    const s = state(200)
-    s.ptyIdsByTabId['tab-173'] = ['wt@@173']
-    s.terminalLayoutsByTabId['tab-199'] = {
-      root: null,
-      activeLeafId: null,
-      expandedLeafId: null,
-      ptyIdsByLeafId: { leaf: 'wt@@173' }
-    }
-
-    expect(planMobileTerminalTabMount(s, { worktreeId: 'wt', ptyId: 'wt@@173' })).toEqual({
-      worktreeId: 'wt',
-      tabIds: ['tab-173']
-    })
   })
 
   it('does not mount a hidden worktree for a stale direct tab id', () => {

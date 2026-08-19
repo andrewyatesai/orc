@@ -1,7 +1,11 @@
 import type { Stats } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import type { Repo } from '../../shared/types'
-import { getRuntimePathBasename, normalizeRuntimePathSeparators, resolveRuntimePath } from '../../shared/cross-platform-path-resolution'
+import {
+  getRuntimePathBasename,
+  normalizeRuntimePathSeparators,
+  resolveRuntimePath
+} from '../../shared/cross-platform-path-resolution'
 import type { FileStat } from '../providers/types'
 
 type GitDirectoryStat = Stats | FileStat

@@ -7,7 +7,7 @@ import {
   type ExecutionHostId
 } from '../../../shared/execution-host'
 import type { Repo } from '../../../shared/types'
-import { getRepoIdFromWorktreeId } from '../../../shared/worktree-id'
+import { getRepoIdFromWorktreeId } from '../../../shared/worktree-id-parsing'
 import { parseWorkspaceKey } from '../../../shared/workspace-scope'
 import { isWslUncPath } from '../../../shared/wsl-unc-paths'
 import type { AppState } from '@/store/types'

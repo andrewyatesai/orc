@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getContextualTour } from '../../../../shared/contextual-tour-lookup'
+import { getContextualTour } from '../../../../shared/contextual-tours'
 import {
   getContextualTourRequestDecision,
   getContextualTourStepProgress,

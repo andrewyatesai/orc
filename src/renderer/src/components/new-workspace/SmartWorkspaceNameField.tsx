@@ -57,7 +57,6 @@ import {
   getBranchSearchRequest,
   getSmartWorkspaceEmptyHint,
   getVisibleBranchResults,
-  getVisibleHeldProviderResults,
   isSmartWorkspaceSourceQueryWithinLimit,
   type SmartNameMode,
   type SmartWorkspaceSourceRow
@@ -303,6 +302,9 @@ export default function SmartWorkspaceNameField({
     repoId: string
     query: string
   } | null>(null)
+  // Why: a failed branch search must not render as `branches === []`, which the
+  // picker states as "No matching branches" (and offers to create one).
+  const [branchSearchFailed, setBranchSearchFailed] = useState(false)
   const [linearIssues, setLinearIssues] = useState<LinearIssue[]>([])
   const [githubLoading, setGithubLoading] = useState(false)
   const [gitlabLoading, setGitlabLoading] = useState(false)
@@ -381,6 +383,7 @@ export default function SmartWorkspaceNameField({
     setGitlabLoading(false)
     setBranchesLoading(false)
     setBranchResultsSource(null)
+    setBranchSearchFailed(false)
     setCrossRepoPrompt(null)
   }, [repoBackedSourcesDisabled])
 
@@ -503,6 +506,7 @@ export default function SmartWorkspaceNameField({
     setGitlabItems([])
     setBranches([])
     setBranchResultsSource(null)
+    setBranchSearchFailed(false)
     setLinearIssues([])
     setGithubLoading(false)
     setGitlabLoading(false)
@@ -548,11 +552,6 @@ export default function SmartWorkspaceNameField({
       return
     }
     let stale = false
-    // Why: empty-query search must not briefly paint the previous non-empty result set
-    // once debounce catches a cleared field.
-    if (debouncedQuery.trim() === '') {
-      setGithubItems([])
-    }
     const directNumber = normalizedGhQuery.directNumber
     const directLink = parsedGhLink
     if (directLink !== null && handledCrossRepoUrlRef.current !== debouncedQuery.trim()) {
@@ -824,11 +823,13 @@ export default function SmartWorkspaceNameField({
       setBranches([])
       setBranchResultsSource(null)
       setBranchesLoading(false)
+      setBranchSearchFailed(false)
       return
     }
     let stale = false
-    // Why: keep prior branch rows until this request settles; visibility already
-    // holds the last list while the user types ahead of the debounced query.
+    setBranches([])
+    setBranchResultsSource(null)
+    setBranchSearchFailed(false)
     setBranchesLoading(true)
     void searchRuntimeRepoBaseRefDetails(
       selectedRepoOwnerSettings,
@@ -849,6 +850,7 @@ export default function SmartWorkspaceNameField({
         if (!stale) {
           setBranches([])
           setBranchResultsSource(null)
+          setBranchSearchFailed(true)
         }
       })
       .finally(() => {
@@ -870,10 +872,6 @@ export default function SmartWorkspaceNameField({
     let stale = false
     setLinearLoading(true)
     const trimmed = debouncedQuery.trim()
-    // Why: empty-query list must not briefly paint the previous non-empty result set.
-    if (trimmed === '') {
-      setLinearIssues([])
-    }
     const request = trimmed
       ? searchLinearIssues(trimmed, RESULT_LIMIT, { sourceContext: linearSourceContext })
       : listLinearIssues(
@@ -991,10 +989,6 @@ export default function SmartWorkspaceNameField({
     setGitlabLoading(true)
     // Why: thread the typed query so the GitLab API filters MRs by name/number (shouldQueryGitlab already gates oversized queries).
     const trimmedQuery = debouncedQuery.trim() || undefined
-    // Why: empty-query list must not briefly paint the previous non-empty result set.
-    if (trimmedQuery === undefined) {
-      setGitlabItems([])
-    }
     void Promise.all(
       repoBackedSearchTargets.map((target) =>
         listGitLabMRsForSource({
@@ -1054,23 +1048,11 @@ export default function SmartWorkspaceNameField({
           selectedRepoId: selectedRepo?.id ?? null,
           value
         }),
-        githubItems: getVisibleHeldProviderResults({
-          items: githubItems,
-          value,
-          debouncedQuery
-        }),
+        githubItems,
         gitlabAvailable: gitlabSourceAvailable,
-        gitlabItems: getVisibleHeldProviderResults({
-          items: gitlabItems,
-          value,
-          debouncedQuery
-        }),
+        gitlabItems,
         linearAvailable,
-        linearIssues: getVisibleHeldProviderResults({
-          items: linearIssues,
-          value,
-          debouncedQuery
-        }),
+        linearIssues,
         mode,
         resultLimit: RESULT_LIMIT,
         value
@@ -1078,7 +1060,6 @@ export default function SmartWorkspaceNameField({
     [
       branches,
       branchResultsSource,
-      debouncedQuery,
       githubItems,
       gitlabSourceAvailable,
       gitlabItems,
@@ -1097,7 +1078,7 @@ export default function SmartWorkspaceNameField({
     }
   }, [rows])
 
-  // Why: live input leads debounced search; freeze highlight until the query catches up.
+  // Why: source rows lag debouncedQuery, so keep Enter off a stale row.
   const valueWithinSourceLimit = isSmartWorkspaceSourceQueryWithinLimit(value)
   const debouncedQueryWithinSourceLimit = isSmartWorkspaceSourceQueryWithinLimit(debouncedQuery)
   const trimmedValue = valueWithinSourceLimit ? value.trim() : ''
@@ -1131,25 +1112,12 @@ export default function SmartWorkspaceNameField({
     isQueryStale,
     sourceIntent
   })
-  // Why: while isQueryStale, cmdk onValueChange is ignored; re-sync the stored arm
-  // when the query settles so commandValue cannot lag resolvedCommandValue.
-  useEffect(() => {
-    if (isQueryStale || commandValue === resolvedCommandValue) {
-      return
-    }
-    setCommandValue(resolvedCommandValue)
-  }, [commandValue, isQueryStale, resolvedCommandValue])
 
   const loading = githubLoading || gitlabLoading || branchesLoading || linearLoading
-  // Why: only spin on first load — not on every in-flight refresh while rows stay visible.
-  const showSearchSpinner = loading && searchResultRows.length === 0
-  const ActiveInputIcon =
-    mode === 'text' ? CaseSensitive : showSearchSpinner ? LoaderCircle : Search
+  const ActiveInputIcon = mode === 'text' ? CaseSensitive : loading ? LoaderCircle : Search
 
   const handleSelect = useCallback(
     (row: RowEntry) => {
-      // Why: select what is shown — held provider rows stay visible while the
-      // query is ahead of debounce, so blocking them made click/Enter no-ops.
       if (row.kind === 'use-name' || row.kind === 'create-branch') {
         // Why: "create new branch" has no ref to base from, so it uses the typed-name path (default base).
         onValueChange(row.name)
@@ -1352,7 +1320,7 @@ export default function SmartWorkspaceNameField({
             <TabsList
               ref={tabsListRef}
               variant="line"
-              className="h-7 w-full justify-start gap-4 overflow-x-auto overflow-y-hidden px-0 scrollbar-sleek"
+              className="h-7 w-full justify-start gap-4 px-0"
               onFocusCapture={(event) => {
                 // Why: Radix Tabs roving focus re-applies tabindex=0 to the active trigger (races React commits), so forward Tab to the input.
                 const previous = event.relatedTarget as HTMLElement | null
@@ -1391,14 +1359,7 @@ export default function SmartWorkspaceNameField({
       >
         <Command
           value={resolvedCommandValue}
-          onValueChange={(next) => {
-            // Why: cmdk re-emits when the item list reshapes; ignore while the query
-            // lags so the highlight cannot thrash mid-typing.
-            if (isQueryStale) {
-              return
-            }
-            setCommandValue(next)
-          }}
+          onValueChange={setCommandValue}
           shouldFilter={false}
           className="overflow-visible bg-transparent"
         >
@@ -1484,7 +1445,7 @@ export default function SmartWorkspaceNameField({
                   <ActiveInputIcon
                     className={cn(
                       'pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground',
-                      showSearchSpinner && mode !== 'text' && 'animate-spin'
+                      loading && mode !== 'text' && 'animate-spin'
                     )}
                   />
                   <Input
@@ -1544,7 +1505,7 @@ export default function SmartWorkspaceNameField({
                             handleSelect(row)
                             return
                           }
-                          // No highlighted row; fall through to onPlainEnter so the keypress isn't inert.
+                          // No highlighted row (e.g. cleared stale GitHub/Linear results); fall through to onPlainEnter so the keypress isn't inert.
                         }
                         onPlainEnter?.()
                       }
@@ -1625,6 +1586,14 @@ export default function SmartWorkspaceNameField({
                     <RowIcon row={typedTextActionRow} />
                     <RowLabel row={typedTextActionRow} />
                   </CommandItem>
+                </div>
+              ) : null}
+              {branchSearchFailed && !branchesLoading ? (
+                <div className="px-3 py-2 text-center text-xs text-destructive">
+                  {translate(
+                    'auto.components.new.workspace.SmartWorkspaceNameField.branchSearchFailed',
+                    'Branch search failed, so no branches can be listed.'
+                  )}
                 </div>
               ) : null}
               {loading && searchResultRows.length === 0 ? (

@@ -1,6 +1,5 @@
 import { joinPath, normalizeRelativePath } from '@/lib/path'
 import { isClipboardTextByteLengthOverLimit } from '../../../../shared/clipboard-text'
-import { compareFileNames } from '../../../../shared/file-name-sort'
 import type { FileExplorerOperationOwner, TreeNode } from './file-explorer-types'
 import {
   createFileExplorerRowProjectionFromParts,
@@ -233,7 +232,7 @@ function appendNameFilteredEntries(
     if (a.node.isDirectory !== b.node.isDirectory) {
       return a.node.isDirectory ? -1 : 1
     }
-    return compareFileNames(a.node.name, b.node.name)
+    return a.node.name.localeCompare(b.node.name)
   })
   for (const entry of sortedEntries) {
     visibleFlatRows.push(entry.node)

@@ -1,5 +1,6 @@
 import { hostname as getHostname } from 'node:os'
 import { parseWslUncPath, toWindowsWslPath } from '../../shared/wsl-unc-paths'
+
 export function normalizeWslColdRestoreCwd(args: {
   recoveredCwd: string
   requestedCwd?: string

@@ -169,8 +169,7 @@ export class PiTitlebarExtensionService {
   buildPtyEnv(
     ptyId: string,
     existingAgentDir: string | undefined,
-    kind: PiAgentKind,
-    options?: { materializeDefaultHome?: boolean }
+    kind: PiAgentKind
   ): Record<string, string> {
     const sourceAgentDir = existingAgentDir || getDefaultPiAgentDir(kind)
     try {
@@ -179,22 +178,6 @@ export class PiTitlebarExtensionService {
     } catch {
       // Why: old per-PTY overlay cleanup is best-effort; a locked stale
       // directory should not prevent the terminal from starting.
-    }
-
-    // Why: bare shells used to mkdir ~/.<agent>/agent for every terminal so a
-    // later typed `pi`/`omp` got hooks. That recreated deleted unused agent
-    // homes on every open (#10196). Only materialize the default home on an
-    // explicit agent launch (caller opts in) or when the dir already exists;
-    // OMP still gets a userData-managed status extension so a typed `omp` keeps
-    // the shell wrapper extension without ~/.omp.
-    const materializeDefaultHome = options?.materializeDefaultHome !== false
-    if (!existsSync(sourceAgentDir) && !materializeDefaultHome) {
-      if (kind === 'omp') {
-        const statusSource = withOrcaManagedExtensionMarker(getPiAgentStatusExtensionSource('omp'))
-        const statusExtensionPath = this.writeOmpFallbackStatusExtension(statusSource)
-        return statusExtensionPath ? { ORCA_OMP_STATUS_EXTENSION: statusExtensionPath } : {}
-      }
-      return {}
     }
 
     if (kind === 'omp') {

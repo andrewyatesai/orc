@@ -1,5 +1,6 @@
 import { homedir } from 'node:os'
 import { normalizeRuntimePathForComparison } from '../shared/cross-platform-path-resolution'
+
 // Why (#7948): a recursive watch rooted at the account home or a filesystem root
 // crawls millions of entries, pinning a relay worker for an hour and freezing
 // every workspace sharing the connection; callers tolerate a missing watcher.

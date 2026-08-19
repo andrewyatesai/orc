@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs'
-import type { DatabaseSync, StatementSync, SQLInputValue } from 'node:sqlite'
+import { DatabaseSync, type StatementSync, type SQLInputValue } from 'node:sqlite'
 
+// Why: keep existing synchronous DB call sites on a tiny adapter while using
+// Electron's built-in Node SQLite instead of a third-party native addon.
 type SqlitePath = ConstructorParameters<typeof DatabaseSync>[0]
 
 type SyncDatabaseOptions = {
@@ -15,15 +17,6 @@ type PragmaOptions = {
 
 export type SqliteStatement = StatementSync
 
-// Why: SSH companions target Node 18 and import this adapter without opening SQLite.
-function loadDatabaseSync(): typeof DatabaseSync {
-  if (typeof process.getBuiltinModule !== 'function') {
-    throw new Error('node:sqlite is unavailable in this Node.js runtime')
-  }
-  return (process.getBuiltinModule('node:sqlite') as { DatabaseSync: typeof DatabaseSync })
-    .DatabaseSync
-}
-
 class SyncDatabase {
   private readonly db: DatabaseSync
 
@@ -36,7 +29,6 @@ class SyncDatabase {
     ) {
       throw new Error(`SQLite database does not exist: ${path}`)
     }
-    const DatabaseSync = loadDatabaseSync()
     this.db = new DatabaseSync(path, {
       readOnly: options.readonly,
       timeout: options.timeout

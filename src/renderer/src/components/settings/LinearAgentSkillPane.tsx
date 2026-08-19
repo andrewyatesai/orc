@@ -70,18 +70,30 @@ export function LinearAgentSkillPane(): React.JSX.Element {
     sourceKinds: GLOBAL_AGENT_SKILL_SOURCE_KINDS
   })
 
-  // Why: the built command also depends on the focused runtime environment, so
-  // memoizing it on the runtime alone can serve a stale Windows host command.
-  const installCommand = activeSkillRuntime.installDisabledReason
-    ? ORCA_LINEAR_SKILL_INSTALL_COMMAND
-    : buildSkillCommandForRuntime(ORCA_LINEAR_SKILL_INSTALL_COMMAND, activeSkillRuntime.agentRuntime)
+  const installCommand = useMemo(
+    () =>
+      activeSkillRuntime.installDisabledReason
+        ? ORCA_LINEAR_SKILL_INSTALL_COMMAND
+        : buildSkillCommandForRuntime(
+            ORCA_LINEAR_SKILL_INSTALL_COMMAND,
+            activeSkillRuntime.agentRuntime
+          ),
+    [activeSkillRuntime.agentRuntime, activeSkillRuntime.installDisabledReason]
+  )
   const updateTarget = useMemo(
     () => getLinearAgentSkillUpdateTarget(linearSkills, linearSkillInstalled),
     [linearSkillInstalled, linearSkills]
   )
-  const updateCommand = activeSkillRuntime.installDisabledReason
-    ? updateTarget.command
-    : buildSkillCommandForRuntime(updateTarget.command, activeSkillRuntime.agentRuntime)
+  const updateCommand = useMemo(() => {
+    const command = updateTarget.command
+    return activeSkillRuntime.installDisabledReason
+      ? command
+      : buildSkillCommandForRuntime(command, activeSkillRuntime.agentRuntime)
+  }, [
+    activeSkillRuntime.agentRuntime,
+    activeSkillRuntime.installDisabledReason,
+    updateTarget.command
+  ])
   const offlineInstallSupported = isBundledSkillOfflineInstallSupported(activeSkillRuntime)
 
   return (

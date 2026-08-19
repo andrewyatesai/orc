@@ -6,7 +6,6 @@ import { Label } from '../ui/label'
 import { RuntimeAccessGrantList } from './RuntimeAccessGrantList'
 import { translate } from '@/i18n/i18n'
 import { RuntimePairingGeneratorForm } from './RuntimePairingGeneratorForm'
-import { runtimePairingReachForAddress } from './runtime-pairing-reach-intent'
 
 const LOOPBACK_ADDRESS = '127.0.0.1'
 
@@ -178,22 +177,16 @@ export function RuntimePairingUrlGenerator({
     try {
       const result = await window.api.mobile.getRuntimePairingUrl({
         address: selectedAddress,
-        rotate: true,
-        // Why: main gates the one-way network widen on this, so the declared choice must travel with the
-        // address — the address alone cannot tell "This computer only" from a loopback tunnel front-end.
-        reach: runtimePairingReachForAddress(selectedAddress, LOOPBACK_ADDRESS)
+        rotate: true
       })
       if (!result.available) {
         clearGeneratedUrls()
         if (mountedRef.current) {
-          // Why: STA-2370 — surface the specific network-exposure guidance when the widen failed; fall back
-          // to the generic message for other unavailable cases (e.g. no reachable address).
           toast.error(
-            result.guidance ??
-              translate(
-                'auto.components.settings.RuntimePairingUrlGenerator.2752126f3e',
-                'Runtime pairing is unavailable.'
-              )
+            translate(
+              'auto.components.settings.RuntimePairingUrlGenerator.2752126f3e',
+              'Runtime pairing is unavailable.'
+            )
           )
         }
         return

@@ -3,17 +3,18 @@
 // data). One source of truth with the parity-proven Rust port; main's candidate
 // builders consume the policy/fingerprint/inactivity helpers, so those are the
 // exports here.
-import { requireRustGitBinding } from './daemon/rust-git-addon'
+import { dispatchToRustCore } from './rust-core-dispatch'
 import type {
   WorkspaceCleanupCandidate,
   WorkspaceCleanupInactivityInput,
   WorkspaceCleanupReason
 } from '../shared/workspace-cleanup'
 
+// Why 'omit': `WorkspaceCleanupCandidate.createdAt` and the fingerprint's
+// `classifierVersion` are optional, and an absent key is what the Rust structs
+// read as None (their parity vectors record it that way).
 function dispatch(fn: string, input: unknown): unknown {
-  return JSON.parse(
-    requireRustGitBinding().orcaDispatch('workspace-cleanup', fn, JSON.stringify(input ?? null))
-  )
+  return dispatchToRustCore('workspace-cleanup', fn, input, { undefinedProperties: 'omit' })
 }
 
 export function applyWorkspaceCleanupPolicy(

@@ -184,15 +184,8 @@ export class PaneManager {
     })
   }
 
-  getPanes(limit = Number.POSITIVE_INFINITY): ManagedPane[] {
-    const panes: ManagedPane[] = []
-    for (const pane of this.panes.values()) {
-      if (panes.length >= limit) {
-        break
-      }
-      panes.push(toPublicPane(pane))
-    }
-    return panes
+  getPanes(): ManagedPane[] {
+    return Array.from(this.panes.values()).map(toPublicPane)
   }
 
   /** Why separate from getPanes: the census runs on the crash path, where

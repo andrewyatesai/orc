@@ -1,8 +1,6 @@
+import type { AppState } from '@/store/types'
 import type { BackgroundMountTerminalWorktreeDetail } from '@/constants/terminal'
-import {
-  resolveTerminalTabIdForPtyId,
-  type TerminalTabPtyOwnershipState
-} from './terminal-tab-for-pty-id'
+import { resolveTerminalTabIdForPtyId } from './terminal-tab-for-pty-id'
 
 export type MobileTerminalTabMountRequest = {
   worktreeId: string
@@ -16,7 +14,7 @@ type MobileTerminalTabMountOptions = {
 
 /** Why: exact-tab planning prevents a stale ptyId from mounting every saved xterm (#8597). */
 export function planMobileTerminalTabMount(
-  state: TerminalTabPtyOwnershipState,
+  state: Pick<AppState, 'tabsByWorktree' | 'terminalLayoutsByTabId'>,
   request: MobileTerminalTabMountRequest,
   options: MobileTerminalTabMountOptions = {}
 ): BackgroundMountTerminalWorktreeDetail | null {

@@ -429,51 +429,6 @@ describe('killAllProcessesForWorktree', () => {
     expect(result.runtimeStopped).toBe(3)
   })
 
-  it('forwards the host fence to the runtime-graph sweep (#12388-parity)', async () => {
-    const stopTerminalsForWorktree = vi.fn().mockResolvedValue({ stopped: 1 })
-    const runtime = {
-      stopTerminalsForWorktree
-    } as unknown as Parameters<typeof killAllProcessesForWorktree>[1]['runtime']
-    const localProvider = createProviderStub(async () => [])
-    listRegisteredPtysMock.mockReturnValue([])
-
-    await killAllProcessesForWorktree('repo::/wt', {
-      runtime,
-      localProvider,
-      resolvedWorktreeId: 'repo::/wt',
-      resolvedConnectionId: 'ssh-1',
-      includeLocalRegistry: false
-    })
-
-    expect(stopTerminalsForWorktree).toHaveBeenCalledWith(
-      'repo::/wt',
-      expect.objectContaining({
-        resolvedWorktreeId: 'repo::/wt',
-        resolvedConnectionId: 'ssh-1'
-      })
-    )
-  })
-
-  it('skips the provider inventory sweep when includeProviderInventory is false', async () => {
-    const localProvider = createProviderStub(async () => [
-      { id: 'repo::/wt@@remote', cwd: '/wt', title: 'shell' }
-    ])
-    listRegisteredPtysMock.mockReturnValue([])
-
-    const result = await killAllProcessesForWorktree('repo::/wt', {
-      localProvider,
-      resolvedWorktreeId: 'repo::/wt',
-      resolvedConnectionId: 'ssh-1',
-      includeProviderInventory: false,
-      includeLocalRegistry: false
-    })
-
-    // A dead SSH relay's fallback local provider must not have its sessions swept.
-    expect(localProvider.listProcesses).not.toHaveBeenCalled()
-    expect(localProvider.shutdown).not.toHaveBeenCalled()
-    expect(result.providerStopped).toBe(0)
-  })
-
   it('claims duplicate provider and registry PTY ids only once', async () => {
     const localProvider = createProviderStub(async () => [
       { id: 'w1@@same', cwd: '/tmp/w1', title: 'shell' }

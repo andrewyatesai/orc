@@ -187,7 +187,7 @@ export function MobileNativeChatAsk({ prompt, onAnswer, onCancel }: Props): Reac
           disabled={!canAdvance}
         >
           <Text style={[styles.nextText, !canAdvance && styles.nextTextDisabled]}>
-            {isLast ? 'Submit' : 'Next'}
+            {isLast ? 'Send answer' : 'Next'}
           </Text>
         </Pressable>
       </View>
@@ -282,7 +282,6 @@ const styles = StyleSheet.create({
   },
   option: {
     flexDirection: 'row',
-    alignItems: 'center',
     gap: spacing.sm,
     padding: spacing.sm,
     borderRadius: radii.card,
@@ -300,7 +299,8 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: colors.textMuted,
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    marginTop: 1
   },
   checkCircle: {
     borderRadius: 9

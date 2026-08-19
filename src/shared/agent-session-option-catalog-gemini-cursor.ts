@@ -1,11 +1,19 @@
-import { hasFlag } from './agent-cli-flag-detection'
 import type {
   AgentSessionOptionCatalog,
   CatalogModel,
   CatalogOption
 } from './agent-session-option-catalog-types'
 
-const hasModelFlag = (tokens: readonly string[]): boolean => hasFlag(tokens, ['-m', '--model'])
+function hasModelFlag(tokens: readonly string[]): boolean {
+  return tokens.some(
+    (token) =>
+      token === '-m' ||
+      token === '--model' ||
+      token.startsWith('-m=') ||
+      (token.startsWith('-m') && !token.startsWith('--')) ||
+      token.startsWith('--model=')
+  )
+}
 
 export const GEMINI_SESSION_OPTION_CATALOG: AgentSessionOptionCatalog = {
   models: [

@@ -42,11 +42,7 @@ async function assertAllowedTarget(store: Store, targetUrl: string): Promise<voi
   // Why: URL drops the port for protocol defaults (e.g. http://host/ on 80),
   // so compare against the effective port rather than the raw (empty) string.
   const targetPort = parsed.port || (parsed.protocol === 'https:' ? '443' : '80')
-  // Why (#11161): a metadata-skipped scan drops advertisedUrl, which would
-  // silently narrow this allowlist on an EDR-hooked host.
-  const scan = await scanWorkspacePortProbes(getStoreWorkspacePortProbes(store), {
-    requireMetadata: true
-  })
+  const scan = await scanWorkspacePortProbes(getStoreWorkspacePortProbes(store))
   const matches = scan.ports.some((port) => {
     if (String(port.port) !== targetPort) {
       return false

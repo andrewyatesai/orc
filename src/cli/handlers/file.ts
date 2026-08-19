@@ -1,6 +1,9 @@
 import type { GitStatusEntry, GitStatusResult } from '../../shared/git-status-types'
 import type { RuntimeFileOpenResult, RuntimeWorktreeRecord } from '../../shared/runtime-types'
-import { isRuntimePathAbsolute, relativePathInsideRoot } from '../../shared/cross-platform-path-resolution'
+import {
+  isRuntimePathAbsolute,
+  relativePathInsideRoot
+} from '../../shared/cross-platform-path-resolution'
 import type { CommandHandler, HandlerContext } from '../dispatch'
 import { getOptionalStringFlag, getRequiredStringFlag } from '../flags'
 import { printResult } from '../format'

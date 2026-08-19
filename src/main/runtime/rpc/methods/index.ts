@@ -52,7 +52,6 @@ import { EMULATOR_METHODS } from './emulator'
 import { PAIRING_METHODS } from './pairing'
 import { UPDATER_METHODS } from './updater'
 import { AGENT_SESSION_METHODS } from './agent-session'
-import { ARTIFACT_METHODS } from './artifacts'
 
 // Why: a named manifest keeps registration order explicit and provides one
 // grep-point for "what methods does the RPC server expose?" — and, since every
@@ -80,7 +79,6 @@ export const RPC_METHOD_GROUPS = {
   stats: STATS_METHODS,
   diagnostics: DIAGNOSTICS_METHODS,
   account: ACCOUNT_METHODS,
-  artifacts: ARTIFACT_METHODS,
   preflight: PREFLIGHT_METHODS,
   computer: COMPUTER_METHODS,
   sessionTab: SESSION_TAB_METHODS,

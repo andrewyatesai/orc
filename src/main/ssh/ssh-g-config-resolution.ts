@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { homedir } from 'node:os'
-import { requireRustGitBinding } from '../daemon/rust-git-addon'
+import { dispatchToRustCore } from '../rust-core-dispatch'
 
 export type SshResolvedConfig = {
   hostname: string
@@ -67,11 +67,8 @@ export function resolveWithSshG(host: string): Promise<SshResolvedConfig | null>
 // os.homedir() so the core stays pure. Running `ssh -G` above is the IO edge and
 // stays in TS.
 export function parseSshGOutput(stdout: string): SshResolvedConfig {
-  return JSON.parse(
-    requireRustGitBinding().orcaDispatch(
-      'ssh-g-config',
-      'parseSshGOutput',
-      JSON.stringify({ stdout, home: homedir() })
-    )
-  ) as SshResolvedConfig
+  return dispatchToRustCore('ssh-g-config', 'parseSshGOutput', {
+    stdout,
+    home: homedir()
+  }) as SshResolvedConfig
 }

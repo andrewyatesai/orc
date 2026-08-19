@@ -6,19 +6,26 @@
 // not a pure function of its input and cannot be a parity vector without one.
 // `createPairingOfferSchema(now)` is the twin's OWN injection point, so
 // `validatePairingOffer` passes the vector's `nowMs` straight into it — no
-// patching, no double. The three deep-link arms go through `pairing.ts`, whose
-// exports are bound to the default `() => Date.now()`; for those the global clock
-// is pinned for the duration of the call, which is the only injection point the
-// twin exposes there. Both routes compare the two halves AT A NAMED INSTANT; what
-// neither can promise is that production's two callers observe the same instant —
-// that is why the Rust side takes `now_ms` as an argument instead of reading a
-// clock of its own.
+// patching, no double. The three deep-link arms used to pin the global clock,
+// because the twin's exports were bound to the default `() => Date.now()`; they
+// now go through `src/shared/pairing-deep-link.ts`, which takes `nowMs` as an
+// argument on every entry point, so the vector's instant is simply passed. Both
+// routes compare the two halves AT A NAMED INSTANT; what neither can promise is
+// that production's two callers observe the same instant — that is why the Rust
+// side takes `now_ms` as an argument instead of reading a clock of its own.
+//
+// The three deep-link arms drive the SHIM with the seam unbound (this config
+// installs no setup file), so they compare the pre-ready fallback against Rust.
+// The fallback is where this module's own residuals are mirrored, which is why
+// the two `xn--` vectors below still carry `allowDivergence`: the case that
+// diverges is `validatePairingOffer`, which is the raw schema and does not go
+// through the shim.
 
-import type { PairingOffer } from '../../../src/shared/pairing'
 import {
   decodePairingOffer,
   encodePairingOffer,
-  parsePairingCode
+  parsePairingCode,
+  type PairingOffer
 } from '../../../src/shared/pairing-deep-link'
 import { createPairingOfferSchema } from '../../../src/shared/mobile-relay-pairing-offer'
 
@@ -39,16 +46,6 @@ function requireClock(args: ClockInput): number {
   return args.nowMs
 }
 
-function atClock<T>(nowMs: number, run: () => T): T {
-  const realNow = Date.now
-  Date.now = () => nowMs
-  try {
-    return run()
-  } finally {
-    Date.now = realNow
-  }
-}
-
 function orNull<T>(run: () => T): T | null {
   try {
     return run()
@@ -66,11 +63,11 @@ export function dispatch(fn: string, input: unknown): unknown {
       return result.success ? result.data : null
     }
     case 'encodePairingOffer':
-      return atClock(nowMs, () => orNull(() => encodePairingOffer(args.offer as PairingOffer)))
+      return orNull(() => encodePairingOffer(args.offer as PairingOffer, nowMs))
     case 'decodePairingOffer':
-      return atClock(nowMs, () => orNull(() => decodePairingOffer(args.url as string)))
+      return orNull(() => decodePairingOffer(args.url as string, nowMs))
     case 'parsePairingCode':
-      return atClock(nowMs, () => parsePairingCode(args.input as string))
+      return parsePairingCode(args.input as string, nowMs)
     default:
       throw new Error(`unknown function ${fn}`)
   }
