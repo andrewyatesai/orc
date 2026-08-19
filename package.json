@@ -145,6 +145,7 @@
     "check:native-provenance": "node config/scripts/check-native-artifact-provenance.mjs",
     "smoke:launch": "node config/scripts/smoke-launch-app.mjs",
     "check:build-output": "node config/scripts/check-build-output-consistency.mjs --strict",
+    "verify:rust": "node config/scripts/run-rust-verification.mjs",
     "check:trust-flags": "node config/scripts/check-trust-flag-surface.mjs",
     "check:cutover-census": "node config/scripts/check-cutover-census.mjs",
     "check:wasm-pins": "node config/scripts/check-orca-wasm-pins.mjs",
