@@ -2,7 +2,7 @@
 // function names to the real `src/shared/git-effective-upstream.ts` exports so
 // the harness compares the live TS reference against the Rust port.
 
-import { splitRemoteBranchName } from '../../../src/shared/git-effective-upstream'
+import { splitRemoteBranchName } from '../../../src/shared/git-remote-branch-split'
 
 export function dispatch(fn: string, input: unknown): unknown {
   switch (fn) {
