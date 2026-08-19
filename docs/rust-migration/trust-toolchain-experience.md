@@ -262,6 +262,84 @@ because nothing was building with the verifier on. The two new ICEs had been in
 the tree for three days; the first honest workspace build found them in an hour.
 A verifier that runs is a verifier that gets debugged.
 
+## 4b. Postscript, 2026-08-18 — §2.1 happened again, and here is the first real yield number
+
+**Silent vanilla recurred, exactly as §2.1 predicted.** Both cargo configs set
+three flags the installed stage2 had deleted — `-Ztrust-verify`,
+`-Ztrust-policy`, `-Ztrust-verify-function-budget-steps`. An unknown `-Z` is
+fatal on every unit, so nothing under `rust/` compiled; and every workaround that
+lets a build proceed (clearing `RUSTFLAGS`, building where the table is not read)
+compiles as vanilla Rust with the verifier off. The repo's own instruction —
+"PROBE before editing either flag" — had failed twice, so it is now
+`config/scripts/check-trust-flag-surface.mjs`, wired into `pnpm lint`, and it
+enumerates every tracked `*.cargo/config.toml` rather than naming one.
+
+The surface now: verification is batteries-on with no on-switch,
+`-Zno-trust-verify` is the sole off-switch, `-Ztrust-lame` is what `advisory`
+was, and the step budget is gone in favour of a wall-clock `-ms` twin. That last
+one forced a decision this file had explicitly forbidden — §1.5's "never use the
+`-ms` twin" was written when a step budget existed. It does not, and the memchr
+hang it was written for is still live: measured today, `rustc --crate-name
+memchr` ran **4m17s** on that one crate with no output. Terminating with a
+wall-clock budget beats a verifier nobody leaves on.
+
+### The first end-to-end yield measurement
+
+`orca-core`, 217 functions, 322 obligations, 42m12s, `-Ztrust-lame`, 5s budget:
+
+| outcome | count | share |
+| --- | --- | --- |
+| proved | 18 | 5.6% |
+| failed | **0** | 0% |
+| unknown | 54 | 16.8% |
+| timed out | 48 | 14.9% |
+| runtime-checked | 202 | 62.7% |
+
+**Nothing was refuted.** The gap is coverage, not defects.
+
+### §2.2 again: the dominant blocker is `unsupported`, on code with nothing to prove
+
+The config in this repo attributes ~69% to "absent callee (a std/extern function
+whose body is not in the lowered bundle)". That explanation is stale. The
+current stage2 reports these as `runtime-checked` with
+`native verifier status: ... unsupported=1`, and the worked example is
+`agent_kind::agent_kind_to_tui_agent`:
+
+```rust
+pub fn agent_kind_to_tui_agent(kind: Option<&str>) -> Option<&'static str> {
+    let kind = kind?;
+    if kind.is_empty() { return None; }
+    TUI_AGENT_KIND_PAIRS.iter().find(|(_, k)| *k == kind).map(|(agent, _)| *agent)
+}
+```
+
+No indexing, no arithmetic, no `unwrap`, no `unsafe`. One obligation, `proved=0`,
+`unsupported=1`. There is no way to write those nine lines more provably, which
+is what makes this a prover-coverage report rather than a code-quality one. A
+source-side lever does exist and does work — `v[i]` is unproved where
+`v.get(i)` proves silently — but it cannot reach obligations shaped like this.
+
+One reason string looks like a plain defect rather than a coverage limit, and is
+the most actionable thing here:
+
+```
+compiler-derived trust-mc public semantic contract finalization failed:
+verifier unsupported contract reason is empty, untrimmed, or exceeds its byte limit
+```
+
+That is the verifier failing to finalise its own contract string, reported as if
+the user's code were unsupported. §2.6's "one verdict schema" would have caught
+it: a status whose explanation is "the explanation did not fit" is not a verdict.
+
+### What was NOT the lever, so nobody re-tries it
+
+`-Ztrust-verify-include-dependencies` reads like the fix for a large `unsupported`
+share and is not. It scopes in *authenticated dependency-crate* MIR, not std;
+vendored crates built by stock rustc are unlikely to qualify; and it would pull
+`memchr` and `regex` into verification scope — the crate measured hanging above.
+Untested here deliberately: on `orca-core` the plausible outcome is a build that
+never finishes, not more proofs.
+
 ## 5. Priority order, if the Trust repo takes one thing
 
 1. **§2.1** — silent vanilla is the root failure; everything else was
