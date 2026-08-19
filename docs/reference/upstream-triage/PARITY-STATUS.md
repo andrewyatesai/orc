@@ -4,6 +4,18 @@ Companion to [TAILING-SYSTEM.md](./TAILING-SYSTEM.md) (the process). This is the
 current *state*: where the fork sits against upstream, and what remains a human
 decision rather than a port. Update the top block on each sync.
 
+## At parity as of upstream `200d8a5738`  _(2026-08-18)_
+The ledger through `200d8a5738` is fully dispositioned; every mechanically-portable
+*missing* item is on `main`.
+
+- **Cadence sync** (`2f0f9a8a39..200d8a5738`, +31 commits): 10 portable-missing, **8 ported
+  in one wave** (`fc4b86ce08`), 10 n/a, 6 collides, 2 superseded, 2 large-feature. Census
+  flat. DEFERRED `9312c5cd` (per-partition cookie-import serialization, #15095) — it
+  modifies the `browser-cookie-import.ts` credential-diag surface, a human security review
+  (see the deferrals list). The 6 collides are upstream Run-coordinator/worker-exit
+  orchestration (deliberately divergent per RECONCILIATION.md) + codex auth-file fixes
+  (credential surface).
+
 ## At parity as of upstream `2f0f9a8a39`  _(2026-08-18)_
 The ledger through `2f0f9a8a39` is fully dispositioned; every mechanically-portable
 *missing* item is on `main`.
