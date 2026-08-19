@@ -25,17 +25,43 @@ import {
   getCachedNushellIntegrationSupport,
   probeNushellIntegrationSupport
 } from '../pty/nushell-capability-probe'
+import { resolveShellWrapperRoot, type ShellWrapperFile } from '../shell-wrapper-content-address'
 
 const ORCA_USER_DATA_PATH_ENV = 'ORCA_USER_DATA_PATH'
 const SHELL_READY_MARKER = '\\033]777;orca-shell-ready\\007'
 
-let didEnsureShellReadyWrappers = false
-
-function getShellReadyWrapperRoot(): string {
+function getShellReadyWrapperBaseDir(): string {
   const userDataPath = process.env[ORCA_USER_DATA_PATH_ENV]
-  // Why: older/test launchers may not seed ORCA_USER_DATA_PATH. Keep a
-  // fallback so daemon startup does not fail before the parent can be fixed.
-  return join(userDataPath || tmpdir(), userDataPath ? 'shell-ready' : 'orca-shell-ready')
+  // Why a base dir of its own rather than the legacy `shell-ready/`: daemons of
+  // older builds still write that fixed path unconditionally, so a
+  // content-addressed tree stays out of their reach. Why the tmpdir fallback:
+  // older/test launchers may not seed ORCA_USER_DATA_PATH and daemon startup
+  // must not fail before the parent can be fixed (dev/test-only -- daemon-init
+  // always passes the real path).
+  return join(userDataPath || tmpdir(), userDataPath ? 'shell-wrappers' : 'orca-shell-wrappers')
+}
+
+// Why memoized and keyed on the base dir: the digest is stable for a given base
+// dir, every shell launch asks for it, and the key self-invalidates if
+// ORCA_USER_DATA_PATH is re-pointed mid-process.
+let cachedShellReadyWrapperRoot: { baseDir: string; root: string } | null = null
+
+// Why content-addressed: every writer sharing a userData dir (this daemon, the
+// local-PTY path, and daemons of other builds that outlive their app) wrote one
+// fixed `shell-ready/` tree; last writer won and the presence guard never
+// checked the bytes were this build's, so a daemon kept launching shells against
+// a wrapper it could not read and every startup command waited out the full
+// readiness timeout. Hashing the contents into the path makes "present" mean
+// "written by this build" again (see shell-wrapper-content-address.ts).
+export function getShellReadyWrapperRoot(): string {
+  const baseDir = getShellReadyWrapperBaseDir()
+  if (cachedShellReadyWrapperRoot?.baseDir !== baseDir) {
+    cachedShellReadyWrapperRoot = {
+      baseDir,
+      root: resolveShellWrapperRoot(baseDir, buildDaemonShellReadyWrapperFiles)
+    }
+  }
+  return cachedShellReadyWrapperRoot.root
 }
 
 // Why: if our own process inherited ZDOTDIR from a parent shell that was
@@ -80,14 +106,7 @@ function resolveOriginalZshenvSourceDir(): string {
 }
 
 function getRequiredShellReadyWrapperPaths(root = getShellReadyWrapperRoot()): string[] {
-  return [
-    join(root, 'zsh', '.zshenv'),
-    join(root, 'zsh', '.zprofile'),
-    join(root, 'zsh', '.zshrc'),
-    join(root, 'zsh', '.zlogin'),
-    join(root, 'bash', 'rcfile'),
-    join(root, 'nu', 'integration.nu')
-  ]
+  return buildDaemonShellReadyWrapperFiles(root).map(([path]) => path)
 }
 
 function shellReadyWrappersExist(): boolean {
@@ -281,16 +300,7 @@ fi
 `
 }
 
-function ensureShellReadyWrappers(): void {
-  if (process.platform === 'win32') {
-    return
-  }
-  if (didEnsureShellReadyWrappers && shellReadyWrappersExist()) {
-    return
-  }
-  didEnsureShellReadyWrappers = true
-
-  const root = getShellReadyWrapperRoot()
+function buildDaemonShellReadyWrapperFiles(root: string): readonly ShellWrapperFile[] {
   const zshDir = join(root, 'zsh')
   const bashDir = join(root, 'bash')
   const nuDir = join(root, 'nu')
@@ -328,17 +338,30 @@ ${getZshFinalZdotdirRestoreBlock()}
 `
   const bashRc = getDaemonBashShellReadyRcfileContent()
 
-  const files = [
+  return [
     [join(zshDir, '.zshenv'), zshEnv],
     [join(zshDir, '.zprofile'), zshProfile],
     [join(zshDir, '.zshrc'), zshRc],
     [join(zshDir, '.zlogin'), zshLogin],
     [join(bashDir, 'rcfile'), bashRc],
     [join(nuDir, 'integration.nu'), getNuShellReadyIntegrationContent()]
-  ] as const
+  ]
+}
 
+function ensureShellReadyWrappers(): void {
+  if (process.platform === 'win32') {
+    return
+  }
+  // Why existence alone decides, with no per-process flag: the root is keyed by a
+  // hash of the exact bytes we would write, so a present tree is one this build
+  // wrote. Rewriting it would replace a live file on the terminal-spawn path.
+  if (shellReadyWrappersExist()) {
+    return
+  }
+
+  const root = getShellReadyWrapperRoot()
   try {
-    for (const [path, content] of files) {
+    for (const [path, content] of buildDaemonShellReadyWrapperFiles(root)) {
       mkdirSync(dirname(path), { recursive: true })
       writeFileSync(path, content, 'utf8')
       chmodSync(path, 0o644)
@@ -354,8 +377,8 @@ ${getZshFinalZdotdirRestoreBlock()}
         : String(error)
     console.error(`[daemon/shell-ready] Failed to create wrapper files in ${root}: ${errorMessage}`)
     console.error('[daemon/shell-ready] Shell will launch without wrapper (no shell-ready marker)')
-    // Reset the flag so next attempt will try again
-    didEnsureShellReadyWrappers = false
+    // Why no flag to reset: the next launch re-checks the files themselves, so a
+    // half-written tree is retried without any extra bookkeeping.
   }
 }
 

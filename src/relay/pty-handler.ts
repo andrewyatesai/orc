@@ -106,6 +106,10 @@ type ManagedPty = {
   worktreeId?: string
   terminalHandle?: string
   explicitTerm?: string
+  /** The raw client-requested shell override, kept so revive can re-resolve it on this host. */
+  shellOverride?: string
+  /** Requested WSL distro; only meaningful when the override launched wsl.exe. */
+  wslDistro?: string
   envToDelete: string[]
   gitCredentialPromptGuarded: boolean
   startupCommand?: ManagedStartupCommand
@@ -243,6 +247,30 @@ function resolvePtyShellOverride(shellOverride: string): string {
   return resolveWindowsGitBashShellPath(shellOverride) ?? shellOverride
 }
 
+/**
+ * Longest WSL distro name revive will carry into `wsl.exe -d <name>`.
+ *
+ * Why bounded here and not at spawn: spawn's value is a live RPC parameter,
+ * while this one is replayed from state the relay hands a client and takes back
+ * unvalidated. It reaches an argv, not a shell, so an over-long name costs a
+ * failed spawn rather than anything worse -- but revive's whole job here is to
+ * re-apply fresh-spawn bounds. Real distro names are registry keys, far below this.
+ */
+const MAX_REVIVED_WSL_DISTRO_LENGTH = 256
+
+/**
+ * Same bounds as a fresh spawn, but one unusable entry may not fail the whole
+ * revive batch — an override this host no longer allows degrades that single
+ * pane to the default shell instead of throwing away every other pane's state.
+ */
+function resolveRevivedShellOverride(shellOverride: string): string {
+  try {
+    return resolvePtyShellOverride(shellOverride)
+  } catch {
+    return ''
+  }
+}
+
 type PtyProcessSummary = {
   id: string
   incarnationId: string
@@ -268,6 +296,13 @@ type SerializedPtyEntry = {
   envToDelete?: string[]
   /** Optional for state serialized by relays predating the credential guard. */
   gitCredentialPromptGuarded?: boolean
+  /**
+   * The shell override this pane was spawned with, re-resolved (and re-bounded)
+   * on revive. Optional: state from a relay predating it revives the host
+   * default shell, which is what those relays did anyway.
+   */
+  shellOverride?: string
+  terminalWindowsWslDistro?: string
   agentSessionOwners?: AgentSessionOwnerBinding[]
 }
 
@@ -472,10 +507,10 @@ export class PtyHandler {
     // Pin both vars to the install target; a client-supplied value wins, and
     // envToDelete below can still strip them.
     const remoteCodexHome = join(baseEnv.HOME || process.env.HOME || homedir(), '.codex')
-    if (!rendererEnv || ! Object.hasOwn(rendererEnv, 'CODEX_HOME')) {
+    if (!rendererEnv || !Object.hasOwn(rendererEnv, 'CODEX_HOME')) {
       baseEnv.CODEX_HOME = remoteCodexHome
     }
-    if (!rendererEnv || ! Object.hasOwn(rendererEnv, 'ORCA_CODEX_HOME')) {
+    if (!rendererEnv || !Object.hasOwn(rendererEnv, 'ORCA_CODEX_HOME')) {
       // Why: shadow mirrors the effective CODEX_HOME so shell wrappers restore
       // the same home remote rc files may re-export over.
       baseEnv.ORCA_CODEX_HOME = baseEnv.CODEX_HOME
@@ -495,11 +530,7 @@ export class PtyHandler {
     for (const key of envToDelete) {
       delete result[key]
     }
-    if (
-      !envToDelete.includes('TERM') &&
-      rendererEnv &&
-      Object.hasOwn(rendererEnv, 'TERM')
-    ) {
+    if (!envToDelete.includes('TERM') && rendererEnv && Object.hasOwn(rendererEnv, 'TERM')) {
       result.TERM = rendererEnv.TERM
     }
     // Why: node-pty defaults missing/empty TERM per-platform; normalize so POSIX and Windows children agree.
@@ -1160,6 +1191,10 @@ export class PtyHandler {
       ...(explicitTerm !== undefined ? { explicitTerm } : {}),
       envToDelete,
       gitCredentialPromptGuarded,
+      // Why the resolved one gates it: on a POSIX relay an override is rejected
+      // outright, and storing one revive would only reject again is noise.
+      ...(resolvedShellOverride ? { shellOverride } : {}),
+      ...(terminalWindowsWslDistro ? { wslDistro: terminalWindowsWslDistro } : {}),
       ownerBackend: resolvePtyOwnerBackend({
         platform: process.platform,
         shellPath: shell,
@@ -1529,6 +1564,10 @@ export class PtyHandler {
         ...(managed.explicitTerm !== undefined ? { explicitTerm: managed.explicitTerm } : {}),
         envToDelete: managed.envToDelete,
         gitCredentialPromptGuarded: managed.gitCredentialPromptGuarded,
+        // Why serialized: revive re-spawns the shell, and without these a WSL
+        // pane came back as the host default shell in another distro's history.
+        ...(managed.shellOverride ? { shellOverride: managed.shellOverride } : {}),
+        ...(managed.wslDistro ? { terminalWindowsWslDistro: managed.wslDistro } : {}),
         ...(managed.terminalHandle ? { terminalHandle: managed.terminalHandle } : {})
       })
     }
@@ -1591,7 +1630,17 @@ export class PtyHandler {
     }
     // Why: serialized state may come from an older/untrusted client; reapply fresh-spawn bounds.
     const envToDelete = sanitizeEnvToDelete(entry.envToDelete)
-    const shell = resolveDefaultShell()
+    // Why re-resolved, not resolveDefaultShell(): revive must re-launch the same
+    // shell the pane was spawned with (a WSL/PowerShell override), or a restarted
+    // relay hands back the host default shell where the user had another.
+    const shellOverride = typeof entry.shellOverride === 'string' ? entry.shellOverride.trim() : ''
+    const resolvedShellOverride = resolveRevivedShellOverride(shellOverride)
+    const shell = resolvedShellOverride || resolveDefaultShell()
+    const terminalWindowsWslDistro =
+      typeof entry.terminalWindowsWslDistro === 'string' &&
+      entry.terminalWindowsWslDistro.length <= MAX_REVIVED_WSL_DISTRO_LENGTH
+        ? entry.terminalWindowsWslDistro
+        : null
     const spawnEnv = this.buildSpawnEnv(
       revivedEnv,
       { id: entry.id, paneKey: entry.paneKey, shell },
@@ -1602,15 +1651,34 @@ export class PtyHandler {
     if (gitCredentialPromptGuarded) {
       Object.assign(spawnEnv, gitCredentialPromptGuardEnv(spawnEnv, process.platform))
     }
-    const shellLaunch = getRelayShellLaunchConfig(shell, spawnEnv)
-    const term = ptyMod.spawn(shell, shellLaunch.args, {
-      name: spawnEnv.TERM ?? 'xterm-256color',
-      cols: entry.cols,
-      rows: entry.rows,
-      cwd: entry.cwd,
-      // Why: no provider-delivered command is waiting for a ready marker.
-      env: { ...spawnEnv, ORCA_SHELL_READY_MARKER: '0', ...shellLaunch.env }
+    // Why the platform + distro args: revive re-launches the entry's own override
+    // (e.g. `wsl.exe -d <distro>`), so the WSL distro carrier must match spawn.
+    const shellLaunch = getRelayShellLaunchConfig(shell, spawnEnv, process.platform, {
+      terminalWindowsWslDistro
     })
+    let term: IPty
+    try {
+      term = ptyMod.spawn(shell, shellLaunch.args, {
+        name: spawnEnv.TERM ?? 'xterm-256color',
+        cols: entry.cols,
+        rows: entry.rows,
+        cwd: entry.cwd,
+        // Why: no provider-delivered command is waiting for a ready marker.
+        env: { ...spawnEnv, ORCA_SHELL_READY_MARKER: '0', ...shellLaunch.env }
+      })
+    } catch (error) {
+      // Why skip rather than retry the host default shell: the stored override
+      // names a shell that existed at serialize time and may not now (an
+      // uninstalled WSL takes wsl.exe with it), and substituting a different
+      // shell is the defect this override exists to fix. Dropping one pane is
+      // the honest outcome; letting the throw escape the revive loop would cost
+      // every later entry its state too. The worktree-removal fence throws
+      // before this, outside reviveEntry, so it stays a hard failure.
+      if (!resolvedShellOverride) {
+        throw error
+      }
+      return
+    }
     this.wireAndStore({
       id: entry.id,
       incarnationId: randomUUID(),
@@ -1627,9 +1695,14 @@ export class PtyHandler {
       ...(explicitTerm !== undefined ? { explicitTerm } : {}),
       envToDelete,
       gitCredentialPromptGuarded,
+      // Why re-stored: a revived pane can be serialized again, and losing the
+      // override on the second round trip is the same bug one restart later.
+      ...(resolvedShellOverride ? { shellOverride } : {}),
+      ...(terminalWindowsWslDistro ? { wslDistro: terminalWindowsWslDistro } : {}),
       ownerBackend: resolvePtyOwnerBackend({
         platform: process.platform,
-        shellPath: shell
+        shellPath: shell,
+        wslDistro: terminalWindowsWslDistro
       }),
       ...(entry.terminalHandle ? { terminalHandle: entry.terminalHandle } : {})
     })

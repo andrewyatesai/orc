@@ -2502,6 +2502,127 @@ describe('PtyHandler', () => {
     expect(callArgs.env.TERM_PROGRAM).toBe('Orca')
   })
 
+  it('carries a shell override across serialize and revive instead of the host default', async () => {
+    const originalPlatform = process.platform
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+    const resolveDefaultShellSpy = vi
+      .spyOn(ptyShellUtils, 'resolveDefaultShell')
+      .mockReturnValue('C:\\Windows\\System32\\cmd.exe')
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true)
+    try {
+      await dispatcher.callRequest('pty.spawn', {
+        cols: 80,
+        rows: 24,
+        shellOverride: 'powershell.exe'
+      })
+      const state = (await dispatcher.callRequest('pty.serialize', { ids: ['pty-1'] })) as string
+      // The override must reach serialized state — the seam that was dropping it.
+      expect(JSON.parse(state)[0]?.shellOverride).toBe('powershell.exe')
+
+      await handler.dispose({ waitForPhysicalExit: false })
+      dispatcher = createMockDispatcher()
+      handler = new PtyHandler(dispatcher as unknown as RelayDispatcher)
+      mockPtySpawn.mockClear()
+
+      await dispatcher.callRequest('pty.revive', { state })
+
+      // The bug: revive called resolveDefaultShell() and handed back cmd.exe.
+      expect(mockPtySpawn).toHaveBeenCalledTimes(1)
+      expect(mockPtySpawn).toHaveBeenCalledWith(
+        'powershell.exe',
+        expect.any(Array),
+        expect.any(Object)
+      )
+      expect(mockPtySpawn).not.toHaveBeenCalledWith(
+        'C:\\Windows\\System32\\cmd.exe',
+        expect.anything(),
+        expect.anything()
+      )
+
+      // A revived pane serialized again keeps the override (no loss one restart later).
+      const reState = (await dispatcher.callRequest('pty.serialize', { ids: ['pty-1'] })) as string
+      expect(JSON.parse(reState)[0]?.shellOverride).toBe('powershell.exe')
+    } finally {
+      killSpy.mockRestore()
+      resolveDefaultShellSpy.mockRestore()
+      Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
+    }
+  })
+
+  it('re-launches the same WSL distro carrier across revive', async () => {
+    const originalPlatform = process.platform
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true)
+    try {
+      await dispatcher.callRequest('pty.spawn', {
+        cols: 80,
+        rows: 24,
+        shellOverride: 'wsl.exe',
+        terminalWindowsWslDistro: 'Ubuntu-24.04'
+      })
+      const state = (await dispatcher.callRequest('pty.serialize', { ids: ['pty-1'] })) as string
+      expect(JSON.parse(state)[0]?.terminalWindowsWslDistro).toBe('Ubuntu-24.04')
+
+      await handler.dispose({ waitForPhysicalExit: false })
+      dispatcher = createMockDispatcher()
+      handler = new PtyHandler(dispatcher as unknown as RelayDispatcher)
+      mockPtySpawn.mockClear()
+
+      await dispatcher.callRequest('pty.revive', { state })
+
+      expect(mockPtySpawn).toHaveBeenCalledWith(
+        'wsl.exe',
+        ['-d', 'Ubuntu-24.04'],
+        expect.any(Object)
+      )
+    } finally {
+      killSpy.mockRestore()
+      Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
+    }
+  })
+
+  it('skips a revived pane whose overridden shell can no longer spawn rather than substituting the default', async () => {
+    const originalPlatform = process.platform
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+    const resolveDefaultShellSpy = vi
+      .spyOn(ptyShellUtils, 'resolveDefaultShell')
+      .mockReturnValue('C:\\Windows\\System32\\cmd.exe')
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true)
+    try {
+      await dispatcher.callRequest('pty.spawn', {
+        cols: 80,
+        rows: 24,
+        shellOverride: 'wsl.exe',
+        terminalWindowsWslDistro: 'Ubuntu-24.04'
+      })
+      const state = (await dispatcher.callRequest('pty.serialize', { ids: ['pty-1'] })) as string
+
+      await handler.dispose({ waitForPhysicalExit: false })
+      dispatcher = createMockDispatcher()
+      handler = new PtyHandler(dispatcher as unknown as RelayDispatcher)
+      mockPtySpawn.mockClear()
+      // The overridden shell is gone at revive time (an uninstalled WSL took wsl.exe with it).
+      mockPtySpawn.mockImplementation(() => {
+        throw new Error('spawn wsl.exe ENOENT')
+      })
+
+      // The single failed override degrades that one pane; it must not escape the revive loop...
+      await expect(dispatcher.callRequest('pty.revive', { state })).resolves.toBeUndefined()
+      // ...nor fall back to the host default shell (substituting a shell is the defect the override fixes).
+      expect(mockPtySpawn).toHaveBeenCalledTimes(1)
+      expect(mockPtySpawn).not.toHaveBeenCalledWith(
+        'C:\\Windows\\System32\\cmd.exe',
+        expect.anything(),
+        expect.anything()
+      )
+      expect(handler.activePtyCount).toBe(0)
+    } finally {
+      killSpy.mockRestore()
+      resolveDefaultShellSpy.mockRestore()
+      Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
+    }
+  })
+
   it('fences both revived worktree identity and cwd with rollback', async () => {
     const finishSiblingAdmission = vi.fn()
     const beginWorktreePtySpawn = vi.fn((operationPath: string) => {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import type * as ShellReadyModule from './shell-ready'
 import type * as NushellCapabilityProbeModule from '../pty/nushell-capability-probe'
@@ -183,11 +183,13 @@ describePosix('daemon shell-ready launch config', () => {
   })
 
   it('stores wrapper rcfiles under durable userData instead of tmp', async () => {
-    const { getShellReadyLaunchConfig } = await importFreshShellReady()
+    const { getShellReadyLaunchConfig, getShellReadyWrapperRoot } = await importFreshShellReady()
 
     const config = getShellReadyLaunchConfig('/bin/bash')
-    const rcfile = join(userDataPath, 'shell-ready', 'bash', 'rcfile')
+    const rcfile = join(getShellReadyWrapperRoot(), 'bash', 'rcfile')
 
+    // Why still durable: the content-addressed root lives under userData, not tmp.
+    expect(rcfile.startsWith(userDataPath + sep)).toBe(true)
     expect(config.args).toEqual(['--rcfile', rcfile])
     expect(existsSync(rcfile)).toBe(true)
   })
@@ -228,8 +230,8 @@ describePosix('daemon shell-ready launch config', () => {
   })
 
   it('rewrites wrappers when a long-lived daemon finds a missing rcfile', async () => {
-    const { getShellReadyLaunchConfig } = await importFreshShellReady()
-    const rcfile = join(userDataPath, 'shell-ready', 'bash', 'rcfile')
+    const { getShellReadyLaunchConfig, getShellReadyWrapperRoot } = await importFreshShellReady()
+    const rcfile = join(getShellReadyWrapperRoot(), 'bash', 'rcfile')
 
     getShellReadyLaunchConfig('/bin/bash')
     rmSync(rcfile)
@@ -240,13 +242,37 @@ describePosix('daemon shell-ready launch config', () => {
   })
 
   it('points zsh launch config at durable wrapper files', async () => {
-    const { getShellReadyLaunchConfig } = await importFreshShellReady()
+    const { getShellReadyLaunchConfig, getShellReadyWrapperRoot } = await importFreshShellReady()
 
     const config = getShellReadyLaunchConfig('/bin/zsh')
+    const root = getShellReadyWrapperRoot()
 
     expect(config.args).toEqual(['-l'])
-    expect(config.env.ZDOTDIR).toBe(join(userDataPath, 'shell-ready', 'zsh'))
-    expect(existsSync(join(userDataPath, 'shell-ready', 'zsh', '.zshenv'))).toBe(true)
+    expect(config.env.ZDOTDIR).toBe(join(root, 'zsh'))
+    expect(existsSync(join(root, 'zsh', '.zshenv'))).toBe(true)
+  })
+
+  it('content-addresses the wrapper tree so a second build cannot clobber it', async () => {
+    // Why: a fixed `<userData>/shell-ready` tree let the local-PTY path and
+    // daemons of other builds sharing the same userData dir overwrite each
+    // other; the guard only checked presence, never that the bytes were this
+    // build's, so a daemon launched shells against a wrapper it could not read
+    // and every startup command waited out the full readiness timeout. Hashing
+    // the contents into the path fixes that: different bytes are a different dir.
+    const { getShellReadyLaunchConfig, getShellReadyWrapperRoot } = await importFreshShellReady()
+
+    const config = getShellReadyLaunchConfig('/bin/zsh')
+    const root = getShellReadyWrapperRoot()
+
+    // <userData>/shell-wrappers/<hash>/shell-ready
+    expect(root.startsWith(join(userDataPath, 'shell-wrappers') + sep)).toBe(true)
+    const segments = root.split(sep)
+    expect(segments.at(-1)).toBe('shell-ready')
+    // The 16-hex hash segment is what stops a differing build from colliding.
+    expect(segments.at(-2)).toMatch(/^[0-9a-f]{16}$/)
+    expect(config.env.ZDOTDIR).toBe(join(root, 'zsh'))
+    // The legacy fixed tree — the shared path that clobbered — is never written.
+    expect(existsSync(join(userDataPath, 'shell-ready'))).toBe(false)
   })
 
   it('falls back to HOME for ORCA_ORIG_ZDOTDIR when inherited ZDOTDIR points at a wrapper dir', async () => {
@@ -337,14 +363,15 @@ describePosix('daemon shell-ready launch config', () => {
   })
 
   it('writes zsh wrappers that guard against ORCA_ORIG_ZDOTDIR self-loops', async () => {
-    const { getShellReadyLaunchConfig } = await importFreshShellReady()
+    const { getShellReadyLaunchConfig, getShellReadyWrapperRoot } = await importFreshShellReady()
 
     getShellReadyLaunchConfig('/bin/zsh')
 
-    const zshenv = readFileSync(join(userDataPath, 'shell-ready', 'zsh', '.zshenv'), 'utf8')
-    const zprofile = readFileSync(join(userDataPath, 'shell-ready', 'zsh', '.zprofile'), 'utf8')
-    const zshrc = readFileSync(join(userDataPath, 'shell-ready', 'zsh', '.zshrc'), 'utf8')
-    const zlogin = readFileSync(join(userDataPath, 'shell-ready', 'zsh', '.zlogin'), 'utf8')
+    const zshDir = join(getShellReadyWrapperRoot(), 'zsh')
+    const zshenv = readFileSync(join(zshDir, '.zshenv'), 'utf8')
+    const zprofile = readFileSync(join(zshDir, '.zprofile'), 'utf8')
+    const zshrc = readFileSync(join(zshDir, '.zshrc'), 'utf8')
+    const zlogin = readFileSync(join(zshDir, '.zlogin'), 'utf8')
     expect(zshenv).toContain('_orca_user_zdotdir="${_orca_spawn_orig_zdotdir:-$HOME}"')
     expect(zshenv).toContain('*/shell-ready/zsh) _orca_user_zdotdir="$HOME" ;;')
     expect(zshenv).toContain('""|*/shell-ready/zsh) export ORCA_ORIG_ZDOTDIR="$HOME" ;;')
@@ -356,11 +383,11 @@ describePosix('daemon shell-ready launch config', () => {
   })
 
   it('owns zle-line-init for the shell-ready marker instead of an azhw hook', async () => {
-    const { getShellReadyLaunchConfig } = await importFreshShellReady()
+    const { getShellReadyLaunchConfig, getShellReadyWrapperRoot } = await importFreshShellReady()
 
     getShellReadyLaunchConfig('/bin/zsh')
 
-    const zlogin = readFileSync(join(userDataPath, 'shell-ready', 'zsh', '.zlogin'), 'utf8')
+    const zlogin = readFileSync(join(getShellReadyWrapperRoot(), 'zsh', '.zlogin'), 'utf8')
     expect(zlogin).toContain('zle -N zle-line-init __orca_prompt_mark')
     expect(zlogin).toContain('__orca_prev_line_init_fn="${widgets[zle-line-init]#user:}"')
     expect(zlogin).toContain('printf "\\033]777;orca-shell-ready\\007"')
@@ -484,14 +511,15 @@ describePosix('daemon shell-ready launch config', () => {
   )
 
   it('writes wrappers without restoring Pi/OMP homes after user startup files', async () => {
-    const { getShellReadyLaunchConfig } = await importFreshShellReady()
+    const { getShellReadyLaunchConfig, getShellReadyWrapperRoot } = await importFreshShellReady()
 
     getShellReadyLaunchConfig('/bin/zsh')
     getShellReadyLaunchConfig('/bin/bash')
 
-    const zshrc = readFileSync(join(userDataPath, 'shell-ready', 'zsh', '.zshrc'), 'utf8')
-    const zlogin = readFileSync(join(userDataPath, 'shell-ready', 'zsh', '.zlogin'), 'utf8')
-    const bashRc = readFileSync(join(userDataPath, 'shell-ready', 'bash', 'rcfile'), 'utf8')
+    const root = getShellReadyWrapperRoot()
+    const zshrc = readFileSync(join(root, 'zsh', '.zshrc'), 'utf8')
+    const zlogin = readFileSync(join(root, 'zsh', '.zlogin'), 'utf8')
+    const bashRc = readFileSync(join(root, 'bash', 'rcfile'), 'utf8')
     const restoreLine =
       '[[ -n "${ORCA_OPENCODE_CONFIG_DIR:-}" ]] && export OPENCODE_CONFIG_DIR="${ORCA_OPENCODE_CONFIG_DIR}"'
     const mimoRestoreLine =
@@ -525,13 +553,14 @@ describePosix('daemon shell-ready launch config', () => {
 
   // Why: regression guard for issue #2422 — bash wrapper must emit OSC 133 C/D so SSH sessions clear stale 'working' agent rows.
   it('emits OSC 133 C/D markers in the daemon bash wrapper', async () => {
-    const { getShellReadyLaunchConfig } = await importFreshShellReady()
+    const { getShellReadyLaunchConfig, getShellReadyWrapperRoot } = await importFreshShellReady()
 
     getShellReadyLaunchConfig('/bin/zsh')
     getShellReadyLaunchConfig('/bin/bash')
 
-    const zshrc = readFileSync(join(userDataPath, 'shell-ready', 'zsh', '.zshrc'), 'utf8')
-    const bashRc = readFileSync(join(userDataPath, 'shell-ready', 'bash', 'rcfile'), 'utf8')
+    const root = getShellReadyWrapperRoot()
+    const zshrc = readFileSync(join(root, 'zsh', '.zshrc'), 'utf8')
+    const bashRc = readFileSync(join(root, 'bash', 'rcfile'), 'utf8')
 
     expect(bashRc).toContain('printf "\\033]133;D;%s\\007"')
     expect(bashRc).toContain('printf "\\033]133;C\\007"')
@@ -778,11 +807,11 @@ describePosix('daemon shell-ready launch config', () => {
 
   it('sources user .zshenv at wrapper top level before repinning ZDOTDIR', async () => {
     // Why: PR #1737 sourced .zshenv in a wrapper function, breaking "typeset -U path"; keep it at zsh top level.
-    const { getShellReadyLaunchConfig } = await importFreshShellReady()
+    const { getShellReadyLaunchConfig, getShellReadyWrapperRoot } = await importFreshShellReady()
 
     getShellReadyLaunchConfig('/bin/zsh')
 
-    const zshenv = readFileSync(join(userDataPath, 'shell-ready', 'zsh', '.zshenv'), 'utf8')
+    const zshenv = readFileSync(join(getShellReadyWrapperRoot(), 'zsh', '.zshenv'), 'utf8')
 
     expect(zshenv).toContain('unset ZDOTDIR')
     expect(zshenv).toContain('_orca_zshenv_source_dir="${ORCA_ZSHENV_SOURCE_DIR:-$HOME}"')
@@ -796,11 +825,11 @@ describePosix('daemon shell-ready launch config', () => {
 
   it('preserves spawn-env ORCA_ORIG_ZDOTDIR as fallback when discovery yields nothing', async () => {
     // Why: when user .zshenv sets no ZDOTDIR, the wrapper falls back to spawn-env ORCA_ORIG_ZDOTDIR, then HOME.
-    const { getShellReadyLaunchConfig } = await importFreshShellReady()
+    const { getShellReadyLaunchConfig, getShellReadyWrapperRoot } = await importFreshShellReady()
 
     getShellReadyLaunchConfig('/bin/zsh')
 
-    const zshenv = readFileSync(join(userDataPath, 'shell-ready', 'zsh', '.zshenv'), 'utf8')
+    const zshenv = readFileSync(join(getShellReadyWrapperRoot(), 'zsh', '.zshenv'), 'utf8')
 
     // Save spawn-env value before sourcing user .zshenv
     expect(zshenv).toContain('_orca_spawn_orig_zdotdir="${ORCA_ORIG_ZDOTDIR:-}"')
@@ -845,15 +874,12 @@ describePosix('daemon nu launch config (#8928 PR1)', () => {
     probe.__seedNushellIntegrationSupport('/usr/bin/nu', true)
 
     const config = shellReady.getShellReadyLaunchConfig('/usr/bin/nu')
+    const nuFile = join(shellReady.getShellReadyWrapperRoot(), 'nu', 'integration.nu')
 
-    expect(config.args).toEqual([
-      '-l',
-      '-e',
-      `source "${join(userDataPath, 'shell-ready', 'nu', 'integration.nu')}"`
-    ])
+    expect(config.args).toEqual(['-l', '-e', `source "${nuFile}"`])
     expect(config.env).toEqual({ ORCA_SHELL_READY_MARKER: '1' })
     expect(config.supportsReadyMarker).toBe(true)
-    expect(existsSync(join(userDataPath, 'shell-ready', 'nu', 'integration.nu'))).toBe(true)
+    expect(existsSync(nuFile)).toBe(true)
   })
 
   it('nu below the floor gets no wrapper args from the daemon copy', async () => {
@@ -895,10 +921,15 @@ describePosix('daemon nu launch config (#8928 PR1)', () => {
     try {
       process.env.ORCA_USER_DATA_PATH = daemonRoot
       daemon.getShellReadyLaunchConfig('/usr/bin/nu')
+      // Why capture before re-pointing env: the daemon root is memoized on the
+      // base dir, so it must be read while ORCA_USER_DATA_PATH still names daemonRoot.
+      const daemonWrapperRoot = daemon.getShellReadyWrapperRoot()
       process.env.ORCA_USER_DATA_PATH = localRoot
       local.getShellReadyLaunchConfig('/usr/bin/nu')
 
-      const daemonBytes = readFileSync(join(daemonRoot, 'shell-ready', 'nu', 'integration.nu'))
+      // Why the daemon path is content-addressed but local's is still legacy:
+      // this port fixed the daemon writer; the local-PTY writer is a separate item.
+      const daemonBytes = readFileSync(join(daemonWrapperRoot, 'nu', 'integration.nu'))
       const localBytes = readFileSync(join(localRoot, 'shell-ready', 'nu', 'integration.nu'))
       expect(daemonBytes.length).toBeGreaterThan(0)
       expect(daemonBytes.equals(localBytes)).toBe(true)

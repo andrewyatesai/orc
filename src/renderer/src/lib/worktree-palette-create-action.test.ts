@@ -182,6 +182,22 @@ describe('worktree-palette-create-action', () => {
     ])
   })
 
+  it('names the rendered render key so a duplicate row is reachable by keyboard', () => {
+    // Why: rows render under de-duplicated keys, and cmdk selects by that rendered value.
+    // Naming the bare id here left the duplicate absent from the allow-list, so arrowing
+    // onto it failed the `includes` check and snapped the highlight back to the top.
+    expect(
+      getWorktreePaletteSelectionItemIds(
+        [
+          { id: '__header_worktrees__', type: 'section-header' },
+          { id: 'worktree:shared', type: 'worktree' },
+          { id: 'worktree:shared', type: 'worktree' }
+        ],
+        ['__header_worktrees__', 'worktree:shared', 'palette-dup:1:worktree:shared']
+      )
+    ).toEqual(['worktree:shared', 'palette-dup:1:worktree:shared'])
+  })
+
   it('falls back deterministically when the selected row disappears', () => {
     expect(
       getNextWorktreePaletteSelection({

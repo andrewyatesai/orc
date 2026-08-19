@@ -106,6 +106,7 @@ export type ComputerActionVerification =
       reason:
         | 'synthetic_input'
         | 'clipboard_paste'
+        | 'accessibility_action_unasserted'
         | 'provider_unavailable'
         | 'window_changed'
         | 'value_mismatch'

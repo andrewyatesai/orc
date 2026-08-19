@@ -142,6 +142,7 @@ import {
 } from '@/components/cmd-j/quick-actions'
 import { buildWorktreeChecksReviewIndex } from '@/components/cmd-j/worktree-checks-review-index'
 import { resolvePaletteFocusRestoreTarget } from '@/components/cmd-j/palette-focus-restore-target'
+import { buildPaletteListEntryRenderKeys } from '@/components/cmd-j/palette-list-entry-render-keys'
 import { selectWorktreePaletteCacheInputs } from '@/components/cmd-j/worktree-palette-cache-inputs'
 import { getRepoHostIdentity } from '@/store/slices/repo-host-identity'
 import {
@@ -1528,9 +1529,18 @@ function WorktreeJumpPaletteContent({
     return entries
   }, [hasQuery, openTabsLeadSections, paletteSections, showCreateAction, worktreeItems.length])
 
-  const selectionItemIds = useMemo(
-    () => getWorktreePaletteSelectionItemIds(listEntries),
+  // Why not entry.id directly: a duplicated persisted id would repeat a React key,
+  // and the reconciler then leaves the extra row mounted as a frozen ghost.
+  const listEntryRenderKeys = useMemo(
+    () => buildPaletteListEntryRenderKeys(listEntries.map((entry) => entry.id)),
     [listEntries]
+  )
+
+  // Why the render keys, not entry ids: cmdk selects by the rendered `value`, so the
+  // allow-list has to name the same de-duplicated keys the rows carry.
+  const selectionItemIds = useMemo(
+    () => getWorktreePaletteSelectionItemIds(listEntries, listEntryRenderKeys),
+    [listEntries, listEntryRenderKeys]
   )
 
   // Why passive, and why after the snapshot effect: it must record the head cmdk *had* while the
@@ -2181,11 +2191,12 @@ function WorktreeJumpPaletteContent({
           </CommandEmpty>
         ) : (
           <>
-            {listEntries.map((entry) => {
+            {listEntries.map((entry, entryIndex) => {
+              const renderKey = listEntryRenderKeys[entryIndex] ?? entry.id
               if (entry.type === 'section-header') {
                 return (
                   <div
-                    key={entry.id}
+                    key={renderKey}
                     className="mx-0.5 mt-3 mb-1 px-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70"
                   >
                     {entry.label}
@@ -2197,7 +2208,7 @@ function WorktreeJumpPaletteContent({
                 // Why: plain div (not CommandItem) so cmdk can't select it; arrow keys skip it via selectableItems.
                 return (
                   <div
-                    key={entry.id}
+                    key={renderKey}
                     className="mx-0.5 mt-1 px-3 py-1.5 text-[12px] italic text-muted-foreground/70"
                   >
                     {entry.label}
@@ -2208,7 +2219,7 @@ function WorktreeJumpPaletteContent({
               if (entry.type === 'create-worktree') {
                 return (
                   <CommandItem
-                    key={entry.id}
+                    key={renderKey}
                     value={CREATE_WORKTREE_ITEM_ID}
                     onSelect={handleCreateWorktree}
                     className={cn(JUMP_PALETTE_ITEM_CLASSNAME, 'mt-1 py-1.5')}
@@ -2259,8 +2270,8 @@ function WorktreeJumpPaletteContent({
 
                 return (
                   <CommandItem
-                    key={entry.id}
-                    value={entry.id}
+                    key={renderKey}
+                    value={renderKey}
                     onSelect={() => handleSelectItem(entry)}
                     data-current={isCurrentWorktree ? 'true' : undefined}
                     className={cn(JUMP_PALETTE_ITEM_CLASSNAME, 'py-2.5')}
@@ -2383,8 +2394,8 @@ function WorktreeJumpPaletteContent({
                   : translate('auto.components.WorktreeJumpPalette.repoGroupBadge', 'Repo group')
                 return (
                   <CommandItem
-                    key={entry.id}
-                    value={entry.id}
+                    key={renderKey}
+                    value={renderKey}
                     onSelect={() => handleSelectItem(entry)}
                     className={cn(JUMP_PALETTE_ITEM_CLASSNAME, 'py-2.5')}
                   >
@@ -2427,8 +2438,8 @@ function WorktreeJumpPaletteContent({
                     : translate('auto.components.WorktreeJumpPalette.actionBadge', 'Action')
                 return (
                   <CommandItem
-                    key={entry.id}
-                    value={entry.id}
+                    key={renderKey}
+                    value={renderKey}
                     onSelect={() => handleSelectItem(entry)}
                     className={cn(JUMP_PALETTE_ITEM_CLASSNAME, 'py-2.5')}
                   >
@@ -2480,8 +2491,8 @@ function WorktreeJumpPaletteContent({
 
                 return (
                   <CommandItem
-                    key={entry.id}
-                    value={entry.id}
+                    key={renderKey}
+                    value={renderKey}
                     onSelect={() => handleSelectItem(entry)}
                     className={cn(JUMP_PALETTE_ITEM_CLASSNAME, 'py-2.5')}
                   >
@@ -2563,8 +2574,8 @@ function WorktreeJumpPaletteContent({
 
                 return (
                   <CommandItem
-                    key={entry.id}
-                    value={entry.id}
+                    key={renderKey}
+                    value={renderKey}
                     onSelect={() => handleSelectItem(entry)}
                     className={cn(JUMP_PALETTE_ITEM_CLASSNAME, 'py-2.5')}
                   >
@@ -2639,8 +2650,8 @@ function WorktreeJumpPaletteContent({
 
               return (
                 <CommandItem
-                  key={entry.id}
-                  value={entry.id}
+                  key={renderKey}
+                  value={renderKey}
                   onSelect={() => handleSelectItem(entry)}
                   className={cn(JUMP_PALETTE_ITEM_CLASSNAME, 'py-2.5')}
                 >

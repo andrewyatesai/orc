@@ -18,6 +18,7 @@ import {
 } from './github-remote-identity-parsing'
 import { resolveSshConfigHostname } from './github-ssh-host-alias-resolution'
 import { parseWslPath } from '../wsl'
+import { getSshGitProviderGeneration } from '../providers/ssh-git-dispatch'
 
 export type GitHubEnterpriseRepoSlug = GitHubOwnerRepo & { host: string }
 
@@ -36,9 +37,19 @@ type HostAuthCacheEntry = {
 const hostAuthCache = new Map<string, HostAuthCacheEntry>()
 const hostAuthInFlight = new Map<string, Promise<string | null | undefined>>()
 
-// Why: connection-backed Git operations execute remotely, but gh intentionally
-// executes on the native host. Only WSL selects a distinct gh config/runtime.
-function runtimeCacheKey(repoPath: string, wslDistro?: string): string {
+// Why: gh intentionally executes on the native host even for connection-backed
+// repos, but the answer still describes that connection's runtime (it is probed
+// without the repository cwd). Keying it per connection stops a local repo and
+// an SSH-hosted repo at the same path from adopting each other's auth state.
+// Provider generation fences stale answers when reconnect replaces the runtime.
+function runtimeCacheKey(
+  repoPath: string,
+  connectionId?: string | null,
+  wslDistro?: string
+): string {
+  if (connectionId) {
+    return `connection:${connectionId}:${getSshGitProviderGeneration(connectionId)}`
+  }
   const resolvedDistro = wslDistro ?? parseWslPath(repoPath)?.distro
   return `local:${resolvedDistro?.toLowerCase() ?? 'host'}`
 }
@@ -134,7 +145,7 @@ async function resolveAuthenticatedGitHubHost(
   localGitOptions: LocalGitExecOptions = {}
 ): Promise<string | null | undefined> {
   const normalizedHost = normalizeGitHubHost(host)?.authority ?? host.trim().toLowerCase()
-  const cacheKey = `${runtimeCacheKey(repoPath, localGitOptions.wslDistro)}\0${normalizedHost}`
+  const cacheKey = `${runtimeCacheKey(repoPath, connectionId, localGitOptions.wslDistro)}\0${normalizedHost}`
   const now = Date.now()
   pruneHostAuthCache(now)
   const cached = hostAuthCache.get(cacheKey)
