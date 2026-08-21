@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import type { NativeChatMessage } from '../../../src/shared/native-chat-types'
 import { reconcileLandedEchoes, type UnconfirmedSend } from './mobile-native-chat-draft-reconcile'
+import { selectGluedPendingIds } from './mobile-native-chat-glued-pending'
 import {
   imagePreviewBindings,
   mergeLandedImagePreviews
@@ -254,7 +255,13 @@ export function useMobileNativeChatDrafts(args: {
     // keep their baselines advanced past the consumed echoes so a later transcript
     // change can't re-consume one of them (cx2).
     const { landed, survivors, claimedMessageIdsByEntry } = reconcileLandedEchoes(messages, current)
-    if (landed.length === 0) {
+    // Two fast sends can land as ONE glued transcript row that matches neither's
+    // whole text, so the claim pass strands both. Retire such a run against the
+    // ORIGINAL pending (not `survivors`) so a landed exact match between two
+    // candidates still bars them from gluing across it.
+    const landedIds = new Set(landed.map((entry) => entry.id))
+    const glued = selectGluedPendingIds(messages, current, landedIds)
+    if (landed.length === 0 && glued.size === 0) {
       return
     }
     // Hand each landed photo's local URIs to the authoritative turn its echo
@@ -268,8 +275,9 @@ export function useMobileNativeChatDrafts(args: {
       )
     }
     setPendingBySession((previous) => {
-      if (survivors.length > 0) {
-        return { ...previous, [pendingKey]: survivors }
+      const next = glued.size === 0 ? survivors : survivors.filter((item) => !glued.has(item.id))
+      if (next.length > 0) {
+        return { ...previous, [pendingKey]: next }
       }
       const remaining = { ...previous }
       delete remaining[pendingKey]

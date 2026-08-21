@@ -1,6 +1,9 @@
+// @vitest-environment happy-dom
+
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Worktree } from '../../../../shared/types'
 import {
+  getWorktreeParentPickerFocusRestoreTarget,
   getWorktreeParentPickerItemValue,
   selectWorktreeParent
 } from './WorktreeParentPickerPopover'
@@ -86,6 +89,36 @@ describe('selectWorktreeParent', () => {
 
     expect(close).not.toHaveBeenCalled()
     expect(assignWorktreeParent).not.toHaveBeenCalled()
+  })
+})
+
+describe('getWorktreeParentPickerFocusRestoreTarget', () => {
+  function makeSidebarRow(): { listbox: HTMLElement; row: HTMLElement } {
+    const listbox = document.createElement('div')
+    listbox.tabIndex = 0
+    listbox.setAttribute('role', 'listbox')
+    const row = document.createElement('div')
+    row.setAttribute('role', 'option')
+    listbox.appendChild(row)
+    return { listbox, row }
+  }
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('restores focus to the focusable container of the anchored row', () => {
+    const { listbox, row } = makeSidebarRow()
+    document.body.appendChild(listbox)
+
+    expect(getWorktreeParentPickerFocusRestoreTarget(row)).toBe(listbox)
+  })
+
+  it('skips a row whose sidebar was already unmounted or never anchored', () => {
+    const { row } = makeSidebarRow()
+
+    expect(getWorktreeParentPickerFocusRestoreTarget(row)).toBeNull()
+    expect(getWorktreeParentPickerFocusRestoreTarget(null)).toBeNull()
   })
 })
 

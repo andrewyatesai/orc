@@ -189,9 +189,11 @@ describe('PrivacyPane — markup respects blocked state', () => {
         })
       })
     )
-    // Negative assertion: the disabled attribute should not appear on the
-    // switch. renderToStaticMarkup elides `disabled={false}` entirely.
-    expect(markup).not.toMatch(/role="switch"[^>]*disabled/)
+    // Negative assertion: the switch must not be disabled. Match radix's
+    // `data-disabled` marker (present only when disabled) — the className
+    // always carries Tailwind `disabled:` variants, so a bare `disabled`
+    // substring is not a reliable signal.
+    expect(markup).not.toMatch(/role="switch"[^>]*data-disabled/)
   })
 
   it('leaves the toggle enabled for an existing user awaiting the banner (flip dismisses the banner)', () => {
@@ -206,7 +208,7 @@ describe('PrivacyPane — markup respects blocked state', () => {
         })
       })
     )
-    expect(markup).not.toMatch(/role="switch"[^>]*disabled/)
+    expect(markup).not.toMatch(/role="switch"[^>]*data-disabled/)
   })
 
   it('leaves the toggle enabled once the existing-user banner is resolved', () => {
@@ -218,6 +220,6 @@ describe('PrivacyPane — markup respects blocked state', () => {
         })
       })
     )
-    expect(markup).not.toMatch(/role="switch"[^>]*disabled/)
+    expect(markup).not.toMatch(/role="switch"[^>]*data-disabled/)
   })
 })

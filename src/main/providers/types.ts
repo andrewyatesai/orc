@@ -128,7 +128,7 @@ export type IPtyProvider = {
   providesAgentSessionOwnerListings?: (ptyId: string) => boolean
   /** Whether fresh structured creates can replay one spawn across a lost relay response. */
   supportsAgentSessionCreateOperations?: (options?: PtyProbeOptions) => boolean | Promise<boolean>
-  attach(id: string): Promise<void>
+  attach(id: string): Promise<Pick<PtySpawnResult, 'providerSequence'> | void>
   hasPty?: (id: string) => boolean
   write(id: string, data: string): void
   resize(id: string, cols: number, rows: number): void
@@ -229,9 +229,14 @@ export type FileReadResult = {
   mimeType?: string
 }
 
+export type FileReadLimits = {
+  maxBinaryBytes?: number
+  maxTextBytes?: number
+}
+
 export type IFilesystemProvider = {
   readDir(dirPath: string): Promise<DirEntry[]>
-  readFile(filePath: string): Promise<FileReadResult>
+  readFile(filePath: string, limits?: FileReadLimits): Promise<FileReadResult>
   readTerminalArtifact?(
     filePath: string,
     options: TerminalArtifactAccessOptions

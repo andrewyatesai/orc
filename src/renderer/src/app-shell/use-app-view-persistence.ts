@@ -123,17 +123,16 @@ export function useAppViewPersistence(
     } else if (settings.theme === 'light') {
       applyDocumentTheme('light')
       return undefined
-    } else {
-      const mq = window.matchMedia('(prefers-color-scheme: dark)')
-      applyDocumentTheme('system')
-      const handler = (): void => {
-        applyDocumentTheme('system')
-        // System theme changes don't mutate the store, so mobile terminal colors need an explicit graph republish.
-        scheduleRuntimeGraphSync()
-      }
-      mq.addEventListener('change', handler)
-      return () => mq.removeEventListener('change', handler)
     }
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    applyDocumentTheme('system')
+    const handler = (): void => {
+      applyDocumentTheme('system')
+      // System theme changes don't mutate the store, so mobile terminal colors need an explicit graph republish.
+      scheduleRuntimeGraphSync()
+    }
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
   }, [settings])
 
   useEffect(() => {

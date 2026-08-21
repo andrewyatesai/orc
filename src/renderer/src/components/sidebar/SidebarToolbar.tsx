@@ -1,5 +1,6 @@
 import React from 'react'
 import { Kanban } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { ScrollToCurrentWorkspaceToolbarButton } from './ScrollToCurrentWorkspaceToolbarButton'
@@ -8,7 +9,6 @@ import { OrcaProfileSwitcher } from '../orca-profiles/OrcaProfileSwitcher'
 import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
 import { hasFeatureInteraction } from '../../../../shared/feature-interaction-state'
-
 const WORKSPACE_BOARD_MOVED_HINT_STORAGE_KEY = 'orca.workspaceBoardMovedHintSeen.v1'
 const WORKSPACE_BOARD_MOVED_HINT_DURATION_MS = 12000
 
@@ -23,6 +23,12 @@ const SidebarToolbar = React.memo(function SidebarToolbar({
   workspaceBoardDragPreviewOpen = false,
   onWorkspaceBoardToggle
 }: SidebarToolbarProps) {
+  // Why: this memo boundary needs its own language subscription, while
+  // translate() preserves Orca's pseudo-localization behavior. Without it the
+  // toolbar (and the ScrollToCurrentWorkspaceToolbarButton it renders) keeps
+  // whatever language was active at boot — English, since the persisted locale
+  // is applied asynchronously after the lazy catalog loads.
+  useTranslation()
   const [workspaceBoardMovedHintOpen, setWorkspaceBoardMovedHintOpen] = React.useState(false)
   const movedHintEligibleRef = React.useRef<boolean | null>(null)
   const persistedUIReady = useAppStore((state) => state.persistedUIReady)

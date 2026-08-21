@@ -63,7 +63,7 @@ const CONF_JSONL = join(repo, 'tools', 'conformance', 'cases.jsonl')
 const BENCH_DIR = join(tmpdir(), 'orca-bench')
 const PERF_CORPUS = join(BENCH_DIR, 'corpus.bin')
 const REPORT = join(here, '.gauntlet-report.json')
-const PERF_FLOOR = 1.0 // aterm must be at least as fast as xterm; the real ratio is reported.
+const PERF_FLOOR = 1 // aterm must be at least as fast as xterm; the real ratio is reported.
 
 const rstrip = (s) => s.replace(/\s+$/u, '')
 const sh = (cmd, args, opts = {}) =>

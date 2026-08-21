@@ -96,11 +96,15 @@ function createApiNamespaceStub(overrides: Record<string, unknown> = {}): Record
   })
 }
 
+export type BrowserNavigationUpdateEvent = { browserPageId: string; url: string; title: string }
+
 export type IpcEventsHarness = {
   /** Call inside the test body: useIpcEvents runs its effects eagerly here. */
   useIpcEvents: () => void
   createTerminal: (request: CreateTerminalRequest) => void
   replyTerminalCreate: ReturnType<typeof vi.fn>
+  /** Fire a main-process browser navigation update through the registered listener. */
+  navigationUpdate: (event: BrowserNavigationUpdateEvent) => void
 }
 
 /**
@@ -112,6 +116,7 @@ export async function loadIpcEventsHarness(
 ): Promise<IpcEventsHarness> {
   const replyTerminalCreate = vi.fn()
   let createTerminalListener: ((request: CreateTerminalRequest) => void) | null = null
+  let navigationUpdateListener: ((event: BrowserNavigationUpdateEvent) => void) | null = null
 
   vi.resetModules()
   vi.unstubAllGlobals()
@@ -193,6 +198,12 @@ export async function loadIpcEventsHarness(
           onStatus: () => () => {},
           onClearDismissal: () => () => {}
         },
+        browser: createApiNamespaceStub({
+          onNavigationUpdate: (listener: (event: BrowserNavigationUpdateEvent) => void) => {
+            navigationUpdateListener = listener
+            return () => {}
+          }
+        }),
         mobile: createApiNamespaceStub({
           consumePendingUnpairedDeviceAuthFailure: () => Promise.resolve(false)
         }),
@@ -211,6 +222,12 @@ export async function loadIpcEventsHarness(
       }
       createTerminalListener(request)
     },
-    replyTerminalCreate
+    replyTerminalCreate,
+    navigationUpdate: (event) => {
+      if (typeof navigationUpdateListener !== 'function') {
+        throw new Error('Expected the browser navigation listener to be registered')
+      }
+      navigationUpdateListener(event)
+    }
   }
 }

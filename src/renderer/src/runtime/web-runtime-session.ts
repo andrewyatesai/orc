@@ -396,6 +396,10 @@ export async function createWebRuntimeSessionBrowserTab(args: {
   profileId?: string | null
   targetGroupId?: string
   selectWorktree?: boolean
+  // Why: HTML previews (#13876) open at the owning host but must stay in the background, so the editor keeps focus.
+  focusOnCreate?: boolean
+  stagedTitle?: string
+  stagedFocusAddressBar?: boolean
 }): Promise<boolean> {
   const environmentId =
     args.environmentId?.trim() ??
@@ -407,7 +411,9 @@ export async function createWebRuntimeSessionBrowserTab(args: {
   const intentOwner = captureWebSessionIntentOwner(environmentId)
   const callEnvironment = captureRuntimeEnvironmentCall(environmentId, intentOwner.pairingRevision)
 
-  const shouldSelectWorktree = args.selectWorktree !== false
+  const shouldFocusOnCreate = args.focusOnCreate !== false
+  // Why: a background preview must never yank the active worktree away from the editor the user is in.
+  const shouldSelectWorktree = args.selectWorktree !== false && shouldFocusOnCreate
   const stagedFromWorktreeId = useAppStore.getState().activeWorktreeId
   if (shouldSelectWorktree) {
     selectWebRuntimeSessionWorktree(args.worktreeId)
@@ -419,8 +425,8 @@ export async function createWebRuntimeSessionBrowserTab(args: {
         worktree: toRuntimeWorktreeSelector(args.worktreeId),
         url: args.url,
         profileId: args.profileId ?? undefined,
-        // Why: user clicked "New Browser Tab", so mark it active in the snapshot, else the reconcile snaps back to a terminal.
-        activate: true,
+        // Why: a foreground create marks the tab active in the snapshot; a background preview leaves the current tab active so the reconcile keeps it.
+        activate: shouldFocusOnCreate,
         // Why: place the new browser in the clicked split group so the host snapshot is authoritative for it (no left-snap).
         ...(args.targetGroupId ? { targetGroupId: args.targetGroupId } : {}),
         // Why: web clients need the local tab now; waiting for host webview registration makes the workspace appear to close.
@@ -430,7 +436,7 @@ export async function createWebRuntimeSessionBrowserTab(args: {
     })
     const created = unwrapRuntimeRpcResult(response as RuntimeRpcResponse<BrowserTabCreateResult>)
     // Why: record focus intent (tab id === browserPageId on a headless host) so the reconcile follows to the new browser tab.
-    if (matchesWebSessionIntentOwner(intentOwner)) {
+    if (shouldFocusOnCreate && matchesWebSessionIntentOwner(intentOwner)) {
       recordWebSessionFocusIntent(intentOwner, args.worktreeId, created.browserPageId)
     }
     stageWebRuntimeBrowserTab({
@@ -439,6 +445,9 @@ export async function createWebRuntimeSessionBrowserTab(args: {
       remotePageId: created.browserPageId,
       url: args.url,
       targetGroupId: args.targetGroupId,
+      title: args.stagedTitle,
+      focusAddressBar: args.stagedFocusAddressBar,
+      activate: shouldFocusOnCreate,
       restoreFocus:
         shouldSelectWorktree &&
         (stagedFromWorktreeId === args.worktreeId ||
@@ -463,6 +472,9 @@ function stageWebRuntimeBrowserTab(args: {
   remotePageId: string
   url?: string
   targetGroupId?: string
+  title?: string
+  focusAddressBar?: boolean
+  activate?: boolean
   restoreFocus?: boolean
 }): void {
   const remotePageId = args.remotePageId.trim()
@@ -491,8 +503,10 @@ function stageWebRuntimeBrowserTab(args: {
   const url = args.url?.trim() || 'about:blank'
   // Why: the snapshot can arrive after React renders a fallback; stage the handle now so the worktree stays selected.
   const browserTab = useAppStore.getState().createBrowserTab(args.worktreeId, url, {
-    title: url === 'about:blank' ? 'New Browser Tab' : url,
-    focusAddressBar: true,
+    title: args.title ?? (url === 'about:blank' ? 'New Browser Tab' : url),
+    // Why: background previews (#13876) must not activate; foreground creates keep createBrowserTab's activate default.
+    ...(args.activate === false ? { activate: false } : {}),
+    focusAddressBar: args.focusAddressBar ?? true,
     browserRuntimeEnvironmentId: args.environmentId,
     targetGroupId: args.targetGroupId
   })

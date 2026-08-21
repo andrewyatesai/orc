@@ -77,6 +77,7 @@ describe('Electron Vite output contract', () => {
   })
 
   it('rejects prototype properties as build targets', () => {
-    expect(targetConfig).toContain('Object.prototype.hasOwnProperty.call(configByTarget, target)')
+    // Own-property check only: an inherited key like `constructor` must not select a build target.
+    expect(targetConfig).toContain('Object.hasOwn(configByTarget, target)')
   })
 })

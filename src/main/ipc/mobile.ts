@@ -26,6 +26,14 @@ import {
 // ./mobile-pairing-interfaces so the serve/headless path can reuse it.
 export type { NetworkInterface }
 
+// Scanner-safe pairing QR geometry: render at an integer pixels-per-module
+// pitch (2px) with a spec-standard 4-module quiet zone so the bitmap scales
+// crisply. A fixed 256px width forced non-integer module scaling on the larger
+// Relay-sized symbols (blurry, scanner-hostile); the natural size below travels
+// to the renderer, which paints it 1:1 (or an integer multiple) with pixelated.
+const PAIRING_QR_QUIET_ZONE_MODULES = 4
+const PAIRING_QR_MODULE_PITCH_PX = 2
+
 // Why: only an explicit "This computer only" pick skips the one-way widen, and only when the address it
 // advertises really is loopback — a mismatch (a LAN address under a this-computer reach) would otherwise
 // mint a link with no listener behind it. Every other reach, including a loopback-looking Custom address
@@ -115,15 +123,23 @@ export function registerMobileHandlers(
       // Why dynamic: pairing is the only consumer, so launch should not parse
       // the qrcode bundle for users who never pair a device.
       const { default: QRCode } = await import('qrcode')
+      // Why: the module count drives the natural bitmap size the renderer paints
+      // at, so scan it once at the same error-correction level the bitmap uses.
+      const qrModuleCount = QRCode.create(offer.pairingUrl, {
+        errorCorrectionLevel: 'M'
+      }).modules.size
+      const qrSize =
+        (qrModuleCount + PAIRING_QR_QUIET_ZONE_MODULES * 2) * PAIRING_QR_MODULE_PITCH_PX
       const qrDataUrl = await QRCode.toDataURL(offer.pairingUrl, {
         errorCorrectionLevel: 'M',
-        margin: 2,
-        width: 256
+        margin: PAIRING_QR_QUIET_ZONE_MODULES,
+        scale: PAIRING_QR_MODULE_PITCH_PX
       })
 
       return {
         available: true as const,
         qrDataUrl,
+        qrSize,
         pairingUrl: offer.pairingUrl,
         // Why: with nothing advertised the offer's endpoint is the loopback fallback, which points at
         // whichever device scans the QR — never this host. Report no endpoint so the UI omits it

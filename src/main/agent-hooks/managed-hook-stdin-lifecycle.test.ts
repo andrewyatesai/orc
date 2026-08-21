@@ -1,8 +1,10 @@
 // Why: stdin ownership is a cross-agent process contract; one executable
 // matrix catches an unread early exit without duplicating template assertions.
+// Exception (#11549): Windows batch hooks give up stdin ownership on the
+// missing-Orca-env path, so their writer may break there.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SFTPWrapper } from 'ssh2'
@@ -28,25 +30,6 @@ afterEach(() => {
   rmSync(isolatedUserDataDir, { recursive: true, force: true })
 })
 
-function findGitBash(): string {
-  if (process.env.KIMI_SHELL_PATH) {
-    return process.env.KIMI_SHELL_PATH
-  }
-  const candidates = [
-    process.env.ProgramFiles && join(process.env.ProgramFiles, 'Git', 'bin', 'bash.exe'),
-    process.env['ProgramFiles(x86)'] &&
-      join(process.env['ProgramFiles(x86)'], 'Git', 'bin', 'bash.exe'),
-    process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe')
-  ]
-  const bash = candidates.find((candidate): candidate is string =>
-    Boolean(candidate && existsSync(candidate))
-  )
-  if (!bash) {
-    throw new Error('Git Bash is required for the Windows Kimi hook lifecycle test')
-  }
-  return bash
-}
-
 const { homedirMock } = vi.hoisted(() => ({
   homedirMock: vi.fn<() => string>()
 }))
@@ -67,6 +50,7 @@ vi.mock('os', async (importOriginal) => {
 
 import { AntigravityHookService } from '../antigravity/hook-service'
 import { ClaudeHookService } from '../claude/hook-service'
+import { getRemoteManagedCommand } from '../claude/hook-settings'
 import { CodexHookService } from '../codex/hook-service'
 import { CommandCodeHookService } from '../command-code/hook-service'
 import { CopilotHookService } from '../copilot/hook-service'
@@ -77,13 +61,11 @@ import { GeminiHookService } from '../gemini/hook-service'
 import { GrokHookService } from '../grok/hook-service'
 import { KimiHookService } from '../kimi/hook-service'
 import { openClaudeHookService } from '../openclaude/hook-service'
-import {
-  wrapPosixHookCommand,
-  wrapWindowsGitBashHookCommand,
-  wrapWindowsHookCommand
-} from './installer-utils'
+import { wrapPosixHookCommand, wrapWindowsHookCommand } from './installer-utils'
 import { POSIX_HOOK_STDIN_READER } from './hook-stdin-contract'
+import { wrapRuntimeHomeHookCommand } from './runtime-home-hook-command'
 import { createAgentHookMemorySftp } from './agent-hook-memory-sftp.test-fixture'
+import { findGitBash } from './windows-git-bash-path.test-fixture'
 
 const REMOTE_HOME = '/home/dev'
 const LARGE_PAYLOAD = Buffer.alloc(1_000_000, 'x')
@@ -235,7 +217,7 @@ function withPlatform<T>(platform: NodeJS.Platform, run: () => T): T {
 }
 
 describe('Windows managed hook stdin structure', () => {
-  it('routes every batch guard to a shared drain epilogue', () => {
+  it('exits immediately when Orca env is missing and keeps drain for other failures', () => {
     const home = mkdtempSync(join(tmpdir(), 'orca-hook-stdin-windows-'))
     homedirMock.mockReturnValue(home)
     const previousGrokHome = process.env.GROK_HOME
@@ -257,15 +239,23 @@ describe('Windows managed hook stdin structure', () => {
       expect(mainBatchScripts).toHaveLength(10)
       for (const fileName of mainBatchScripts) {
         const script = readFileSync(join(hooksDir, fileName), 'utf8')
+        // Why: missing-env path must not touch more.com — hang class from #11549.
         expect(script, `${fileName} port guard`).toContain(
-          'if "%ORCA_AGENT_HOOK_PORT%"=="" goto :orca_agent_hook_drain_stdin'
+          'if "%ORCA_AGENT_HOOK_PORT%"=="" exit /b 0'
         )
         expect(script, `${fileName} token guard`).toContain(
-          'if "%ORCA_AGENT_HOOK_TOKEN%"=="" goto :orca_agent_hook_drain_stdin'
+          'if "%ORCA_AGENT_HOOK_TOKEN%"=="" exit /b 0'
         )
-        expect(script, `${fileName} pane guard`).toContain(
-          'if "%ORCA_PANE_KEY%"=="" goto :orca_agent_hook_drain_stdin'
+        expect(script, `${fileName} pane guard`).toContain('if "%ORCA_PANE_KEY%"=="" exit /b 0')
+        // Why: pin the rule, not today's three guards — a fourth ORCA_* guard routed to the
+        // drain would reintroduce #11549 with this suite green. The pattern spans the guard so
+        // it catches both `if "%VAR%"==""` and `if not defined VAR`; the Devin skip names no
+        // ORCA_* var, so it stays exempt.
+        expect(script, `${fileName} no ORCA_* guard may route to the more.com drain`).not.toMatch(
+          /ORCA_[A-Z_]+.*goto :?orca_agent_hook_drain_stdin/
         )
+        // Why: the epilogue stays shared — claude-hook.cmd still jumps to it from the
+        // Devin-imports-.claude skip, which now sits below these guards.
         expect(script, `${fileName} drain epilogue`).toContain(
           [
             ':orca_agent_hook_drain_stdin',
@@ -275,13 +265,29 @@ describe('Windows managed hook stdin structure', () => {
         )
       }
 
+      // Why (#11549): the Devin skip is the only remaining in-script jump to more.com, so it
+      // must sit below the env guards — otherwise a Devin session outside an Orca pane still
+      // parks there and strands the hook exactly like the pre-fix guards did.
+      const claude = readFileSync(join(hooksDir, 'claude-hook.cmd'), 'utf8')
+      expect(claude, 'claude devin guard present').toContain(
+        'if not "%DEVIN_PROJECT_DIR%"=="" goto :orca_agent_hook_drain_stdin'
+      )
+      expect(claude.indexOf('if "%ORCA_PANE_KEY%"=="" exit /b 0')).toBeLessThan(
+        claude.indexOf('if not "%DEVIN_PROJECT_DIR%"=="" goto :orca_agent_hook_drain_stdin')
+      )
+
+      // Why (#11549 class): the Windows-local copilot .ps1 and kimi .sh now guard before
+      // owning stdin — the caller may abandon the pipe, and the payload is discarded on
+      // this path anyway. (.cmd now exits immediately on the same path — see the guards above.)
       const copilot = readFileSync(join(hooksDir, 'copilot-hook.ps1'), 'utf8')
-      expect(copilot.indexOf('[Console]::In.ReadToEnd()')).toBeLessThan(
-        copilot.indexOf('if (-not $env:ORCA_AGENT_HOOK_PORT')
+      expect(copilot.indexOf('if (-not $env:ORCA_AGENT_HOOK_PORT')).toBeGreaterThan(-1)
+      expect(copilot.indexOf('if (-not $env:ORCA_AGENT_HOOK_PORT')).toBeLessThan(
+        copilot.indexOf('[Console]::In.ReadToEnd()')
       )
       const kimi = readFileSync(join(hooksDir, 'kimi-hook.sh'), 'utf8')
-      expect(kimi.indexOf(`payload=$(${POSIX_HOOK_STDIN_READER})`)).toBeLessThan(
-        kimi.indexOf('exit 0')
+      expect(kimi.indexOf('if [ -z "$ORCA_AGENT_HOOK_PORT" ]')).toBeGreaterThan(-1)
+      expect(kimi.indexOf('if [ -z "$ORCA_AGENT_HOOK_PORT" ]')).toBeLessThan(
+        kimi.indexOf(`payload=$(${POSIX_HOOK_STDIN_READER})`)
       )
     } finally {
       homedirMock.mockImplementation(() => process.env.HOME ?? tmpdir())
@@ -300,7 +306,7 @@ describe('Windows managed hook stdin structure', () => {
   })
 
   it.skipIf(process.platform !== 'win32')(
-    'executes every local script and missing-script launcher without a broken writer',
+    'executes every local script and missing-script launcher, breaking the writer only without Orca env',
     async () => {
       const home = mkdtempSync(join(tmpdir(), 'orca-hook-stdin-windows-live-'))
       homedirMock.mockReturnValue(home)
@@ -338,7 +344,15 @@ describe('Windows managed hook stdin structure', () => {
               : [scriptPath]
           const result = await runHookProcess(executable, args, hookEnvironment())
           expect(result.exitCode, `${fileName} exit code`).toBe(0)
-          expect(result.stdinErrors, `${fileName} stdin errors`).toHaveLength(0)
+          // Why (#11549 class): every managed hook now guards before owning stdin on the
+          // missing-env path — copilot .ps1 and kimi .sh read after the guard, and .cmd
+          // exits before the more.com drain — so the writer may break: EPIPE, or ECONNRESET
+          // when Windows tears the pipe down first. hookEnvironment() strips every ORCA_* var,
+          // so this relaxation only ever covers the missing-env path — a happy-path case
+          // added to this loop must not reuse it.
+          for (const error of result.stdinErrors) {
+            expect(['EPIPE', 'ECONNRESET'], `${fileName} stdin error`).toContain(error.code)
+          }
         }
 
         const missingScript = 'C:\\missing\\orca-hook.cmd'
@@ -356,9 +370,9 @@ describe('Windows managed hook stdin structure', () => {
             args: ['/d', '/c', wrapWindowsHookCommand(missingScript)]
           },
           {
-            name: 'Git Bash fast path',
+            name: 'portable Git Bash launcher',
             executable: gitBash,
-            args: ['-lc', wrapWindowsGitBashHookCommand(missingScript)]
+            args: ['-lc', wrapRuntimeHomeHookCommand('missing-orca-hook')]
           }
         ]
         for (const launcher of launcherCases) {
@@ -375,6 +389,18 @@ describe('Windows managed hook stdin structure', () => {
 })
 
 describe.skipIf(process.platform === 'win32')('managed hook stdin lifecycle', () => {
+  // Why: cursor-agent parses the registered command's stdout as a permission gate and
+  // blocks the tool call on empty output, so the production remote command must emit {}
+  // even when the managed lifecycle script is absent (#14818).
+  it('emits neutral JSON when the Claude lifecycle script is missing', async () => {
+    const command = getRemoteManagedCommand('/home/dev/.orca/agent-hooks/claude-hook.sh')
+    const result = await runPosixHook(command)
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdinErrors).toHaveLength(0)
+    expect(JSON.parse(result.stdout.trim())).toEqual({})
+  })
+
   it('captures stdin before every possible whole-script success exit', async () => {
     const scripts = await generatePosixScripts()
     for (const [agent, script] of scripts) {

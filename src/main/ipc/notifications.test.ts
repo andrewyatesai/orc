@@ -15,6 +15,7 @@ const {
   notificationCtorMock,
   notificationIsSupportedMock,
   getAllWindowsMock,
+  getTrustedUIRendererWindowMock,
   shellOpenExternalMock,
   appMock
 } = vi.hoisted(() => {
@@ -36,6 +37,7 @@ const {
   })
   const notificationIsSupportedMock = vi.fn(() => true)
   const getAllWindowsMock = vi.fn(() => [])
+  const getTrustedUIRendererWindowMock = vi.fn()
   const shellOpenExternalMock = vi.fn()
   const appMock = {
     focus: vi.fn(),
@@ -52,6 +54,7 @@ const {
     notificationCtorMock,
     notificationIsSupportedMock,
     getAllWindowsMock,
+    getTrustedUIRendererWindowMock,
     shellOpenExternalMock,
     appMock
   }
@@ -83,6 +86,10 @@ const { readAuthorizationStatusMock } = vi.hoisted(() => ({
 
 vi.mock('./notification-authorization-status', () => ({
   readNotificationAuthorizationStatus: readAuthorizationStatusMock
+}))
+
+vi.mock('./ui', () => ({
+  getTrustedUIRendererWindow: getTrustedUIRendererWindowMock
 }))
 
 // Why: notifications.ts pulls in the tray module (for the minimized attention
@@ -132,6 +139,8 @@ describe('registerNotificationHandlers', () => {
     readAuthorizationStatusMock.mockResolvedValue(null)
     getAllWindowsMock.mockReset()
     getAllWindowsMock.mockReturnValue([])
+    getTrustedUIRendererWindowMock.mockReset()
+    getTrustedUIRendererWindowMock.mockReturnValue(null)
     shellOpenExternalMock.mockClear()
     setTrayAttentionMock.mockClear()
     appMock.focus.mockClear()
@@ -535,20 +544,33 @@ describe('registerNotificationHandlers', () => {
     }
   })
 
-  it('focuses the originating terminal pane when a notification with paneKey is clicked', async () => {
+  it('focuses the originating terminal pane in the main window when a dashboard popout is open', async () => {
+    const popoutSend = vi.fn()
+    const popoutFocus = vi.fn()
     const webContentsSend = vi.fn()
     const restore = vi.fn()
+    const show = vi.fn()
     const focus = vi.fn()
-    getAllWindowsMock.mockReturnValue([
-      {
-        isDestroyed: () => false,
-        isFocused: () => false,
-        isMinimized: () => true,
-        restore,
-        focus,
-        webContents: { send: webContentsSend }
-      } as never
-    ])
+    const popoutWindow = {
+      isDestroyed: () => false,
+      isFocused: () => true,
+      isMinimized: () => false,
+      restore: vi.fn(),
+      show: vi.fn(),
+      focus: popoutFocus,
+      webContents: { send: popoutSend }
+    }
+    const mainWindow = {
+      isDestroyed: () => false,
+      isFocused: () => false,
+      isMinimized: () => true,
+      restore,
+      show,
+      focus,
+      webContents: { send: webContentsSend }
+    }
+    getAllWindowsMock.mockReturnValue([popoutWindow, mainWindow] as never)
+    getTrustedUIRendererWindowMock.mockReturnValue(mainWindow)
     registerNotificationHandlers({
       getSettings: () => ({
         notifications: {
@@ -569,8 +591,12 @@ describe('registerNotificationHandlers', () => {
 
     getNotificationEventHandler('click')()
 
+    expect(getTrustedUIRendererWindowMock).toHaveBeenCalledTimes(1)
     expect(restore).toHaveBeenCalledTimes(1)
+    expect(show).toHaveBeenCalledTimes(1)
     expect(focus).toHaveBeenCalledTimes(1)
+    expect(popoutFocus).not.toHaveBeenCalled()
+    expect(popoutSend).not.toHaveBeenCalled()
     expect(vi.getTimerCount()).toBe(0)
     expect(notificationRemoveListenerMock).toHaveBeenCalledWith('click', expect.any(Function))
     expect(webContentsSend).toHaveBeenCalledWith('ui:activateWorktree', {
@@ -585,6 +611,49 @@ describe('registerNotificationHandlers', () => {
       flashFocusedPane: true,
       scrollToBottomIfOutputSinceLastView: true
     })
+  })
+
+  it('routes the click nowhere when no trusted main-window renderer is available', async () => {
+    const popoutSend = vi.fn()
+    const popoutFocus = vi.fn()
+    // Why: a popout is the only live window, but it must never receive worktree navigation.
+    getAllWindowsMock.mockReturnValue([
+      {
+        isDestroyed: () => false,
+        isFocused: () => true,
+        isMinimized: () => false,
+        restore: vi.fn(),
+        show: vi.fn(),
+        focus: popoutFocus,
+        webContents: { send: popoutSend }
+      } as never
+    ])
+    getTrustedUIRendererWindowMock.mockReturnValue(null)
+    registerNotificationHandlers({
+      getSettings: () => ({
+        notifications: {
+          enabled: true,
+          agentTaskComplete: true,
+          terminalBell: true,
+          suppressWhenFocused: true
+        }
+      })
+    } as never)
+
+    const paneKey = 'tab-1:11111111-1111-4111-8111-111111111111'
+    const handler = getDispatchHandler()
+    expect(
+      await handler({}, { source: 'agent-task-complete', worktreeId: 'repo::wt1', paneKey })
+    ).toEqual({ delivered: true })
+
+    getNotificationEventHandler('click')()
+
+    expect(getTrustedUIRendererWindowMock).toHaveBeenCalledTimes(1)
+    expect(popoutFocus).not.toHaveBeenCalled()
+    expect(popoutSend).not.toHaveBeenCalled()
+    // Why: the fallback timer is still cleared even though navigation was skipped.
+    expect(vi.getTimerCount()).toBe(0)
+    expect(notificationRemoveListenerMock).toHaveBeenCalledWith('click', expect.any(Function))
   })
 
   it('clears the retained notification fallback timer when the native notification closes', async () => {

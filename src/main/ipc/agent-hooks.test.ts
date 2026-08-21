@@ -10,6 +10,7 @@ import { makePaneKey } from '../../shared/stable-pane-identity'
 const dropStatusEntry = vi.fn()
 const dropStatusEntriesByTabPrefix = vi.fn()
 const retirePaneAuthority = vi.fn()
+const restorePaneAuthority = vi.fn()
 const transferPaneAuthority = vi.fn()
 const canTransferPaneAuthority = vi.fn(() => true)
 const getStatusSnapshot = vi.fn()
@@ -46,6 +47,7 @@ vi.mock('../agent-hooks/server', async () => {
       dropStatusEntry,
       dropStatusEntriesByTabPrefix,
       retirePaneAuthority,
+      restorePaneAuthority,
       transferPaneAuthority,
       canTransferPaneAuthority,
       getStatusSnapshot,
@@ -107,6 +109,7 @@ beforeEach(() => {
   dropStatusEntry.mockReset()
   dropStatusEntriesByTabPrefix.mockReset()
   retirePaneAuthority.mockReset()
+  restorePaneAuthority.mockReset()
   transferPaneAuthority.mockReset()
   canTransferPaneAuthority.mockReset()
   canTransferPaneAuthority.mockReturnValue(true)
@@ -398,6 +401,22 @@ describe('agent pane authority IPC', () => {
 
     expect(retirePaneAuthority).toHaveBeenCalledWith(PANE_KEY)
     expect(clearMigrationUnsupportedPtysForPaneKey).toHaveBeenCalledWith(PANE_KEY)
+  })
+
+  // STA-4114: the restore channel lifts a retirement fence when a live PTY re-attaches.
+  it('restores one validated pane authority and rejects malformed keys', async () => {
+    const { registerAgentHookHandlers } = await import('./agent-hooks')
+    registerAgentHookHandlers()
+
+    const restore = onHandlers.get('agentStatus:restorePaneAuthority')!
+    restore({}, PANE_KEY)
+    expect(restorePaneAuthority).toHaveBeenCalledWith(PANE_KEY)
+
+    restorePaneAuthority.mockClear()
+    restore({}, 'tab-1:0')
+    restore({}, 42)
+    expect(restorePaneAuthority).not.toHaveBeenCalled()
+    expect(removeAllListeners).toHaveBeenCalledWith('agentStatus:restorePaneAuthority')
   })
 
   it('transfers validated pane authority with its provider PTY', async () => {

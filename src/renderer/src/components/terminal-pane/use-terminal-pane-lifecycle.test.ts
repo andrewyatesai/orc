@@ -4,6 +4,7 @@ import {
   clearQueuedInitialCwdAfterFirstPane,
   getPreviousVisibleForTerminalPane,
   isTerminalPaneVisibilityResume,
+  isTouchIOSUserAgent,
   mapRestoredPaneTitlesByPaneId,
   resolvePaneLinkCwd,
   resolvePaneSeedCwd,
@@ -373,5 +374,37 @@ describe('terminal pane visibility resume tracking', () => {
       false
     )
     expect(isTerminalPaneVisibilityResume({ previousIsVisible: false, isVisible: true })).toBe(true)
+  })
+})
+
+describe('isTouchIOSUserAgent', () => {
+  const macUa = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15'
+
+  it('is false for a real Mac (Macintosh UA, no touch points) so it keeps the forwarder', () => {
+    expect(isTouchIOSUserAgent(macUa, 0)).toBe(false)
+  })
+
+  it('is true for iPadOS desktop-mode Safari (Macintosh UA plus touch points)', () => {
+    expect(isTouchIOSUserAgent(macUa, 5)).toBe(true)
+  })
+
+  it('is true for iPhone Safari ("like Mac OS X" UA plus touch points)', () => {
+    expect(
+      isTouchIOSUserAgent(
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15',
+        5
+      )
+    ).toBe(true)
+  })
+
+  it('is false for non-Mac UAs regardless of touch points', () => {
+    expect(isTouchIOSUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36', 5)).toBe(false)
+    expect(
+      isTouchIOSUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 5)
+    ).toBe(false)
+  })
+
+  it('keeps the forwarder on a Mac whose touch peripheral reports a single point', () => {
+    expect(isTouchIOSUserAgent(macUa, 1)).toBe(false)
   })
 })

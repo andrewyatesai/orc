@@ -178,6 +178,8 @@ describe('agent hook completion notifications', () => {
       syncAgentHookCompletionNotificationSettings
     } = await import('./agent-hook-completion-notifications')
 
+    // Why: seed the disabled baseline first (tracking init is now lazy) so the later enable is a real transition.
+    syncAgentHookCompletionNotificationSettings()
     mockStoreState.settings.notifications.agentTaskComplete = true
     syncAgentHookCompletionNotificationSettings()
 

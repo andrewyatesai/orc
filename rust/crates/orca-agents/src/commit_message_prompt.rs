@@ -191,7 +191,26 @@ pub(crate) fn is_js_trim_ws(c: char) -> bool {
     c == '\u{FEFF}' || (c != '\u{0085}' && c.is_whitespace())
 }
 
-pub fn tokenize_custom_command_template(template: &str) -> Result<Vec<String>, String> {
+/// How `\` is read while tokenizing a user command template.
+///
+/// `Escape` (default) is POSIX: a backslash quotes the next byte, so `foo\ bar`
+/// is one token. `Literal` is for a command that will run on native Windows,
+/// where `\` is the path separator — eating it turns
+/// `C:\Windows\System32\powershell.exe` into `C:WindowsSystem32powershell.exe`,
+/// a path that then "cannot be found" (#11375). Opt-in rather than sniffed from
+/// the platform: the same template can be parsed on one host and run on another.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CommandTemplateBackslash {
+    #[default]
+    Escape,
+    Literal,
+}
+
+pub fn tokenize_custom_command_template(
+    template: &str,
+    backslash: CommandTemplateBackslash,
+) -> Result<Vec<String>, String> {
+    let backslash_escapes = backslash == CommandTemplateBackslash::Escape;
     let chars: Vec<char> = template.chars().collect();
     let mut tokens: Vec<String> = Vec::new();
     let mut current = String::new();
@@ -202,7 +221,7 @@ pub fn tokenize_custom_command_template(template: &str) -> Result<Vec<String>, S
     while i < chars.len() {
         let ch = chars[i];
         if let Some(active) = quote {
-            if ch == '\\' && active == '"' && i + 1 < chars.len() {
+            if backslash_escapes && ch == '\\' && active == '"' && i + 1 < chars.len() {
                 current.push(chars[i + 1]);
                 i += 2;
                 continue;
@@ -225,7 +244,7 @@ pub fn tokenize_custom_command_template(template: &str) -> Result<Vec<String>, S
             i += 1;
             continue;
         }
-        if ch == '\\' && i + 1 < chars.len() {
+        if backslash_escapes && ch == '\\' && i + 1 < chars.len() {
             current.push(chars[i + 1]);
             in_token = true;
             i += 2;
@@ -263,8 +282,12 @@ pub struct CustomCommandPlan {
 
 /// Parse a user command template into a spawn-ready binary + argv, substituting
 /// `{prompt}`. With no `{prompt}`, the prompt is delivered via stdin.
-pub fn plan_custom_command(template: &str, prompt: &str) -> Result<CustomCommandPlan, String> {
-    let tokens = tokenize_custom_command_template(template)?;
+pub fn plan_custom_command(
+    template: &str,
+    prompt: &str,
+    backslash: CommandTemplateBackslash,
+) -> Result<CustomCommandPlan, String> {
+    let tokens = tokenize_custom_command_template(template, backslash)?;
     if tokens.is_empty() {
         return Err("Custom command is empty.".to_string());
     }
@@ -407,6 +430,7 @@ fn message_field_re() -> &'static Regex {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use CommandTemplateBackslash::{Escape, Literal};
 
     // --- buildCommitPrompt ---
 
@@ -615,13 +639,13 @@ mod tests {
 
     #[test]
     fn splits_on_whitespace() {
-        assert_eq!(tokenize_custom_command_template("claude -p"), Ok(vec!["claude".to_string(), "-p".to_string()]));
+        assert_eq!(tokenize_custom_command_template("claude -p", Escape), Ok(vec!["claude".to_string(), "-p".to_string()]));
     }
 
     #[test]
     fn groups_double_quoted_segments_with_spaces() {
         assert_eq!(
-            tokenize_custom_command_template(r#"claude --msg "hello world""#),
+            tokenize_custom_command_template(r#"claude --msg "hello world""#, Escape),
             Ok(vec!["claude".to_string(), "--msg".to_string(), "hello world".to_string()])
         );
     }
@@ -629,7 +653,7 @@ mod tests {
     #[test]
     fn groups_single_quoted_segments_verbatim() {
         assert_eq!(
-            tokenize_custom_command_template(r#"agent --json '{"k":"v"}'"#),
+            tokenize_custom_command_template(r#"agent --json '{"k":"v"}'"#, Escape),
             Ok(vec!["agent".to_string(), "--json".to_string(), r#"{"k":"v"}"#.to_string()])
         );
     }
@@ -637,7 +661,7 @@ mod tests {
     #[test]
     fn honors_backslash_escapes_inside_double_quotes() {
         assert_eq!(
-            tokenize_custom_command_template(r#"claude --msg "she said \"hi\"""#),
+            tokenize_custom_command_template(r#"claude --msg "she said \"hi\"""#, Escape),
             Ok(vec!["claude".to_string(), "--msg".to_string(), r#"she said "hi""#.to_string()])
         );
     }
@@ -645,33 +669,33 @@ mod tests {
     #[test]
     fn keeps_adjacent_quoted_unquoted_regions_in_one_token() {
         assert_eq!(
-            tokenize_custom_command_template(r#"foo a"b"c"#),
+            tokenize_custom_command_template(r#"foo a"b"c"#, Escape),
             Ok(vec!["foo".to_string(), "abc".to_string()])
         );
     }
 
     #[test]
     fn returns_an_error_for_an_unclosed_quote() {
-        let result = tokenize_custom_command_template(r#"claude --msg "no end"#);
+        let result = tokenize_custom_command_template(r#"claude --msg "no end"#, Escape);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_lowercase().contains("unclosed"));
     }
 
     #[test]
     fn returns_an_empty_token_list_for_whitespace_only_input() {
-        assert_eq!(tokenize_custom_command_template("   \t  "), Ok(Vec::new()));
+        assert_eq!(tokenize_custom_command_template("   \t  ", Escape), Ok(Vec::new()));
     }
 
     #[test]
     fn splits_tokens_on_the_js_whitespace_set_not_rust_is_whitespace() {
         // U+FEFF is a token separator under JS `/\s/` (Rust is_whitespace is not).
         assert_eq!(
-            tokenize_custom_command_template("a\u{FEFF}b"),
+            tokenize_custom_command_template("a\u{FEFF}b", Escape),
             Ok(vec!["a".to_string(), "b".to_string()])
         );
         // U+0085/NEL is NOT JS whitespace (Rust is_whitespace would wrongly split).
         assert_eq!(
-            tokenize_custom_command_template("a\u{0085}b"),
+            tokenize_custom_command_template("a\u{0085}b", Escape),
             Ok(vec!["a\u{0085}b".to_string()])
         );
     }
@@ -681,7 +705,7 @@ mod tests {
     #[test]
     fn routes_prompt_via_stdin_when_placeholder_is_absent() {
         assert_eq!(
-            plan_custom_command("claude -p", "COMMIT MSG"),
+            plan_custom_command("claude -p", "COMMIT MSG", Escape),
             Ok(CustomCommandPlan {
                 binary: "claude".to_string(),
                 args: vec!["-p".to_string()],
@@ -693,7 +717,7 @@ mod tests {
     #[test]
     fn substitutes_placeholder_as_a_whole_token_via_argv() {
         assert_eq!(
-            plan_custom_command("codex exec {prompt}", "PROMPT"),
+            plan_custom_command("codex exec {prompt}", "PROMPT", Escape),
             Ok(CustomCommandPlan {
                 binary: "codex".to_string(),
                 args: vec!["exec".to_string(), "PROMPT".to_string()],
@@ -705,15 +729,15 @@ mod tests {
     #[test]
     fn treats_quoted_placeholder_identically_to_bare_placeholder() {
         assert_eq!(
-            plan_custom_command("codex exec {prompt}", "PROMPT"),
-            plan_custom_command(r#"codex exec "{prompt}""#, "PROMPT")
+            plan_custom_command("codex exec {prompt}", "PROMPT", Escape),
+            plan_custom_command(r#"codex exec "{prompt}""#, "PROMPT", Escape)
         );
     }
 
     #[test]
     fn substitutes_placeholder_embedded_inside_a_token() {
         assert_eq!(
-            plan_custom_command("agent --msg={prompt}", "PROMPT"),
+            plan_custom_command("agent --msg={prompt}", "PROMPT", Escape),
             Ok(CustomCommandPlan {
                 binary: "agent".to_string(),
                 args: vec!["--msg=PROMPT".to_string()],
@@ -724,13 +748,70 @@ mod tests {
 
     #[test]
     fn errors_on_empty_templates() {
-        assert!(plan_custom_command("   ", "PROMPT").is_err());
+        assert!(plan_custom_command("   ", "PROMPT", Escape).is_err());
     }
 
     #[test]
     fn propagates_tokenizer_errors() {
-        let result = plan_custom_command(r#"agent "unclosed"#, "PROMPT");
+        let result = plan_custom_command(r#"agent "unclosed"#, "PROMPT", Escape);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_lowercase().contains("unclosed"));
+    }
+
+    // --- Windows command overrides keep native path separators (#11375) ---
+
+    const WINDOWS_PATH: &str = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe";
+
+    #[test]
+    fn escape_default_eats_backslashes_which_is_what_broke_windows_paths() {
+        // Pinned as the reason `Literal` exists, not as desired behavior.
+        assert_eq!(
+            tokenize_custom_command_template(WINDOWS_PATH, Escape),
+            Ok(vec!["C:WindowsSystem32WindowsPowerShellv1.0powershell.exe".to_string()])
+        );
+    }
+
+    #[test]
+    fn literal_keeps_a_native_absolute_path_intact() {
+        assert_eq!(
+            tokenize_custom_command_template(WINDOWS_PATH, Literal),
+            Ok(vec![WINDOWS_PATH.to_string()])
+        );
+    }
+
+    #[test]
+    fn literal_still_splits_on_whitespace_and_honours_quotes() {
+        assert_eq!(
+            tokenize_custom_command_template(r#""C:\Program Files\Git\bin\bash.exe" --login -i"#, Literal),
+            Ok(vec![r"C:\Program Files\Git\bin\bash.exe".to_string(), "--login".to_string(), "-i".to_string()])
+        );
+    }
+
+    #[test]
+    fn literal_leaves_a_trailing_backslash_alone_instead_of_swallowing_the_delimiter() {
+        assert_eq!(
+            tokenize_custom_command_template(r"C:\tools\ --flag", Literal),
+            Ok(vec![r"C:\tools\".to_string(), "--flag".to_string()])
+        );
+    }
+
+    #[test]
+    fn escape_default_keeps_foo_backslash_bar_as_one_token() {
+        assert_eq!(
+            tokenize_custom_command_template(r"/usr/local/my\ agent/bin --flag", Escape),
+            Ok(vec!["/usr/local/my agent/bin".to_string(), "--flag".to_string()])
+        );
+    }
+
+    #[test]
+    fn plan_custom_command_substitutes_prompt_with_a_literal_windows_binary() {
+        assert_eq!(
+            plan_custom_command(&format!("{WINDOWS_PATH} -Command {{prompt}}"), "write a commit message", Literal),
+            Ok(CustomCommandPlan {
+                binary: WINDOWS_PATH.to_string(),
+                args: vec!["-Command".to_string(), "write a commit message".to_string()],
+                stdin_payload: None,
+            })
+        );
     }
 }

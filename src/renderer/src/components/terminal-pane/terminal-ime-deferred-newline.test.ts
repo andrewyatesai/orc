@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createTerminalImeDeferredNewlineSender,
   sendTerminalInputAfterComposition,
+  TERMINAL_IME_DEFERRED_NEWLINE_FALLBACK_MS,
   TERMINAL_IME_ENTER_REDISPATCH_ABSORB_WINDOW_MS
 } from './terminal-ime-deferred-newline'
 
@@ -37,6 +38,51 @@ describe('sendTerminalInputAfterComposition', () => {
     vi.runAllTimers()
 
     expect(send).toHaveBeenCalledTimes(1)
+  })
+
+  // #12871: a newline arriving late still arrives, so the fallback timer is right for it. A cursor
+  // chord arriving mid-preedit is the corruption the wait exists to prevent, and a conversion can
+  // hold its candidate window open for seconds — far past the fallback.
+  it('never fires on a timer when the caller opts out of the fallback', () => {
+    const el = document.createElement('div')
+    const send = vi.fn()
+
+    sendTerminalInputAfterComposition(el, send, { fallbackMs: null })
+    vi.advanceTimersByTime(60_000)
+    expect(send).not.toHaveBeenCalled()
+
+    el.dispatchEvent(new Event('compositionend'))
+    vi.runAllTimers()
+    expect(send).toHaveBeenCalledTimes(1)
+  })
+
+  // STA-4476: `fallbackMs: null` has no exit of its own, so the returned disposer is the only thing
+  // that can detach the listener when compositionend never arrives.
+  it('detaches its listener and never sends once disposed', () => {
+    const el = document.createElement('div')
+    const send = vi.fn()
+    const removeEventListener = vi.spyOn(el, 'removeEventListener')
+
+    const dispose = sendTerminalInputAfterComposition(el, send, { fallbackMs: null })
+    dispose()
+
+    expect(removeEventListener).toHaveBeenCalledWith('compositionend', expect.any(Function))
+
+    el.dispatchEvent(new Event('compositionend'))
+    vi.runAllTimers()
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  // STA-4476: why the Enter path needs no disposer of its own — its fallback always runs, so the
+  // listener cannot outlive it even when the composition never ends.
+  it('detaches its listener on the fallback, not only on compositionend', () => {
+    const el = document.createElement('div')
+    const removeEventListener = vi.spyOn(el, 'removeEventListener')
+
+    sendTerminalInputAfterComposition(el, vi.fn())
+    vi.advanceTimersByTime(TERMINAL_IME_DEFERRED_NEWLINE_FALLBACK_MS)
+
+    expect(removeEventListener).toHaveBeenCalledWith('compositionend', expect.any(Function))
   })
 
   it('sends only once and drops the listener after firing', () => {

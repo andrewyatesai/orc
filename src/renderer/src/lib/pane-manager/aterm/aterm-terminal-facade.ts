@@ -370,7 +370,7 @@ export function createAtermTerminalFacade(deps: AtermFacadeDeps): AtermTerminalF
         pendingResize = null
       }
       // Replay buffered pre-attach output IN ORDER, then drain side channels.
-      const buffered = preAttachBuffer.splice(0, preAttachBuffer.length)
+      const buffered = preAttachBuffer.splice(0)
       for (const chunk of buffered) {
         controller.process(chunk)
       }

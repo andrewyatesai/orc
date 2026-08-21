@@ -60,14 +60,14 @@ describe('comparePerfMetrics over the catalog', () => {
         {
           cols: 80,
           rows: 24,
-          sparse: { cpu: { msPerFrame: 2.0 }, gpu: { msPerFrame: 0.3 } },
-          full: { cpu: { msPerFrame: 7.0 }, gpu: { msPerFrame: 0.5 } }
+          sparse: { cpu: { msPerFrame: 2 }, gpu: { msPerFrame: 0.3 } },
+          full: { cpu: { msPerFrame: 7 }, gpu: { msPerFrame: 0.5 } }
         },
         {
           cols: 200,
           rows: 50,
-          sparse: { cpu: { msPerFrame: 8.0 }, gpu: { msPerFrame: 0.4 } },
-          full: { cpu: { msPerFrame: 30.0 }, gpu: { msPerFrame: 0.9 } }
+          sparse: { cpu: { msPerFrame: 8 }, gpu: { msPerFrame: 0.4 } },
+          full: { cpu: { msPerFrame: 30 }, gpu: { msPerFrame: 0.9 } }
         }
       ]
     },

@@ -17,6 +17,7 @@ import {
 import { getPosixOmpShellWrapper } from '../pty/omp-shell-wrapper'
 import { buildStartupCommandSubmission } from '../../shared/startup-command-submission'
 import {
+  getFishShellReadyInitCommand,
   getNuShellReadyIntegrationContent,
   getPosixOsc633CommandlineEmitBlock,
   getZshEnvTemplate,
@@ -436,6 +437,15 @@ function getWrappedShellLaunchConfig(
       ],
       env: {},
       supportsReadyMarker: false
+    }
+  }
+
+  // Why: mirrors daemon/shell-ready.ts; attribution-only fish stays unwrapped.
+  if (shellName === 'fish' && options.emitReadyMarker) {
+    return {
+      args: ['-l', '-C', getFishShellReadyInitCommand(SHELL_READY_MARKER_ESCAPED)],
+      env: { ORCA_SHELL_READY_MARKER: '1' },
+      supportsReadyMarker: true
     }
   }
 

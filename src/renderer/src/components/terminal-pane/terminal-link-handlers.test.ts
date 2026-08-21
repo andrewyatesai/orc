@@ -13,7 +13,7 @@ import {
   openFilePathLinkAtBufferPosition,
   openDetectedFilePath
 } from './terminal-link-handlers'
-import { mapTerminalFilePath } from './terminal-file-open-routing'
+import { mapTerminalFilePath, terminalLinkWslDistro } from './terminal-file-open-routing'
 import {
   TERMINAL_PATH_EXISTS_CACHE_MAX_ENTRIES,
   type TerminalPathExistsCache
@@ -2100,6 +2100,85 @@ describe('createFilePathLinkProvider range bounds', () => {
 
   it('does not map POSIX paths for a native Windows worktree', () => {
     expect(mapTerminalFilePath('/repo/file.md', 'C:\\repo')).toBe('/repo/file.md')
+    // Why: without a pane distro there is no share to reach, so /mnt paths stay verbatim.
+    expect(mapTerminalFilePath('/mnt/c/repo/file.md', '/home/a/repo')).toBe('/mnt/c/repo/file.md')
+  })
+
+  it('maps POSIX paths with the pane WSL distro when the worktree is on a Windows drive', () => {
+    // Why (#8156): a WSL-runtime pane on a native Windows-drive worktree prints
+    // POSIX paths the worktree shape can't map; the runtime distro rebases them.
+    expect(mapTerminalFilePath('/home/alice/notes.md', 'C:\\repo', 'Ubuntu')).toBe(
+      '\\\\wsl.localhost\\Ubuntu\\home\\alice\\notes.md'
+    )
+    // Why: /mnt/<drive> is a Windows drive mounted into WSL — reach it directly.
+    expect(mapTerminalFilePath('/mnt/c/repo/README.md', 'C:\\repo', 'Ubuntu')).toBe(
+      'C:\\repo\\README.md'
+    )
+  })
+
+  it('drops the local WSL distro for remote-runtime panes', () => {
+    expect(terminalLinkWslDistro('Ubuntu', null)).toBe('Ubuntu')
+    expect(terminalLinkWslDistro('Ubuntu', 'env-1')).toBeNull()
+    expect(terminalLinkWslDistro(null, null)).toBeNull()
+    expect(terminalLinkWslDistro(undefined, undefined)).toBeNull()
+  })
+
+  it('maps POSIX terminal links for a WSL-runtime pane on a Windows-drive worktree', async () => {
+    const mappedPath = 'C:\\repo\\src\\main.ts'
+    vi.mocked(window.api.shell.pathExists).mockImplementation(
+      async (pathValue) => pathValue === mappedPath
+    )
+    const { provider } = createProviderSetup([makeBufferLine('src/main.ts:5')], new Map(), {
+      worktreePath: 'C:\\repo',
+      wslDistro: 'Ubuntu',
+      startupCwd: '/mnt/c/repo',
+      getPaneLinkCwd: () => '/mnt/c/repo'
+    })
+
+    const links = await new Promise<ILink[]>((resolve) => {
+      provider.provideLinks(1, (provided) => resolve(provided ?? []))
+    })
+
+    expect(links).toHaveLength(1)
+    expect(window.api.shell.pathExists).toHaveBeenCalledWith(mappedPath)
+  })
+
+  it('drops a POSIX link when no pane WSL distro resolves for a Windows-drive worktree', async () => {
+    // Why: this is the pre-fix behaviour — without the runtime distro the path
+    // goes verbatim to a Win32 probe, misses, and the candidate is dropped.
+    const mappedPath = 'C:\\repo\\src\\main.ts'
+    vi.mocked(window.api.shell.pathExists).mockImplementation(
+      async (pathValue) => pathValue === mappedPath
+    )
+    const { provider } = createProviderSetup([makeBufferLine('src/main.ts:5')], new Map(), {
+      worktreePath: 'C:\\repo',
+      startupCwd: '/mnt/c/repo',
+      getPaneLinkCwd: () => '/mnt/c/repo'
+    })
+
+    const links = await new Promise<ILink[]>((resolve) => {
+      provider.provideLinks(1, (provided) => resolve(provided ?? []))
+    })
+
+    expect(links).toHaveLength(0)
+    expect(window.api.shell.pathExists).toHaveBeenCalledWith('/mnt/c/repo/src/main.ts')
+  })
+
+  it('ignores the pane WSL distro for remote runtime panes', async () => {
+    setPlatform('Windows')
+    storeState.settings = { activeRuntimeEnvironmentId: 'env-2' }
+
+    openDetectedFilePath('/home/alice/notes.md', null, null, {
+      worktreeId: 'wt-1',
+      worktreePath: 'C:\\repo',
+      wslDistro: 'Ubuntu',
+      runtimeEnvironmentId: 'env-1'
+    })
+    await flushAsyncWork()
+
+    expect(authorizeExternalPathMock).toHaveBeenCalledWith({
+      targetPath: '/home/alice/notes.md'
+    })
   })
 
   it('opens an existing extensionless spaced prefix from direct fallback cache', async () => {

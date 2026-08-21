@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { WORKTREE_ID_SEPARATOR } from './worktree-id'
 import {
-  WORKTREE_ID_SEPARATOR,
   getRepoIdFromWorktreeId,
   getWorktreePathBasenameFromId,
   splitWorktreeId,
   splitWorktreeIdForFilesystem
-} from './worktree-id'
+} from './worktree-id-parsing'
 
 describe('WORKTREE_ID_SEPARATOR', () => {
   it('is the literal "::" separator', () => {

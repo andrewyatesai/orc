@@ -34,6 +34,7 @@ import { readClipboardFilePaths, type ClipboardFileReadDeps } from './clipboard-
 import { isRendererSchemeSenderUrl } from '../startup/renderer-scheme-request-handler'
 import {
   cleanupExpiredRemoteClipboardFiles,
+  scheduleLegacyRemoteClipboardFileCleanup,
   writeRemoteFileToClipboard
 } from './clipboard-remote-file-copy'
 import { saveClipboardImageBufferInRuntime } from './clipboard-runtime-image-upload'
@@ -105,6 +106,7 @@ export function registerClipboardHandlers(store: Store): void {
   ipcMain.removeHandler('clipboard:saveImageAsTempFile')
 
   void cleanupExpiredRemoteClipboardFiles()
+  scheduleLegacyRemoteClipboardFileCleanup()
   void cleanupExpiredClipboardImageTempDirs()
 
   ipcMain.handle('clipboard:readText', async (event, options?: ReadClipboardTextOptions) => {

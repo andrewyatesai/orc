@@ -11,7 +11,14 @@ import { scanRemoteAiVaultSessions } from '../ai-vault/remote-session-scanner'
 import { listClaudeSubagentSessions } from '../ai-vault/session-scanner-claude-subagents'
 import { claudeProjectsRootDirs } from '../ai-vault/session-scanner-source-discovery'
 import { isPathInsideOrEqual } from '../../shared/cross-platform-path-resolution'
-import { aiVaultScanIssueResult, mergeAiVaultListResults } from '../ai-vault/session-list-results'
+import { aiVaultScanLimit } from '../../shared/ai-vault-session-depth'
+import {
+  aiVaultScanIssueResult,
+  mergeAiVaultListResults,
+  runtimeHostDiscoveryIssueResult,
+  runtimeScanIssueResult,
+  sshScanIssueResult
+} from '../ai-vault/session-list-results'
 import type {
   AiVaultListArgs,
   AiVaultListResult,
@@ -19,6 +26,7 @@ import type {
   AiVaultSubagentListResult
 } from '../../shared/ai-vault-types'
 import { registerAiVaultResumeHandler, type AiVaultResumeHandlerOptions } from './ai-vault-resume'
+import { registerAiVaultDeleteHandler } from './ai-vault-delete'
 import {
   LOCAL_EXECUTION_HOST_ID,
   normalizeExecutionHostScope,
@@ -80,6 +88,7 @@ async function listAiVaultSessions(args?: AiVaultListArgs): Promise<AiVaultListR
   // Scope paths change the result set, so they must be part of the cache key.
   const key = JSON.stringify({
     limit: args?.limit ?? 'default',
+    unlimited: args?.unlimited ?? false,
     scopePaths: args?.scopePaths ?? [],
     executionHostScope
   })
@@ -134,7 +143,7 @@ async function scanAiVaultSessionsByHostScope(
         ),
         ...runtimeResults
       ]),
-      args?.limit
+      aiVaultScanLimit(args)
     )
   }
 
@@ -187,7 +196,8 @@ async function scanRuntimeAiVaultSessions(
   const scanner = handlerOptions.scanRuntimeAiVaultSessions
   if (!scanner) {
     return runtimeScanIssueResult(
-      hostInfo,
+      hostInfo.executionHostId,
+      hostInfo.environmentId,
       'Agent Session History is not available for this execution host.'
     )
   }
@@ -205,25 +215,11 @@ async function scanRuntimeAiVaultSessions(
     return await scanner(hostInfo.environmentId, scanArgs, options)
   } catch (error) {
     return runtimeScanIssueResult(
-      hostInfo,
+      hostInfo.executionHostId,
+      hostInfo.environmentId,
       error instanceof Error ? error.message : 'Remote Orca server is unavailable.'
     )
   }
-}
-
-function runtimeScanIssueResult(
-  hostInfo: RuntimeAiVaultHostInfo,
-  message: string
-): AiVaultListResult {
-  return aiVaultScanIssueResult({
-    executionHostId: hostInfo.executionHostId,
-    path: hostInfo.environmentId,
-    message
-  })
-}
-
-function runtimeHostDiscoveryIssueResult(message: string): AiVaultListResult {
-  return aiVaultScanIssueResult({ path: 'runtime environments', message })
 }
 
 async function scanLocalAiVaultSessions(args?: AiVaultListArgs): Promise<AiVaultListResult> {
@@ -232,6 +228,7 @@ async function scanLocalAiVaultSessions(args?: AiVaultListArgs): Promise<AiVault
   // share one cache instance and one source of managed-Codex homes.
   return listCachedLocalAiVaultSessions({
     limit: args?.limit,
+    unlimited: args?.unlimited,
     force: args?.force,
     scopePaths: args?.scopePaths
   })
@@ -257,19 +254,8 @@ async function scanSshAiVaultSessions(
     remoteHome: hostInfo.remoteHome,
     hostPlatform: hostInfo.hostPlatform,
     limit: args?.limit,
+    unlimited: args?.unlimited,
     scopePaths: args?.scopePaths
-  })
-}
-
-function sshScanIssueResult(args: {
-  executionHostId: `ssh:${string}`
-  targetId: string
-  message: string
-}): AiVaultListResult {
-  return aiVaultScanIssueResult({
-    executionHostId: args.executionHostId,
-    path: args.targetId,
-    message: args.message
   })
 }
 
@@ -284,6 +270,7 @@ export function registerAiVaultHandlers(options: AiVaultHandlerOptions = {}): vo
     listAiVaultSessions(args)
   )
   registerAiVaultResumeHandler(options)
+  registerAiVaultDeleteHandler()
   ipcMain.handle(
     'aiVault:listSubagentSessions',
     (_event, args?: AiVaultSubagentListArgs): Promise<AiVaultSubagentListResult> =>

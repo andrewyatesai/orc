@@ -12,6 +12,7 @@ vi.mock('@/runtime/runtime-terminal-inspection', () => ({
 import {
   sendNativeChatMessage,
   sendNativeChatMessageVerified,
+  typeNativeChatCommand,
   sendNativeChatMessageWithImageAttachments,
   submitNativeChatPrompt,
   sendNativeChatAskAnswer,
@@ -27,6 +28,7 @@ import {
   buildNativeChatPasteBytes,
   NATIVE_CHAT_SUBMIT
 } from './native-chat-send'
+import { AGENT_TUI_CLEAR_INPUT_LINE } from '../../../../shared/agent-tui-input-clear'
 
 const SETTINGS = {} as Parameters<typeof sendNativeChatMessage>[0]
 const PTY = 'pty-1'
@@ -232,6 +234,48 @@ describe('sendNativeChatMessageVerified', () => {
     expect(
       sendRuntimePtyInputVerified.mock.calls.some((call) => call[2] === NATIVE_CHAT_SUBMIT)
     ).toBe(false)
+  })
+})
+
+describe('typeNativeChatCommand', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    sendRuntimePtyInputVerified.mockReset().mockResolvedValue(true)
+    resetNativeChatPtySendQueuesForTests()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    resetNativeChatPtySendQueuesForTests()
+  })
+
+  it('writes the Codex picker command as keys instead of one pasted text write', async () => {
+    const result = typeNativeChatCommand(SETTINGS, PTY, '/model')
+    await vi.runAllTimersAsync()
+
+    await expect(result).resolves.toBe(true)
+    // A single-line clear, then one key per character, then Enter — never a
+    // pasted `/model` blob that Codex would classify as prose.
+    expectWriteOrder(sendRuntimePtyInputVerified.mock.calls, [
+      AGENT_TUI_CLEAR_INPUT_LINE,
+      '/',
+      'm',
+      'o',
+      'd',
+      'e',
+      'l',
+      NATIVE_CHAT_SUBMIT
+    ])
+  })
+
+  it('halts and reports failure when a key write is rejected', async () => {
+    sendRuntimePtyInputVerified.mockReset()
+    sendRuntimePtyInputVerified.mockResolvedValueOnce(true).mockResolvedValue(false)
+    const result = typeNativeChatCommand(SETTINGS, PTY, '/model')
+    await vi.runAllTimersAsync()
+
+    await expect(result).resolves.toBe(false)
+    // clear accepted, '/' rejected — the burst stops without an Enter.
+    expectWriteOrder(sendRuntimePtyInputVerified.mock.calls, [AGENT_TUI_CLEAR_INPUT_LINE, '/'])
   })
 })
 

@@ -13,7 +13,7 @@ export {
 } from '../../../../shared/ui-zoom-level'
 
 export function zoomLevelToPercent(level: number): number {
-  return Math.round(100 * Math.pow(1.2, level))
+  return Math.round(100 * 1.2 ** level)
 }
 
 export function mergeFontSuggestions(

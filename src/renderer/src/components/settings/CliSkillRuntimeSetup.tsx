@@ -111,7 +111,8 @@ export function buildSkillCommandForRuntime(
   const encodedScript = encodeWslLoginShellScript(normalizedCommand)
   const visibleCommand = normalizedCommand.replace(/[\r\n]+/g, ' ')
   const shellScript = `eval "\`printf %s ${encodedScript} | base64 -d\`"`
-  const wslCommand = `wsl.exe${distroArg} -- sh -c ${quotePowerShellNativeArgument(shellScript)}`
+  // Why --exec: `--` makes wsl.exe expand $name in the argv it forwards to the guest.
+  const wslCommand = `wsl.exe${distroArg} --exec sh -c ${quotePowerShellNativeArgument(shellScript)}`
   // Why: scope Legacy argv parsing to this invocation so Windows PowerShell
   // 5.1 and PowerShell 7 pass the same embedded quotes to wsl.exe.
   return `& { $PSNativeCommandArgumentPassing = 'Legacy'; ${wslCommand} } # Runs: ${visibleCommand}`

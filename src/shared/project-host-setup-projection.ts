@@ -1,3 +1,8 @@
+import {
+  catalogTimestampFromAddedAt,
+  mergeCatalogCreatedAt,
+  mergeCatalogUpdatedAt
+} from './catalog-timestamp-merge'
 import { getRepoExecutionHostId } from './execution-host'
 import { githubRepoIdentityKey, isDefaultGitHubHost } from './github-repository-identity-key'
 import type {
@@ -17,7 +22,7 @@ export type ProjectHostSetupProjection = {
   setups: ProjectHostSetup[]
 }
 
-function getProjectProviderIdentity(
+export function getProjectProviderIdentity(
   repo: Pick<Repo, 'upstream' | 'repoIcon' | 'gitRemoteIdentity'>
 ): ProjectProviderIdentity | null {
   const owner = typeof repo.upstream?.owner === 'string' ? repo.upstream.owner.trim() : ''
@@ -201,9 +206,10 @@ function parseGitHubRemoteUrl(remoteUrl: string | undefined): ProjectProviderIde
   }
 }
 
-function createProjectFromRepo(repo: Repo, now: number): Project {
+function createProjectFromRepo(repo: Repo): Project {
   const identity = getProjectProviderIdentity(repo)
   const gitRemoteIdentity = getProjectGitRemoteIdentity(repo)
+  const addedAt = catalogTimestampFromAddedAt(repo.addedAt)
   return {
     id: getProjectId(repo),
     displayName: repo.displayName,
@@ -213,8 +219,8 @@ function createProjectFromRepo(repo: Repo, now: number): Project {
     ...(identity ? { providerIdentity: identity } : {}),
     ...(gitRemoteIdentity ? { gitRemoteIdentity } : {}),
     sourceRepoIds: [repo.id],
-    createdAt: repo.addedAt || now,
-    updatedAt: repo.addedAt || now
+    createdAt: addedAt,
+    updatedAt: addedAt
   }
 }
 
@@ -222,17 +228,20 @@ function mergeProjectRepo(project: Project, repo: Repo): Project {
   const sourceRepoIds = project.sourceRepoIds.includes(repo.id)
     ? project.sourceRepoIds
     : [...project.sourceRepoIds, repo.id]
+  // Why unknown-aware on both sides: the accumulator itself carries 0 when the first repo of the
+  // project had no addedAt, so a plain min() would let repo order decide the project's createdAt.
+  const addedAt = catalogTimestampFromAddedAt(repo.addedAt)
   return {
     ...project,
     sourceRepoIds,
-    createdAt: Math.min(project.createdAt, repo.addedAt || project.createdAt),
-    updatedAt: Math.max(project.updatedAt, repo.addedAt || project.updatedAt)
+    createdAt: mergeCatalogCreatedAt(project.createdAt, addedAt),
+    updatedAt: mergeCatalogUpdatedAt(project.updatedAt, addedAt)
   }
 }
 
-function createSetupFromRepo(repo: Repo, projectId: string, now: number): ProjectHostSetup {
+function createSetupFromRepo(repo: Repo, projectId: string): ProjectHostSetup {
   const hostId = getRepoExecutionHostId(repo)
-  const createdAt = repo.addedAt || now
+  const createdAt = catalogTimestampFromAddedAt(repo.addedAt)
   const setupMethod = repo.projectHostSetupMethod ?? 'legacy-repo'
   return {
     id: repo.id,
@@ -257,7 +266,7 @@ function createSetupFromRepo(repo: Repo, projectId: string, now: number): Projec
 
 export function projectHostSetupProjectionFromRepos(
   repos: readonly Repo[],
-  now = Date.now()
+  _now?: number
 ): ProjectHostSetupProjection {
   const projectById = new Map<string, ProjectAccumulator>()
   const setups: ProjectHostSetup[] = []
@@ -267,8 +276,8 @@ export function projectHostSetupProjectionFromRepos(
     const existing = projectById.get(projectId)
     const project = existing
       ? mergeProjectRepo(existing.project, repo)
-      : createProjectFromRepo(repo, now)
-    const setup = createSetupFromRepo(repo, projectId, now)
+      : createProjectFromRepo(repo)
+    const setup = createSetupFromRepo(repo, projectId)
     projectById.set(projectId, {
       project
     })
@@ -284,7 +293,7 @@ export function projectHostSetupProjectionFromRepos(
 export function getProjectHostSetupsForProject(
   setups: readonly ProjectHostSetup[],
   projectId: string
-): ProjectHostSetup[] {
+): readonly ProjectHostSetup[] {
   return setups.filter((setup) => setup.projectId === projectId)
 }
 

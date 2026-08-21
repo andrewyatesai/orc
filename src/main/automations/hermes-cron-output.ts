@@ -470,7 +470,7 @@ function findMatchingSessionRunIndex(
     (sessionRun, index) =>
       !usedSessionRunIndexes.has(index) && getRunKey(sessionRun) === outputRunKey
   )
-  if (exactMatchIndex >= 0) {
+  if (exactMatchIndex !== -1) {
     return exactMatchIndex
   }
 

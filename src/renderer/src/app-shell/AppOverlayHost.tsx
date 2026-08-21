@@ -27,6 +27,7 @@ import {
   NonGitFolderDialog,
   OnboardingFlow,
   PetOverlay,
+  PreservedBranchBatchReviewModal,
   ProjectAddedDialog,
   QuickOpen,
   RemoteServerUpdateDialog,
@@ -55,9 +56,7 @@ type AppOverlayHostProps = {
   hasSshCredentialRequest: boolean
   onboarding: OnboardingState | null
   shouldRenderOnboarding: boolean
-  onboardingSettingsDetourActive: boolean
   onOnboardingChange: (onboarding: OnboardingState) => void
-  onSettingsDetourStart: () => void
 }
 
 export function AppOverlayHost({
@@ -75,9 +74,7 @@ export function AppOverlayHost({
   hasSshCredentialRequest,
   onboarding,
   shouldRenderOnboarding,
-  onboardingSettingsDetourActive,
-  onOnboardingChange,
-  onSettingsDetourStart
+  onOnboardingChange
 }: AppOverlayHostProps): React.JSX.Element {
   return (
     <>
@@ -294,6 +291,16 @@ export function AppOverlayHost({
             <DeleteWorktreeDialog />
           </RecoverableRenderErrorBoundary>
         ) : null}
+        {activeModal === 'preserved-branch-review' ? (
+          <RecoverableRenderErrorBoundary
+            boundaryId="modal.preserved-branch-review"
+            surface="modal"
+            resetKey
+            compact
+          >
+            <PreservedBranchBatchReviewModal />
+          </RecoverableRenderErrorBoundary>
+        ) : null}
       </Suspense>
       {hasSshCredentialRequest ? (
         <Suspense fallback={null}>
@@ -329,23 +336,18 @@ export function AppOverlayHost({
       >
         <CrashReportDialog />
       </RecoverableRenderErrorBoundary>
-      {onboarding && shouldRenderOnboarding && !onboardingSettingsDetourActive ? (
+      {onboarding && shouldRenderOnboarding ? (
         <Suspense fallback={null}>
           <RecoverableRenderErrorBoundary
             boundaryId="modal.onboarding"
             surface="modal"
-            resetKey={onboardingSettingsDetourActive}
             title={translate('auto.App.f02d37278a', 'Onboarding hit an error.')}
             description={translate(
               'auto.App.221a95ba38',
               'Retry onboarding or close it and continue in the app.'
             )}
           >
-            <OnboardingFlow
-              onboarding={onboarding}
-              onOnboardingChange={onOnboardingChange}
-              onSettingsDetourStart={onSettingsDetourStart}
-            />
+            <OnboardingFlow onboarding={onboarding} onOnboardingChange={onOnboardingChange} />
           </RecoverableRenderErrorBoundary>
         </Suspense>
       ) : null}

@@ -81,11 +81,7 @@ vi.mock('@/runtime/runtime-rpc-client', () => ({
 vi.mock('@/lib/new-workspace', () => ({
   CLIENT_PLATFORM: 'win32',
   getWorkspaceIntentName: (args: {
-    workItem?: {
-      type: 'issue' | 'pr' | 'mr'
-      number: number
-      title: string
-    } | null
+    workItem?: { type: 'issue' | 'pr' | 'mr'; number: number; title: string } | null
   }) =>
     args.workItem
       ? {

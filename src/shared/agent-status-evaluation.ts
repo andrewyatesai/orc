@@ -102,9 +102,11 @@ import {
   normalizeInteractivePromptField,
   normalizeOptionalField,
   normalizeOptionalMultilineField,
-  normalizePromptField
+  normalizePromptField,
+  normalizeTurnCompletedAtField
 } from './agent-status-field-normalization'
 import { assertJsonTextStructureWithinLimits } from './json-text-structure-limit'
+import { overlayTurnCompletedAt } from './agent-status-turn-completed-overlay'
 import {
   AGENT_MODEL_MAX_LENGTH,
   AGENT_STATUS_ASSISTANT_MESSAGE_MAX_LENGTH,
@@ -234,6 +236,7 @@ function legacyNormalizeAgentStatusObject(parsed: unknown): ParsedAgentStatusPay
     ),
     interrupted: obj.interrupted === true && state === 'done' ? true : undefined,
     launchFailed: obj.launchFailed === true && state === 'done' ? true : undefined,
+    turnCompletedAt: normalizeTurnCompletedAtField(obj.turnCompletedAt, state),
     subagents: legacyNormalizeSubagentsField(obj.subagents)
   }
 }
@@ -346,7 +349,19 @@ export function parseAgentStatusPayload(json: string): ParsedAgentStatusPayload 
   // core's null, and the collapse below already recomputes the twin's answer for
   // it. A guard here could never be watched failing, so it is not written.
   const answer = dispatchAgentStatus('parseAgentStatusPayload', json, 'json')
-  return answer === null ? legacyParseAgentStatusPayload(json) : shapePayload(answer)
+  if (answer === null) {
+    return legacyParseAgentStatusPayload(json)
+  }
+  const shaped = shapePayload(answer)
+  // Substring gate so payloads without the field never pay a second parse.
+  if (json.includes('"turnCompletedAt"')) {
+    try {
+      overlayTurnCompletedAt(shaped, JSON.parse(json))
+    } catch {
+      // The core already parsed it; a reparse failure cannot demote the answer.
+    }
+  }
+  return shaped
 }
 
 /**
@@ -356,7 +371,9 @@ export function parseAgentStatusPayload(json: string): ParsedAgentStatusPayload 
  */
 export function normalizeAgentStatusPayload(payload: unknown): ParsedAgentStatusPayload | null {
   const answer = dispatchAgentStatus('normalizeAgentStatusPayload', payload, 'payload')
-  return answer === null ? legacyNormalizeAgentStatusObject(payload) : shapePayload(answer)
+  return answer === null
+    ? legacyNormalizeAgentStatusObject(payload)
+    : overlayTurnCompletedAt(shapePayload(answer), payload)
 }
 
 /**

@@ -1,5 +1,6 @@
-import { execFileSync } from 'node:child_process'
+import type { execFileSync } from 'node:child_process'
 import { getRegExePath } from '../win32-utils'
+import { readWindowsPathRegistry } from './windows-path-registry-reader'
 
 type ExecFileSync = typeof execFileSync
 
@@ -53,6 +54,43 @@ function splitPathSegments(pathValue: string, pathDelimiter: string): string[] {
     .filter(Boolean)
 }
 
+// Why: reads machine + user PATH in-process via the native registry, so the hot
+// PTY-spawn path no longer forks two synchronous `reg.exe query` subprocesses.
+function readNativeRegistryPaths(env: NodeJS.ProcessEnv, pathDelimiter: string): string[] {
+  return readWindowsPathRegistry().flatMap((read) =>
+    read.value === null
+      ? []
+      : splitPathSegments(expandWindowsEnvironmentVariables(read.value, env), pathDelimiter)
+  )
+}
+
+// Legacy `reg.exe query` fallback, retained for the injectable option and tests.
+function readRegExeSegments(
+  run: ExecFileSync,
+  env: NodeJS.ProcessEnv,
+  pathDelimiter: string
+): string[] {
+  const segments: string[] = []
+  for (const [key, valueName] of WINDOWS_PATH_REGISTRY_KEYS) {
+    try {
+      const output = run(getRegExePath(env), ['query', key, '/v', valueName], {
+        encoding: 'utf8',
+        windowsHide: true
+      })
+      const value = parseRegistryPathValue(output, valueName)
+      if (value) {
+        segments.push(
+          ...splitPathSegments(expandWindowsEnvironmentVariables(value, env), pathDelimiter)
+        )
+      }
+    } catch {
+      // Registry access can fail in stripped test containers or remote-like
+      // Windows contexts. Existing PATH remains the fallback in those cases.
+    }
+  }
+  return segments
+}
+
 export function readPersistedWindowsPathSegments(options: ReadWindowsPathOptions = {}): string[] {
   const platform = options.platform ?? process.platform
   if (platform !== 'win32') {
@@ -72,33 +110,16 @@ export function readPersistedWindowsPathSegments(options: ReadWindowsPathOptions
     return [...persistedWindowsPathCache.segments]
   }
 
-  const run = options.execFileSync ?? execFileSync
   const env = options.env ?? process.env
   const pathDelimiter = getPathDelimiter(platform)
-  const segments: string[] = []
-
-  for (const [key, valueName] of WINDOWS_PATH_REGISTRY_KEYS) {
-    try {
-      const output = run(getRegExePath(env), ['query', key, '/v', valueName], {
-        encoding: 'utf8',
-        windowsHide: true
-      })
-      const value = parseRegistryPathValue(output, valueName)
-      if (value) {
-        segments.push(
-          ...splitPathSegments(expandWindowsEnvironmentVariables(value, env), pathDelimiter)
-        )
-      }
-    } catch {
-      // Registry access can fail in stripped test containers or remote-like
-      // Windows contexts. Existing PATH remains the fallback in those cases.
-    }
-  }
+  const segments = options.execFileSync
+    ? readRegExeSegments(options.execFileSync, env, pathDelimiter)
+    : readNativeRegistryPaths(env, pathDelimiter)
 
   if (useProductionCache) {
-    // Why: local PTY spawn is a hot path on Windows, and each uncached read
-    // runs two synchronous `reg.exe query` subprocesses. A short TTL keeps
-    // terminal bursts cheap while still picking up newly installed CLIs soon.
+    // Why: local PTY spawn is a hot path on Windows, and each uncached refresh
+    // performs two synchronous native registry reads. A short TTL keeps terminal
+    // bursts cheap while still picking up newly installed CLIs soon.
     persistedWindowsPathCache = {
       readAt: now,
       segments: [...segments]

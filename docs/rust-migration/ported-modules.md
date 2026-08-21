@@ -32,6 +32,7 @@ does not have):
 | ~~`synthetic-agent-title`~~                      | **RE-PORTED 2026-08-15** — see below                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ~~`agent-status-types`~~                         | RE-PORTED. Was: no dispatch-preamble compaction; dropped `interactivePrompt` entirely — and, unlisted, also dropped `model`, `launchFailed` and `subagents`, had no pre-parse JSON structure guard, and used Rust `trim()`/`chars()` where the twin uses JS trim over UTF-16 with a bounded scan. 37 new vectors; 1 residual derived case is the lone-surrogate transport limit below, not a port gap                                                              |
 | ~~`mcp`~~                                        | **RE-PORTED 2026-08-15** — see below                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `cross-platform-path`                            | treats a literal `\` as a separator; no NFD/NFC folding                                                                                                                                                                                                                                                                                                                                                                                                            |
 | ~~`tab-title-resolution`~~                       | **RE-PORTED and now CUT OVER 2026-08-15** — see below                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ~~`workspace-session-terminal-buffers`~~         | **RE-PORTED 2026-08-15** — see below                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `worktree_id.get_worktree_path_basename_from_id` | trims with Rust `char::is_whitespace`, the twin with JS `String.prototype.trim` — they differ on U+0085 (Rust only) and U+FEFF (JS only), so a path segment carrying either answers differently. The other three functions are clean; found by an adversarial sweep, NOT by twin-derived parity, whose 14 cases have no whitespace-in-path input                                                                                                                   |
@@ -359,6 +360,244 @@ surface. **The shipped wasm and napi blobs still carry the OLD core** until
 someone rebuilds them; only the from-source `orca-parity` leg is fixed by this
 change.
 
+The report also has an OUT-OF-SHAPE bucket, which is not a defect list: those
+derived cases carry input keys no vector supplies, and some ports are lean by
+design (`toDetectedWorktree` spreads its input into its output, so a richer input
+produces a richer answer than Rust was ever given). Review those; do not count
+them.
+
+### The bug class that has hit five separate cores: a Rust idiom is not a JS semantic
+
+Every stale port found this session was the same mistake wearing different
+clothes — the idiomatic Rust call was reached for where the twin's JS semantic
+was meant. Each reads correct in Rust. Each is a *different function* than the
+twin. And none of them can be caught by a vector corpus written from the same
+misunderstanding, which is why they survived to be found one cutover at a time.
+
+| Twin says | The port reached for | They differ on |
+| --- | --- | --- |
+| `.trim()`, `\s` | `char::is_whitespace`, `split_whitespace` | U+FEFF (JS strips, Rust does not) and U+0085 NEL (Rust strips, JS does not) |
+| `slice(0, n)` | `.chars().take(n)` | UTF-16 code units vs chars — astral text keeps 2× |
+| `if (value)` | `value.is_some()` | `Some("")` is truthy in Rust, falsy in JS |
+| `number` | `as_i64` | absent, `0.5` and out-of-`i64` all collapse to `0` |
+
+Where it landed: `stable_pane_id` (trim + cap), `workspace_statuses` (trim + cap,
+on both the label AND the minted id), `workspace_session_terminal_buffers` (cap —
+persisting 2× the scrollback for CJK), `git_upstream_status` (`as_i64`, so
+`{hasUpstream:true, behind:4}` answered "behind-only" where the twin says no),
+and `mcp` (`is_some`, so `command: ""` rendered a broken server as **enabled**).
+
+`orca_core::js_string::trim_js` and `is_js_trim_ws` exist for the first row, and
+a UTF-16 counter for the second. **Ports written before those helpers landed are
+where the remaining instances will be** — grepping a crate for
+`split_whitespace`, `.chars().take(`, `.is_some()` on an `Option<String>`, and
+`as_i64` on a JS `number` field costs a minute and has found five so far.
+
+Two habits that catch this class, both learned by failing at them first:
+
+* **Probe the field you did not change.** A fix to `sanitize_status_label` was
+  validated with 22 label-shaped inputs, so `sanitize_status_id` — which mints a
+  *persisted* identifier — kept the wrong trim set for another commit.
+* **Check what a change REMOVED, not only what it added.** An artifact rebuild
+  verified the OpenCode title step it had just added and missed the `aiVaultTitle`
+  step the same re-port had silently dropped, shipping an empty tab title.
+
+### `source-control-ai` — the one module held back on a REAL defect
+
+Everything else that was ever "blocked" turned out to be a staging problem. This
+one is not, and it should not be cut over until the defect below is fixed.
+
+**Undeclared bound-vs-unbound divergence in
+`mergeLegacyCommitMessageAiIntoSourceControlAi`** — the module's own rollback
+bridge, and the export its shim header names as highest-stakes. Minimal repro,
+both shapes in-contract:
+
+    merge(
+      {enabled:true, agentId:null, selectedModelByAgent:{}, selectedThinkingByModel:{},
+       customAgentCommand:'keep-me', instructionsByOperation:{}},
+      {enabled:false, agentId:'codex', model:'x'}
+    )
+      twin / UNBOUND -> own key `customAgentCommand: undefined`
+      BOUND (shipped wasm) -> `""`
+
+Same shape for `agentId`: the twin returns own `undefined`, the core returns
+`null`. 17 of 241 self-chosen inputs disagree bound-vs-unbound; UNBOUND matched
+the twin on all 241, so this is a genuine TS-vs-Rust divergence and not shim
+plumbing.
+
+Why it matters more than the count suggests: `JSON.stringify` DROPS an
+own-undefined key, so the twin's wire form omits the field while the core sends a
+value. The declared residual covers only the OPPOSITE direction (the core
+omitting an optional the twin returned as own-undefined). Callers are main-only
+and `persistence.ts:3270`/`:6004` write the result, so a substituted `""` becomes
+a persisted empty custom command where the twin persisted nothing.
+
+The 17 key-ORDER deltas in the same measurement ARE declared and are fine — no
+consumer reads by order (`source-control-action-recipe-match.ts` compares
+field-wise, persistence re-serializes).
+
+Everything else about the module is done: all 14 exports routed, the core
+re-ported from a pre-action-recipe revision, eight JS-trim sites fixed, corpus
+1 -> 111 vectors. Fix the merge, then cut it over.
+
+### `linear-links` — refused four times, and the fourth settles it
+
+Each refusal found a real defect and two of them were live wrong-workspace bugs
+now fixed and shipped (the widened host check, 8eb59bacc7; the missing
+dot-segment removal, c76a4f2406). The fourth is different: it is not a defect to
+patch, it is a reason the module cannot take a `parity` shim at all.
+
+`URL.pathname` PERCENT-ENCODES; `parse_absolute_url` returns the raw segment, and
+`getLinearOrganizationUrlKeyFromIssueUrl` does not decode it (unlike
+`parseLinearIssueInput`, which `decodeURIComponent`s and so cancels the class):
+
+    https://linear.app/café/issue/ENG-1       twin "caf%C3%A9"   core "café"
+    https://linear.app/acme inc/issue/ENG-1   twin "acme%20inc"  core "acme inc"
+
+4,220 value divergences over 6,218 inputs — every non-ASCII code point
+U+0080–U+1FFF in the slug, plus 38 ASCII. A value SUBSTITUTION, not a refusal,
+into `linkedLinearIssueOrganizationUrlKey`, which
+`resolveLegacyLinearLinkWorkspace` equality-matches to pick a connected org's API
+token.
+
+**Why that blocks the cutover rather than motivating a fix.** `parity` is FORCED
+here — the return is `string | null` where null is the twin's own real answer, so
+no sentinel exists, and the value is persisted then equality-compared. But
+`parity` is a CHECKABLE CLAIM that the fallback equals the core, and measured it
+does not. Worse, the split is permanent rather than a startup window: **mobile
+installs no dispatch binding at all** (`setOrcaDispatchBinding` at HEAD is four
+sites, none under `mobile/`), and mobile reaches this function through
+`composer-linked-work-item.ts` -> `buildLinearWorkspaceSource` and writes the
+result. So:
+
+    mobile  (never binds)  -> fallback -> persists "caf%C3%A9"
+    desktop (binds)        -> core     -> persists "café"
+
+Same issue, same field, same `===` on read. There is no fallback that is both the
+twin (needed for the unbound surfaces to keep working) and the core (needed for
+`parity` to be true).
+
+**A pre-existing bug the measurement exposed, which is the real bug here.** The
+two writers of `linkedLinearIssueOrganizationUrlKey` ALREADY disagree at HEAD for
+the same URL: `parseLinearIssueInput` decodes,
+`getLinearOrganizationUrlKeyFromIssueUrl` does not.
+
+    https://linear.app/caf%C3%A9/issue/ENG-1
+      getLinearOrganizationUrlKeyFromIssueUrl -> "caf%C3%A9"   (persisted)
+      parseLinearIssueInput                   -> "café"        (persisted)
+
+Only one can ever match `workspace.organizationUrlKey` in
+`resolveLegacyLinearLinkWorkspace`'s `===`, so one of the two write paths is
+already selecting no token at all.
+
+**Making them agree is a PRODUCT decision, not a refactor — do not just do it.**
+I tried: teaching the non-decoding writer to decode makes the two agree and
+aligns the twin with the core, and `pnpm parity` stays green at 3573/3661. Then
+`linear-links.test.ts` went red on a guard a previous agent had written for
+exactly this, in as many words — *"wiring this to the core turns these red
+instead of silently changing a persisted `linkedLinearIssueOrganizationUrlKey`."*
+
+It is right to stop there. Decoding is almost certainly the CORRECT answer (the
+Linear API returns the decoded url key, so the decoded spelling is the one that
+matches), but flipping it rewrites what new records persist while existing
+records keep the encoded spelling, and nothing migrates them. That is a data
+decision with a migration attached, and it belongs to whoever owns the Linear
+integration.
+
+Whichever way it goes, both writers must end up on the same side, and the cutover
+is downstream of that call.
+
+### `source-control-ai` — four attempts, and three of them overstated their own measurement
+
+The crash that produced the third attempt's 342 divergences is fixed (9026340f57),
+and the fourth attempt is the best-argued yet — it cuts the twin over IN PLACE so
+no importer's import line moves, closes most of the corpus hole, and fixes a real
+renderer bug on the way. It still verified PARTIAL / unsafe, and the reason is a
+pattern worth naming.
+
+**Its headline differential was false, for the third consecutive attempt.** The
+claim was "shim-BOUND == twin on 60,995 / 60,995 in the JSON image", and the shim
+header commits to it. An independent 64,341-call run found 445 byte-image, 90
+value and 753 strict mismatches. The 90 value mismatches are one class:
+
+    resolveSourceControlAiEnabled   SHIM false  !=  TWIN undefined
+
+at 15 (sourceControlAi, legacy) pairs x 6 repo shapes — any persisted
+`commitMessageAi` lacking an `enabled` key. `normalizeSourceControlAiSettings`
+leaves `enabled` own-undefined, so `repoOverrides?.enabled ?? source.enabled` is
+`undefined` while the core answers `false`.
+
+Three different agents, three different overstated counts, on the same 15-export,
+1343-line module. That is not three careless agents; it is a module whose surface
+is large enough that a self-authored differential can look exhaustive and miss a
+whole shape class. **The verifier's independent run is what caught it every
+time** — which is the argument for keeping fix and verify as separate agents with
+separate harnesses, rather than asking one agent to check its own work.
+
+Two things from that attempt are worth salvaging independently of the cutover:
+
+* **A real renderer bug**, measured and fixed there: the redundant-write dedupe at
+  `repository-source-control-ai-persist-queue.ts:40` and
+  `repository-source-control-ai-global-ux.ts:171` compares
+  `JSON.stringify(next) === JSON.stringify(getPersisted())`, and key ORDER differs
+  across the seam (`{fixChecks, pullRequest}` vs `{pullRequest, fixChecks}`, same
+  value). Post-cutover that dedupe stops deduping — a redundant repo write per
+  blur. It is latent today because both operands still come from the twin.
+* **The own-undefined-vs-absent residual**, now measured rather than asserted:
+  348 of 60,995 calls, only at `modelOverridesByOperation`, `customAgentCommand`,
+  `agentId` and `selectedModelByAgent`, and invisible in the JSON image.
+
+### A clean verdict means "nothing found", not "nothing there"
+
+Batch 5 took seven modules this tool called clean and four of them still had to
+be refused. Read a clean row as a floor, not a certificate:
+
+* **Input classes no unit test writes down.** `commit-message-models` diverges on
+  8 of 23 probes of raw agent-CLI stdout — and those outputs are the PERSISTED
+  model selection and the `--model` argv. `task-claim` diverges when a lone
+  surrogate reaches the DB as the six ASCII characters of a `\uD800` escape: the
+  codec passes it, `serde_json` rejects it, and the core answers
+  `unreadable-result` where the twin answers `mismatch` — silencing the fleet's
+  only contradicting signal, in the direction that exonerates the audited agent.
+* **Behaviour that lives in a sibling module.** `pairing` delegates all
+  validation to `mobile-relay-pairing-offer.ts`, whose tests are in a file this
+  tool never records for `pairing`. The port has none of that module's relay v1
+  sub-object; 10 of 13 probed inputs diverge.
+* **Exports with no vector at all** — now reported rather than skipped silently,
+  with whether the Rust dispatch module has an arm for them. 18 modules have at
+  least one export the corpus has never named AND no Rust route. `stable-pane-id`
+  is the cautionary one: `makePaneKey` mints the key used at
+  `TerminalPane.tsx:3221` as a React key, has ~60 importers, and both shipped
+  cores answer "unknown function makePaneKey". A shim would have thrown on every
+  pane key the moment wasm initialised.
+
+### Verify the tree you are about to COMMIT, not the one you are sitting in
+
+The maintainer's working tree carries ~1500 uncommitted files, so a green
+`pnpm typecheck:*` in the worktree says nothing about what lands. Batch 4 shipped
+four files importing names it had moved out from under them, and every one was
+invisible locally. Materialize the index and check that instead:
+
+```sh
+tree=$(git write-tree) && commit=$(git commit-tree "$tree" -p HEAD -m verify)
+git worktree add --detach /tmp/verify "$commit"
+ln -s "$PWD/node_modules" /tmp/verify/node_modules
+cd /tmp/verify && pnpm typecheck:node && pnpm typecheck:web
+```
+
+Compare against the same two commands on the commit you branched from — the
+baseline is not zero, and only NEW errors are yours.
+
+`protocol-compat` is cut over (`protocol-compat-verdict`, pre-ready `parity`);
+`worktree-id` and `nested-repo-telemetry` verified safe but are NOT landed, and
+`worktree_id.get_worktree_path_basename_from_id` carries a known divergence found
+by an adversarial sweep rather than by this tool: it trims with Rust
+`char::is_whitespace` where the twin uses JS `String.prototype.trim`, so a path
+segment containing U+0085 (Rust only) or U+FEFF (JS only) answers differently.
+The other three worktree-id functions are clean.
+
+### `contextual-tours` — CUT OVER 2026-08-16, two of three exports
+
 **`contextual-tours`, re-ported and PARTIALLY cut over 2026-08-15.** The module
 was clean on `pnpm parity:twin-derived` and had three green `getContextualTour`
 vectors, and the catalog was still stale on two tours — the exact shape of "a
@@ -395,6 +634,27 @@ four added cases on the two id functions, and the catalog vectors are left at
 HEAD's three. `CONTEXTUAL_TOUR_IDS` and its `feature_education_telemetry` mirror
 are handled in their own entry below, where the defect is live rather than
 latent.
+
+**CORRECTION — the catalog fix was dropped from the first commit for a reason
+that was wrong.** That commit said the board/browser drift was "the core leading
+HEAD", the missing steps existing "only in the maintainer's uncommitted working
+tree", and dropped four drafted tour goldens as a repeat of the aiVaultTitle
+mistake. That is backwards. `git show HEAD:src/shared/contextual-tours.ts` at
+b06d6c6d2d contains "Stay logged in" and does NOT contain "Tune density"; the
+Rust catalog is the opposite on both. The core was lagging **committed** TS, the
+four goldens were right, and dropping them was the error.
+
+What produced the wrong call: the working tree DOES carry an unrelated
+contextual-tours edit (a parallel session removing two step `id`s from the
+automations tour), and seeing an uncommitted diff on the file was taken as
+evidence that the newer steps were uncommitted too. Two different changes to one
+file, one committed and one not. The check that settles it costs one command and
+was not run — `git show HEAD:` on the TS side, not just on the Rust side. Porting
+against HEAD means reading HEAD on **both** sides of the comparison.
+
+The corpus went 8 → 12 in the first commit (the two id functions) and 12 → 16
+here: `getContextualTour` now has one vector per tour, goldens taken from HEAD's
+TS, so a sampled subset can never again hide a drifted tour.
 
 _Cut over 2026-08-15, TWO of three exports._ `isContextualTourId` and
 `normalizeContextualTourIds` are deleted from
@@ -542,6 +802,421 @@ cd /tmp/verify && pnpm typecheck:node && pnpm typecheck:web
 
 Compare against the same two commands on the commit you branched from — the
 baseline is not zero, and only NEW errors are yours.
+
+### The shipped blob is a THIRD implementation, and nobody was diffing it
+
+Two defects, found one after the other while cutting `contextual-tours` over,
+both of the same shape: a thing that ships disagreeing with the source that
+allegedly produced it.
+
+**1. `FEATURE_EDUCATION_SOURCES` was one entry short, and that one is live.**
+The Rust table omitted `floating_workspace_visible` (#5062), so
+`normalizeFeatureEducationSource` relabelled every floating-workspace event
+`"unknown"`. That module IS cut over — the renderer drives it through
+`git-wasm/feature-education-telemetry.ts` — so the twin's correct ten-entry
+table is dead code on that path and the loss was real, silent, and
+indistinguishable downstream from a genuine off-table value.
+
+Measured on the shipped `orca_node.node`, one call per table member: 9/10 agree,
+`floating_workspace_visible` answers `"unknown"`. The first version of that probe
+reported 0/10 and was WRONG — it wrapped the argument as `{value: …}` when the
+seam passes it bare, so every call fell down the off-table branch. Both the
+finding and the control agreed, which is the signature of a probe measuring
+nothing; the rule that catches it is the standing one, include an input where
+the two sides MUST differ, and note it has to discriminate in *both* directions.
+
+Two guards were in place and neither could fire. The unit test asserts
+`FEATURE_EDUCATION_CONTEXTUAL_TOUR_IDS == CONTEXTUAL_TOUR_IDS` — two hand-written
+Rust mirrors of the same list, so it passed while both were short. And the corpus
+sampled 3 of the 10 sources. Fixed: the tour-id const is now pinned to the
+CATALOG (`CONTEXTUAL_TOURS.map(...)`, the derivation the twin actually uses), and
+the corpus went 9 → 19 cases — every member of both tables, plus the three
+off-table controls. The added `floating_workspace_visible` case was watched to
+fail against the pre-rebuild blob.
+
+**2. The committed wasm did not correspond to the committed source, and had lost
+a whole field.** Rebuilding from the STAGED tree produced a blob 934 bytes
+*smaller* than the committed one — wrong-signed for a change that adds a table
+entry. Chasing that: a parallel session is mid-removal of the `aiVaultTitle`
+feature, a 151-line deletion sitting uncommitted in
+`workspace_session_schema.rs`, and the committed blob had been built from a tree
+that already carried it. So at HEAD, `orca_git_wasm_bg.wasm` dropped
+`aiVaultTitle` on every session parse while HEAD's committed TS (`types.ts`,
+`store/slices/tabs.ts`, `ai-vault-tab-title-sync.ts`) still read it. Probed
+three ways on both blobs — well-formed must round-trip, a future `agent` must be
+DROPPED, an explicit `null` must SURVIVE. Committed blob: `<absent>`, `<absent>`,
+`<absent>`. Rebuilt blob: the object, `<absent>`, `null`.
+
+That is the aiVaultTitle regression for the THIRD time, and the first time it
+arrived through the artifact rather than the source.
+
+**A guard already existed, was firing, and was being committed red.** The claim
+first written here — that `check:wasm-pins` only proves the pin matches the file
+— is wrong, and worth correcting rather than quietly deleting, because it would
+send the next reader off to build a guard that is already there.
+`check-orca-wasm-pins.mjs` hashes the crate source and compares it to the hash
+recorded in the pin, and at the previous HEAD (b06d6c6d2d) it exits **1**:
+
+```
+[check-wasm-pins] orca-git-wasm: committed wasm does not match its pin:
+  - src/renderer/src/lib/git-wasm/orca_git_wasm_bg.wasm.d.ts does not match its size/SHA-256 pin
+  - rust/orca-git-wasm source changed since the artifacts were built
+```
+
+It exits 0 on this commit. `check:wasm-pins` is a link in `pnpm lint`, so the
+lint gate was red on this axis and the stale blob shipped anyway. The
+actionable lesson is not "write a new check" but "this one was already telling
+you"; the follow-up worth having is whatever makes a red gate impossible to
+carry forward, not more coverage.
+
+(An attempt to check whether the OTHER `pnpm lint` links were red at HEAD is not
+reported here because the measurement was broken: run through
+`./node_modules/.bin/pnpm` inside a detached worktree, all eight sub-checks
+reported red on BOTH trees — including the wasm pin check that had just exited 0
+directly. A harness that fails everything identically is measuring itself.)
+
+Two things left open, deliberately. The corpus has **zero** cases touching
+`aiVaultTitle`, which is how an entire field could vanish from an artifact
+unnoticed; the case belongs in `workspace-session-schema`, whose adapter drives
+**napi**, and the local `.node` is stale in the same direction — so adding it
+here would commit a red gate over an untracked build output that a parallel
+session owns. And `rust/orca-git-wasm/Cargo.lock` was stale at HEAD (missing the
+`orca-policy` / `orca-core` edges a previous cutover added); cargo regenerates it
+identically from the committed manifests, so it is committed here rather than
+left to reappear in every future build.
+
+### `contextual-tours` — the third export, and the refusal that dissolved
+
+`getContextualTour` was refused with "the reason is the blob, not the port": the
+core's catalog was stale and the shipped wasm carried it. Rebuilding the blob for
+an unrelated telemetry fix made that refusal testable, so it got tested rather
+than re-asserted. Nine cases, one per tour plus two controls, comparing HEAD's TS
+catalog to the rebuilt wasm: **five tours agreed, `workspace-board` and `browser`
+did not.** The blob was fine; the Rust catalog was wrong against committed TS.
+
+So the fix is a port fix, not a product decision: the board tour loses the
+tune-density step, the browser tour gains "Stay logged in" and the two placements
+it was missing, and the grab step takes its reworded copy — every value read off
+`git show HEAD:src/shared/contextual-tours.ts`. All seven tours then agree, the
+blob is rebuilt on top, and the lookup crosses.
+
+_Cut over, all three exports._ `getContextualTour` goes to its own
+`contextual-tour-lookup.ts` rather than joining the id functions, because the
+two have different reach and therefore different contracts: the id functions
+serve main (napi), the renderer (wasm), and the web preload (which binds
+neither, so its fallback is permanent); the lookup is renderer-only. One file per
+binding story keeps both honest — and merging them would have made
+`contextual-tour-id-normalization.ts` a name that lies.
+
+Pre-ready contract `parity`, forced the same way: the return type is a non-null
+`ContextualTour` that every caller renders, so a sentinel would blank the overlay
+mid-tour. Crossing returns a FRESH object per call, which was checked rather than
+assumed — no caller compares tours by identity or mutates one, and the single
+render-path caller memoises on `activeTourId`. Ten cases run every tour in both
+seam states; planting a bound-only defect (drop the last step) reddens nine of
+them, so the bound leg is exercised rather than silently falling back.
+
+### `effective-upstream` — `splitRemoteBranchName`, and cost as a decision, not a mood
+
+The last TS-side export of this module. Cutting it over needed two questions
+answered rather than one, because a 6-line string split crossing a seam is the
+exact shape that got `quick-open-filter`'s per-file exports refused.
+
+**Cost.** Measured on this machine, same instrument as the earlier refusal:
+23.2 ns TS body, 407.8 ns napi (18×), 740.7 ns wasm (32×). Those multiples are
+identical to quick-open-filter's, so the multiple is NOT what decides it — what
+decides it is what the call count is bounded by. quick-open-filter ran per FILE
+over a 1.5M-line ripgrep pass, which is unbounded by anything the user
+controls. This runs per REF: `git-history-ref-display` is the only per-item
+caller (twice per ref), so a 1000-ref history costs +1.44 ms and a realistic one
+is a fraction of that; the other three call sites run once per operation. Cut
+over.
+
+**Fidelity.** Probed against BOTH shipped cores over 20 cases, 20/20 equal. The
+interesting ones are non-ASCII, because the twin indexes with
+`indexOf`/`.length` (UTF-16 units) and the core with `find`/`len` (bytes) —
+`'😀/main'`, `'a😀/b'`, `'x/😀'`, `'😀/'`. They agree, and the reason is worth
+stating: both only ask whether the slash is FIRST or LAST, and the split point
+is the same character under either unit. That is a property, not a coincidence,
+but the corpus now pins it anyway — 8 of those cases are new vectors, taking the
+module 7 → 15.
+
+**The `null` collision.** `null` is one of this function's real answers and also
+`tryOrcaDispatch`'s "no binding installed" signal, so the shim asks
+`isOrcaDispatchReady()` rather than reading readiness off the result. The test
+makes that load-bearing: planting a bound-only defect on the null path reddens 6
+of 15 cases, which are exactly the inputs a readiness-by-`null` shim would get
+wrong while every other input still looked right.
+
+The twin file keeps a one-line re-export so `git-effective-upstream`'s public
+surface is unchanged and its two sibling predicates — both at most twice per
+operation — keep calling it.
+
+### `browser-search` — one export crosses, one is refused with a token in the diff
+
+`looksLikeSearchQuery` CUT OVER; `buildSearchUrl` REFUSED, and the refusal is a
+script rather than a paragraph.
+
+**Why `buildSearchUrl` cannot cross.** TS takes
+`(query, engine, { kagiSessionLink })` and routes Kagi searches through the
+user's private-session link — a URL carrying an account bearer token. Rust's
+`build_search_url(query, engine)` has no options parameter at all; the dispatch
+module's own header admits it ("only `buildSearchUrl` (without options)").
+Crossing would silently downgrade every Kagi user to unauthenticated search, and
+**no vector can see it**, because the corpus only ever calls the two-arg shape.
+`config/scripts/browser-search-kagi-session-gap.mjs` prints both answers and
+exits 0 while the gap is real, 1 once the core learns the option:
+
+```
+twin (session link honoured) -> https://kagi.com/search?token=SECRET…&q=rust+ownership
+core (options ignored)       -> https://kagi.com/search?q=rust%20ownership
+```
+
+Note the second divergence hiding in that pair, which the refusal was not
+looking for: the twin builds through `URLSearchParams` (`+` for space) and the
+core through `encodeURIComponent` (`%20`). Even a core that grew the option
+would still have to agree on the encoding.
+
+Porting it is not a small job and should not be taken lightly:
+`buildKagiSessionSearchUrl` runs through `normalizeKagiSessionLink`, a
+hostile-paste validator that rejects user-info credentials and non-default ports
+so a pasted link cannot smuggle alternate auth into saved state. That is the
+`linear-links` `new URL` problem with a security consequence attached.
+
+**Why `looksLikeSearchQuery` can.** Probed against BOTH shipped cores over 31
+inputs, 31/31 equal, with the corpus answering true 15 times and false 16 — so a
+mistake in either direction is visible. The cases that matter are whitespace:
+the twin's `[^\s]+` is JS `\s` and the core's is Rust's, and the two disagree
+about U+FEFF. They still agree on every input, but by branch order rather than
+by the regexes matching, so those cases are pinned as tests instead of reasoned
+about.
+
+Worth recording how the test earned its keep: the first draft of the whitespace
+expectations had five of seven backwards, and the run caught it. A U+FEFF
+leading or trailing a dotted host blocks the URL pattern (the input then reads
+as a URL through the dot branch), but in the middle of a dotless word it changes
+nothing — which is not what "JS treats it as whitespace" leads you to guess.
+
+Pre-ready contract `parity`: `true` searches and `false` navigates, so no value
+can double as "could not ask", and on the main-process path this feeds
+`will-navigate` validation. Planting a bound-only inversion reddens 24 of 25.
+
+### `worktree-id` — the budget call answered, the cutover NOT taken, and why
+
+The standing question was a cost budget: 19–65× per call. Re-measured today:
+22.1 ns TS body, 241.8 ns napi (11×), 537.4 ns wasm (24×), and a 2,773-element
+sweep costs +0.61 ms. Bounded by WORKTREE count — tens, not the 1.5M lines that
+sank `quick-open-filter`. **On cost, it is affordable.**
+
+It still did not land, for two reasons found in the doing.
+
+**1. A latent port bug, now fixed.** Differentialling all four functions over 32
+inputs against both shipped cores: 122/128, with all six failures in
+`getWorktreePathBasenameFromId` and all of them the documented `.trim()` class —
+JS strips U+FEFF and Rust does not; Rust strips U+0085 (NEL) and JS does not.
+Both directions were live: `"r::/a/b\u{feff}"` answered `"b\u{feff}"` against
+the twin's `"b"`, and `"r::\u{85}"` answered `None` against the twin's
+`"\u{85}"`. The core now uses `trim_js` in both spots, and 10 vectors pin it
+(the corpus went 27 → 37). Latent rather than shipped, because production still
+runs the twin — but it would have become a real defect the instant anyone
+completed the cutover, which is precisely what was about to happen.
+
+**2. The cutover is a PARALLEL SESSION'S uncommitted work, and I nearly
+committed it.** `src/shared/worktree-id-parsing.ts` and its test are UNTRACKED.
+So is the edit to `tools/parity/dispatch/worktree-id.ts` whose header confidently
+says "The shared TS impl was DELETED … every surface now reaches
+`orca_core::worktree_id` through `src/shared/worktree-id-parsing.ts`". None of
+that is at HEAD; at HEAD the adapter imports the twin and says so.
+
+I read that header with `head -8` on the working tree instead of
+`git show HEAD:`, concluded the shim was committed-and-unwired, and repointed 66
+files onto it. Typecheck caught it — 39 node / 55 web errors, every one
+`Cannot find module '…/worktree-id-parsing'` — because the staged tree does not
+contain a file the working tree does. All 66 were backed out.
+
+This is the SAME mistake as the `contextual-tours` catalog call, in the same
+session, after writing "porting against HEAD means reading HEAD on **both**
+sides". There it was reading HEAD on the Rust side but not the TS side; here it
+was reading HEAD on neither. The durable form: **`head`/`cat`/`grep` on a path
+reads the working tree. In a repo with ~1,700 uncommitted files, every one of
+those is a possible lie about what is committed.** Use `git show HEAD:<path>`,
+and when a file's own comment describes an architecture, check that the comment
+is committed too.
+
+What remains for whoever finishes it: the shim already exists in the working
+tree, the core is now correct, and 37 vectors pin it. Two notes for that person.
+`worktree-id.ts` must KEEP its four bodies — the shim imports them as its
+`parity` fallback. And leave `mobile/` importing them directly: mobile never
+installs a binding, so routing it through the shim adds the seam and the payload
+codec to that bundle only to arrive back at the same bodies.
+
+### Why "cut over every module" cannot be satisfied: the fallback is load-bearing
+
+This is the structural answer, and it outranks every cost or reach refusal in
+this document, so it belongs before them.
+
+The `parity` pre-ready contract says a shim with no safe sentinel recomputes the
+deleted twin's body locally. That body has to run when the seam is UNBOUND — the
+renderer's boot window, and **permanently** on the web preload and on mobile,
+neither of which ever installs a binding. So whatever the fallback itself calls
+must remain a real TS implementation. **A fallback that dispatches is not a
+fallback**; when the seam is unbound it would ask the unbound seam.
+
+That makes some TS exports permanently uncuttable, and not as a judgement call.
+`pnpm exec node config/scripts/list-fallback-load-bearing-exports.mjs` walks
+every shim, extracts its `legacy*` fallback bodies and reports what they call:
+
+```
+70 shim files dispatch on the seam.
+41 exports are called from inside a pre-ready fallback and cannot cross
+```
+
+Most are tables and patterns, which is unremarkable. About a dozen are
+FUNCTIONS, and those are the ones a completion-minded reader would otherwise
+queue up:
+
+* `cross-platform-path::isWindowsAbsolutePathLike` — three shims depend on it
+  (`cross-platform-path-resolution`, `setup-runner-command-resolution`,
+  `git-wasm/setup-runner-command-platform`). Its own file already says so; the
+  earlier census filed it as an unwritten cost refusal, which was wrong twice
+  over — the reason is structural, and it was already written down.
+* the four `agent-status-field-normalization` normalizers, plus
+  `assertJsonTextStructureWithinLimits`, all inside `agent-status-evaluation`'s
+  fallback
+* `nushell-shell::quoteNuDoubleQuoted`, `tui-agent-config::isTuiAgent`,
+  `opencode-terminal-title::isMeaningfulOpenCodeTerminalTitle`,
+  `utf8-byte-limits::{clampUtf8TextTail,measureUtf8ByteLength}`
+
+So "cut over ALL modules" and "keep the `parity` contract" are the same
+instruction pointing in opposite directions. Driving the count to 87 would mean
+deleting the fallbacks, which means the renderer answers nothing during its boot
+window and the web preload and mobile answer nothing **ever** — those two surfaces
+have no wasm to become ready. The ceiling is a property of the architecture, not
+of how much work anyone is willing to do.
+
+Run the script before starting any cutover. If the export is on the list, the
+question is not "what does a crossing cost" — it is already answered.
+
+### Correction to the re-census: the "no Rust arm" bucket dissolves
+
+The census above put five modules in "no Rust arm — needs a Rust change, not a
+shim", and that framing was repeated as "real work, not a blocker". Both were
+wrong. Asking the cheaper question — **does anything call it** — of each name
+individually empties the bucket:
+
+| Module | Census said | Measured |
+| --- | --- | --- |
+| `fleet-identity` | missing `serializePtyBinding` arm | `serialize_pty_binding` and `store_keys_equal` already EXIST in `orca-policy`, merely undispatched — and it does not matter, because **nothing outside `src/shared/fleet-identity/` and its own tests imports the directory at all.** Zero production consumers. |
+| `policy` | missing `decidePlayPath` arm | `decidePlayPath` and `isAllowedPlayHost` appear only in `play-path-guard.ts` itself. Zero production consumers. (`decideFleetGrant`, in the same parity module, IS wired — `fleet-grant-registry.ts`.) |
+| `agent-scratch-worktrees` | two `legacy*` matchers unrouted | They are the module's own PRE-READY FALLBACK bodies, and `agent-scratch-worktrees.ts` says so in its header. Not pending work; the `parity` contract behaving as designed. |
+| `terminal-stream-protocol` | all six unrouted | Refuse: the terminal binary-framing path, so per-FRAME on the hottest stream in the app, **and** imported by `mobile/src/transport/`, which never installs a binding — the fallback would be permanent, not a boot window. Same double reason as `browser-screencast-protocol`. |
+| `mobile-relay-pairing-offer` | `createPairingOfferSchema` unrouted | A zod schema factory. Not a crossable shape at all; it returns a validator, not a value. |
+
+So **none of the five was "write an arm and cut it over"** — three are unwired or
+already-correct, two are refusals. That leaves **two** modules with no
+production consumer — `fleet-identity` and `policy`'s play-path guard — each
+carrying a full Rust port, a parity corpus and a green gate. (A third,
+`mcp-env`, was claimed here and is retracted below: its twin is live, and the
+shim I thought had replaced it is untracked.)
+
+That is the finding worth keeping from this whole census: **a green parity
+module is not evidence that anything uses the code.** The corpus proves TS and
+Rust agree; it says nothing about whether the app ever calls either one. Three
+of the twenty-one "remaining cutovers" are ports of code the app does not run,
+and a reader working the list top-down would have discovered that only after
+building three shims.
+
+Practically, the remaining list has no straightforward cutover left in it. What
+it has is: two perf/reach refusals to write up (`cross-platform-path`'s
+`isWindowsAbsolutePathLike` across 39 call sites, `worktree-id`'s 19–65× budget
+call), three unwired modules whose fate is a product decision, and three
+deliberate never-cut-overs.
+
+### `agent-recognition` — refused on GRANULARITY, which is a new reason
+
+Worth separating from the cost refusals, because the predicates here are cheap
+enough and faithful enough to cross; the problem is that crossing them is the
+wrong unit of work.
+
+**Fidelity is not the blocker, and the probe that establishes that is the
+interesting part.** `titleHasAgentName` matches with
+`(?<![\w./\\-])name(?![\w./\\-])` — a LOOKBEHIND, which Rust's `regex`
+crate does not support at all, so the port had to emulate it. And JS `\w`
+without `/u` is ASCII-only while Rust's is Unicode, so `'héclaude'`,
+`'日本claude'`, `'мclaude'` and `'café claude'` are inputs where an emulation
+using Rust's `\w` flips the answer and paints the wrong agent on a tab. 27/27
+agree against both shipped cores, 16 answering true and 11 false. The port got
+it right.
+
+**The blocker is that one question costs a dozen crossings.**
+`terminal-title-agent-type.ts` (12 calls) and `agent-title-identity.ts` (10)
+each answer "which agent is this title?" as a sequential ladder of
+`if (titleHasAgentName(title, 'codex')) … if (titleHasAgentName(title,
+'openclaude')) …`. Measured: 28.1 ns TS body against 1810.9 ns wasm — 65×,
+higher than the ~740 ns a bare-string seam costs, because the payload is an
+object. So a classification that costs ~0.3 µs today would cost ~21 µs, and the
+shape locks in: a later port of the classifier would have a dozen crossings to
+unwind before it could land.
+
+Only the three predicates have arms. The classifier does not exist in Rust —
+`grep` for `classify_terminal_title_agent_type` finds nothing. So the ordering
+is: port the classifier, cross it once, let it own the predicates.
+`config/scripts/agent-recognition-crossing-granularity.mjs` prints the arms, the
+per-file call counts and the measurement, and exits 1 the moment a classifier
+arm appears.
+
+The general form, which is worth stating once: **a faithful, affordable export
+can still be the wrong thing to cross.** Cost refusals ask "how expensive is one
+crossing"; this one asks "how many crossings does one decision take". The second
+question is the one that catches ladder-shaped callers.
+
+### Re-census 2026-08-16 — measured, because the previous list was not
+
+The counts in the section below ("40 of the 85") were carried forward rather
+than re-measured, and a summary of them had drifted further still: it described
+four modules blocked on maintainer decisions and three deliberate never-cut-
+overs, which is not what the tree says. This census resolves every adapter's
+imports and asks, per imported name, whether the file it comes from dispatches.
+
+**87 vector modules. 66 hold no TS implementation.** Of the 21 that do, the
+first cut is not "is it cuttable" but **does anything call it**:
+
+| State | Modules |
+| --- | --- |
+| no Rust arm — needs a Rust change, not a shim | `terminal-stream-protocol` (all 6), `agent-scratch-worktrees` (2 `legacy*` matchers), `policy` (`decidePlayPath`), `fleet-identity` (`serializePtyBinding`), `mobile-relay-pairing-offer` (`createPairingOfferSchema`, a zod factory — not a crossable shape) |
+| refused with an executable check | `quick-open-filter` (`node:path.relative` resolves against `process.cwd()`, so the twin is not a pure function of its arguments), `browser-search`'s `buildSearchUrl` (Kagi session link) |
+| refuse on reach or cost, not yet written up | `browser-screencast-protocol` (decode runs per VIDEO FRAME **and** reaches `mobile/src/transport/`, which never installs a binding — a permanent fallback, not a boot window), `cross-platform-path`'s `isWindowsAbsolutePathLike` (39 production call sites, several per-item: `quick-open-file-list`, `worktree-list-groups`) |
+| data/type exports the adapter imports — nothing to cross | `fleet-exceptions` (`EXCEPTION_SOURCE_STATUS`), and the six modules whose only twin import is `types.ts` |
+| deliberate never-cut-over | `nacl-box`, `orchestration-store`, `keep-tail` |
+| genuinely open | `agent-recognition` (`titleHasAgentName`, `isExpectedAgentProcess`), `worktree-id` (the 19–65× budget call below) |
+
+**`mcp-env` — RETRACTED.** This entry claimed `maskMcpEnv` had no production
+caller and that `mcp-config.ts`'s inspection was a superseded second
+implementation. **Both are false.** At HEAD, `McpConfigSection.tsx` and
+`settings/mcp-config-inspection.ts` import `inspectMcpConfigContent` straight
+from `src/shared/mcp-config.ts`; it is the live path.
+
+The error: `renderer/lib/git-wasm/mcp-config-content-inspection.ts`, the shim I
+described as having replaced it, is UNTRACKED. Like `worktree-id`'s, the `mcp`
+cutover is a parallel session's uncommitted work. I read the renderer's imports
+with `grep` on the working tree and reported them as HEAD's.
+
+There is nothing dead here and nothing to decide.
+
+Two lessons, and the second one cost more than the first.
+
+**"Is it cut over" and "is it called" are different questions, and the second is
+cheaper.** Checking reach first flagged `browser-screencast-protocol`'s mobile
+reach before any porting effort.
+
+**Ask both questions of HEAD.** The `mcp-env` claim above was retracted because
+reach was measured on the WORKING TREE. In this repo that is not a small slip:
+~1,700 files are uncommitted, and at least two cutovers (`mcp`, `worktree-id`)
+exist there as another session's in-progress work — shim files untracked,
+importers repointed, adapter headers already rewritten to announce a cutover
+that is not committed. Reading any of those with `grep`/`cat`/`head` returns a
+confident description of a tree that is not the one you would be committing to.
+`git grep <pat> HEAD --` and `git show HEAD:<path>`, every time.
 
 ### What is actually left, and what each one is waiting on
 
@@ -821,6 +1496,23 @@ caller's whole status objects) is what brought `getWorkspaceStatus` down from th
 4587ns recorded above; the remainder is the JSON encode plus the wasm hop. A
 list-shaped arm that resolves every row in one crossing would remove it. Filed
 here beside the `worktree-id` cost rather than fixed by an unasked cache.
+
+the repo's own tests build at 2,773 elements. That one is a real budget call.
+
+`worktree-ownership` was listed here too, and that was WRONG — a correction worth
+keeping because the mistake is instructive. Its 15 flagged divergences really are
+passthrough fields of a lean-by-design output shape, so the corpus signal was
+noise. But reading the module to settle that found the actual blocker on the
+INPUT side, where nothing had flagged anything: `classify_worktree_ownership`
+implements the twin's steps 1, 3 and 4 and NOT step 2, so `AgentScratch` is a
+variant it can never return, and the explicit-import visibility override is
+unported. Cutting over would un-hide every `.claude/worktrees/agent-*` row —
+the regression #9535 and #9388 fixed.
+
+Finishing a port so the core answers what the twin answers is never a judgement
+call; it is the work. What is a judgement call is whether to cut over with a gap
+still open. Filing the first as the second is how a module sits in an "open
+questions" list instead of a queue.
 
 ## The per-module pattern
 
@@ -1143,6 +1835,27 @@ also asserts the core cannot match it. Its rows live in
 `src/shared/workspace-status-normalization.test.ts` rather than in the central
 gate, which is already ~2x over its own max-lines budget; the gate carries a
 pointer comment.
+
+`git-upstream-force-push-decision.shouldForcePushWithLeaseForUpstream` (case 3,
+handled) is the newest, and the FIRST shim on the shared dispatch seam rather
+than in `src/renderer/src/lib/git-wasm/`: two `src/shared` decision modules
+(`source-control-primary-action-decision`, `source-control-create-review-intent`)
+call it, and a `src/shared` module cannot import a surface-specific binding. Its
+pre-ready value is `undefined` because the twin answered from the input and
+NEITHER boolean is even the safe direction — `false` sends `syncBranch` down
+`git pull`, re-merging the stale patch-equivalent commits a force-with-lease
+exists to replace; `true` force-pushes. **The fallback errs toward WITHHOLDING**:
+the diverged primary renders its counts with the button DISABLED, the dropdown
+folds the sentinel into `upstreamLoading` so Sync / Pull / Fast-forward /
+Commit & Push / Commit & Sync / Push-before-review disable themselves, both
+Create-PR-intent resolvers withhold the one-click prepare, and `syncBranch`
+throws into the existing "Sync failed" toast. Explicit Push / Force Push stay
+enabled — the user names those, and the predicate only *worded* them. Because
+`config/vitest-orca-dispatch-seam.ts` binds the seam for every test file,
+`shim-pre-ready-contract.test.ts` now unbinds it before the pre-ready pass, or a
+seam shim's row would pass vacuously. `isBehindOnlyUpstream` stays TypeScript in
+`src/shared/git-upstream-status.ts`: orca-core has no counterpart and the vectors
+have no cases for it, so it is unported, not un-cut-over.
 
 `git-push-target-shape.assertGitPushTargetShape` (compliant, `parity`) is the
 second shared-seam shim: main's five `git:*` SSH IPC handlers, `worktree-remote`'s
@@ -1961,6 +2674,37 @@ Violations — wrong answer, not persisted:
 | `tailnet-address.isTailnetIPv4Address`                                       | `false`                                                 | `true`                     | pairing picks the first interface instead of the tailnet one                                                            |
 | `hook-command-source-policy`                                                 | `'shared-only'`                                         | `'local-only'`             | fail-closed by design, but still a wrong answer for a configured user                                                   |
 | `github-pr-merge-methods` (with settings)                                    | all three methods                                       | the allowed subset         | the dropdown offers a method the repo forbids                                                                           |
+
+Violations, worst first — value written back to persisted state:
+
+| Shim | Pre-ready | Twin (ready) | Consequence |
+| --- | --- | --- | --- |
+| `terminal-fonts.normalizeTerminalFontWeight` | `500` | the input weight | the settings slider commits the normalized value — any drag persists 500 |
+| `terminal-quick-commands.normalizeTerminalQuickCommands` | `[]` | the list | `store/slices/settings.ts` persists it: one unrelated settings write empties the user's quick commands (the TS twin is *still implemented* in `src/shared/terminal-quick-commands.ts` — the pre-ready answer is one import away) |
+| `network-proxy.normalizeProxyUrl` | `{ok:true, value:draft}` | `{ok:false, message}` | an unvalidated proxy URL is persisted and the error is never shown |
+| `task-providers.normalizeTaskProviderSettings` / `normalizeVisibleTaskProviders` | the raw persisted value, cast | the normalized list | unvalidated junk is typed as `TaskProvider[]` and stored |
+| `repo-icon.sanitizeRepoIcon` | the input icon | `undefined` for an unsafe `src` | a `javascript:` icon bypasses the sanitizer into the reducer |
+| `open-in-applications.normalizeOpenInApplications` | the input array | the normalized list | blank/duplicate rows enter the settings reducer un-normalized (main re-normalizes on set — see "not justifications" above) |
+
+Violations — wrong answer, not persisted:
+
+| Shim | Pre-ready | Twin (ready) | Consequence |
+| --- | --- | --- | --- |
+| `hosted-review-refs.normalize*Ref` | the ref unchanged | `refs/heads/main` → `main` | ref-vs-branch comparisons miss (`create-review-draft-title`, eligibility snapshot) |
+| `task-query.*` | empty parse / `''` / query unchanged | the parse | TaskPage shows everything unfiltered; a filter click no-ops; `stripRepoQualifiers` leaves `repo:` on cross-repo fan-out |
+| `task-providers.filterAvailableTaskProviders` / `resolveVisibleTaskProvider` | unfiltered / the preference | filtered | unavailable providers stay in the UI |
+| `branch-name-from-work.sanitizeBranchSlug` | `raw.trim().toLowerCase()` | `fix-the-bug` | the "slug" keeps spaces and punctuation — not a valid git ref |
+| `branch-name-from-work.isAutoGeneratedCreatureBranchName` / `humanizeBranchSlug` | `false` / unchanged | the real answer | auto-rename silently skipped |
+| `terminal-quick-commands` scope/action/matchesRepo/body/complete | `global` / `terminal-command` / `true` / `''` / `false` | the real answer | an agent-prompt command runs down the terminal-command branch |
+| `feature-wall-tour-depth` | `'terminal'` / all-zero counts | the real depth | telemetry emitted with a wrong step and a **missing** `furthest_step` field |
+| `agent-kind.tuiAgentToAgentKind` | `'other'` | `'claude-code'` | telemetry attributes the run to the catch-all |
+| `feature-education-telemetry` | `'unknown'` | the mapped source | same, for on-table sources |
+| `workspace-name.slugify*` / `getLinkedWorkItemSuggestedName` | `''` | the slug | `''` reads as "no usable name"; the create form seeds blank |
+| `project-groups.getProjectGroupSubtreeIds` | `{root}` | root + descendants | subtree-scoped removals/queries under-scope |
+| `workspace-cleanup` predicates | `false` | the real answer | conservative, but a dismissed candidate reappears and a queueable one is not offered |
+| `tailnet-address.isTailnetIPv4Address` | `false` | `true` | pairing picks the first interface instead of the tailnet one |
+| `hook-command-source-policy` | `'shared-only'` | `'local-only'` | fail-closed by design, but still a wrong answer for a configured user |
+| `github-pr-merge-methods` (with settings) | all three methods | the allowed subset | the dropdown offers a method the repo forbids |
 
 Five shims still reach the core through
 per-module typed wasm exports (`terminalQuickCommandOp`, `tuiAgentStartupOp`,

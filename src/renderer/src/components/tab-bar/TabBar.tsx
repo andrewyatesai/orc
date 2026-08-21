@@ -68,6 +68,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Button } from '@/components/ui/button'
 import type { TabCreateEntryArgs } from './tab-create-entry-action'
 import { buildTabAgentLaunchOptions, orderTabLaunchAgents } from './tab-agent-launch-options'
+import { DEFAULT_DISABLED_TUI_AGENTS } from '../../../../shared/tui-agent-selection'
 import { collapseDefaultTuiAgentToBuiltin } from '../../../../shared/tui-agent-selection-resolution'
 import { buildTabCreateMenuOptions, type TabCreateMenuOption } from './tab-create-menu-options'
 import { MobileEmulatorTabIntroCallout } from '../emulator-pane/MobileEmulatorTabIntroCallout'
@@ -327,6 +328,9 @@ function TabBarInner({
   const defaultAgent = useAppStore((s) =>
     collapseDefaultTuiAgentToBuiltin(s.settings?.defaultTuiAgent, s.settings?.customAgents)
   )
+  const disabledTuiAgents = useAppStore(
+    (s) => s.settings?.disabledTuiAgents ?? DEFAULT_DISABLED_TUI_AGENTS
+  )
   const agentCmdOverrides = useAppStore(
     (s) => s.settings?.agentCmdOverrides ?? EMPTY_AGENT_CMD_OVERRIDES
   )
@@ -335,10 +339,10 @@ function TabBarInner({
   const agentLaunchOptions = useMemo(
     () =>
       buildTabAgentLaunchOptions(
-        orderTabLaunchAgents(defaultAgent, detectedIds ?? []),
+        orderTabLaunchAgents(defaultAgent, detectedIds ?? [], disabledTuiAgents),
         agentCmdOverrides
       ),
-    [agentCmdOverrides, defaultAgent, detectedIds]
+    [agentCmdOverrides, defaultAgent, detectedIds, disabledTuiAgents]
   )
   const isWebClient = (globalThis as { __ORCA_WEB_CLIENT__?: boolean }).__ORCA_WEB_CLIENT__ === true
   const windowsTerminalCapabilityOwnerKey = getWindowsTerminalCapabilityOwnerKey(
@@ -484,6 +488,9 @@ function TabBarInner({
   }
   const queueTerminalTabFocusAfterNewTabMenuClose = (tabId: string): void => {
     pendingNewTabMenuFocusRef.current = () => focusTerminalTabSurface(tabId)
+  }
+  const queueFocusAfterNewTabMenuClose = (focus: () => void): void => {
+    pendingNewTabMenuFocusRef.current = focus
   }
   const windowsShellEntries = useMemo(() => {
     if (!showWindowsShellMenu || !onNewTerminalWithShell) {
@@ -1197,6 +1204,8 @@ function TabBarInner({
                 />
               )
             })}
+            {/* Why: a short end inset keeps a last tab's close control off the chevron and fade. */}
+            <div data-tab-strip-end-pad="" aria-hidden className="pointer-events-none shrink-0" />
           </div>
           <TabStripScrollIndicator metrics={tabStripOverflowState} />
         </div>
@@ -1269,6 +1278,7 @@ function TabBarInner({
                 }}
                 onOpenEntry={onOpenEntry}
                 onQueryChange={setCreateMenuQuery}
+                onQueueSwitchFocus={queueFocusAfterNewTabMenuClose}
                 onSelectMenuOption={handleSelectCreateMenuOption}
                 onDidOpenEntry={() => setNewTabMenuOpen(false)}
               />

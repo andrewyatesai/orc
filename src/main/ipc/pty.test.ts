@@ -18,9 +18,10 @@ import { PtyWriteUnavailableError } from '../providers/pty-write-unavailable-err
 
 const isWindowsHost = process.platform === 'win32'
 const posixOnlyIt = isWindowsHost ? it.skip : it
+// Why: bare shells no longer mkdir ~/.omp; OMP status lives under userData (#10196).
 const expectedOmpStatusExtension = posix.join(
-  '/tmp/default-omp-agent',
-  'extensions',
+  '/tmp/orca-user-data',
+  'omp-managed-status-extension',
   'orca-agent-status.ts'
 )
 function expectedAttributionShimDir(): string {
@@ -453,15 +454,33 @@ describe('registerPtyHandlers', () => {
       ORCA_AGENT_HOOK_TOKEN: 'agent-token'
     })
     piBuildPtyEnvMock.mockImplementation(
-      (_ptyId: string, existingAgentDir?: string, kind?: string) =>
-        kind === 'omp'
-          ? {
-              ORCA_OMP_SOURCE_AGENT_DIR: existingAgentDir ?? '/tmp/default-omp-agent',
-              ORCA_OMP_STATUS_EXTENSION: `${existingAgentDir ?? '/tmp/default-omp-agent'}/extensions/orca-agent-status.ts`
+      (
+        _ptyId: string,
+        existingAgentDir?: string,
+        kind?: string,
+        options?: { materializeDefaultHome?: boolean }
+      ) => {
+        const materializeDefaultHome = options?.materializeDefaultHome !== false
+        if (kind === 'omp') {
+          // Why: bare shells no longer create ~/.omp; only a userData status path is set (#10196).
+          if (!existingAgentDir && !materializeDefaultHome) {
+            return {
+              ORCA_OMP_STATUS_EXTENSION:
+                '/tmp/orca-user-data/omp-managed-status-extension/orca-agent-status.ts'
             }
-          : {
-              ORCA_PI_SOURCE_AGENT_DIR: existingAgentDir ?? '/tmp/default-pi-agent'
-            }
+          }
+          return {
+            ORCA_OMP_SOURCE_AGENT_DIR: existingAgentDir ?? '/tmp/default-omp-agent',
+            ORCA_OMP_STATUS_EXTENSION: `${existingAgentDir ?? '/tmp/default-omp-agent'}/extensions/orca-agent-status.ts`
+          }
+        }
+        if (!existingAgentDir && !materializeDefaultHome) {
+          return {}
+        }
+        return {
+          ORCA_PI_SOURCE_AGENT_DIR: existingAgentDir ?? '/tmp/default-pi-agent'
+        }
+      }
     )
     isPwshAvailableMock.mockReturnValue(false)
     spawnMock.mockReturnValue({
@@ -751,7 +770,7 @@ describe('registerPtyHandlers', () => {
     terminalHandle: 'term_recovered'
   }
 
-  function registerAgentClaimController(): {
+  function registerAgentClaimController(runtimeOverrides: Record<string, unknown> = {}): {
     spawn: (args: Record<string, unknown>) => Promise<unknown>
     write: (ptyId: string, data: string) => boolean
     resize: (ptyId: string, cols: number, rows: number) => boolean
@@ -767,8 +786,10 @@ describe('registerPtyHandlers', () => {
       setPtyController: vi.fn((next) => {
         controller = next
       }),
+      createPreAllocatedTerminalHandle: vi.fn(() => 'term_recovered'),
       registerPreAllocatedHandleForPty: vi.fn(),
-      registerPty: vi.fn()
+      registerPty: vi.fn(),
+      ...runtimeOverrides
     }
     registerPtyHandlers(mainWindow as never, runtime as never)
     if (!controller) {
@@ -803,6 +824,65 @@ describe('registerPtyHandlers', () => {
 
     unregisterSshPtyProvider(connectionId)
     clearProviderPtyState(ptyId)
+  })
+
+  it('refuses subscriber-driven attach for SSH ids and the plain local provider (#12589)', async () => {
+    setLocalPtyProvider(new LocalPtyProvider())
+    const controller = registerAgentClaimController() as unknown as {
+      attach: (ptyId: string) => Promise<boolean>
+    }
+
+    // SSH-scoped id: refused before touching any provider (own lease machinery).
+    expect(await controller.attach('ssh:ssh-1@@remote-pty')).toBe(false)
+    // The in-process local provider streams without an attach — never attach it.
+    expect(await controller.attach('plain-local-pty')).toBe(false)
+  })
+
+  it('attaches an unowned local daemon session through the provider (#12589)', async () => {
+    const daemonProvider = createAgentClaimProvider({})
+    setLocalPtyProvider(daemonProvider as never)
+    const controller = registerAgentClaimController() as unknown as {
+      attach: (ptyId: string) => Promise<boolean>
+    }
+
+    // Owned SSH-provider ids are refused; only the local daemon provider attaches.
+    const sshProvider = createAgentClaimProvider({})
+    registerSshPtyProvider('ssh-2', sshProvider as never)
+    setPtyOwnership('owned-remote-pty', 'ssh-2')
+    expect(await controller.attach('owned-remote-pty')).toBe(false)
+    expect(sshProvider.attach).not.toHaveBeenCalled()
+
+    // Unowned local daemon session: attaches through the daemon-backed provider.
+    expect(await controller.attach('daemon-pty')).toBe(true)
+    expect(daemonProvider.attach).toHaveBeenCalledWith('daemon-pty')
+
+    unregisterSshPtyProvider('ssh-2')
+    clearPtyOwnershipForConnection('ssh-2')
+    clearProviderPtyState('daemon-pty')
+  })
+
+  it('synchronizes subscriber-driven attach to the daemon snapshot sequence', async () => {
+    const daemonPtyId = 'repo-1::/tmp/wt@@sequence-handoff'
+    const providerSequence = { value: 204, generation: 'continued' as const }
+    const localProvider = createAgentClaimProvider({})
+    localProvider.attach.mockResolvedValueOnce({ providerSequence })
+    setLocalPtyProvider(localProvider as never)
+    const getPtyOutputSequence = vi.fn(() => 0)
+    const synchronizePtyOutputSequenceFromProvider = vi.fn()
+    const controller = registerAgentClaimController({
+      getPtyOutputSequence,
+      synchronizePtyOutputSequenceFromProvider
+    }) as unknown as { attach: (ptyId: string) => Promise<boolean> }
+
+    await expect(controller.attach(daemonPtyId)).resolves.toBe(true)
+
+    expect(getPtyOutputSequence).toHaveBeenCalledWith(daemonPtyId)
+    expect(synchronizePtyOutputSequenceFromProvider).toHaveBeenCalledWith(
+      daemonPtyId,
+      providerSequence,
+      0
+    )
+    clearProviderPtyState(daemonPtyId)
   })
 
   it('does not dispatch a runtime PTY spawn after its client disconnects', async () => {
@@ -1035,6 +1115,86 @@ describe('registerPtyHandlers', () => {
     })
     expect(physicalSpawn).toHaveBeenCalledOnce()
     clearProviderPtyState('pty-local-claim')
+  })
+
+  it.each(['runtime controller', 'renderer IPC'] as const)(
+    'recovers degraded fresh-spawn routing before %s chooses daemon host semantics',
+    async (entryPoint) => {
+      let degraded = true
+      const daemonSpawn = vi.fn(async (options: { sessionId?: string }) => ({
+        id: options.sessionId ?? 'unexpected-fallback-id'
+      }))
+      const provider = createAgentClaimProvider({ spawn: daemonSpawn })
+      const recoverFreshSpawnRouting = vi.fn(async () => {
+        degraded = false
+        return true
+      })
+      Object.defineProperties(provider, {
+        routesFreshSpawnsToLocalProvider: {
+          configurable: true,
+          get: () => (degraded ? true : undefined)
+        },
+        recoverFreshSpawnRouting: { value: recoverFreshSpawnRouting }
+      })
+      setLocalPtyProvider(provider as never)
+      const controller = registerAgentClaimController()
+      const worktreeId = 'repo::/tmp/recovered-daemon-routing'
+      const spawnArgs = {
+        cols: 80,
+        rows: 24,
+        cwd: '/tmp/recovered-daemon-routing',
+        worktreeId
+      }
+
+      await (entryPoint === 'runtime controller'
+        ? controller.spawn(spawnArgs)
+        : handlers.get('pty:spawn')!(null, spawnArgs))
+
+      expect(recoverFreshSpawnRouting).toHaveBeenCalledOnce()
+      expect(daemonSpawn).toHaveBeenCalledOnce()
+      expect(daemonSpawn.mock.calls[0]?.[0].sessionId).toMatch(
+        new RegExp(`^${worktreeId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}@@`)
+      )
+      // Recovery must resolve before the spawn commits to daemon-host semantics.
+      expect(recoverFreshSpawnRouting.mock.invocationCallOrder[0]).toBeLessThan(
+        daemonSpawn.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+      )
+    }
+  )
+
+  it('recovers degraded routing for a fresh runtime session with a stable id', async () => {
+    let degraded = true
+    const daemonSpawn = vi.fn(async (options: { sessionId?: string; isNewSession?: boolean }) => ({
+      id: options.sessionId ?? 'unexpected-fallback-id'
+    }))
+    const provider = createAgentClaimProvider({ spawn: daemonSpawn })
+    const recoverFreshSpawnRouting = vi.fn(async () => {
+      degraded = false
+      return true
+    })
+    Object.defineProperties(provider, {
+      routesFreshSpawnsToLocalProvider: {
+        configurable: true,
+        get: () => (degraded ? true : undefined)
+      },
+      recoverFreshSpawnRouting: { value: recoverFreshSpawnRouting }
+    })
+    setLocalPtyProvider(provider as never)
+    const controller = registerAgentClaimController()
+
+    await controller.spawn({
+      cols: 80,
+      rows: 24,
+      cwd: '/tmp/recovered-stable-session',
+      worktreeId: 'repo::/tmp/recovered-stable-session',
+      sessionId: 'serve-stable-session',
+      isNewSession: true
+    })
+
+    expect(recoverFreshSpawnRouting).toHaveBeenCalledOnce()
+    expect(daemonSpawn).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'serve-stable-session', isNewSession: true })
+    )
   })
 
   it('adopts a daemon owner recovered from provider listing before claimed ensure', async () => {
@@ -2468,15 +2628,56 @@ describe('registerPtyHandlers', () => {
 
     it('installs Pi managed extensions without redirecting Orca terminal PTY homes', async () => {
       const env = await spawnAndGetEnv(undefined, { PI_CODING_AGENT_DIR: '/tmp/user-pi-agent' })
-      expect(piBuildPtyEnvMock).toHaveBeenCalledWith(expect.any(String), '/tmp/user-pi-agent', 'pi')
-      expect(piBuildPtyEnvMock).toHaveBeenCalledWith(expect.any(String), undefined, 'omp')
+      expect(piBuildPtyEnvMock).toHaveBeenCalledWith(
+        expect.any(String),
+        '/tmp/user-pi-agent',
+        'pi',
+        { materializeDefaultHome: false }
+      )
+      expect(piBuildPtyEnvMock).toHaveBeenCalledWith(expect.any(String), undefined, 'omp', {
+        materializeDefaultHome: false
+      })
       expect(env.PI_CODING_AGENT_DIR).toBe('/tmp/user-pi-agent')
       expect(env.ORCA_PI_CODING_AGENT_DIR).toBeUndefined()
       expect(env.ORCA_PI_SOURCE_AGENT_DIR).toBe('/tmp/user-pi-agent')
       expect(env.ORCA_OMP_CODING_AGENT_DIR).toBeUndefined()
       expect(env.ORCA_OMP_STATUS_EXTENSION).toBe(
-        '/tmp/default-omp-agent/extensions/orca-agent-status.ts'
+        '/tmp/orca-user-data/omp-managed-status-extension/orca-agent-status.ts'
       )
+      expect(env.ORCA_OMP_SOURCE_AGENT_DIR).toBeUndefined()
+    })
+
+    it('does not materialize a missing Pi home when another agent mentions Pi', async () => {
+      const env = await spawnAndGetEnv(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'codex "ask about pi"',
+        'codex'
+      )
+
+      expect(piBuildPtyEnvMock).toHaveBeenCalledTimes(1)
+      expect(piBuildPtyEnvMock).toHaveBeenCalledWith(expect.any(String), undefined, 'pi', {
+        materializeDefaultHome: false
+      })
+      expect(env.ORCA_PI_SOURCE_AGENT_DIR).toBeUndefined()
+    })
+
+    it('materializes Pi home for an explicit Pi launch through a custom command', async () => {
+      const env = await spawnAndGetEnv(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'custom-pi-wrapper',
+        'pi'
+      )
+
+      expect(piBuildPtyEnvMock).toHaveBeenCalledWith(expect.any(String), undefined, 'pi', {
+        materializeDefaultHome: true
+      })
+      expect(env.ORCA_PI_SOURCE_AGENT_DIR).toBe('/tmp/default-pi-agent')
     })
 
     it('threads command: "omp" through to piBuildPtyEnv and emits OMP status metadata', async () => {
@@ -2491,7 +2692,8 @@ describe('registerPtyHandlers', () => {
       expect(piBuildPtyEnvMock).toHaveBeenCalledWith(
         expect.any(String),
         '/tmp/user-omp-agent',
-        'omp'
+        'omp',
+        { materializeDefaultHome: true }
       )
       expect(env.PI_CODING_AGENT_DIR).toBe('/tmp/user-omp-agent')
       expect(env.ORCA_OMP_CODING_AGENT_DIR).toBeUndefined()
@@ -2519,7 +2721,8 @@ describe('registerPtyHandlers', () => {
       expect(piBuildPtyEnvMock).toHaveBeenCalledWith(
         expect.any(String),
         '/tmp/user-omp-agent',
-        'omp'
+        'omp',
+        { materializeDefaultHome: true }
       )
       expect(env.ORCA_OMP_STATUS_EXTENSION).toBe(
         '/tmp/user-omp-agent/extensions/orca-agent-status.ts'
@@ -2532,7 +2735,12 @@ describe('registerPtyHandlers', () => {
         PI_CODING_AGENT_DIR: '/tmp/parent-orca-pi-overlay',
         ORCA_PI_SOURCE_AGENT_DIR: '/tmp/user-pi-agent'
       })
-      expect(piBuildPtyEnvMock).toHaveBeenCalledWith(expect.any(String), '/tmp/user-pi-agent', 'pi')
+      expect(piBuildPtyEnvMock).toHaveBeenCalledWith(
+        expect.any(String),
+        '/tmp/user-pi-agent',
+        'pi',
+        { materializeDefaultHome: false }
+      )
       expect(env.PI_CODING_AGENT_DIR).toBe('/tmp/parent-orca-pi-overlay')
       expect(env.ORCA_PI_CODING_AGENT_DIR).toBeUndefined()
       expect(env.ORCA_PI_SOURCE_AGENT_DIR).toBe('/tmp/user-pi-agent')
@@ -2551,7 +2759,9 @@ describe('registerPtyHandlers', () => {
         'omp'
       )
 
-      expect(piBuildPtyEnvMock).toHaveBeenCalledWith(expect.any(String), undefined, 'omp')
+      expect(piBuildPtyEnvMock).toHaveBeenCalledWith(expect.any(String), undefined, 'omp', {
+        materializeDefaultHome: true
+      })
       expect(env.ORCA_OMP_CODING_AGENT_DIR).toBeUndefined()
       expect(env.ORCA_OMP_SOURCE_AGENT_DIR).toBe('/tmp/default-omp-agent')
       expect(env.ORCA_PI_CODING_AGENT_DIR).toBeUndefined()
@@ -2571,7 +2781,9 @@ describe('registerPtyHandlers', () => {
         'pi'
       )
 
-      expect(piBuildPtyEnvMock).toHaveBeenCalledWith(expect.any(String), undefined, 'pi')
+      expect(piBuildPtyEnvMock).toHaveBeenCalledWith(expect.any(String), undefined, 'pi', {
+        materializeDefaultHome: true
+      })
       expect(env.ORCA_PI_CODING_AGENT_DIR).toBeUndefined()
       expect(env.ORCA_PI_SOURCE_AGENT_DIR).toBe('/tmp/default-pi-agent')
       expect(env.ORCA_OMP_CODING_AGENT_DIR).toBeUndefined()
@@ -2613,7 +2825,8 @@ describe('registerPtyHandlers', () => {
         expect(piBuildPtyEnvMock).toHaveBeenCalledWith(
           expect.any(String),
           '/home/tester/.config/pi-agent',
-          'pi'
+          'pi',
+          { materializeDefaultHome: false }
         )
         expect(env.PI_CODING_AGENT_DIR).toBeUndefined()
         expect(env.ORCA_PI_CODING_AGENT_DIR).toBeUndefined()
@@ -3021,13 +3234,21 @@ describe('registerPtyHandlers', () => {
 
       it('installs Pi managed extensions without redirecting homes on the daemon path', async () => {
         const env = await daemonSpawnAndGetEnv({ PI_CODING_AGENT_DIR: '/user/.pi/agent' })
-        expect(piBuildPtyEnvMock).toHaveBeenCalledWith(expect.any(String), '/user/.pi/agent', 'pi')
-        expect(piBuildPtyEnvMock).toHaveBeenCalledWith(expect.any(String), undefined, 'omp')
+        expect(piBuildPtyEnvMock).toHaveBeenCalledWith(
+          expect.any(String),
+          '/user/.pi/agent',
+          'pi',
+          { materializeDefaultHome: false }
+        )
+        expect(piBuildPtyEnvMock).toHaveBeenCalledWith(expect.any(String), undefined, 'omp', {
+          materializeDefaultHome: false
+        })
         expect(env.PI_CODING_AGENT_DIR).toBe('/user/.pi/agent')
         expect(env.ORCA_PI_CODING_AGENT_DIR).toBeUndefined()
         expect(env.ORCA_PI_SOURCE_AGENT_DIR).toBe('/user/.pi/agent')
         expect(env.ORCA_OMP_CODING_AGENT_DIR).toBeUndefined()
         expect(env.ORCA_OMP_STATUS_EXTENSION).toBe(expectedOmpStatusExtension)
+        expect(env.ORCA_OMP_SOURCE_AGENT_DIR).toBeUndefined()
       })
 
       it('threads command: "omp" through to piBuildPtyEnv on the daemon path with OMP status metadata', async () => {
@@ -3042,7 +3263,8 @@ describe('registerPtyHandlers', () => {
         expect(piBuildPtyEnvMock).toHaveBeenCalledWith(
           expect.any(String),
           '/user/.omp/agent',
-          'omp'
+          'omp',
+          { materializeDefaultHome: true }
         )
         expect(env.PI_CODING_AGENT_DIR).toBe('/user/.omp/agent')
         expect(env.ORCA_OMP_CODING_AGENT_DIR).toBeUndefined()
@@ -3069,7 +3291,8 @@ describe('registerPtyHandlers', () => {
         expect(piBuildPtyEnvMock).toHaveBeenCalledWith(
           expect.any(String),
           '/user/.omp/agent',
-          'omp'
+          'omp',
+          { materializeDefaultHome: true }
         )
         expect(env.ORCA_OMP_STATUS_EXTENSION).toBe(
           '/user/.omp/agent/extensions/orca-agent-status.ts'
@@ -4090,7 +4313,9 @@ describe('registerPtyHandlers', () => {
         expect(sessionId).toEqual(expect.any(String))
         expect((sessionId ?? '').length).toBeGreaterThan(0)
         expect(spawnOpts.isNewSession).toBe(true)
-        expect(piBuildPtyEnvMock).toHaveBeenCalledWith(sessionId, undefined, 'pi')
+        expect(piBuildPtyEnvMock).toHaveBeenCalledWith(sessionId, undefined, 'pi', {
+          materializeDefaultHome: false
+        })
       })
 
       it('respects a caller-provided sessionId instead of minting a new one', async () => {
@@ -4105,7 +4330,9 @@ describe('registerPtyHandlers', () => {
         })
         expect(daemonSpawn.mock.calls.at(-1)![0].sessionId).toBe('user-session-42')
         expect(daemonSpawn.mock.calls.at(-1)![0].isNewSession).toBeUndefined()
-        expect(piBuildPtyEnvMock).toHaveBeenCalledWith('user-session-42', undefined, 'pi')
+        expect(piBuildPtyEnvMock).toHaveBeenCalledWith('user-session-42', undefined, 'pi', {
+          materializeDefaultHome: false
+        })
       })
 
       it('prefixes a minted sessionId with the worktreeId when provided', async () => {
@@ -4121,7 +4348,9 @@ describe('registerPtyHandlers', () => {
         })
         const sessionId = daemonSpawn.mock.calls.at(-1)![0].sessionId ?? ''
         expect(sessionId).toMatch(/^wt-alpha@@[0-9a-f]{8}$/)
-        expect(piBuildPtyEnvMock).toHaveBeenCalledWith(sessionId, undefined, 'pi')
+        expect(piBuildPtyEnvMock).toHaveBeenCalledWith(sessionId, undefined, 'pi', {
+          materializeDefaultHome: false
+        })
       })
 
       it('reuses one attach-style daemon session for fresh-agent operation retries', async () => {
@@ -4200,7 +4429,8 @@ describe('registerPtyHandlers', () => {
         expect(piBuildPtyEnvMock).toHaveBeenCalledWith(
           expect.any(String),
           '/ambient/pi/agent',
-          'pi'
+          'pi',
+          { materializeDefaultHome: false }
         )
         expect(env.PI_CODING_AGENT_DIR).toBeUndefined()
         expect(env.ORCA_PI_CODING_AGENT_DIR).toBeUndefined()
@@ -5312,7 +5542,10 @@ describe('registerPtyHandlers', () => {
           kill: (ptyId: string) => boolean
         }
 
-        expect(controller.kill('ssh:ssh-1@@relay-pty')).toBe(true)
+        // Why (#14977): a detached relay outlives its provider, so an unregistered
+        // provider is lost contact — tombstone the lease but never fabricate a
+        // confirmed kill from silence.
+        expect(controller.kill('ssh:ssh-1@@relay-pty')).toBe(false)
 
         expect(localShutdown).not.toHaveBeenCalled()
         expect(store.markSshRemotePtyLease).toHaveBeenCalledWith('ssh-1', 'relay-pty', 'terminated')
@@ -5342,7 +5575,9 @@ describe('registerPtyHandlers', () => {
           kill: (ptyId: string) => boolean
         }
 
-        expect(controller.kill('remote-pty')).toBe(true)
+        // Why (#14977): lost contact with the SSH provider is an unconfirmed stop,
+        // not a confirmed kill, even though the lease is tombstoned.
+        expect(controller.kill('remote-pty')).toBe(false)
 
         expect(store.markSshRemotePtyLease).toHaveBeenCalledWith(
           'ssh-1',
@@ -5376,7 +5611,9 @@ describe('registerPtyHandlers', () => {
           stopAndWait: (ptyId: string) => Promise<boolean>
         }
 
-        await expect(controller.stopAndWait('remote-pty')).resolves.toBe(true)
+        // Why (#14977): stopAndWait cannot confirm a kill it never issued, so a
+        // missing SSH provider resolves as an unconfirmed stop, not success.
+        await expect(controller.stopAndWait('remote-pty')).resolves.toBe(false)
 
         expect(store.recordSshRemotePtyKillIntent).toHaveBeenCalledWith('ssh-1', 'remote-pty')
         expect(store.markSshRemotePtyLease).toHaveBeenCalledWith(
@@ -5384,6 +5621,56 @@ describe('registerPtyHandlers', () => {
           'remote-pty',
           'terminated'
         )
+      })
+
+      it('reports an unconfirmed stop, not a confirmed kill, when the SSH provider is gone (#14977)', () => {
+        // Why: the pre-fix branch returned true here — a fabricated confirmed kill
+        // from lost contact. A detached relay outlives its provider, so losing the
+        // provider is not evidence the remote process stopped. This pins that the
+        // controller still tombstones + closes the pane but never claims success.
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+        const store = {
+          markSshRemotePtyLease: vi.fn(),
+          recordSshRemotePtyKillIntent: vi.fn()
+        }
+        const runtime = {
+          setPtyController: vi.fn(),
+          onPtyExit: vi.fn()
+        }
+        setPtyOwnership('remote-pty', 'ssh-1')
+        handlers.clear()
+        mainWindow.webContents.send.mockReset()
+        registerPtyHandlers(
+          mainWindow as never,
+          runtime as never,
+          undefined,
+          undefined,
+          undefined,
+          store as never
+        )
+        const controller = runtime.setPtyController.mock.calls[0]?.[0] as {
+          kill: (ptyId: string) => boolean
+        }
+
+        // Not a confirmed kill: lost contact is unverifiable, so the stop is unconfirmed.
+        expect(controller.kill('remote-pty')).toBe(false)
+        // The lease is still tombstoned so reconnect cannot revive it, and the
+        // renderer still receives the synthetic exit so the pane closes.
+        expect(store.recordSshRemotePtyKillIntent).toHaveBeenCalledWith('ssh-1', 'remote-pty')
+        expect(store.markSshRemotePtyLease).toHaveBeenCalledWith(
+          'ssh-1',
+          'remote-pty',
+          'terminated'
+        )
+        expect(mainWindow.webContents.send).toHaveBeenCalledWith('pty:exit', {
+          id: 'remote-pty',
+          code: -1
+        })
+        // The reason is recorded so lost contact is diagnosable, never silent.
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('its SSH provider is no longer registered')
+        )
+        warnSpy.mockRestore()
       })
 
       it('preserves an SSH lease when runtime controller kill shutdown fails transiently', async () => {
@@ -6241,7 +6528,7 @@ describe('registerPtyHandlers', () => {
     await pendingInventory
   })
 
-  it('reports authoritative snapshot capability with the owning provider context', () => {
+  it('reports authoritative snapshot capability with the owning provider context', async () => {
     const capabilityProvider = {
       authoritativeIds: new Set(['current-pty']),
       canProvideAuthoritativeBufferSnapshot(id: string) {
@@ -6250,17 +6537,27 @@ describe('registerPtyHandlers', () => {
     }
     registerPtyHandlers(mainWindow as never)
     setLocalPtyProvider(capabilityProvider as never)
-    const listener = onMock.mock.calls.find(
-      ([channel]) => channel === 'pty:getAuthoritativeBufferSnapshotCapabilitiesSync'
-    )?.[1] as ((event: { returnValue?: unknown }, args: { ids: unknown[] }) => void) | undefined
-    const event: { returnValue?: unknown } = {}
+    const result = await handlers.get('pty:getAuthoritativeBufferSnapshotCapabilities')?.(null, {
+      ids: ['current-pty', 'legacy-pty', 'current-pty', 42]
+    })
 
-    listener?.(event, { ids: ['current-pty', 'legacy-pty', 'current-pty', 42] })
-
-    expect(event.returnValue).toEqual([
+    expect(result).toEqual([
       { id: 'current-pty', authoritative: true },
       { id: 'legacy-pty', authoritative: false }
     ])
+  })
+
+  it('answers false, not null, for a resolved provider with no snapshot capability', async () => {
+    // Why: null is never cached, so a provider that merely omits the optional
+    // method would keep the renderer's retry timer armed for the whole session.
+    registerPtyHandlers(mainWindow as never)
+    setLocalPtyProvider({ spawn: vi.fn(), write: vi.fn() } as never)
+
+    const result = await handlers.get('pty:getAuthoritativeBufferSnapshotCapabilities')?.(null, {
+      ids: ['local-pty']
+    })
+
+    expect(result).toEqual([{ id: 'local-pty', authoritative: false }])
   })
 
   it('checks single-PTY liveness without listing every session', async () => {
@@ -6356,6 +6653,41 @@ describe('registerPtyHandlers', () => {
     } as never)
 
     await expect(handlers.get('pty:hasPty')!(null, { id: 'maybe-pty' })).resolves.toBe(null)
+  })
+
+  it('never answers liveness for a paired-runtime handle from the local registry', async () => {
+    const hasPty = vi.fn(() => false)
+    setLocalPtyProvider({
+      spawn: vi.fn(),
+      write: vi.fn(),
+      resize: vi.fn(),
+      shutdown: vi.fn(),
+      sendSignal: vi.fn(),
+      getCwd: vi.fn(),
+      getInitialCwd: vi.fn(),
+      clearBuffer: vi.fn(),
+      acknowledgeDataEvent: vi.fn(),
+      hasChildProcesses: vi.fn(),
+      getForegroundProcess: vi.fn(),
+      serialize: vi.fn(),
+      revive: vi.fn(),
+      onData: vi.fn(() => () => {}),
+      onReplay: vi.fn(() => () => {}),
+      onExit: vi.fn(() => () => {}),
+      listProcesses: vi.fn(async () => []),
+      attach: vi.fn(),
+      hasPty,
+      getDefaultShell: vi.fn(),
+      getProfiles: vi.fn()
+    } as never)
+    registerPtyHandlers(mainWindow as never)
+
+    // The local provider would happily report `false` here — it just doesn't
+    // hold the id. Callers read that as "the shell died" (STA-2830).
+    await expect(
+      handlers.get('pty:hasPty')!(null, { id: 'remote:env-1@@terminal-1' })
+    ).resolves.toBe(null)
+    expect(hasPty).not.toHaveBeenCalled()
   })
 
   it('lists duplicate SSH relay session ids as distinct app sessions', async () => {
@@ -6819,6 +7151,17 @@ describe('registerPtyHandlers', () => {
     ).resolves.toEqual({
       foregroundProcess: null,
       hasChildProcesses: true,
+      unavailable: true
+    })
+  })
+
+  it('settles a stale renderer process inspection as unavailable', async () => {
+    registerPtyHandlers(mainWindow as never)
+    setLocalPtyProvider({ hasPty: vi.fn(() => false) } as never)
+
+    await expect(handlers.get('pty:inspectProcess')!(null, { id: 'gone-pty' })).resolves.toEqual({
+      foregroundProcess: null,
+      hasChildProcesses: false,
       unavailable: true
     })
   })
@@ -9138,10 +9481,13 @@ describe('registerPtyHandlers', () => {
         'ORCA_CLI_COMMAND/u',
         'ORCA_AGENT_HOOK_PORT/u',
         'ORCA_AGENT_HOOK_TOKEN/u',
-        'ORCA_OMP_SOURCE_AGENT_DIR/p',
+        // Why: bare WSL shells no longer create ~/.omp; only the status extension is exported (#10196).
         'ORCA_OMP_STATUS_EXTENSION/p',
         'POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD'
       ])
+    )
+    expect(env.WSLENV?.split(':')).not.toEqual(
+      expect.arrayContaining(['ORCA_OMP_SOURCE_AGENT_DIR/p'])
     )
   })
 
@@ -9883,7 +10229,7 @@ describe('registerPtyHandlers', () => {
     }
   })
 
-  posixOnlyIt('wraps macOS spawns in login(1) with SHELL re-asserted via env(1)', async () => {
+  posixOnlyIt('wraps macOS spawns in login(1) with SHELL restored by the trampoline', async () => {
     const originalShell = process.env.SHELL
     // Re-enable the TCC login wrapper the suite-level beforeEach disables.
     delete process.env.ORCA_DISABLE_MACOS_LOGIN_SHELL
@@ -9907,8 +10253,14 @@ describe('registerPtyHandlers', () => {
       expect(args).toEqual([
         '-flpq',
         userInfo().username,
-        '/usr/bin/env',
-        'SHELL=/bin/zsh',
+        '/bin/bash',
+        '--noprofile',
+        '--norc',
+        '-p',
+        '-c',
+        'export SHELL="$1"; shift; exec -l -- "$@"',
+        'orca-tcc-login',
+        '/bin/zsh',
         '/bin/zsh',
         '-l'
       ])

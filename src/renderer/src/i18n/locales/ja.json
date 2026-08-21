@@ -202,6 +202,7 @@
         },
         "editor": {
           "dcb521ed29": "このファイルは競合状態にありますが、編集できる作業ツリー ファイルがありません。",
+          "conflictPlaceholderGuidance": "Git で競合を解決するか、いずれかの側を復元してから開き直してください。",
           "51f15c37d3": "ディレクトリを開けません: {{value0}}",
           "f2e00db373": "ファイルが見つかりません: {{value0}}",
           "checkRunDetailsUnavailable": "このチェックの詳細はありません。",
@@ -237,7 +238,9 @@
         "workspace": {
           "cleanup": {
             "9d6e531da6": "ワークスペースはもう存在しません。",
-            "changedSinceConfirmation": "確認後にワークスペースが変更されました。削除する前に更新して確認してください。"
+            "changedSinceConfirmation": "確認後にワークスペースが変更されました。削除する前に更新して確認してください。",
+            "hostCollision": "エラー: このワークスペースは複数のホストの同じパスに存在します",
+            "hostUnresolved": "Orca はこのワークスペースを所有するホストを特定できません。プロジェクトを更新して再度確認してください。"
           }
         },
         "worktrees": {
@@ -263,6 +266,7 @@
           "81f13f48d2": "ワークツリー\"{{value1}}\"を削除した後、Git はブランチ\"{{value0}}\"を安全に削除できなかったため、Orca はローカルコミットを失わないように保持しました。",
           "runtimeScopeForbiddenTitle": "この接続は制限付き（モバイル）アクセスです",
           "runtimeScopeForbiddenDescription": "モバイル範囲のペアリングではワークスペースを使用できません。設定 → リモート Orca サーバー → この Orca サーバーを共有する からブラウザー用リンクで再接続してください。",
+          "preservedBranchCleanupHostAmbiguous": "\"{{value0}}\" に対して保留中の保存済みブランチのクリーンアップが複数あります。ホストを指定してください。",
           "localBaseRefRefreshFailedForWorktree": "Local {{value0}} was not refreshed for \"{{value1}}\"",
           "localBaseRefRefreshFailedDescriptionNamed": "Workspace \"{{value0}}\" was created from {{value1}}, but Orca could not fast-forward local {{value2}}. {{value3}}",
           "localBaseRefRefreshFailedDetailDirtyNamed": "The worktree at {{value0}} (where local {{value1}} is checked out) has uncommitted changes. Commit, stash, or discard those changes, then update local {{value1}} manually.",
@@ -579,13 +583,15 @@
           "missing": "フォルダーが見つかりません",
           "notDirectory": "パスはフォルダーではありません",
           "ambiguousConnection": "接続を特定できません",
-          "unavailable": "フォルダーを確認できません"
+          "unavailable": "フォルダーを確認できません",
+          "unrecognized": "フォルダーを使用できません"
         },
         "description": {
           "missing": "Orca は {{path}} を見つけられません。このフォルダーワークスペースを削除して再インポートしてください。",
           "notDirectory": "{{path}} は存在しますが、フォルダーではありません。",
           "ambiguousConnection": "Orca はこのフォルダースコープをどの SSH 接続が所有しているか判別できません。",
-          "unavailable": "Orca は現在このフォルダーを確認できません。ランタイムまたは SSH 接続を確認して再試行してください。"
+          "unavailable": "Orca は現在このフォルダーを確認できません。ランタイムまたは SSH 接続を確認して再試行してください。",
+          "unrecognized": "Orca は {{path}} を使用できません。このバージョンでは理由を認識できません。詳細を確認するには Orca を更新してください。"
         },
         "createError": {
           "title": {
@@ -667,7 +673,9 @@
           "import": {
             "toast": {
               "restartFallbackUnavailableNone": "None of the {{value0}} cookies could be loaded, and the restart fallback was unavailable. The previous cookies for this profile were replaced. Try the import again.",
-              "restartFallbackUnavailablePartial": "Imported {{value0}} of {{value1}} cookies. The rest could not be loaded, and the restart fallback was unavailable. Try the import again."
+              "restartFallbackUnavailablePartial": "Imported {{value0}} of {{value1}} cookies. The rest could not be loaded, and the restart fallback was unavailable. Try the import again.",
+              "googleCookiesSkipped": "Google の Cookie はインポートされませんでした。このプロファイルで {{value0}} 上の Orca 内のブラウザを開き、Google にサインインしてください。",
+              "unrecognizedWarning": "Cookie のインポートは、このバージョンの Orca が認識できない警告付きで完了しました。詳細を確認するには Orca を更新し、この Cookie を利用する前にこのプロファイルを確認してください。"
             }
           }
         }
@@ -1228,6 +1236,7 @@
         "9e3c49beb8": "Issue 識別子のコピー",
         "9a9a884236": "URLをコピー",
         "97c19a84f1": "Linear URL をコピー",
+        "openOnLinear": "Linear で開く",
         "f63ef94ea8": "Issue",
         "f6c6381593": "プロンプトのコピー",
         "5d670ec8dc": "提案されたブランチ名をコピーします",
@@ -2027,7 +2036,9 @@
         "workspaceTabMissing": "タブはもう存在しません",
         "projectsGroupsHeader": "プロジェクトとグループ",
         "projectBadge": "プロジェクト",
-        "repoGroupBadge": "リポジトリグループ"
+        "repoGroupBadge": "リポジトリグループ",
+        "paletteOpenTabBranch": "ブランチ名",
+        "paletteOpenTabWorkspace": "ワークスペース名"
       },
       "github": {
         "pr": {
@@ -2616,15 +2627,6 @@
         },
         "sheet": {
           "1189e9fe0a": "閉じる"
-        },
-        "team": {
-          "multi": {
-            "combobox": {
-              "de83523bf9": "検索に一致するチームはありません。",
-              "301f2a796e": "全チーム",
-              "18ec58881e": "チームを検索..."
-            }
-          }
         }
       },
       "terminal": {
@@ -2754,7 +2756,9 @@
             "e4aa243f8c": "デーモンを再起動します",
             "a7e2fd2699": "Issue を登録",
             "5c8ce20be6": "この状態が続く場合は、",
-            "cc6d997c65": "ここから terminal デーモンを再起動して、古いデーモン状態をクリアします。"
+            "cc6d997c65": "ここから terminal デーモンを再起動して、古いデーモン状態をクリアします。",
+            "e16012e31e": "このセッションを所有していた terminal デーモンが終了したため、セッションとそのスクロールバックを復元できませんでした。続行するには新しい terminal を開いてください。",
+            "sessionUnavailable": "Orca はホスト上でこのペインの terminal セッションに再接続できませんでした。続行するには新しい terminal を開いてください。"
           },
           "TerminalPane": {
             "ac112e9036": "タイトルを削除",
@@ -3066,6 +3070,11 @@
             "b775303755": "クイック コマンドを実行します: {{value0}}",
             "196593b6a9": "{{value0}} を削除",
             "15529ede69": "{{value0}}を編集",
+            "8d525e5f15": "コピーしました",
+            "53b17a4b1b": "コピーできませんでした",
+            "a9a564b7e7": "{{value0}} をコピー",
+            "69a1441a21": "コピーする内容がありません",
+            "192a4616a5": "クイックコマンドの操作",
             "1d411fb6a5": "この repo のクイック コマンドを保存します",
             "8f1e971966": "クイックコマンドを追加",
             "3220e2da27": "このクイック コマンドは保存されたリストから削除されます。",
@@ -4756,7 +4765,8 @@
               "ae57cbf6e4": "ワークスペースの削除に失敗しました",
               "7488ed8711": "表示",
               "2b20ce87b3": "強制削除",
-              "4f3876c0f5": "強制削除に失敗しました"
+              "4f3876c0f5": "強制削除に失敗しました",
+              "workspaceListChanged": "ワークスペースリストが変更されました"
             },
             "toast": {
               "1d0fa5c0a5": "ワークスペース {{value0}} の削除に失敗しました",
@@ -5063,14 +5073,11 @@
         },
         "NewExternalWorktreesInboxLine": {
           "9f2d4c8b17": "{{value0}} の外部ワークツリーを完全に非表示にする",
-          "d9f7b2a14c": "{{value0}} の外部で作成された新しいワークツリーを折りたたむ",
-          "e2c4a8d91f": "{{value0}} の外部で作成された新しいワークツリーを展開",
-          "7c4e9b2a81": "外部で作成された新しいワークツリー",
           "5e1b8d3f62": "外部ワークツリーを完全に非表示にする",
-          "4d7a1c9e53": "これらのワークツリーは Orca の外部で作成されました。",
-          "8b3f2e1d74": "インポート",
-          "1c9e7a4b28": "非表示のままにする",
-          "6f2d8c1e95": "すべてインポート",
+          "2a6f31d8c7": "非表示のワークツリー",
+          "5b90e4a2f6": "非表示のワークツリー",
+          "7f18c5b0d3": "{{value1}} の非表示のワークツリー {{value0}} 件を確認",
+          "4e2b7a9c05": "{{value1}} の非表示のワークツリー {{value0}} 件を確認",
           "c3e8a1f4b2": "今後表示しない"
         },
         "newExternalWorktreesInboxActions": {
@@ -5155,6 +5162,48 @@
           "3b7ea51793": "検索をクリア",
           "7f1c2e94a5": "検索テキストが長すぎます — ボードは絞り込まれていません",
           "9a4d0f6b21": "長すぎます"
+        },
+        "PreservedBranchBatchReviewDialog": {
+          "c4bf8e7eaf": "保持されたブランチを確認",
+          "f21976c9a8": "強制削除するローカルブランチを選択してください。選択されていないブランチはリポジトリに残ります。",
+          "38c947f7c5": "すべて選択",
+          "9602129d38": "{{value1}} 件中 {{value0}} 件を選択",
+          "ee39e872d5": "未マージの可能性あり",
+          "676db406fd": "HEAD を取得できません",
+          "285e1e4882": "キャンセル",
+          "a0f9863597": "{{count}} 個のブランチを強制削除",
+          "a0f9863597_one": "{{count}} 個のブランチを強制削除",
+          "a0f9863597_other": "{{count}} 個のブランチを強制削除"
+        },
+        "preserved": {
+          "branch": {
+            "batch": {
+              "toast": {
+                "a3cdd9d9e6": "マージされていないコミットが含まれている可能性があるため、Git は {{count}} 個のローカルブランチを保持しました。保持されたブランチはワークスペースフォルダーを保持しません。コミットはリポジトリに残ります。Orca はバックグラウンドでワークスペースのディスク領域の解放を続行する場合があります。",
+                "6310412304": "{{count}} 個のブランチを確認",
+                "cea24c2b7d": "{{count}} 個のワークスペースを削除しました",
+                "0e0379f24a": "{{count}} 個のブランチを保持しました",
+                "4cf75caab7": "{{value0}}、{{value1}}",
+                "e61d78054f": "ローカルブランチを削除中: {{value0}}",
+                "1e1a5f6763": "ローカルブランチを削除しました: {{value0}}",
+                "43d9395605": "{{value0}} 件削除、{{value1}} 件未削除",
+                "d42f1f14e0": "{{count}} 個のブランチを再試行",
+                "a3cdd9d9e6_one": "マージされていないコミットが含まれている可能性があるため、Git は {{count}} 個のローカルブランチを保持しました。保持されたブランチはワークスペースフォルダーを保持しません。コミットはリポジトリに残ります。Orca はバックグラウンドでワークスペースのディスク領域の解放を続行する場合があります。",
+                "a3cdd9d9e6_other": "マージされていないコミットが含まれている可能性があるため、Git は {{count}} 個のローカルブランチを保持しました。保持されたブランチはワークスペースフォルダーを保持しません。コミットはリポジトリに残ります。Orca はバックグラウンドでワークスペースのディスク領域の解放を続行する場合があります。",
+                "6310412304_one": "{{count}} 個のブランチを確認",
+                "6310412304_other": "{{count}} 個のブランチを確認",
+                "cea24c2b7d_one": "{{count}} 個のワークスペースを削除しました",
+                "cea24c2b7d_other": "{{count}} 個のワークスペースを削除しました",
+                "0e0379f24a_one": "{{count}} 個のブランチを保持しました",
+                "0e0379f24a_other": "{{count}} 個のブランチを保持しました",
+                "d42f1f14e0_one": "{{count}} 個のブランチを再試行",
+                "d42f1f14e0_other": "{{count}} 個のブランチを再試行"
+              }
+            }
+          }
+        },
+        "WorktreeListScrollToTopButton": {
+          "jumpToTop": "先頭にジャンプ"
         }
       },
       "shared": {
@@ -6497,6 +6546,10 @@
         "QuickCommandsPane": {
           "8764c6e9e4": "{{value0}} を削除",
           "7d90fd5299": "{{value0}}を編集",
+          "8d525e5f15": "コピーしました",
+          "53b17a4b1b": "コピーできませんでした",
+          "a9a564b7e7": "{{value0}} をコピー",
+          "69a1441a21": "コピーする内容がありません",
           "8c877dec41": "グローバル",
           "c6b155911b": "すべてのコマンド",
           "5aacc8f7dc": "コマンドの追加",
@@ -10236,7 +10289,8 @@
             "f9d7ca753d": "パスのコピー",
             "3161c4e425": "フォルダ",
             "e887fa4b2e": "ターミナルで開く",
-            "1d8e182c32": "ファイルを表示"
+            "1d8e182c32": "ファイルを表示",
+            "clipboardStagingUnavailable": "Orcaの一時ストレージが利用できないため、ファイルをコピーできませんでした"
           },
           "FileExplorerToolbar": {
             "d238264654": "Git で無視されたファイルを表示",
@@ -11473,17 +11527,6 @@
           "yoloPermissionsInfo": "Agent permission info",
           "yoloPermissionsTooltip": "Skip permission checks for agents for less interruptions"
         },
-        "FeatureSetupChecklist": {
-          "77f74946f5": "Agents は相互にメッセージを送信し、タスクを実行し、引き継ぎを調整できます。",
-          "399cf885c0": "Agent オーケストレーション",
-          "c5292c409d": "Agents は、要求に応じてアプリ ウィンドウを検査し、ローカル アプリを操作できます。",
-          "1ecfb490ac": "コンピュータ操作",
-          "01426f3a23": "Agents はサイトを移動し、ページを検査し、ブラウザーのタスクを実行できます。",
-          "ea85d9e628": "Agent ブラウザの使用",
-          "linearTicketsTitle": "Linear agent スキル",
-          "linearTicketsDescription": "Agents はリンクされた Linear タスクを使って、チケットを踏まえたより詳しい引き継ぎができます。",
-          "linearTicketsSetupSummary": "Linear ワークスペースに推奨。Linear 接続設定には影響しません。"
-        },
         "FeatureSetupInlineTerminal": {
           "789b59936e": "Enter キーを押してコマンドを実行し、要求されたら npx を確認します。これは、後で [設定] で設定することもできます。",
           "47fc6cc6dc": "スキルセットアップコマンド",
@@ -11569,37 +11612,6 @@
           "9f47f345a4": "それほど時間はかかりません！",
           "e4726b2d50": "オンボーディングをスキップしますか?"
         },
-        "OnboardingTourStep": {
-          "3f9586c043": "ツアーに参加する",
-          "60c5576353": "出口ツアー"
-        },
-        "RepoStep": {
-          "e8fdb36338": "repos をスキャンしています。クリックして停止します。",
-          "b7c4da0504": "SSH? 「設定」でホストをセットアップする",
-          "c33b190ca3": "サーバーパスのみ",
-          "7b679207e4": "ワークスペース",
-          "24c7c8696c": "サーバーパスにクローンを作成します",
-          "7932e95f68": "クローン",
-          "955134915e": "git@github.com:org/repo.git",
-          "288d8444b7": "HTTPS または SSH URL を貼り付けます。",
-          "132425a3e3": "repo のクローンを作成する",
-          "6558d50c69": "一度に多くの repos をインポートしたいですか?親フォルダーを選択します。",
-          "831524961f": "git repo かどうかに関係なく、任意のローカル ディレクトリを選択します。",
-          "f4e9c8dcf8": "フォルダーを参照する",
-          "e8214aa632": "フォルダーとして開く",
-          "3863747c56": "Gitプロジェクトの追加",
-          "2ebbc26343": "/home/user/project",
-          "466108ab89": "ランタイムサーバー上に存在するパスを入力します。",
-          "8cab104e3c": "サーバープロジェクトを開く",
-          "2d20200346": "repos のインポート",
-          "27ca610db1": "戻る",
-          "cecd6593fa": "スキャンしたフォルダー:",
-          "c7af322fc3": "スキャンを停止する",
-          "c3d9d44ca2": "スキャンの停止",
-          "cf23006ba7": "ランタイムサーバー",
-          "7ec3f48820": "/home/user",
-          "2e6438dd34": "{{value0}}このフォルダー内で {{value1}} {{value2}} が見つかりました。"
-        },
         "ThemeStep": {
           "a4b254779d": "macOSのオプションキー",
           "6c51398942": "マウス",
@@ -11627,14 +11639,9 @@
         "use": {
           "onboarding": {
             "flow": {
-              "dce4bdce5b": "SSH 設定を開けませんでした",
-              "fd74e7558e": "クローン作成に失敗しました",
               "52acfbef51": "進行状況を保存できませんでした"
             }
           }
-        },
-        "AgentFeatureSetupStep": {
-          "97dcdc010f": "CLI とスキルをインストール"
         },
         "WindowsTerminalStep": {
           "powerShell": "PowerShell",
@@ -11727,10 +11734,6 @@
             "workspaceName": "ワークスペース名",
             "branchSearchFailed": "ブランチ検索に失敗したため、ブランチを一覧表示できません。"
           },
-          "ProjectHostSetupCombobox": {
-            "empty": "No hosts are ready for this project.",
-            "placeholder": "Choose host"
-          },
           "ProjectCombobox": {
             "search": "Search projects...",
             "empty": "No projects match your search.",
@@ -11784,6 +11787,9 @@
             "group": "リリースチャンネル",
             "preview": "プレビュー",
             "stable": "安定版"
+          },
+          "androidHelp": {
+            "guide": "インストールガイド"
           },
           "relayDegradedNotice": "Relay に接続できませんでした — このコードは LAN または Tailscale でのみ動作します。"
         },
@@ -12097,43 +12103,6 @@
             "218503f9f3": "自動保存された",
             "cda56c5915": "メモ / launch-plan.md",
             "e16479c1c5": "[データスラッシュメニュー] [データスラッシュ行].slash-active { 背景: rgba(24,24,27,0.07);ボックスシャドウ: インセット 0 0 0 1px rgba(24,24,27,0.06); } [data-md-active-line][data-role=\"active\"] { color: rgb(113 113 122);フォントファミリー: ui-monospace、SFMono- Regular、Menlo、monospace;フォントサイズ: 12.5px; [data-md-active-line][data-role=\"h1\"] { color: 継承;フォントファミリー: 継承;フォントサイズ: 18px;フォントの太さ: 700;文字間隔: -0.01em;行の高さ: 1.2;マージントップ: 6px; } [data-md-caret] {表示: インラインブロック;幅: 1.5ピクセル;高さ: 1em;背景: 現在の色;垂直整列: -2px;左マージン: 1px;アニメーション: md-caret-blink 1.05 秒ステップ (1) 無限; } @keyframes md-caret-blink { 0%, 50% { 不透明度: 1 } 51%, 100% { 不透明度: 0 } } @keyframes md-block-in { from { 不透明度: 0;変換：translateY(-2px); } から { 不透明度: 1;変換: なし。 } } @keyframes md-cursor-ripple { 0% {transform:scale(0.4);不透明度: 0.9; } 100% { 変換: スケール(1.4);不透明度: 0; } } [data-clicking=\"1\"] [data-cursor-ripple] { アニメーション: md-cursor-ripple 460ms イーズアウト フォワード; }"
-          },
-          "FeatureTourPreview": {
-            "1170621527": ">",
-            "304ad0dfc1": "考え...",
-            "ef8b164dd1": "ソース/認証を確認する",
-            "952d3ddd9a": "セッションが開始されました",
-            "771d8881c2": "claude",
-            "6ed43cb0e0": "ダッシュボードの仕様",
-            "24fedd5a52": "ログイン.spec.ts",
-            "8279e9d95b": "12 個のテストを実行する",
-            "6218a9014d": "pnpm プレイライト テスト",
-            "04d54d50ec": "orca · zsh",
-            "1aa8a9a24a": "分割可能な terminal",
-            "2a7cfc82c8": "GH #1842 にリンク",
-            "3822d8d14b": "fix/worktree-picker-truncates",
-            "d54aefe09e": "LIN-329",
-            "40bbd92ef4": "始める",
-            "c1f28c03b2": "ワークツリーピッカーが切り捨てる",
-            "fc0cc0b267": "GH #1842",
-            "0688842445": "GH #1799",
-            "bee6b4088d": "GitHub と Linear タスク",
-            "5171768676": "3 つの agents を調整する",
-            "cebc7769cd": "認証フローを再設計する",
-            "e44269e97d": "Agent のオーケストレーション",
-            "ec4a73f5e6": "PR 3/3",
-            "cfdfd4d6b4": "PR 2/3",
-            "b1f17bcc74": "PR 1/3",
-            "e38112b289": "請求 Webhook をリファクタリングする",
-            "9c812e0d7c": "CIパイプラインを高速化する",
-            "3c4adfd821": "ログイン競合状態を修正",
-            "56a0271428": "隔離されたワークスペース",
-            "ef737dcee1": "GitHub と Linear タスク",
-            "ac51c061e2": "codex",
-            "47f16ecf34": "複数の作業を同時に公開します。各ワークスペースでは、ブランチ、ターミナル、エージェントのアクティビティがまとまっています。",
-            "70aa182266": "ゴールを渡したら、あとは任せられます。コーディネーターエージェントが作業を並列化し、複数の PR を公開します。",
-            "f10c14dd9d": "タブの切り替えは不要です。GitHub または Linear のバックログから選び、ワンクリックでワークスペースを開始します。",
-            "5d6ee181b6": "任意のワークスペースを開いてターミナルに戻り、テスト、ログ、エージェント用にペインを分割します。"
           },
           "FeatureWallBody": {
             "25ec5356d6": "設定"
@@ -12457,11 +12426,6 @@
                 }
               }
             }
-          },
-          "FeatureTourWorkspaceCard": {
-            "a23ed9da7f": "codex",
-            "2f33dc932b": "claude",
-            "9220794f6a": "実行中"
           },
           "ReviewAnimatedVisual": {
             "8df4d52b68": "プレビュー",
@@ -14133,6 +14097,13 @@
           "968e66d686": "5 フィールドの cron を入力します。",
           "cadb7b0bc9": "無効"
         },
+        "AutomationAgentFilterMenu": {
+          "agent": "Agent",
+          "all": "すべて",
+          "926e785e4d": "Agent を検索…",
+          "491043ee45": "検索に一致する Agent はありません。",
+          "clear": "フィルターをクリア"
+        },
         "AutomationDetail": {
           "007c8ad874": "プロンプト",
           "a1d52c2189": "使用範囲",
@@ -14943,6 +14914,10 @@
         "useManualTerminalWorktreeParking": {
           "cannotPark": "These terminals cannot be parked safely."
         }
+      },
+      "BrowserCookieImportDisclosure": {
+        "title": "Google のログインはインポートされません",
+        "description": "Orca で直接 Google にサインインしてください。"
       }
     },
     "i18n": {
@@ -15180,6 +15155,9 @@
       },
       "webRuntimeSession": {
         "remoteHostDisconnected": "The workspace is not connected to a remote Orca host."
+      },
+      "githubCheckDetailsTimeout": {
+        "timedOut": "チェック詳細の読み込みがタイムアウトしました。"
       }
     }
   },
@@ -15224,6 +15202,7 @@
           "high": "高",
           "xhigh": "最高",
           "max": "最大",
+          "ultra": "ウルトラ",
           "on": "オン",
           "off": "オフ"
         },

@@ -118,7 +118,7 @@ function stagingTempPath(remotePath: string): string {
   const lastSlash = remotePath.lastIndexOf('/')
   const shortId = randomUUID().replace(/-/g, '').slice(0, 20)
   const base = `.orca-tmp-${shortId}`
-  return lastSlash >= 0 ? `${remotePath.slice(0, lastSlash + 1)}${base}` : base
+  return lastSlash !== -1 ? `${remotePath.slice(0, lastSlash + 1)}${base}` : base
 }
 
 // Why: promote a fully-written temp file to its destination. Exclusive uploads

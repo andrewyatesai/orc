@@ -33,6 +33,24 @@ const iterationField: GitHubProjectField = {
   ]
 }
 
+// Why: the mobile view bridges its Project table into the shared sorter with an
+// `as unknown as` cast, so a field can arrive with its `options`/`iterations`
+// ordering metadata undefined. The `?? []` fallbacks must keep the shared
+// grouping/sorting from throwing on that partial metadata.
+const partialSingleSelectField = {
+  kind: 'single-select',
+  id: 'F_status',
+  name: 'Status',
+  dataType: 'SINGLE_SELECT'
+} as unknown as GitHubProjectField
+
+const partialIterationField = {
+  kind: 'iteration',
+  id: 'F_iter',
+  name: 'Iteration',
+  dataType: 'ITERATION'
+} as unknown as GitHubProjectField
+
 function makeRow(
   id: string,
   position: number,
@@ -216,6 +234,99 @@ describe('sortRows', () => {
     const sorted = sortRows(makeTable(view, rows), rows)
 
     expect(sorted.map((r) => r.id)).toEqual(['rA', 'rB'])
+  })
+})
+
+describe('partial ordering metadata', () => {
+  it('sorts single-select rows without throwing when field.options is absent', () => {
+    const view = makeView(partialSingleSelectField, {
+      direction: 'ASC',
+      field: partialSingleSelectField
+    })
+    const rows = [
+      makeRow('rB', 5, {
+        F_status: {
+          kind: 'single-select',
+          fieldId: 'F_status',
+          optionId: 'opt_b',
+          name: 'In Progress',
+          color: 'YELLOW'
+        }
+      }),
+      makeRow('rA', 1, {
+        F_status: {
+          kind: 'single-select',
+          fieldId: 'F_status',
+          optionId: 'opt_a',
+          name: 'Todo',
+          color: 'GRAY'
+        }
+      })
+    ]
+    // Every option is "unknown" (no metadata), so rows tie and fall through to
+    // the position tie-break instead of dereferencing undefined options.
+    const sorted = sortRows(makeTable(view, rows), rows)
+    expect(sorted.map((r) => r.id)).toEqual(['rA', 'rB'])
+  })
+
+  it('sorts iteration rows without throwing when field.iterations is absent', () => {
+    const view = makeView(partialIterationField, {
+      direction: 'ASC',
+      field: partialIterationField
+    })
+    const rows = [
+      makeRow('rB', 5, {
+        F_iter: {
+          kind: 'iteration',
+          fieldId: 'F_iter',
+          iterationId: 'iter_2',
+          title: 'Sprint 2',
+          startDate: '2026-01-15',
+          duration: 14
+        }
+      }),
+      makeRow('rA', 1, {
+        F_iter: {
+          kind: 'iteration',
+          fieldId: 'F_iter',
+          iterationId: 'iter_1',
+          title: 'Sprint 1',
+          startDate: '2026-01-01',
+          duration: 14
+        }
+      })
+    ]
+    const sorted = sortRows(makeTable(view, rows), rows)
+    expect(sorted.map((r) => r.id)).toEqual(['rA', 'rB'])
+  })
+
+  it('groups single-select rows without throwing when field.options is absent', () => {
+    const view = {
+      ...makeView(partialSingleSelectField),
+      groupByFields: [partialSingleSelectField]
+    }
+    const rows = [
+      makeRow('rA', 0, {
+        F_status: {
+          kind: 'single-select',
+          fieldId: 'F_status',
+          optionId: 'opt_a',
+          name: 'Todo',
+          color: 'GRAY'
+        }
+      }),
+      makeRow('rB', 1, {
+        F_status: {
+          kind: 'single-select',
+          fieldId: 'F_status',
+          optionId: 'opt_b',
+          name: 'In Progress',
+          color: 'YELLOW'
+        }
+      })
+    ]
+    const groups = groupRows(makeTable(view, rows), rows)
+    expect(groups.map((g) => g.key)).toEqual(['opt_a', 'opt_b'])
   })
 })
 

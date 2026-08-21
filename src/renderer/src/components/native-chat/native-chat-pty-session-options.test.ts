@@ -537,9 +537,28 @@ describe('native chat PTY session options', () => {
     )
 
     const result = await surface.invokeAction('effort')
-    expect(dispatch).toHaveBeenCalledWith('/model')
+    expect(dispatch).toHaveBeenCalledWith('/model', { delivery: 'type' })
     expect(onAgentPicker).toHaveBeenCalledOnce()
     expect(result.snapshot).toHaveLength(1)
+    expect(result.snapshot[0]).toMatchObject({ valueSource: 'unknown' })
+  })
+
+  it('types the Codex model picker command and switches to the terminal', async () => {
+    seedNativeChatAppliedSessionOptions('pty-1', 'codex', { model: 'gpt-5.5' })
+    const dispatch = vi.fn()
+    const onAgentPicker = vi.fn()
+    const surface = createNativeChatPtySessionOptions({
+      agent: 'codex',
+      scopeKey: 'pty-1',
+      mode: 'live',
+      dispatchCommand: dispatch,
+      onAgentPicker
+    })!
+    expect(surface.getSnapshot()[0]?.action?.type).toBe('agent-picker')
+
+    const result = await surface.invokeAction('model')
+    expect(dispatch).toHaveBeenCalledWith('/model', { delivery: 'type' })
+    expect(onAgentPicker).toHaveBeenCalledOnce()
     expect(result.snapshot[0]).toMatchObject({ valueSource: 'unknown' })
   })
 

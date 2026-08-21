@@ -7,6 +7,7 @@ import { OnboardingInlineCommandTerminal } from '../onboarding/OnboardingInlineC
 import { AgentSkillSetupFailureNotice } from './AgentSkillSetupFailureNotice'
 import type { AgentSkillSetupPanelProps } from './agent-skill-setup-panel-props'
 import { useAgentSkillSetupTerminal } from './use-agent-skill-setup-terminal'
+import { buildSkillSetupTerminalCommand } from './wsl-setup-terminal-paste'
 import { Button } from '../ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { notifyInstalledAgentSkillsChanged } from '@/hooks/useInstalledAgentSkills'
@@ -348,6 +349,7 @@ export function AgentSkillSetupPanel({
             key={terminalAttempt}
             worktreeId={terminalWorktreeId}
             command={openTerminalCommand}
+            prepareCommandForShell={buildSkillSetupTerminalCommand}
             title={terminalTitle}
             description={translate(
               'auto.components.settings.AgentSkillSetupPanel.runCommandDescription',

@@ -33,6 +33,7 @@ import { GITHUB_WORK_ITEMS_QUERY_MAX_BYTES } from './github-work-items-query-bou
 
 const runtimeEnvironmentCall = vi.fn()
 const runtimeEnvironmentTransportCall = vi.fn()
+const runtimeEnvironmentSubscribe = vi.fn()
 
 const mockApi = {
   gh: {
@@ -61,7 +62,8 @@ const mockApi = {
     create: vi.fn()
   },
   runtimeEnvironments: {
-    call: runtimeEnvironmentTransportCall
+    call: runtimeEnvironmentTransportCall,
+    subscribe: runtimeEnvironmentSubscribe
   },
   cache: {
     getGitHub: vi.fn().mockResolvedValue(null),
@@ -76,9 +78,30 @@ function resetRemoteRuntimeMocks() {
   clearRuntimeCompatibilityCacheForTests()
   runtimeEnvironmentCall.mockReset()
   runtimeEnvironmentTransportCall.mockReset()
+  runtimeEnvironmentSubscribe.mockReset()
   runtimeEnvironmentTransportCall.mockImplementation((args: RuntimeEnvironmentCallRequest) => {
     return createCompatibleRuntimeStatusResponseIfNeeded(args) ?? runtimeEnvironmentCall(args)
   })
+  runtimeEnvironmentSubscribe.mockImplementation(
+    async (
+      args: RuntimeEnvironmentCallRequest,
+      handlers: {
+        onResponse: (response: unknown) => void
+        onError: (error: { message: string }) => void
+      }
+    ) => {
+      let active = true
+      void Promise.resolve(runtimeEnvironmentCall(args)).then(
+        (response) => active && handlers.onResponse(response),
+        (error) => active && handlers.onError({ message: String(error) })
+      )
+      return {
+        unsubscribe: () => {
+          active = false
+        }
+      }
+    }
+  )
 }
 
 function createTestStore() {
@@ -1444,6 +1467,109 @@ describe('createGitHubSlice.fetchPRCheckDetails', () => {
       timeoutMs: 30_000
     })
     expect(mockApi.gh.prCheckDetails).not.toHaveBeenCalled()
+  })
+
+  it('bounds the whole runtime check-detail load when compatibility probing stalls', async () => {
+    vi.useFakeTimers()
+    try {
+      runtimeEnvironmentTransportCall.mockImplementation(() => new Promise(() => {}))
+      const store = createTestStore()
+      const repoPath = '/repo'
+      const repoId = 'repo-id'
+
+      store.setState({
+        settings: { activeRuntimeEnvironmentId: 'env-1' } as AppState['settings'],
+        repos: [
+          {
+            id: repoId,
+            path: repoPath,
+            name: 'repo',
+            kind: 'git',
+            executionHostId: 'runtime:env-1'
+          }
+        ]
+      } as unknown as Partial<AppState>)
+
+      const request = store
+        .getState()
+        .fetchPRCheckDetails(repoPath, { checkRunId: 123, checkName: 'build' }, { repoId })
+      const rejection = expect(request).rejects.toThrow('Timed out loading check details.')
+
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      await rejection
+      expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
+      expect(mockApi.gh.prCheckDetails).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('shares one timeout budget between runtime compatibility and check details', async () => {
+    vi.useFakeTimers()
+    try {
+      runtimeEnvironmentTransportCall.mockImplementation((args: RuntimeEnvironmentCallRequest) => {
+        const compatibility = createCompatibleRuntimeStatusResponseIfNeeded(args)
+        if (compatibility) {
+          return new Promise((resolve) => setTimeout(() => resolve(compatibility), 20_000))
+        }
+        return runtimeEnvironmentCall(args)
+      })
+      runtimeEnvironmentCall.mockImplementation(() => new Promise(() => {}))
+      const store = createTestStore()
+      const repoPath = '/repo'
+      const repoId = 'repo-id'
+      store.setState({
+        settings: { activeRuntimeEnvironmentId: 'env-1' } as AppState['settings'],
+        repos: [
+          {
+            id: repoId,
+            path: repoPath,
+            name: 'repo',
+            kind: 'git',
+            executionHostId: 'runtime:env-1'
+          }
+        ]
+      } as unknown as Partial<AppState>)
+
+      const request = store
+        .getState()
+        .fetchPRCheckDetails(repoPath, { checkRunId: 123, checkName: 'build' }, { repoId })
+      let settled = false
+      void request.then(
+        () => {
+          settled = true
+        },
+        () => {
+          settled = true
+        }
+      )
+      const rejection = expect(request).rejects.toThrow('Timed out loading check details.')
+
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(runtimeEnvironmentCall).toHaveBeenCalledWith({
+        selector: 'env-1',
+        method: 'github.prCheckDetails',
+        params: {
+          repo: repoId,
+          checkRunId: 123,
+          workflowRunId: undefined,
+          checkName: 'build',
+          url: undefined,
+          prRepo: null
+        },
+        timeoutMs: 30_000
+      })
+
+      await vi.advanceTimersByTimeAsync(9_999)
+      expect(settled).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+
+      await rejection
+      expect(settled).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('loads known local repo check details through local IPC when a runtime is focused', async () => {
@@ -5391,6 +5517,135 @@ describe('createGitHubSlice.refreshGitHubForWorktreeIfStale', () => {
 describe('createGitHubSlice.refreshAllGitHub', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    resetRemoteRuntimeMocks()
+  })
+
+  it('publishes no store update when the cache sweep changes nothing', () => {
+    const store = createTestStore()
+    store.setState({
+      repos: [{ id: 'repo-1', path: '/repo', name: 'repo', kind: 'git' }],
+      groupBy: 'repo',
+      worktreeCardProperties: ['comment'],
+      rightSidebarOpen: false,
+      worktreesByRepo: { 'repo-1': [makePRRefreshWorktree()] }
+    } as unknown as Partial<AppState>)
+    let publications = 0
+    const unsubscribe = store.subscribe(() => {
+      publications += 1
+    })
+
+    store.getState().refreshAllGitHub()
+    unsubscribe()
+
+    expect(publications).toBe(0)
+  })
+
+  it('still clears populated comments when no workspace refresh is needed', () => {
+    const store = createTestStore()
+    store.setState({
+      commentsCache: { cached: { data: [], fetchedAt: 1 } },
+      groupBy: 'repo',
+      worktreeCardProperties: ['comment'],
+      rightSidebarOpen: false
+    } as unknown as Partial<AppState>)
+    let publications = 0
+    const unsubscribe = store.subscribe(() => {
+      publications += 1
+    })
+
+    store.getState().refreshAllGitHub()
+    unsubscribe()
+
+    expect(store.getState().commentsCache).toEqual({})
+    expect(publications).toBe(1)
+  })
+
+  it('skips repo and worktree identity reads when no GitHub decoration is visible', () => {
+    const store = createTestStore()
+    const repoId = 'repo-idle'
+    let repoIdentityReads = 0
+    let worktreeRepoIdentityReads = 0
+    const repo = { id: repoId, path: '/idle', name: 'idle', kind: 'git' as const }
+    const worktree = makePRRefreshWorktree({
+      id: 'wt-idle',
+      repoId,
+      path: '/idle/worktrees/idle',
+      branch: 'feature/idle'
+    })
+    Object.defineProperty(repo, 'id', {
+      configurable: true,
+      enumerable: true,
+      get: () => {
+        repoIdentityReads += 1
+        return repoId
+      }
+    })
+    Object.defineProperty(worktree, 'repoId', {
+      configurable: true,
+      enumerable: true,
+      get: () => {
+        worktreeRepoIdentityReads += 1
+        return repoId
+      }
+    })
+    store.setState({
+      repos: [repo],
+      groupBy: 'repo',
+      worktreeCardProperties: ['comment'],
+      rightSidebarOpen: false,
+      commentsCache: { cached: { data: [], fetchedAt: 1 } },
+      worktreesByRepo: { [repoId]: [worktree] }
+    } as unknown as Partial<AppState>)
+    repoIdentityReads = 0
+    worktreeRepoIdentityReads = 0
+
+    store.getState().refreshAllGitHub()
+
+    expect(store.getState().commentsCache).toEqual({})
+    expect(repoIdentityReads).toBe(0)
+    expect(worktreeRepoIdentityReads).toBe(0)
+    expect(mockApi.gh.enqueuePRRefresh).not.toHaveBeenCalled()
+    expect(mockApi.gh.issue).not.toHaveBeenCalled()
+  })
+
+  it('routes duplicate repo IDs through the first-owner lookup index when enqueuing refreshes', () => {
+    const store = createTestStore()
+    const repoId = 'dup-repo'
+    store.setState({
+      repos: [
+        { id: repoId, path: '/first', name: 'first', kind: 'git' },
+        { id: repoId, path: '/second', name: 'second', kind: 'git' }
+      ],
+      groupBy: 'repo',
+      worktreeCardProperties: ['comment'],
+      activeWorktreeId: 'wt-dup-a',
+      rightSidebarOpen: true,
+      rightSidebarTab: 'source-control',
+      worktreesByRepo: {
+        [repoId]: [
+          makePRRefreshWorktree({
+            id: 'wt-dup-a',
+            repoId,
+            path: '/first/worktrees/a',
+            branch: 'feature/a'
+          }),
+          makePRRefreshWorktree({
+            id: 'wt-dup-b',
+            repoId,
+            path: '/first/worktrees/b',
+            branch: 'feature/b'
+          })
+        ]
+      }
+    } as unknown as Partial<AppState>)
+
+    store.getState().refreshAllGitHub()
+
+    const enqueuedPaths = mockApi.gh.enqueuePRRefresh.mock.calls.map(
+      ([call]) => call.candidate.repoPath
+    )
+    expect(enqueuedPaths.length).toBeGreaterThan(0)
+    expect(enqueuedPaths.every((path: string) => path === '/first')).toBe(true)
   })
 
   it('refreshes stale PR data when source control is the visible PR surface', () => {
@@ -5696,6 +5951,150 @@ describe('createGitHubSlice.refreshGitHubForWorktree', () => {
     } finally {
       warn.mockRestore()
     }
+  })
+})
+
+describe('createGitHubSlice.fetchWorkItems cache identity', () => {
+  const nestedSources = {
+    issues: { owner: 'acme', repo: 'widgets' },
+    prs: { owner: 'acme', repo: 'widgets' },
+    originCandidate: { owner: 'acme', repo: 'widgets' },
+    upstreamCandidate: { owner: 'acme-upstream', repo: 'widgets' }
+  }
+
+  function makeNestedWorkItem(
+    overrides: Partial<GitHubWorkItem> & Pick<GitHubWorkItem, 'id' | 'number' | 'title'>
+  ): Omit<GitHubWorkItem, 'repoId'> {
+    return {
+      type: 'pr',
+      state: 'open',
+      url: `https://github.com/acme/widgets/pull/${overrides.number}`,
+      labels: ['bug', 'needs-review'],
+      updatedAt: '2026-05-22T00:00:00Z',
+      author: 'octocat',
+      authorAvatarUrl: 'https://avatars.example/octocat.png',
+      branchName: 'feature/nested',
+      baseRefName: 'main',
+      headSha: 'abc123def456',
+      prRepo: { owner: 'acme', repo: 'widgets', host: 'github.com' },
+      additions: 12,
+      deletions: 3,
+      changedFiles: 2,
+      reviewDecision: 'REVIEW_REQUIRED',
+      reviewRequests: [
+        { login: 'reviewer', name: 'Reviewer', avatarUrl: 'https://avatars.example/reviewer.png' }
+      ],
+      latestReviews: [
+        { login: 'reviewer', state: 'COMMENTED', avatarUrl: 'https://avatars.example/reviewer.png' }
+      ],
+      assignees: [
+        { login: 'assignee', name: 'Assignee', avatarUrl: 'https://avatars.example/assignee.png' }
+      ],
+      checksSummary: {
+        state: 'pending',
+        total: 4,
+        passed: 1,
+        failed: 0,
+        pending: 3
+      },
+      mergeable: 'MERGEABLE',
+      ...overrides
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetRemoteRuntimeMocks()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('reuses the cache map, entry, and nested rows on a no-op force refetch', async () => {
+    const store = createTestStore()
+    const items = [
+      makeNestedWorkItem({ id: 'pr:42', number: 42, title: 'First nested PR' }),
+      makeNestedWorkItem({ id: 'pr:43', number: 43, title: 'Second nested PR' })
+    ]
+    mockApi.gh.listWorkItems.mockImplementation(() =>
+      Promise.resolve({
+        items: structuredClone(items),
+        sources: structuredClone(nestedSources)
+      })
+    )
+
+    let now = 1_700_000_000_000
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+
+    await store.getState().fetchWorkItems('repo-id', '/repo', 24, '')
+    const cacheKey = workItemsCacheKey('repo-id', 24, '')
+    const previousCache = store.getState().workItemsCache
+    const previousEntry = previousCache[cacheKey]
+    const previousRows = previousEntry?.data
+    expect(previousRows).toHaveLength(2)
+    expect(previousRows?.[0]?.labels).toEqual(['bug', 'needs-review'])
+    expect(previousRows?.[0]?.assignees?.[0]?.login).toBe('assignee')
+    expect(previousRows?.[0]?.reviewRequests?.[0]?.login).toBe('reviewer')
+    expect(previousRows?.[0]?.prRepo).toEqual({
+      owner: 'acme',
+      repo: 'widgets',
+      host: 'github.com'
+    })
+    expect(previousRows?.[0]?.checksSummary?.state).toBe('pending')
+
+    now += 5_000
+    await store.getState().fetchWorkItems('repo-id', '/repo', 24, '', { force: true })
+
+    const nextCache = store.getState().workItemsCache
+    const nextEntry = nextCache[cacheKey]
+    expect(nextCache).toBe(previousCache)
+    expect(nextEntry).toBe(previousEntry)
+    expect(nextEntry?.data).toBe(previousRows)
+    expect(nextEntry?.data?.[0]).toBe(previousRows?.[0])
+    expect(nextEntry?.data?.[1]).toBe(previousRows?.[1])
+    expect(nextEntry?.sources).toBe(previousEntry?.sources)
+    expect(nextEntry?.fetchedAt).toBe(now)
+    expect(nextEntry?.fetchedAt).toBeGreaterThan(1_700_000_000_000)
+  })
+
+  it('writes a new entry when a nested reviewRequests login changes but reuses the sibling row', async () => {
+    const store = createTestStore()
+    const first = makeNestedWorkItem({ id: 'pr:42', number: 42, title: 'First nested PR' })
+    const second = makeNestedWorkItem({ id: 'pr:43', number: 43, title: 'Second nested PR' })
+    mockApi.gh.listWorkItems.mockResolvedValueOnce({
+      items: structuredClone([first, second]),
+      sources: structuredClone(nestedSources)
+    })
+
+    await store.getState().fetchWorkItems('repo-id', '/repo', 24, '')
+    const cacheKey = workItemsCacheKey('repo-id', 24, '')
+    const previousCache = store.getState().workItemsCache
+    const previousEntry = previousCache[cacheKey]
+    const previousRows = previousEntry?.data
+    expect(previousRows).toHaveLength(2)
+
+    const changedFirst = structuredClone(first)
+    const nextReviewer = changedFirst.reviewRequests?.[0]
+    if (nextReviewer) {
+      nextReviewer.login = 'reviewer-updated'
+    }
+    mockApi.gh.listWorkItems.mockResolvedValueOnce({
+      items: [changedFirst, structuredClone(second)],
+      sources: structuredClone(nestedSources)
+    })
+
+    await store.getState().fetchWorkItems('repo-id', '/repo', 24, '', { force: true })
+
+    const nextCache = store.getState().workItemsCache
+    const nextEntry = nextCache[cacheKey]
+    expect(nextCache).not.toBe(previousCache)
+    expect(nextEntry).not.toBe(previousEntry)
+    expect(nextEntry?.data).not.toBe(previousRows)
+    expect(nextEntry?.data?.[0]).not.toBe(previousRows?.[0])
+    expect(nextEntry?.data?.[0]?.reviewRequests?.[0]?.login).toBe('reviewer-updated')
+    expect(nextEntry?.data?.[1]).toBe(previousRows?.[1])
+    expect(nextEntry?.sources).toBe(previousEntry?.sources)
   })
 })
 

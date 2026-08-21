@@ -4,7 +4,11 @@ import { isAbsolute, join, posix, resolve, win32 } from 'node:path'
 import { branchIsSafeToDeleteNative } from './rust-branch-cleanup'
 import type { RunGit } from './rust-git-executor'
 import { resolveWorktreeAddBaseRef } from '../../shared/worktree-base-ref'
-import { WORKTREE_ADD_TIMEOUT_MS } from '../../shared/worktree-add-timeout'
+import {
+  WORKTREE_ADD_TIMEOUT_MS,
+  WORKTREE_ADD_TIMEOUT_MAX_MS,
+  resolveWorktreeAddTimeoutMs
+} from '../../shared/worktree-add-timeout'
 import type {
   GitWorktreeInfo,
   LocalBaseRefRefreshResult,
@@ -16,7 +20,12 @@ import { requireRustGitBinding } from '../daemon/rust-git-addon'
 import { isSubmoduleWorktreeRemovalRefusal } from '../../shared/worktree-submodule-removal'
 import { parseGitRevListAheadBehindCounts } from '../../shared/git-rev-list-output'
 import { parseWslUncPath } from '../../shared/wsl-unc-paths'
-import { toWindowsWslPath } from '../wsl'
+import { parseWslPath, toWindowsWslPath } from '../wsl'
+import {
+  moveWorktreeDirectoryToTrash,
+  restoreWorktreeDirectoryFromTrash,
+  scheduleWorktreeTrashDeletion
+} from '../worktree-trash'
 import {
   findGitCryptStateDirectory,
   shareGitCryptStateWithWorktree
@@ -92,8 +101,9 @@ const PRUNABLE_EXISTENCE_PROBE_CONCURRENCY = 8
 const PARALLEL_CHECKOUT_GIT_ARGS = ['-c', 'checkout.workers=0'] as const
 
 // Why: shared with the relay twin so both transports bound the add identically.
-export { WORKTREE_ADD_TIMEOUT_MS }
+export { WORKTREE_ADD_TIMEOUT_MS, WORKTREE_ADD_TIMEOUT_MAX_MS, resolveWorktreeAddTimeoutMs }
 export const WORKTREE_REMOVAL_PREFLIGHT_TIMEOUT_MS = 30_000
+export const WORKTREE_REMOVAL_REGISTRATION_TIMEOUT_MS = 30_000
 // Why: one wedged shared scan otherwise hangs every later list, including create's post-add re-list (#9786).
 export const WORKTREE_LIST_TIMEOUT_MS = 30_000
 
@@ -974,8 +984,8 @@ async function performAddWorktree(
   try {
     await gitExecFileAsync(args, {
       ...gitExecOptions(repoPath, options),
-      // Why: bound the checkout so a OneDrive cloud-placeholder stall (STA-1292) fails fast instead of hanging.
-      timeout: WORKTREE_ADD_TIMEOUT_MS
+      // Why: resolve per call — hoisting to a module const would freeze the ORCA_WORKTREE_ADD_TIMEOUT_MS override at import (STA-1292 floor, #12696 ceiling).
+      timeout: resolveWorktreeAddTimeoutMs()
     })
   } catch (error) {
     // Why: a killed add (e.g. timeout mid-checkout, #7410) can leave a registered worktree + fresh branch; roll back only state this add created.
@@ -1018,7 +1028,8 @@ async function performAddWorktree(
       if (deferCheckoutForGitCrypt) {
         await gitExecFileAsync([...PARALLEL_CHECKOUT_GIT_ARGS, 'checkout'], {
           ...gitExecOptions(worktreePath, options),
-          timeout: WORKTREE_ADD_TIMEOUT_MS
+          // Why: same slow-content-filter class as the add — honor the override here too.
+          timeout: resolveWorktreeAddTimeoutMs()
         })
       }
     } catch (error) {
@@ -1195,23 +1206,27 @@ async function performRemoveWorktree(
   // Why: callers outside the IPC/runtime preflight must not bypass Git's lock contract or rely on localized stderr after side effects.
   assertWorktreeUnlockedForRemoval(removedWorktree)
 
-  const args = ['worktree', 'remove']
-  if (force) {
-    args.push('--force')
-  }
-  args.push(worktreePath)
-  try {
-    await gitExecFileAsync(args, gitExecOptions(repoPath, options))
-  } catch (error) {
-    if (force || !isSubmoduleWorktreeRemovalRefusal(error)) {
-      throw error
+  if (
+    !(await tryRemoveWorktreeWithDeferredDirectoryDeletion(repoPath, worktreePath, force, options))
+  ) {
+    const args = ['worktree', 'remove']
+    if (force) {
+      args.push('--force')
     }
-    // Why: Git refuses non-force removal of a worktree with an initialised submodule even when clean; re-prove cleanliness, then --force.
-    await assertWorktreeCleanForRemoval(worktreePath, false, options)
-    await gitExecFileAsync(
-      ['worktree', 'remove', '--force', worktreePath],
-      gitExecOptions(repoPath, options)
-    )
+    args.push(worktreePath)
+    try {
+      await gitExecFileAsync(args, gitExecOptions(repoPath, options))
+    } catch (error) {
+      if (force || !isSubmoduleWorktreeRemovalRefusal(error)) {
+        throw error
+      }
+      // Why: Git refuses non-force removal of a worktree with an initialised submodule even when clean; re-prove cleanliness, then --force.
+      await assertWorktreeCleanForRemoval(worktreePath, false, options)
+      await gitExecFileAsync(
+        ['worktree', 'remove', '--force', worktreePath],
+        gitExecOptions(repoPath, options)
+      )
+    }
   }
 
   if (!branchName) {
@@ -1261,6 +1276,80 @@ async function performRemoveWorktree(
       error
     )
     return { preservedBranch: { branchName, ...(branchHead ? { head: branchHead } : {}) } }
+  }
+}
+
+/**
+ * Rename the checkout into a sibling trash directory and clear Git's registration for the
+ * now-missing path, so the multi-GB recursive delete runs after this removal has returned.
+ * Returns false when the caller must let `git worktree remove` delete the directory inline.
+ */
+async function tryRemoveWorktreeWithDeferredDirectoryDeletion(
+  repoPath: string,
+  worktreePath: string,
+  force: boolean,
+  options: RemoveWorktreeOptions
+): Promise<boolean> {
+  // Why: WSL-owned checkouts are deleted inside the distro, so Node on Windows must not rename them.
+  if (options.wslDistro || parseWslPath(worktreePath)) {
+    return false
+  }
+  if (!force) {
+    try {
+      // Why: `git worktree remove` re-checks cleanliness as it removes; prove the same thing here or leave removal to Git.
+      await assertWorktreeCleanForRemoval(worktreePath, false, options)
+    } catch {
+      return false
+    }
+  }
+
+  const trashPath = await moveWorktreeDirectoryToTrash(worktreePath)
+  if (!trashPath) {
+    return false
+  }
+  try {
+    await clearGitRegistrationForMissingWorktree(repoPath, worktreePath, options)
+  } catch (error) {
+    // Why: put the checkout back so the in-place removal below still sees the worktree Git registered.
+    if (await restoreWorktreeDirectoryFromTrash(trashPath, worktreePath)) {
+      return false
+    }
+    throw error
+  }
+  scheduleWorktreeTrashDeletion(trashPath)
+  return true
+}
+
+async function clearGitRegistrationForMissingWorktree(
+  repoPath: string,
+  worktreePath: string,
+  options: RemoveWorktreeOptions
+): Promise<void> {
+  const registrationOptions = {
+    ...options,
+    timeout: options.timeout ?? WORKTREE_REMOVAL_REGISTRATION_TIMEOUT_MS
+  }
+  try {
+    // Removing an already-missing directory is accepted back to the Git 2.25 baseline and touches only this entry.
+    await gitExecFileAsync(
+      ['worktree', 'remove', '--force', worktreePath],
+      gitExecOptions(repoPath, registrationOptions)
+    )
+    return
+  } catch (error) {
+    console.warn(
+      `[git] Failed to deregister the moved worktree "${worktreePath}"; pruning instead`,
+      error
+    )
+  }
+
+  await gitExecFileAsync(['worktree', 'prune'], gitExecOptions(repoPath, registrationOptions))
+  // Strict (not the shared scan): an unreadable repo must not read as proof that the row is gone.
+  const stillRegistered = (await listWorktreesStrict(repoPath, registrationOptions)).some(
+    (worktree) => areWorktreePathsEqual(worktree.path, worktreePath)
+  )
+  if (stillRegistered) {
+    throw new Error(`Git still reports a registration for "${worktreePath}" after pruning it.`)
   }
 }
 

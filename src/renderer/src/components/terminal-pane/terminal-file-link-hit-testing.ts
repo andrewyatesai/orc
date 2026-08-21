@@ -1,14 +1,18 @@
 import type { IBufferLine, IBufferRange } from '../../lib/pane-manager/aterm/terminal-types'
 import { extractTerminalFileLinkCandidates, resolveTerminalFileLink } from '@/lib/terminal-links'
 import { isRemoteRuntimeFileOperation } from '@/runtime/runtime-file-client'
-import { getTerminalFileContext, openDetectedFilePath } from './terminal-file-open-routing'
+import {
+  getTerminalFileContext,
+  mapTerminalFilePath,
+  openDetectedFilePath,
+  terminalLinkWslDistro
+} from './terminal-file-open-routing'
 import {
   getTerminalPathExistsCacheKey,
   readTerminalPathExistsCache,
   type TerminalPathExistsCache
 } from './terminal-path-exists-cache'
 import { resolveKnownWorktreeRootPathLink } from './terminal-worktree-path-link'
-import { mapPosixPathToWslWorktreeUncPath } from '../../../../shared/wsl-unc-paths'
 import {
   buildHardWrappedPathLogicalLineCandidates,
   buildWrappedLogicalLine,
@@ -22,6 +26,7 @@ type FileLinkHitTestDeps = {
   worktreeId: string
   worktreePath: string
   runtimeEnvironmentId?: string | null
+  wslDistro?: string | null
   pathExistsCache?: TerminalPathExistsCache
   openWithSystemDefault?: boolean
 }
@@ -54,10 +59,13 @@ export function openFilePathLinkAtBufferPosition(
         continue
       }
       // Why (issue #8156): WSL terminals print POSIX paths the Windows host
-      // cannot stat; rebase onto the worktree's UNC share.
-      const absolutePath =
-        mapPosixPathToWslWorktreeUncPath(resolved.absolutePath, deps.worktreePath) ??
-        resolved.absolutePath
+      // cannot stat; rebase onto the worktree's UNC share, resolving the distro
+      // from the pane runtime when the worktree lives on a Windows drive.
+      const absolutePath = mapTerminalFilePath(
+        resolved.absolutePath,
+        deps.worktreePath,
+        terminalLinkWslDistro(deps.wslDistro, deps.runtimeEnvironmentId)
+      )
       const range = rangeForParsedFileLink(logicalLine, parsed.startIndex, parsed.endIndex)
       if (!range || !rangeContainsBufferPosition(range, position, terminalColumns)) {
         continue

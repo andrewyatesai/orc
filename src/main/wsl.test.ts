@@ -145,7 +145,7 @@ describe('wslUncDirectoryExists', () => {
     expect(result).toBe(true)
     expect(execFileSyncMock).toHaveBeenCalledWith(
       'wsl.exe',
-      ['-d', 'Ubuntu', '--', 'test', '-d', '/home/jin/repo'],
+      ['-d', 'Ubuntu', '--exec', 'test', '-d', '/home/jin/repo'],
       expect.objectContaining({ timeout: 5000 })
     )
   })

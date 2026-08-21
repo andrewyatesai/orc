@@ -17,10 +17,58 @@ import {
   relativePathInsideRoot,
   resolveRuntimePath
 } from './cross-platform-path-resolution'
+import { areLocalWindowsWslPathAliases, isCaseInsensitiveRuntimeRoot } from './cross-platform-path'
 
 const bindSeam = (): void => {
   setOrcaDispatchBinding((module, fn, inputJson) => orcaDispatch(module, fn, inputJson))
 }
+
+describe('areLocalWindowsWslPathAliases', () => {
+  it('matches UNC aliases and mounted drives without folding the Linux tail', () => {
+    // \\wsl$ and \\wsl.localhost front the same 9P share.
+    expect(
+      areLocalWindowsWslPathAliases(
+        '//wsl.localhost/Ubuntu/home/Alice/file.ts',
+        '\\\\wsl$\\ubuntu\\home\\Alice\\file.ts'
+      )
+    ).toBe(true)
+    // The case-sensitive Linux tail must not fold (alice !== Alice).
+    expect(
+      areLocalWindowsWslPathAliases(
+        '//wsl.localhost/Ubuntu/home/Alice/file.ts',
+        '\\\\wsl.localhost\\Ubuntu\\home\\alice\\file.ts'
+      )
+    ).toBe(false)
+    // /mnt/<drive> resolves to the native Windows drive.
+    expect(
+      areLocalWindowsWslPathAliases(
+        '//wsl.localhost/Ubuntu/mnt/c/repo/file.ts',
+        'C:\\repo\\file.ts'
+      )
+    ).toBe(true)
+    // Two plain UNC shares are never WSL aliases.
+    expect(
+      areLocalWindowsWslPathAliases('//server/share/file.ts', '\\\\server\\share\\file.ts')
+    ).toBe(false)
+  })
+})
+
+describe('isCaseInsensitiveRuntimeRoot', () => {
+  it('folds Windows drive and UNC roots by syntax, never the client platform', () => {
+    expect(isCaseInsensitiveRuntimeRoot('C:\\Users\\dev\\repo')).toBe(true)
+    expect(isCaseInsensitiveRuntimeRoot('c:/users/dev/repo')).toBe(true)
+    expect(isCaseInsensitiveRuntimeRoot('\\\\Server\\Share\\repo')).toBe(true)
+  })
+
+  it('keeps WSL UNC aliases and POSIX/SSH roots case-sensitive', () => {
+    // The WSL UNC alias fronts a case-sensitive Linux filesystem.
+    expect(isCaseInsensitiveRuntimeRoot('\\\\wsl$\\Ubuntu\\home\\dev\\repo')).toBe(false)
+    expect(isCaseInsensitiveRuntimeRoot('\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo')).toBe(false)
+    // POSIX roots (native Linux, macOS, SSH) never fold, even a home directory.
+    expect(isCaseInsensitiveRuntimeRoot('/home/dev/repo')).toBe(false)
+    expect(isCaseInsensitiveRuntimeRoot('/srv/home/dev/repo')).toBe(false)
+  })
+})
 
 describe('cross-platform path containment', () => {
   it('keeps POSIX sibling prefixes outside the root', () => {

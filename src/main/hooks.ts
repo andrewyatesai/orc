@@ -291,7 +291,9 @@ export function getDefaultTabsLaunch(
   }
   const hasCommands = tabs.some((tab) => Boolean(tab.command?.trim()))
   const runCommands =
-    hasCommands && canRunSharedCommandsForRepo(repo) ? shouldRunSetupForCreate(repo, decision) : false
+    hasCommands && canRunSharedCommandsForRepo(repo)
+      ? shouldRunSetupForCreate(repo, decision)
+      : false
   return { tabs, runCommands }
 }
 
@@ -601,7 +603,7 @@ export function runHook(
         const distroArgs = wslInfo.distro ? ['-d', wslInfo.distro] : []
         child = execFile(
           'wsl.exe',
-          [...distroArgs, '--', 'bash', '-c', bashCmd],
+          [...distroArgs, '--exec', 'bash', '-c', bashCmd],
           {
             timeout: HOOK_TIMEOUT,
             encoding: 'utf-8',

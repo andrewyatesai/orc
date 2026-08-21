@@ -21,7 +21,7 @@ pub mod tui_agent_selection;
 pub use commit_message_prompt::{
     build_commit_prompt, clean_generated_commit_message, extract_agent_error_message,
     plan_custom_command, tokenize_custom_command_template, truncate_diff_for_prompt,
-    CustomCommandPlan, CUSTOM_PROMPT_PLACEHOLDER, STAGED_DIFF_BYTE_BUDGET,
+    CommandTemplateBackslash, CustomCommandPlan, CUSTOM_PROMPT_PLACEHOLDER, STAGED_DIFF_BYTE_BUDGET,
 };
 pub use agent_status_types::{
     agent_subagents_equal, agent_subagents_equal_values, has_unsettled_or_unknown_dispatch,

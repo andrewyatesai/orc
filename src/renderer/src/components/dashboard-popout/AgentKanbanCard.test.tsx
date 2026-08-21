@@ -102,12 +102,12 @@ describe('AgentKanbanCard', () => {
     expect(container.querySelector('.lucide-message-circle-question-mark')).toBeNull()
   })
 
-  it('tints attention amber and done green, leaving every other state neutral', () => {
+  it('tints attention with the question accent and done green, leaving every other state neutral', () => {
     const { container: attention } = renderCard({
       card: card({ bucket: 'attention', dotState: 'waiting' }),
       now: 2_000
     })
-    expect(attention.querySelector('button')?.className).toContain('border-amber-500/40')
+    expect(attention.querySelector('button')?.className).toContain('border-agent-question/40')
 
     cleanup()
     const { container: done } = renderCard({
@@ -124,7 +124,7 @@ describe('AgentKanbanCard', () => {
     const idleClassName = idle.querySelector('button')?.className ?? ''
     expect(idleClassName).toContain('border-border/60')
     expect(idleClassName).not.toContain('emerald')
-    expect(idleClassName).not.toContain('amber')
+    expect(idleClassName).not.toContain('agent-question')
   })
 
   it('heads the card with the conversation name and drops the worktree to the footer', () => {

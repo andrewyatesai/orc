@@ -144,9 +144,106 @@
       "why": [
         "+22 on orca-runtime.ts from the checkRepoHooks status-field port (7956335ce); pty.ts + shim flat. Accepted attach-kind growth."
       ]
+    },
+    {
+      "date": "2026-08-14",
+      "head": "delta-b1",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36681
+      },
+      "why": [
+        "+42 on orca-runtime.ts from fresh-delta batch 1 runtime attach: #13288 structural printable-keydown IME claim wiring, preserved-branch-cleanup-by-scope, and AbortSignal threading (c1e75477f3). In-place OrcaRuntimeService methods; nothing extractable. pty.ts flat 6364, shim flat."
+      ]
+    },
+    {
+      "date": "2026-08-14",
+      "head": "delta-b2",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36723
+      },
+      "why": [
+        "+100 on orca-runtime.ts from the delta-b2 batch-2 parity port, stacked on delta-b1 (36723). All attach-kind edits to existing OrcaRuntimeService methods and module-level title detectors. Two named ports account for it: 970696a008 (sidebar Cursor title-resolution, #10258) threads TerminalTitleFactMeta through applyTrackedPtyTitle for the identity-only cursor-agent literal (records no status/management title, tracker keeps it for display) plus three instance-coupled private helpers (isLiveCursorNativeTitle, getTrackedDisplayTitleForPty, getUnpersistedTrackedTitleForPty) and the mobile-tab trackerOnlyTitle preference; a81224614a (detect a live OpenCode pane from its native `OC | ` marker) adds isOpenCodeNativeTitle guards across the isTerminalRunningAgent paths, detectExplicitIdleStatusFromTitle, and the presence-only marker corroboration against process evidence; plus the permission-required blocked-sentinel regex/decision-count block in findTerminalWaitBlockedSignal.",
+        "Accepted: every piece edits existing method bodies over private this-state (ptysById/leaves/ptyTitleTrackersByPtyId) or module-level detectors and is not extractable without exporting that internal surface. pty.ts held flat at 6364 and shimWholeFileLoc held flat at 2813 across the batch \u2014 the delivery-reliability shim this ratchet watches did not move, which is the number that would have justified refusing. Decomposition of orca-runtime.ts remains owed; the next movement should be down."
+      ]
+    },
+    {
+      "date": "2026-08-14",
+      "head": "delta-b4",
+      "from": {
+        "src/main/ipc/pty.ts": 6364,
+        "src/main/runtime/orca-runtime.ts": 36823,
+        "shimWholeFileLoc": 2813
+      },
+      "why": [
+        "pty.ts +11 (6364->6375) from fresh-delta batch 4 attach-kind ports: fc8441194c (synchronizePtyOutputSequenceFromProvider on the attach path) + 982570648a (ensureWslHookRelayForReattach call-sites; the reusable half already extracted to the new module wsl-hook-relay-reattach.ts). Accepted attach-kind: the extractable piece landed in its own module, only the pty.ts wiring remains.",
+        "orca-runtime.ts TIGHTENED 36823->36393 and shimWholeFileLoc TIGHTENED 2813->2812: the god object NET SHRANK across delta batches 4+6 via named-module extraction (b6's larger extraction + b4's wsl-hook-relay-reattach). Pulling the ratchet in so the freed headroom cannot hide future drift. The delivery-reliability shim this ratchet watches shrank by 1 with no manifest loss."
+      ]
+    },
+    {
+      "date": "2026-08-14",
+      "head": "delta-b5",
+      "from": {
+        "src/main/ipc/pty.ts": 6375
+      },
+      "why": [
+        "pty.ts +7 (6375->6382) from fresh-delta batch 5: 4e7421d9e1 imports TerminalHostGoneError and adds its guard in normalizeNodePtySpawnError. Accepted attach-kind \u2014 the extractable classifier already lives in daemon-errors.ts, only the pty.ts call-site guard remains. orca-runtime.ts held flat at 36393 and shimWholeFileLoc flat at 2812 across the batch (the batch's usage-ipc removal + pr-comment consolidation net out on the god object)."
+      ]
+    },
+    {
+      "date": "2026-08-17",
+      "head": "d300-b1",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36393
+      },
+      "why": [
+        "+90 on orca-runtime.ts from +300-delta batch 1 attach-kind ports: STA-4028 quarter-circle guarded-send authorization + launchIncarnationId, launch-identity-authoritative, the 30s repo-rescan admin-fingerprint gate (#14207) refreshRepoWorktreeScan, and the diffComments FolderWorkspace type union. In-place OrcaRuntimeService methods; pty.ts flat 6382, shim flat 2812."
+      ]
+    },
+    {
+      "date": "2026-08-17",
+      "head": "d300-b2",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36483,
+        "shimWholeFileLoc": 2812
+      },
+      "why": [
+        "orca-runtime.ts +123 (36483->36606) stacked on d300-b1 from the +300-delta batch-2 attach-kind ports (SGR-pen clear on hidden-output restore #14241, renderer-graph reload-termination gate, mobile cluster). shimWholeFileLoc +11 (2812->2823) entirely from src/renderer/src/components/terminal-pane/pty-pre-handler-buffer.ts, a shim-manifest attach \u2014 NOT the delivery-reliability host regions. pty.ts flat 6382."
+      ]
+    },
+    {
+      "date": "2026-08-17",
+      "head": "d300-b4",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36606
+      },
+      "why": [
+        "+22 on orca-runtime.ts from +300-delta batch 4: the #14207 worktree-scan admin-fingerprint timeout block (WORKTREE_SCAN_ADMIN_FINGERPRINT_TIMEOUT_MS / WORKTREE_SCAN_FALLBACK_ALLOWANCE_MS + withTimeout on the reuse-decision adminFingerprint probe). pty.ts flat 6382, shim flat 2823. Accepted attach-kind; decomposition still owed."
+      ]
+    },
+    {
+      "date": "2026-08-17",
+      "head": "delta79",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36628,
+        "src/main/ipc/pty.ts": 6382
+      },
+      "why": [
+        "+300-window +79 cadence sync attach-kind: orca-runtime.ts 36628->36901 (host-scope terminal listing 8ca4ed945e, STA-4510 owned-subscription teardown, worktree-removal repo-owner routing 64de8dd6, repo-git-remote-identity enrichment), pty.ts 6382->6411 (liveness/host-scope). shim flat 2823. In-place OrcaRuntimeService methods; decomposition still owed."
+      ]
+    },
+    {
+      "date": "2026-08-18",
+      "head": "delta34",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36901,
+        "src/main/ipc/pty.ts": 6411
+      },
+      "why": [
+        "+34 cadence sync attach-kind: pty.ts 6411->6433 = STA-517 relay-deadline-budget rewrite of listRegisteredPtyProcessesWithHostScope (settle each SSH provider independently under the caller deadline so one dead relay can't freeze every workspace); orca-runtime.ts 36901->36903 net = the STA-517 listBudgetMs/provider-margin plumbing minus the AgentDetector->AgentSessionTransitionRecorder field/hook removals. shim flat 2823."
+      ]
     }
   ],
-  "shimWholeFileLoc": 2813,
-  "src/main/runtime/orca-runtime.ts": 36681,
-  "src/main/ipc/pty.ts": 6364
+  "shimWholeFileLoc": 2823,
+  "src/main/runtime/orca-runtime.ts": 36903,
+  "src/main/ipc/pty.ts": 6433
 }

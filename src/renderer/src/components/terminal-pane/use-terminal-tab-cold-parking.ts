@@ -15,9 +15,11 @@ import {
 } from '../activity/activity-terminal-portal'
 import {
   getTerminalTabColdParkRecheckDelayMs,
-  selectColdParkedTerminalTabs,
-  type TerminalTabColdParkCandidate
+  selectColdParkedTerminalTabs
 } from './terminal-hidden-view-parking'
+import { createTerminalTabActivationOrder } from './terminal-tab-activation-order'
+import { buildTerminalTabColdParkCandidates } from './terminal-tab-park-candidates'
+import { selectActiveTerminalTabInGroup } from './terminal-overlay-assignments'
 import {
   recordParkVerdictFlips,
   type ParkVerdictFlipRecord
@@ -52,6 +54,9 @@ export function useTerminalTabColdParking(args: {
   terminalTabs: readonly TerminalTab[]
   assignments: ReadonlyMap<string, TerminalOverlayTabAssignment>
   isWorktreeActive: boolean
+  /** Active group id — its active tab is the hidden->visible edge that ranks
+   *  same-pass hidden ties by activation order instead of random UUID. */
+  activeGroupId: string | undefined
   /** Worktree-level park verdict from Terminal.tsx. */
   coldParkTerminalPanes: boolean
   /** Hidden-measuring startup probe from Terminal.tsx — the panes must stay
@@ -70,11 +75,15 @@ export function useTerminalTabColdParking(args: {
     terminalTabs,
     assignments,
     isWorktreeActive,
+    activeGroupId,
     coldParkTerminalPanes,
     shouldMeasureHiddenWorktree,
     activityTerminalPortals,
     activationDeferredMountTabIds
   } = args
+  // Why: the active group's active tab is the hidden->visible edge; a primitive,
+  // so the effect dep compares by value without a memo.
+  const activeTerminalTabId = selectActiveTerminalTabInGroup(activeGroupId, assignments)
   const pendingStartupByTabId = useAppStore((state) => state.pendingStartupByTabId)
   const terminalParkingEnabled = useAppStore(
     (state) => state.settings?.terminalHiddenViewParking !== false
@@ -90,6 +99,8 @@ export function useTerminalTabColdParking(args: {
     [sleepingAgentSessionsByPaneKey, worktreeId]
   )
   const terminalTabHiddenSinceRef = useRef(new Map<string, number>())
+  // Why: view switches hide every tab at once, so the park clock cannot rank them.
+  const terminalTabActivationOrderRef = useRef(createTerminalTabActivationOrder())
   const terminalTabParkingTimersRef = useRef(new Map<string, number>())
   const parkVerdictRecordsRef = useRef(new Map<string, ParkVerdictFlipRecord>())
   const [terminalTabParkingRevision, setTerminalTabParkingRevision] = useState(0)
@@ -130,26 +141,18 @@ export function useTerminalTabColdParking(args: {
         terminalTabHiddenSinceRef.current.delete(tabId)
       }
     }
+    terminalTabActivationOrderRef.current.retainTabIds(currentTerminalTabIds)
 
-    const candidates: TerminalTabColdParkCandidate[] = terminalTabs.map((terminalTab) => {
-      const assignment = assignments.get(terminalTab.id)
-      const isVisible = Boolean(isWorktreeActive && assignment && assignment.isActiveInGroup)
-      const hasActivityTerminalPortal = portalTabIds.has(terminalTab.id)
-      // Why: hidden-measuring counts as visibility — the startup probe needs
-      // mounted panes, so the hidden clock must not run during it.
-      if (isVisible || hasActivityTerminalPortal || shouldMeasureHiddenWorktree) {
-        terminalTabHiddenSinceRef.current.delete(terminalTab.id)
-      } else if (!terminalTabHiddenSinceRef.current.has(terminalTab.id)) {
-        terminalTabHiddenSinceRef.current.set(terminalTab.id, nowMs)
-      }
-      return {
-        id: terminalTab.id,
-        ptyId: terminalTab.ptyId,
-        pendingActivationSpawn: terminalTab.pendingActivationSpawn,
-        isVisible,
-        hasActivityTerminalPortal,
-        hiddenSinceMs: terminalTabHiddenSinceRef.current.get(terminalTab.id) ?? null
-      }
+    const candidates = buildTerminalTabColdParkCandidates({
+      terminalTabs,
+      assignments,
+      isWorktreeActive,
+      activeTerminalTabId,
+      portalTabIds,
+      shouldMeasureHiddenWorktree,
+      hiddenSinceByTabId: terminalTabHiddenSinceRef.current,
+      activationOrder: terminalTabActivationOrderRef.current,
+      nowMs
     })
 
     const nextColdParkedTerminalTabIds = selectColdParkedTerminalTabs({
@@ -207,6 +210,7 @@ export function useTerminalTabColdParking(args: {
     activityTerminalPortals,
     assignments,
     isWorktreeActive,
+    activeTerminalTabId,
     pendingStartupByTabId,
     shouldMeasureHiddenWorktree,
     terminalParkingEnabled,

@@ -1,7 +1,7 @@
 /* oxlint-disable max-lines -- Why: content loading, retry, and external-change
    subscriptions share in-flight caches and state setters; splitting them would
    make the hook coordination harder to audit. */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { OpenFile } from '@/store/slices/editor'
 import { getConnectionIdForFile, isWorktreeConnectionResolved } from '@/lib/connection-context'
 import { joinPath } from '@/lib/path'
@@ -26,20 +26,27 @@ import {
   shouldReloadDiffOnGitStatusChange
 } from './editor-panel-diff-reload'
 import {
+  type EditorPanelContentLoadOptions,
   useEditorPanelExternalContentEvents,
   usePruneClosedEditorContent
 } from './useEditorPanelExternalContentEvents'
 import { useEditorPanelFileLoadRetry } from './useEditorPanelFileLoadRetry'
 import { useLocalLogTail } from './useLocalLogTail'
 
-const inFlightFileReads = new Map<string, Promise<FileContent>>()
-const inFlightDiffReads = new Map<string, Promise<DiffContent>>()
+type InFlightContentRead<T> = {
+  externalEventGeneration?: number
+  promise: Promise<T>
+}
+
+const inFlightFileReads = new Map<string, InFlightContentRead<FileContent>>()
+const inFlightDiffReads = new Map<string, InFlightContentRead<DiffContent>>()
 
 type GitStatusByWorktree = ReturnType<typeof useAppStore.getState>['gitStatusByWorktree']
 type EditorViewModeByFile = ReturnType<typeof useAppStore.getState>['editorViewMode']
 
 type UseEditorPanelContentStateParams = {
   activeFile: OpenFile | null
+  isVisible?: boolean
   isChangesMode: boolean
   openFiles: OpenFile[]
   gitStatusEntries: GitStatusByWorktree[string] | undefined
@@ -71,6 +78,18 @@ function stampCleanTabDiskBaseline(id: string, result: FileContent): void {
   }
 }
 
+// Why: the newest read for a tab is already on its way, so a re-run of the lazy
+// effect (a worktree flip-flop re-adds `isVisible`) must not fire a second RPC.
+// An invalidation bumps the tab's generation, so a superseded read never counts.
+function hasLiveRead(
+  generationsById: Record<string, number>,
+  outstandingById: Record<string, number>,
+  id: string
+): boolean {
+  const generation = generationsById[id]
+  return generation !== undefined && outstandingById[id] === generation
+}
+
 function inFlightReadKey(connectionId: string | undefined, filePath: string): string {
   return `${connectionId ?? ''}::${filePath}`
 }
@@ -93,6 +112,7 @@ function inFlightDiffKey(
 
 export function useEditorPanelContentState({
   activeFile,
+  isVisible = true,
   isChangesMode,
   openFiles,
   gitStatusEntries,
@@ -101,7 +121,6 @@ export function useEditorPanelContentState({
   const [fileContents, setFileContents] = useState<Record<string, FileContent>>({})
   const [diffContents, setDiffContents] = useState<Record<string, DiffContent>>({})
   const diffContentsRef = useRef(diffContents)
-  diffContentsRef.current = diffContents
   const fileLoadRetryAttemptsRef = useRef<Record<string, number>>({})
   // Why: per-tab read generations let a forced/external reload supersede an
   // older in-flight read so a slower stale promise cannot overwrite fresh state.
@@ -109,14 +128,77 @@ export function useEditorPanelContentState({
   const diffReadGenerationRef = useRef<Record<string, number>>({})
   const fileReadGenerationCounterRef = useRef(0)
   const diffReadGenerationCounterRef = useRef(0)
+  const outstandingFileReadsRef = useRef<Record<string, number>>({})
+  const outstandingDiffReadsRef = useRef<Record<string, number>>({})
   const openFilesRef = useRef(openFiles)
-  openFilesRef.current = openFiles
   const editorViewModeRef = useRef(editorViewMode)
-  editorViewModeRef.current = editorViewMode
+  const isVisibleRef = useRef(isVisible)
   const selectedConflictReviewFile =
     activeFile?.mode === 'conflict-review' && activeFile.conflictReview?.selectedFileId
       ? (openFiles.find((file) => file.id === activeFile.conflictReview?.selectedFileId) ?? null)
       : null
+  const activeContentFileId = selectedConflictReviewFile?.id ?? activeFile?.id ?? null
+  const activeContentFileIdRef = useRef(activeContentFileId)
+
+  useLayoutEffect(() => {
+    // Why: event-driven readers must only observe state from committed renders.
+    diffContentsRef.current = diffContents
+    openFilesRef.current = openFiles
+    editorViewModeRef.current = editorViewMode
+    isVisibleRef.current = isVisible
+    activeContentFileIdRef.current = activeContentFileId
+  }, [activeContentFileId, diffContents, editorViewMode, isVisible, openFiles])
+
+  const invalidateFileContent = useCallback((fileIds: string[]): void => {
+    const uniqueIds = new Set(fileIds)
+    for (const fileId of uniqueIds) {
+      fileReadGenerationRef.current[fileId] = ++fileReadGenerationCounterRef.current
+      delete fileLoadRetryAttemptsRef.current[fileId]
+    }
+    setFileContents((prev) => {
+      const next = { ...prev }
+      let changed = false
+      for (const fileId of uniqueIds) {
+        const existing = next[fileId]
+        // Why: keep the last-known bytes rendered and swap them when the lazy
+        // reload lands — dropping them flashes "Loading…" on every reveal.
+        if (existing && existing.isStale !== true) {
+          next[fileId] = { ...existing, isStale: true }
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [])
+
+  const invalidateDiffContent = useCallback((fileIds: string[]): void => {
+    const uniqueIds = new Set(fileIds)
+    for (const fileId of uniqueIds) {
+      diffReadGenerationRef.current[fileId] = ++diffReadGenerationCounterRef.current
+    }
+    setDiffContents((prev) => {
+      const next = { ...prev }
+      let changed = false
+      for (const fileId of uniqueIds) {
+        const existing = next[fileId]
+        // Why: keep the last-known diff rendered and swap it when the lazy
+        // reload lands — dropping it flashes "Loading diff…" on every reveal.
+        if (existing && existing.isStale !== true) {
+          next[fileId] = { ...existing, isStale: true }
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [])
+
+  const invalidateContent = useCallback(
+    (fileIds: string[]): void => {
+      invalidateFileContent(fileIds)
+      invalidateDiffContent(fileIds)
+    },
+    [invalidateDiffContent, invalidateFileContent]
+  )
 
   const loadFileContent = useCallback(
     async (
@@ -124,11 +206,12 @@ export function useEditorPanelContentState({
       id: string,
       worktreeId?: string,
       relativePath?: string,
-      options?: { force?: boolean }
+      options?: EditorPanelContentLoadOptions
     ): Promise<void> => {
       const generation = fileReadGenerationCounterRef.current + 1
       fileReadGenerationCounterRef.current = generation
       fileReadGenerationRef.current[id] = generation
+      outstandingFileReadsRef.current[id] = generation
       try {
         const resolvedConnectionId = getConnectionIdForFile(worktreeId ?? null, filePath)
         const connectionId = resolvedConnectionId ?? undefined
@@ -176,14 +259,20 @@ export function useEditorPanelContentState({
         }
         const readScope = getRuntimeFileReadScope(readSettings, readConnectionId)
         const key = inFlightReadKey(readScope, filePath)
-        if (options?.force) {
+        const registeredRead = inFlightFileReads.get(key)
+        if (
+          options?.force &&
+          (options.externalEventGeneration === undefined ||
+            registeredRead?.externalEventGeneration !== options.externalEventGeneration)
+        ) {
           // Why: forced reloads must not attach to a currently registered read
-          // started before the external change landed.
+          // started before the external change landed. A shared external event
+          // is exempt so source and preview panels dedupe onto one post-change read.
           inFlightFileReads.delete(key)
         }
         let pending = inFlightFileReads.get(key)
         if (!pending) {
-          pending = readRuntimeFileContent({
+          const promise = readRuntimeFileContent({
             settings: readSettings,
             filePath,
             relativePath: restoredOpenFile?.relativePath ?? relativePath,
@@ -192,6 +281,7 @@ export function useEditorPanelContentState({
             expectedExternalSshTargetId: restoredOpenFile?.externalSshTargetId,
             includeLocalLogMetadata: isLiveTailLogTab
           }) as Promise<FileContent>
+          pending = { externalEventGeneration: options?.externalEventGeneration, promise }
           inFlightFileReads.set(key, pending)
           queueMicrotask(() => {
             if (inFlightFileReads.get(key) === pending) {
@@ -199,7 +289,7 @@ export function useEditorPanelContentState({
             }
           })
         }
-        const result = await pending
+        const result = await pending.promise
         if (fileReadGenerationRef.current[id] !== generation) {
           return
         }
@@ -215,19 +305,24 @@ export function useEditorPanelContentState({
           ...prev,
           [id]: { content: '', isBinary: false, loadError: message }
         }))
+      } finally {
+        if (outstandingFileReadsRef.current[id] === generation) {
+          delete outstandingFileReadsRef.current[id]
+        }
       }
     },
     []
   )
 
   const loadDiffContent = useCallback(
-    async (file: OpenFile | null, options?: { force?: boolean }): Promise<void> => {
+    async (file: OpenFile | null, options?: EditorPanelContentLoadOptions): Promise<void> => {
       if (!file || (file.mode === 'edit' && !canUseChangesModeForFile(file))) {
         return
       }
       const generation = diffReadGenerationCounterRef.current + 1
       diffReadGenerationCounterRef.current = generation
       diffReadGenerationRef.current[file.id] = generation
+      outstandingDiffReadsRef.current[file.id] = generation
       try {
         const worktreePath = file.filePath.slice(
           0,
@@ -250,14 +345,20 @@ export function useEditorPanelContentState({
           gitScope ?? undefined,
           compareAgainstHead
         )
-        if (options?.force) {
+        const registeredRead = inFlightDiffReads.get(key)
+        if (
+          options?.force &&
+          (options.externalEventGeneration === undefined ||
+            registeredRead?.externalEventGeneration !== options.externalEventGeneration)
+        ) {
           // Why: forced diff reloads must not attach to a read started before
-          // the external change landed.
+          // the external change landed. A shared external event is exempt so
+          // multiple subscribers dedupe onto one post-change read.
           inFlightDiffReads.delete(key)
         }
         let pending = inFlightDiffReads.get(key)
         if (!pending) {
-          pending = (
+          const promise = (
             effectiveDiffSource === 'commit'
               ? commitCompare
                 ? getRuntimeGitCommitDiff(
@@ -308,6 +409,7 @@ export function useEditorPanelContentState({
                     }
                   )
           ) as Promise<DiffContent>
+          pending = { externalEventGeneration: options?.externalEventGeneration, promise }
           inFlightDiffReads.set(key, pending)
           queueMicrotask(() => {
             if (inFlightDiffReads.get(key) === pending) {
@@ -315,7 +417,7 @@ export function useEditorPanelContentState({
             }
           })
         }
-        const result = await pending
+        const result = await pending.promise
         if (diffReadGenerationRef.current[file.id] !== generation) {
           return
         }
@@ -334,6 +436,10 @@ export function useEditorPanelContentState({
             modifiedIsBinary: false
           }
         }))
+      } finally {
+        if (outstandingDiffReadsRef.current[file.id] === generation) {
+          delete outstandingDiffReadsRef.current[file.id]
+        }
       }
     },
     []
@@ -374,7 +480,25 @@ export function useEditorPanelContentState({
 
   useLocalLogTail({ openFiles, fileContents, setFileContents, reloadContent })
 
+  const needsFileRead = (fileId: string): boolean => {
+    const cached = fileContents[fileId]
+    return (
+      (!cached || cached.isStale === true) &&
+      !hasLiveRead(fileReadGenerationRef.current, outstandingFileReadsRef.current, fileId)
+    )
+  }
+  const needsDiffRead = (fileId: string): boolean => {
+    const cached = diffContents[fileId]
+    return (
+      (!cached || cached.isStale === true) &&
+      !hasLiveRead(diffReadGenerationRef.current, outstandingDiffReadsRef.current, fileId)
+    )
+  }
+
   useEffect(() => {
+    if (!isVisible) {
+      return
+    }
     if (activeFile?.mode === 'conflict-review' && !selectedConflictReviewFile) {
       const snapshotEntries = activeFile.conflictReview?.entries ?? []
       if (snapshotEntries.length === 0) {
@@ -394,7 +518,7 @@ export function useEditorPanelContentState({
         }
 
         const absolutePath = joinPath(activeFile.filePath, entry.path)
-        if (!fileContents[absolutePath]) {
+        if (needsFileRead(absolutePath)) {
           void loadFileContent(absolutePath, absolutePath, activeFile.worktreeId, entry.path)
         }
       }
@@ -409,7 +533,7 @@ export function useEditorPanelContentState({
       if (fileToLoad.conflict?.kind === 'conflict-placeholder') {
         return
       }
-      if (!fileContents[fileToLoad.id]) {
+      if (needsFileRead(fileToLoad.id)) {
         void loadFileContent(
           fileToLoad.filePath,
           fileToLoad.id,
@@ -417,10 +541,10 @@ export function useEditorPanelContentState({
           fileToLoad.relativePath
         )
       }
-      if (isChangesMode && !diffContents[fileToLoad.id]) {
+      if (isChangesMode && needsDiffRead(fileToLoad.id)) {
         void loadDiffContent(fileToLoad)
       }
-    } else if (isReloadableSingleFileDiffTab(fileToLoad) && !diffContents[fileToLoad.id]) {
+    } else if (isReloadableSingleFileDiffTab(fileToLoad) && needsDiffRead(fileToLoad.id)) {
       void loadDiffContent(fileToLoad)
     }
     // oxlint-disable-next-line react-hooks/exhaustive-deps
@@ -431,11 +555,12 @@ export function useEditorPanelContentState({
     activeFile?.conflictReview?.snapshotTimestamp,
     selectedConflictReviewFile?.id,
     isChangesMode,
+    isVisible,
     gitStatusEntries
   ])
 
   useEditorPanelFileLoadRetry({
-    activeFile,
+    activeFile: isVisible ? activeFile : null,
     fileContents,
     fileLoadRetryAttemptsRef,
     loadFileContent,
@@ -480,9 +605,15 @@ export function useEditorPanelContentState({
     if (!(isChangesMode || activeFileShouldReloadOnGitStatusChange)) {
       return
     }
-    // Why: the lazy-load effect already fetches on first open; forcing here
-    // races a duplicate git-diff RPC for the same tab.
-    if (!diffContentsRef.current[current.id]) {
+    if (!isVisibleRef.current) {
+      // Why: park the reload while hidden — the reveal read picks up the new diff.
+      invalidateDiffContent([current.id])
+      return
+    }
+    // Why: the lazy-load effect already fetches on first open and on a retained
+    // stale entry; forcing here races a duplicate git-diff RPC for the same tab.
+    const cachedDiff = diffContentsRef.current[current.id]
+    if (!cachedDiff || cachedDiff.isStale === true) {
       return
     }
     void loadDiffContent(current, { force: true })
@@ -491,6 +622,7 @@ export function useEditorPanelContentState({
     activeFileGitStatusSignature,
     isChangesMode,
     activeFile?.id,
+    invalidateDiffContent,
     loadDiffContent
   ])
 
@@ -503,16 +635,12 @@ export function useEditorPanelContentState({
     if (!current || !isReloadableSingleFileDiffTab(current)) {
       return
     }
-    setDiffContents((prev) => {
-      if (!prev[current.id]) {
-        return prev
-      }
-      const next = { ...prev }
-      delete next[current.id]
-      return next
-    })
+    invalidateDiffContent([current.id])
+    if (!isVisibleRef.current) {
+      return
+    }
     void loadDiffContent(current, { force: true })
-  }, [activeFile?.diffContentReloadNonce, activeFile?.id, loadDiffContent])
+  }, [activeFile?.diffContentReloadNonce, activeFile?.id, invalidateDiffContent, loadDiffContent])
 
   useEffect(() => {
     const nonce = activeFile?.fileContentReloadNonce
@@ -527,20 +655,26 @@ export function useEditorPanelContentState({
     ) {
       return
     }
-    setFileContents((prev) => {
-      if (!prev[current.id]) {
-        return prev
-      }
-      const next = { ...prev }
-      delete next[current.id]
-      return next
-    })
+    invalidateFileContent([current.id])
+    if (!isVisibleRef.current) {
+      return
+    }
     void loadFileContent(current.filePath, current.id, current.worktreeId, current.relativePath, {
       force: true
     })
-  }, [activeFile?.fileContentReloadNonce, activeFile?.filePath, activeFile?.id, loadFileContent])
+  }, [
+    activeFile?.fileContentReloadNonce,
+    activeFile?.filePath,
+    activeFile?.id,
+    invalidateFileContent,
+    loadFileContent
+  ])
 
   useEditorPanelExternalContentEvents({
+    activeContentFileIdRef,
+    invalidateContent,
+    invalidateDiffContent,
+    isVisibleRef,
     loadDiffContent,
     loadFileContent,
     openFilesRef,

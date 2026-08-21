@@ -500,4 +500,34 @@ describe('workspace-tab-palette-search', () => {
       worktreeRange: null
     })
   })
+
+  it('stamps grok occupancy from the idle title the row already shows', () => {
+    const titledOnly = buildEntries({
+      tabsByWorktree: { 'wt-1': [makeTerminalTab({ title: 'grok' })] },
+      unifiedTabsByWorktree: { 'wt-1': [makeUnifiedTab({ label: 'grok' })] }
+    })
+    expect(titledOnly[0]?.occupantAgent).toBe('grok')
+    expect(searchWorkspaceTabs(titledOnly, 'grok')[0]?.occupantAgent).toBe('grok')
+  })
+
+  it('stamps occupancy from the resolved terminal record title, its title source', () => {
+    // The fork resolves the row title from the terminal record (resolveTerminalTabTitle),
+    // so occupancy is keyed off that same string — this is the record-first contract.
+    const fromRecord = buildEntries({
+      tabsByWorktree: { 'wt-1': [makeTerminalTab({ title: 'grok' })] },
+      unifiedTabsByWorktree: { 'wt-1': [makeUnifiedTab({ label: 'Terminal 1' })] }
+    })
+    expect(fromRecord[0]?.title).toBe('grok')
+    expect(fromRecord[0]?.occupantAgent).toBe('grok')
+  })
+
+  it('does not stamp grok occupancy from a hyphenated filename-style title', () => {
+    const hyphenated = buildEntries({
+      tabsByWorktree: { 'wt-1': [makeTerminalTab({ title: 'session-scanner-grok-parser' })] },
+      unifiedTabsByWorktree: {
+        'wt-1': [makeUnifiedTab({ label: 'session-scanner-grok-parser' })]
+      }
+    })
+    expect(hyphenated[0]?.occupantAgent).toBeNull()
+  })
 })

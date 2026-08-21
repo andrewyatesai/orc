@@ -544,4 +544,116 @@ describe('RelayAgentHookServer', () => {
       server.stop()
     }
   })
+
+  describe('manual Claude compact hooks', () => {
+    const SESSION_ID = 'sess-11111111-1111-4111-8111-111111111111'
+    const TURN_PROMPT_ID = '22222222-2222-4222-8222-222222222222'
+    const COMPACT_PROMPT_ID = '33333333-3333-4333-8333-333333333333'
+
+    async function postClaude(
+      port: number,
+      token: string,
+      payload: Record<string, unknown>
+    ): Promise<number> {
+      const res = await fetch(`http://127.0.0.1:${port}/hook/claude`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Orca-Agent-Hook-Token': token },
+        body: JSON.stringify({ paneKey: PANE_KEY, tabId: 'tab-1', env: 'remote', payload })
+      })
+      return res.status
+    }
+
+    it('drives PreCompact→working and manual PostCompact→done, keeping the started prompt', async () => {
+      const forward = vi.fn<(envelope: AgentHookRelayEnvelope) => void>()
+      const server = new RelayAgentHookServer({ endpointDir: dir, forward })
+      await server.start()
+      try {
+        const { port, token } = server.getCoordinates()
+        await postClaude(port, token, {
+          hook_event_name: 'UserPromptSubmit',
+          prompt: 'do the thing',
+          session_id: SESSION_ID,
+          prompt_id: TURN_PROMPT_ID
+        })
+        await postClaude(port, token, {
+          hook_event_name: 'PreCompact',
+          trigger: 'manual',
+          session_id: SESSION_ID,
+          prompt_id: COMPACT_PROMPT_ID
+        })
+        await postClaude(port, token, {
+          hook_event_name: 'PostCompact',
+          trigger: 'manual',
+          session_id: SESSION_ID,
+          prompt_id: COMPACT_PROMPT_ID
+        })
+
+        const states = forward.mock.calls.map((call) => call[0].payload.state)
+        expect(states).toEqual(['working', 'working', 'done'])
+        const pre = forward.mock.calls[1][0]
+        expect(pre.compactTrigger).toBe('manual')
+        expect(pre.providerPromptId).toBe(COMPACT_PROMPT_ID)
+        // Why: compact hooks carry no prompt, so the working row keeps the started turn's label.
+        expect(pre.payload.prompt).toBe('do the thing')
+        expect(forward.mock.calls[2][0].compactTrigger).toBe('manual')
+      } finally {
+        server.stop()
+      }
+    })
+
+    it('marks an auto PostCompact as working (continuation) not done', async () => {
+      const forward = vi.fn<(envelope: AgentHookRelayEnvelope) => void>()
+      const server = new RelayAgentHookServer({ endpointDir: dir, forward })
+      await server.start()
+      try {
+        const { port, token } = server.getCoordinates()
+        await postClaude(port, token, {
+          hook_event_name: 'PostCompact',
+          trigger: 'auto',
+          session_id: SESSION_ID,
+          prompt_id: COMPACT_PROMPT_ID
+        })
+        expect(forward.mock.calls.at(-1)?.[0].payload.state).toBe('working')
+      } finally {
+        server.stop()
+      }
+    })
+
+    it('ignores the post-compact continuation UserPromptSubmit so it cannot resurrect working', async () => {
+      const forward = vi.fn<(envelope: AgentHookRelayEnvelope) => void>()
+      const server = new RelayAgentHookServer({ endpointDir: dir, forward })
+      await server.start()
+      try {
+        const { port, token } = server.getCoordinates()
+        const status = await postClaude(port, token, {
+          hook_event_name: 'UserPromptSubmit',
+          session_id: SESSION_ID,
+          prompt:
+            'This session is being continued from a previous conversation that ran out of context.'
+        })
+        expect(status).toBe(204)
+        expect(forward).not.toHaveBeenCalled()
+      } finally {
+        server.stop()
+      }
+    })
+
+    it('drops a compact hook with no trigger', async () => {
+      const forward = vi.fn<(envelope: AgentHookRelayEnvelope) => void>()
+      const server = new RelayAgentHookServer({ endpointDir: dir, forward })
+      await server.start()
+      try {
+        const { port, token } = server.getCoordinates()
+        const status = await postClaude(port, token, {
+          hook_event_name: 'PreCompact',
+          session_id: SESSION_ID,
+          prompt_id: COMPACT_PROMPT_ID
+        })
+        expect(status).toBe(204)
+        expect(forward).not.toHaveBeenCalled()
+      } finally {
+        server.stop()
+      }
+    })
+  })
 })

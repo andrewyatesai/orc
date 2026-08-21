@@ -124,7 +124,7 @@ function workerHarness(
 }
 
 function flushRaf(queue: (() => void)[]): void {
-  for (const callback of queue.splice(0, queue.length)) {
+  for (const callback of queue.splice(0)) {
     callback()
   }
 }

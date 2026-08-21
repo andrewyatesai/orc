@@ -3,6 +3,13 @@ import { toast } from 'sonner'
 import type { AppState } from '../types'
 import type { PublicKnownRuntimeEnvironment } from '../../../../shared/runtime-environments'
 import type { RuntimeStatus } from '../../../../shared/runtime-types'
+import { runtimeEnvironmentStatusesEqual } from './runtime-environment-status-equality'
+import { reconcileCatalogRows } from './repo-identity-reconcile'
+import { advanceRuntimeEnvironmentConnectionGeneration } from './runtime-environment-connection-generation'
+export {
+  clearRuntimeEnvironmentConnectionGenerationsForTests,
+  getRuntimeEnvironmentConnectionGeneration
+} from './runtime-environment-connection-generation'
 import {
   clearRecentRuntimeCompatibilityFailure,
   clearRuntimeCompatibilityCache,
@@ -17,14 +24,16 @@ import { translate } from '@/i18n/i18n'
 export type RuntimeEnvironmentStatus = {
   status: RuntimeStatus | null
   appVersion?: string | null
+  /** When the stored status was last *observed to change*; an unchanged re-probe
+   * is dropped rather than rewritten, so this is not a probe-freshness clock. */
   checkedAt: number
   connectionGeneration?: number
 }
 
 export type RuntimeStatusSlice = {
-  /** Saved remote Orca servers. Host pickers use this to show user-chosen names
-   * instead of opaque runtime ids. */
-  runtimeEnvironments: PublicKnownRuntimeEnvironment[]
+  /** Saved remote Orca servers. Host pickers show user-chosen names, not opaque
+   * runtime ids. Readonly: a no-op refetch may reuse the previous array identity. */
+  runtimeEnvironments: readonly PublicKnownRuntimeEnvironment[]
   /** True only after the saved-runtime catalog has loaded successfully. */
   runtimeEnvironmentCatalogHydrated: boolean
   /** Keyed by runtime environment id. Fed into buildExecutionHostRegistry so
@@ -38,7 +47,7 @@ export type RuntimeStatusSlice = {
   removedRuntimeEnvironmentIds: ReadonlySet<string>
   /** Replaces the saved-environment list, trims stale status entries, and
    * retires state owned by any environment that just left the saved list. */
-  setRuntimeEnvironments: (environments: PublicKnownRuntimeEnvironment[]) => void
+  setRuntimeEnvironments: (environments: readonly PublicKnownRuntimeEnvironment[]) => void
   /** Merges one environment's status. Replaces the prior entry for that id. */
   setRuntimeEnvironmentStatus: (
     environmentId: string,
@@ -56,7 +65,6 @@ export type RuntimeStatusSlice = {
   hydrateRuntimeEnvironmentStatuses: () => Promise<void>
 }
 
-const connectionGenerationByEnvironment = new Map<string, number>()
 const activeRuntimeDisconnectedToasts = new Map<string, symbol>()
 const RUNTIME_DISCONNECTED_TOAST_DURATION_MS = 4_000
 
@@ -137,16 +145,6 @@ function dismissRuntimeDisconnectedToast(environmentId: string): void {
   toast.dismiss?.(toastId)
 }
 
-export function getRuntimeEnvironmentConnectionGeneration(environmentId: string): number {
-  return connectionGenerationByEnvironment.get(environmentId) ?? 0
-}
-
-function advanceRuntimeEnvironmentConnectionGeneration(environmentId: string): number {
-  const next = getRuntimeEnvironmentConnectionGeneration(environmentId) + 1
-  connectionGenerationByEnvironment.set(environmentId, next)
-  return next
-}
-
 export const createRuntimeStatusSlice: StateCreator<AppState, [], [], RuntimeStatusSlice> = (
   set,
   get
@@ -213,8 +211,26 @@ export const createRuntimeStatusSlice: StateCreator<AppState, [], [], RuntimeSta
           removedChanged = true
         }
       }
+      // Why: list()/hydrate always allocate (IPC structuredClone + redact remaps
+      // endpoints[]), so a no-op refresh would hand back a field-identical catalog as a
+      // brand-new array and miss every Object.is subscriber. Reuse equal rows so the 60s
+      // TTL refresh stays a no-op render.
+      const reconciled = reconcileCatalogRows(
+        s.runtimeEnvironments,
+        environments,
+        (environment) => environment.id
+      )
+      const catalogUnchanged = reconciled === s.runtimeEnvironments
+      if (
+        catalogUnchanged &&
+        s.runtimeEnvironmentCatalogHydrated &&
+        !statusesChanged &&
+        !removedChanged
+      ) {
+        return s
+      }
       return {
-        runtimeEnvironments: environments,
+        runtimeEnvironments: reconciled,
         runtimeEnvironmentCatalogHydrated: true,
         ...(statusesChanged ? { runtimeStatusByEnvironmentId: nextStatuses } : {}),
         ...(removedChanged ? { removedRuntimeEnvironmentIds: nextRemoved } : {})
@@ -248,19 +264,26 @@ export const createRuntimeStatusSlice: StateCreator<AppState, [], [], RuntimeSta
       clearRecentRuntimeCompatibilityFailure(environmentId, status.status)
     }
     set((s) => {
-      const next = new Map(s.runtimeStatusByEnvironmentId)
       const connectionChanged =
         status.status !== null &&
         (previous?.status == null || previous.status.runtimeId !== status.status.runtimeId)
       if (connectionChanged) {
         advanceRuntimeEnvironmentConnectionGeneration(environmentId)
       }
-      next.set(environmentId, {
+      const nextEntry: RuntimeEnvironmentStatus = {
         ...status,
         connectionGeneration: connectionChanged
           ? (previous?.connectionGeneration ?? 0) + 1
           : (previous?.connectionGeneration ?? status.connectionGeneration ?? 0)
-      })
+      }
+      const currentEntry = s.runtimeStatusByEnvironmentId.get(environmentId)
+      // Why: an unchanged re-probe must not invalidate every Map subscriber. Real
+      // transitions change `status` or advance `connectionGeneration`, so they still write.
+      if (currentEntry && runtimeEnvironmentStatusesEqual(currentEntry, nextEntry)) {
+        return s
+      }
+      const next = new Map(s.runtimeStatusByEnvironmentId)
+      next.set(environmentId, nextEntry)
       return { runtimeStatusByEnvironmentId: next }
     })
     if (options?.suppressDisconnectToast) {

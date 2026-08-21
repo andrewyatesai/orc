@@ -24,7 +24,7 @@ function gridOf(term, rows) {
 
 function splitOnMarker(buf) {
   const i = buf.indexOf(MARKER)
-  if (i < 0) {
+  if (i === -1) {
     return [buf, Buffer.alloc(0)]
   }
   return [buf.subarray(0, i), buf.subarray(i + MARKER.length)]

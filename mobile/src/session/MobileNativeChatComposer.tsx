@@ -138,10 +138,11 @@ export function MobileNativeChatComposer({
     sendingRef.current = true
     setSending(true)
     try {
-      // Why: preserve leading whitespace so " /clear …" stays prose — the send
-      // classifier keys off the line-leading token, and trimming it would make
-      // the agent's TUI dispatch a command the user only quoted.
-      const accepted = await onSend(value.trimEnd())
+      // Raw, not trimmed: the send seam owns the wire trim, so a rejection can
+      // hand the draft back byte-for-byte instead of shorter than the user
+      // typed. Leading whitespace is likewise preserved so " /clear …" stays
+      // prose — the classifier keys off the line-leading token.
+      const accepted = await onSend(value)
       if (accepted) {
         setCursor(0)
       }

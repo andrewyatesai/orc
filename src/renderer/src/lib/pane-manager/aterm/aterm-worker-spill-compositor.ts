@@ -207,7 +207,7 @@ export function createAtermWorkerSpillCompositor(deps: {
     }
     // Swap-clear FIRST: the epilogue and the eager presentNow tail can both
     // land in one task; the second invocation sees an empty array and no-ops.
-    const run = dirty.splice(0, dirty.length)
+    const run = dirty.splice(0)
     dirtySet.clear()
     for (const paneId of run) {
       runPaneSpill(paneId)

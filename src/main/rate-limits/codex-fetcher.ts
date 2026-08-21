@@ -19,15 +19,14 @@ import {
   type CodexRpcRateWindow
 } from './codex-rate-limit-window-classification'
 import { resolveCodexCommand } from '../codex-cli/command'
+import { isCodexStateDbBackfillPending } from '../codex/codex-state-db'
+import { startCodexStateDbBackfillRecoveryInBackground } from '../codex/codex-state-db-backfill-recovery'
 import { withMacTailscaleDnsHint } from '../network/macos-tailscale-dns-diagnostic'
 import { getCmdExePath, getSpawnArgsForWindows } from '../win32-utils'
 import { cleanupHiddenRateLimitPty, registerHiddenRateLimitPty } from './hidden-pty-cleanup'
 import { parseWslUncPath } from '../../shared/wsl-unc-paths'
 import { extractCodexAuthError, isCodexAuthError } from '../../shared/codex-auth-errors'
-import {
-  buildWslLoginShellCommand,
-  escapeWslShCommandForWindows
-} from '../../shared/wsl-login-shell-command'
+import { buildWslExecArgs, buildWslLoginShellCommand } from '../../shared/wsl-login-shell-command'
 import {
   getHiddenRateLimitWslCwdSetupCommands,
   resolveHiddenRateLimitPtyCwd
@@ -178,7 +177,7 @@ function buildWslCodexCommand(
     : loginShellCommand
   return {
     command: 'wsl.exe',
-    args: ['-d', wslInfo.distro, '--', 'sh', '-c', escapeWslShCommandForWindows(command)]
+    args: buildWslExecArgs(wslInfo.distro, ['sh', '-c', command])
   }
 }
 
@@ -1103,6 +1102,19 @@ export async function fetchCodexRateLimits(
         authPresence === 'timeout'
           ? 'Timed out while checking Codex sign-in status'
           : 'Codex sign-in status is unavailable',
+      status: 'error'
+    }
+  }
+
+  if (options?.codexHomePath && isCodexStateDbBackfillPending(options.codexHomePath)) {
+    // Why: a bounded quota probe can steal an expired backfill lease, then die before indexing finishes.
+    void startCodexStateDbBackfillRecoveryInBackground(options.codexHomePath)
+    return {
+      provider: 'codex',
+      session: null,
+      weekly: null,
+      updatedAt: Date.now(),
+      error: 'Codex is rebuilding its session index; usage will refresh when recovery finishes',
       status: 'error'
     }
   }

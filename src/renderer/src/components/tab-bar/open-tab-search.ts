@@ -18,6 +18,7 @@ import {
   type WorkspaceTabContentType,
   type WorkspaceTabPaletteSearchResult
 } from '@/lib/workspace-tab-palette-search'
+import type { TuiAgent } from '../../../../shared/types'
 
 export const OPEN_TAB_SEARCH_RESULT_LIMIT = 4
 
@@ -43,6 +44,7 @@ export type OpenTabSearchResult =
       entityId: string
       groupId: string
       relativePath: string | null
+      occupantAgent: TuiAgent | null
     })
   | (OpenTabSearchResultBase & {
       source: 'browser'
@@ -176,7 +178,8 @@ export function searchOpenTabs({
       tabId: result.tabId,
       entityId: result.entityId,
       groupId: result.groupId,
-      relativePath: getEditorRelativePath(workspaceEntriesByTabId.get(result.tabId))
+      relativePath: getEditorRelativePath(workspaceEntriesByTabId.get(result.tabId)),
+      occupantAgent: result.occupantAgent
     })),
     ...rank('browser', searchBrowserPages([...browserPages], trimmed), (result) => ({
       ...baseResult('browser', result.pageId, result),

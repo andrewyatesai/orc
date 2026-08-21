@@ -95,19 +95,27 @@ import {
   type PinnedWorktreeDisplayPolicy
 } from './worktree-list-groups'
 import {
+  buildLineageRowRekeyMap,
   estimateRenderRowSize,
   extractWorktreeVirtualRowIndexes,
   getActiveStickyIndexesForScroll,
+  getRenderRowKey,
   getStickyHeaderIndexes,
   getVirtualRowTransform,
   pruneStaleVirtualRowElementCache,
   shouldUseHeaderTopSpacing,
+  WORKTREE_SIDEBAR_VIRTUAL_ROW_GAP,
   type RenderRow
 } from './worktree-list-virtual-rows'
 import {
   revealElementInScrollContainer,
   WORKTREE_SIDEBAR_REVEAL_TOP_INSET
 } from './worktree-sidebar-reveal'
+import {
+  createPendingRevealScroll,
+  isRevealScrollSettling,
+  type PendingRevealScroll
+} from './worktree-sidebar-reveal-scroll-settle'
 import {
   getWorkspaceStatus,
   getWorkspaceStatusFromGroupKey,
@@ -126,6 +134,7 @@ import {
   getCyclicProjectedWorktreeLineageIds,
   getWorktreeLineageAncestors
 } from './worktree-lineage-projection'
+import { isPinnedSectionWorktree } from './pinned-section-worktrees'
 import { getWorktreeIdsWithLiveAgent } from '@/lib/worktree-activity-state'
 import { getEmptyProjectPlaceholderRepoIds } from './empty-project-placeholder-repos'
 import {
@@ -140,6 +149,8 @@ import {
 } from '@/hooks/useVirtualizedScrollAnchor'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { useFolderWorkspacePathStatusCacheExpiryTick } from '@/lib/folder-workspace-path-status-cache-expiry'
+import { useWorktreeListScrollToTop } from './use-worktree-list-scroll-to-top'
+import { WorktreeListScrollToTopButton } from './WorktreeListScrollToTopButton'
 import {
   getFolderWorkspacePathStatusDescription,
   getFolderWorkspacePathStatusTitle
@@ -170,6 +181,7 @@ import {
   getWorkspaceKanbanSidebarDropTarget,
   hasWorkspaceKanbanSidebarDropBoard,
   isWorkspaceKanbanSidebarDropPointInBoard,
+  resolveWorkspaceKanbanSidebarFullLaneDropIndex,
   updateWorkspaceKanbanSidebarDropTargetVisual
 } from './workspace-kanban-sidebar-drop'
 import {
@@ -253,20 +265,16 @@ import {
   type ImportedWorktreeCardActionState
 } from './imported-worktrees-card-actions'
 import {
-  importNewExternalWorktreeInboxPaths,
-  keepNewExternalWorktreeInboxHidden,
   suppressNewExternalWorktreeInbox,
   type NewExternalWorktreesInboxActionState
 } from './new-external-worktrees-inbox-actions'
 import { isEligibleWorktreeParent } from './worktree-parent-candidates'
+import { unnestWorktrees } from './worktree-unnest'
 import {
   buildImportedWorktreesCardCandidates,
   getHiddenImportedWorktrees
 } from './imported-worktrees-card-candidates'
-import {
-  buildNewExternalWorktreesInboxCandidates,
-  toNewExternalWorktreeInboxPreview
-} from './new-external-worktrees-inbox-candidates'
+import { buildNewExternalWorktreesInboxCandidates } from './new-external-worktrees-inbox-candidates'
 import {
   WORKTREE_SECTION_HEADER_PADDING_LEFT,
   LINEAGE_CHILDREN_INLINE_OFFSET,
@@ -483,7 +491,8 @@ function revealMountedWorktreeElement(
   container: HTMLElement,
   worktreeId: string,
   behavior: ScrollBehavior,
-  optionId?: string
+  optionId?: string,
+  onScrollIssued?: (targetTop: number) => void
 ): HTMLElement | null {
   const element = optionId
     ? document.getElementById(optionId)
@@ -491,19 +500,24 @@ function revealMountedWorktreeElement(
   if (!element || !container.contains(element)) {
     return null
   }
-  return revealElementInScrollContainer(container, element, behavior) ? element : null
+  return revealElementInScrollContainer(container, element, behavior, onScrollIssued)
+    ? element
+    : null
 }
 
 function revealMountedSidebarRowElement(
   container: HTMLElement,
   rowKey: string,
-  behavior: ScrollBehavior
+  behavior: ScrollBehavior,
+  onScrollIssued?: (targetTop: number) => void
 ): HTMLElement | null {
   const element = document.getElementById(getWorktreeOptionId(rowKey))
   if (!element || !container.contains(element)) {
     return null
   }
-  return revealElementInScrollContainer(container, element, behavior) ? element : null
+  return revealElementInScrollContainer(container, element, behavior, onScrollIssued)
+    ? element
+    : null
 }
 
 function getRenderRowSidebarKey(row: RenderRow): string | null {
@@ -645,9 +659,6 @@ type VirtualizedWorktreeViewportProps = {
   handleShowImportedWorktrees: (projectId: string) => void
   handleKeepImportedWorktreesHidden: (projectId: string) => void
   importedWorktreeCardActionState: ReadonlyMap<string, ImportedWorktreeCardActionState>
-  handleImportNewExternalWorktree: (projectId: string, worktreeId: string) => void
-  handleImportAllNewExternalWorktrees: (projectId: string) => void
-  handleKeepNewExternalWorktreeInboxHidden: (projectId: string) => void
   handleOpenSuppressExternalWorktreeInbox: (projectId: string) => void
   newExternalWorktreeInboxActionState: ReadonlyMap<string, NewExternalWorktreesInboxActionState>
   handleRemoveProject: (repo: Repo) => void
@@ -1154,12 +1165,14 @@ function findPreferredRenderRowIndexForWorktree(
 
 export function getPinnedWorktreeRevealCollapsedGroupKeys({
   worktree,
-  collapsedGroups
+  collapsedGroups,
+  inPinnedSection = worktree.isPinned
 }: {
   worktree: Worktree
   collapsedGroups: ReadonlySet<string>
+  inPinnedSection?: boolean
 }): string[] {
-  if (!worktree.isPinned) {
+  if (!inPinnedSection) {
     return []
   }
   const keys: string[] = []
@@ -1209,30 +1222,9 @@ function buildRenderableRows(rows: HostSectionRow[]): RenderRow[] {
   return renderRows
 }
 
-export function getRenderRowKey(row: RenderRow): string {
-  if (row.type === 'host-header') {
-    return `host:${row.hostId}`
-  }
-  if (row.type === 'header') {
-    return `hdr:${row.key}`
-  }
-  if (row.type === 'lineage-group') {
-    return `lineage-group:${row.key}`
-  }
-  if (row.type === 'imported-worktrees-card') {
-    return `imported:${row.key}`
-  }
-  if (row.type === 'new-external-worktrees-inbox') {
-    return `inbox:${row.key}`
-  }
-  if (row.type === 'pending-creation') {
-    return `pending:${row.creationId}`
-  }
-  if (row.type === 'folder-workspace') {
-    return `folder-workspace:${row.folderWorkspace.id}`
-  }
-  return `wt:${row.rowKey}`
-}
+// Why: getRenderRowKey lives with the other virtual-row helpers now; keep the
+// long-standing import path working for callers that reach for it here.
+export { getRenderRowKey }
 
 export function getWorktreeDragGroups(rows: HostSectionRow[]): WorktreeDragGroup[] {
   const groups: WorktreeDragGroup[] = []
@@ -1333,9 +1325,6 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
   handleShowImportedWorktrees,
   handleKeepImportedWorktreesHidden,
   importedWorktreeCardActionState,
-  handleImportNewExternalWorktree,
-  handleImportAllNewExternalWorktrees,
-  handleKeepNewExternalWorktreeInboxHidden,
   handleOpenSuppressExternalWorktreeInbox,
   newExternalWorktreeInboxActionState,
   handleRemoveProject,
@@ -1387,6 +1376,8 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
   scrollAnchorRef
 }: VirtualizedWorktreeViewportProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  // Why: callback-ref only mutates scrollRef; state re-runs the scroll-to-top listener attach.
+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null)
   const suppressMeasurementAdjustmentUntilRef = useRef(0)
   const directScrollInputUntilRef = useRef(0)
   const [dragOverStatus, setDragOverStatus] = useState<WorkspaceStatus | null>(null)
@@ -1419,6 +1410,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
   const pendingRevealRetryRef = useRef<{ worktreeId: string; count: number } | null>(null)
   const pendingRowRevealRetryRef = useRef<{ rowKey: string; count: number } | null>(null)
   const pendingRevealFrameIdsRef = useRef<Set<number>>(new Set())
+  const pendingRevealScrollRef = useRef<PendingRevealScroll | null>(null)
   const revealHighlightFrameIdRef = useRef<number | null>(null)
   const revealHighlightTimeoutRef = useRef<number | null>(null)
   const cancelPendingRevealFrames = useCallback(() => {
@@ -1621,6 +1613,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
         groupIds: group.worktreeIds,
         draggedIds: args.draggedIds,
         draggingWorktreeId: args.draggingWorktreeId,
+        fallbackGap: WORKTREE_SIDEBAR_VIRTUAL_ROW_GAP,
         grab: args.grab,
         anchor: args.anchor
       })
@@ -2051,14 +2044,34 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
     suppressMeasurementAdjustmentUntilRef.current = suppressUntil
     directScrollInputUntilRef.current = suppressUntil
   }, [])
+  const { showScrollToTop, scrollToTop } = useWorktreeListScrollToTop({
+    scrollElement,
+    onUserScrollIntent: markDirectScrollInput
+  })
   const hasDirectScrollInput = useCallback(
     () => window.performance.now() < directScrollInputUntilRef.current,
     []
   )
+  const markRevealScroll = useCallback((targetTop: number) => {
+    pendingRevealScrollRef.current = createPendingRevealScroll(targetTop, window.performance.now())
+  }, [])
+  const isRevealScrollSettlingNow = useCallback(() => {
+    const settling = isRevealScrollSettling({
+      now: window.performance.now(),
+      pending: pendingRevealScrollRef.current,
+      scrollTop: scrollRef.current?.scrollTop ?? 0
+    })
+    if (!settling) {
+      pendingRevealScrollRef.current = null
+    }
+    return settling
+  }, [])
   // Why: programmatic scrolls keep measurement correction quiet, but only direct input blocks anchor-restore retries.
+  // A reveal's smooth scroll is the exception: restoring the anchor mid-animation cancels it a few pixels in.
   const shouldSkipScrollAnchorRestore = useCallback(
-    () => window.performance.now() < directScrollInputUntilRef.current,
-    []
+    () =>
+      window.performance.now() < directScrollInputUntilRef.current || isRevealScrollSettlingNow(),
+    [isRevealScrollSettlingNow]
   )
 
   const virtualizer = useVirtualizer({
@@ -2085,7 +2098,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
       [stickyHeaderIndexes]
     ),
     overscan: 10,
-    gap: 6,
+    gap: WORKTREE_SIDEBAR_VIRTUAL_ROW_GAP,
     // Why: the sticky group header lives inside the virtual list, so scroll math needs the same top inset as the DOM reveal.
     scrollPaddingStart: WORKTREE_SIDEBAR_REVEAL_TOP_INSET,
     isScrollingResetDelay: USER_SCROLL_MEASUREMENT_ADJUSTMENT_SUPPRESS_MS,
@@ -2155,10 +2168,12 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
           }
 
           const groupKeys =
-            targetWorktree.isPinned && pinnedDisplayPolicy === 'single-location'
+            pinnedDisplayPolicy === 'single-location' &&
+            isPinnedSectionWorktree(targetWorktree, worktrees, worktreeLineageById, worktreeMap)
               ? getPinnedWorktreeRevealCollapsedGroupKeys({
                   worktree: targetWorktree,
-                  collapsedGroups
+                  collapsedGroups,
+                  inPinnedSection: true
                 })
               : getGroupKeysForWorktree(
                   groupBy,
@@ -2224,7 +2239,8 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
               container,
               pendingRevealWorktree.worktreeId,
               pendingRevealWorktree.behavior,
-              getRenderRowOptionId(targetRow, pendingRevealWorktree.worktreeId)
+              getRenderRowOptionId(targetRow, pendingRevealWorktree.worktreeId),
+              markRevealScroll
             )
           : null
         if (revealedOption) {
@@ -2296,6 +2312,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
     projectGroups,
     pendingRevealRetryTick,
     flashRevealedRow,
+    markRevealScroll,
     setRenamingWorktreeId,
     schedulePendingRevealFrame,
     cancelPendingRevealFrames
@@ -2384,7 +2401,8 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
         ? revealMountedSidebarRowElement(
             container,
             pendingRevealSidebarRow.rowKey,
-            pendingRevealSidebarRow.behavior
+            pendingRevealSidebarRow.behavior,
+            markRevealScroll
           )
         : null
       if (revealedElement) {
@@ -2419,6 +2437,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
     virtualizer,
     pendingRevealRetryTick,
     flashRevealedRow,
+    markRevealScroll,
     clearPendingRevealSidebarRow,
     schedulePendingRevealFrame,
     cancelPendingRevealFrames
@@ -2431,6 +2450,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
     [renderRows]
   )
   const activeRenderRowKeys = useMemo(() => new Set(renderRows.map(getRenderRowKey)), [renderRows])
+  const lineageRowRekeys = useMemo(() => buildLineageRowRekeyMap(renderRows), [renderRows])
   const totalSize = virtualizer.getTotalSize()
   const virtualItems = virtualizer.getVirtualItems()
   const activeStickyIndexes = getActiveStickyIndexesForScroll({
@@ -2488,6 +2508,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
     getItemElementKey: getVirtualRowKey,
     getRowKey: getRenderRowKey,
     itemElementSelector: '[data-worktree-virtual-row]',
+    rekeyedRowKeys: lineageRowRekeys,
     rows: renderRows,
     scrollElementRef: scrollRef,
     scrollOffsetRef,
@@ -2667,6 +2688,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
         clearWorktreeDrag()
       }
       scrollRef.current = node
+      setScrollElement(node)
     },
     [
       cancelPendingRevealFrames,
@@ -2750,17 +2772,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
         return
       }
       // Why: dropping a nested card on a reorder line is the un-nest escape hatch; clear only the dragged children.
-      void Promise.all(ids.map((id) => updateWorktreeLineage(id, { noParent: true }))).catch(
-        (err) => {
-          console.error('Failed to unnest workspace:', err)
-          toast.error(
-            translate(
-              'auto.components.sidebar.WorktreeList.failedUnnestWorkspace',
-              'Failed to unnest workspace'
-            )
-          )
-        }
-      )
+      void unnestWorktrees(ids, updateWorktreeLineage)
     },
     [cyclicLineageIds, updateWorktreeLineage, worktreeDragGroups, worktreeLineageById, worktreeMap]
   )
@@ -3220,7 +3232,12 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
         onDropWorktreesOnWorkspaceBoard({
           worktreeIds: drag.reorderDraggedIds,
           status: boardDropTarget.status,
-          dropIndex: boardDropTarget.dropIndex,
+          // Why: the target counts rendered cards, but the groups are the full
+          // lane. Board search can make those two differ.
+          dropIndex: resolveWorkspaceKanbanSidebarFullLaneDropIndex(
+            boardDropTarget.status,
+            boardDropTarget.dropIndex
+          ),
           groups: getWorkspaceKanbanSidebarDropGroups()
         })
       } else {
@@ -4207,10 +4224,13 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
                   projectGroupPathStatus.reason === 'ambiguous-connection')
               const projectGroupDepth = row.projectGroupDepth ?? 0
               const isHeaderCollapsed = collapsedGroups.has(row.key)
-              // Why: repo/project and status headers share compact section chrome; flat "All" stays a simple label.
+              // Why: repo/project/status/pinned share compact section chrome; flat "All" stays a simple label.
               const showHeaderCollapseAffordance =
                 row.count > 0 &&
-                (isRepoHeader || isProjectGroupHeader || headerWorkspaceStatus !== null)
+                (isRepoHeader ||
+                  isProjectGroupHeader ||
+                  headerWorkspaceStatus !== null ||
+                  isPinnedHeader)
               // Why: non-project headers like "All" are flat-list labels; don't reserve project hierarchy indent.
               const headerPaddingLeft =
                 isRepoHeader || isProjectGroupHeader
@@ -5006,14 +5026,10 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
                 >
                   <NewExternalWorktreesInboxLine
                     repoDisplayName={row.repo.displayName}
-                    inboxWorktrees={row.inboxWorktrees.map(toNewExternalWorktreeInboxPreview)}
+                    inboxCount={row.inboxWorktrees.length}
                     pending={actionState?.pending ?? false}
                     error={actionState?.error ?? null}
-                    onImportWorktree={(worktreeId) =>
-                      handleImportNewExternalWorktree(row.repo.id, worktreeId)
-                    }
-                    onKeepHidden={() => handleKeepNewExternalWorktreeInboxHidden(row.repo.id)}
-                    onImportAll={() => handleImportAllNewExternalWorktrees(row.repo.id)}
+                    onReview={() => handleOpenWorktreeVisibility(row.repo.id)}
                     onSuppress={() => handleOpenSuppressExternalWorktreeInbox(row.repo.id)}
                   />
                 </div>
@@ -5163,6 +5179,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
           })}
         </div>
       </div>
+      {showScrollToTop ? <WorktreeListScrollToTopButton onClick={scrollToTop} /> : null}
     </div>
   )
 })
@@ -5565,7 +5582,10 @@ const WorktreeList = React.memo(function WorktreeList({
       return collapsedGroups
     }
     const next = new Set(collapsedGroups)
-    if (targetWorktree.isPinned) {
+    if (
+      pinnedDisplayPolicy === 'single-location' &&
+      isPinnedSectionWorktree(targetWorktree, visibleWorktrees, worktreeLineageById, worktreeMap)
+    ) {
       next.delete(PINNED_GROUP_KEY)
     } else {
       for (const groupKey of getGroupKeysForWorktree(
@@ -5594,11 +5614,13 @@ const WorktreeList = React.memo(function WorktreeList({
     agentSendTargetWorktreeId,
     collapsedGroups,
     groupBy,
+    pinnedDisplayPolicy,
     prCache,
     projectGroups,
     projectGrouping,
     repoMap,
     settings,
+    visibleWorktrees,
     workspaceStatuses,
     worktreeLineageById,
     worktreeMap
@@ -6072,52 +6094,6 @@ const WorktreeList = React.memo(function WorktreeList({
       }
     },
     [fetchWorktrees, repos, setNewExternalWorktreeInboxState, updateRepo]
-  )
-
-  const handleImportNewExternalWorktree = useCallback(
-    async (projectId: string, worktreeId: string) => {
-      const inboxWorktrees = newExternalWorktreesInboxByRepo.get(projectId)?.inboxWorktrees ?? []
-      const worktree = inboxWorktrees.find((candidate) => candidate.id === worktreeId)
-      if (!worktree) {
-        return
-      }
-      const args = getNewExternalWorktreeInboxActionArgs(projectId, [worktree.path])
-      if (!args) {
-        return
-      }
-      await importNewExternalWorktreeInboxPaths(args)
-    },
-    [getNewExternalWorktreeInboxActionArgs, newExternalWorktreesInboxByRepo]
-  )
-
-  const handleImportAllNewExternalWorktrees = useCallback(
-    async (projectId: string) => {
-      const inboxWorktrees = newExternalWorktreesInboxByRepo.get(projectId)?.inboxWorktrees ?? []
-      const args = getNewExternalWorktreeInboxActionArgs(
-        projectId,
-        inboxWorktrees.map((worktree) => worktree.path)
-      )
-      if (!args) {
-        return
-      }
-      await importNewExternalWorktreeInboxPaths(args)
-    },
-    [getNewExternalWorktreeInboxActionArgs, newExternalWorktreesInboxByRepo]
-  )
-
-  const handleKeepNewExternalWorktreeInboxHidden = useCallback(
-    async (projectId: string) => {
-      const inboxWorktrees = newExternalWorktreesInboxByRepo.get(projectId)?.inboxWorktrees ?? []
-      const args = getNewExternalWorktreeInboxActionArgs(
-        projectId,
-        inboxWorktrees.map((worktree) => worktree.path)
-      )
-      if (!args) {
-        return
-      }
-      await keepNewExternalWorktreeInboxHidden(args)
-    },
-    [getNewExternalWorktreeInboxActionArgs, newExternalWorktreesInboxByRepo]
   )
 
   const handleOpenSuppressExternalWorktreeInbox = useCallback((projectId: string) => {
@@ -6763,9 +6739,6 @@ const WorktreeList = React.memo(function WorktreeList({
         handleShowImportedWorktrees={handleShowImportedWorktrees}
         handleKeepImportedWorktreesHidden={handleKeepImportedWorktreesHidden}
         importedWorktreeCardActionState={importedWorktreeCardActionState}
-        handleImportNewExternalWorktree={handleImportNewExternalWorktree}
-        handleImportAllNewExternalWorktrees={handleImportAllNewExternalWorktrees}
-        handleKeepNewExternalWorktreeInboxHidden={handleKeepNewExternalWorktreeInboxHidden}
         handleOpenSuppressExternalWorktreeInbox={handleOpenSuppressExternalWorktreeInbox}
         newExternalWorktreeInboxActionState={newExternalWorktreeInboxActionState}
         handleRemoveProject={handleRemoveProject}

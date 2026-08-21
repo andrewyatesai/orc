@@ -22,7 +22,7 @@ export type StreamedGitStatus = {
 
 type StatusStreamOptions = Pick<
   GitStreamOptions,
-  'cwd' | 'env' | 'wslDistro' | 'signal' | 'timeout'
+  'cwd' | 'env' | 'wslDistro' | 'signal' | 'timeout' | 'preferWslDirectGit'
 >
 
 // Why: a status scan on a wedged NFS/SSHFS mount must fail closed rather than pin

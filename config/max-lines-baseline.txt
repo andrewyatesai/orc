@@ -269,7 +269,6 @@ inline src/renderer/src/hooks/useComposerState.ts
 inline src/renderer/src/hooks/useEditorExternalWatch.ts
 inline src/renderer/src/hooks/useIpcEvents.test.ts
 inline src/renderer/src/hooks/useIpcEvents.ts
-inline src/renderer/src/hooks/useIssueMetadata.ts
 inline src/renderer/src/hooks/useSettingsNavigationMetadata.ts
 inline src/renderer/src/lib/active-agent-note-send.test.ts
 inline src/renderer/src/lib/file-type-icons.ts
@@ -340,7 +339,6 @@ mobile-config app/h/*/source-control/*.tsx max=2152
 mobile-config app/h/*/tasks.tsx max=14682
 mobile-config app/index.tsx max=1422
 mobile-config app/pair-scan.tsx max=531
-mobile-config app/terminal-settings.tsx max=514
 mobile-config app/troubleshoot.tsx max=436
 mobile-config scripts/mock-server.ts max=407
 mobile-config scripts/repro-terminal-colors.ts max=319

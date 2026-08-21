@@ -36,6 +36,9 @@ pub enum DraftPasteReadySignal {
     RenderQuietAfterBracketedPaste,
     RenderCursorAfterBracketedPaste,
     CodexComposerPrompt,
+    /// grok's composer glyph anchored on the alt-screen switch, with the quiet
+    /// window kept armed off DECSET 2004 for its inline mode.
+    GrokComposerPrompt,
 }
 
 /// First-launch trust artifact preset to pre-write so the agent's "do you
@@ -321,6 +324,9 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
         "grok",
         TuiAgentConfig {
             argv_prompt_separator: Some("--"),
+            // grok shimmers its startup logo until the session opens, so the quiet
+            // window never settles; gate its launch draft on the composer glyph.
+            draft_paste_ready_signal: Some(DraftPasteReadySignal::GrokComposerPrompt),
             ..agent("grok", "grok", "grok", Argv)
         },
     ),
@@ -492,6 +498,11 @@ mod tests {
         );
         // grok and trae are the argv agents that terminate options before the prompt.
         assert_eq!(tui_agent_config("grok").unwrap().argv_prompt_separator, Some("--"));
+        // grok gates its launch draft on the composer glyph, not the quiet window.
+        assert_eq!(
+            tui_agent_config("grok").unwrap().draft_paste_ready_signal,
+            Some(DraftPasteReadySignal::GrokComposerPrompt)
+        );
         let trae = tui_agent_config("trae").unwrap();
         assert_eq!(trae.prompt_injection_mode, AgentPromptInjectionMode::Argv);
         assert_eq!(trae.argv_prompt_separator, Some("--"));

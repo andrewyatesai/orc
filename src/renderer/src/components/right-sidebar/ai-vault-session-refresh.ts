@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AiVaultListResult, AiVaultSession } from '../../../../shared/ai-vault-types'
 import type { ExecutionHostScope } from '../../../../shared/execution-host'
 import { useAppStore } from '@/store'
+import { applyPublishedAiVaultList, EMPTY_AI_VAULT_SESSIONS } from './ai-vault-session-identity'
 
 const SESSION_LIMIT = 500
 
@@ -29,8 +30,9 @@ export function useAiVaultSessionRefresh(
   scanResult: AiVaultListResult | null
   sessions: AiVaultSession[]
 } {
-  const [sessions, setSessions] = useState<AiVaultSession[]>([])
   const [scanResult, setScanResult] = useState<AiVaultListResult | null>(null)
+  // Derived so `sessions === scanResult.sessions` — one walk, one identity.
+  const sessions = scanResult?.sessions ?? EMPTY_AI_VAULT_SESSIONS
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const refreshIdRef = useRef(0)
@@ -104,8 +106,9 @@ export function useAiVaultSessionRefresh(
           return
         }
         lastAppliedScanRef.current = { scopeKey: scanKey, scannedAt: result.scannedAt }
-        setScanResult(result)
-        setSessions(result.sessions)
+        // Reuse prior row + result identity when a reminted scan is structurally
+        // unchanged, so Agent History's memos stay cold across refocus.
+        applyPublishedAiVaultList(result, setScanResult)
       } catch (err) {
         if (
           mountedRef.current &&

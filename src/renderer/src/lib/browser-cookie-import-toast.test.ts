@@ -35,7 +35,8 @@ describe('emitBrowserCookieImportToast', () => {
           failedCookies: 3
         }
       },
-      'Imported 3 cookies.'
+      'Imported 3 cookies.',
+      'Local Mac'
     )
 
     expect(warningToastMock).toHaveBeenCalledWith(
@@ -54,7 +55,8 @@ describe('emitBrowserCookieImportToast', () => {
           failedCookies: 1
         }
       },
-      'Imported 3 cookies.'
+      'Imported 3 cookies.',
+      'Local Mac'
     )
 
     expect(warningToastMock).toHaveBeenCalledWith(
@@ -63,10 +65,108 @@ describe('emitBrowserCookieImportToast', () => {
     expect(successToastMock).not.toHaveBeenCalled()
   })
 
+  // Why: the summary crosses the runtime RPC wire and is cast, not decoded, so a newer host can
+  // publish a warning code this client build has never heard of (#15002). It must not blank the toast.
+  it('still warns when a newer host sends an undeclared warning code', () => {
+    emitBrowserCookieImportToast(
+      {
+        ...summary,
+        warning: {
+          code: 'profile-locked',
+          failedCookies: 3
+        } as unknown as BrowserCookieImportSummary['warning']
+      },
+      'Imported 0 cookies.',
+      'Remote Linux'
+    )
+
+    const message = warningToastMock.mock.calls[0]?.[0]
+    expect(typeof message).toBe('string')
+    expect(message).not.toBe('')
+  })
+
+  // Why: hasOwn coerces its key, so a host that widened `code` to an array sends
+  // ['restart-fallback-unavailable'], which a hasOwn-only guard admits before the switch drops it back out.
+  it('still warns when a newer host sends the warning code as an array', () => {
+    emitBrowserCookieImportToast(
+      {
+        ...summary,
+        warning: {
+          code: ['restart-fallback-unavailable'],
+          loadedCookies: 0,
+          failedCookies: 3
+        } as unknown as BrowserCookieImportSummary['warning']
+      },
+      'Imported 0 cookies.',
+      'Remote Linux'
+    )
+
+    const message = warningToastMock.mock.calls[0]?.[0]
+    expect(typeof message).toBe('string')
+    expect(message).not.toBe('')
+  })
+
   it('shows success when the import has no warning', () => {
-    emitBrowserCookieImportToast(summary, 'Imported 3 cookies.')
+    emitBrowserCookieImportToast(summary, 'Imported 3 cookies.', 'Local Mac')
 
     expect(successToastMock).toHaveBeenCalledWith('Imported 3 cookies.')
     expect(warningToastMock).not.toHaveBeenCalled()
+  })
+
+  it('shows separate host-specific Google guidance after success', () => {
+    emitBrowserCookieImportToast(
+      { ...summary, importedCookies: 2, skippedCookies: 1, googleCookiesSkipped: 1 },
+      'Imported 2 cookies.',
+      'Remote Mac'
+    )
+
+    expect(successToastMock).toHaveBeenCalledWith('Imported 2 cookies.')
+    expect(warningToastMock).toHaveBeenCalledWith(
+      'Google cookies were not imported. Open a browser in Orca on Remote Mac with this profile, then sign into Google.',
+      { duration: 12000 }
+    )
+    expect(successToastMock.mock.invocationCallOrder[0]).toBeLessThan(
+      warningToastMock.mock.invocationCallOrder[0]
+    )
+  })
+
+  it('does not infer a Google warning from generic skipped cookies', () => {
+    emitBrowserCookieImportToast(
+      { ...summary, importedCookies: 2, skippedCookies: 1 },
+      'Imported 2 cookies.',
+      'Local Mac'
+    )
+
+    expect(successToastMock).toHaveBeenCalledWith('Imported 2 cookies.')
+    expect(warningToastMock).not.toHaveBeenCalled()
+  })
+
+  it('emits both the failure warning and host-specific Google guidance', () => {
+    emitBrowserCookieImportToast(
+      {
+        ...summary,
+        importedCookies: 1,
+        skippedCookies: 1,
+        googleCookiesSkipped: 1,
+        warning: {
+          code: 'restart-fallback-unavailable',
+          loadedCookies: 1,
+          failedCookies: 1
+        }
+      },
+      'Imported 1 cookie.',
+      'Remote Mac'
+    )
+
+    expect(successToastMock).not.toHaveBeenCalled()
+    expect(warningToastMock.mock.calls).toEqual([
+      [
+        'Imported 1 of 2 cookies. The rest could not be loaded, and the restart fallback was unavailable. Try the import again.'
+      ],
+      [
+        'Google cookies were not imported. Open a browser in Orca on Remote Mac with this profile, then sign into Google.',
+        { duration: 12000 }
+      ]
+    ])
   })
 })

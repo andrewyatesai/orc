@@ -82,7 +82,7 @@ function precedingRegions(parent, child) {
   if (ts.isCallExpression(parent) || ts.isNewExpression(parent)) {
     const args = parent.arguments ?? []
     const index = args.indexOf(child)
-    if (index >= 0) {
+    if (index !== -1) {
       return [parent.expression, ...args.slice(0, index)]
     }
     return []

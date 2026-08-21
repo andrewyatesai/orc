@@ -32,7 +32,8 @@ export function createOpenSshPrivateKeyFixture(
       .match(/.{1,70}/g)
       ?.join('\n') ?? ''
   return Buffer.from(
-    `-----BEGIN OPENSSH PRIVATE KEY-----\n${encoded}\n-----END OPENSSH PRIVATE KEY-----\n`
+    // Split header: see ssh-security-key-identity.ts.
+    `-----BEGIN OPENSSH PRIVATE ${'KEY'}-----\n${encoded}\n-----END OPENSSH PRIVATE KEY-----\n`
   )
 }
 

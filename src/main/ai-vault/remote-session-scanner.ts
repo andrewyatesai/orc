@@ -4,6 +4,7 @@ import type {
   AiVaultSession
 } from '../../shared/ai-vault-types'
 import { isPathInsideOrEqual } from '../../shared/cross-platform-path-resolution'
+import { aiVaultScanLimit } from '../../shared/ai-vault-session-depth'
 import type { ExecutionHostId } from '../../shared/execution-host'
 import type { IFilesystemProvider } from '../providers/types'
 import type { RemoteHostPlatform } from '../ssh/ssh-remote-platform'
@@ -19,7 +20,6 @@ import { sessionSortTime } from './session-scanner-accumulator'
 import { createAntigravityWorkspaceResolver } from './session-scanner-antigravity-history'
 import { errorMessage } from './session-scanner-values'
 
-const DEFAULT_REMOTE_SCAN_LIMIT = 1000
 const REMOTE_SCAN_CONCURRENCY = 8
 const REMOTE_SCOPE_PARSE_LIMIT = 2000
 
@@ -29,9 +29,11 @@ export async function scanRemoteAiVaultSessions(args: {
   remoteHome: string
   hostPlatform: RemoteHostPlatform
   limit?: number
+  unlimited?: boolean
   scopePaths?: readonly string[]
 }): Promise<AiVaultListResult> {
-  const limit = args.limit && args.limit > 0 ? Math.floor(args.limit) : DEFAULT_REMOTE_SCAN_LIMIT
+  // 'unlimited' → Infinity: slice/early-stop below then never bound the scan.
+  const limit = aiVaultScanLimit({ limit: args.limit, unlimited: args.unlimited })
   const issues: AiVaultScanIssue[] = []
   const context: RemoteScannerContext = {
     provider: args.provider,

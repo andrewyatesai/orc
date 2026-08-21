@@ -588,6 +588,20 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
       )
       warn.mockRestore()
     })
+
+    it('keeps legacy attach behavior when no output sequence is available', async () => {
+      stubClientRequests({
+        getSize: () => ({ size: { cols: 100, rows: 30 } }),
+        createOrAttach: () => ({
+          isNew: false,
+          snapshot: null,
+          pid: 4321,
+          shellState: 'unsupported'
+        })
+      })
+
+      await expect(adapter.attach('legacy-session')).resolves.toBeUndefined()
+    })
   })
 
   describe('write', () => {
@@ -758,6 +772,42 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
         expect(respawn).not.toHaveBeenCalled()
       } finally {
         healingAdapter.dispose()
+      }
+    })
+
+    it('respawns after a retired daemon regardless of how the connection ended', async () => {
+      // Why this shape: the daemon retires when its last authenticated client drops, and that drop
+      // is often our own disconnect() — which observes no socket close. Once the token read stops
+      // preempting the connect, the retired endpoint fails as a connect and isDaemonGoneError
+      // classifies it, so recovery no longer depends on having witnessed the drop.
+      let respawnServer: DaemonServer | undefined
+      const respawn = vi.fn(async () => {
+        respawnServer = new DaemonServer({
+          socketPath,
+          tokenPath,
+          spawnSubprocess: () => createMockSubprocess()
+        })
+        await respawnServer.start()
+      })
+      const healingAdapter = new DaemonPtyAdapter({ socketPath, tokenPath, respawn })
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const { id } = await healingAdapter.spawn({ cols: 80, rows: 24 })
+        const client = (healingAdapter as unknown as { client: DaemonClient }).client
+
+        client.disconnect()
+        await server.shutdown()
+        expect(existsSync(tokenPath)).toBe(false)
+        expect(client.hasObservedAuthenticatedDisconnect()).toBe(false)
+
+        await expect(
+          healingAdapter.spawn({ sessionId: id, cols: 80, rows: 24 })
+        ).resolves.toMatchObject({ id })
+        expect(respawn).toHaveBeenCalledTimes(1)
+      } finally {
+        warn.mockRestore()
+        healingAdapter.dispose()
+        await respawnServer?.shutdown()
       }
     })
 
@@ -1584,6 +1634,20 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
       expect(result.isReattach).toBe(true)
       expect(result.snapshot).toContain('\x1b[?2004h')
       expect(result.snapshot).toContain('prompt$')
+    })
+
+    it('returns the preserved sequence from attach-only adoption', async () => {
+      const sessionId = 'attach-sequence-handoff'
+      await adapter.spawn({ cols: 80, rows: 24, sessionId })
+      lastSubprocess._simulateData('preserved output')
+      await new Promise((r) => setTimeout(r, 50))
+
+      await expect(adapter.attach(sessionId)).resolves.toEqual({
+        providerSequence: {
+          value: 'preserved output'.length,
+          generation: 'continued'
+        }
+      })
     })
 
     it('returns plain result for new sessionId', async () => {

@@ -69,7 +69,11 @@ describe('SshGitProvider', () => {
     mux.request.mockResolvedValue(statusResult)
 
     const result = await provider.getStatus('/home/user/repo')
-    expect(mux.request).toHaveBeenCalledWith('git.status', { worktreePath: '/home/user/repo' })
+    expect(mux.request).toHaveBeenCalledWith(
+      'git.status',
+      { worktreePath: '/home/user/repo' },
+      { signal: expect.any(AbortSignal) }
+    )
     expect(result).toEqual(statusResult)
   })
 
@@ -80,13 +84,21 @@ describe('SshGitProvider', () => {
     await provider.getStatus('/home/user/repo', { includeIgnored: true })
     await provider.getStatus('/home/user/repo', { includeIgnored: false })
 
-    expect(mux.request).toHaveBeenNthCalledWith(1, 'git.status', {
-      worktreePath: '/home/user/repo',
-      includeIgnored: true
-    })
-    expect(mux.request).toHaveBeenNthCalledWith(2, 'git.status', {
-      worktreePath: '/home/user/repo'
-    })
+    expect(mux.request).toHaveBeenNthCalledWith(
+      1,
+      'git.status',
+      {
+        worktreePath: '/home/user/repo',
+        includeIgnored: true
+      },
+      { signal: expect.any(AbortSignal) }
+    )
+    expect(mux.request).toHaveBeenNthCalledWith(
+      2,
+      'git.status',
+      { worktreePath: '/home/user/repo' },
+      { signal: expect.any(AbortSignal) }
+    )
   })
 
   it('getStatus forwards upstream-negative-cache bypass only when requested', async () => {
@@ -96,13 +108,21 @@ describe('SshGitProvider', () => {
     await provider.getStatus('/home/user/repo', { bypassEffectiveUpstreamNegativeCache: true })
     await provider.getStatus('/home/user/repo', { bypassEffectiveUpstreamNegativeCache: false })
 
-    expect(mux.request).toHaveBeenNthCalledWith(1, 'git.status', {
-      worktreePath: '/home/user/repo',
-      bypassEffectiveUpstreamNegativeCache: true
-    })
-    expect(mux.request).toHaveBeenNthCalledWith(2, 'git.status', {
-      worktreePath: '/home/user/repo'
-    })
+    expect(mux.request).toHaveBeenNthCalledWith(
+      1,
+      'git.status',
+      {
+        worktreePath: '/home/user/repo',
+        bypassEffectiveUpstreamNegativeCache: true
+      },
+      { signal: expect.any(AbortSignal) }
+    )
+    expect(mux.request).toHaveBeenNthCalledWith(
+      2,
+      'git.status',
+      { worktreePath: '/home/user/repo' },
+      { signal: expect.any(AbortSignal) }
+    )
   })
 
   it('getStatus forwards line-stat reuse and cancellation to the relay', async () => {
@@ -117,8 +137,58 @@ describe('SshGitProvider', () => {
     expect(mux.request).toHaveBeenCalledWith(
       'git.status',
       { worktreePath: '/home/user/repo', reuseLineStats: true },
-      { signal: controller.signal }
+      { signal: expect.any(AbortSignal) }
     )
+    // Why: the caller's signal is proxied through a shared lease signal, never forwarded raw.
+    expect(mux.request.mock.calls[0][2].signal).not.toBe(controller.signal)
+  })
+
+  it('coalesces concurrent status polls onto one git.status RPC across distinct caller signals', async () => {
+    const pending = deferredValue({ entries: [], conflictOperation: 'unknown' })
+    mux.request.mockReturnValue(pending.promise)
+    const controllers = Array.from({ length: 8 }, () => new AbortController())
+
+    const reads = controllers.map((controller) =>
+      provider.getStatus('/home/user/repo', { signal: controller.signal })
+    )
+    await waitForRequestCount(mux.request, 1)
+
+    // Why: the shared lease must fold every matching in-flight poll onto one physical read.
+    expect(mux.request.mock.calls.filter(([method]) => method === 'git.status')).toHaveLength(1)
+    pending.resolve()
+    await expect(Promise.all(reads)).resolves.toHaveLength(8)
+  })
+
+  it('a mutation invalidates an in-flight status lease so the next poll re-reads', async () => {
+    const firstStatus = deferredValue({ entries: [], conflictOperation: 'unknown' })
+    const secondStatus = deferredValue({ entries: [], conflictOperation: 'unknown' })
+    const mutation = deferredValue(undefined)
+    let statusCalls = 0
+    mux.request.mockImplementation((method: string) => {
+      if (method === 'git.status') {
+        statusCalls += 1
+        return statusCalls === 1 ? firstStatus.promise : secondStatus.promise
+      }
+      if (method === 'git.stage') {
+        return mutation.promise
+      }
+      return Promise.resolve(undefined)
+    })
+
+    const inflight = provider.getStatus('/home/user/repo')
+    await waitForRequestCount(mux.request, 1)
+    // Why: stageFile invalidates synchronously on entry, before its RPC awaits.
+    const mutating = provider.stageFile('/home/user/repo', 'src/file.ts')
+    await waitForRequestCount(mux.request, 2)
+    // Same lease key, but the in-flight lease was dropped — this must NOT join it.
+    const rejoin = provider.getStatus('/home/user/repo')
+    await waitForRequestCount(mux.request, 3)
+
+    expect(mux.request.mock.calls.filter(([method]) => method === 'git.status')).toHaveLength(2)
+    mutation.resolve()
+    firstStatus.resolve()
+    secondStatus.resolve()
+    await Promise.all([inflight, mutating, rejoin])
   })
 
   it('getSubmoduleStatus sends git.submoduleStatus request', async () => {
@@ -1019,6 +1089,125 @@ describe('SshGitProvider', () => {
     expect(result).toEqual(diffs)
   })
 
+  it('getBranchDiff forwards a pinned head OID without adding it when omitted', async () => {
+    const headOid = 'a'.repeat(40)
+    mux.request.mockResolvedValue([])
+
+    await provider.getBranchDiff('/home/user/repo', 'main', {
+      includePatch: true,
+      filePath: 'src/file.ts',
+      headOid
+    })
+    await provider.getBranchDiff('/home/user/repo', 'main', {
+      includePatch: true,
+      filePath: 'src/other-file.ts',
+      headOid: undefined
+    })
+
+    expect(mux.request).toHaveBeenNthCalledWith(1, 'git.branchDiff', {
+      worktreePath: '/home/user/repo',
+      baseRef: 'main',
+      includePatch: true,
+      filePath: 'src/file.ts',
+      headOid,
+      __streamResponse: true
+    })
+    expect(mux.request).toHaveBeenNthCalledWith(2, 'git.branchDiff', {
+      worktreePath: '/home/user/repo',
+      baseRef: 'main',
+      includePatch: true,
+      filePath: 'src/other-file.ts',
+      __streamResponse: true
+    })
+  })
+
+  // Why: an unpinned compare snapshot reaches getBranchDiff as null despite the type.
+  it('omits a null head OID and shares the absent-head dedupe key', async () => {
+    const diffs = [{ kind: 'text', originalContent: 'old', modifiedContent: 'new' }]
+    const pendingDiff = deferredValue(diffs)
+    const headOid = 'a'.repeat(40)
+    mux.request.mockReturnValue(pendingDiff.promise)
+
+    const reads = [
+      provider.getBranchDiff('/home/user/repo', 'main', {
+        includePatch: true,
+        filePath: 'src/file.ts',
+        headOid: null as unknown as undefined
+      }),
+      provider.getBranchDiff('/home/user/repo', 'main', {
+        includePatch: true,
+        filePath: 'src/file.ts'
+      }),
+      provider.getBranchDiff('/home/user/repo', 'main', {
+        includePatch: true,
+        filePath: 'src/file.ts',
+        headOid
+      })
+    ]
+
+    await waitForRequestCount(mux.request, 2)
+    expect(mux.request).toHaveBeenCalledTimes(2)
+    expect(mux.request).toHaveBeenNthCalledWith(1, 'git.branchDiff', {
+      worktreePath: '/home/user/repo',
+      baseRef: 'main',
+      includePatch: true,
+      filePath: 'src/file.ts',
+      __streamResponse: true
+    })
+    expect(mux.request).toHaveBeenNthCalledWith(2, 'git.branchDiff', {
+      worktreePath: '/home/user/repo',
+      baseRef: 'main',
+      includePatch: true,
+      filePath: 'src/file.ts',
+      headOid,
+      __streamResponse: true
+    })
+
+    pendingDiff.resolve()
+    await expect(Promise.all(reads)).resolves.toEqual(Array.from({ length: 3 }, () => diffs))
+  })
+
+  it('coalesces matching branch diff heads while keeping distinct and absent heads separate', async () => {
+    const diffs = [{ kind: 'text', originalContent: 'old', modifiedContent: 'new' }]
+    const pendingDiff = deferredValue(diffs)
+    const firstHeadOid = 'a'.repeat(40)
+    const secondHeadOid = 'b'.repeat(40)
+    mux.request.mockReturnValue(pendingDiff.promise)
+
+    const reads = [
+      provider.getBranchDiff('/home/user/repo', 'main', {
+        includePatch: true,
+        filePath: 'src/file.ts',
+        headOid: firstHeadOid
+      }),
+      provider.getBranchDiff('/home/user/repo', 'main', {
+        filePath: 'src/file.ts',
+        headOid: firstHeadOid,
+        includePatch: true
+      }),
+      provider.getBranchDiff('/home/user/repo', 'main', {
+        includePatch: true,
+        filePath: 'src/file.ts',
+        headOid: secondHeadOid
+      }),
+      provider.getBranchDiff('/home/user/repo', 'main', {
+        includePatch: true,
+        filePath: 'src/file.ts'
+      }),
+      provider.getBranchDiff('/home/user/repo', 'main', {
+        includePatch: true,
+        filePath: 'src/file.ts',
+        headOid: undefined
+      })
+    ]
+
+    await waitForRequestCount(mux.request, 3)
+    expect(mux.request).toHaveBeenCalledTimes(3)
+
+    pendingDiff.resolve()
+    await expect(Promise.all(reads)).resolves.toEqual(Array.from({ length: 5 }, () => diffs))
+  })
+
   it('coalesces concurrent identical diff RPCs while in flight', async () => {
     const diff = {
       kind: 'text',
@@ -1463,9 +1652,12 @@ describe('SshGitProvider', () => {
       expect(mux.request).toHaveBeenNthCalledWith(1, 'git.worktreeIsClean', {
         worktreePath: '/home/user/feat'
       })
-      expect(mux.request).toHaveBeenNthCalledWith(2, 'git.status', {
-        worktreePath: '/home/user/feat'
-      })
+      expect(mux.request).toHaveBeenNthCalledWith(
+        2,
+        'git.status',
+        { worktreePath: '/home/user/feat' },
+        { signal: expect.any(AbortSignal) }
+      )
       expect(result).toEqual({ clean: false, stdout: 'untracked untracked: scratch.txt' })
     } finally {
       warnSpy.mockRestore()
@@ -1486,9 +1678,12 @@ describe('SshGitProvider', () => {
       await expect(
         provider.worktreeIsClean('/home/user/feat', { includeUntracked: false })
       ).resolves.toEqual({ clean: true })
-      expect(mux.request).toHaveBeenNthCalledWith(2, 'git.status', {
-        worktreePath: '/home/user/feat'
-      })
+      expect(mux.request).toHaveBeenNthCalledWith(
+        2,
+        'git.status',
+        { worktreePath: '/home/user/feat' },
+        { signal: expect.any(AbortSignal) }
+      )
     } finally {
       warnSpy.mockRestore()
     }

@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { handleMock, networkInterfacesMock } = vi.hoisted(() => ({
+const { handleMock, networkInterfacesMock, qrCreateMock, qrToDataUrlMock } = vi.hoisted(() => ({
   handleMock: vi.fn(),
-  networkInterfacesMock: vi.fn()
+  networkInterfacesMock: vi.fn(),
+  qrCreateMock: vi.fn(),
+  qrToDataUrlMock: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -13,7 +15,8 @@ vi.mock('electron', () => ({
 
 vi.mock('qrcode', () => ({
   default: {
-    toDataURL: vi.fn().mockResolvedValue('data:image/png;base64,qr')
+    create: qrCreateMock,
+    toDataURL: qrToDataUrlMock
   }
 }))
 
@@ -32,6 +35,9 @@ describe('registerMobileHandlers', () => {
     handleMock.mockReset()
     networkInterfacesMock.mockReset()
     networkInterfacesMock.mockReturnValue({})
+    // Default a scannable symbol: 21 modules → (21 + 4*2) * 2 = 58px natural size.
+    qrCreateMock.mockReset().mockReturnValue({ modules: { size: 21 } })
+    qrToDataUrlMock.mockReset().mockResolvedValue('data:image/png;base64,qr')
     handleMock.mockImplementation((channel: string, handler: (...args: unknown[]) => unknown) => {
       handlers.set(channel, handler)
     })
@@ -113,6 +119,8 @@ describe('registerMobileHandlers', () => {
 
     await expect(handlers.get('mobile:getPairingQR')?.(null, {})).resolves.toMatchObject({
       available: true,
+      // (21 modules + 4*2 quiet-zone) * 2px pitch — the natural bitmap size.
+      qrSize: 58,
       pairingUrl: 'orca://pair#mobile',
       endpoint: 'ws://100.102.47.57:6768',
       deviceId: 'mobile-1',
@@ -126,6 +134,43 @@ describe('registerMobileHandlers', () => {
       rotate: undefined,
       name: expect.stringMatching(/^Mobile /)
     })
+  })
+
+  it('encodes the pairing QR at an integer pixels-per-module pitch (scanner-safe scale)', async () => {
+    networkInterfacesMock.mockReturnValue({
+      utun4: [{ family: 'IPv4', internal: false, address: '100.102.47.57' }]
+    })
+    // A Relay-sized offer yields a 101-module symbol in production. The fix must
+    // report the natural bitmap size the renderer paints 1:1 rather than force a
+    // fixed 256px that non-integer-downscales into a blurry, unscannable code.
+    qrCreateMock.mockReturnValue({ modules: { size: 101 } })
+    const createMobilePairingOffer = vi.fn().mockResolvedValue({
+      available: true,
+      pairingUrl: 'orca://pair#relay',
+      endpoint: 'ws://100.102.47.57:6768',
+      deviceId: 'mobile-1',
+      connectionMode: 'automatic'
+    })
+
+    registerMobileHandlers({ createMobilePairingOffer } as never)
+
+    await expect(handlers.get('mobile:getPairingQR')?.(null, {})).resolves.toMatchObject({
+      available: true,
+      // (101 + 4*2) * 2 = 218
+      qrSize: 218
+    })
+
+    // The bitmap is rendered at a fixed 2px/module pitch behind a 4-module quiet
+    // zone — never a fixed `width`, which is what forced the non-integer scaling.
+    expect(qrCreateMock).toHaveBeenCalledWith('orca://pair#relay', {
+      errorCorrectionLevel: 'M'
+    })
+    expect(qrToDataUrlMock).toHaveBeenCalledWith('orca://pair#relay', {
+      errorCorrectionLevel: 'M',
+      margin: 4,
+      scale: 2
+    })
+    expect(qrToDataUrlMock.mock.calls[0]?.[1]).not.toHaveProperty('width')
   })
 
   it('lists a container bridge below a real LAN address but keeps it pickable', () => {

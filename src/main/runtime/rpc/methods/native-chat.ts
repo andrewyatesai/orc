@@ -6,6 +6,7 @@ import {
   subscribeNativeChatTranscript
 } from '../../../native-chat/transcript-watch'
 import { defineMethod, defineStreamingMethod, type RpcAnyMethod, type RpcContext } from '../core'
+import { sanitizeNativeChatRpcImageBlock } from './native-chat-rpc-image-block'
 
 // Why: native chat renders an agent's own transcript (Claude/Codex JSONL). The
 // desktop reaches the readers via Electron IPC; mobile/web clients reach the
@@ -76,7 +77,16 @@ function clip(text: string, cap: number): string {
   return text.length > cap ? text.slice(0, cap) + TRUNCATION_MARKER : text
 }
 
-function clipBlock(block: NativeChatBlock): NativeChatBlock {
+function sanitizeBlock(
+  block: NativeChatBlock,
+  clientKind: RpcContext['clientKind']
+): NativeChatBlock {
+  if (block.type === 'image-ref') {
+    return sanitizeNativeChatRpcImageBlock(block)
+  }
+  if (clientKind !== 'mobile') {
+    return block
+  }
   if (block.type === 'text') {
     return block.text.length > MOBILE_TEXT_BLOCK_CHAR_CAP
       ? { ...block, text: clip(block.text, MOBILE_TEXT_BLOCK_CHAR_CAP) }
@@ -123,7 +133,7 @@ function sanitizeToolInput(
   const result: Record<string, unknown> = {}
   let count = 0
   for (const key in value) {
-    if (!Object.prototype.hasOwnProperty.call(value, key)) {
+    if (!Object.hasOwn(value, key)) {
       continue
     }
     if (count >= MOBILE_TOOL_INPUT_ITEMS_CAP || budget.remaining <= 0) {
@@ -133,7 +143,7 @@ function sanitizeToolInput(
     let boundedKey = key.slice(0, Math.min(key.length, budget.remaining, 128))
     // Why: sibling keys sharing a >=128-char (or budget-truncated) prefix collapse
     // to the same bounded key; suffix collisions so neither field is silently lost.
-    if (Object.prototype.hasOwnProperty.call(result, boundedKey)) {
+    if (Object.hasOwn(result, boundedKey)) {
       boundedKey = `${boundedKey}~${count}`
     }
     budget.remaining -= boundedKey.length
@@ -147,15 +157,18 @@ function sanitizeToolInput(
   return result
 }
 
-function sanitizeMessage(message: NativeChatMessage): NativeChatMessage {
-  return { ...message, blocks: message.blocks.map(clipBlock) }
+function sanitizeMessage(
+  message: NativeChatMessage,
+  clientKind: RpcContext['clientKind']
+): NativeChatMessage {
+  return { ...message, blocks: message.blocks.map((block) => sanitizeBlock(block, clientKind)) }
 }
 
 function sanitizeAppendForClient(
   messages: readonly NativeChatMessage[],
   clientKind: RpcContext['clientKind']
 ): NativeChatMessage[] {
-  return clientKind === 'mobile' ? messages.map(sanitizeMessage) : messages.slice()
+  return messages.map((message) => sanitizeMessage(message, clientKind))
 }
 
 /** Window a transcript to its most recent `limit` messages so a long session
@@ -170,17 +183,16 @@ function windowTranscript(
   return messages.length > window ? messages.slice(-window) : messages.slice()
 }
 
-/** Apply the windowed slice plus, for `mobile` clients only, oversized-block
- *  char truncation. Web/desktop (`runtime`, or undefined for in-process callers)
- *  are full-class surfaces and pass block bodies through untruncated — matching
- *  the desktop IPC path, which never clips. */
+/** Apply the windowed slice and keep inline image bytes off every RPC transport.
+ *  Mobile clients additionally receive bounded text and tool bodies; runtime
+ *  clients keep those bodies intact. */
 function windowForClient(
   messages: readonly NativeChatMessage[],
   clientKind: RpcContext['clientKind'],
   limit = MOBILE_NATIVE_CHAT_DEFAULT_WINDOW
 ): NativeChatMessage[] {
   const windowed = windowTranscript(messages, limit)
-  return clientKind === 'mobile' ? windowed.map(sanitizeMessage) : windowed
+  return windowed.map((message) => sanitizeMessage(message, clientKind))
 }
 
 export const NATIVE_CHAT_METHODS: readonly RpcAnyMethod[] = [

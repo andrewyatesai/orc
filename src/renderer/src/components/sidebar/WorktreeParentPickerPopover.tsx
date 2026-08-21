@@ -39,6 +39,20 @@ function getAnchorRect(anchorElement: HTMLElement | null): AnchorRect | null {
   return anchorElement?.getBoundingClientRect() ?? null
 }
 
+const FOCUSABLE_ANCHOR_SELECTOR =
+  'a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'
+
+// Why: the anchor is a non-focusable worktree row, so closing focus has to land
+// on its nearest focusable container (the sidebar listbox), not document.body.
+export function getWorktreeParentPickerFocusRestoreTarget(
+  anchorElement: HTMLElement | null
+): HTMLElement | null {
+  if (!anchorElement?.isConnected) {
+    return null
+  }
+  return anchorElement.closest<HTMLElement>(FOCUSABLE_ANCHOR_SELECTOR)
+}
+
 export function getWorktreeParentPickerItemValue(candidate: Worktree): string {
   return `${candidate.displayName} ${branchDisplayName(candidate.branch)} ${candidate.path}`
 }
@@ -116,6 +130,7 @@ export function WorktreeParentPickerPopover({
   const lineageById = useAppStore((s) => s.worktreeLineageById)
   const assignWorktreeParent = useAppStore((s) => s.assignWorktreeParent)
   const suppressInitialOutsideCloseRef = useRef(false)
+  const inputRef = useRef<HTMLInputElement>(null)
   const [anchorRect, setAnchorRect] = useState<AnchorRect | null>(() =>
     getAnchorRect(anchorElement)
   )
@@ -180,7 +195,8 @@ export function WorktreeParentPickerPopover({
   }
 
   return (
-    <Popover open={open} onOpenChange={onOpenChange}>
+    // Why: modal traps focus (incl. post-menu aterm restore); non-modal loses search focus.
+    <Popover modal open={open} onOpenChange={onOpenChange}>
       <PopoverAnchor asChild>
         <span
           aria-hidden
@@ -198,6 +214,17 @@ export function WorktreeParentPickerPopover({
         side="right"
         sideOffset={8}
         className="w-80 p-0"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          inputRef.current?.focus()
+        }}
+        // Why: the hidden anchor span is no valid focus target for Radix to
+        // restore to, so drive focus back to the anchored row's listbox instead
+        // of dropping it on the detached input (i.e. document.body).
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          getWorktreeParentPickerFocusRestoreTarget(anchorElement)?.focus()
+        }}
         onInteractOutside={(event) => {
           if (suppressInitialOutsideCloseRef.current) {
             event.preventDefault()
@@ -206,11 +233,11 @@ export function WorktreeParentPickerPopover({
       >
         <Command>
           <CommandInput
+            ref={inputRef}
             placeholder={translate(
               'auto.components.sidebar.WorktreeParentPickerPopover.searchPlaceholder',
               'Search worktrees...'
             )}
-            autoFocus
           />
           <CommandList className="max-h-72">
             <CommandEmpty>

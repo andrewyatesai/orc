@@ -80,7 +80,7 @@ function user(id: string, text: string): NativeChatMessage {
 describe('mergeNativeChatLiveSession', () => {
   it("surfaces live 'working' before the assistant turn lands in the transcript", () => {
     const session = mergeNativeChatLiveSession({
-      sources: { transcript: [user('u-1', 'do a thing')] },
+      messages: [user('u-1', 'do a thing')],
       sessionId: 'sess',
       agent: 'claude',
       hookState: 'working'
@@ -91,7 +91,7 @@ describe('mergeNativeChatLiveSession', () => {
 
   it("keeps 'working' authoritative when a prior assistant message is present", () => {
     const session = mergeNativeChatLiveSession({
-      sources: { transcript: [user('u-1', 'do a thing'), assistant('a-1', 'done')] },
+      messages: [user('u-1', 'do a thing'), assistant('a-1', 'done')],
       sessionId: 'sess',
       agent: 'claude',
       hookState: 'working'
@@ -101,7 +101,7 @@ describe('mergeNativeChatLiveSession', () => {
 
   it('does not treat assistant prose as turn completion while lifecycle is mid-generation', () => {
     const session = mergeNativeChatLiveSession({
-      sources: { transcript: [user('u-1', 'go'), assistant('a-1', 'done')] },
+      messages: [user('u-1', 'go'), assistant('a-1', 'done')],
       sessionId: 'sess',
       agent: 'claude',
       hookState: 'working',
@@ -113,7 +113,7 @@ describe('mergeNativeChatLiveSession', () => {
 
   it('recovers via assistant prose when capable host has no in-progress lifecycle', () => {
     const session = mergeNativeChatLiveSession({
-      sources: { transcript: [user('u-1', 'go'), assistant('a-1', 'done')] },
+      messages: [user('u-1', 'go'), assistant('a-1', 'done')],
       sessionId: 'sess',
       agent: 'claude',
       hookState: 'working',
@@ -124,7 +124,7 @@ describe('mergeNativeChatLiveSession', () => {
 
   it('settles a dropped working hook from an explicit completion marker', () => {
     const session = mergeNativeChatLiveSession({
-      sources: { transcript: [user('u-1', 'go'), assistant('a-1', 'done')] },
+      messages: [user('u-1', 'go'), assistant('a-1', 'done')],
       sessionId: 'sess',
       agent: 'claude',
       hookState: 'working',
@@ -136,7 +136,7 @@ describe('mergeNativeChatLiveSession', () => {
 
   it('settles a dropped working hook from an explicit interruption marker', () => {
     const session = mergeNativeChatLiveSession({
-      sources: { transcript: [user('u-1', 'go')] },
+      messages: [user('u-1', 'go')],
       sessionId: 'sess',
       agent: 'claude',
       hookState: 'working',
@@ -148,7 +148,7 @@ describe('mergeNativeChatLiveSession', () => {
 
   it('does not apply an older completion marker to a newer working turn', () => {
     const session = mergeNativeChatLiveSession({
-      sources: { transcript: [assistant('a-1', 'prior')] },
+      messages: [assistant('a-1', 'prior')],
       sessionId: 'sess',
       agent: 'claude',
       hookState: 'working',
@@ -160,7 +160,7 @@ describe('mergeNativeChatLiveSession', () => {
 
   it('does not apply an older interruption marker to a newer working turn', () => {
     const session = mergeNativeChatLiveSession({
-      sources: { transcript: [assistant('a-1', 'prior')] },
+      messages: [assistant('a-1', 'prior')],
       sessionId: 'sess',
       agent: 'claude',
       hookState: 'working',
@@ -172,7 +172,7 @@ describe('mergeNativeChatLiveSession', () => {
 
   it('settles an unorderable (null-timestamp) completion marker for live work', () => {
     const session = mergeNativeChatLiveSession({
-      sources: { transcript: [assistant('a-1', 'prior')] },
+      messages: [assistant('a-1', 'prior')],
       sessionId: 'sess',
       agent: 'claude',
       hookState: 'working',
@@ -185,7 +185,7 @@ describe('mergeNativeChatLiveSession', () => {
   it('settles a completion slightly before hook receipt within clock-skew slack', () => {
     const hookStartedAt = 1_700_000_000_000
     const session = mergeNativeChatLiveSession({
-      sources: { transcript: [assistant('a-1', 'done')] },
+      messages: [assistant('a-1', 'done')],
       sessionId: 'sess',
       agent: 'claude',
       hookState: 'working',
@@ -201,7 +201,7 @@ describe('mergeNativeChatLiveSession', () => {
 
   it('preserves the assistant fallback when the serving host lacks explicit boundaries', () => {
     const session = mergeNativeChatLiveSession({
-      sources: { transcript: [assistant('a-1', 'done')] },
+      messages: [assistant('a-1', 'done')],
       sessionId: 'sess',
       agent: 'grok',
       hookState: 'working',
@@ -212,7 +212,7 @@ describe('mergeNativeChatLiveSession', () => {
 
   it('keeps working while the hook reports a live background child', () => {
     const session = mergeNativeChatLiveSession({
-      sources: { transcript: [assistant('a-1', 'lead done')] },
+      messages: [assistant('a-1', 'lead done')],
       sessionId: 'sess',
       agent: 'claude',
       hookState: 'working',
@@ -225,7 +225,7 @@ describe('mergeNativeChatLiveSession', () => {
 
   it('settles on an interruption even while the hook reports a live background child', () => {
     const session = mergeNativeChatLiveSession({
-      sources: { transcript: [assistant('a-1', 'lead done')] },
+      messages: [assistant('a-1', 'lead done')],
       sessionId: 'sess',
       agent: 'claude',
       hookState: 'working',
@@ -238,7 +238,7 @@ describe('mergeNativeChatLiveSession', () => {
 
   it('leaves completed states (done/waiting/blocked) on the derived status', () => {
     const session = mergeNativeChatLiveSession({
-      sources: { transcript: [user('u-1', 'hi')] },
+      messages: [user('u-1', 'hi')],
       sessionId: 'sess',
       agent: 'claude',
       hookState: 'done'
@@ -249,7 +249,7 @@ describe('mergeNativeChatLiveSession', () => {
   it('surfaces live work while the transcript loads and honors errors outright', () => {
     expect(
       mergeNativeChatLiveSession({
-        sources: { transcript: [] },
+        messages: [],
         sessionId: null,
         agent: 'claude',
         hookState: 'working',
@@ -258,7 +258,7 @@ describe('mergeNativeChatLiveSession', () => {
     ).toBe('working')
     expect(
       mergeNativeChatLiveSession({
-        sources: { transcript: [] },
+        messages: [],
         sessionId: 'sess',
         agent: 'claude',
         hookState: 'working',
@@ -267,7 +267,7 @@ describe('mergeNativeChatLiveSession', () => {
     ).toBe('loading')
 
     const errored = mergeNativeChatLiveSession({
-      sources: { transcript: [] },
+      messages: [],
       sessionId: 'sess',
       agent: 'claude',
       hookState: null,
@@ -279,7 +279,7 @@ describe('mergeNativeChatLiveSession', () => {
 
   it('assembles an empty transcript with no live work as empty', () => {
     const session = mergeNativeChatLiveSession({
-      sources: { transcript: [] },
+      messages: [],
       sessionId: 'sess',
       agent: 'claude',
       hookState: null

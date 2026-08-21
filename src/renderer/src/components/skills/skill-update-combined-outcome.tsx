@@ -126,7 +126,7 @@ export function SkillUpdateFailurePanel({
   onCopyCommand: () => void
 }): React.JSX.Element {
   return (
-    <div className="space-y-2.5 rounded-md border border-destructive/35 bg-destructive/10 p-3">
+    <div className="min-w-0 space-y-2.5 rounded-md border border-destructive/35 bg-destructive/10 p-3">
       <p className="text-[13px] font-medium text-foreground">
         {translate(
           'auto.components.skills.SkillFreshnessUpdateDialog.errorTitle',
@@ -135,12 +135,12 @@ export function SkillUpdateFailurePanel({
       </p>
       {/* Mono because it is the runner's own output, quoted verbatim. */}
       {message ? (
-        <p className="break-words font-mono text-[11px] leading-relaxed text-muted-foreground">
+        <p className="[overflow-wrap:anywhere] font-mono text-[11px] leading-relaxed text-muted-foreground">
           {message}
         </p>
       ) : null}
       {outcome.failedOfflineNames.length > 0 ? (
-        <p className="break-words text-[11px] leading-relaxed text-muted-foreground">
+        <p className="[overflow-wrap:anywhere] text-[11px] leading-relaxed text-muted-foreground">
           {translate(
             'auto.components.skills.SkillFreshnessUpdateDialog.offlineFailed',
             'Orca could not update {{value0}} from this app build.',

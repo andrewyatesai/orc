@@ -329,6 +329,7 @@ fn commit_message_plan_result_to_json(plan_input_json: &str, prompt: &str) -> St
     };
     let input = orca_agents::CommitMessagePlanInput {
         agent_id: value.get("agentId").and_then(|v| v.as_str()).unwrap_or_default(),
+        backslash: backslash_mode_from_json(value.get("backslash")),
         model: value.get("model").and_then(|v| v.as_str()).unwrap_or_default(),
         thinking_level: value.get("thinkingLevel").and_then(|v| v.as_str()),
         custom_agent_command: value.get("customAgentCommand").and_then(|v| v.as_str()),
@@ -351,8 +352,19 @@ fn commit_message_plan_result_to_json(plan_input_json: &str, prompt: &str) -> St
     }
 }
 
+/// Map the TS `CommandTemplateBackslash` (`'escape' | 'literal'`) carried in the
+/// plan-input JSON; anything but `"literal"` (including absent) is POSIX escaping.
+fn backslash_mode_from_json(value: Option<&serde_json::Value>) -> orca_agents::CommandTemplateBackslash {
+    match value.and_then(|v| v.as_str()) {
+        Some("literal") => orca_agents::CommandTemplateBackslash::Literal,
+        _ => orca_agents::CommandTemplateBackslash::Escape,
+    }
+}
+
 fn plan_agent_binary_result_to_json(default_binary: &str, command_override: Option<&str>) -> String {
-    match orca_agents::plan_agent_binary(default_binary, command_override) {
+    // The standalone binary planner (model discovery) has no target context here,
+    // so it keeps POSIX escaping; the whole-plan path threads the real mode.
+    match orca_agents::plan_agent_binary(default_binary, command_override, orca_agents::CommandTemplateBackslash::Escape) {
         Ok((binary, prefix_args)) => {
             serde_json::json!({ "ok": true, "binary": binary, "prefixArgs": prefix_args }).to_string()
         }

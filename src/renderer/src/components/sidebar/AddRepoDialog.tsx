@@ -20,6 +20,7 @@ import {
   useAddRepoHostedController,
   type AddRepoDialogHostedController
 } from './use-add-repo-hosted-controller'
+import { buildAddRepoStartStepActions } from './add-repo-start-step-actions'
 
 const AddRepoDialog = React.memo(function AddRepoDialog({
   hosted
@@ -299,6 +300,16 @@ const AddRepoDialog = React.memo(function AddRepoDialog({
     [closeModal, isAdding, resetState, step, trackNestedBackAction]
   )
 
+  const startStepActions = buildAddRepoStartStepActions({
+    selectedHostId: hostSelection.selectedHostId,
+    selectedParsedHost: hostSelection.selectedParsedHost,
+    handleBrowse,
+    handleOpenRemoteStep,
+    setStep,
+    setCloneError,
+    setCreateError
+  })
+
   return (
     <AddRepoDialogChrome
       isOpen={isOpen}
@@ -330,7 +341,7 @@ const AddRepoDialog = React.memo(function AddRepoDialog({
         selectedSshTargetId={hostSelection.selectedSshTargetId}
         selectedHostLabel={
           hostSelection.hostOptions.find((host) => host.id === hostSelection.selectedHostId)
-            ?.label ?? hostSelection.selectedHostId
+            ?.label ?? null
         }
         lockSshTargetSelection={hostSelection.selectedParsedHost?.kind === 'ssh'}
         remotePath={remotePath}
@@ -346,29 +357,16 @@ const AddRepoDialog = React.memo(function AddRepoDialog({
         isCreating={isCreating}
         hostSelector={<AddRepoHostSelectorSlot hostSelection={hostSelection} />}
         showRemoteAction={false}
-        browseHostKind={
-          selectedHostKind === 'ssh' || selectedHostKind === 'runtime' ? selectedHostKind : 'local'
-        }
+        actionsDisabled={!hostSelection.selectedHostId}
+        browseHostKind={selectedHostKind ?? 'runtime'}
         createDefaultParent={createDefaultParent}
         createGitAvailability={createGitAvailability}
         createRuntimeParentStatus={createRuntimeParentStatus}
         createParentDefaultPending={createParentDefaultPending}
         manualCreateParentEntry={isRuntimeEnvironmentActive || selectedHostKind === 'ssh'}
-        onBrowse={
-          selectedHostKind === 'ssh'
-            ? () => void handleOpenRemoteStep(hostSelection.selectedSshTargetId)
-            : selectedHostKind === 'runtime'
-              ? () => setStep('server-path')
-              : handleBrowse
-        }
-        onOpenCloneStep={() => {
-          setCloneError(null)
-          setStep('clone')
-        }}
-        onOpenCreateStep={() => {
-          setCreateError(null)
-          setStep('create')
-        }}
+        onBrowse={startStepActions.onBrowse}
+        onOpenCloneStep={startStepActions.onOpenCloneStep}
+        onOpenCreateStep={startStepActions.onOpenCreateStep}
         onOpenRemoteStep={handleOpenRemoteStep}
         onStopNestedScan={handleStopNestedScan}
         onServerPathChange={setServerPath}

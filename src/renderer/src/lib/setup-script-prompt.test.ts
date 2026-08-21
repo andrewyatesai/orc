@@ -200,6 +200,46 @@ describe('setup script prompt inspection', () => {
     ).toEqual([getSetupScriptPromptDismissalKey('repo-1')])
   })
 
+  it('reuses the input array when it is empty', () => {
+    const input: string[] = []
+    expect(filterSetupScriptPromptDismissalsToValidRepos(input, new Set(['repo-1']))).toBe(input)
+  })
+
+  it('reuses the input array when every dismissal is already a valid key', () => {
+    const input = [
+      getSetupScriptPromptDismissalKey('repo-1'),
+      getSetupScriptPromptDismissalKey('repo-2')
+    ]
+    expect(
+      filterSetupScriptPromptDismissalsToValidRepos(input, new Set(['repo-1', 'repo-2']))
+    ).toBe(input)
+  })
+
+  it('allocates a new array when a stale dismissal is dropped', () => {
+    const input = [
+      getSetupScriptPromptDismissalKey('repo-1'),
+      getSetupScriptPromptDismissalKey('gone')
+    ]
+    const result = filterSetupScriptPromptDismissalsToValidRepos(input, new Set(['repo-1']))
+    expect(result).not.toBe(input)
+    expect(result).toEqual([getSetupScriptPromptDismissalKey('repo-1')])
+  })
+
+  it('allocates a new array when a duplicate valid dismissal is deduped', () => {
+    const key = getSetupScriptPromptDismissalKey('repo-1')
+    const input = [key, key]
+    const result = filterSetupScriptPromptDismissalsToValidRepos(input, new Set(['repo-1']))
+    expect(result).not.toBe(input)
+    expect(result).toEqual([key])
+  })
+
+  it('allocates a new array when a legacy non-prefixed dismissal is stripped', () => {
+    const input = ['repo-1', getSetupScriptPromptDismissalKey('repo-1')]
+    const result = filterSetupScriptPromptDismissalsToValidRepos(input, new Set(['repo-1']))
+    expect(result).not.toBe(input)
+    expect(result).toEqual([getSetupScriptPromptDismissalKey('repo-1')])
+  })
+
   it('formats setup candidate provenance for sidebar review copy', () => {
     expect(
       formatCandidateProvenance({

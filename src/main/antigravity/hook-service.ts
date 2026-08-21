@@ -46,14 +46,22 @@ const ANTIGRAVITY_EVENTS = [
     windowsWrapperFileName: 'antigravity-post-invocation.cmd'
   },
   { eventName: 'Stop', schema: 'direct', windowsWrapperFileName: 'antigravity-stop.cmd' },
-  // Why: Antigravity requires PreToolUse hooks to make permission decisions.
-  // Orca's hook is observational, so installing there can block user tools.
+  // PreToolUse is the only pre-tool signal Antigravity emits; without it panes show a bare "Working" spinner (#12898).
+  {
+    eventName: 'PreToolUse',
+    schema: 'tool',
+    windowsWrapperFileName: 'antigravity-pre-tool-use.cmd'
+  },
   {
     eventName: 'PostToolUse',
     schema: 'tool',
     windowsWrapperFileName: 'antigravity-post-tool-use.cmd'
   }
 ] as const
+
+// Why: Antigravity requires a decision on PreToolUse and reads silence as deny (#2426). Of the documented values
+// only "ask" defers to the user's permission config — "allow" would auto-approve every tool call Orca observes.
+const ANTIGRAVITY_PRE_TOOL_USE_DECISION = '{"decision":"ask"}'
 
 type AntigravityEvent = (typeof ANTIGRAVITY_EVENTS)[number]
 
@@ -81,11 +89,20 @@ function getWindowsWrapperScriptPath(event: AntigravityEvent): string {
   return getSharedManagedScriptPath(event.windowsWrapperFileName)
 }
 
+function getPosixManagedCommand(scriptPath: string, event: AntigravityEvent): string {
+  return wrapPosixHookCommand(
+    scriptPath,
+    { ORCA_ANTIGRAVITY_EVENT: event.eventName },
+    // Why: a missing managed script must not brick tools; the guard answers PreToolUse itself instead of staying silent.
+    event.eventName === 'PreToolUse' ? { fallbackStdout: ANTIGRAVITY_PRE_TOOL_USE_DECISION } : {}
+  )
+}
+
 function getManagedCommand(scriptPath: string, event: AntigravityEvent): string {
   if (process.platform === 'win32') {
     return wrapWindowsCmdHookCommand(getWindowsWrapperScriptPath(event))
   }
-  return wrapPosixHookCommand(scriptPath, { ORCA_ANTIGRAVITY_EVENT: event.eventName })
+  return getPosixManagedCommand(scriptPath, event)
 }
 
 function getManagedScript(target: 'local' | 'posix' = 'local'): string {
@@ -95,6 +112,8 @@ function getManagedScript(target: 'local' | 'posix' = 'local'): string {
       'setlocal',
       'if /I "%ORCA_ANTIGRAVITY_EVENT%"=="Stop" (',
       '  echo {"decision":""}',
+      ') else if /I "%ORCA_ANTIGRAVITY_EVENT%"=="PreToolUse" (',
+      `  echo ${ANTIGRAVITY_PRE_TOOL_USE_DECISION}`,
       ') else (',
       '  echo {}',
       ')',
@@ -113,10 +132,12 @@ function getManagedScript(target: 'local' | 'posix' = 'local'): string {
     '  Stop)',
     '    printf \'{"decision":""}\\n\'',
     '    ;;',
+    '  PreToolUse)',
+    `    printf '${ANTIGRAVITY_PRE_TOOL_USE_DECISION}\\n'`,
+    '    ;;',
     '  *)',
     // Why: Antigravity accepts an empty JSON object for passive status hooks;
-    // returning allow/ask/deny from PreToolUse would change the user's tool
-    // permission policy.
+    // only the PreToolUse gate rejects it, and that branch answers above.
     '    printf "{}\\n"',
     '    ;;',
     'esac',
@@ -162,6 +183,8 @@ function getWindowsWrapperScript(eventName: string): string {
     ')',
     'if /I "%ORCA_ANTIGRAVITY_EVENT%"=="Stop" (',
     '  echo {"decision":""}',
+    ') else if /I "%ORCA_ANTIGRAVITY_EVENT%"=="PreToolUse" (',
+    `  echo ${ANTIGRAVITY_PRE_TOOL_USE_DECISION}`,
     ') else (',
     '  echo {}',
     ')',
@@ -404,8 +427,7 @@ export class AntigravityHookService {
 
       buildInstalledConfig(
         config,
-        (event) =>
-          wrapPosixHookCommand(remoteScriptPath, { ORCA_ANTIGRAVITY_EVENT: event.eventName }),
+        (event) => getPosixManagedCommand(remoteScriptPath, event),
         createAntigravityManagedCommandMatcher()
       )
       await writeManagedScriptRemote(sftp, remoteScriptPath, getManagedScript('posix'))

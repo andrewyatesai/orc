@@ -21,11 +21,17 @@ export const PROJECT_COMMAND_SPECS: CommandSpec[] = [
     summary: 'List project host setups',
     usage: 'orca project setups [--project <id>] [--host <host-id>] [--json]',
     allowedFlags: [...GLOBAL_FLAGS, 'project', 'host'],
-    notes: ['A setup means a project is available on a host at a concrete filesystem path.'],
+    notes: [
+      'A setup means a project is available on a host at a concrete filesystem path.',
+      '--host runtime:<environment-id> runs the command on that paired Orca server instead of filtering this runtime; unknown environment ids are rejected rather than answered with an empty list.',
+      'Run `orca environment list` to see the environment ids that runtime:<environment-id> accepts. It matches ids only, never environment names.',
+      "A routed --host runtime:<id> also lists that server's own local-stamped setups, because both spellings name the machine the command reached."
+    ],
     examples: [
       'orca project setups',
       `orca project setups --project ${ALAB_PROJECT_ID}`,
-      'orca project setups --host local'
+      'orca project setups --host local',
+      'orca project setups --host runtime:03ef704c-b180-4b10-998d-e28fbd5de9a3'
     ]
   },
   {
@@ -36,11 +42,12 @@ export const PROJECT_COMMAND_SPECS: CommandSpec[] = [
     allowedFlags: [...GLOBAL_FLAGS, 'project', 'host', 'path', 'kind', 'display-name'],
     notes: [
       'For remote runtimes, --path must be an absolute path on the remote server.',
+      '--host runtime:<environment-id> targets that paired Orca server; use the id from `orca environment list`, not the environment name.',
       'SSH targets are set up through the desktop UI because the desktop client owns SSH connections.'
     ],
     examples: [
       `orca project setup-existing-folder --project ${ALAB_PROJECT_ID} --host local --path ~/orca`,
-      `orca project setup-existing-folder --project ${ALAB_PROJECT_ID} --host runtime:gpu --path /home/me/orca --kind git --json`
+      `orca project setup-existing-folder --project ${ALAB_PROJECT_ID} --host runtime:03ef704c-b180-4b10-998d-e28fbd5de9a3 --path /home/me/orca --kind git --json`
     ]
   },
   {
@@ -51,11 +58,12 @@ export const PROJECT_COMMAND_SPECS: CommandSpec[] = [
     allowedFlags: [...GLOBAL_FLAGS, 'project', 'host', 'url', 'destination', 'display-name'],
     notes: [
       'For remote runtimes, --destination must be an absolute parent directory on the remote server.',
+      '--host runtime:<environment-id> targets that paired Orca server; use the id from `orca environment list`, not the environment name.',
       'SSH targets are cloned through the desktop UI because the desktop client owns SSH connections.'
     ],
     examples: [
       `orca project setup-clone --project ${ALAB_PROJECT_ID} --host local --url ${ALAB_CLONE_URL} --destination ~/src`,
-      `orca project setup-clone --project ${ALAB_PROJECT_ID} --host runtime:gpu --url ${ALAB_CLONE_URL} --destination /srv --json`
+      `orca project setup-clone --project ${ALAB_PROJECT_ID} --host runtime:03ef704c-b180-4b10-998d-e28fbd5de9a3 --url ${ALAB_CLONE_URL} --destination /srv --json`
     ]
   },
   {
@@ -78,10 +86,11 @@ export const PROJECT_COMMAND_SPECS: CommandSpec[] = [
     ],
     notes: [
       'Creates setup metadata without registering a repo compatibility record.',
+      '--host runtime:<environment-id> targets that paired Orca server; use the id from `orca environment list`, not the environment name.',
       'Use setup-existing-folder when Orca should import and manage an actual checkout path now.'
     ],
     examples: [
-      `orca project setup-create --project ${ALAB_PROJECT_ID} --host runtime:gpu --state setting-up --method provisioned --json`
+      `orca project setup-create --project ${ALAB_PROJECT_ID} --host runtime:03ef704c-b180-4b10-998d-e28fbd5de9a3 --state setting-up --method provisioned --json`
     ]
   },
   {

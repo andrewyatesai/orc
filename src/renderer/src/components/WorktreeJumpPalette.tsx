@@ -31,6 +31,8 @@ import {
   CommandEmpty,
   CommandItem
 } from '@/components/ui/command'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { PaletteOpenTabWorktreeRailLabel } from './palette-open-tab-worktree-rail-label'
 import { parseGitHubIssueOrPRNumber, parseGitHubIssueOrPRLink } from '@/lib/github-links'
 import { getLinkedWorkItemSuggestedName, getLinkedWorkItemWorkspaceName } from '@/lib/new-workspace'
 import type { LinkedWorkItemSummary } from '@/lib/new-workspace'
@@ -82,7 +84,8 @@ import {
   createWorktreePaletteRequestGuard,
   getNextWorktreePaletteSelection,
   getWorktreePaletteSelectionItemIds,
-  getWorktreePaletteCreateActionState
+  getWorktreePaletteCreateActionState,
+  type WorktreePaletteRequestGuard
 } from '@/lib/worktree-palette-create-action'
 import { getWorkspacePortsByWorktreeId } from '@/lib/workspace-port-groups'
 import {
@@ -103,6 +106,7 @@ import {
   type SearchableWorkspaceTab,
   type WorkspaceTabPaletteSearchResult
 } from '@/lib/workspace-tab-palette-search'
+import { AgentIcon } from '@/lib/agent-catalog'
 import { activateWorkspaceTabPaletteResult } from '@/lib/workspace-tab-palette-activation'
 import {
   ORCA_BROWSER_FOCUS_REQUEST_EVENT,
@@ -138,6 +142,7 @@ import {
 } from '@/components/cmd-j/quick-actions'
 import { buildWorktreeChecksReviewIndex } from '@/components/cmd-j/worktree-checks-review-index'
 import { resolvePaletteFocusRestoreTarget } from '@/components/cmd-j/palette-focus-restore-target'
+import { buildPaletteListEntryRenderKeys } from '@/components/cmd-j/palette-list-entry-render-keys'
 import { selectWorktreePaletteCacheInputs } from '@/components/cmd-j/worktree-palette-cache-inputs'
 import { getRepoHostIdentity } from '@/store/slices/repo-host-identity'
 import {
@@ -227,8 +232,12 @@ type PaletteListEntry = PaletteItem | CreateWorktreePaletteItem | SectionHeader 
 
 const CREATE_WORKSPACE_QUICK_ACTION_ITEM_ID = `quick-action:${CREATE_WORKSPACE_QUICK_ACTION_ID}`
 
-// Why: outlast the CommandDialog close animation (~150–200ms) so gated status maps stay live until fading rows are gone.
-const PALETTE_STATUS_INPUTS_LINGER_MS = 300
+// Why: outlast the CommandDialog close animation so its rows do not disappear mid-fade.
+const PALETTE_CLOSE_LINGER_MS = 300
+
+// Why `jump-palette-item`: selection chrome lives in main.css — flat accent is invisible on light popovers.
+const JUMP_PALETTE_ITEM_CLASSNAME =
+  'jump-palette-item group mx-0.5 flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 text-left outline-none transition-[background-color,box-shadow]'
 
 type OpenTabPaletteItem = BrowserPaletteItem | SimulatorPaletteItem | WorkspaceTabPaletteItem
 
@@ -345,43 +354,32 @@ function PaletteOpenTabPrimaryLine({
   titleRange,
   secondaryText,
   secondaryRange,
-  worktreeName,
-  worktreeRange,
   leadingBadges
 }: {
   title: string
   titleRange: MatchRange | null
   secondaryText: string
   secondaryRange: MatchRange | null
-  worktreeName: string
-  worktreeRange: MatchRange | null
   leadingBadges?: React.ReactNode
 }): React.JSX.Element {
   // Why gate on non-empty: empty secondaries (terminals/simulators) used to still
-  // render two "·" separators, which read as a double mark and stole width from
-  // the worktree name until it collided with host/repo badges.
+  // render a leftover "·" after the title.
   const showSecondary = secondaryText.trim().length > 0
-  const showWorktree = worktreeName.trim().length > 0
 
   return (
     <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-      <span className="max-w-[40%] shrink-0 truncate text-[14px] font-semibold tracking-[-0.01em] text-foreground">
+      <span
+        data-slot="palette-open-tab-title"
+        className="min-w-0 truncate text-[14px] font-semibold tracking-[-0.01em] text-foreground"
+      >
         <HighlightedText text={title} matchRange={titleRange} />
       </span>
       {leadingBadges}
       {showSecondary ? (
         <>
           <span className="shrink-0 text-muted-foreground/45">·</span>
-          <span className="min-w-0 truncate text-[12px] font-medium text-muted-foreground/92">
+          <span className="min-w-0 max-w-[34%] truncate text-[12px] font-medium text-muted-foreground/92">
             <HighlightedText text={secondaryText} matchRange={secondaryRange} />
-          </span>
-        </>
-      ) : null}
-      {showWorktree ? (
-        <>
-          <span className="shrink-0 text-muted-foreground/45">·</span>
-          <span className="min-w-0 truncate text-[12px] font-medium text-muted-foreground/92">
-            <HighlightedText text={worktreeName} matchRange={worktreeRange} />
           </span>
         </>
       ) : null}
@@ -464,9 +462,43 @@ function getSettingsTargetFromSectionId(sectionId: string): {
 }
 
 export default function WorktreeJumpPalette(): React.JSX.Element | null {
+  const visible = useAppStore((s) => s.activeModal === 'worktree-palette')
+  const [lingering, setLingering] = useState(visible)
+  useEffect(() => {
+    if (visible) {
+      setLingering(true)
+      return
+    }
+    const timer = window.setTimeout(() => setLingering(false), PALETTE_CLOSE_LINGER_MS)
+    return () => window.clearTimeout(timer)
+  }, [visible])
+  // Why: reopening must invalidate a pending create lookup from the previous content mount.
+  const createLookupGuard = useMemo(() => createWorktreePaletteRequestGuard(), [])
+
+  // Why: unmount the closed palette's content so its many hot store subscriptions do not re-render on unrelated app writes.
+  if (!visible && !lingering) {
+    return null
+  }
+  return (
+    <WorktreeJumpPaletteContent
+      visible={visible}
+      lingering={lingering}
+      createLookupGuard={createLookupGuard}
+    />
+  )
+}
+
+function WorktreeJumpPaletteContent({
+  visible,
+  lingering,
+  createLookupGuard
+}: {
+  visible: boolean
+  lingering: boolean
+  createLookupGuard: WorktreePaletteRequestGuard
+}): React.JSX.Element | null {
   // Why: subscribe to language changes so translated memos recompute without a fake i18n.language dependency.
   useTranslation()
-  const visible = useAppStore((s) => s.activeModal === 'worktree-palette')
   const closeModal = useAppStore((s) => s.closeModal)
   const openModal = useAppStore((s) => s.openModal)
   const openSettingsPage = useAppStore((s) => s.openSettingsPage)
@@ -481,20 +513,9 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
   const projectHostSetups = useAppStore((s) => s.projectHostSetups)
   const detectedWorktreesByRepo = useAppStore((s) => s.detectedWorktreesByRepo)
   const pendingWorktreeCreations = useAppStore((s) => s.pendingWorktreeCreations)
-  // Why: keep status maps subscribed through the close animation — dropping them while CommandDialog fades out would flash rows empty mid-animation.
-  const [statusInputsLingering, setStatusInputsLingering] = useState(false)
-  useEffect(() => {
-    if (visible) {
-      setStatusInputsLingering(true)
-      return
-    }
-    const timer = window.setTimeout(
-      () => setStatusInputsLingering(false),
-      PALETTE_STATUS_INPUTS_LINGER_MS
-    )
-    return () => window.clearTimeout(timer)
-  }, [visible])
-  // Why: these hot status maps get a new identity on every app-wide write, so gate the subscription on active-or-closing to stop the always-mounted palette re-rendering on unrelated terminals.
+  // Why: keep hot status maps live through the shell's close-animation linger.
+  const paletteStatusInputsActive = visible || lingering
+  // Why: these hot status maps get a new identity on every app-wide write, so gate the subscription on active-or-closing to stop the palette re-rendering on unrelated terminals.
   // Why: ptyIdsByTabId must be included — slept tabs keep a wake-hint sessionId in tab.ptyId, so without it the palette dot would lie green.
   const {
     agentStatusByPaneKey,
@@ -502,12 +523,10 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
     ptyIdsByTabId,
     terminalLayoutsByTabId,
     tabsByWorktree
-  } = useAppStore(useShallow((s) => selectPaletteStatusInputs(s, visible || statusInputsLingering)))
-  const agentStatusEpoch = useAppStore((s) =>
-    visible || statusInputsLingering ? s.agentStatusEpoch : 0
-  )
+  } = useAppStore(useShallow((s) => selectPaletteStatusInputs(s, paletteStatusInputsActive)))
+  const agentStatusEpoch = useAppStore((s) => (paletteStatusInputsActive ? s.agentStatusEpoch : 0))
   const { prCache, issueCache, hostedReviewCache } = useAppStore(
-    useShallow((s) => selectWorktreePaletteCacheInputs(s, visible || statusInputsLingering))
+    useShallow((s) => selectWorktreePaletteCacheInputs(s, paletteStatusInputsActive))
   )
   const migrationUnsupportedByPtyId = useAppStore((s) => s.migrationUnsupportedByPtyId)
   const activeWorktreeId = useAppStore((s) => s.activeWorktreeId)
@@ -526,6 +545,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
   const groupsByWorktree = useAppStore((s) => s.groupsByWorktree)
   const retainedAgentsByPaneKey = useAppStore((s) => s.retainedAgentsByPaneKey)
   const sleepingAgentSessionsByPaneKey = useAppStore((s) => s.sleepingAgentSessionsByPaneKey)
+  const paneForegroundAgentByPaneKey = useAppStore((s) => s.paneForegroundAgentByPaneKey)
   const settings = useAppStore((s) => s.settings)
   const sshTargetLabels = useAppStore((s) => s.sshTargetLabels)
   const sshConnectionStates = useAppStore((s) => s.sshConnectionStates)
@@ -568,7 +588,6 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
   const listRef = useRef<HTMLDivElement>(null)
   const fallbackFocusOuterFrameRef = useRef<number | null>(null)
   const fallbackFocusInnerFrameRef = useRef<number | null>(null)
-  const createLookupGuard = useMemo(() => createWorktreePaletteRequestGuard(), [])
   const preserveCreateLookupOnCloseRef = useRef(false)
 
   const repoMap = useMemo(() => new Map(repos.map((r) => [r.id, r])), [repos])
@@ -599,8 +618,6 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
       hostLabelOverrides
     ]
   )
-  const canCreateWorktree = repos.length > 0
-
   const hasQuery = deferredQuery.trim().length > 0
   const isLoading = repos.length > 0 && Object.keys(worktreesByRepo).length === 0
 
@@ -871,7 +888,9 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
       activeFileId,
       activeFileIdByWorktree,
       activeTabTypeByWorktree,
-      generatedTitlesEnabled: settings?.tabAutoGenerateTitle === true
+      generatedTitlesEnabled: settings?.tabAutoGenerateTitle === true,
+      terminalLayoutsByTabId,
+      paneForegroundAgentByPaneKey
     })
   }, [
     activeFileId,
@@ -886,11 +905,13 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
     browserSortedWorktrees,
     groupsByWorktree,
     openFiles,
+    paneForegroundAgentByPaneKey,
     repoMap,
     retainedAgentsByPaneKey,
     settings?.tabAutoGenerateTitle,
     sleepingAgentSessionsByPaneKey,
     tabsByWorktree,
+    terminalLayoutsByTabId,
     unifiedTabsByWorktree,
     worktreeOrder
   ])
@@ -1370,10 +1391,9 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
   const { createWorktreeName, showCreateAction } = useMemo(
     () =>
       getWorktreePaletteCreateActionState({
-        canCreateWorktree,
         query: deferredQuery
       }),
-    [canCreateWorktree, deferredQuery]
+    [deferredQuery]
   )
 
   const listEntries = useMemo<PaletteListEntry[]>(() => {
@@ -1509,9 +1529,18 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
     return entries
   }, [hasQuery, openTabsLeadSections, paletteSections, showCreateAction, worktreeItems.length])
 
-  const selectionItemIds = useMemo(
-    () => getWorktreePaletteSelectionItemIds(listEntries),
+  // Why not entry.id directly: a duplicated persisted id would repeat a React key,
+  // and the reconciler then leaves the extra row mounted as a frozen ghost.
+  const listEntryRenderKeys = useMemo(
+    () => buildPaletteListEntryRenderKeys(listEntries.map((entry) => entry.id)),
     [listEntries]
+  )
+
+  // Why the render keys, not entry ids: cmdk selects by the rendered `value`, so the
+  // allow-list has to name the same de-duplicated keys the rows carry.
+  const selectionItemIds = useMemo(
+    () => getWorktreePaletteSelectionItemIds(listEntries, listEntryRenderKeys),
+    [listEntries, listEntryRenderKeys]
   )
 
   // Why passive, and why after the snapshot effect: it must record the head cmdk *had* while the
@@ -2112,7 +2141,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
     }
   })()
 
-  return (
+  const paletteDialog = (
     <CommandDialog
       open={visible}
       onOpenChange={handleOpenChange}
@@ -2162,11 +2191,12 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
           </CommandEmpty>
         ) : (
           <>
-            {listEntries.map((entry) => {
+            {listEntries.map((entry, entryIndex) => {
+              const renderKey = listEntryRenderKeys[entryIndex] ?? entry.id
               if (entry.type === 'section-header') {
                 return (
                   <div
-                    key={entry.id}
+                    key={renderKey}
                     className="mx-0.5 mt-3 mb-1 px-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70"
                   >
                     {entry.label}
@@ -2178,7 +2208,7 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                 // Why: plain div (not CommandItem) so cmdk can't select it; arrow keys skip it via selectableItems.
                 return (
                   <div
-                    key={entry.id}
+                    key={renderKey}
                     className="mx-0.5 mt-1 px-3 py-1.5 text-[12px] italic text-muted-foreground/70"
                   >
                     {entry.label}
@@ -2189,10 +2219,10 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
               if (entry.type === 'create-worktree') {
                 return (
                   <CommandItem
-                    key={entry.id}
+                    key={renderKey}
                     value={CREATE_WORKTREE_ITEM_ID}
                     onSelect={handleCreateWorktree}
-                    className="group mx-0.5 mt-1 flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 py-1.5 text-left outline-none transition-[background-color,border-color,box-shadow] data-[selected=true]:border-border data-[selected=true]:bg-accent data-[selected=true]:text-foreground"
+                    className={cn(JUMP_PALETTE_ITEM_CLASSNAME, 'mt-1 py-1.5')}
                   >
                     <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-dashed border-border/60 bg-muted/25 text-muted-foreground/70">
                       <Plus size={13} aria-hidden="true" />
@@ -2240,14 +2270,11 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
 
                 return (
                   <CommandItem
-                    key={entry.id}
-                    value={entry.id}
+                    key={renderKey}
+                    value={renderKey}
                     onSelect={() => handleSelectItem(entry)}
                     data-current={isCurrentWorktree ? 'true' : undefined}
-                    className={cn(
-                      'group mx-0.5 flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left outline-none transition-[background-color,border-color,box-shadow]',
-                      'data-[selected=true]:border-border data-[selected=true]:bg-accent data-[selected=true]:text-foreground'
-                    )}
+                    className={cn(JUMP_PALETTE_ITEM_CLASSNAME, 'py-2.5')}
                   >
                     <div className="flex w-4 shrink-0 items-center justify-center self-start pt-0.5">
                       <StatusIndicator status={status} aria-hidden="true" />
@@ -2282,16 +2309,13 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                                 )}
                               </span>
                             )}
-                            <span className="truncate text-[14px] font-semibold text-foreground">
-                              {entry.match.displayNameRange ? (
-                                <HighlightedText
-                                  text={worktreeLabel}
-                                  matchRange={entry.match.displayNameRange}
-                                />
-                              ) : (
-                                worktreeLabel
-                              )}
-                            </span>
+                            <PaletteOpenTabWorktreeRailLabel
+                              name={worktreeLabel}
+                              matchRange={entry.match.displayNameRange}
+                              worktree={worktree}
+                              slot="palette-worktree-name"
+                              className="truncate text-[14px] font-semibold text-foreground"
+                            />
                             {isCurrentWorktree && (
                               <span className="shrink-0 self-center rounded-[6px] border border-border/60 bg-background/45 px-1.5 py-px text-[9px] font-medium leading-normal text-muted-foreground/88">
                                 {translate(
@@ -2308,17 +2332,18 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                                 )}
                               </span>
                             )}
-                            <span className="shrink-0 text-muted-foreground/45">·</span>
-                            <span className="truncate text-[12px] font-medium text-muted-foreground/92">
-                              {entry.match.branchRange ? (
-                                <HighlightedText
-                                  text={branch}
+                            {branch.trim().length > 0 ? (
+                              <>
+                                <span className="shrink-0 text-muted-foreground/45">·</span>
+                                <PaletteOpenTabWorktreeRailLabel
+                                  name={branch}
                                   matchRange={entry.match.branchRange}
+                                  worktree={worktree}
+                                  slot="palette-worktree-branch"
+                                  className="truncate text-[12px] font-medium text-muted-foreground/92"
                                 />
-                              ) : (
-                                branch
-                              )}
-                            </span>
+                              </>
+                            ) : null}
                           </div>
                           {entry.match.supportingText && (
                             <div className="mt-1.5 flex min-w-0 items-center gap-2 text-[12px] leading-5 text-muted-foreground/88">
@@ -2369,13 +2394,10 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                   : translate('auto.components.WorktreeJumpPalette.repoGroupBadge', 'Repo group')
                 return (
                   <CommandItem
-                    key={entry.id}
-                    value={entry.id}
+                    key={renderKey}
+                    value={renderKey}
                     onSelect={() => handleSelectItem(entry)}
-                    className={cn(
-                      'group mx-0.5 flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left outline-none transition-[background-color,border-color,box-shadow]',
-                      'data-[selected=true]:border-border data-[selected=true]:bg-accent data-[selected=true]:text-foreground'
-                    )}
+                    className={cn(JUMP_PALETTE_ITEM_CLASSNAME, 'py-2.5')}
                   >
                     <div className="flex w-4 shrink-0 items-center justify-center self-start pt-0.5 text-muted-foreground/85">
                       <FolderTree className="size-3.5" aria-hidden="true" />
@@ -2416,13 +2438,10 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                     : translate('auto.components.WorktreeJumpPalette.actionBadge', 'Action')
                 return (
                   <CommandItem
-                    key={entry.id}
-                    value={entry.id}
+                    key={renderKey}
+                    value={renderKey}
                     onSelect={() => handleSelectItem(entry)}
-                    className={cn(
-                      'group mx-0.5 flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left outline-none transition-[background-color,border-color,box-shadow]',
-                      'data-[selected=true]:border-border data-[selected=true]:bg-accent data-[selected=true]:text-foreground'
-                    )}
+                    className={cn(JUMP_PALETTE_ITEM_CLASSNAME, 'py-2.5')}
                   >
                     <div className="flex w-4 shrink-0 items-center justify-center self-start pt-0.5 text-muted-foreground/85">
                       <Icon className="size-3.5" aria-hidden="true" />
@@ -2452,27 +2471,36 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                   : undefined
                 const workspaceTabRepoName = workspaceTabRepo?.displayName ?? result.repoName
                 const workspaceTabHostBadge = getPaletteHostBadge(workspaceTabRepo, hostOptions)
-                const WorkspaceTabIcon =
-                  result.contentType === 'terminal' ? SquareTerminal : FileText
-                // Why null on a typed query: the dot belongs to the frozen recent section — the
-                // Open Tabs results a search returns show their content icon instead.
-                const recentRow = hasQuery ? null : (recentTabRowById.get(entry.id) ?? null)
+                const workspaceTabFallback =
+                  result.contentType === 'terminal' && result.occupantAgent ? (
+                    <span
+                      className="inline-flex"
+                      data-agent-icon={result.occupantAgent}
+                      aria-hidden="true"
+                    >
+                      <AgentIcon agent={result.occupantAgent} size={14} />
+                    </span>
+                  ) : result.contentType === 'terminal' ? (
+                    <SquareTerminal className="size-3.5" aria-hidden="true" />
+                  ) : (
+                    <FileText className="size-3.5" aria-hidden="true" />
+                  )
+                // Why regardless of query: a searched-for tab is exactly when its agent status
+                // matters — the map covers every open tab, not just the frozen recent section.
+                const recentRow = recentTabRowById.get(entry.id) ?? null
 
                 return (
                   <CommandItem
-                    key={entry.id}
-                    value={entry.id}
+                    key={renderKey}
+                    value={renderKey}
                     onSelect={() => handleSelectItem(entry)}
-                    className={cn(
-                      'group mx-0.5 flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left outline-none transition-[background-color,border-color,box-shadow]',
-                      'data-[selected=true]:border-border data-[selected=true]:bg-accent data-[selected=true]:text-foreground'
-                    )}
+                    className={cn(JUMP_PALETTE_ITEM_CLASSNAME, 'py-2.5')}
                   >
                     <div className="flex w-4 shrink-0 items-center justify-center self-start pt-0.5 text-muted-foreground/85">
                       <PaletteRecentTabStatusDot
                         row={recentRow}
                         paneSources={recentTabPaneSources}
-                        fallback={<WorkspaceTabIcon className="size-3.5" aria-hidden="true" />}
+                        fallback={workspaceTabFallback}
                       />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -2483,8 +2511,6 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                             titleRange={result.titleRange}
                             secondaryText={result.secondaryText}
                             secondaryRange={result.secondaryRange}
-                            worktreeName={result.worktreeName}
-                            worktreeRange={result.worktreeRange}
                             leadingBadges={
                               <>
                                 {result.isCurrentTab && (
@@ -2508,6 +2534,12 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                           />
                         </div>
                         <div className="flex shrink-0 items-center gap-1.5">
+                          <PaletteOpenTabWorktreeRailLabel
+                            name={result.worktreeName}
+                            matchRange={result.worktreeRange}
+                            worktree={workspaceTabWorktree}
+                            className="max-w-[280px] truncate text-[12px] font-medium text-muted-foreground"
+                          />
                           <PaletteRowShortcutBadge
                             index={recentTabShortcutIndexById.get(entry.id)}
                             modifierKeys={digitShortcutModifiers}
@@ -2542,13 +2574,10 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
 
                 return (
                   <CommandItem
-                    key={entry.id}
-                    value={entry.id}
+                    key={renderKey}
+                    value={renderKey}
                     onSelect={() => handleSelectItem(entry)}
-                    className={cn(
-                      'group mx-0.5 flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left outline-none transition-[background-color,border-color,box-shadow]',
-                      'data-[selected=true]:border-border data-[selected=true]:bg-accent data-[selected=true]:text-foreground'
-                    )}
+                    className={cn(JUMP_PALETTE_ITEM_CLASSNAME, 'py-2.5')}
                   >
                     <div className="flex w-4 shrink-0 items-center justify-center self-start pt-0.5 text-muted-foreground/85">
                       <Smartphone className="size-3.5" aria-hidden="true" />
@@ -2561,8 +2590,6 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                             titleRange={result.titleRange}
                             secondaryText={result.secondaryText}
                             secondaryRange={result.secondaryRange}
-                            worktreeName={result.worktreeName}
-                            worktreeRange={result.worktreeRange}
                             leadingBadges={
                               <>
                                 {result.isCurrentTab && (
@@ -2586,6 +2613,12 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                           />
                         </div>
                         <div className="flex shrink-0 items-center gap-1.5">
+                          <PaletteOpenTabWorktreeRailLabel
+                            name={result.worktreeName}
+                            matchRange={result.worktreeRange}
+                            worktree={simulatorWorktree}
+                            className="max-w-[280px] truncate text-[12px] font-medium text-muted-foreground"
+                          />
                           <PaletteRowShortcutBadge
                             index={recentTabShortcutIndexById.get(entry.id)}
                             modifierKeys={digitShortcutModifiers}
@@ -2617,13 +2650,10 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
 
               return (
                 <CommandItem
-                  key={entry.id}
-                  value={entry.id}
+                  key={renderKey}
+                  value={renderKey}
                   onSelect={() => handleSelectItem(entry)}
-                  className={cn(
-                    'group mx-0.5 flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left outline-none transition-[background-color,border-color,box-shadow]',
-                    'data-[selected=true]:border-border data-[selected=true]:bg-accent data-[selected=true]:text-foreground'
-                  )}
+                  className={cn(JUMP_PALETTE_ITEM_CLASSNAME, 'py-2.5')}
                 >
                   <div className="flex w-4 shrink-0 items-center justify-center self-start pt-0.5 text-muted-foreground/85">
                     <Globe className="size-3.5" aria-hidden="true" />
@@ -2636,8 +2666,6 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                           titleRange={result.titleRange}
                           secondaryText={result.secondaryText}
                           secondaryRange={result.secondaryRange}
-                          worktreeName={result.worktreeName}
-                          worktreeRange={result.worktreeRange}
                           leadingBadges={
                             <>
                               {result.isCurrentPage && (
@@ -2661,6 +2689,12 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
                         />
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
+                        <PaletteOpenTabWorktreeRailLabel
+                          name={result.worktreeName}
+                          matchRange={result.worktreeRange}
+                          worktree={browserWorktree}
+                          className="max-w-[280px] truncate text-[12px] font-medium text-muted-foreground"
+                        />
                         <PaletteRowShortcutBadge
                           index={recentTabShortcutIndexById.get(entry.id)}
                           modifierKeys={digitShortcutModifiers}
@@ -2721,6 +2755,8 @@ export default function WorktreeJumpPalette(): React.JSX.Element | null {
       </div>
     </CommandDialog>
   )
+
+  return <TooltipProvider delayDuration={400}>{paletteDialog}</TooltipProvider>
 }
 
 function getPaletteSupportingTextLabel(

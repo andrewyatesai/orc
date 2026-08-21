@@ -31,6 +31,7 @@ export function MobilePane(): React.JSX.Element {
   const autoRestoreFitMs = useAppStore((s) => s.settings?.mobileAutoRestoreFitMs ?? null)
   const updateSettings = useAppStore((s) => s.updateSettings)
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
+  const [qrSize, setQrSize] = useState<number | null>(null)
   const [pairingUrl, setPairingUrl] = useState<string | null>(null)
   // Mode the displayed QR actually encodes; can be 'local-only' under an
   // Anywhere selection when Relay provisioning degraded server-side.
@@ -84,6 +85,7 @@ export function MobilePane(): React.JSX.Element {
     pairingRequestIdRef.current += 1
     const hadPending = qrDisplayedRef.current || loadingRef.current
     setQrDataUrl(null)
+    setQrSize(null)
     setPairingUrl(null)
     setQrEncodedMode(null)
     setEndpoint(null)
@@ -191,6 +193,7 @@ export function MobilePane(): React.JSX.Element {
           useAppStore.getState().recordFeatureInteraction('mobile-pairing')
           if (mountedRef.current) {
             setQrDataUrl(result.qrDataUrl)
+            setQrSize(result.qrSize)
             setPairingUrl(result.pairingUrl)
             setQrEncodedMode(result.connectionMode)
             setEndpoint(result.endpoint)
@@ -359,6 +362,7 @@ export function MobilePane(): React.JSX.Element {
 
       <MobilePairingQrSection
         qrDataUrl={qrDataUrl}
+        qrSize={qrSize}
         pairingUrl={pairingUrl}
         endpoint={endpoint}
         qrEnlarged={qrEnlarged}

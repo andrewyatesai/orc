@@ -1511,10 +1511,15 @@ describe('orchestration RPC methods', () => {
       expect(db.getTask(result.task.id)?.created_by_terminal_handle).toBe('term_creator')
     })
 
-    it('rejects invalid deps JSON', async () => {
+    it('rejects non-JSON deps', async () => {
       setup()
       await expect(
         call('orchestration.taskCreate', { spec: 'bad', deps: 'not-json' })
+      ).rejects.toThrow('Invalid --deps')
+      // Why: a WSL bridge that strips ASCII quotes yields a bareword array like
+      // [task_example]; that is not JSON and must not slip through as valid deps.
+      await expect(
+        call('orchestration.taskCreate', { spec: 'bad', deps: '[task_example]' })
       ).rejects.toThrow('Invalid --deps')
     })
   })

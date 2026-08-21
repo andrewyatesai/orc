@@ -196,7 +196,12 @@ describe('resumeSleepingAgentSessionsForWorktree', () => {
     expect(state.sleepingAgentSessionsByPaneKey[record.paneKey]).toBe(record)
   })
 
-  it('resumes active worktree-sleep stable-pane records when the preserved tab is hidden during activation', () => {
+  // Why: keep-alive mounts every tab of the active worktree and pane connect is
+  // not visibility-gated, so a hidden restorable pane cold-restores in place.
+  // Appending a resume tab here (the pre-keep-alive contract from #6800) forked
+  // a second surface onto the same provider session and stranded the hidden
+  // pane as a bare shell.
+  it('leaves a hidden restorable stable-pane record for in-place cold restore during activation', () => {
     const paneKey = makePaneKey('tab-1', LEAF_ID)
     const record = makeRecord({ paneKey, origin: 'worktree-sleep' })
     useAppStore.setState({
@@ -214,13 +219,38 @@ describe('resumeSleepingAgentSessionsForWorktree', () => {
     const launched = resumeSleepingAgentSessionsForWorktree('wt-1')
 
     const state = useAppStore.getState()
-    const resumedTab = state.tabsByWorktree['wt-1']?.find(
-      (tab) => tab.id !== 'tab-1' && tab.id !== 'tab-2'
-    )
+    expect(launched).toBe(0)
+    expect(state.tabsByWorktree['wt-1']).toHaveLength(2)
+    expect(state.sleepingAgentSessionsByPaneKey[record.paneKey]).toBe(record)
+  })
+
+  // Why: web-mirror tabs never mount a local pane, so they cannot own in-place
+  // recovery — the appended replacement stays the correct resume path for them.
+  it('appends a replacement for a web-mirror tab that cannot own in-place restore', () => {
+    const webTabId = 'web-terminal-host-x'
+    const paneKey = makePaneKey(webTabId, LEAF_ID)
+    const record = makeRecord({ paneKey, tabId: webTabId, origin: 'worktree-sleep' })
+    useAppStore.setState({
+      ...makeActiveTerminalState('tab-2'),
+      tabsByWorktree: {
+        'wt-1': [makeTerminalTab(webTabId, 'wt-1'), makeTerminalTab('tab-2', 'wt-1')]
+      },
+      terminalLayoutsByTabId: {
+        [webTabId]: makeLayout(LEAF_ID),
+        'tab-2': makeLayout(OTHER_LEAF_ID, 'pty-2')
+      },
+      sleepingAgentSessionsByPaneKey: { [record.paneKey]: record }
+    } as never)
+
+    const launched = resumeSleepingAgentSessionsForWorktree('wt-1')
+
+    const state = useAppStore.getState()
     expect(launched).toBe(1)
-    expect(resumedTab?.launchAgent).toBe('claude')
-    expect(state.pendingStartupByTabId[resumedTab!.id]?.showSessionRestoredBanner).toBe(true)
     expect(state.sleepingAgentSessionsByPaneKey[record.paneKey]).toBeUndefined()
+    const resumedTab = state.tabsByWorktree['wt-1']?.find(
+      (tab) => tab.id !== webTabId && tab.id !== 'tab-2'
+    )
+    expect(resumedTab?.launchAgent).toBe('claude')
   })
 
   it('rechecks pane ownership after an earlier fresh resume activates a new terminal', () => {
@@ -781,7 +811,7 @@ describe('resumeSleepingAgentSessionsForWorktree', () => {
     expect(useAppStore.getState().sleepingAgentSessionsByPaneKey[record.paneKey]).toBeUndefined()
   })
 
-  it('clears interrupted manual records without launching a tab', () => {
+  it('resumes interrupted manual records that no preserved pane can own', () => {
     const record = makeRecord({ origin: 'worktree-sleep', interrupted: true })
     useAppStore.setState({
       tabsByWorktree: { 'wt-1': [] },
@@ -790,9 +820,10 @@ describe('resumeSleepingAgentSessionsForWorktree', () => {
 
     const launched = resumeSleepingAgentSessionsForWorktree('wt-1')
 
-    expect(launched).toBe(0)
-    expect(useAppStore.getState().tabsByWorktree['wt-1']).toEqual([])
-    expect(useAppStore.getState().sleepingAgentSessionsByPaneKey[record.paneKey]).toBeUndefined()
+    const state = useAppStore.getState()
+    expect(launched).toBe(1)
+    expect(state.tabsByWorktree['wt-1']?.[0]?.launchAgent).toBe('claude')
+    expect(state.sleepingAgentSessionsByPaneKey[record.paneKey]).toBeUndefined()
   })
 
   it('clears hydrated interrupted worktree-sleep records without launching a tab', () => {

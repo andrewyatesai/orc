@@ -28,6 +28,7 @@
     "import/namespace": "warn",
     "import/no-cycle": ["warn", { "maxDepth": 3 }],
     "import/no-duplicates": "warn",
+    "import/no-empty-named-blocks": "warn",
     "import/no-self-import": "warn",
     "max-params": ["warn", 5],
     "no-fallthrough": "warn",

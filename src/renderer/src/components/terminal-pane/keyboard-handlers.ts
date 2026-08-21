@@ -13,6 +13,7 @@ import {
   createTerminalImeDeferredNewlineSender,
   sendTerminalInputAfterComposition
 } from './terminal-ime-deferred-newline'
+import { createTerminalImeDeferredChordSender } from './terminal-ime-deferred-chord'
 import { sendTerminalQuickCommandToPane } from './terminal-quick-command-dispatch'
 import type { ResolvedCustomKeybinding } from '../../../../shared/custom-keybindings'
 import {
@@ -309,6 +310,7 @@ export function useTerminalKeyboardShortcuts({
     const nativeOnlyShortcutTracker = createTerminalNativeOnlyShortcutTracker()
     const customSendTextSuppression = createTerminalCustomSendTextSuppression()
     const deferredNewlineSender = createTerminalImeDeferredNewlineSender()
+    const deferredChordSender = createTerminalImeDeferredChordSender()
     const onModifierDown = (e: KeyboardEvent): void => {
       if (e.key === 'Alt') {
         optionKeyLocation = e.location
@@ -330,7 +332,22 @@ export function useTerminalKeyboardShortcuts({
       }
       const state = useAppStore.getState()
       const paneKey = makePaneKey(tabId, activePane.leafId)
-      return resolveWindowsShiftEnterEncodingForPane(state, paneKey)
+      // Why: foreground titles only recover trust on local Windows ConPTY panes;
+      // gate the title so SSH/relay panes cannot forge a Pi/Droid CSI-u encoding.
+      const terminalTitle = isLocalWindowsConptyPaneForCtrlArrow({
+        isWindows,
+        userAgent: navigator.userAgent,
+        state,
+        worktreeId,
+        tabId,
+        paneId: activePane.id,
+        paneCwd: paneCwdRef.current,
+        fallbackCwd,
+        transport: paneTransportsRef.current.get(activePane.id) ?? null
+      })
+        ? state.runtimePaneTitlesByTabId[tabId]?.[activePane.id]
+        : undefined
+      return resolveWindowsShiftEnterEncodingForPane(state, paneKey, terminalTitle)
     }
 
     // Why: host metadata is live and can hydrate after the terminal mounts;
@@ -518,9 +535,9 @@ export function useTerminalKeyboardShortcuts({
               // Why: this direct shortcut write does not pass through PTY onData,
               // so no-OSC shells need an explicit post-write confirmation ladder.
               const binding = panePtyBindings?.get(pane.id) as
-                | (IDisposable & { requestDroidReconfirmation?: () => void })
+                | (IDisposable & { requestWindowsShiftEnterReconfirmation?: () => void })
                 | undefined
-              binding?.requestDroidReconfirmation?.()
+              binding?.requestWindowsShiftEnterReconfirmation?.()
             }
           }
         }
@@ -538,6 +555,17 @@ export function useTerminalKeyboardShortcuts({
           // isComposing already false ~2ms after compositionend; it is the same
           // physical keystroke as the deferred newline, and can land on either
           // side of that send's macrotask.
+          return
+        }
+        // Why: a cursor chord (Cmd+←/→, word-delete, …) pressed while a syllable is still
+        // composing reaches the pty from this keydown, ahead of the glyph that commits on
+        // compositionend — `가나다` then Cmd+Left leaves `다가나` (#12871). Enter is handled
+        // above, where a fallback timer is right because a late newline still arrives; a chord
+        // arriving mid-preedit is the corruption itself, so this one waits on the composition
+        // rather than a deadline. The sender owns the wait so blur and teardown can drop it
+        // (STA-4476), and bounds it so a composition that never commits can't strand the chord.
+        if (e.isComposing) {
+          deferredChordSender.defer(pane.terminal.element, sendResolvedInput)
           return
         }
         sendResolvedInput()
@@ -806,6 +834,8 @@ export function useTerminalKeyboardShortcuts({
     const onNativeOnlyBlur = (): void => {
       nativeOnlyShortcutTracker.clear()
       customSendTextSuppression.clear()
+      // Drop any chord held for a live composition; the focus that would commit it is gone.
+      deferredChordSender.cancelPending()
     }
 
     window.addEventListener('keydown', onModifierDown, { capture: true })
@@ -823,6 +853,9 @@ export function useTerminalKeyboardShortcuts({
       window.removeEventListener('keyup', onNativeOnlyShortcutCompanion, { capture: true })
       window.removeEventListener('beforeinput', onNativeOnlyBeforeInput, { capture: true })
       window.removeEventListener('blur', onNativeOnlyBlur)
+      // A chord waiting on a composition would otherwise outlive the pane; its listener flushes
+      // the stale send against a rebound terminal (STA-4476).
+      deferredChordSender.cancelPending()
     }
   }, [
     isActive,

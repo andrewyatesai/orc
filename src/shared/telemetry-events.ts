@@ -381,6 +381,23 @@ const agentErrorSchema = z
 // Why: daemon start-failure signal (fleet-wide outage like v1.4.129-rc.1); enum-only so raw stderr never reaches the wire.
 const daemonStartFailedSchema = z.object({ error_class: errorClassSchema }).strict()
 
+export const runtimeRpcStartErrorClassSchema = z.enum([
+  'permission_denied',
+  'address_in_use',
+  'storage_unavailable',
+  'invalid_path',
+  'unknown'
+])
+export type RuntimeRpcStartErrorClass = z.infer<typeof runtimeRpcStartErrorClassSchema>
+
+// Why: runtime discovery failures can contain user paths; keep telemetry to closed filesystem/socket categories.
+const runtimeRpcStartFailedSchema = z
+  .object({ error_class: runtimeRpcStartErrorClassSchema })
+  .strict()
+
+// Why: classify session-killing 1013 closures as producer size failures or queue backpressure.
+const remoteOutboundBudgetCloseSchema = z.object({ emitter: z.enum(['size', 'queue']) }).strict()
+
 // Why: daemon replace/retire lifecycle signal — issue #7936 was undiagnosable without asking a user for daemon.log.
 // Enum-only + bucketed session count so no paths, raw versions, or exact counts reach the wire.
 // The union keeps each reason pinned to its transition, so a death can't be reported as a replace.
@@ -737,6 +754,11 @@ const agentHookInstallFailedSchema = z
 const agentHookUnattributedSchema = z
   .object({ reason: z.enum(['empty_pane_key', 'unknown_tab_id']) })
   .strict()
+
+// Why (#11217): loopback hook POSTs reset mid-body by local security software kill agent status for
+// every runtime at once. Count only — the truncated bodies carry user prompts and tool I/O, so
+// nothing derived from them may reach the wire.
+const agentHookTransportBlockedSchema = z.object({ count: z.number().int().nonnegative() }).strict()
 
 // ── Onboarding ──────────────────────────────────────────────────────────
 // Closed enums only — no raw paths/repo names/URLs/error strings (measures activation, not repo debugging).
@@ -1356,9 +1378,12 @@ export const eventSchemas = {
   agent_error: agentErrorSchema,
   agent_hook_install_failed: agentHookInstallFailedSchema,
   agent_hook_unattributed: agentHookUnattributedSchema,
+  agent_hook_transport_blocked: agentHookTransportBlockedSchema,
 
   daemon_start_failed: daemonStartFailedSchema,
   daemon_lifecycle: daemonLifecycleSchema,
+  runtime_rpc_start_failed: runtimeRpcStartFailedSchema,
+  remote_outbound_budget_close: remoteOutboundBudgetCloseSchema,
 
   codex_trust_grant: codexTrustGrantSchema,
 

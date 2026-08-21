@@ -40,22 +40,20 @@ export function useNativeChatRetainedSession(
     }
   }, [args.sessionId, identity, session.messages, session.readPhase, sessionMatchesIdentity])
 
-  // Fork: a settled read (ready or error) keeps its own list, matching base
-  // behaviour where a read error still shows the prior transcript; only a
-  // re-loading read is unsettled and falls back to the retained conversation.
   const messages = retentionRef.current.visible({
     identity,
     messages: session.messages,
-    settled: readPhase !== 'loading',
-    loading: readPhase === 'loading'
+    settled: readPhase === 'ready'
   })
   if (messages === session.messages && readPhase === session.readPhase) {
     return session
   }
-  return {
-    ...session,
-    messages,
-    readPhase,
-    ...(sessionMatchesIdentity ? {} : { status: 'loading' as const, error: undefined })
+  if (!sessionMatchesIdentity) {
+    return { ...session, messages, readPhase, status: 'loading', error: undefined }
   }
+  // Retained history beats the full-pane error: a reveal-time read/stream failure is usually transient.
+  if (session.status === 'error' && messages.length > 0) {
+    return { ...session, messages, readPhase, status: 'ready', error: undefined }
+  }
+  return { ...session, messages, readPhase }
 }

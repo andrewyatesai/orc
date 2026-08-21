@@ -102,10 +102,10 @@ describe('CliSection project runtime defaults', () => {
       })
     )
     expect(capturedPanel.props?.command).toMatch(
-      /^& \{ \$PSNativeCommandArgumentPassing = 'Legacy'; wsl\.exe -d 'Ubuntu' -- sh -c 'eval \\"`printf %s [A-Za-z0-9+/=]+ \| base64 -d`\\"'/
+      /^& \{ \$PSNativeCommandArgumentPassing = 'Legacy'; wsl\.exe -d 'Ubuntu' --exec sh -c 'eval \\"`printf %s [A-Za-z0-9+/=]+ \| base64 -d`\\"'/
     )
     expect(capturedPanel.props?.installedCommand).toMatch(
-      /^& \{ \$PSNativeCommandArgumentPassing = 'Legacy'; wsl\.exe -d 'Ubuntu' -- sh -c 'eval \\"`printf %s [A-Za-z0-9+/=]+ \| base64 -d`\\"'/
+      /^& \{ \$PSNativeCommandArgumentPassing = 'Legacy'; wsl\.exe -d 'Ubuntu' --exec sh -c 'eval \\"`printf %s [A-Za-z0-9+/=]+ \| base64 -d`\\"'/
     )
     expect(getWslInstallStatus).toHaveBeenCalledWith({ distro: 'Ubuntu' })
     expect(getWslInstallStatus).toHaveBeenCalledTimes(2)

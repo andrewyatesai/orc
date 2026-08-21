@@ -36,6 +36,13 @@ export type TrackedClaudeSubagent = {
    *  removes it even when teammate-shaped, so it can't gate the pane
    *  'working' forever. Cleared once live activity re-tracks the id. */
   backgroundTasksAuthoritative?: boolean
+  /** The id came from a persisted status snapshot restored at startup, not a
+   *  live lifecycle event this runtime observed. Marks a possibly-phantom
+   *  restored child (whose SubagentStop may have arrived while Orca was down)
+   *  so a terminating child event can persist its roster transition without
+   *  minting fresh lead work. Cleared the moment live activity re-tracks,
+   *  stops, or idles the id. */
+  restoredFromSnapshot?: true
   /** A subagent-typed background task listed this lifecycle id id-exact
    *  (workflow/named lanes) — proof the task list tracks this id, so a later
    *  complete list omitting it means finished/killed even though the id is
@@ -70,6 +77,8 @@ export function upsertWorkingClaudeSubagent(
     // background_tasks omission must stop reaping it (teammate-shaped ids
     // never appear there). The fold re-tags its own recreations after this.
     existing.backgroundTasksAuthoritative = undefined
+    // Why: a live re-track confirms the id in this runtime, so it is no longer a bare restore.
+    existing.restoredFromSnapshot = undefined
     return
   }
   // Why: beyond the wire cap extra rows would be invisible anyway; idle
@@ -115,6 +124,9 @@ export function stopClaudeSubagent(roster: ClaudeSubagentRoster, id: string): vo
     roster.delete(id)
     return
   }
+  // Why: a live stop confirms the id in this runtime; its restored/authoritative provenance is stale once parked.
+  tracked.backgroundTasksAuthoritative = undefined
+  tracked.restoredFromSnapshot = undefined
   tracked.state = 'idle'
 }
 
@@ -139,6 +151,9 @@ export function idleClaudeTeammateByName(roster: ClaudeSubagentRoster, name: str
   for (const [id, tracked] of roster) {
     if (claudeTeammateIdMatchesName(id, name)) {
       changed = changed || tracked.state !== 'idle' || tracked.confirmedTeammate !== true
+      // Why: an exact-name idle is live proof of the teammate; drop restore/authoritative provenance so the fold keeps the confirmed row.
+      tracked.backgroundTasksAuthoritative = undefined
+      tracked.restoredFromSnapshot = undefined
       tracked.state = 'idle'
       tracked.confirmedTeammate = true
     }
@@ -154,6 +169,36 @@ export function claudeRosterHasWorkingSubagent(roster: ClaudeSubagentRoster | un
   }
   for (const tracked of roster.values()) {
     if (tracked.state === 'working') {
+      return true
+    }
+  }
+  return false
+}
+
+/** A working child observed in this listener runtime, not merely restored from disk. */
+export function claudeRosterHasRuntimeWorkingSubagent(
+  roster: ClaudeSubagentRoster | undefined
+): boolean {
+  if (!roster) {
+    return false
+  }
+  for (const tracked of roster.values()) {
+    if (tracked.state === 'working' && tracked.restoredFromSnapshot !== true) {
+      return true
+    }
+  }
+  return false
+}
+
+/** A child still backed only by a persisted snapshot restore, unconfirmed by any live event this runtime. */
+export function claudeRosterHasRestoredSnapshotSubagent(
+  roster: ClaudeSubagentRoster | undefined
+): boolean {
+  if (!roster) {
+    return false
+  }
+  for (const tracked of roster.values()) {
+    if (tracked.restoredFromSnapshot === true) {
       return true
     }
   }

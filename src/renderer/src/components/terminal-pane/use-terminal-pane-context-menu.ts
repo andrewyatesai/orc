@@ -41,6 +41,8 @@ import type { AgentSessionContinuationRequest } from '@/lib/agent-session-contin
 import { recordCreatedTerminalPaneSplit } from './terminal-pane-split-completion'
 import { splitTerminalPaneWithInheritedCwd } from './terminal-pane-split-with-inherited-cwd'
 import { useAppStore } from '@/store'
+import { resolveProtectedMultilinePasteOptionsForPane } from './terminal-agent-paste-bracketing'
+import { resolveTerminalInputHostPlatform } from './terminal-input-host-platform'
 import { translate } from '@/i18n/i18n'
 import { recordTerminalUserInputForLeaf } from './terminal-input-activity'
 import { copyTerminalHandleForPane } from './terminal-handle-copy'
@@ -298,6 +300,7 @@ export function useTerminalPaneContextMenu({
       },
       forceBracketedPaste: options?.forceBracketedPaste,
       forceBracketedPasteForMultiline: options?.forceBracketedPasteForMultiline,
+      windowsInputRecordNewline: options?.windowsInputRecordNewline,
       terminalBracketedPasteMode: pane.terminal.modes.bracketedPasteMode
     })
     const execution = await executeTerminalPastePlan(plan, {
@@ -355,10 +358,9 @@ export function useTerminalPaneContextMenu({
       return
     }
     const connectionId = getConnectionId(worktreeId) ?? null
-    const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(
-      useAppStore.getState(),
-      worktreeId
-    )
+    const state = useAppStore.getState()
+    const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(state, worktreeId)
+    const transport = paneTransportsRef.current.get(pane.id) ?? null
     const result = await pasteTerminalClipboard({
       readClipboardText: window.api.ui.readClipboardText,
       readClipboardFilePaths: () => window.api.ui.readClipboardFilePaths(),
@@ -366,7 +368,19 @@ export function useTerminalPaneContextMenu({
       targetShell: resolveTerminalPasteTargetShell({ worktreeId, fallbackCwd }),
       connectionId,
       runtimeEnvironmentId,
-      forceBracketedMultilineTextPaste,
+      protectedMultilineTextPasteOptions: resolveProtectedMultilinePasteOptionsForPane({
+        isWindowsClient: forceBracketedMultilineTextPaste,
+        hostPlatform: resolveTerminalInputHostPlatform({
+          clientPlatform: getShortcutPlatform(),
+          state,
+          worktreeId,
+          transport
+        }),
+        agentStatusByPaneKey: state.agentStatusByPaneKey,
+        paneForegroundAgentByPaneKey: state.paneForegroundAgentByPaneKey,
+        tabId,
+        leafId: pane.leafId
+      }),
       pasteText: (text, options) => executeMenuPasteText(pane, source, text, options),
       onTextPasteError: () =>
         onPasteError('Paste failed: clipboard text is too large for a safe terminal paste.'),

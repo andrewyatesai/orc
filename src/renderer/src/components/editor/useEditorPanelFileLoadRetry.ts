@@ -98,7 +98,6 @@ export function useEditorPanelFileLoadRetry({
     const delayMs = ownerNotReady
       ? OWNER_NOT_READY_RETRY_DELAY_MS
       : (FILE_LOAD_RETRY_DELAYS_MS[retryCount] ?? FILE_LOAD_RETRY_DELAYS_MS[0])
-    fileLoadRetryAttemptsRef.current[activeFileLoadRetryId] = retryCount + 1
     const timeoutId = window.setTimeout(() => {
       const currentFile = openFilesRef.current.find((file) => file.id === activeFileLoadRetryId)
       if (
@@ -107,6 +106,9 @@ export function useEditorPanelFileLoadRetry({
       ) {
         return
       }
+      // Why: spend a retry only when the timer actually fires — hiding the panel
+      // (activeFile → null) clears the timer, so a canceled retry keeps its budget.
+      fileLoadRetryAttemptsRef.current[activeFileLoadRetryId] = retryCount + 1
       setFileContents((prev) => {
         if (prev[currentFile.id]?.loadError !== activeFileLoadError) {
           return prev

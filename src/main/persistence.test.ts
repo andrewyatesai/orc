@@ -632,6 +632,124 @@ describe('Store', () => {
     })
   })
 
+  it('carries project state and independent setups across a repo remote identity change', async () => {
+    const originProjectId = 'git:git.example.com/acme/app'
+    writeDataFile({
+      ...getDefaultPersistedState(testState.dir),
+      repos: [
+        makeRepo({
+          id: 'r1',
+          path: '/repo',
+          displayName: 'App',
+          gitRemoteIdentity: {
+            canonicalKey: 'git.example.com/acme/app',
+            remoteName: 'origin',
+            remoteUrl: 'git@git.example.com:acme/app.git'
+          }
+        })
+      ],
+      projects: [
+        makeProject({
+          id: originProjectId,
+          sourceRepoIds: ['r1'],
+          localWindowsRuntimePreference: { kind: 'wsl', distro: 'Ubuntu' }
+        })
+      ],
+      projectHostSetups: [
+        makeProjectHostSetup({ id: 'r1', projectId: originProjectId, repoId: 'r1' }),
+        makeProjectHostSetup({
+          id: 'app::gpu-vm',
+          projectId: originProjectId,
+          hostId: 'runtime:gpu-vm',
+          repoId: '',
+          path: '/srv/app'
+        })
+      ]
+    })
+    const store = await createStore()
+
+    // A re-probe that now prefers the `upstream` remote rewrites the derived project id.
+    store.updateRepo('r1', {
+      gitRemoteIdentity: {
+        canonicalKey: 'git.example.com/acme/app-upstream',
+        remoteName: 'upstream',
+        remoteUrl: 'git@git.example.com:acme/app-upstream.git'
+      }
+    })
+
+    const upstreamProjectId = 'git:git.example.com/acme/app-upstream'
+    expect(store.getProjects().map((project) => project.id)).toEqual([upstreamProjectId])
+    expect(store.getProjects()[0]?.localWindowsRuntimePreference).toEqual({
+      kind: 'wsl',
+      distro: 'Ubuntu'
+    })
+    expect(
+      store.getProjectHostSetups().find((setup) => setup.id === 'app::gpu-vm')?.projectId
+    ).toBe(upstreamProjectId)
+  })
+
+  it('picks one predecessor project when several prior rows overlap the same repos', async () => {
+    const sharedIdentity = {
+      canonicalKey: 'git.example.com/acme/shared',
+      remoteName: 'origin',
+      remoteUrl: 'git@git.example.com:acme/shared.git'
+    }
+    writeDataFile({
+      ...getDefaultPersistedState(testState.dir),
+      repos: [
+        makeRepo({
+          id: 'r1',
+          path: '/left',
+          displayName: 'Left',
+          gitRemoteIdentity: sharedIdentity
+        }),
+        makeRepo({
+          id: 'r2',
+          path: '/right',
+          displayName: 'Right',
+          gitRemoteIdentity: sharedIdentity
+        })
+      ],
+      projects: [
+        makeProject({
+          id: 'git:git.example.com/acme/left',
+          sourceRepoIds: ['r1'],
+          updatedAt: 200,
+          localWindowsRuntimePreference: { kind: 'wsl', distro: 'Ubuntu' }
+        }),
+        makeProject({
+          id: 'git:git.example.com/acme/right',
+          sourceRepoIds: ['r2'],
+          updatedAt: 100,
+          localWindowsRuntimePreference: { kind: 'windows-host' }
+        })
+      ],
+      projectHostSetups: [
+        makeProjectHostSetup({
+          id: 'r1',
+          projectId: 'git:git.example.com/acme/left',
+          repoId: 'r1'
+        }),
+        makeProjectHostSetup({
+          id: 'r2',
+          projectId: 'git:git.example.com/acme/right',
+          repoId: 'r2'
+        })
+      ]
+    })
+
+    const store = await createStore()
+
+    // Equal repo overlap resolves by newest updatedAt; the loser's preference is never merged in.
+    expect(store.getProjects()).toEqual([
+      expect.objectContaining({
+        id: 'git:git.example.com/acme/shared',
+        sourceRepoIds: ['r1', 'r2'],
+        localWindowsRuntimePreference: { kind: 'wsl', distro: 'Ubuntu' }
+      })
+    ])
+  })
+
   it('migrates legacy WSL agent settings into the global Windows runtime default', async () => {
     writeDataFile({
       schemaVersion: 1,
@@ -758,6 +876,52 @@ describe('Store', () => {
     expect(settings.notifications.customSoundPath).toBeNull()
     expect(settings.notifications.customSoundVolume).toBe(100)
     expect(settings.notifications.suppressWhenFocused).toBe(true)
+  })
+
+  it('validates notification settings field-by-field, discarding type-flipped values on disk', async () => {
+    writeDataFile({
+      ...getDefaultPersistedState(testState.dir),
+      settings: {
+        notifications: {
+          // A blanket `{ ...defaults, ...candidate }` spread would keep each of these verbatim.
+          enabled: 'false',
+          terminalBell: 'yes',
+          suppressWhenFocused: 1,
+          customSoundPath: 42
+        }
+      }
+    })
+
+    const store = await createStore()
+    const notifications = store.getSettings().notifications
+    expect(typeof notifications.enabled).toBe('boolean')
+    expect(notifications.enabled).toBe(true)
+    expect(typeof notifications.terminalBell).toBe('boolean')
+    expect(notifications.terminalBell).toBe(false)
+    expect(typeof notifications.suppressWhenFocused).toBe('boolean')
+    expect(notifications.suppressWhenFocused).toBe(true)
+    expect(notifications.customSoundPath).toBeNull()
+  })
+
+  it('lets an explicit rightSidebarExplorerView outrank the legacy search-tab fallback', async () => {
+    writeDataFile({
+      ...getDefaultPersistedState(testState.dir),
+      ui: { rightSidebarTab: 'search', rightSidebarExplorerView: 'files' }
+    })
+
+    const store = await createStore()
+    // Regression: the legacy `tab === 'search'` fallback used to outrank the stored view.
+    expect(store.getUI().rightSidebarExplorerView).toBe('files')
+  })
+
+  it('migrates a legacy search activity tab with no explorer view to the search view', async () => {
+    writeDataFile({
+      ...getDefaultPersistedState(testState.dir),
+      ui: { rightSidebarTab: 'search' }
+    })
+
+    const store = await createStore()
+    expect(store.getUI().rightSidebarExplorerView).toBe('search')
   })
 
   it('migrates the inherited lumen cursor glow to the native-Orca water trail once, leaving other effects', async () => {
@@ -1914,6 +2078,31 @@ describe('Store', () => {
     store.flush()
     const persisted = readDataFile() as { automations: { baseBranch: string | null }[] }
     expect(persisted.automations[0].baseBranch).toBeNull()
+  })
+
+  it('updateAutomation ignores an explicit-undefined precheck instead of clearing it', async () => {
+    // The renderer forwards a Partial verbatim, so { precheck: undefined } survives structuredClone.
+    // It must be treated as "not provided" (fall to current), not as an explicit clear — an id-keyed
+    // Object.hasOwn(updates) would normalize the undefined to null and blank the stored precheck.
+    const store = await createStore()
+    store.addRepo(makeRepo())
+    const automation = store.createAutomation({
+      name: 'Nightly',
+      prompt: 'Run checks',
+      agentId: 'claude',
+      projectId: 'r1',
+      precheck: { command: 'pnpm lint', timeoutSeconds: 30 },
+      workspaceMode: 'new_per_run',
+      timezone: 'UTC',
+      rrule: 'FREQ=DAILY;BYHOUR=9;BYMINUTE=0',
+      dtstart: new Date('2026-05-13T00:00:00Z').getTime()
+    })
+    expect(automation.precheck).toEqual({ command: 'pnpm lint', timeoutSeconds: 30 })
+
+    const updated = store.updateAutomation(automation.id, { name: 'Renamed', precheck: undefined })
+
+    expect(updated.name).toBe('Renamed')
+    expect(updated.precheck).toEqual({ command: 'pnpm lint', timeoutSeconds: 30 })
   })
 
   it('persists session reuse only for existing-workspace automations', async () => {
@@ -3631,15 +3820,45 @@ describe('Store', () => {
     store.addRepo(makeRepo())
     expect(store.getRepo('r1')!.gitUsername).toBe('')
 
-    expect(store.setResolvedRepoGitUsername('r1', 'testuser')).toBe(true)
+    expect(store.setResolvedRepoGitUsername({ id: 'r1' }, 'testuser')).toBe(true)
     expect(store.getRepo('r1')!.gitUsername).toBe('testuser')
     // Unchanged value reports no change so callers can skip renderer notify.
-    expect(store.setResolvedRepoGitUsername('r1', 'testuser')).toBe(false)
-    expect(store.setResolvedRepoGitUsername('missing', 'x')).toBe(false)
+    expect(store.setResolvedRepoGitUsername({ id: 'r1' }, 'testuser')).toBe(false)
+    expect(store.setResolvedRepoGitUsername({ id: 'missing' }, 'x')).toBe(false)
 
     store.flush()
     const persisted = readDataFile() as PersistedState
     expect(persisted.repos[0].gitUsername).toBe('testuser')
+  })
+
+  it('setResolvedRepoGitUsername writes only the probed host copy of a duplicate repo id', async () => {
+    // Enrichment resolves per repo *location*, so the write must land on the row it probed; an
+    // id-only lookup would stamp the sibling host's username and its host-scoped hydration cache.
+    writeDataFile({
+      ...getDefaultPersistedState(testState.dir),
+      repos: [
+        makeRepo({ id: 'dup', path: '/work/dup', displayName: 'Dup Local' }),
+        makeRepo({
+          id: 'dup',
+          path: '/work/dup',
+          displayName: 'Dup Runtime',
+          executionHostId: toRuntimeExecutionHostId('env-1')
+        })
+      ]
+    })
+    const store = await createStore()
+
+    expect(
+      store.setResolvedRepoGitUsername(
+        { id: 'dup', executionHostId: toRuntimeExecutionHostId('env-1') },
+        'runtime-user'
+      )
+    ).toBe(true)
+
+    const gitUsernameByName = (displayName: string): string | undefined =>
+      store.getRepos().find((repo) => repo.displayName === displayName)?.gitUsername
+    expect(gitUsernameByName('Dup Runtime')).toBe('runtime-user')
+    expect(gitUsernameByName('Dup Local')).toBe('')
   })
 
   it('deleteProjectGroup ungroups repos from the deleted group subtree', async () => {
@@ -4940,6 +5159,24 @@ describe('Store', () => {
     expect(reloaded.getRepo('r1')!.upstream).toBeNull()
   })
 
+  it('updateRepo keeps the fork upstream host across a reload', async () => {
+    const store = await createStore()
+    store.addRepo(makeRepo())
+
+    // Why: a GHES fork's parent lives on the same Enterprise server; dropping
+    // host forced consumers to re-infer it from origin (#12647).
+    store.updateRepo('r1', {
+      upstream: { owner: ' stablyai ', repo: ' orca ', host: ' ghe.example:8443 ' }
+    })
+    store.flush()
+    const reloaded = await createStore()
+    expect(reloaded.getRepo('r1')!.upstream).toEqual({
+      owner: 'stablyai',
+      repo: 'orca',
+      host: 'ghe.example:8443'
+    })
+  })
+
   it('updateRepo persists the resolved no-usable-remote identity marker', async () => {
     const store = await createStore()
     store.addRepo(makeRepo())
@@ -5221,7 +5458,19 @@ describe('Store', () => {
     const updated = store.updateFolderWorkspace(workspace.id, {
       comment: 'Coordinate api and web',
       isPinned: true,
-      lastActivityAt: 123
+      lastActivityAt: 123,
+      diffComments: [
+        {
+          id: 'note-1',
+          worktreeId: folderWorkspaceKey(workspace.id),
+          filePath: 'README.md',
+          source: 'markdown',
+          lineNumber: 1,
+          body: 'Review this paragraph',
+          createdAt: 100,
+          side: 'modified'
+        }
+      ]
     })
 
     expect(workspace.folderPath).toBe('/workspace/platform')
@@ -5233,9 +5482,16 @@ describe('Store', () => {
       linkedTask,
       comment: 'Coordinate api and web',
       isPinned: true,
-      lastActivityAt: 123
+      lastActivityAt: 123,
+      diffComments: [expect.objectContaining({ id: 'note-1', body: 'Review this paragraph' })]
     })
     expect(store.getFolderWorkspaces()).toHaveLength(1)
+    store.flush()
+
+    const restored = await createStore()
+    expect(restored.getFolderWorkspace(workspace.id)?.diffComments).toEqual([
+      expect.objectContaining({ id: 'note-1', body: 'Review this paragraph' })
+    ])
   })
 
   it('rejects folder workspace creation for non-folder-backed project groups', async () => {
@@ -5245,6 +5501,31 @@ describe('Store', () => {
     expect(() => store.createFolderWorkspace({ projectGroupId: group.id })).toThrow(
       'Folder-backed project group not found.'
     )
+  })
+
+  it('persists the exact folder workspace path provided on create and update (#15009)', async () => {
+    // The path guard validates a padded string, so persist that exact value — a trailing space is
+    // intentional (e.g. an escaped path) and trimming it silently repoints the workspace.
+    const store = await createStore()
+    const group = store.createProjectGroup({
+      name: 'Platform',
+      parentPath: '/workspace/platform',
+      createdFrom: 'folder-scan'
+    })
+    const workspace = store.createFolderWorkspace({
+      projectGroupId: group.id,
+      folderPath: '/workspace/platform '
+    })
+
+    expect(workspace.folderPath).toBe('/workspace/platform ')
+    expect(
+      store.updateFolderWorkspace(workspace.id, { folderPath: '/workspace/platform-next ' })
+        ?.folderPath
+    ).toBe('/workspace/platform-next ')
+
+    store.flush()
+    const restored = await createStore()
+    expect(restored.getFolderWorkspace(workspace.id)?.folderPath).toBe('/workspace/platform-next ')
   })
 
   it('normalizes persisted folder workspaces and drops orphaned records', async () => {
@@ -7684,6 +7965,58 @@ describe('Store', () => {
     expect(store.getSettings().terminalCursorStyleDefaultedToBlock).toBe(true)
   })
 
+  it('normalizes terminal cursor style before persistence and listener broadcasts', async () => {
+    const store = await createStore()
+    store.updateSettings({ terminalCursorStyle: 'underline' })
+    const listener = vi.fn()
+    store.onSettingsChanged(listener)
+
+    const invalid = store.updateSettings(
+      { terminalCursorStyle: 'beam' as never },
+      { notifyListeners: true }
+    )
+
+    expect(invalid.terminalCursorStyle).toBe('block')
+    expect(invalid.terminalCursorStyleDefaultedToBlock).toBe(true)
+    expect(listener).toHaveBeenCalledWith(
+      {
+        terminalCursorStyle: 'block'
+      },
+      expect.objectContaining({ terminalCursorStyle: 'block' }),
+      undefined
+    )
+
+    const valid = store.updateSettings(
+      { terminalCursorStyle: 'underline' },
+      { notifyListeners: true }
+    )
+    expect(valid.terminalCursorStyle).toBe('underline')
+    expect(listener).toHaveBeenLastCalledWith(
+      { terminalCursorStyle: 'underline' },
+      expect.objectContaining({ terminalCursorStyle: 'underline' }),
+      undefined
+    )
+
+    store.flush()
+    expect((readDataFile() as PersistedState).settings.terminalCursorStyle).toBe('underline')
+  })
+
+  it('replaces an invalid persisted terminal cursor choice after migration', async () => {
+    writeDataFile({
+      schemaVersion: 1,
+      repos: [],
+      worktreeMeta: {},
+      settings: { terminalCursorStyle: 'beam', terminalCursorStyleDefaultedToBlock: true },
+      ui: {},
+      githubCache: { pr: {}, issue: {} },
+      workspaceSession: {}
+    })
+    const store = await createStore()
+    expect(store.getSettings().terminalCursorStyle).toBe('block')
+    store.flush()
+    expect((readDataFile() as PersistedState).settings.terminalCursorStyle).toBe('block')
+  })
+
   it('preserves explicit "false" terminalMacOptionAsAlt through migration', async () => {
     // 'false' never matched the old default — it was an explicit choice.
     writeDataFile({
@@ -8461,6 +8794,206 @@ describe('Store', () => {
     expect(store.getSshRemotePtyLeases('ssh-1')[0].leafId).toBe(leafId)
   })
 
+  it('rewrites legacy pane ids inside a host partition and remaps its leases', async () => {
+    // Regression: pane-identity migration only ran on the legacy blob, so an SSH/runtime host
+    // partition kept its `pane:1` leaves and its lease lost the binding on load.
+    writeDataFile({
+      schemaVersion: 1,
+      repos: [],
+      worktreeMeta: {},
+      settings: {},
+      ui: {},
+      githubCache: { pr: {}, issue: {} },
+      workspaceSession: getDefaultWorkspaceSession(),
+      workspaceSessionsByHostId: {
+        // Partition keyed by the lease target's host id so the per-host remap resolves it.
+        'ssh:ssh-1': {
+          ...getDefaultWorkspaceSession(),
+          activeRepoId: 'repo-ssh',
+          activeWorktreeId: 'repo-ssh::/worktree',
+          activeTabId: 'tab-ssh',
+          tabsByWorktree: {
+            'repo-ssh::/worktree': [
+              {
+                id: 'tab-ssh',
+                worktreeId: 'repo-ssh::/worktree',
+                title: 'Terminal',
+                customTitle: null,
+                color: null,
+                sortOrder: 0,
+                createdAt: 1,
+                ptyId: 'remote-pty'
+              }
+            ]
+          },
+          terminalLayoutsByTabId: {
+            'tab-ssh': {
+              root: { type: 'leaf', leafId: 'pane:1' },
+              activeLeafId: 'pane:1',
+              expandedLeafId: null,
+              ptyIdsByLeafId: { 'pane:1': 'remote-pty' }
+            }
+          }
+        }
+      },
+      sshRemotePtyLeases: [
+        {
+          targetId: 'ssh-1',
+          ptyId: 'remote-pty',
+          worktreeId: 'repo-ssh::/worktree',
+          tabId: 'tab-ssh',
+          leafId: 'pane:1',
+          state: 'detached',
+          createdAt: 1,
+          updatedAt: 1
+        }
+      ]
+    })
+
+    const store = await createStore()
+
+    const root = store.getWorkspaceSession('ssh:ssh-1').terminalLayoutsByTabId['tab-ssh']?.root
+    const leafId = root?.type === 'leaf' ? root.leafId : null
+    expect(leafId && isTerminalLeafId(leafId)).toBe(true)
+    // The lease follows the partition's rewritten leaf, not the legacy `pane:1`.
+    expect(store.getSshRemotePtyLeases('ssh-1')[0]?.leafId).toBe(leafId)
+  })
+
+  it('remaps legacy SSH leases within their own execution-host partition (#15009)', async () => {
+    // Regression: a global merge let a tab id reused on two machines pull the leaf from the wrong
+    // host, silently emptying one tab after restart. Each lease must resolve inside its own host.
+    const makeLegacyPaneHostSession = (
+      repoId: string,
+      ptyId: string
+    ): PersistedState['workspaceSession'] => {
+      const worktreeId = `${repoId}::/worktree`
+      return {
+        ...getDefaultWorkspaceSession(),
+        activeRepoId: repoId,
+        activeWorktreeId: worktreeId,
+        activeTabId: 'tab-shared',
+        tabsByWorktree: {
+          [worktreeId]: [makeTerminalTab({ id: 'tab-shared', worktreeId, ptyId })]
+        },
+        terminalLayoutsByTabId: {
+          'tab-shared': {
+            root: { type: 'leaf', leafId: 'pane:1' },
+            activeLeafId: 'pane:1',
+            expandedLeafId: null,
+            ptyIdsByLeafId: { 'pane:1': ptyId }
+          }
+        }
+      }
+    }
+    writeDataFile({
+      schemaVersion: 1,
+      repos: [],
+      worktreeMeta: {},
+      settings: {},
+      ui: {},
+      githubCache: { pr: {}, issue: {} },
+      workspaceSession: getDefaultWorkspaceSession(),
+      workspaceSessionsByHostId: {
+        'ssh:host-a': makeLegacyPaneHostSession('repo-a', 'pty-a'),
+        'ssh:host-b': makeLegacyPaneHostSession('repo-b', 'pty-b')
+      },
+      sshRemotePtyLeases: [
+        {
+          targetId: 'host-a',
+          ptyId: 'pty-a',
+          worktreeId: 'repo-a::/worktree',
+          tabId: 'tab-shared',
+          leafId: 'pane:1',
+          state: 'detached',
+          createdAt: 1,
+          updatedAt: 1
+        },
+        {
+          targetId: 'host-b',
+          ptyId: 'pty-b',
+          worktreeId: 'repo-b::/worktree',
+          tabId: 'tab-shared',
+          leafId: 'pane:1',
+          state: 'detached',
+          createdAt: 1,
+          updatedAt: 1
+        }
+      ]
+    })
+
+    const store = await createStore()
+    const rootA = store.getWorkspaceSession('ssh:host-a').terminalLayoutsByTabId['tab-shared']?.root
+    const rootB = store.getWorkspaceSession('ssh:host-b').terminalLayoutsByTabId['tab-shared']?.root
+    const leafA = rootA?.type === 'leaf' ? rootA.leafId : null
+    const leafB = rootB?.type === 'leaf' ? rootB.leafId : null
+
+    expect(leafA && isTerminalLeafId(leafA)).toBe(true)
+    expect(leafB && isTerminalLeafId(leafB)).toBe(true)
+    // The shared tab id resolves to a distinct leaf per host — no cross-host bleed.
+    expect(leafA).not.toBe(leafB)
+    expect(store.getSshRemotePtyLeases('host-a')[0]?.leafId).toBe(leafA)
+    expect(store.getSshRemotePtyLeases('host-b')[0]?.leafId).toBe(leafB)
+  })
+
+  it('repairs a stable SSH lease leaf copied from another host partition (#15009)', async () => {
+    const leafA = '11111111-1111-4111-8111-111111111111'
+    const leafB = '22222222-2222-4222-8222-222222222222'
+    const makeStableHostSession = (
+      repoId: string,
+      ptyId: string,
+      leafId: string
+    ): PersistedState['workspaceSession'] => {
+      const worktreeId = `${repoId}::/worktree`
+      return {
+        ...getDefaultWorkspaceSession(),
+        activeRepoId: repoId,
+        activeWorktreeId: worktreeId,
+        activeTabId: 'tab-shared',
+        tabsByWorktree: {
+          [worktreeId]: [makeTerminalTab({ id: 'tab-shared', worktreeId, ptyId })]
+        },
+        terminalLayoutsByTabId: {
+          'tab-shared': {
+            root: { type: 'leaf', leafId },
+            activeLeafId: leafId,
+            expandedLeafId: null,
+            ptyIdsByLeafId: { [leafId]: ptyId }
+          }
+        }
+      }
+    }
+    writeDataFile({
+      schemaVersion: 1,
+      repos: [],
+      worktreeMeta: {},
+      settings: {},
+      ui: {},
+      githubCache: { pr: {}, issue: {} },
+      workspaceSession: getDefaultWorkspaceSession(),
+      workspaceSessionsByHostId: {
+        'ssh:host-a': makeStableHostSession('repo-a', 'pty-a', leafA),
+        'ssh:host-b': makeStableHostSession('repo-b', 'pty-b', leafB)
+      },
+      sshRemotePtyLeases: [
+        {
+          // A stable UUID copied from host-a must be repaired to host-b's own leaf, not trusted as-is.
+          targetId: 'host-b',
+          ptyId: 'pty-b',
+          worktreeId: 'repo-b::/worktree',
+          tabId: 'tab-shared',
+          leafId: leafA,
+          state: 'detached',
+          createdAt: 1,
+          updatedAt: 1
+        }
+      ]
+    })
+
+    const store = await createStore()
+
+    expect(store.getSshRemotePtyLeases('host-b')[0]?.leafId).toBe(leafB)
+  })
+
   it('hydrates legacy numeric agent status cache through the pane identity migration', async () => {
     const agentHooksDir = join(testState.dir, 'agent-hooks')
     mkdirSync(agentHooksDir, { recursive: true })
@@ -9042,6 +9575,65 @@ describe('Store', () => {
         (entry) => entry.ptyId === 'large-pty' && entry.legacyPaneKey === `tab1:${leafCount}`
       )
     ).toBe(true)
+  })
+
+  it('skips legacy pane aliases for a tab id shared across host partitions', async () => {
+    // A legacy alias key (tab:1) carries no host segment, so aliasing a tab id that exists in two
+    // partitions would route one host's pane at the other host's terminal. Such tabs must be skipped
+    // while a tab confined to one partition still gets its aliases.
+    const legacyLayout = {
+      root: { type: 'leaf' as const, leafId: 'pane:1' },
+      activeLeafId: 'pane:1',
+      expandedLeafId: null
+    }
+    const tab = (id: string, worktreeId: string, ptyId: string) => ({
+      id,
+      worktreeId,
+      title: 'Terminal',
+      customTitle: null,
+      color: null,
+      sortOrder: 0,
+      createdAt: 1,
+      ptyId
+    })
+    writeDataFile({
+      schemaVersion: 1,
+      repos: [],
+      worktreeMeta: {},
+      settings: {},
+      ui: {},
+      githubCache: { pr: {}, issue: {} },
+      workspaceSession: {
+        activeRepoId: 'r1',
+        activeWorktreeId: 'wtlocal',
+        activeTabId: 'shared',
+        tabsByWorktree: {
+          wtlocal: [
+            tab('shared', 'wtlocal', 'pty-shared-local'),
+            tab('localonly', 'wtlocal', 'pty-local')
+          ]
+        },
+        terminalLayoutsByTabId: { shared: legacyLayout, localonly: legacyLayout }
+      },
+      workspaceSessionsByHostId: {
+        'ssh:hostb': {
+          activeRepoId: 'r2',
+          activeWorktreeId: 'wtssh',
+          activeTabId: 'shared',
+          tabsByWorktree: { wtssh: [tab('shared', 'wtssh', 'pty-shared-ssh')] },
+          terminalLayoutsByTabId: { shared: legacyLayout }
+        }
+      }
+    })
+
+    const store = await createStore()
+    store.flush()
+
+    const aliasEntries = (readDataFile() as PersistedState).legacyPaneKeyAliasEntries ?? []
+    // The single-partition tab still migrates.
+    expect(aliasEntries.some((entry) => entry.legacyPaneKey === 'localonly:1')).toBe(true)
+    // The cross-host tab never gets an ambiguous alias, in either partition.
+    expect(aliasEntries.some((entry) => entry.legacyPaneKey.startsWith('shared:'))).toBe(false)
   })
 
   it('converts unambiguous dev migration rows into persisted aliases', async () => {

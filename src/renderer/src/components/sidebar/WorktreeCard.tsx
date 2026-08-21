@@ -20,6 +20,7 @@ import {
   Workflow
 } from 'lucide-react'
 import CacheTimer, { usePromptCacheCountdownStartedAt } from './CacheTimer'
+import { useWorktreeCardCacheTtlMs } from './use-worktree-card-cache-ttl'
 import WorktreeContextMenu from './WorktreeContextMenu'
 import { SshDisconnectedDialog } from './SshDisconnectedDialog'
 import { AutoRenameFailedDialog } from './AutoRenameFailedDialog'
@@ -32,14 +33,7 @@ import { activateWorktreeFromSidebar } from '@/lib/sidebar-worktree-activation'
 import { isFolderRepo } from '../../../../shared/repo-kind'
 import type { HostedReviewInfo } from '../../../../shared/hosted-review'
 import { hostedReviewInfoFromGitHubPRInfo } from '../../../../shared/hosted-review-github'
-import type {
-  GitHubWorkItem,
-  Worktree,
-  WorkspaceStatus,
-  Repo,
-  IssueInfo,
-  LinearIssue
-} from '../../../../shared/types'
+import type { GitHubWorkItem, Repo, IssueInfo, LinearIssue } from '../../../../shared/types'
 import { CONFLICT_OPERATION_LABELS } from './WorktreeCardHelpers'
 import {
   WorktreeCardDetailsHover,
@@ -53,7 +47,15 @@ import {
   getWorktreeCardPrDisplay,
   isCachedMergedBranchPRCurrentForWorktree
 } from './worktree-card-pr-display'
-import type { WorktreeCardPrDisplay } from './worktree-card-pr-display'
+import {
+  EMPTY_WORKSPACE_PORTS,
+  formatSparseDirectoryPreview,
+  getDirectoryName,
+  HOSTED_REVIEW_CARD_REFRESH_INTERVAL_MS,
+  isWebClient,
+  shouldBeginWorktreeRename
+} from './worktree-card-model'
+import type { WorktreeCardProps } from './worktree-card-model'
 import {
   coerceWorktreeCardVisibleTitle,
   getWorktreeCardTitleDisplay
@@ -97,85 +99,8 @@ import {
 } from '@/store/slices/runtime-environment-ssh'
 import { hydrateRuntimeEnvironmentSshState } from '@/runtime/runtime-environment-ssh-state'
 
-type WorktreeRenameRequest = {
-  worktreeId: string
-  rowKey?: string
-}
-
-export type ActiveSurfaceVariant = 'primary' | 'secondary'
-
-type WorktreeCardProps = {
-  worktree: Worktree
-  repo: Repo | undefined
-  isActive: boolean
-  isCurrentWorktree?: boolean
-  isActiveSurface?: boolean
-  activeSurfaceVariant?: ActiveSurfaceVariant
-  isMultiSelected?: boolean
-  revealHighlight?: boolean
-  revealHighlightTone?: 'default' | 'ai'
-  selectedWorktrees?: readonly Worktree[]
-  hideRepoBadge?: boolean
-  hostContextLabel?: string
-  inPinnedSection?: boolean
-  activationRowKey?: string
-  renameRowKey?: string
-  contentIndent?: number
-  flushSurface?: boolean
-  lineageChildCount?: number
-  lineageCollapsed?: boolean
-  lineageChildren?: React.ReactNode
-  lineageChildrenStyle?: React.CSSProperties
-  onLineageToggle?: (event: React.MouseEvent<HTMLButtonElement>) => void
-  isLineageDropTarget?: boolean
-  onActivate?: () => void
-  onImmediateActivate?: (worktreeId: string, rowKey: string | undefined) => void
-  onSelectionGesture?: (event: React.MouseEvent<HTMLElement>, worktreeId: string) => boolean
-  onContextMenuSelect?: (
-    event: React.MouseEvent<HTMLElement>,
-    worktree: Worktree
-  ) => readonly Worktree[]
-  onAssignWorkspaceStatus?: (worktreeIds: readonly string[], status: WorkspaceStatus) => void
-  onCardDragStart?: (
-    event: React.DragEvent<HTMLDivElement>,
-    worktreeId: string,
-    draggedIds: readonly string[]
-  ) => void
-  onCardDragEnd?: (event: React.DragEvent<HTMLDivElement>) => void
-  nativeDragEnabled?: boolean
-  affiliateListMode?: boolean
-  statusPrDisplay?: WorktreeCardPrDisplay | null
-  coordinatedGitHubRefresh?: boolean
-}
-
-const EMPTY_WORKSPACE_PORTS = []
-const HOSTED_REVIEW_CARD_REFRESH_INTERVAL_MS = 60_000
-
-export function shouldBeginWorktreeRename(
-  request: WorktreeRenameRequest | null,
-  worktreeId: string,
-  rowKey: string | undefined
-): boolean {
-  return (
-    request?.worktreeId === worktreeId &&
-    (request.rowKey === undefined || request.rowKey === rowKey)
-  )
-}
-
-function formatSparseDirectoryPreview(directories: string[]): string {
-  const preview = directories.slice(0, 4).join(', ')
-  return directories.length <= 4 ? preview : `${preview}, +${directories.length - 4} more`
-}
-
-function isWebClient(): boolean {
-  return Boolean((window as unknown as { __ORCA_WEB_CLIENT__?: boolean }).__ORCA_WEB_CLIENT__)
-}
-
-function getDirectoryName(folderPath: string): string {
-  const normalized = folderPath.replace(/[\\/]+$/, '')
-  const parts = normalized.split(/[\\/]+/)
-  return parts.at(-1) || normalized || folderPath
-}
+export { shouldBeginWorktreeRename }
+export type { ActiveSurfaceVariant } from './worktree-card-model'
 
 // Why: pinned repo icon and compact inline badge share this chip shell so both repo cues read as the same affordance.
 function RepoIdentityChip({
@@ -1176,9 +1101,9 @@ const WorktreeCard = React.memo(function WorktreeCard({
   })
   const hasPorts = showPorts && workspacePorts.length > 0
   const cacheStartedAt = usePromptCacheCountdownStartedAt(worktree.id, showAggregateCacheTimer)
-  const cacheTtlMs = useAppStore((s) =>
-    showAggregateCacheTimer ? (s.settings?.promptCacheTtlMs ?? 0) : 0
-  )
+  // Why: derived from the `settings` the card already subscribes to — a separate store
+  // subscription for this one field costs a listener per card on every store write.
+  const cacheTtlMs = useWorktreeCardCacheTtlMs(settings, showAggregateCacheTimer)
   // Why: pinned trees mix repos, so the repo icon shows regardless of groupBy's hideRepoBadge.
   const showPinnedRepoIcon = inPinnedSection && !!repo
   // Why: new card style retired the Compact/Detailed switch; repo identity uses the compact chip, not a lower pill.

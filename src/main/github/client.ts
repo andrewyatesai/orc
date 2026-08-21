@@ -68,7 +68,10 @@ import {
   isCommitPartOfMergedPR,
   type MergedPRCommitMembership
 } from './merged-pr-commit-membership'
-import { getSshGitProvider } from '../providers/ssh-git-dispatch'
+import {
+  getSshGitProvider,
+  SSH_GIT_PROVIDER_UNAVAILABLE_MESSAGE
+} from '../providers/ssh-git-dispatch'
 import { resolveDefaultBaseRefViaExec } from '../git/repo'
 import {
   defaultBaseRefToBranchName,
@@ -125,8 +128,12 @@ import {
   type RateLimitBucketKind
 } from './rate-limit'
 import { ORCA_ALAB_PUBLIC_REPOSITORY_SLUG } from '../../shared/repository-endpoints'
+import {
+  GITHUB_CHECK_DETAILS_HOST_TIMEOUT_MS,
+  GITHUB_CHECK_DETAILS_TIMEOUT_MESSAGE
+} from '../../shared/github-check-details-deadline'
 
-type GhExecOptions = GitHubRepoExecOptions
+type GhExecOptions = GitHubRepoExecOptions & { signal?: AbortSignal }
 type HostedReviewLocalGitOptions = ReturnType<typeof getHostedReviewLocalGitOptions>
 
 const PR_CHECK_LOG_TAIL_JOB_LIMIT = 5
@@ -149,6 +156,32 @@ function setPrCheckLogTailCache(cacheKey: string, logTail: string | null): void 
     }
     prCheckLogTailCache.delete(oldestKey)
   }
+}
+
+// Why: best-effort sub-fetches swallow their own errors; re-throw only when the caller/host deadline aborted so the top-level catch can surface the timeout.
+function rethrowCheckDetailsAbort(signal: AbortSignal | undefined, error: unknown): void {
+  if (signal?.aborted) {
+    throw error
+  }
+}
+
+// Why: resolveGitHubRepoExecution itself has no abort hook, so race it against the signal to honor the host deadline before any permit is acquired.
+function waitForCheckDetailsResolution<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(signal.reason)
+  }
+  return new Promise((resolve, reject) => {
+    const finish = (settle: () => void): void => {
+      signal.removeEventListener('abort', onAbort)
+      settle()
+    }
+    const onAbort = (): void => finish(() => reject(signal.reason))
+    signal.addEventListener('abort', onAbort, { once: true })
+    void operation.then(
+      (value) => finish(() => resolve(value)),
+      (error) => finish(() => reject(error))
+    )
+  })
 }
 const MERGE_QUEUE_CACHE_TTL_MS = 10 * 60 * 1000
 const MERGE_QUEUE_UNKNOWN_CACHE_TTL_MS = 60 * 1000
@@ -1668,7 +1701,8 @@ export async function getRepoSlug(
 
 /**
  * Resolve a fork's upstream/parent owner/repo, or null when not a fork.
- * Why: a fork's `origin` is the personal copy, so repo identity (avatar) should prefer upstream.
+ * Why: drives the fork indicator, and a same-name fork's avatar prefers the
+ * upstream owner (a renamed fork keeps its own owner).
  * Best-effort: any failure (offline, unauthed, non-GitHub) resolves to null.
  */
 export async function getRepoUpstream(
@@ -2282,14 +2316,24 @@ async function getCurrentHeadOid(
   connectionId?: string | null,
   localGitOptions: { wslDistro?: string } = {}
 ): Promise<string | null> {
+  // Why (#14945): with connectionId set but the SSH provider unregistered, a
+  // client-side rev-parse would run against the remote repoPath — on a machine
+  // with a same-named local path that silently answers for the wrong repo, and
+  // this OID feeds shouldHideMergedImplicitPR. Fail closed instead: propagate so
+  // the caller treats it as indeterminate, matching repo-default-branch.ts.
+  const provider = connectionId ? getSshGitProvider(connectionId) : null
+  if (connectionId && !provider) {
+    throw new Error(SSH_GIT_PROVIDER_UNAVAILABLE_MESSAGE)
+  }
+  if (provider) {
+    const result = await provider.exec(['rev-parse', 'HEAD'], repoPath)
+    return result.stdout.trim() || null
+  }
   try {
-    const provider = connectionId ? getSshGitProvider(connectionId) : null
-    const result = provider
-      ? await provider.exec(['rev-parse', 'HEAD'], repoPath)
-      : await gitExecFileAsync(['rev-parse', 'HEAD'], {
-          cwd: repoPath,
-          ...(localGitOptions.wslDistro ? { wslDistro: localGitOptions.wslDistro } : {})
-        })
+    const result = await gitExecFileAsync(['rev-parse', 'HEAD'], {
+      cwd: repoPath,
+      ...(localGitOptions.wslDistro ? { wslDistro: localGitOptions.wslDistro } : {})
+    })
     return result.stdout.trim() || null
   } catch {
     return null
@@ -2305,6 +2349,12 @@ async function getRepoDefaultBranchName(
 ): Promise<string | null> {
   try {
     const provider = connectionId ? getSshGitProvider(connectionId) : null
+    // Why (#14945): a dropped SSH provider must not fall back to local git — the
+    // repoPath is remote, so a local run could answer for the wrong repo's
+    // default branch. Take the unknown (null) path, matching repo-default-branch.ts.
+    if (connectionId && !provider) {
+      return null
+    }
     const baseRef = await resolveDefaultBaseRefViaExec((argv) =>
       provider
         ? provider.exec(argv, repoPath)
@@ -2786,14 +2836,26 @@ async function probeTrackedUpstreamBranches(
   upstreamsByBranchName: Map<string, TrackedUpstreamBranch | null>
 }> {
   const args = ['for-each-ref', '--format=%(refname)%00%(upstream)', 'refs/heads']
+  // Why (#14945): fail closed when connectionId is set but the SSH provider is
+  // gone — a local for-each-ref against the remote repoPath answers for the
+  // wrong repository. Propagate so the probe stays unverifiable rather than
+  // degrading into a caching soft-failure (probeFailed) that hides the drop.
+  const provider = connectionId ? getSshGitProvider(connectionId) : null
+  if (connectionId && !provider) {
+    throw new Error(SSH_GIT_PROVIDER_UNAVAILABLE_MESSAGE)
+  }
+  if (provider) {
+    const result = await provider.exec(args, repoPath)
+    return {
+      probeFailed: false,
+      upstreamsByBranchName: parseTrackedUpstreamBranches(result.stdout)
+    }
+  }
   try {
-    const provider = connectionId ? getSshGitProvider(connectionId) : null
-    const result = provider
-      ? await provider.exec(args, repoPath)
-      : await gitExecFileAsync(args, {
-          cwd: repoPath,
-          ...(localGitOptions.wslDistro ? { wslDistro: localGitOptions.wslDistro } : {})
-        })
+    const result = await gitExecFileAsync(args, {
+      cwd: repoPath,
+      ...(localGitOptions.wslDistro ? { wslDistro: localGitOptions.wslDistro } : {})
+    })
     return {
       probeFailed: false,
       upstreamsByBranchName: parseTrackedUpstreamBranches(result.stdout)
@@ -3971,6 +4033,7 @@ async function attachFailedJobLogTails(
       )
       job.logTail = sliceCheckLogTail(stdout)
     } catch (err) {
+      rethrowCheckDetailsAbort(ghOptions.signal, err)
       console.warn('getPRCheckDetails workflow job log fetch failed:', err)
       job.logTail = null
     }
@@ -4003,20 +4066,35 @@ export async function getPRCheckDetails(
     prRepo?: GitHubApiRepository | null
   },
   connectionId?: string | null,
-  localGitOptions: LocalGitExecOptions = {}
+  localGitOptions: LocalGitExecOptions = {},
+  callerSignal?: AbortSignal
 ): Promise<PRCheckRunDetails | null> {
-  const { ownerRepo, ghOptions } = await resolveGitHubRepoExecution(
-    repoPath,
-    args.prRepo,
-    connectionId,
-    localGitOptions
-  )
-  if (!ownerRepo) {
-    return null
+  const controller = new AbortController()
+  let hostDeadlineExpired = false
+  const forwardCallerAbort = (): void => controller.abort(callerSignal?.reason)
+  if (callerSignal?.aborted) {
+    forwardCallerAbort()
+  } else {
+    callerSignal?.addEventListener('abort', forwardCallerAbort, { once: true })
   }
-
-  await acquire()
+  // Why: bound the whole request so a wedged sub-fetch can't leave the checks panel spinning forever.
+  const hostDeadline = setTimeout(() => {
+    hostDeadlineExpired = true
+    controller.abort(new Error(GITHUB_CHECK_DETAILS_TIMEOUT_MESSAGE))
+  }, GITHUB_CHECK_DETAILS_HOST_TIMEOUT_MS)
+  let acquired = false
   try {
+    const resolved = await waitForCheckDetailsResolution(
+      resolveGitHubRepoExecution(repoPath, args.prRepo, connectionId, localGitOptions),
+      controller.signal
+    )
+    if (!resolved.ownerRepo) {
+      return null
+    }
+    const ownerRepo = resolved.ownerRepo
+    const ghOptions: GhExecOptions = { ...resolved.ghOptions, signal: controller.signal }
+    await acquire(controller.signal)
+    acquired = true
     let checkRun: Record<string, unknown> | null = null
     let annotations: PRCheckRunDetails['annotations'] = []
     if (args.checkRunId) {
@@ -4035,6 +4113,7 @@ export async function getPRCheckDetails(
         )
         annotations = mapCheckAnnotations(JSON.parse(annotationsResult.stdout))
       } catch (err) {
+        rethrowCheckDetailsAbort(controller.signal, err)
         console.warn('getPRCheckDetails annotations fetch failed:', err)
       }
     }
@@ -4053,6 +4132,7 @@ export async function getPRCheckDetails(
         jobs = mapWorkflowJobs(JSON.parse(stdout), args.checkName)
         await attachFailedJobLogTails(jobs, ownerRepo, ghOptions)
       } catch (err) {
+        rethrowCheckDetailsAbort(controller.signal, err)
         console.warn('getPRCheckDetails workflow jobs fetch failed:', err)
       }
     }
@@ -4077,9 +4157,16 @@ export async function getPRCheckDetails(
     }
   } catch (err) {
     console.warn('getPRCheckDetails failed:', err)
-    return null
+    if (hostDeadlineExpired && !callerSignal?.aborted) {
+      throw new Error(GITHUB_CHECK_DETAILS_TIMEOUT_MESSAGE)
+    }
+    throw err
   } finally {
-    release()
+    clearTimeout(hostDeadline)
+    callerSignal?.removeEventListener('abort', forwardCallerAbort)
+    if (acquired) {
+      release()
+    }
   }
 }
 

@@ -21,6 +21,12 @@ declare const ORCA_POSTHOG_WRITE_KEY: string | null
 // release pipeline.
 declare const ORCA_DIAGNOSTICS_TOKEN_URL: string | null
 
+// Feedback-report endpoint (src/main/ipc/feedback.ts). Substituted by CI; `null`
+// in contributor builds, which return "endpoint not configured". Declared global
+// (not module-local) so the undeclared-in-vitest `typeof` guard reads as a global
+// access oxlint's no-typeof-undefined leaves alone.
+declare const ORCA_FEEDBACK_ENDPOINT: string | null
+
 // Base64 Ed25519 public key for the OPTIONAL update-feed signature tier, mirroring
 // aterm's `ATERM_UPDATE_PUBKEY`. `null` (the default) means this build has no signature
 // tier and relies on SHA-512 + TLS alone. When set, `latest-mac.yml` MUST carry a valid

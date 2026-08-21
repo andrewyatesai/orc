@@ -3,6 +3,7 @@
 import '@testing-library/jest-dom/vitest'
 
 import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/i18n/i18n', () => ({
@@ -70,6 +71,7 @@ describe('HeroFlow height', () => {
         installCopy={{ ctaLabel: 'Open TestFlight', url: 'https://example.com' }}
         iosChannel="preview"
         onIosChannelChange={vi.fn()}
+        onOpenAndroidInstallGuide={vi.fn()}
         onOpenInstallUrl={vi.fn()}
         onCopyInstallUrl={vi.fn()}
         pairQrDataUrl={null}
@@ -108,6 +110,7 @@ describe('HeroFlow height', () => {
         installCopy={{ ctaLabel: 'Open TestFlight', url: 'https://example.com' }}
         iosChannel="preview"
         onIosChannelChange={vi.fn()}
+        onOpenAndroidInstallGuide={vi.fn()}
         onOpenInstallUrl={vi.fn()}
         onCopyInstallUrl={vi.fn()}
         pairQrDataUrl={null}
@@ -150,5 +153,36 @@ describe('HeroFlow height', () => {
   it('hides the degradation notice when the code encodes what was selected', () => {
     renderFlow(1, { pairQrDataUrl: 'data:image/png;base64,qr' })
     expect(screen.queryByTestId('relay-degraded-notice')).not.toBeInTheDocument()
+  })
+
+  it('drives the pairing QR track off the encoder-reported natural bitmap size', () => {
+    renderFlow(1, { pairQrDataUrl: 'data:image/png;base64,qr', pairQrSize: 218 })
+
+    const image = screen.getByRole('img', { name: 'Pairing QR' })
+    const layout = image.closest('.mp-pairing-layout') as HTMLElement
+    // image = 218px natural bitmap; frame = image + 20px (10px padding each side).
+    expect(layout.style.getPropertyValue('--mp-pairing-qr-image-size')).toBe('218px')
+    expect(layout.style.getPropertyValue('--mp-pairing-qr-frame-size')).toBe('238px')
+  })
+
+  it('offers the APK install guide only on Android and links out on click', async () => {
+    const user = userEvent.setup()
+    const onOpenAndroidInstallGuide = vi.fn()
+
+    // Guard: the link is Android-only — iOS install has no sideload step.
+    renderFlow(0, { platform: 'ios' })
+    expect(screen.queryByRole('button', { name: 'Install guide' })).not.toBeInTheDocument()
+    cleanup()
+
+    renderFlow(0, {
+      platform: 'android',
+      installCopy: {
+        ctaLabel: 'Download upstream APK',
+        url: 'https://example.com/app-release.apk'
+      },
+      onOpenAndroidInstallGuide
+    })
+    await user.click(screen.getByRole('button', { name: 'Install guide' }))
+    expect(onOpenAndroidInstallGuide).toHaveBeenCalledOnce()
   })
 })

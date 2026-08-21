@@ -287,7 +287,7 @@ export function SkillFreshnessUpdateDialog(): React.JSX.Element {
         </DialogHeader>
 
         {state.error && !isRunning && !showResult ? (
-          <p className="text-xs text-destructive">{state.error}</p>
+          <p className="min-w-0 [overflow-wrap:anywhere] text-xs text-destructive">{state.error}</p>
         ) : (
           headline
         )}

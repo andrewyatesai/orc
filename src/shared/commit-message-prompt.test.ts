@@ -237,3 +237,42 @@ describe('tokenizeCustomCommandTemplate', () => {
     expect(r).toEqual({ ok: true, tokens: [] })
   })
 })
+
+describe('Windows command overrides keep native path separators (#11375)', () => {
+  const WINDOWS_PATH = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
+
+  it('eats backslashes under the POSIX default, which is what broke Windows paths', () => {
+    // Pinned as the reason 'literal' exists, not as desired behavior.
+    const posix = tokenizeCustomCommandTemplate(WINDOWS_PATH)
+    expect(posix).toEqual({
+      ok: true,
+      tokens: ['C:WindowsSystem32WindowsPowerShellv1.0powershell.exe']
+    })
+  })
+
+  it('keeps a native absolute path intact in literal mode', () => {
+    const literal = tokenizeCustomCommandTemplate(WINDOWS_PATH, 'literal')
+    expect(literal).toEqual({ ok: true, tokens: [WINDOWS_PATH] })
+  })
+
+  it('still splits on whitespace and honours quotes in literal mode', () => {
+    const quoted = tokenizeCustomCommandTemplate(
+      '"C:\\Program Files\\Git\\bin\\bash.exe" --login -i',
+      'literal'
+    )
+    expect(quoted).toEqual({
+      ok: true,
+      tokens: ['C:\\Program Files\\Git\\bin\\bash.exe', '--login', '-i']
+    })
+  })
+
+  it('leaves a trailing backslash alone instead of swallowing the delimiter', () => {
+    const trailing = tokenizeCustomCommandTemplate('C:\\tools\\ --flag', 'literal')
+    expect(trailing).toEqual({ ok: true, tokens: ['C:\\tools\\', '--flag'] })
+  })
+
+  it('keeps POSIX escaping the default so `foo\\ bar` stays one token', () => {
+    const posix = tokenizeCustomCommandTemplate('/usr/local/my\\ agent/bin --flag')
+    expect(posix).toEqual({ ok: true, tokens: ['/usr/local/my agent/bin', '--flag'] })
+  })
+})

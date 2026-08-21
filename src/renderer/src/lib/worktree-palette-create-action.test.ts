@@ -11,7 +11,6 @@ import { WORKTREE_PALETTE_QUERY_MAX_BYTES } from './worktree-palette-query-bound
 describe('worktree-palette-create-action', () => {
   it('shows create for typed queries with workspace matches but selects the first workspace row', () => {
     const state = getWorktreePaletteCreateActionState({
-      canCreateWorktree: true,
       query: 'feature'
     })
 
@@ -31,7 +30,6 @@ describe('worktree-palette-create-action', () => {
 
   it('selects create when it appears before actions, settings, and browser rows', () => {
     const state = getWorktreePaletteCreateActionState({
-      canCreateWorktree: true,
       query: 'opencode-issue'
     })
 
@@ -64,7 +62,6 @@ describe('worktree-palette-create-action', () => {
 
   it('defaults to create for typed queries with no real matches', () => {
     const state = getWorktreePaletteCreateActionState({
-      canCreateWorktree: true,
       query: 'new-workspace'
     })
 
@@ -137,7 +134,6 @@ describe('worktree-palette-create-action', () => {
   it('shows create even when no project is available so the composer can guide setup', () => {
     expect(
       getWorktreePaletteCreateActionState({
-        canCreateWorktree: false,
         query: 'new-workspace'
       }).showCreateAction
     ).toBe(true)
@@ -146,7 +142,6 @@ describe('worktree-palette-create-action', () => {
   it('hides create for an empty query', () => {
     expect(
       getWorktreePaletteCreateActionState({
-        canCreateWorktree: true,
         query: '   '
       }).showCreateAction
     ).toBe(false)
@@ -157,7 +152,6 @@ describe('worktree-palette-create-action', () => {
 
     expect(
       getWorktreePaletteCreateActionState({
-        canCreateWorktree: true,
         query: oversizedQuery
       })
     ).toEqual({
@@ -186,6 +180,22 @@ describe('worktree-palette-create-action', () => {
       'quick-action:new-terminal',
       'browser-page:one'
     ])
+  })
+
+  it('names the rendered render key so a duplicate row is reachable by keyboard', () => {
+    // Why: rows render under de-duplicated keys, and cmdk selects by that rendered value.
+    // Naming the bare id here left the duplicate absent from the allow-list, so arrowing
+    // onto it failed the `includes` check and snapped the highlight back to the top.
+    expect(
+      getWorktreePaletteSelectionItemIds(
+        [
+          { id: '__header_worktrees__', type: 'section-header' },
+          { id: 'worktree:shared', type: 'worktree' },
+          { id: 'worktree:shared', type: 'worktree' }
+        ],
+        ['__header_worktrees__', 'worktree:shared', 'palette-dup:1:worktree:shared']
+      )
+    ).toEqual(['worktree:shared', 'palette-dup:1:worktree:shared'])
   })
 
   it('falls back deterministically when the selected row disappears', () => {

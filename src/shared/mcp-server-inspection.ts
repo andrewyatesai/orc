@@ -26,7 +26,7 @@ export function maskMcpEnv(env: unknown): Record<string, string> | undefined {
   const masked: Record<string, string> = {}
   let fields = 0
   for (const key in env) {
-    if (!Object.prototype.hasOwnProperty.call(env, key)) {
+    if (!Object.hasOwn(env, key)) {
       continue
     }
     fields += 1

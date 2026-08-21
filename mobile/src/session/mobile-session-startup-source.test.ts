@@ -50,9 +50,12 @@ describe('mobile session startup', () => {
     expect(reconciliationHookSource).toContain('controller.setReconciliationActive(false)')
     expect(reconciliationHookSource).toContain('clearInterval(interval)')
     expect(reconciliationHookSource).toContain('appStateSubscription.remove()')
-    // Resume must force a full reconcile, and the first refresh must run after the
-    // AppState listener is wired so a foreground flip during setup isn't missed.
-    expect(reconciliationHookSource).toContain("if (state === 'active') {\n          refresh(true)")
+    // Resume must reset the bounded pending-handle budget and force a full reconcile,
+    // and the first refresh must run after the AppState listener is wired so a
+    // foreground flip during setup isn't missed.
+    expect(reconciliationHookSource).toContain(
+      "if (state === 'active') {\n          resetPendingTerminalRecovery()\n          refresh(true)"
+    )
     expect(reconciliationHookSource.lastIndexOf('\n      refresh(true)')).toBeGreaterThan(
       reconciliationHookSource.indexOf("AppState.addEventListener('change'")
     )
@@ -156,5 +159,40 @@ describe('mobile session startup', () => {
     expect(newTabActions.indexOf("label: 'Browser'")).toBeLessThan(
       newTabActions.indexOf("label: 'Markdown Note'")
     )
+  })
+
+  it('wires pending-handle recovery through its bounded context (STA-4256)', () => {
+    const applySessionTabs = sliceBetween(
+      'const applySessionTabs = useCallback(',
+      'const consumeAcceptedSessionTabs = useCallback('
+    )
+    const recoveryContext = sliceBetween(
+      'const pendingTerminalRecoveryContextCache = useMemo(',
+      'const getSessionTabsApplicationRevision'
+    )
+
+    const tabsRefWrite = 'sessionTabsRef.current = nextTabs'
+    const tabsStateWrite = 'setSessionTabs((prev)'
+    const activeRefWrite = 'activeSessionTabIdRef.current = active?.id ?? null'
+    const activeStateWrite = 'setActiveSessionTabId(active?.id ?? null)'
+    for (const write of [tabsRefWrite, tabsStateWrite, activeRefWrite, activeStateWrite]) {
+      expect(applySessionTabs).toContain(write)
+    }
+    expect(applySessionTabs.indexOf(tabsRefWrite)).toBeLessThan(
+      applySessionTabs.indexOf(tabsStateWrite)
+    )
+    expect(applySessionTabs.indexOf(activeRefWrite)).toBeLessThan(
+      applySessionTabs.indexOf(activeStateWrite)
+    )
+    expect(recoveryContext).toContain('() => new PendingTerminalHandleRecoveryContextCache()')
+    expect(recoveryContext).toContain('sessionTabsRef.current,')
+    expect(recoveryContext).toContain('activeSessionTabIdRef.current')
+    expect(recoveryContext).toContain(
+      'const pendingTerminalRecoveryContextKey = getPendingTerminalRecoveryContextKey()'
+    )
+    expect(source).toContain('hasRecoveryNeed: hasSessionTabsRecoveryNeed')
+    expect(source).toContain('getPendingTerminalRecoveryContextKey,')
+    expect(source).toContain('onPendingTerminalRecoveryParked: setParkedPendingTerminalContext')
+    expect(source).toContain('retryPendingTerminalRecovery()')
   })
 })

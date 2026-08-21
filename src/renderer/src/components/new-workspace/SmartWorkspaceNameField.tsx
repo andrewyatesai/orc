@@ -57,6 +57,7 @@ import {
   getBranchSearchRequest,
   getSmartWorkspaceEmptyHint,
   getVisibleBranchResults,
+  getVisibleHeldProviderResults,
   isSmartWorkspaceSourceQueryWithinLimit,
   type SmartNameMode,
   type SmartWorkspaceSourceRow
@@ -417,6 +418,12 @@ export default function SmartWorkspaceNameField({
     localInputFocusFrameRef.current = null
   }, [])
 
+  const openSelectedSource = useCallback((): void => {
+    if (selectedSource?.url) {
+      void window.api.shell.openUrl(selectedSource.url)
+    }
+  }, [selectedSource?.url])
+
   const markSourcePopoverUserEngaged = useCallback((): void => {
     deferSourcePopoverUntilInteractionRef.current = false
   }, [])
@@ -552,6 +559,11 @@ export default function SmartWorkspaceNameField({
       return
     }
     let stale = false
+    // Why: empty-query search must not briefly paint the previous non-empty result set
+    // once debounce catches a cleared field.
+    if (debouncedQuery.trim() === '') {
+      setGithubItems([])
+    }
     const directNumber = normalizedGhQuery.directNumber
     const directLink = parsedGhLink
     if (directLink !== null && handledCrossRepoUrlRef.current !== debouncedQuery.trim()) {
@@ -827,8 +839,8 @@ export default function SmartWorkspaceNameField({
       return
     }
     let stale = false
-    setBranches([])
-    setBranchResultsSource(null)
+    // Why: keep prior branch rows until this request settles; visibility already
+    // holds the last list while the user types ahead of the debounced query.
     setBranchSearchFailed(false)
     setBranchesLoading(true)
     void searchRuntimeRepoBaseRefDetails(
@@ -872,6 +884,10 @@ export default function SmartWorkspaceNameField({
     let stale = false
     setLinearLoading(true)
     const trimmed = debouncedQuery.trim()
+    // Why: empty-query list must not briefly paint the previous non-empty result set.
+    if (trimmed === '') {
+      setLinearIssues([])
+    }
     const request = trimmed
       ? searchLinearIssues(trimmed, RESULT_LIMIT, { sourceContext: linearSourceContext })
       : listLinearIssues(
@@ -989,6 +1005,10 @@ export default function SmartWorkspaceNameField({
     setGitlabLoading(true)
     // Why: thread the typed query so the GitLab API filters MRs by name/number (shouldQueryGitlab already gates oversized queries).
     const trimmedQuery = debouncedQuery.trim() || undefined
+    // Why: empty-query list must not briefly paint the previous non-empty result set.
+    if (trimmedQuery === undefined) {
+      setGitlabItems([])
+    }
     void Promise.all(
       repoBackedSearchTargets.map((target) =>
         listGitLabMRsForSource({
@@ -1048,11 +1068,23 @@ export default function SmartWorkspaceNameField({
           selectedRepoId: selectedRepo?.id ?? null,
           value
         }),
-        githubItems,
+        githubItems: getVisibleHeldProviderResults({
+          items: githubItems,
+          value,
+          debouncedQuery
+        }),
         gitlabAvailable: gitlabSourceAvailable,
-        gitlabItems,
+        gitlabItems: getVisibleHeldProviderResults({
+          items: gitlabItems,
+          value,
+          debouncedQuery
+        }),
         linearAvailable,
-        linearIssues,
+        linearIssues: getVisibleHeldProviderResults({
+          items: linearIssues,
+          value,
+          debouncedQuery
+        }),
         mode,
         resultLimit: RESULT_LIMIT,
         value
@@ -1060,6 +1092,7 @@ export default function SmartWorkspaceNameField({
     [
       branches,
       branchResultsSource,
+      debouncedQuery,
       githubItems,
       gitlabSourceAvailable,
       gitlabItems,
@@ -1078,7 +1111,7 @@ export default function SmartWorkspaceNameField({
     }
   }, [rows])
 
-  // Why: source rows lag debouncedQuery, so keep Enter off a stale row.
+  // Why: live input leads debounced search; freeze highlight until the query catches up.
   const valueWithinSourceLimit = isSmartWorkspaceSourceQueryWithinLimit(value)
   const debouncedQueryWithinSourceLimit = isSmartWorkspaceSourceQueryWithinLimit(debouncedQuery)
   const trimmedValue = valueWithinSourceLimit ? value.trim() : ''
@@ -1112,12 +1145,25 @@ export default function SmartWorkspaceNameField({
     isQueryStale,
     sourceIntent
   })
+  // Why: while isQueryStale, cmdk onValueChange is ignored; keep the stored arm
+  // aligned too so a stale provider cannot reappear when the query settles.
+  useEffect(() => {
+    if (commandValue === resolvedCommandValue) {
+      return
+    }
+    setCommandValue(resolvedCommandValue)
+  }, [commandValue, resolvedCommandValue])
 
   const loading = githubLoading || gitlabLoading || branchesLoading || linearLoading
-  const ActiveInputIcon = mode === 'text' ? CaseSensitive : loading ? LoaderCircle : Search
+  // Why: only spin on first load — not on every in-flight refresh while rows stay visible.
+  const showSearchSpinner = loading && searchResultRows.length === 0
+  const ActiveInputIcon =
+    mode === 'text' ? CaseSensitive : showSearchSpinner ? LoaderCircle : Search
 
   const handleSelect = useCallback(
     (row: RowEntry) => {
+      // Why: select what is shown — held provider rows stay visible while the
+      // query is ahead of debounce, so blocking them made click/Enter no-ops.
       if (row.kind === 'use-name' || row.kind === 'create-branch') {
         // Why: "create new branch" has no ref to base from, so it uses the typed-name path (default base).
         onValueChange(row.name)
@@ -1320,7 +1366,7 @@ export default function SmartWorkspaceNameField({
             <TabsList
               ref={tabsListRef}
               variant="line"
-              className="h-7 w-full justify-start gap-4 px-0"
+              className="h-7 w-full justify-start gap-4 overflow-x-auto overflow-y-hidden px-0 scrollbar-sleek"
               onFocusCapture={(event) => {
                 // Why: Radix Tabs roving focus re-applies tabindex=0 to the active trigger (races React commits), so forward Tab to the input.
                 const previous = event.relatedTarget as HTMLElement | null
@@ -1359,7 +1405,14 @@ export default function SmartWorkspaceNameField({
       >
         <Command
           value={resolvedCommandValue}
-          onValueChange={setCommandValue}
+          onValueChange={(next) => {
+            // Why: cmdk re-emits when the item list reshapes; ignore while the query
+            // lags so the highlight cannot thrash mid-typing.
+            if (isQueryStale) {
+              return
+            }
+            setCommandValue(next)
+          }}
           shouldFilter={false}
           className="overflow-visible bg-transparent"
         >
@@ -1371,9 +1424,45 @@ export default function SmartWorkspaceNameField({
                   ref={setSelectedSourceNode}
                   data-workspace-source-pill="true"
                   tabIndex={0}
+                  aria-keyshortcuts={
+                    selectedSource.url ? 'Alt+Enter Backspace Delete' : 'Backspace Delete'
+                  }
                   onKeyDown={(event) => {
+                    // Why: the pill's action buttons are tabIndex=-1, so surface their
+                    // behavior as keyboard shortcuts on the focused pill itself.
+                    if (event.currentTarget !== event.target) {
+                      return
+                    }
                     if (
-                      event.currentTarget !== event.target ||
+                      (event.key === 'Backspace' || event.key === 'Delete') &&
+                      !event.metaKey &&
+                      !event.ctrlKey &&
+                      !event.shiftKey &&
+                      !event.altKey
+                    ) {
+                      event.preventDefault()
+                      onClearSelectedSource()
+                      // Why: the pill unmounts once cleared; hand focus back to the input.
+                      cancelLocalInputFocusFrame()
+                      localInputFocusFrameRef.current = requestAnimationFrame(() => {
+                        localInputFocusFrameRef.current = null
+                        localInputRef.current?.focus({ preventScroll: true })
+                      })
+                      return
+                    }
+                    if (
+                      event.key === 'Enter' &&
+                      event.altKey &&
+                      !event.metaKey &&
+                      !event.ctrlKey &&
+                      !event.shiftKey &&
+                      selectedSource.url
+                    ) {
+                      event.preventDefault()
+                      openSelectedSource()
+                      return
+                    }
+                    if (
                       event.key !== 'Enter' ||
                       event.metaKey ||
                       event.ctrlKey ||
@@ -1398,7 +1487,8 @@ export default function SmartWorkspaceNameField({
                           type="button"
                           variant="ghost"
                           size="icon-xs"
-                          onClick={() => void window.api.shell.openUrl(selectedSource.url!)}
+                          tabIndex={-1}
+                          onClick={openSelectedSource}
                           className="size-6 shrink-0 rounded-sm text-muted-foreground hover:text-foreground"
                           aria-label={translate(
                             'auto.components.new.workspace.SmartWorkspaceNameField.2c69728c2a',
@@ -1422,6 +1512,7 @@ export default function SmartWorkspaceNameField({
                         type="button"
                         variant="ghost"
                         size="icon-xs"
+                        tabIndex={-1}
                         onClick={onClearSelectedSource}
                         className="size-6 shrink-0 rounded-sm text-muted-foreground hover:text-foreground"
                         aria-label={translate(
@@ -1445,7 +1536,7 @@ export default function SmartWorkspaceNameField({
                   <ActiveInputIcon
                     className={cn(
                       'pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground',
-                      loading && mode !== 'text' && 'animate-spin'
+                      showSearchSpinner && mode !== 'text' && 'animate-spin'
                     )}
                   />
                   <Input
@@ -1505,7 +1596,7 @@ export default function SmartWorkspaceNameField({
                             handleSelect(row)
                             return
                           }
-                          // No highlighted row (e.g. cleared stale GitHub/Linear results); fall through to onPlainEnter so the keypress isn't inert.
+                          // No highlighted row; fall through to onPlainEnter so the keypress isn't inert.
                         }
                         onPlainEnter?.()
                       }
@@ -1634,10 +1725,10 @@ export default function SmartWorkspaceNameField({
         open={crossRepoPrompt !== null}
         onOpenChange={(next) => !next && dismissCrossRepoPrompt()}
       >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
+        <DialogContent className="min-w-0 sm:max-w-md">
+          <DialogHeader className="min-w-0">
             <DialogTitle>{crossRepoSwitchTitle}</DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="break-words">
               {translate(
                 'auto.components.new.workspace.SmartWorkspaceNameField.ad188067ae',
                 'The GitHub URL points to'
@@ -1646,27 +1737,38 @@ export default function SmartWorkspaceNameField({
               {crossRepoSwitchDescriptionSuffix}
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter>
+          <DialogFooter className="min-w-0 sm:flex-wrap">
             <Button variant="outline" onClick={dismissCrossRepoPrompt}>
               {translate(
                 'auto.components.new.workspace.SmartWorkspaceNameField.6859e2896c',
                 'Cancel'
               )}
             </Button>
-            <Button variant="outline" onClick={() => void handleUseCurrentRepo()}>
-              {translate(
-                'auto.components.new.workspace.SmartWorkspaceNameField.eadf877af5',
-                'Keep'
-              )}{' '}
-              {selectedRepo?.displayName ?? crossRepoSwitchFallbackLabel}
+            <Button
+              variant="outline"
+              className="min-w-0 max-w-full"
+              onClick={() => void handleUseCurrentRepo()}
+            >
+              <span className="min-w-0 truncate">
+                {translate(
+                  'auto.components.new.workspace.SmartWorkspaceNameField.eadf877af5',
+                  'Keep'
+                )}{' '}
+                {selectedRepo?.displayName ?? crossRepoSwitchFallbackLabel}
+              </span>
             </Button>
             {crossRepoPrompt?.matchingRepo ? (
-              <Button onClick={() => void acceptGitHubLink(crossRepoPrompt.matchingRepo!)}>
-                {translate(
-                  'auto.components.new.workspace.SmartWorkspaceNameField.a76fcb4fa0',
-                  'Switch to'
-                )}{' '}
-                {crossRepoPrompt.matchingRepo.displayName}
+              <Button
+                className="min-w-0 max-w-full"
+                onClick={() => void acceptGitHubLink(crossRepoPrompt.matchingRepo!)}
+              >
+                <span className="min-w-0 truncate">
+                  {translate(
+                    'auto.components.new.workspace.SmartWorkspaceNameField.a76fcb4fa0',
+                    'Switch to'
+                  )}{' '}
+                  {crossRepoPrompt.matchingRepo.displayName}
+                </span>
               </Button>
             ) : allowCrossRepoProjectAdd ? (
               <Button onClick={() => void handleAddMatchingRepo()}>

@@ -1,3 +1,5 @@
+import { clampUtf8TextTail, getUtf8ByteLength } from './utf8-byte-limits'
+
 export const PR_CHECK_LOG_TAIL_LINES = 200
 export const PR_CHECK_LOG_TAIL_RECENT_LINES = 100
 export const PR_CHECK_LOG_TAIL_BYTES = 16 * 1024
@@ -10,45 +12,23 @@ export const PR_CHECK_LOG_TAIL_EARLIER_SEPARATOR = '… earlier errors …'
 const ERROR_LINE_PATTERN =
   /(?:##\[error\]|::error::|::error\b|\berror:|FAILED|exit code|ENOENT|EACCES|panic:|AssertionError)/i
 
-// Why: shared between main (GitHub job logs) and renderer (GitLab job traces),
-// so byte math uses TextEncoder rather than Node's Buffer.
-const utf8Encoder = new TextEncoder()
-
-function utf8ByteLength(text: string): number {
-  return utf8Encoder.encode(text).length
-}
-
 function applyLogTailByteCap(text: string): string {
-  if (utf8ByteLength(text) <= PR_CHECK_LOG_TAIL_BYTES) {
+  if (getUtf8ByteLength(text) <= PR_CHECK_LOG_TAIL_BYTES) {
     return text
   }
-  return sliceTrailingTextByUtf8Bytes(text, PR_CHECK_LOG_TAIL_BYTES)
-}
-
-function sliceTrailingTextByUtf8Bytes(text: string, byteLimit: number): string {
-  let byteLength = 0
-  const characters = Array.from(text)
-  for (let index = characters.length - 1; index >= 0; index -= 1) {
-    const characterByteLength = utf8ByteLength(characters[index] ?? '')
-    if (byteLength + characterByteLength > byteLimit) {
-      return characters.slice(index + 1).join('')
-    }
-    byteLength += characterByteLength
-  }
-  return text
+  return clampUtf8TextTail(text, PR_CHECK_LOG_TAIL_BYTES).text
 }
 
 function joinLogExcerptWithByteCap(prefixLines: string[], recentLines: string[]): string {
   const prefix = prefixLines.join('\n')
-  const prefixByteLength = utf8ByteLength(prefix)
+  const prefixByteLength = getUtf8ByteLength(prefix)
   if (prefixByteLength >= PR_CHECK_LOG_TAIL_BYTES) {
-    return sliceTrailingTextByUtf8Bytes(prefix, PR_CHECK_LOG_TAIL_BYTES)
+    return clampUtf8TextTail(prefix, PR_CHECK_LOG_TAIL_BYTES).text
   }
 
   const separator = prefix.length > 0 && recentLines.length > 0 ? '\n' : ''
-  const recentBudget =
-    PR_CHECK_LOG_TAIL_BYTES - prefixByteLength - utf8ByteLength(separator)
-  const recentTail = sliceTrailingTextByUtf8Bytes(recentLines.join('\n'), recentBudget)
+  const recentBudget = PR_CHECK_LOG_TAIL_BYTES - prefixByteLength - getUtf8ByteLength(separator)
+  const recentTail = clampUtf8TextTail(recentLines.join('\n'), recentBudget).text
   return `${prefix}${separator}${recentTail}`
 }
 

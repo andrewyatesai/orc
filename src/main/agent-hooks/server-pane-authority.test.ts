@@ -154,4 +154,111 @@ describe('AgentHookServer pane authority', () => {
       ])
     )
   })
+
+  // STA-4114: a detach/reattach cycle retires the pane and nothing ever lifted the
+  // fence, so a still-running agent stayed suppressed for the rest of its life. Binding
+  // a live PTY to the exact pane disproves the retirement claim and must lift it —
+  // without waiting for a new turn, which a pane re-attached mid-turn or idle never emits.
+  it('re-attaching a retired pane lifts the fence without waiting for a new turn', () => {
+    const server = new AgentHookServer()
+    server.ingestTerminalStatus({
+      paneKey: TARGET,
+      tabId: 'tab-target',
+      worktreeId: 'wt-1',
+      payload: { state: 'working', prompt: 'turn in flight' }
+    })
+    server.retirePaneAuthority(TARGET)
+
+    // The turn was already running, so only its completion is left to report — and
+    // while retired it is suppressed. This is the reported permanent failure.
+    server.ingestTerminalStatus({
+      paneKey: TARGET,
+      tabId: 'tab-target',
+      worktreeId: 'wt-1',
+      payload: { state: 'done', prompt: 'turn in flight' }
+    })
+    expect(server.getStatusSnapshot()).toEqual([])
+
+    expect(server.restorePaneAuthority(TARGET)).toBe(true)
+
+    server.ingestTerminalStatus({
+      paneKey: TARGET,
+      tabId: 'tab-target',
+      worktreeId: 'wt-1',
+      payload: { state: 'done', prompt: 'turn in flight' }
+    })
+    expect(server.getStatusSnapshot()).toEqual([
+      expect.objectContaining({ paneKey: TARGET, state: 'done' })
+    ])
+  })
+
+  // The canonical case: a detached pane's process keeps posting the key it launched
+  // under, so restoring only the owner key leaves that alias stranded and the row comes
+  // back under the stale launch pane. The fence must be replayed as a unit, rebuilding
+  // the aliases retirement deleted, so the live process routes back to its real owner.
+  it('rebuilds a deleted launch alias on re-attach so a detached pane routes to its owner', () => {
+    const server = new AgentHookServer()
+    server.ingestTerminalStatus({
+      paneKey: SOURCE,
+      tabId: 'tab-source',
+      worktreeId: 'wt-1',
+      payload: { state: 'working', prompt: 'launch' }
+    })
+    server.transferPaneAuthority(SOURCE, TARGET, 'pty-1')
+    server.ingestTerminalStatus({
+      paneKey: SOURCE,
+      tabId: 'tab-source',
+      worktreeId: 'wt-1',
+      payload: { state: 'working', prompt: 'still running' }
+    })
+    expect(server.getStatusSnapshot()).toEqual([
+      expect.objectContaining({ paneKey: TARGET, prompt: 'still running' })
+    ])
+
+    // Retirement fences {SOURCE, TARGET} and deletes the SOURCE alias.
+    server.retirePaneAuthority(TARGET)
+    server.ingestTerminalStatus({
+      paneKey: SOURCE,
+      tabId: 'tab-source',
+      worktreeId: 'wt-1',
+      payload: { state: 'done', prompt: 'suppressed' }
+    })
+    expect(server.getStatusSnapshot()).toEqual([])
+
+    expect(server.restorePaneAuthority(TARGET)).toBe(true)
+    server.ingestTerminalStatus({
+      paneKey: SOURCE,
+      tabId: 'tab-source',
+      worktreeId: 'wt-1',
+      payload: { state: 'done', prompt: 'back under owner' }
+    })
+    // Routed to TARGET, not the stale launch pane SOURCE — the alias was replayed.
+    expect(server.getStatusSnapshot()).toEqual([
+      expect.objectContaining({ paneKey: TARGET, prompt: 'back under owner' })
+    ])
+  })
+
+  // A closed *tab* is a stronger, separate claim: a live process must never be routed
+  // back into a tab the user closed, so re-attach leaves that tombstone standing.
+  it('does not lift a closed-tab tombstone on re-attach', () => {
+    const server = new AgentHookServer()
+    server.ingestTerminalStatus({
+      paneKey: TARGET,
+      tabId: 'tab-target',
+      worktreeId: 'wt-1',
+      payload: { state: 'working', prompt: 'before close' }
+    })
+    server.retirePaneAuthority(TARGET)
+    server.dropStatusEntriesByTabPrefix('tab-target')
+
+    expect(server.restorePaneAuthority(TARGET)).toBe(false)
+
+    server.ingestTerminalStatus({
+      paneKey: TARGET,
+      tabId: 'tab-target',
+      worktreeId: 'wt-1',
+      payload: { state: 'working', prompt: 'after close' }
+    })
+    expect(server.getStatusSnapshot()).toEqual([])
+  })
 })

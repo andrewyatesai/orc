@@ -100,17 +100,25 @@ describe('useNativeChatRetainedSession', () => {
     expect(latest?.messages.map((entry) => entry.id)).toEqual(['settled'])
   })
 
-  it('keeps a settled read error showing the prior transcript', async () => {
-    // Fork adaptation: a read error is settled, so the wrapper returns the live
-    // session's own list untouched rather than blanking it to the retained copy.
+  it('keeps retained messages instead of a full-pane read error', async () => {
     liveSession.mockReturnValue(session('ready', [message('settled')]))
     await render(ARGS)
 
-    const errored = session('error', [message('stale')])
-    liveSession.mockReturnValue(errored)
+    liveSession.mockReturnValue({ ...session('error', []), status: 'error', error: 'read failed' })
     await render(ARGS)
 
+    expect(latest?.messages.map((entry) => entry.id)).toEqual(['settled'])
     expect(latest?.readPhase).toBe('error')
-    expect(latest?.messages.map((entry) => entry.id)).toEqual(['stale'])
+    expect(latest?.status).toBe('ready')
+    expect(latest?.error).toBeUndefined()
+  })
+
+  it('surfaces a read error when nothing was retained', async () => {
+    liveSession.mockReturnValue({ ...session('error', []), status: 'error', error: 'read failed' })
+    await render(ARGS)
+
+    expect(latest?.messages).toEqual([])
+    expect(latest?.status).toBe('error')
+    expect(latest?.error).toBe('read failed')
   })
 })

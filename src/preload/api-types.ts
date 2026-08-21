@@ -336,9 +336,9 @@ import type { TerminalSideEffectBatch } from '../shared/terminal-side-effect-fac
 import type {
   RuntimeBrowserDriverState,
   RuntimeMobileSessionTabMove,
+  RuntimeRendererSyncWindowGraph,
   RuntimeStatus,
   RuntimeSyncWindowGraphResult,
-  RuntimeSyncWindowGraph,
   RuntimeTerminalCreateRequestPayload,
   RuntimeTerminalDriverState,
   RuntimeTerminalQueryReplyAuthority,
@@ -398,17 +398,7 @@ import type {
   ComputerUsePermissionSetupResult,
   ComputerUsePermissionStatusResult
 } from '../shared/computer-use-permissions-types'
-import type {
-  ClaudeUsageBreakdownKind,
-  ClaudeUsageBreakdownRow,
-  ClaudeUsageDailyPoint,
-  ClaudeUsageRange,
-  ClaudeUsageScanState,
-  ClaudeUsageScope,
-  ClaudeUsageSessionRow,
-  ClaudeUsageSnapshot,
-  ClaudeUsageSummary
-} from '../shared/claude-usage-types'
+import type { ClaudeUsageBreakdownKind, ClaudeUsageSnapshot } from '../shared/claude-usage-types'
 import type {
   CodexRateLimitResetResult,
   GrokAccountStatus,
@@ -442,27 +432,10 @@ import type {
   PortForwardEntry,
   EnrichedDetectedPort
 } from '../shared/ssh-types'
-import type {
-  CodexUsageBreakdownKind,
-  CodexUsageBreakdownRow,
-  CodexUsageDailyPoint,
-  CodexUsageRange,
-  CodexUsageScanState,
-  CodexUsageScope,
-  CodexUsageSessionRow,
-  CodexUsageSnapshot,
-  CodexUsageSummary
-} from '../shared/codex-usage-types'
+import type { CodexUsageBreakdownKind, CodexUsageSnapshot } from '../shared/codex-usage-types'
 import type {
   OpenCodeUsageBreakdownKind,
-  OpenCodeUsageBreakdownRow,
-  OpenCodeUsageDailyPoint,
-  OpenCodeUsageRange,
-  OpenCodeUsageScanState,
-  OpenCodeUsageScope,
-  OpenCodeUsageSessionRow,
-  OpenCodeUsageSnapshot,
-  OpenCodeUsageSummary
+  OpenCodeUsageSnapshot
 } from '../shared/opencode-usage-types'
 import type {
   AiVaultListArgs,
@@ -806,92 +779,39 @@ export type MemoryApi = {
   getSnapshot: () => Promise<MemorySnapshot>
 }
 
-export type ClaudeUsageApi = {
-  getScanState: () => Promise<ClaudeUsageScanState>
-  setEnabled: (args: { enabled: boolean }) => Promise<ClaudeUsageScanState>
-  refresh: (args?: { force?: boolean }) => Promise<ClaudeUsageScanState>
-  getSnapshot: (args: {
-    scope: ClaudeUsageScope
-    range: ClaudeUsageRange
-    limit?: number
-  }) => Promise<ClaudeUsageSnapshot>
-  getSummary: (args: {
-    scope: ClaudeUsageScope
-    range: ClaudeUsageRange
-  }) => Promise<ClaudeUsageSummary>
-  getDaily: (args: {
-    scope: ClaudeUsageScope
-    range: ClaudeUsageRange
-  }) => Promise<ClaudeUsageDailyPoint[]>
-  getBreakdown: (args: {
-    scope: ClaudeUsageScope
-    range: ClaudeUsageRange
-    kind: ClaudeUsageBreakdownKind
-  }) => Promise<ClaudeUsageBreakdownRow[]>
-  getRecentSessions: (args: {
-    scope: ClaudeUsageScope
-    range: ClaudeUsageRange
-    limit?: number
-  }) => Promise<ClaudeUsageSessionRow[]>
+type UsageProviderSnapshot = {
+  scanState: unknown
+  summary: { scope: string; range: string }
+  daily: unknown[]
+  modelBreakdown: unknown[]
+  recentSessions: unknown[]
 }
 
-export type CodexUsageApi = {
-  getScanState: () => Promise<CodexUsageScanState>
-  setEnabled: (args: { enabled: boolean }) => Promise<CodexUsageScanState>
-  refresh: (args?: { force?: boolean }) => Promise<CodexUsageScanState>
-  getSnapshot: (args: {
-    scope: CodexUsageScope
-    range: CodexUsageRange
-    limit?: number
-  }) => Promise<CodexUsageSnapshot>
-  getSummary: (args: {
-    scope: CodexUsageScope
-    range: CodexUsageRange
-  }) => Promise<CodexUsageSummary>
-  getDaily: (args: {
-    scope: CodexUsageScope
-    range: CodexUsageRange
-  }) => Promise<CodexUsageDailyPoint[]>
-  getBreakdown: (args: {
-    scope: CodexUsageScope
-    range: CodexUsageRange
-    kind: CodexUsageBreakdownKind
-  }) => Promise<CodexUsageBreakdownRow[]>
-  getRecentSessions: (args: {
-    scope: CodexUsageScope
-    range: CodexUsageRange
-    limit?: number
-  }) => Promise<CodexUsageSessionRow[]>
+type UsageQueryArgs<Snapshot extends UsageProviderSnapshot> = Pick<
+  Snapshot['summary'],
+  'scope' | 'range'
+>
+
+type UsageProviderApi<Snapshot extends UsageProviderSnapshot, BreakdownKind> = {
+  getScanState: () => Promise<Snapshot['scanState']>
+  setEnabled: (args: { enabled: boolean }) => Promise<Snapshot['scanState']>
+  refresh: (args?: { force?: boolean }) => Promise<Snapshot['scanState']>
+  getSnapshot: (args: UsageQueryArgs<Snapshot> & { limit?: number }) => Promise<Snapshot>
+  getSummary: (args: UsageQueryArgs<Snapshot>) => Promise<Snapshot['summary']>
+  getDaily: (args: UsageQueryArgs<Snapshot>) => Promise<Snapshot['daily']>
+  getBreakdown: (
+    args: UsageQueryArgs<Snapshot> & { kind: BreakdownKind }
+  ) => Promise<Snapshot['modelBreakdown']>
+  getRecentSessions: (
+    args: UsageQueryArgs<Snapshot> & { limit?: number }
+  ) => Promise<Snapshot['recentSessions']>
 }
 
-export type OpenCodeUsageApi = {
-  getScanState: () => Promise<OpenCodeUsageScanState>
-  setEnabled: (args: { enabled: boolean }) => Promise<OpenCodeUsageScanState>
-  refresh: (args?: { force?: boolean }) => Promise<OpenCodeUsageScanState>
-  getSnapshot: (args: {
-    scope: OpenCodeUsageScope
-    range: OpenCodeUsageRange
-    limit?: number
-  }) => Promise<OpenCodeUsageSnapshot>
-  getSummary: (args: {
-    scope: OpenCodeUsageScope
-    range: OpenCodeUsageRange
-  }) => Promise<OpenCodeUsageSummary>
-  getDaily: (args: {
-    scope: OpenCodeUsageScope
-    range: OpenCodeUsageRange
-  }) => Promise<OpenCodeUsageDailyPoint[]>
-  getBreakdown: (args: {
-    scope: OpenCodeUsageScope
-    range: OpenCodeUsageRange
-    kind: OpenCodeUsageBreakdownKind
-  }) => Promise<OpenCodeUsageBreakdownRow[]>
-  getRecentSessions: (args: {
-    scope: OpenCodeUsageScope
-    range: OpenCodeUsageRange
-    limit?: number
-  }) => Promise<OpenCodeUsageSessionRow[]>
-}
+export type ClaudeUsageApi = UsageProviderApi<ClaudeUsageSnapshot, ClaudeUsageBreakdownKind>
+
+export type CodexUsageApi = UsageProviderApi<CodexUsageSnapshot, CodexUsageBreakdownKind>
+
+export type OpenCodeUsageApi = UsageProviderApi<OpenCodeUsageSnapshot, OpenCodeUsageBreakdownKind>
 
 export type AiVaultApi = {
   listSessions: (args?: AiVaultListArgs) => Promise<AiVaultListResult>
@@ -1060,6 +980,9 @@ export type PreloadApi = {
     get: () => {
       platform: NodeJS.Platform
       osRelease: string
+      arch: string
+      /** Login shell or ComSpec when available. */
+      shell: string
       displayServer: 'wayland' | 'x11' | null
     }
   }
@@ -1235,6 +1158,7 @@ export type PreloadApi = {
           | 'pendingFirstAgentMessageRename'
           | 'firstAgentMessageRenameError'
           | 'lastActivityAt'
+          | 'diffComments'
         >
       >
     }) => Promise<FolderWorkspace | null>
@@ -1301,6 +1225,7 @@ export type PreloadApi = {
       worktreeId: string
       branchName: string
       expectedHead: string
+      hostId?: ExecutionHostId
     }) => Promise<ForceDeleteWorktreeBranchResult>
     updateMeta: (args: { worktreeId: string; updates: Partial<WorktreeMeta> }) => Promise<Worktree>
     listLineage: () => Promise<{
@@ -1358,6 +1283,7 @@ export type PreloadApi = {
       env?: Record<string, string>
       envToDelete?: string[]
       command?: string
+      commandDelivery?: 'renderer' | 'provider'
       launchConfig?: SleepingAgentLaunchConfig
       resumeProviderSession?: AgentProviderSessionMetadata
       launchToken?: string
@@ -3223,7 +3149,9 @@ export type PreloadApi = {
     notifyWindowRevealed: () => void
   }
   runtime: {
-    syncWindowGraph: (graph: RuntimeSyncWindowGraph) => Promise<RuntimeSyncWindowGraphResult>
+    syncWindowGraph: (
+      graph: RuntimeRendererSyncWindowGraph
+    ) => Promise<RuntimeSyncWindowGraphResult>
     getStatus: () => Promise<RuntimeStatus>
     call: (args: { method: string; params?: unknown }) => Promise<RuntimeRpcResponse<unknown>>
     getTerminalFitOverrides: () => Promise<
@@ -3448,6 +3376,8 @@ export type PreloadApi = {
     dropByTabPrefix: (tabId: string) => void
     /** Permanently retire one pane's hook authority while siblings stay live. */
     retirePaneAuthority: (paneKey: string) => void
+    /** Lift one pane's retirement fence when a live PTY re-attaches to it. Closed tabs stay retired. */
+    restorePaneAuthority: (paneKey: string) => void
     /** Move hook authority when a live pane is detached into another tab. */
     transferPaneAuthority: (args: {
       fromPaneKey: string
@@ -3468,6 +3398,8 @@ export type PreloadApi = {
       | {
           available: true
           qrDataUrl: string
+          /** Natural bitmap width and height in pixels (integer pixels-per-module). */
+          qrSize: number
           pairingUrl: string
           /** Null when no direct address was advertised — the QR pairs over Relay alone. */
           endpoint: string | null

@@ -8,6 +8,7 @@ import { isValidTerminalTabId } from '@/lib/git-wasm/terminal-tab-id'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import {
   dedupeTabOrder,
+  dedupeTabsById,
   getPersistedEditFileIdsByWorktree,
   isTransientEditorContentType,
   sanitizeRecentTabIds,
@@ -73,7 +74,12 @@ function hydrateUnifiedFormat(
         .filter((tab) => tab.quickCommandLabel?.trim())
         .map((tab) => [tab.id, tab.quickCommandLabel!.trim()])
     )
-    tabsByWorktree[worktreeId] = [...tabs]
+    const aiVaultTitleByTerminalId = new Map(
+      (session.tabsByWorktree[worktreeId] ?? [])
+        .filter((tab) => tab.aiVaultTitle)
+        .map((tab) => [tab.id, tab.aiVaultTitle!])
+    )
+    const hydratedTabs = [...tabs]
       .map((tab) => ({
         ...tab,
         entityId: tab.entityId ?? tab.id
@@ -86,9 +92,11 @@ function hydrateUnifiedFormat(
           ? tab.quickCommandLabel.trim()
           : quickCommandLabelByTerminalId.get(tab.entityId)
         const generatedLabel = generatedTitleByTerminalId.get(tab.entityId)
+        const aiVaultTitle = tab.aiVaultTitle ?? aiVaultTitleByTerminalId.get(tab.entityId)
         return {
           ...tab,
           ...(quickCommandLabel ? { quickCommandLabel } : {}),
+          ...(aiVaultTitle ? { aiVaultTitle } : {}),
           ...(!tab.generatedLabel?.trim() && generatedLabel ? { generatedLabel } : {})
         }
       })
@@ -107,6 +115,8 @@ function hydrateUnifiedFormat(
         return persistedEditFileIds.has(tab.entityId)
       })
       .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt)
+    // Why after the sort: the surviving record is the one the strip renders first.
+    tabsByWorktree[worktreeId] = dedupeTabsById(hydratedTabs)
   }
 
   for (const [worktreeId, groups] of Object.entries(session.tabGroups!)) {

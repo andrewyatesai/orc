@@ -224,7 +224,7 @@ export class DeviceRegistry {
    */
   updateLastSeenDeferred(deviceId: string): void {
     const index = this.devices.findIndex((d) => d.deviceId === deviceId)
-    if (index < 0) {
+    if (index === -1) {
       return
     }
     if (this.devices[index]!.lastSeenAt === 0) {

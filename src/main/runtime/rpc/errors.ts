@@ -8,6 +8,7 @@ import { COMPUTER_ERROR_CODES } from '../../../shared/runtime-types'
 import { LINEAR_ERROR_CODES } from '../../../shared/linear-agent-access'
 import { AGENT_SESSION_RPC_ERROR_CODES } from '../../../shared/agent-session-host-authority'
 import { CALLER_SCOPE_DENIED_CODE } from '../runtime-caller-scope'
+import { GIT_DIFF_TOO_LARGE_CODE } from '../../../shared/git-diff-transport-budget'
 
 export function successResponse(id: string, meta: RpcEnvelopeMeta, result: unknown): RpcSuccess {
   return {
@@ -68,7 +69,8 @@ const STRUCTURED_RUNTIME_PASSTHROUGH_CODES: ReadonlySet<string> = new Set([
   // machine-readable code, not a generic runtime_error.
   'request_mismatch',
   'mutation_in_progress',
-  'mutation_ledger_full'
+  'mutation_ledger_full',
+  GIT_DIFF_TOO_LARGE_CODE
 ])
 
 export function mapRuntimeError(id: string, meta: RpcEnvelopeMeta, error: unknown): RpcFailure {

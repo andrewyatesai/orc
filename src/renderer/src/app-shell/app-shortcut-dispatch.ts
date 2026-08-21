@@ -16,7 +16,7 @@ import {
   folderRelativePathToIncludeGlob,
   selectedExplorerFolderRelativePath
 } from '../components/right-sidebar/file-search-include-pattern'
-import { OPEN_WORKSPACE_BOARD_EVENT } from '../components/sidebar/useWorkspaceBoardPanel'
+import { TOGGLE_WORKSPACE_BOARD_EVENT } from '../components/sidebar/useWorkspaceBoardPanel'
 import { isGitRepoKind } from '../../../shared/repo-kind'
 import {
   keybindingMatchesAction,
@@ -278,7 +278,7 @@ export function dispatchAppShortcut(state: AppShortcutState, input: ShortcutDisp
     notifyTerminalCapture('workspace.openBoard')
     const store = useAppStore.getState()
     store.setSidebarOpen(true)
-    window.dispatchEvent(new CustomEvent(OPEN_WORKSPACE_BOARD_EVENT))
+    window.dispatchEvent(new CustomEvent(TOGGLE_WORKSPACE_BOARD_EVENT))
     return
   }
 

@@ -1080,6 +1080,11 @@ describe('useIpcEvents browser tab create routing', () => {
 
     expect(acquireBrowserAutomationVisibility).toHaveBeenCalledWith('page-new')
     expect(acquireBrowserAutomationVisibility).not.toHaveBeenCalledWith('page-active')
+    expect(state.createBrowserTab).toHaveBeenCalledWith(
+      'wt-1',
+      'https://example.com',
+      expect.objectContaining({ allowWindowClose: true })
+    )
     expect(replyTabCreate).toHaveBeenCalledWith({
       requestId: 'req-create',
       browserPageId: 'page-new'
@@ -1494,6 +1499,8 @@ describe('useIpcEvents updater integration', () => {
       clearRemoteDetectedAgents: vi.fn(),
       clearRemovedSshTargetState,
       clearTabPtyId,
+      clearDirectSshTargetPtyBindings: vi.fn(),
+      retryDirectSshTargetPanes: vi.fn(),
       repos: [{ id: 'repo-1', connectionId: 'conn-1' }],
       worktreesByRepo: {
         'repo-1': [{ id: 'wt-1', repoId: 'repo-1', hostId: 'ssh:conn-1' }]
@@ -4853,6 +4860,7 @@ describe('useIpcEvents agent status snapshot integration', () => {
     drop?: (paneKey: string) => void
     remoteWorkspace?: Record<string, unknown>
     runtime?: Record<string, unknown>
+    ssh?: Record<string, unknown>
   }): Record<string, unknown> {
     return {
       api: {
@@ -4945,12 +4953,14 @@ describe('useIpcEvents agent status snapshot integration', () => {
           listTargets: () => Promise.resolve([]),
           listPortForwards: () => Promise.resolve([]),
           listDetectedPorts: () => Promise.resolve([]),
+          listRemovedTargetLabels: () => Promise.resolve({}),
           getState: () => Promise.resolve(null),
           onStateChanged: () => () => {},
           onCredentialRequest: () => () => {},
           onCredentialResolved: () => () => {},
           onPortForwardsChanged: () => () => {},
-          onDetectedPortsChanged: () => () => {}
+          onDetectedPortsChanged: () => () => {},
+          ...args.ssh
         },
         agentStatus: {
           onSet: args.onSet,
@@ -5310,6 +5320,202 @@ describe('useIpcEvents agent status snapshot integration', () => {
       expectWorktreeRouting('wt-1'),
       undefined
     )
+  })
+
+  it('applies a burst leading-edge first, then coalesces the rest into one deferred batch', async () => {
+    // Why: each live status event is its own IPC task, so N events used to pay
+    // N full render passes (STA-3328 mechanism 2). The leading event must stay
+    // synchronous (zero added latency); followers within the burst window must
+    // apply together on one later task, in arrival order.
+    vi.useFakeTimers()
+    const setAgentStatus = vi.fn()
+    const onSetListenerRef: { current: ((data: AgentStatusSetData) => void) | null } = {
+      current: null
+    }
+    const storeState: StoreLike = buildStoreState({
+      setAgentStatus,
+      workspaceSessionReady: true,
+      tabsByWorktree: {
+        'wt-1': [{ id: 'tab-future', ptyId: 'pty-1', worktreeId: 'wt-1', title: 'Future Tab' }]
+      },
+      terminalLayoutsByTabId: {
+        'tab-future': {
+          root: { type: 'leaf', leafId: FUTURE_LEAF_ID },
+          activeLeafId: FUTURE_LEAF_ID,
+          expandedLeafId: null
+        }
+      }
+    })
+
+    stubReactSyncEffect()
+    vi.doMock('../store', () => ({
+      useAppStore: {
+        subscribe: vi.fn(() => () => {}),
+        getState: () => storeState
+      }
+    }))
+    stubAuxiliaryModules()
+    vi.stubGlobal(
+      'window',
+      buildWindowApi({
+        onSet: (cb) => {
+          onSetListenerRef.current = cb
+          return () => {}
+        }
+      })
+    )
+
+    try {
+      const { useIpcEvents } = await import('./useIpcEvents')
+      useIpcEvents()
+      if (typeof onSetListenerRef.current !== 'function') {
+        throw new Error('Expected agentStatus.onSet listener to be registered')
+      }
+      const emit = (receivedAt: number, prompt: string): void => {
+        onSetListenerRef.current!({
+          paneKey: FUTURE_PANE_KEY,
+          state: 'working',
+          prompt,
+          agentType: 'claude',
+          receivedAt,
+          stateStartedAt: receivedAt
+        })
+      }
+
+      emit(1_700_000_000_000, 'first')
+      expect(setAgentStatus).toHaveBeenCalledTimes(1)
+
+      emit(1_700_000_000_001, 'second')
+      emit(1_700_000_000_002, 'third')
+      expect(setAgentStatus).toHaveBeenCalledTimes(1)
+
+      vi.advanceTimersByTime(40)
+      expect(setAgentStatus).toHaveBeenCalledTimes(3)
+      expect(setAgentStatus.mock.calls[1][1]).toEqual(expect.objectContaining({ prompt: 'second' }))
+      expect(setAgentStatus.mock.calls[2][1]).toEqual(expect.objectContaining({ prompt: 'third' }))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('preserves queued set-clear order for working removal and done retention', async () => {
+    vi.useFakeTimers()
+    let storeState: StoreLike
+    const setAgentStatus = vi.fn(
+      (
+        paneKey: string,
+        payload: { state: string },
+        _title: unknown,
+        timing: { updatedAt: number }
+      ) => {
+        storeState.agentStatusByPaneKey = {
+          ...(storeState.agentStatusByPaneKey as Record<string, unknown>),
+          [paneKey]: { ...payload, updatedAt: timing.updatedAt }
+        }
+      }
+    )
+    const removeAgentStatus = vi.fn((paneKey: string) => {
+      const next = { ...(storeState.agentStatusByPaneKey as Record<string, unknown>) }
+      delete next[paneKey]
+      storeState.agentStatusByPaneKey = next
+    })
+    const onSetListenerRef: { current: ((data: AgentStatusSetData) => void) | null } = {
+      current: null
+    }
+    const onClearListenerRef: { current: ((data: { paneKey: string }) => void) | null } = {
+      current: null
+    }
+    storeState = buildStoreState({
+      setAgentStatus,
+      removeAgentStatus,
+      workspaceSessionReady: true,
+      tabsByWorktree: {
+        'wt-1': [{ id: 'tab-future', ptyId: 'pty-1', worktreeId: 'wt-1', title: 'Future Tab' }]
+      },
+      terminalLayoutsByTabId: {
+        'tab-future': {
+          root: { type: 'leaf', leafId: FUTURE_LEAF_ID },
+          activeLeafId: FUTURE_LEAF_ID,
+          expandedLeafId: null
+        }
+      }
+    })
+
+    stubReactSyncEffect()
+    vi.doMock('../store', () => ({
+      useAppStore: {
+        subscribe: vi.fn(() => () => {}),
+        getState: () => storeState
+      }
+    }))
+    stubAuxiliaryModules()
+    vi.stubGlobal(
+      'window',
+      buildWindowApi({
+        onSet: (cb) => {
+          onSetListenerRef.current = cb
+          return () => {}
+        },
+        onClear: (cb) => {
+          onClearListenerRef.current = cb as (data: { paneKey: string }) => void
+          return () => {}
+        }
+      })
+    )
+
+    try {
+      const { useIpcEvents } = await import('./useIpcEvents')
+      useIpcEvents()
+      if (
+        typeof onSetListenerRef.current !== 'function' ||
+        typeof onClearListenerRef.current !== 'function'
+      ) {
+        throw new Error('Expected agentStatus listeners to be registered')
+      }
+      const emit = (
+        receivedAt: number,
+        prompt: string,
+        state: AgentStatusSetData['state'] = 'working'
+      ): void => {
+        onSetListenerRef.current!({
+          paneKey: FUTURE_PANE_KEY,
+          state,
+          prompt,
+          agentType: 'claude',
+          receivedAt,
+          stateStartedAt: receivedAt
+        })
+      }
+
+      emit(1_700_000_000_000, 'leading')
+      emit(1_700_000_000_001, 'queued')
+      expect(setAgentStatus).toHaveBeenCalledTimes(1)
+
+      onClearListenerRef.current({ paneKey: FUTURE_PANE_KEY })
+      expect(removeAgentStatus).toHaveBeenCalledWith(FUTURE_PANE_KEY)
+      expect(storeState.agentStatusByPaneKey).toEqual({})
+
+      vi.advanceTimersByTime(40)
+      expect(setAgentStatus).toHaveBeenCalledTimes(2)
+      expect(storeState.agentStatusByPaneKey).toEqual({})
+
+      emit(1_700_000_000_002, 'task')
+      emit(1_700_000_000_003, 'task', 'done')
+      expect(setAgentStatus).toHaveBeenCalledTimes(3)
+
+      onClearListenerRef.current({ paneKey: FUTURE_PANE_KEY })
+
+      expect(setAgentStatus).toHaveBeenCalledTimes(4)
+      expect(setAgentStatus.mock.calls[3][1]).toEqual(expect.objectContaining({ state: 'done' }))
+      expect(removeAgentStatus).toHaveBeenCalledTimes(1)
+      expect(storeState.agentStatusByPaneKey).toEqual({
+        [FUTURE_PANE_KEY]: expect.objectContaining({ state: 'done' })
+      })
+      vi.advanceTimersByTime(40)
+      expect(setAgentStatus).toHaveBeenCalledTimes(4)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('does not recurse when flushing a pending status re-enters via the store subscriber', async () => {
@@ -8061,6 +8267,108 @@ describe('useIpcEvents agent status snapshot integration', () => {
 
     expect(setAgentStatus).toHaveBeenCalledTimes(1)
   })
+
+  // Why: reattach hydration fetches a port snapshot; if a live push lands while
+  // that fetch is in flight, resolving the stale snapshot must NOT clobber the
+  // fresher push, or the Ports panel rows vanish after hydration (#11713).
+  it('lets a mid-fetch port push win over the stale initial snapshot (#11713)', async () => {
+    const targetId = 'ssh-target-ports'
+    const connectedState = {
+      targetId,
+      status: 'connected' as const,
+      error: null,
+      reconnectAttempt: 0
+    }
+    const liveForward = {
+      id: 'forward-live',
+      targetId,
+      localPort: 17860,
+      remoteHost: '127.0.0.1',
+      remotePort: 7860,
+      status: 'active' as const
+    }
+    const detectedPort = {
+      port: 7860,
+      pid: 42,
+      processName: 'python',
+      command: 'python -m http.server 7860'
+    }
+
+    let resolveForwards: (value: unknown[]) => void = () => {}
+    const forwardsSnapshot = new Promise<unknown[]>((resolve) => {
+      resolveForwards = resolve
+    })
+    let forwardListener: ((data: { targetId: string; forwards: unknown[] }) => void) | undefined
+
+    const sshConnectionStates = new Map<string, typeof connectedState>()
+    const setPortForwards = vi.fn()
+    const setDetectedPorts = vi.fn()
+    const store = buildStoreState({
+      sshConnectionStates,
+      setSshConnectionState: (id: string, state: typeof connectedState) => {
+        sshConnectionStates.set(id, state)
+      },
+      setPortForwards,
+      setDetectedPorts,
+      setSshTargetsMetadata: vi.fn(),
+      setRemovedSshTargetLabels: vi.fn(),
+      setRemoteWorkspaceSyncStatus: vi.fn()
+    })
+
+    stubReactSyncEffect()
+    stubAuxiliaryModules()
+    vi.doMock('../store', () => ({
+      useAppStore: {
+        subscribe: vi.fn(() => () => {}),
+        getState: () => store
+      }
+    }))
+    vi.stubGlobal(
+      'window',
+      buildWindowApi({
+        onSet: () => () => {},
+        ssh: {
+          listTargets: () => Promise.resolve([{ id: targetId }]),
+          getState: () => Promise.resolve(connectedState),
+          listPortForwards: () => forwardsSnapshot,
+          listDetectedPorts: () => Promise.resolve([detectedPort]),
+          onPortForwardsChanged: (
+            listener: (data: { targetId: string; forwards: unknown[] }) => void
+          ) => {
+            forwardListener = listener
+            return () => {}
+          }
+        }
+      })
+    )
+
+    const flush = async (): Promise<void> => {
+      for (let tick = 0; tick < 15; tick += 1) {
+        await Promise.resolve()
+      }
+    }
+
+    const { useIpcEvents } = await import('./useIpcEvents')
+    useIpcEvents()
+
+    // Let the hydration IIFE advance to the parked port-forward snapshot await.
+    await flush()
+    if (!forwardListener) {
+      throw new Error('Expected onPortForwardsChanged listener to be registered')
+    }
+
+    // A live push lands while the snapshot fetch is still in flight, then the
+    // snapshot resolves EMPTY (the pre-push server view).
+    forwardListener({ targetId, forwards: [liveForward] })
+    resolveForwards([])
+    await flush()
+
+    // The push value survives; the stale empty snapshot never overwrites it.
+    expect(setPortForwards).toHaveBeenCalledTimes(1)
+    expect(setPortForwards).toHaveBeenLastCalledWith(targetId, [liveForward])
+    // The un-raced detected-port stream still applies its snapshot.
+    expect(setDetectedPorts).toHaveBeenCalledWith(targetId, [detectedPort])
+  })
 })
 
 // Why: pins the renderer-hook crux of #6628 — a local worktrees:changed while a
@@ -8407,6 +8715,188 @@ describe('useIpcEvents worktrees:changed local-owner refresh (#6628)', () => {
     // and reaps the row the fresh scan no longer lists.
     expect(purgeWorktreeTerminalState).toHaveBeenCalledWith(['wt-remote'])
     expect(removeWorkspaceSpaceWorktrees).toHaveBeenCalledWith(['wt-remote'])
+  })
+})
+
+describe('runtime host catalog refresh on reposChanged', () => {
+  // Why: the host emits one reposChanged for project-group and folder-workspace edits
+  // too, so a repos-only refresh leaves those catalogs stale on every paired client.
+  it('refetches the runtime host project group and folder workspace catalogs', async () => {
+    vi.resetModules()
+    vi.useFakeTimers()
+    try {
+      const calls: string[] = []
+      const fetchRuntimeEnvironmentRepos = vi.fn(() => {
+        calls.push('repos')
+        return Promise.resolve([])
+      })
+      const fetchProjectGroupsForRuntimeEnvironment = vi.fn(() => {
+        calls.push('project-groups')
+        return Promise.resolve()
+      })
+      const fetchFolderWorkspacesForRuntimeEnvironment = vi.fn(() => {
+        calls.push('folder-workspaces')
+        return Promise.resolve()
+      })
+      const state = {
+        settings: { activeRuntimeEnvironmentId: 'env-1' as string | null },
+        repos: [],
+        worktreesByRepo: {},
+        folderWorkspaces: [],
+        projectGroups: [],
+        runtimeEnvironments: [],
+        runtimeStatusByEnvironmentId: new Map(),
+        tabsByWorktree: {},
+        ptyIdsByTabId: {},
+        remountTerminalTabForRecovery: vi.fn(),
+        markEnvironmentSshStateStale: vi.fn(),
+        fetchRepos: vi.fn(() => Promise.resolve()),
+        fetchRuntimeEnvironmentRepos,
+        fetchProjectGroupsForRuntimeEnvironment,
+        fetchFolderWorkspacesForRuntimeEnvironment,
+        fetchWorktrees: vi.fn(() => Promise.resolve()),
+        fetchWorktreeLineage: vi.fn(() => Promise.resolve())
+      }
+
+      vi.doMock('react', async () => {
+        const actual = await vi.importActual<typeof ReactModule>('react')
+        return { ...actual, useEffect: (effect: () => void | (() => void)) => void effect() }
+      })
+      vi.doMock('../store', () => ({
+        useAppStore: { subscribe: vi.fn(() => () => {}), getState: () => state }
+      }))
+      const noopListener = (): (() => void) => () => {}
+      const autoStubNamespace = new Proxy(
+        {},
+        {
+          get:
+            () =>
+            (...args: unknown[]) => {
+              if (typeof args[0] === 'function') {
+                return noopListener()
+              }
+              return new Promise(() => {})
+            }
+        }
+      )
+      let runtimeOnResponse: ((response: unknown) => void) | undefined
+      const api = new Proxy(
+        {
+          runtimeEnvironments: {
+            subscribe: async (_args: unknown, callbacks: { onResponse: (r: unknown) => void }) => {
+              runtimeOnResponse = callbacks.onResponse
+              return { unsubscribe: vi.fn(), sendBinary: vi.fn() }
+            }
+          }
+        } as Record<string, unknown>,
+        { get: (target, prop: string) => target[prop] ?? autoStubNamespace }
+      )
+      vi.stubGlobal('window', { api })
+
+      const { useIpcEvents } = await import('./useIpcEvents')
+      useIpcEvents()
+      // Seeded discovery for the connected runtime; drains the scheduler's debounce.
+      await vi.advanceTimersByTimeAsync(300)
+
+      expect(fetchProjectGroupsForRuntimeEnvironment).toHaveBeenCalledWith('env-1')
+      expect(fetchFolderWorkspacesForRuntimeEnvironment).toHaveBeenCalledWith('env-1')
+      // Folder workspaces resolve their owning group from projectGroups, so groups must land first.
+      expect(calls).toEqual(['repos', 'project-groups', 'folder-workspaces'])
+
+      calls.length = 0
+      fetchProjectGroupsForRuntimeEnvironment.mockClear()
+      fetchFolderWorkspacesForRuntimeEnvironment.mockClear()
+      if (!runtimeOnResponse) {
+        throw new Error('Expected runtime client event callbacks')
+      }
+      // Past the scheduler's min interval so the event schedules on the debounce alone.
+      await vi.advanceTimersByTimeAsync(5_000)
+      runtimeOnResponse({ ok: true, result: { type: 'reposChanged' } })
+      await vi.advanceTimersByTimeAsync(300)
+
+      expect(fetchProjectGroupsForRuntimeEnvironment).toHaveBeenCalledWith('env-1')
+      expect(fetchFolderWorkspacesForRuntimeEnvironment).toHaveBeenCalledWith('env-1')
+      expect(calls).toEqual(['repos', 'project-groups', 'folder-workspaces'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('repo catalog refresh on repos:changed', () => {
+  it('skips remote catalog RPCs when refreshing local rows under a runtime', async () => {
+    vi.resetModules()
+    let reposChangedListener: (() => void) | undefined
+    const fetchRepos = vi.fn(() => Promise.resolve())
+    const fetchProjectGroups = vi.fn(() => Promise.resolve())
+    const fetchFolderWorkspaces = vi.fn(() => Promise.resolve())
+    const remountTerminalTabForRecovery = vi.fn(() => true)
+    const state = {
+      settings: { activeRuntimeEnvironmentId: null as string | null },
+      repos: [{ id: 'repo1', connectionId: 'conn-1' }],
+      worktreesByRepo: { repo1: [{ id: 'wt-1', repoId: 'repo1' }] },
+      folderWorkspaces: [],
+      projectGroups: [],
+      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: null }] },
+      ptyIdsByTabId: {},
+      remountTerminalTabForRecovery,
+      fetchRepos,
+      fetchProjectGroups,
+      fetchFolderWorkspaces
+    }
+
+    vi.doMock('react', async () => {
+      const actual = await vi.importActual<typeof ReactModule>('react')
+      return { ...actual, useEffect: (effect: () => void | (() => void)) => void effect() }
+    })
+    vi.doMock('../store', () => ({
+      useAppStore: { subscribe: vi.fn(() => () => {}), getState: () => state }
+    }))
+    const noopListener = (): (() => void) => () => {}
+    const autoStubNamespace = new Proxy(
+      {},
+      {
+        get:
+          () =>
+          (...args: unknown[]) => {
+            if (typeof args[0] === 'function') {
+              return noopListener()
+            }
+            return new Promise(() => {})
+          }
+      }
+    )
+    const api = new Proxy(
+      {
+        repos: {
+          onChanged: (listener: () => void) => {
+            reposChangedListener = listener
+            return () => {}
+          }
+        }
+      } as Record<string, unknown>,
+      { get: (target, prop: string) => target[prop] ?? autoStubNamespace }
+    )
+    vi.stubGlobal('window', { api })
+
+    const { recordTerminalTabParkedOnUnresolvedHost, clearTerminalTabsParkedOnUnresolvedHost } =
+      await import('@/lib/parked-terminal-host-hydration')
+    clearTerminalTabsParkedOnUnresolvedHost()
+
+    const { useIpcEvents } = await import('./useIpcEvents')
+    useIpcEvents()
+    state.settings.activeRuntimeEnvironmentId = 'env-1'
+    // Why: the local-slice refresh still has to release panes that parked on an unhydrated host.
+    recordTerminalTabParkedOnUnresolvedHost('wt-1', 'tab-1')
+    reposChangedListener?.()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const localOwner = { runtimeEnvironmentId: null }
+    expect(fetchRepos).toHaveBeenCalledWith(localOwner)
+    expect(fetchProjectGroups).toHaveBeenCalledWith(localOwner)
+    expect(fetchFolderWorkspaces).toHaveBeenCalledWith(localOwner)
+    expect(remountTerminalTabForRecovery).toHaveBeenCalledWith('tab-1')
+    clearTerminalTabsParkedOnUnresolvedHost()
   })
 })
 

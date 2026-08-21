@@ -76,4 +76,31 @@ describe('GitHistoryPanel', () => {
     expect(markup).toContain('Fix tab overflow')
     expect(markup).toContain('52ad492')
   })
+
+  // Managed Radix tooltips already cover the subject and every ref badge; a native
+  // title= on the same node produces a second, duplicate OS tooltip on hover.
+  it('does not add native title tooltips alongside managed history tooltips', () => {
+    const result = makeHistoryResult()
+    result.items[0].references = [
+      { id: 'refs/heads/main', name: 'main', category: 'branches' },
+      { id: 'refs/heads/feature', name: 'feature', category: 'branches' },
+      { id: 'refs/tags/v1.0.0', name: 'v1.0.0', category: 'tags' }
+    ]
+
+    const markup = renderToStaticMarkup(
+      <GitHistoryPanel
+        state={{ status: 'ready', result }}
+        collapsed={false}
+        onToggle={vi.fn()}
+        onRefresh={vi.fn()}
+        onOpenCommit={vi.fn()}
+      />
+    )
+
+    expect(markup).not.toContain('title="Fix tab overflow"')
+    expect(markup).not.toContain('title="main"')
+    expect(markup).not.toContain('title="feature"')
+    expect(markup).not.toContain('title="v1.0.0"')
+    expect(markup).not.toMatch(/\stitle=/)
+  })
 })

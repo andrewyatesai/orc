@@ -5,6 +5,7 @@ import { RecoverableRenderErrorBoundary } from '../components/error-boundaries/R
 import { FloatingTerminalToggleButton } from '../components/floating-terminal/FloatingTerminalToggleButton'
 import RightSidebar from '../components/right-sidebar'
 import Sidebar from '../components/Sidebar'
+import { TerminalWorkbenchContainer } from '../components/TerminalWorkbenchContainer'
 import type { useAppStore } from '../store'
 import { Terminal } from './app-lazy-surfaces'
 
@@ -174,13 +175,7 @@ export function AppWorkspaceShell({
               {workspaceProfileSwitcher}
               <div className="flex flex-1 min-w-0 min-h-0 flex-col">
                 {shouldMountTerminalWorkbench ? (
-                  <div
-                    className={
-                      !terminalWorkbenchVisible
-                        ? 'hidden flex-1 min-w-0 min-h-0'
-                        : 'flex flex-1 min-w-0 min-h-0'
-                    }
-                  >
+                  <TerminalWorkbenchContainer isVisible={terminalWorkbenchVisible}>
                     <Suspense fallback={null}>
                       <RecoverableRenderErrorBoundary
                         boundaryId="terminal.workbench"
@@ -198,7 +193,7 @@ export function AppWorkspaceShell({
                         <Terminal />
                       </RecoverableRenderErrorBoundary>
                     </Suspense>
-                  </div>
+                  </TerminalWorkbenchContainer>
                 ) : null}
                 <Suspense fallback={null}>
                   <RecoverableRenderErrorBoundary

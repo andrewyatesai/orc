@@ -1,12 +1,25 @@
 import { toast } from 'sonner'
 import { absolutePathToFileUri } from '@/components/editor/markdown-internal-links'
 import { getConnectionId } from '@/lib/connection-context'
+import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
+import { createWebRuntimeSessionBrowserTab } from '@/runtime/web-runtime-session'
 import { useAppStore } from '@/store'
 import { findSiblingGroupId } from '@/store/slices/tabs'
 
 export type PreviewableLanguage = 'html'
 export const REMOTE_FILE_BROWSER_UNSUPPORTED_MESSAGE =
   'Open in Orca Browser is only available for local files.'
+const FILE_BROWSER_OPEN_FAILED_MESSAGE = 'Unable to open this file in Orca Browser.'
+
+// Why: paired-runtime creates are async; surface the failure and let the caller undo any split it staged.
+function reportRemoteFileBrowserOpen(result: Promise<boolean>, onFailure?: () => void): void {
+  void result.then((created) => {
+    if (!created) {
+      toast.error(FILE_BROWSER_OPEN_FAILED_MESSAGE)
+      onFailure?.()
+    }
+  })
+}
 
 export type WorkspaceFileBrowserOpenTarget =
   | {
@@ -51,6 +64,20 @@ export function openFileInBrowserTab(params: {
   }
 
   const state = useAppStore.getState()
+  const environmentId = getRuntimeEnvironmentIdForWorktree(state, params.worktreeId)
+  if (environmentId) {
+    // Why: paired-runtime worktrees resolve file:// URLs on the host, so the browser tab must be owned there (#13876).
+    reportRemoteFileBrowserOpen(
+      createWebRuntimeSessionBrowserTab({
+        worktreeId: params.worktreeId,
+        environmentId,
+        url: target.url,
+        stagedTitle: target.title,
+        stagedFocusAddressBar: false
+      })
+    )
+    return target
+  }
 
   state.createBrowserTab(params.worktreeId, target.url, {
     title: target.title,
@@ -104,6 +131,8 @@ export function openFilePreviewToSide(params: {
   if (!targetGroupId) {
     return
   }
+  const createdSplit = !existingSibling
+  const previewGroupId = targetGroupId
 
   const target = getWorkspaceFileBrowserOpenTarget({
     filePath: params.filePath,
@@ -114,9 +143,29 @@ export function openFilePreviewToSide(params: {
     return
   }
 
+  const environmentId = getRuntimeEnvironmentIdForWorktree(state, worktreeId)
+  if (environmentId) {
+    // Why: keep the preview in the background so the editor stays focused, and own the tab at the host (#13876).
+    reportRemoteFileBrowserOpen(
+      createWebRuntimeSessionBrowserTab({
+        worktreeId,
+        environmentId,
+        url: target.url,
+        targetGroupId: previewGroupId,
+        focusOnCreate: false,
+        stagedTitle: target.title,
+        stagedFocusAddressBar: false
+      }),
+      createdSplit
+        ? () => useAppStore.getState().closeEmptyGroup(worktreeId, previewGroupId)
+        : undefined
+    )
+    return
+  }
+
   state.createBrowserTab(worktreeId, target.url, {
     title: target.title,
-    targetGroupId,
+    targetGroupId: previewGroupId,
     activate: true
   })
 }

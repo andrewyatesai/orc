@@ -23,16 +23,20 @@ function editorTab(
     tabId: 'tab-1',
     entityId: 'file-1',
     groupId: 'group-1',
-    relativePath
+    relativePath,
+    occupantAgent: null
   }
 }
+
+const POSIX_ROOT = '/home/dev/wt-1'
+const WINDOWS_ROOT = 'C:\\Users\\dev\\wt-1'
 
 describe('dropFileEntriesCoveredByTabResults', () => {
   it('drops the file row that duplicates an open editor tab', () => {
     const options = [existingFile('src/zebra.ts'), existingFile('src/other.ts')]
 
     expect(
-      dropFileEntriesCoveredByTabResults(options, [editorTab('src/zebra.ts')]).map(
+      dropFileEntriesCoveredByTabResults(options, [editorTab('src/zebra.ts')], POSIX_ROOT).map(
         (option) => option.id
       )
     ).toEqual(['existing-file:src/other.ts'])
@@ -42,8 +46,48 @@ describe('dropFileEntriesCoveredByTabResults', () => {
     expect(
       dropFileEntriesCoveredByTabResults(
         [existingFile('src/zebra.ts')],
-        [editorTab('src\\zebra.ts')]
+        [editorTab('src\\zebra.ts')],
+        POSIX_ROOT
       )
+    ).toEqual([])
+  })
+
+  it('folds case-only duplicates on a Windows worktree, not on a POSIX one', () => {
+    // Same file, different case: a case-insensitive root must treat them as one.
+    expect(
+      dropFileEntriesCoveredByTabResults(
+        [existingFile('src/zebra.ts')],
+        [editorTab('src/Zebra.ts')],
+        WINDOWS_ROOT
+      )
+    ).toEqual([])
+    // A POSIX (or SSH) root keeps distinct-case names distinct.
+    expect(
+      dropFileEntriesCoveredByTabResults(
+        [existingFile('src/zebra.ts')],
+        [editorTab('src/Zebra.ts')],
+        POSIX_ROOT
+      )
+    ).toHaveLength(1)
+  })
+
+  it('treats a null worktree path as case-sensitive', () => {
+    expect(
+      dropFileEntriesCoveredByTabResults(
+        [existingFile('src/zebra.ts')],
+        [editorTab('src/Zebra.ts')],
+        null
+      )
+    ).toHaveLength(1)
+  })
+
+  it('matches a macOS NFD listing against an editor-recorded NFC path', () => {
+    const nfc = 'src/café.ts'
+    const nfd = nfc.normalize('NFD')
+    expect(nfd).not.toBe(nfc)
+
+    expect(
+      dropFileEntriesCoveredByTabResults([existingFile(nfd)], [editorTab(nfc)], POSIX_ROOT)
     ).toEqual([])
   })
 
@@ -63,7 +107,9 @@ describe('dropFileEntriesCoveredByTabResults', () => {
       }
     ]
 
-    expect(dropFileEntriesCoveredByTabResults(options, [editorTab('src/zebra.ts')])).toHaveLength(3)
+    expect(
+      dropFileEntriesCoveredByTabResults(options, [editorTab('src/zebra.ts')], POSIX_ROOT)
+    ).toHaveLength(3)
   })
 
   it('never lets a terminal, browser or simulator result suppress a file entry', () => {
@@ -92,13 +138,23 @@ describe('dropFileEntriesCoveredByTabResults', () => {
     ]
 
     expect(
-      dropFileEntriesCoveredByTabResults([existingFile('src/zebra.ts')], results)
+      dropFileEntriesCoveredByTabResults([existingFile('src/zebra.ts')], results, POSIX_ROOT)
+    ).toHaveLength(1)
+  })
+
+  it('does not let a non-editor workspace row that carries a path suppress the file', () => {
+    // A diff or review tab is not the same destination as opening the file, even
+    // though it references the same path.
+    const diffResult = { ...editorTab('src/zebra.ts'), contentType: 'diff' as const }
+
+    expect(
+      dropFileEntriesCoveredByTabResults([existingFile('src/zebra.ts')], [diffResult], POSIX_ROOT)
     ).toHaveLength(1)
   })
 
   it('returns the same array when no tab result carries a path', () => {
     const options = [existingFile('src/zebra.ts')]
 
-    expect(dropFileEntriesCoveredByTabResults(options, [])).toBe(options)
+    expect(dropFileEntriesCoveredByTabResults(options, [], POSIX_ROOT)).toBe(options)
   })
 })

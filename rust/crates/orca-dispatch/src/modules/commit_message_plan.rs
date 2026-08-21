@@ -6,7 +6,7 @@
 //! shape that into the TS `CommitMessagePlanResult` discriminated union:
 //! `{ ok: true, plan: {...} }` on success and `{ ok: false, error }` on failure.
 
-use orca_agents::{plan_commit_message_generation, CommitMessagePlan, CommitMessagePlanInput};
+use orca_agents::{plan_commit_message_generation, CommandTemplateBackslash, CommitMessagePlan, CommitMessagePlanInput};
 use serde_json::{json, Value};
 
 pub fn dispatch(function: &str, input: &Value) -> Value {
@@ -22,10 +22,15 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
             let agent_command_override =
                 plan_input.and_then(|v| v.get("agentCommandOverride")).and_then(Value::as_str);
             let agent_args = plan_input.and_then(|v| v.get("agentArgs")).and_then(Value::as_str);
+            let backslash = match plan_input.and_then(|v| v.get("backslash")).and_then(Value::as_str) {
+                Some("literal") => CommandTemplateBackslash::Literal,
+                _ => CommandTemplateBackslash::Escape,
+            };
             let prompt = input.get("prompt").and_then(Value::as_str).unwrap_or_default();
 
             let parsed = CommitMessagePlanInput {
                 agent_id,
+                backslash,
                 model,
                 thinking_level,
                 custom_agent_command,

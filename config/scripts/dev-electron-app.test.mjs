@@ -110,14 +110,24 @@ describe('dev Electron app identity', () => {
       ELECTRON_EXEC_PATH: executablePath,
       ORCA_DEV_MACOS_BUNDLE_ID: 'com.stablyai.orca.dev'
     })
+    // Why constant, not the branch title: Info.plist is inside the signature seal, so a
+    // branch-varying value moves the ad-hoc cdhash and macOS Keychain ACLs match on it — every
+    // branch would re-prompt. The branch title lives only in the .app dir name (asserted above),
+    // which is outside the signature.
     expect(execFile).toHaveBeenCalledWith(
       '/usr/bin/plutil',
-      expect.arrayContaining(['CFBundleName', 'Orca: feature/menu'])
+      expect.arrayContaining(['CFBundleName', 'Orca Dev'])
     )
     expect(execFile).toHaveBeenCalledWith(
       '/usr/bin/plutil',
-      expect.arrayContaining(['CFBundleDisplayName', 'Orca: feature/menu'])
+      expect.arrayContaining(['CFBundleDisplayName', 'Orca Dev'])
     )
+    // The regression this guards against: re-adding the branch title to any signed plist value.
+    const plistTitleLeak = execFile.mock.calls.some(
+      ([bin, args]) =>
+        bin === '/usr/bin/plutil' && Array.isArray(args) && args.includes('Orca: feature/menu')
+    )
+    expect(plistTitleLeak).toBe(false)
     expect(execFile).toHaveBeenCalledWith(
       '/usr/bin/codesign',
       expect.arrayContaining(['--sign', '-'])

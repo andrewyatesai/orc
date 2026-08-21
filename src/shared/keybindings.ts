@@ -318,10 +318,20 @@ export const KEYBINDING_DEFINITIONS: readonly KeybindingDefinition[] = [
   },
   {
     id: 'workspace.openBoard',
-    title: 'Open Workspace Board',
+    title: 'Toggle Workspace Board',
     group: 'Global',
     scope: 'global',
-    searchKeywords: ['shortcut', 'global', 'workspace', 'board', 'kanban', 'worktree'],
+    searchKeywords: [
+      'shortcut',
+      'global',
+      'workspace',
+      'board',
+      'kanban',
+      'worktree',
+      'toggle',
+      'open',
+      'close'
+    ],
     // Why: configurable but unbound by default, to not take a global chord from terminal/browser/editor users.
     defaultBindings: platformBindings([]),
     allowInTerminal: true
@@ -960,7 +970,15 @@ export const KEYBINDING_DEFINITIONS: readonly KeybindingDefinition[] = [
     group: 'Terminal Panes',
     scope: 'terminal',
     searchKeywords: ['shortcut', 'terminal', 'copy', 'selection'],
-    defaultBindings: platformBindings(['Mod+Shift+C'])
+    // Why: platform-native copy chord (matches the aterm xterm-bypass-policy,
+    // which already treats Mod+C / Ctrl+C as the terminal copy binding). Bare
+    // Ctrl+C off macOS falls through to SIGINT when nothing is selected —
+    // copyPaneSelectionViaShortcut returns false and the handler skips preventDefault.
+    defaultBindings: {
+      darwin: ['Mod+C'],
+      linux: ['Ctrl+Shift+C', 'Ctrl+C'],
+      win32: ['Ctrl+Shift+C', 'Ctrl+C']
+    }
   },
   {
     id: 'terminal.paste',
@@ -2226,7 +2244,8 @@ export function keybindingsShareConflictIdentity(
   platform: NodeJS.Platform
 ): boolean {
   return (
-    getKeybindingConflictIdentity(first, platform) === getKeybindingConflictIdentity(second, platform)
+    getKeybindingConflictIdentity(first, platform) ===
+    getKeybindingConflictIdentity(second, platform)
   )
 }
 

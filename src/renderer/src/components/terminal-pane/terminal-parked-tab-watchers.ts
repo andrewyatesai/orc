@@ -10,7 +10,6 @@ import type { TerminalTab } from '../../../../shared/types'
 import { useAppStore } from '@/store'
 import { closeTerminalTab } from '../terminal/terminal-tab-actions'
 import { detachTerminalLayoutLeaf } from './terminal-layout-leaf-detach'
-import { sendRuntimePtyInput } from '@/runtime/runtime-terminal-inspection'
 import { subscribeToPtyExit } from './pty-dispatcher'
 import { discardPreHandlerPtyState } from './pty-pre-handler-buffer'
 import { startParkedTerminalByteWatcher } from './parked-terminal-byte-watcher'
@@ -176,13 +175,9 @@ function startParkedTabWatchers(
       ...(remoteByteSource
         ? {
             subscribeBytes: remoteByteSource.subscribeBytes,
-            runtimeEnvironmentId: remoteByteSource.runtimeEnvironmentId,
-            sendInput: (data) => sendRuntimePtyInput(useAppStore.getState().settings, ptyId, data)
+            runtimeEnvironmentId: remoteByteSource.runtimeEnvironmentId
           }
-        : {
-            // Why: no pane transport while parked, so write straight to the PTY (same channel as background launches).
-            sendInput: (data) => window.api.pty.write(ptyId, data)
-          })
+        : {})
     })
     // Why: a PTY exiting while parked has no pane for cleanup, so its watcher
     // must not outlive it. Remote ids never emit pty:exit; their byte source's

@@ -3,10 +3,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
-import { ClaudeIcon } from '../status-bar/icons'
+import { ClaudeIcon, OpenAIIcon } from '../status-bar/icons'
 import { useShortcutLabel } from '@/hooks/useShortcutLabel'
 import { FeatureWallClickRing } from './FeatureWallClickRing'
-import { CodexInlineIcon } from './feature-tour-preview-glyphs'
 import { translate } from '@/i18n/i18n'
 import { getFeatureWallTerminalShell } from './feature-wall-terminal-shell'
 
@@ -915,8 +914,8 @@ function RightPaneScrollback(props: {
           return (
             <TermLine key={i} muted>
               {props.isCodex ? (
-                <span className="mr-1.5 inline-flex align-[-2px]">
-                  <CodexInlineIcon />
+                <span aria-hidden className="mr-1.5 inline-flex text-foreground align-[-2px]">
+                  <OpenAIIcon />
                 </span>
               ) : (
                 <span className="mr-1.5 text-foreground">●</span>
@@ -971,8 +970,8 @@ function RightPaneScrollback(props: {
           <TermLine key={i}>
             {line.withGlyph ? (
               props.isCodex ? (
-                <span className="mr-1.5 inline-flex align-[-2px]">
-                  <CodexInlineIcon />
+                <span aria-hidden className="mr-1.5 inline-flex text-foreground align-[-2px]">
+                  <OpenAIIcon />
                 </span>
               ) : (
                 <span className="mr-1.5 text-amber-600">●</span>

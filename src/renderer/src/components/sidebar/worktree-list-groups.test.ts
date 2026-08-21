@@ -3674,6 +3674,174 @@ describe('buildRows workspace lineage nesting', () => {
     })
   })
 
+  it('nests an unpinned child under a pinned parent in Pinned', () => {
+    const pinnedParent = { ...parent, isPinned: true }
+    const rows = buildRows(
+      'none',
+      [child, pinnedParent],
+      repoMap,
+      null,
+      new Set(),
+      undefined,
+      undefined,
+      undefined,
+      { [child.id]: lineage },
+      new Map([
+        [pinnedParent.id, pinnedParent],
+        [child.id, child]
+      ]),
+      true
+    )
+
+    const items = rows.filter((row) => row.type === 'item')
+    expect(rows[0]).toMatchObject({ type: 'header', key: 'pinned', count: 2 })
+    expect(
+      items.map((row) =>
+        row.type === 'item' ? [row.worktree.id, row.depth, row.sectionKey] : null
+      )
+    ).toEqual([
+      [pinnedParent.id, 0, 'pinned'],
+      [child.id, 1, 'pinned']
+    ])
+    expect(rows.some((row) => row.type === 'header' && row.key === 'all')).toBe(false)
+  })
+
+  it('nests grandchildren under a pinned ancestor in Pinned', () => {
+    const pinnedParent = { ...parent, isPinned: true }
+    const rows = buildRows(
+      'none',
+      [grandchild, child, pinnedParent],
+      repoMap,
+      null,
+      new Set(),
+      undefined,
+      undefined,
+      undefined,
+      { [child.id]: lineage, [grandchild.id]: grandchildLineage },
+      new Map([
+        [pinnedParent.id, pinnedParent],
+        [child.id, child],
+        [grandchild.id, grandchild]
+      ]),
+      true
+    )
+
+    expect(
+      rows
+        .filter((row) => row.type === 'item')
+        .map((row) => (row.type === 'item' ? [row.worktree.id, row.depth] : null))
+    ).toEqual([
+      [pinnedParent.id, 0],
+      [child.id, 1],
+      [grandchild.id, 2]
+    ])
+  })
+
+  it('duplicates a pinned parent tree into All when the policy allows it', () => {
+    const pinnedParent = { ...parent, isPinned: true }
+    const rows = buildRows(
+      'none',
+      [child, pinnedParent],
+      repoMap,
+      null,
+      new Set(),
+      undefined,
+      undefined,
+      undefined,
+      { [child.id]: lineage },
+      new Map([
+        [pinnedParent.id, pinnedParent],
+        [child.id, child]
+      ]),
+      true,
+      { showPinnedWorktreesInGroups: true } as never
+    )
+
+    expect(
+      rows
+        .filter((row) => row.type === 'item')
+        .map((row) => (row.type === 'item' ? [row.sectionKey, row.worktree.id, row.depth] : null))
+    ).toEqual([
+      ['pinned', pinnedParent.id, 0],
+      ['pinned', child.id, 1],
+      ['all', pinnedParent.id, 0],
+      ['all', child.id, 1]
+    ])
+  })
+
+  it('nests a pinned child under its pinned parent in Pinned', () => {
+    const pinnedParent = { ...parent, isPinned: true }
+    const pinnedChild = { ...child, isPinned: true }
+    const rows = buildRows(
+      'none',
+      [pinnedChild, pinnedParent],
+      repoMap,
+      null,
+      new Set(),
+      undefined,
+      undefined,
+      undefined,
+      { [child.id]: lineage },
+      new Map([
+        [pinnedParent.id, pinnedParent],
+        [pinnedChild.id, pinnedChild]
+      ]),
+      true
+    )
+
+    expect(
+      rows
+        .filter((row) => row.type === 'item')
+        .map((row) => (row.type === 'item' ? [row.worktree.id, row.depth] : null))
+    ).toEqual([
+      [pinnedParent.id, 0],
+      [pinnedChild.id, 1]
+    ])
+  })
+
+  it('builds rows for a deep expanded pinned lineage without overflowing the renderer stack', () => {
+    const depth = 6_000
+    const worktrees: Worktree[] = []
+    const deepLineageById: Record<string, WorktreeLineage> = {}
+    for (let index = 0; index < depth; index++) {
+      const current = {
+        ...worktree,
+        id: `rendered-deep-${index}`,
+        instanceId: `rendered-deep-${index}-instance`,
+        isPinned: true
+      }
+      worktrees.push(current)
+      const priorParent = worktrees[index - 1]
+      if (priorParent) {
+        deepLineageById[current.id] = {
+          worktreeId: current.id,
+          worktreeInstanceId: current.instanceId!,
+          parentWorktreeId: priorParent.id,
+          parentWorktreeInstanceId: priorParent.instanceId!,
+          origin: 'cli',
+          capture: { source: 'terminal-context', confidence: 'inferred' },
+          createdAt: 1
+        }
+      }
+    }
+
+    const rows = buildRows(
+      'none',
+      worktrees,
+      repoMap,
+      null,
+      new Set(),
+      undefined,
+      undefined,
+      undefined,
+      deepLineageById,
+      new Map(worktrees.map((wt) => [wt.id, wt])),
+      true
+    )
+
+    expect(rows.filter((row) => row.type === 'item')).toHaveLength(depth)
+  })
+
   it('nests stable-update resolved legacy lineage when generalized lineage is absent', () => {
     const parentId =
       '32a0226d-9f33-42e8-8b7b-24867dea06d4::/userhome/jinwoo/orca/workspaces/orca/assigned-issues'

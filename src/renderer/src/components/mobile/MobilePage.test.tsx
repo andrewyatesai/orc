@@ -44,6 +44,7 @@ vi.mock('./MobilePageContent', () => ({
     handleConnectionModeChange: (mode: MobilePairingConnectionMode) => void
     handleAddressChange: (address: string) => void
     handleContinue: () => void
+    openAndroidInstallGuide: () => void
     pairQrDataUrl: string | null
     pairingUrl: string | null
     stage: string | null
@@ -70,6 +71,9 @@ vi.mock('./MobilePageContent', () => ({
       </button>
       <button type="button" onClick={() => props.handleAddressChange('10.0.0.2')}>
         Change address
+      </button>
+      <button type="button" onClick={props.openAndroidInstallGuide}>
+        Open Android install guide
       </button>
     </div>
   )
@@ -115,6 +119,15 @@ describe('MobilePage pairing connection mode', () => {
     await user.click(screen.getByRole('button', { name: 'Enter flow' }))
     await user.click(screen.getByRole('button', { name: 'Continue' }))
   }
+
+  it('opens the Android install guide in the system browser', async () => {
+    const user = userEvent.setup()
+    render(<MobilePage />)
+
+    await user.click(screen.getByRole('button', { name: 'Open Android install guide' }))
+
+    expect(window.api.shell.openUrl).toHaveBeenCalledWith('https://www.onorca.dev/docs/android-apk')
+  })
 
   it('defaults signed-in pairing to Anywhere and remints when same-network is selected', async () => {
     const user = userEvent.setup()

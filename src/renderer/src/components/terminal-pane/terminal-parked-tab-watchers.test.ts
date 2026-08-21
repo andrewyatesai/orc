@@ -234,14 +234,6 @@ describe('terminal-parked-tab-watchers', () => {
     expect(startedWatchers[0].options.restoreTitleOnRegister).toBe(true)
   })
 
-  it('routes watcher sendInput to window.api.pty.write for the watched PTY', () => {
-    capturePanes([{ ptyId: PTY_ID, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true }])
-    syncParked()
-
-    startedWatchers[0].options.sendInput('\x1b[?2031;1$y')
-    expect(ptyWrite).toHaveBeenCalledWith(PTY_ID, '\x1b[?2031;1$y')
-  })
-
   it('skips legacy non-UUID leaf ids instead of throwing in makePaneKey', () => {
     capturePanes([
       { ptyId: PTY_ID, paneId: 1, leafId: 'legacy-leaf-1', drivesTabTitle: true },
@@ -266,7 +258,7 @@ describe('terminal-parked-tab-watchers', () => {
     expect(getParkedTerminalWatcherTabIds()).toEqual([TAB_ID])
   })
 
-  it('starts an ssh watcher (fact-consumer args, pty.write input) when remote parking is enabled', () => {
+  it('starts an ssh watcher (fact-consumer args) when remote parking is enabled', () => {
     const sshPtyId = 'ssh:conn-1@@pty-1'
     capturePanes([{ ptyId: sshPtyId, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true }])
     syncParked({
@@ -282,12 +274,9 @@ describe('terminal-parked-tab-watchers', () => {
       leafId: LEAF_ID,
       paneId: 1
     })
-    // sendInput reaches the relay through the same channel as local PTYs.
-    startedWatchers[0].options.sendInput('\x1b[?2031;1$y')
-    expect(ptyWrite).toHaveBeenCalledWith(sshPtyId, '\x1b[?2031;1$y')
   })
 
-  it('starts a remote-wire watcher with injected byte source, runtime input, and owner environment', () => {
+  it('starts a remote-wire watcher with injected byte source and owner environment', () => {
     const remotePtyId = 'remote:env-1@@terminal-1'
     capturePanes([{ ptyId: remotePtyId, paneId: 1, leafId: LEAF_ID, drivesTabTitle: true }])
     syncParked({ tabs: [{ id: TAB_ID, ptyId: remotePtyId }], remoteParkingEnabled: true })
@@ -306,10 +295,6 @@ describe('terminal-parked-tab-watchers', () => {
       runtimeEnvironmentId: 'env-1'
     })
     expect(options.subscribeBytes).toBe(remoteByteSources[0].subscribeBytes)
-    // sendInput routes through the runtime RPC channel, never local pty.write.
-    options.sendInput('\x1b[?2031;1$y')
-    expect(sendRuntimePtyInput).toHaveBeenCalledWith(undefined, remotePtyId, '\x1b[?2031;1$y')
-    expect(ptyWrite).not.toHaveBeenCalled()
     // Remote ids never emit pty:exit; the byte source owns exit classification.
     expect(subscribeToPtyExit).not.toHaveBeenCalled()
   })

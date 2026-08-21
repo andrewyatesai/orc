@@ -100,7 +100,7 @@ function getRecoveredHistorySeed(restoreInfo: ColdRestoreInfo): string | null {
     : restoreInfo.rehydrateSequences + restoreInfo.snapshotAnsi
 }
 
-function providerSequenceForSpawn(
+function providerSequenceFromCreateOrAttach(
   result: CreateOrAttachResult
 ): PtySpawnResult['providerSequence'] {
   if (result.isNew) {
@@ -683,7 +683,7 @@ export class DaemonPtyAdapter implements IPtyProvider {
 
     const wasAlreadyManaged = this.activeSessionIds.has(sessionId)
     this.activeSessionIds.add(sessionId)
-    const providerSequence = providerSequenceForSpawn(result)
+    const providerSequence = providerSequenceFromCreateOrAttach(result)
 
     // Cold restore: daemon made a new session but disk history shows an unclean shutdown → return saved scrollback.
     if (restoreInfo && (result.isNew || result.historySeeded === false)) {
@@ -843,7 +843,7 @@ export class DaemonPtyAdapter implements IPtyProvider {
     return result.exitedBeforeSpawnReply === true
   }
 
-  async attach(id: string): Promise<void> {
+  async attach(id: string): Promise<Pick<PtySpawnResult, 'providerSequence'> | void> {
     await this.ensureConnected()
     if (!this.canDelegateBackgroundToDaemon) {
       this.setPtyBackgrounded(id, false)
@@ -875,6 +875,8 @@ export class DaemonPtyAdapter implements IPtyProvider {
       throw new SessionNotFoundError(id)
     }
     this.clearSessionAwaitingDaemonRecovery(id)
+    const providerSequence = providerSequenceFromCreateOrAttach(result)
+    return providerSequence ? { providerSequence } : undefined
   }
 
   hasPty(id: string): boolean {
@@ -1976,18 +1978,13 @@ export class DaemonPtyAdapter implements IPtyProvider {
   }
 
   // Why: on daemon-death errors, respawn a fresh daemon and retry once rather than leaving terminals broken until app restart.
+  // The token read no longer throws ENOENT, so a retired endpoint fails at the connect (isDaemonGoneError);
+  // require that endpoint failure — a live daemon rejecting an empty token as 'Invalid token' must not respawn.
   private async withDaemonRetry<T>(fn: () => Promise<T>): Promise<T> {
     try {
       return await fn()
     } catch (err) {
-      // Why: the token is removed only after an authenticated drop; an initial missing token may still hide a live daemon.
-      const missingRetiredEndpointToken =
-        isMissingTokenFileError(err) && this.client.hasObservedAuthenticatedDisconnect()
-      if (
-        this.respawnAdoptionClosed ||
-        !this.respawnFn ||
-        (!isDaemonGoneError(err) && !missingRetiredEndpointToken)
-      ) {
+      if (this.respawnAdoptionClosed || !this.respawnFn || !isDaemonGoneError(err)) {
         throw err
       }
       if (!this.respawnPromise) {
@@ -2021,7 +2018,18 @@ export class DaemonPtyAdapter implements IPtyProvider {
     // remount + re-attach alongside the one that was written, instead of being
     // left frozen with silently dropped input until each is typed into.
     this.notifyActiveSessionsWriteUnavailable()
-    const recovery = this.withDaemonRetry(() => this.ensureConnected())
+    // Why: a concurrent spawn may already be respawning this dead endpoint. Its doRespawn
+    // has disconnected the client, so an independent ensureConnected here would dial the
+    // dead socket on its own — and since the token read no longer throws, that dial now
+    // fails asynchronously at the connect, landing after the in-flight respawn already
+    // cleared its coalescing promise and forking a second daemon. Join the running respawn
+    // instead, then reconnect once it lands.
+    const inFlightRespawn = this.respawnPromise
+    const recovery = (
+      inFlightRespawn
+        ? inFlightRespawn.then(() => this.ensureConnected())
+        : this.withDaemonRetry(() => this.ensureConnected())
+    )
       .catch((error) => console.warn('[daemon] Failed to recover after rejected PTY input:', error))
       .finally(() => {
         this.releasePendingRespawnAdoptionLease()
@@ -2347,12 +2355,4 @@ export function isDaemonGoneError(err: unknown): boolean {
     msg === 'Hello response timed out' ||
     msg === 'Daemon temporarily unavailable; reconnect'
   )
-}
-
-function isMissingTokenFileError(err: unknown): boolean {
-  if (!(err instanceof Error)) {
-    return false
-  }
-  const errno = err as NodeJS.ErrnoException
-  return errno.code === 'ENOENT' && errno.syscall === 'open'
 }

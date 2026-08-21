@@ -2,6 +2,7 @@ import { existsSync, rmSync, writeFileSync } from 'node:fs'
 import type { SFTPWrapper } from 'ssh2'
 import type { AgentHookInstallState, AgentHookInstallStatus } from '../../shared/agent-hook-types'
 import {
+  buildManagedCommandHook,
   buildWindowsAgentHookCurlPostCommand,
   readHooksJson,
   writeHooksJson,
@@ -28,6 +29,7 @@ import {
   getManagedScriptFileName,
   getConfigPath,
   getManagedCommand,
+  getManagedLifecycleHook,
   getManagedScriptPath,
   getPosixManagedScriptFileName,
   getRemoteConfigPath,
@@ -36,6 +38,7 @@ import {
   getStatusLineScriptFileName,
   getStatusLineScriptPath,
   getStatusLineSlotState,
+  hasSameManagedHookInvocation,
   removeManagedHooks,
   removeManagedStatusLine,
   type ClaudeCompatibleHookSettings
@@ -61,15 +64,19 @@ function getManagedScript(
     return [
       '@echo off',
       'setlocal',
+      // Why: Claude-compatible permission hooks fail closed on empty stdout (#14818).
+      'echo {}',
+      // Why: call the endpoint file to refresh port/token — a PTY that survived an Orca restart carries stale env; falls through to PTY env if missing.
+      'if defined ORCA_AGENT_HOOK_ENDPOINT if exist "%ORCA_AGENT_HOOK_ENDPOINT%" call "%ORCA_AGENT_HOOK_ENDPOINT%" 2>nul',
+      // Why (#11549): the env guards must outrank the Devin skip — the Devin skip parks in more.com,
+      // and outside an Orca pane the caller can abandon stdin, so more.com never returns.
+      ...buildWindowsHookEnvironmentGuardLines(),
       ...(options.skipWhenDevinImportsClaude
         ? [
             // Why: Devin imports .claude hooks by default; skip Orca's managed hook there so status posts stay attributed to Devin.
             `if not "%DEVIN_PROJECT_DIR%"=="" goto :${WINDOWS_HOOK_STDIN_DRAIN_LABEL}`
           ]
         : []),
-      // Why: call the endpoint file to refresh port/token — a PTY that survived an Orca restart carries stale env; falls through to PTY env if missing.
-      'if defined ORCA_AGENT_HOOK_ENDPOINT if exist "%ORCA_AGENT_HOOK_ENDPOINT%" call "%ORCA_AGENT_HOOK_ENDPOINT%" 2>nul',
-      ...buildWindowsHookEnvironmentGuardLines(),
       // Why: post via curl.exe, not PowerShell — Claude's launcher is already encoded PowerShell, so a PS post would double interpreter startups per hook.
       buildWindowsAgentHookCurlPostCommand('claude'),
       'exit /b 0',
@@ -80,6 +87,8 @@ function getManagedScript(
 
   return [
     '#!/bin/sh',
+    // Why: Claude-compatible permission hooks fail closed on empty stdout (#14818).
+    'printf "{}\\n"',
     ...buildPosixHookPayloadCapture(),
     ...(options.skipWhenDevinImportsClaude
       ? [
@@ -137,7 +146,7 @@ export class ClaudeHookService {
     }
 
     // Why: report `partial` when only some events are registered so the sidebar shows a degraded install, not a false-positive `installed`.
-    const command = getManagedCommand(scriptPath)
+    const expectedHook = getManagedLifecycleHook(scriptPath, this.options.settings)
     const missing: string[] = []
     let presentCount = 0
     for (const event of CLAUDE_EVENTS) {
@@ -145,7 +154,7 @@ export class ClaudeHookService {
         ? config.hooks![event.eventName]!
         : []
       const hasCommand = definitions.some((definition) =>
-        (definition.hooks ?? []).some((hook) => hook.command === command)
+        (definition.hooks ?? []).some((hook) => hasSameManagedHookInvocation(hook, expectedHook))
       )
       if (hasCommand) {
         presentCount += 1
@@ -183,10 +192,10 @@ export class ClaudeHookService {
       }
     }
 
-    const command = getManagedCommand(scriptPath)
+    const hook = getManagedLifecycleHook(scriptPath, this.options.settings)
     let nextConfig = applyManagedHooks(
       config,
-      command,
+      hook,
       getManagedScriptFileName(this.options.settings)
     )
     writeManagedScript(
@@ -244,9 +253,9 @@ export class ClaudeHookService {
         }
       }
 
-      // Why: the POSIX wrapper is identical regardless of where the script lands; only the path differs.
-      const command = getRemoteManagedCommand(remoteScriptPath)
-      const nextConfig = applyManagedHooks(config, command, remoteScriptFileName)
+      // Why: settings resolve HOME at runtime while SFTP still targets the discovered remote home.
+      const hook = buildManagedCommandHook(getRemoteManagedCommand(remoteScriptPath))
+      const nextConfig = applyManagedHooks(config, hook, remoteScriptFileName)
 
       // Why: write script before settings — a mid-install failure then leaves a harmless orphan script, not settings.json pointing at a missing one.
       // Why: SSH remotes use POSIX `.sh` paths even when Orca runs on Windows; never derive remote script syntax from the local OS.

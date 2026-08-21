@@ -202,6 +202,7 @@
         },
         "editor": {
           "dcb521ed29": "Este archivo está en conflicto, pero no hay una copia editable en el worktree.",
+          "conflictPlaceholderGuidance": "Resuelve el conflicto en Git o restaura uno de los lados antes de volver a abrirlo.",
           "51f15c37d3": "No se puede abrir la carpeta: {{value0}}",
           "f2e00db373": "No se encontró el archivo: {{value0}}",
           "checkRunDetailsUnavailable": "No hay detalles disponibles para este check.",
@@ -237,7 +238,9 @@
         "workspace": {
           "cleanup": {
             "9d6e531da6": "El espacio de trabajo ya no existe.",
-            "changedSinceConfirmation": "El espacio de trabajo cambió después de la confirmación. Actualiza para revisarlo antes de eliminarlo."
+            "changedSinceConfirmation": "El espacio de trabajo cambió después de la confirmación. Actualiza para revisarlo antes de eliminarlo.",
+            "hostCollision": "Error: este espacio de trabajo existe en varios hosts en la misma ruta",
+            "hostUnresolved": "Orca no puede determinar qué host es el propietario de este espacio de trabajo. Actualiza los proyectos y revísalo de nuevo."
           }
         },
         "worktrees": {
@@ -263,6 +266,7 @@
           "81f13f48d2": "Git no pudo eliminar de forma segura la rama \"{{value0}}\" después de eliminar el worktree \"{{value1}}\", así que Orca la conservó para evitar perder commits locales.",
           "runtimeScopeForbiddenTitle": "Esta conexión tiene acceso limitado (móvil)",
           "runtimeScopeForbiddenDescription": "Los espacios de trabajo no están disponibles con un emparejamiento de acceso móvil. Vuelve a conectarte con el enlace del navegador desde Ajustes → Servidores remotos de Orca → Comparte este servidor Orca.",
+          "preservedBranchCleanupHostAmbiguous": "Hay varias limpiezas de rama preservada pendientes para \"{{value0}}\"; especifica el host.",
           "localBaseRefRefreshFailedForWorktree": "Local {{value0}} was not refreshed for \"{{value1}}\"",
           "localBaseRefRefreshFailedDescriptionNamed": "Workspace \"{{value0}}\" was created from {{value1}}, but Orca could not fast-forward local {{value2}}. {{value3}}",
           "localBaseRefRefreshFailedDetailDirtyNamed": "The worktree at {{value0}} (where local {{value1}} is checked out) has uncommitted changes. Commit, stash, or discard those changes, then update local {{value1}} manually.",
@@ -579,13 +583,15 @@
           "missing": "Carpeta no encontrada",
           "notDirectory": "La ruta no es una carpeta",
           "ambiguousConnection": "No se puede determinar la conexión",
-          "unavailable": "No se puede verificar la carpeta"
+          "unavailable": "No se puede verificar la carpeta",
+          "unrecognized": "La carpeta no se puede usar"
         },
         "description": {
           "missing": "Orca no puede encontrar {{path}}. Elimina y vuelve a importar este espacio de trabajo de carpeta.",
           "notDirectory": "{{path}} existe, pero no es una carpeta.",
           "ambiguousConnection": "Orca no puede determinar a qué conexión SSH pertenece este alcance de carpeta.",
-          "unavailable": "Orca no puede verificar esta carpeta ahora mismo. Revisa el host o la conexión SSH e inténtalo de nuevo."
+          "unavailable": "Orca no puede verificar esta carpeta ahora mismo. Revisa el host o la conexión SSH e inténtalo de nuevo.",
+          "unrecognized": "Orca no puede usar {{path}} y esta versión no reconoce el motivo. Actualiza Orca para ver los detalles."
         },
         "createError": {
           "title": {
@@ -667,7 +673,9 @@
           "import": {
             "toast": {
               "restartFallbackUnavailableNone": "None of the {{value0}} cookies could be loaded, and the restart fallback was unavailable. The previous cookies for this profile were replaced. Try the import again.",
-              "restartFallbackUnavailablePartial": "Imported {{value0}} of {{value1}} cookies. The rest could not be loaded, and the restart fallback was unavailable. Try the import again."
+              "restartFallbackUnavailablePartial": "Imported {{value0}} of {{value1}} cookies. The rest could not be loaded, and the restart fallback was unavailable. Try the import again.",
+              "googleCookiesSkipped": "Las cookies de Google no se importaron. Abre un navegador en Orca en {{value0}} con este perfil e inicia sesión en Google.",
+              "unrecognizedWarning": "La importación de cookies finalizó con una advertencia que esta versión de Orca no reconoce. Actualiza Orca para ver los detalles y luego revisa este perfil antes de confiar en sus cookies."
             }
           }
         }
@@ -1228,6 +1236,7 @@
         "9e3c49beb8": "Copiar identificador del issue",
         "9a9a884236": "Copiar URL",
         "97c19a84f1": "Copiar URL de Linear",
+        "openOnLinear": "Abrir en Linear",
         "f63ef94ea8": "Issues",
         "f6c6381593": "Copiar prompt",
         "5d670ec8dc": "Copiar nombre de rama sugerido",
@@ -2027,7 +2036,9 @@
         "workspaceTabMissing": "La pestaña ya no existe",
         "projectsGroupsHeader": "Proyectos y grupos",
         "projectBadge": "Proyecto",
-        "repoGroupBadge": "Grupo de repositorios"
+        "repoGroupBadge": "Grupo de repositorios",
+        "paletteOpenTabBranch": "Nombre de la rama",
+        "paletteOpenTabWorkspace": "Nombre del espacio de trabajo"
       },
       "github": {
         "pr": {
@@ -2616,15 +2627,6 @@
         },
         "sheet": {
           "1189e9fe0a": "Cerrar"
-        },
-        "team": {
-          "multi": {
-            "combobox": {
-              "de83523bf9": "Ningún equipo coincide con tu búsqueda.",
-              "301f2a796e": "Todos los equipos",
-              "18ec58881e": "Buscar equipos..."
-            }
-          }
         }
       },
       "terminal": {
@@ -2754,7 +2756,9 @@
             "e4aa243f8c": "Reiniciar servicio",
             "a7e2fd2699": "abre un issue",
             "5c8ce20be6": "Si esto persiste, por favor",
-            "cc6d997c65": "Reinicia el servicio del terminal desde aquí para borrar el estado obsoleto."
+            "cc6d997c65": "Reinicia el servicio del terminal desde aquí para borrar el estado obsoleto.",
+            "e16012e31e": "El servicio del terminal que era propietario de esta sesión se cerró, por lo que no se pudieron recuperar la sesión ni su historial. Abre un terminal nuevo para continuar.",
+            "sessionUnavailable": "Orca no pudo volver a conectarse a la sesión del terminal de este panel en el host. Abre un terminal nuevo para continuar."
           },
           "TerminalPane": {
             "ac112e9036": "Quitar título",
@@ -3066,6 +3070,11 @@
             "b775303755": "Ejecutar comando rápido: {{value0}}",
             "196593b6a9": "Quitar {{value0}}",
             "15529ede69": "Editar {{value0}}",
+            "8d525e5f15": "Copiado",
+            "53b17a4b1b": "No se pudo copiar",
+            "a9a564b7e7": "Copiar {{value0}}",
+            "69a1441a21": "Nada que copiar",
+            "192a4616a5": "Acciones del comando rápido",
             "1d411fb6a5": "Guarda un comando rápido para este repositorio",
             "8f1e971966": "Agregar comando rápido",
             "3220e2da27": "Este comando rápido se eliminará de tu lista guardada.",
@@ -4775,7 +4784,8 @@
               "ae57cbf6e4": "No se pudo eliminar el espacio de trabajo",
               "7488ed8711": "Ver",
               "2b20ce87b3": "Forzar eliminación",
-              "4f3876c0f5": "Falló la eliminación forzada"
+              "4f3876c0f5": "Falló la eliminación forzada",
+              "workspaceListChanged": "La lista de espacios de trabajo cambió"
             },
             "toast": {
               "1d0fa5c0a5": "No se pudo eliminar el espacio de trabajo {{value0}}",
@@ -5063,14 +5073,11 @@
         },
         "NewExternalWorktreesInboxLine": {
           "9f2d4c8b17": "Ocultar worktrees externos permanentemente para {{value0}}",
-          "d9f7b2a14c": "Contraer worktrees nuevos creados externamente para {{value0}}",
-          "e2c4a8d91f": "Expandir worktrees nuevos creados externamente para {{value0}}",
-          "7c4e9b2a81": "Nuevos worktrees creados externamente",
           "5e1b8d3f62": "Ocultar worktrees externos permanentemente",
-          "4d7a1c9e53": "Estos worktrees se crearon fuera de Orca.",
-          "8b3f2e1d74": "Importar",
-          "1c9e7a4b28": "Mantener ocultos",
-          "6f2d8c1e95": "Importar todo",
+          "2a6f31d8c7": "worktree oculto",
+          "5b90e4a2f6": "worktrees ocultos",
+          "7f18c5b0d3": "Revisar {{value0}} worktree oculto en {{value1}}",
+          "4e2b7a9c05": "Revisar {{value0}} worktrees ocultos en {{value1}}",
           "c3e8a1f4b2": "No volver a mostrar"
         },
         "newExternalWorktreesInboxActions": {
@@ -5155,6 +5162,48 @@
           "3b7ea51793": "Borrar búsqueda",
           "7f1c2e94a5": "El texto de búsqueda es demasiado largo: el tablero no está filtrado",
           "9a4d0f6b21": "Demasiado largo"
+        },
+        "PreservedBranchBatchReviewDialog": {
+          "c4bf8e7eaf": "Revisar ramas conservadas",
+          "f21976c9a8": "Selecciona las ramas locales que quieres forzar a eliminar. Las ramas no seleccionadas permanecen en sus repositorios.",
+          "38c947f7c5": "Seleccionar todo",
+          "9602129d38": "{{value0}} de {{value1}} seleccionadas",
+          "ee39e872d5": "Puede no estar fusionada",
+          "676db406fd": "HEAD no disponible",
+          "285e1e4882": "Cancelar",
+          "a0f9863597": "Forzar eliminación de {{count}} ramas",
+          "a0f9863597_one": "Forzar eliminación de {{count}} rama",
+          "a0f9863597_other": "Forzar eliminación de {{count}} ramas"
+        },
+        "preserved": {
+          "branch": {
+            "batch": {
+              "toast": {
+                "a3cdd9d9e6": "Git conservó {{count}} ramas locales porque pueden contener commits sin fusionar. Las ramas conservadas no mantienen las carpetas de espacio de trabajo; sus commits permanecen en el repositorio. Orca puede seguir liberando espacio de disco de los espacios de trabajo en segundo plano.",
+                "6310412304": "Revisar {{count}} ramas",
+                "cea24c2b7d": "{{count}} espacios de trabajo eliminados",
+                "0e0379f24a": "{{count}} ramas conservadas",
+                "4cf75caab7": "{{value0}}, {{value1}}",
+                "e61d78054f": "Eliminando ramas locales: {{value0}}",
+                "1e1a5f6763": "Ramas locales eliminadas: {{value0}}",
+                "43d9395605": "{{value0}} eliminadas, {{value1}} no eliminadas",
+                "d42f1f14e0": "Reintentar {{count}} ramas",
+                "a3cdd9d9e6_one": "Git conservó {{count}} rama local porque puede contener commits sin fusionar. Las ramas conservadas no mantienen las carpetas de espacio de trabajo; sus commits permanecen en el repositorio. Orca puede seguir liberando espacio de disco de los espacios de trabajo en segundo plano.",
+                "a3cdd9d9e6_other": "Git conservó {{count}} ramas locales porque pueden contener commits sin fusionar. Las ramas conservadas no mantienen las carpetas de espacio de trabajo; sus commits permanecen en el repositorio. Orca puede seguir liberando espacio de disco de los espacios de trabajo en segundo plano.",
+                "6310412304_one": "Revisar {{count}} rama",
+                "6310412304_other": "Revisar {{count}} ramas",
+                "cea24c2b7d_one": "{{count}} espacio de trabajo eliminado",
+                "cea24c2b7d_other": "{{count}} espacios de trabajo eliminados",
+                "0e0379f24a_one": "{{count}} rama conservada",
+                "0e0379f24a_other": "{{count}} ramas conservadas",
+                "d42f1f14e0_one": "Reintentar {{count}} rama",
+                "d42f1f14e0_other": "Reintentar {{count}} ramas"
+              }
+            }
+          }
+        },
+        "WorktreeListScrollToTopButton": {
+          "jumpToTop": "Saltar arriba"
         }
       },
       "shared": {
@@ -6475,6 +6524,10 @@
         "QuickCommandsPane": {
           "8764c6e9e4": "Quitar {{value0}}",
           "7d90fd5299": "Editar {{value0}}",
+          "8d525e5f15": "Copiado",
+          "53b17a4b1b": "No se pudo copiar",
+          "a9a564b7e7": "Copiar {{value0}}",
+          "69a1441a21": "Nada que copiar",
           "8c877dec41": "Global",
           "c6b155911b": "Todos los comandos",
           "5aacc8f7dc": "Agregar comando",
@@ -10236,7 +10289,8 @@
             "f9d7ca753d": "Copiar rutas",
             "3161c4e425": "carpeta",
             "e887fa4b2e": "Abrir en terminal",
-            "1d8e182c32": "Ver archivo"
+            "1d8e182c32": "Ver archivo",
+            "clipboardStagingUnavailable": "No se pudo copiar el archivo porque el almacenamiento temporal de Orca no está disponible"
           },
           "FileExplorerToolbar": {
             "d238264654": "Mostrar archivos ignorados por Git",
@@ -11473,17 +11527,6 @@
           "yoloPermissionsInfo": "Información de permisos del agente",
           "yoloPermissionsTooltip": "Omite las comprobaciones de permisos de los agentes para reducir interrupciones"
         },
-        "FeatureSetupChecklist": {
-          "77f74946f5": "Los agentes pueden enviarse mensajes entre sí, tomar tareas y coordinar handoffs.",
-          "399cf885c0": "Orquestación de agentes",
-          "c5292c409d": "Los agentes pueden inspeccionar ventanas de apps y operar apps locales cuando se lo pidas.",
-          "1ecfb490ac": "Uso de la computadora",
-          "01426f3a23": "Los agentes pueden navegar por sitios, inspeccionar páginas y trabajar en tareas del navegador.",
-          "ea85d9e628": "Uso del navegador por agentes",
-          "linearTicketsTitle": "Skill de agente de Linear",
-          "linearTicketsDescription": "Los agentes pueden usar tareas de Linear enlazadas para handoffs con más contexto de ticket.",
-          "linearTicketsSetupSummary": "Recomendado para espacios de trabajo de Linear; no afecta la configuración de conexión de Linear."
-        },
         "FeatureSetupInlineTerminal": {
           "789b59936e": "Pulsa Enter para ejecutar el comando y confirma npx si se te solicita. También puedes configurarlo más tarde en Configuración.",
           "47fc6cc6dc": "Comando de configuración de skills",
@@ -11569,37 +11612,6 @@
           "9f47f345a4": "¡No tardará mucho!",
           "e4726b2d50": "¿Saltar la incorporación?"
         },
-        "OnboardingTourStep": {
-          "3f9586c043": "Haz el recorrido",
-          "60c5576353": "Salir del recorrido"
-        },
-        "RepoStep": {
-          "e8fdb36338": "Escaneo de repositorios. Haga clic para detener.",
-          "b7c4da0504": "¿SSH? Configura hosts en Configuración",
-          "c33b190ca3": "Solo rutas del host",
-          "7b679207e4": "Espacio de trabajo",
-          "24c7c8696c": "Clonar en ruta del host",
-          "7932e95f68": "Clonar",
-          "955134915e": "git@github.com:org/repo.git",
-          "288d8444b7": "Pegue una URL HTTPS o SSH.",
-          "132425a3e3": "Clonar un repositorio",
-          "6558d50c69": "¿Quieres importar muchos repositorios a la vez? Seleccione la carpeta principal.",
-          "831524961f": "Elija cualquier directorio local, repositorio git o no.",
-          "f4e9c8dcf8": "Buscar una carpeta",
-          "e8214aa632": "Abrir como carpeta",
-          "3863747c56": "Agregar proyecto Git",
-          "2ebbc26343": "/home/user/project",
-          "466108ab89": "Introduce una ruta que exista en el host seleccionado.",
-          "8cab104e3c": "Abrir un proyecto en este host",
-          "2d20200346": "Importar repositorios",
-          "27ca610db1": "Atrás",
-          "cecd6593fa": "Carpeta escaneada:",
-          "c7af322fc3": "Dejar de escanear",
-          "c3d9d44ca2": "Detener escaneo",
-          "cf23006ba7": "Host seleccionado",
-          "7ec3f48820": "/home/user",
-          "2e6438dd34": "{{value0}}Se encontraron {{value1}} {{value2}} en esta carpeta."
-        },
         "ThemeStep": {
           "a4b254779d": "Tecla de opción de macOS",
           "6c51398942": "Ratón",
@@ -11627,14 +11639,9 @@
         "use": {
           "onboarding": {
             "flow": {
-              "dce4bdce5b": "No se pudo abrir la configuración de SSH",
-              "fd74e7558e": "Clon falló",
               "52acfbef51": "No se pudo guardar el progreso"
             }
           }
-        },
-        "AgentFeatureSetupStep": {
-          "97dcdc010f": "Activar capacidades"
         },
         "WindowsTerminalStep": {
           "powerShell": "PowerShell",
@@ -11727,10 +11734,6 @@
             "workspaceName": "Nombre del espacio de trabajo",
             "branchSearchFailed": "La búsqueda de ramas falló, por lo que no se pueden listar ramas."
           },
-          "ProjectHostSetupCombobox": {
-            "empty": "No hay hosts listos para este proyecto.",
-            "placeholder": "Elegir host"
-          },
           "ProjectCombobox": {
             "search": "Buscar proyectos...",
             "empty": "Ningún proyecto coincide con tu búsqueda.",
@@ -11784,6 +11787,9 @@
             "group": "Canal de versión",
             "preview": "Vista previa",
             "stable": "Estable"
+          },
+          "androidHelp": {
+            "guide": "Guía de instalación"
           },
           "relayDegradedNotice": "No se pudo contactar con Relay: este código solo funciona en tu LAN o Tailscale."
         },
@@ -12097,43 +12103,6 @@
             "218503f9f3": "guardado automáticamente",
             "cda56c5915": "notes / launch-plan.md",
             "e16479c1c5": "[data-slash-menu] [data-slash-row].slash-active { background: rgba(24,24,27,0.07); box-shadow: inset 0 0 0 1px rgba(24,24,27,0.06); } [data-md-active-line][data-role=\"active\"] { color: rgb(113 113 122); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; } [data-md-active-line][data-role=\"h1\"] { color: inherit; font-family: inherit; font-size: 18px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; margin-top: 6px; } [data-md-caret] { display: inline-block; width: 1.5px; height: 1em; background: currentColor; vertical-align: -2px; margin-left: 1px; animation: md-caret-blink 1.05s steps(1) infinite; } @keyframes md-caret-blink { 0%, 50% { opacity: 1 } 51%, 100% { opacity: 0 } } @keyframes md-block-in { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } } @keyframes md-cursor-ripple { 0% { transform: scale(0.4); opacity: 0.9; } 100% { transform: scale(1.4); opacity: 0; } } [data-clicking=\"1\"] [data-cursor-ripple] { animation: md-cursor-ripple 460ms ease-out forwards; }"
-          },
-          "FeatureTourPreview": {
-            "1170621527": ">",
-            "304ad0dfc1": "Pensando...",
-            "ef8b164dd1": "revisar src/auth",
-            "952d3ddd9a": "sesión iniciada",
-            "771d8881c2": "claude",
-            "6ed43cb0e0": "dashboard.spec.ts",
-            "24fedd5a52": "login.spec.ts",
-            "8279e9d95b": "Ejecutando 12 pruebas",
-            "6218a9014d": "pnpm playwright test",
-            "04d54d50ec": "orca · zsh",
-            "1aa8a9a24a": "Terminal dividible",
-            "2a7cfc82c8": "Vinculado a GH #1842",
-            "3822d8d14b": "fix/worktree-picker-truncates",
-            "d54aefe09e": "LIN-329",
-            "40bbd92ef4": "Comenzar",
-            "c1f28c03b2": "El selector de worktree se trunca",
-            "fc0cc0b267": "GH #1842",
-            "0688842445": "GH #1799",
-            "bee6b4088d": "Tareas de GitHub y Linear",
-            "5171768676": "orquestando 3 agentes",
-            "cebc7769cd": "rediseñar el flujo de autenticación",
-            "e44269e97d": "Orquestación de agentes",
-            "ec4a73f5e6": "PR 3/3",
-            "cfdfd4d6b4": "PR 2/3",
-            "b1f17bcc74": "PR 1/3",
-            "e38112b289": "refactorizar el webhook de facturación",
-            "9c812e0d7c": "acelerar el proceso de CI",
-            "3c4adfd821": "arreglar la condición de carrera de inicio de sesión",
-            "56a0271428": "Espacios de trabajo aislados",
-            "ef737dcee1": "Tareas de GitHub y Linear",
-            "ac51c061e2": "codex",
-            "47f16ecf34": "Avanza en varias cosas a la vez. Cada workspace mantiene juntos su rama, terminal y actividad de agentes.",
-            "70aa182266": "Delega un objetivo y sigue con lo tuyo. Un agente coordinador se despliega y publica PRs en paralelo.",
-            "f10c14dd9d": "Evita cambiar de pestaña. Elige desde tu backlog de GitHub o Linear e inicia un workspace con un clic.",
-            "5d6ee181b6": "Abre cualquier workspace para volver a su terminal y luego divide paneles para tests, logs y agentes."
           },
           "FeatureWallBody": {
             "25ec5356d6": "Configuración"
@@ -12457,11 +12426,6 @@
                 }
               }
             }
-          },
-          "FeatureTourWorkspaceCard": {
-            "a23ed9da7f": "codex",
-            "2f33dc932b": "claude",
-            "9220794f6a": "laboral"
           },
           "ReviewAnimatedVisual": {
             "8df4d52b68": "pr-vista",
@@ -14133,6 +14097,13 @@
           "968e66d686": "Ingrese un cron de cinco campos.",
           "cadb7b0bc9": "inválido"
         },
+        "AutomationAgentFilterMenu": {
+          "agent": "Agente",
+          "all": "Todas",
+          "926e785e4d": "Agentes de búsqueda...",
+          "491043ee45": "Ningún agente coincide con su búsqueda.",
+          "clear": "Limpiar filtros"
+        },
         "AutomationDetail": {
           "007c8ad874": "Inmediato",
           "a1d52c2189": "Cobertura de uso",
@@ -14943,6 +14914,10 @@
         "useManualTerminalWorktreeParking": {
           "cannotPark": "These terminals cannot be parked safely."
         }
+      },
+      "BrowserCookieImportDisclosure": {
+        "title": "Los inicios de sesión de Google no se importan",
+        "description": "Inicia sesión en Google directamente en Orca."
       }
     },
     "i18n": {
@@ -15180,6 +15155,9 @@
       },
       "webRuntimeSession": {
         "remoteHostDisconnected": "The workspace is not connected to a remote Orca host."
+      },
+      "githubCheckDetailsTimeout": {
+        "timedOut": "Se agotó el tiempo de espera al cargar los detalles del check."
       }
     }
   },
@@ -15224,6 +15202,7 @@
           "high": "Alto",
           "xhigh": "Muy alto",
           "max": "Máximo",
+          "ultra": "Supremo",
           "on": "Activado",
           "off": "Desactivado"
         },

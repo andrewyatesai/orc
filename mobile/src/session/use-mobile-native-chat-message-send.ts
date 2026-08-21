@@ -65,11 +65,16 @@ export function useMobileNativeChatMessageSend(args: {
 
   const sendMessage = useCallback(
     async (
-      text: string,
+      draftText: string,
       images: string[] | undefined,
       syncComposer: boolean,
       sharedDeadline?: number
     ): Promise<MobileNativeChatSendOutcome> => {
+      // The host writes trailing whitespace verbatim onto the agent's input line,
+      // where it can glue the next rapid send onto this one. Only the bytes that
+      // go out are trimmed: `draftText` is what the user typed, and a rejected
+      // send has to restore exactly that.
+      const text = draftText.trimEnd()
       const handle = handleRef.current
       const origin = captureSendOrigin(text)
       // Why: the lease collapses one render after `connState`, so a question-card
@@ -101,7 +106,7 @@ export function useMobileNativeChatMessageSend(args: {
       // round trip is visible, and a lost ack must not strand the sent prompt
       // in the box. Only a definite rejection puts the text back.
       if (syncComposer) {
-        clearDraftForSend(origin, text)
+        clearDraftForSend(origin, draftText)
       }
       const outcome = await sendMobileNativeChatMessageWithOutcome({
         client,
@@ -114,7 +119,7 @@ export function useMobileNativeChatMessageSend(args: {
       })
       // Why (desktop parity): a slash/skill send dispatches into the agent's own
       // TUI, not the conversation — the transcript never echoes it as a user
-      // turn, so an optimistic bubble would sit at "Queued" forever and the
+      // turn, so an optimistic bubble would never reconcile and the
       // unconfirmed hold could never observe a landing.
       const classification = classifyMobileNativeChatSend(agentRef.current, text)
       if (outcome === 'unknown') {
@@ -129,7 +134,7 @@ export function useMobileNativeChatMessageSend(args: {
       }
       if (outcome === 'rejected') {
         if (syncComposer) {
-          restoreRejectedDraft(origin, text)
+          restoreRejectedDraft(origin, draftText)
         }
         onSendError('Message not sent')
         return 'rejected'

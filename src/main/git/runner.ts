@@ -35,12 +35,21 @@ import {
 } from '../../shared/git-credential-prompt-env'
 import { getSpawnArgsForWindows, isWindowsBatchScript, resolveWindowsCommand } from '../win32-utils'
 import {
+  buildWslCapturedLoginShellCommand,
+  buildWslExecArgs,
   buildWslLoginShellCommand,
-  escapeWslShCommandForWindows,
-  quotePosixShell
+  quotePosixShell,
+  type WslCapturedLoginShellCommand
 } from '../../shared/wsl-login-shell-command'
 import { UNTRANSLATED_GIT_OUTPUT_ENV } from '../../shared/git-output-locale'
 import { endSubprocessStdin } from '../../shared/subprocess-stdin-write'
+import {
+  disableWslGitReadEnvironment,
+  getWslGitReadEnvironment,
+  invalidateWslGitReadEnvironment,
+  peekWslGitReadEnvironment,
+  type WslGitReadEnvironment
+} from './wsl-git-read-environment'
 // Re-exported for existing importers; lightweight consumers should import from './exec-error' to avoid this heavy module.
 import { extractExecError, parseRetryAfterMs } from './exec-error'
 export { extractExecError, parseRetryAfterMs }
@@ -51,6 +60,10 @@ export { extractExecError, parseRetryAfterMs }
 const GIT_OUTPUT_LOCALE_SHELL_PREFIX = Object.entries(UNTRANSLATED_GIT_OUTPUT_ENV)
   .map(([key, value]) => `${key}=${value}`)
   .join(' ')
+// Why: the direct-git WSL path passes locale via `env` argv (no shell to carry the prefix string).
+const GIT_OUTPUT_LOCALE_ENV_ARGS = Object.entries(UNTRANSLATED_GIT_OUTPUT_ENV).map(
+  ([key, value]) => `${key}=${value}`
+)
 
 type ResolvedCommand = {
   binary: string
@@ -58,6 +71,10 @@ type ResolvedCommand = {
   cwd: string | undefined
   /** Non-null when the command was routed through WSL. */
   wsl: WslPathInfo | null
+  /** How the command reaches git under WSL, or null when not WSL-routed / not git. */
+  wslMode: 'direct-git' | 'login-shell' | 'non-login-shell' | null
+  /** Present only when the caller opted into a fenced login-shell read. */
+  captured?: WslCapturedLoginShellCommand
 }
 
 /**
@@ -160,7 +177,8 @@ function resolveHostGitHubCli(command: 'gh', args: string[]): ResolvedCommand {
     args,
     // Why: host gh can't use a WSL UNC cwd; we only fall back for commands with explicit repo/API context, so none is needed.
     cwd: undefined,
-    wsl: null
+    wsl: null,
+    wslMode: null
   }
 }
 
@@ -202,10 +220,15 @@ function resolveCommand(
   args: string[],
   cwd: string | undefined,
   wslDistroOverride?: string,
-  options: { useWslLoginShell?: boolean } = {}
+  options: {
+    useWslLoginShell?: boolean
+    captureLoginShellOutput?: boolean
+    wslGitReadEnvironment?: WslGitReadEnvironment
+    env?: NodeJS.ProcessEnv
+  } = {}
 ): ResolvedCommand {
   if (process.platform !== 'win32') {
-    return { binary: command, args, cwd, wsl: null }
+    return { binary: command, args, cwd, wsl: null, wslMode: null }
   }
 
   // Why: global gh callers (rate_limit, listAccessibleProjects) have no cwd to derive a distro from; a distro hint still routes through wsl.exe.
@@ -214,7 +237,7 @@ function resolveCommand(
   const wsl: WslPathInfo | null =
     cwdWsl ?? (wslDistroOverride ? { distro: wslDistroOverride, linuxPath: '' } : null)
   if (!wsl) {
-    return { binary: command, args, cwd, wsl: null }
+    return { binary: command, args, cwd, wsl: null, wslMode: null }
   }
 
   const translatedArgs = translateArgsForWsl(args)
@@ -229,28 +252,62 @@ function resolveCommand(
     ? `cd ${quotePosixShell(linuxCwd)} && ${localePrefix}${escapedCommand} ${escapedArgs.join(' ')}`
     : `${localePrefix}${escapedCommand} ${escapedArgs.join(' ')}`
 
-  if (options.useWslLoginShell) {
+  if (command === 'git' && options.wslGitReadEnvironment) {
+    const optionalLocks = options.env?.GIT_OPTIONAL_LOCKS
+    // Why: skip every shell — invoke git under the login-probed PATH/HOME via env(1) directly.
     return {
       binary: 'wsl.exe',
       args: [
         '-d',
         wsl.distro,
-        '--',
-        'sh',
-        '-lc',
-        escapeWslShCommandForWindows(buildWslLoginShellCommand(shellCmd))
+        '--exec',
+        '/usr/bin/env',
+        `PATH=${options.wslGitReadEnvironment.path}`,
+        `HOME=${options.wslGitReadEnvironment.home}`,
+        ...GIT_OUTPUT_LOCALE_ENV_ARGS,
+        ...(optionalLocks !== undefined ? [`GIT_OPTIONAL_LOCKS=${optionalLocks}`] : []),
+        options.wslGitReadEnvironment.gitPath,
+        ...(linuxCwd ? ['-C', linuxCwd] : []),
+        ...translatedArgs
       ],
       cwd: undefined,
-      wsl
+      wsl,
+      wslMode: 'direct-git'
+    }
+  }
+
+  if (options.useWslLoginShell) {
+    // Why opt-in: the login shell is interactive for bash/zsh, so its rc output
+    // lands on stdout ahead of the payload. Callers that buffer the whole stream
+    // fence it; streaming consumers (git grep, ls-files -z) must not, because a
+    // marker would be glued onto their first record.
+    if (options.captureLoginShellOutput) {
+      const captured = buildWslCapturedLoginShellCommand(shellCmd)
+      return {
+        binary: 'wsl.exe',
+        args: buildWslExecArgs(wsl.distro, ['sh', '-lc', captured.command]),
+        cwd: undefined,
+        wsl,
+        wslMode: 'login-shell',
+        captured
+      }
+    }
+    return {
+      binary: 'wsl.exe',
+      args: buildWslExecArgs(wsl.distro, ['sh', '-lc', buildWslLoginShellCommand(shellCmd)]),
+      cwd: undefined,
+      wsl,
+      wslMode: 'login-shell'
     }
   }
 
   return {
     binary: 'wsl.exe',
-    args: ['-d', wsl.distro, '--', 'bash', '-c', shellCmd],
+    args: buildWslExecArgs(wsl.distro, ['bash', '-c', shellCmd]),
     // Why: the `cd` inside bash -c handles the directory; a UNC cwd on the Node process is redundant and can break Node internals.
     cwd: undefined,
-    wsl
+    wsl,
+    wslMode: 'non-login-shell'
   }
 }
 
@@ -270,6 +327,8 @@ type GitExecOptions = {
   killProcessTree?: boolean
   wslDistro?: string
   useWslLoginShell?: boolean
+  /** Opt a WSL read into the shell-free direct-git fast path (status polling). */
+  preferWslDirectGit?: boolean
   useConfiguredSshCommandForNetwork?: boolean
 }
 
@@ -283,6 +342,93 @@ type CommandExecOptions = {
   signal?: AbortSignal
   killProcessTree?: boolean
   wslDistro?: string
+}
+
+function wslDistroForCommand(cwd: string | undefined, override?: string): string | null {
+  if (process.platform !== 'win32') {
+    return null
+  }
+  return (cwd ? parseWslPath(cwd)?.distro : undefined) ?? override ?? null
+}
+
+// Why: resolve a git command, preferring the shell-free direct-git path when opted in
+// and the login environment has already been probed; otherwise prime the probe and
+// fall back to the standard (non-direct) resolution for this call.
+function resolveGitCommand(
+  args: string[],
+  options: GitExecOptions,
+  forceWithoutDirectGit = false
+): ResolvedCommand {
+  if (!forceWithoutDirectGit && shouldAttemptWslDirectGit(options)) {
+    const distro = wslDistroForCommand(options.cwd, options.wslDistro)
+    const environment = distro ? peekWslGitReadEnvironment(distro) : undefined
+    if (environment) {
+      return resolveCommand('git', args, options.cwd, options.wslDistro, {
+        wslGitReadEnvironment: environment,
+        env: options.env
+      })
+    }
+    if (distro) {
+      void getWslGitReadEnvironment(distro)
+    }
+  }
+  return resolveGitCommandWithoutProbe(args, options)
+}
+
+function shouldAttemptWslDirectGit(options: GitExecOptions): boolean {
+  return Boolean(
+    process.platform === 'win32' &&
+    options.preferWslDirectGit &&
+    !options.useConfiguredSshCommandForNetwork &&
+    !Object.entries(options.env ?? {}).some(
+      ([key, value]) =>
+        key.startsWith('GIT_') && key !== 'GIT_OPTIONAL_LOCKS' && value !== process.env[key]
+    ) &&
+    options.wslDistro
+  )
+}
+
+// Why: the fork's default read path is a non-login shell (#9372); SSH/network callers
+// (or explicit opt-in) still get a login shell. This is the fall-through when direct-git
+// is unavailable — never revert reads to the slower login shell here.
+function resolveGitCommandWithoutProbe(args: string[], options: GitExecOptions): ResolvedCommand {
+  return resolveCommand('git', args, options.cwd, options.wslDistro, {
+    useWslLoginShell: options.useWslLoginShell ?? Boolean(options.useConfiguredSshCommandForNetwork)
+  })
+}
+
+function isDirectWslGitNotFound(error: unknown, resolved: ResolvedCommand): boolean {
+  if (resolved.wslMode !== 'direct-git' || !error || typeof error !== 'object') {
+    return false
+  }
+  const { code, stderr } = error as { code?: unknown; stderr?: unknown }
+  const message = typeof stderr === 'string' ? stderr : String(stderr ?? '')
+  return code === 127 && (message.includes('not found') || message.includes('No such file'))
+}
+
+function directWslGitExitCode(error: unknown, resolved: ResolvedCommand): number | null {
+  if (resolved.wslMode !== 'direct-git' || !error || typeof error !== 'object') {
+    return null
+  }
+  const code = (error as { code?: unknown }).code
+  return typeof code === 'number' ? code : null
+}
+
+function invalidateMissingDirectWslGit(error: unknown, resolved: ResolvedCommand): boolean {
+  const isMissing = isDirectWslGitNotFound(error, resolved)
+  if (isMissing && resolved.wsl) {
+    invalidateWslGitReadEnvironment(resolved.wsl.distro)
+  }
+  return isMissing
+}
+
+function disableDirectWslGitAfterSuccessfulFallback(
+  wasMissing: boolean,
+  resolved: ResolvedCommand
+): void {
+  if (!wasMissing && resolved.wsl) {
+    disableWslGitReadEnvironment(resolved.wsl.distro)
+  }
 }
 
 function isMissingCommandError(error: unknown): boolean {
@@ -827,12 +973,14 @@ async function buildNetworkSshPolicyEnv(options: GitExecOptions): Promise<{
     return { env: promptEnv, mode: 'explicit-env' }
   }
 
+  // Why fenced: a login-shell banner here reads as a user-configured sshCommand,
+  // which skips the BatchMode fallback below and disarms the no-prompt guard.
   const resolved = resolveCommand(
     'git',
     ['config', '--get', 'core.sshCommand'],
     options.cwd,
     options.wslDistro,
-    { useWslLoginShell: true }
+    { useWslLoginShell: true, captureLoginShellOutput: true }
   )
   let configuredCommand = ''
   try {
@@ -844,7 +992,8 @@ async function buildNetworkSshPolicyEnv(options: GitExecOptions): Promise<{
       env: promptEnv,
       signal: options.signal
     })
-    configuredCommand = String(stdout).trim()
+    const payload = resolved.captured?.readStdout(String(stdout)) ?? String(stdout)
+    configuredCommand = payload.trim()
   } catch {
     configuredCommand = ''
   }
@@ -883,43 +1032,51 @@ export async function gitExecFileAsync(
   return withGitSpan(
     { args, ...(options.cwd !== undefined ? { cwd: options.cwd } : {}) },
     async () => {
-      const resolved = resolveCommand('git', args, options.cwd, options.wslDistro, {
-        // Why: login-shell startup on WSL is expensive and unnecessary for
-        // read-path commands (status/list/etc.). Keep it opt-in for callers
-        // that need login-shell policy (for example network auth/SSH flows).
-        useWslLoginShell:
-          options.useWslLoginShell ?? Boolean(options.useConfiguredSshCommandForNetwork)
-      })
+      // Why: login-shell startup on WSL is expensive and unnecessary for read-path
+      // commands (status/list/etc.); resolveGitCommand keeps that opt-in and adds the
+      // shell-free direct-git fast path for callers that set preferWslDirectGit.
+      const resolved = resolveGitCommand(args, options)
       const policy = options.useConfiguredSshCommandForNetwork
         ? await buildNetworkSshPolicyEnv(options)
         : { env: nonInteractiveGitEnv(options.env), mode: 'default' as const }
+      const capture = (
+        command: ResolvedCommand
+      ): Promise<{ stdout: string | Buffer; stderr: string | Buffer }> =>
+        options.killProcessTree === true && process.platform !== 'win32'
+          ? spawnCommandCapture(command.binary, command.args, {
+              cwd: command.cwd,
+              encoding: (options.encoding ?? 'utf-8') as BufferEncoding,
+              maxBuffer: options.maxBuffer ?? DEFAULT_GIT_MAX_BUFFER,
+              timeout: options.timeout,
+              // Why: forward stdin so a killProcessTree remote op isn't silently fed EOF.
+              stdin: options.stdin,
+              env: policy.env,
+              signal: options.signal,
+              killProcessTree: true
+            })
+          : execFileCapture(command.binary, command.args, {
+              cwd: command.cwd,
+              encoding: (options.encoding ?? 'utf-8') as BufferEncoding,
+              maxBuffer: options.maxBuffer,
+              timeout: options.timeout,
+              stdin: options.stdin,
+              // Why: never let a git read-path call block on an interactive prompt (issue #5308) — fail fast.
+              env: policy.env,
+              signal: options.signal,
+              killProcessTree: options.killProcessTree
+            })
       let result: { stdout: string | Buffer; stderr: string | Buffer }
       try {
-        result =
-          options.killProcessTree === true && process.platform !== 'win32'
-            ? await spawnCommandCapture(resolved.binary, resolved.args, {
-                cwd: resolved.cwd,
-                encoding: (options.encoding ?? 'utf-8') as BufferEncoding,
-                maxBuffer: options.maxBuffer ?? DEFAULT_GIT_MAX_BUFFER,
-                timeout: options.timeout,
-                // Why: forward stdin so a killProcessTree remote op isn't silently fed EOF.
-                stdin: options.stdin,
-                env: policy.env,
-                signal: options.signal,
-                killProcessTree: true
-              })
-            : await execFileCapture(resolved.binary, resolved.args, {
-                cwd: resolved.cwd,
-                encoding: (options.encoding ?? 'utf-8') as BufferEncoding,
-                maxBuffer: options.maxBuffer,
-                timeout: options.timeout,
-                stdin: options.stdin,
-                // Why: never let a git read-path call block on an interactive prompt (issue #5308) — fail fast.
-                env: policy.env,
-                signal: options.signal,
-                killProcessTree: options.killProcessTree
-              })
+        result = await capture(resolved)
       } catch (error) {
+        if (directWslGitExitCode(error, resolved) !== null && !options.signal?.aborted) {
+          const wasMissing = invalidateMissingDirectWslGit(error, resolved)
+          result = await capture(resolveGitCommand(args, options, true))
+          // Why: matching failures can be normal Git control flow; only a successful non-direct retry proves the direct environment was insufficient.
+          disableDirectWslGitAfterSuccessfulFallback(wasMissing, resolved)
+          const { stdout, stderr } = result
+          return { stdout: stdout as string, stderr: stderr as string }
+        }
         if (options.useConfiguredSshCommandForNetwork && error && typeof error === 'object') {
           Object.assign(error, { gitSshPolicyMode: policy.mode })
         }
@@ -983,8 +1140,11 @@ export async function gitExecFileAsyncBuffer(
   args: string[],
   options: { cwd: string; maxBuffer?: number; wslDistro?: string }
 ): Promise<{ stdout: Buffer }> {
+  // Why fenced: this returns raw blob bytes straight to the diff/blob viewer, so
+  // a login-shell banner would be prepended to displayed file content.
   const resolved = resolveCommand('git', args, options.cwd, options.wslDistro, {
-    useWslLoginShell: Boolean(options.wslDistro)
+    useWslLoginShell: Boolean(options.wslDistro),
+    captureLoginShellOutput: Boolean(options.wslDistro)
   })
   const { stdout } = (await execFileCapture(resolved.binary, resolved.args, {
     cwd: resolved.cwd,
@@ -992,7 +1152,28 @@ export async function gitExecFileAsyncBuffer(
     maxBuffer: options.maxBuffer,
     env: untranslatedGitOutputEnv()
   })) as { stdout: Buffer }
-  return { stdout }
+  return { stdout: readCapturedGitBuffer(stdout, resolved) }
+}
+
+/**
+ * Slice a fenced payload out of raw bytes.
+ *
+ * Why bytes: blob content may be binary, so decoding to a string to find the
+ * fence would corrupt it. Returns the buffer untouched when the command was not
+ * fenced or the fence is absent.
+ */
+function readCapturedGitBuffer(stdout: Buffer, resolved: ResolvedCommand): Buffer {
+  const captured = resolved.captured
+  if (!captured) {
+    return stdout
+  }
+  const beginIndex = stdout.indexOf(captured.beginMarker, 0, 'utf8')
+  if (beginIndex === -1) {
+    return stdout
+  }
+  const payloadStart = beginIndex + Buffer.byteLength(captured.beginMarker, 'utf8')
+  const endIndex = stdout.indexOf(captured.endMarker, payloadStart, 'utf8')
+  return endIndex === -1 ? stdout.subarray(payloadStart) : stdout.subarray(payloadStart, endIndex)
 }
 
 /** Result of a streamed git command; `stoppedEarly` is true when onStdoutBytes asked to stop before the child exited. */
@@ -1002,6 +1183,8 @@ export type GitStreamOptions = {
   cwd: string
   env?: NodeJS.ProcessEnv
   wslDistro?: string
+  /** Opt the stream into the shell-free direct-git fast path (status polling). */
+  preferWslDirectGit?: boolean
   signal?: AbortSignal
   /**
    * Deadline (ms) after which the child is tree-killed and the promise rejects.
@@ -1036,122 +1219,166 @@ export async function gitStreamStdout(
 ): Promise<GitStreamResult> {
   const maxBuffer = options.maxBuffer ?? DEFAULT_GIT_MAX_BUFFER
   return withGitSpan({ args, cwd: options.cwd }, async () => {
-    return new Promise<GitStreamResult>((resolve, reject) => {
-      if (options.signal?.aborted) {
-        reject(createAbortError())
-        return
-      }
-      const child = gitSpawn(args, {
-        cwd: options.cwd,
-        env: nonInteractiveGitEnv(options.env),
-        stdio: ['ignore', 'pipe', 'pipe'],
-        wslDistro: options.wslDistro,
-        windowsHide: true
+    const gitOptions: GitExecOptions = {
+      cwd: options.cwd,
+      ...(options.env ? { env: options.env } : {}),
+      ...(options.wslDistro ? { wslDistro: options.wslDistro } : {}),
+      ...(options.preferWslDirectGit ? { preferWslDirectGit: true } : {}),
+      ...(options.signal ? { signal: options.signal } : {})
+    }
+    let resolved = resolveGitCommand(args, gitOptions)
+    const stream = (command: ResolvedCommand): Promise<GitStreamResult> =>
+      new Promise<GitStreamResult>((resolve, reject) => {
+        if (options.signal?.aborted) {
+          reject(createAbortError())
+          return
+        }
+        const stdio: SpawnOptions['stdio'] = ['ignore', 'pipe', 'pipe']
+        const spawnOptions = {
+          cwd: options.cwd,
+          env: nonInteractiveGitEnv(options.env),
+          stdio,
+          wslDistro: options.wslDistro,
+          windowsHide: true
+        }
+        let child: ChildProcess
+        if (command.wslMode === 'direct-git') {
+          // Why: direct-git already carries its own binary/argv; spawn it as-is, not through gitSpawn's re-resolution.
+          const spawnStartedAt = performance.now()
+          child = spawn(command.binary, command.args, {
+            cwd: command.cwd,
+            env: untranslatedGitOutputEnv(spawnOptions.env),
+            stdio: spawnOptions.stdio,
+            windowsHide: true
+          })
+          recordSubprocessSpawn(command.binary, command.args, performance.now() - spawnStartedAt)
+        } else {
+          child = gitSpawn(args, spawnOptions)
+        }
+
+        let settled = false
+        let stoppedEarly = false
+        let stdoutBytes = 0
+        let stderr = ''
+        let stderrBytes = 0
+        let timer: NodeJS.Timeout | null = null
+        // Why: decode stderr statefully so a multibyte UTF-8 char split across chunks isn't corrupted into replacement chars.
+        const stderrDecoder = new StringDecoder('utf8')
+
+        const cleanup = (): void => {
+          if (timer) {
+            clearTimeout(timer)
+            timer = null
+          }
+          child.stdout?.off('data', onStdoutData)
+          child.stderr?.off('data', onStderrData)
+          child.off('error', onError)
+          child.off('close', onClose)
+          options.signal?.removeEventListener('abort', onAbort)
+          // Flush any bytes the decoder was holding for an incomplete sequence.
+          stderrDecoder.end()
+        }
+        const finish = (error: Error | null): void => {
+          if (settled) {
+            return
+          }
+          settled = true
+          cleanup()
+          if (error) {
+            // Why: stdoutBytes lets the caller distinguish a pre-output direct-git failure (retryable) from a mid-stream one.
+            reject(Object.assign(error, { stderr, stdoutBytes }))
+            return
+          }
+          resolve({ stoppedEarly })
+        }
+
+        function onStdoutData(chunk: Buffer): void {
+          stdoutBytes += chunk.byteLength
+          if (stdoutBytes > maxBuffer) {
+            void killSpawnedCommandTree(child)
+            finish(new Error('git stdout exceeded maxBuffer.'))
+            return
+          }
+          // Why: a throw from the caller's parser would escape this event handler and crash main; convert to a rejection.
+          let shouldStop: boolean | void
+          try {
+            shouldStop = options.onStdoutBytes?.(chunk)
+          } catch (error) {
+            void killSpawnedCommandTree(child)
+            finish(error instanceof Error ? error : new Error(String(error)))
+            return
+          }
+          if (shouldStop === true) {
+            // Parser hit its limit: kill git and resolve cleanly with the partial output.
+            stoppedEarly = true
+            void killSpawnedCommandTree(child)
+            finish(null)
+          }
+        }
+        function onStderrData(chunk: Buffer): void {
+          stderrBytes += chunk.byteLength
+          if (stderrBytes > maxBuffer) {
+            void killSpawnedCommandTree(child)
+            finish(new Error('git stderr exceeded maxBuffer.'))
+            return
+          }
+          stderr += stderrDecoder.write(chunk)
+        }
+        function onError(error: Error): void {
+          finish(error)
+        }
+        function onClose(code: number | null): void {
+          if (stoppedEarly || code === 0) {
+            finish(null)
+            return
+          }
+          finish(Object.assign(new Error(`git exited with ${code}: ${stderr}`), { code }))
+        }
+        function onAbort(): void {
+          if (!child.pid) {
+            // Why: failed spawn reports ENOENT after abort cleanup; retain a listener so it cannot crash main.
+            child.once('error', () => {})
+          }
+          void killSpawnedCommandTree(child)
+          finish(createAbortError())
+        }
+
+        child.stdout?.on('data', onStdoutData)
+        child.stderr?.on('data', onStderrData)
+        child.on('error', onError)
+        child.on('close', onClose)
+        options.signal?.addEventListener('abort', onAbort, { once: true })
+        // Why: bound the scan so a wedged filesystem can't leave the promise (and the
+        // getStatus in-flight dedupe) unsettled forever; tag ETIMEDOUT for classifiers.
+        if (options.timeout && options.timeout > 0) {
+          timer = setTimeout(() => {
+            void killSpawnedCommandTree(child)
+            finish(Object.assign(new Error('git stream timed out.'), { code: 'ETIMEDOUT' }))
+          }, options.timeout)
+        }
+        if (options.signal?.aborted) {
+          onAbort()
+        }
       })
-
-      let settled = false
-      let stoppedEarly = false
-      let stdoutBytes = 0
-      let stderr = ''
-      let stderrBytes = 0
-      let timer: NodeJS.Timeout | null = null
-      // Why: decode stderr statefully so a multibyte UTF-8 char split across chunks isn't corrupted into replacement chars.
-      const stderrDecoder = new StringDecoder('utf8')
-
-      const cleanup = (): void => {
-        if (timer) {
-          clearTimeout(timer)
-          timer = null
-        }
-        child.stdout?.off('data', onStdoutData)
-        child.stderr?.off('data', onStderrData)
-        child.off('error', onError)
-        child.off('close', onClose)
-        options.signal?.removeEventListener('abort', onAbort)
-        // Flush any bytes the decoder was holding for an incomplete sequence.
-        stderrDecoder.end()
+    try {
+      return await stream(resolved)
+    } catch (error) {
+      const stdoutBytes =
+        error && typeof error === 'object' ? (error as { stdoutBytes?: unknown }).stdoutBytes : null
+      if (
+        stdoutBytes === 0 &&
+        directWslGitExitCode(error, resolved) !== null &&
+        !options.signal?.aborted
+      ) {
+        // Why: a direct-git stream that failed before emitting a byte can safely re-run on the standard path.
+        const wasMissing = invalidateMissingDirectWslGit(error, resolved)
+        resolved = resolveGitCommandWithoutProbe(args, gitOptions)
+        const result = await stream(resolved)
+        disableDirectWslGitAfterSuccessfulFallback(wasMissing, resolved)
+        return result
       }
-      const finish = (error: Error | null): void => {
-        if (settled) {
-          return
-        }
-        settled = true
-        cleanup()
-        if (error) {
-          reject(Object.assign(error, { stderr }))
-          return
-        }
-        resolve({ stoppedEarly })
-      }
-
-      function onStdoutData(chunk: Buffer): void {
-        stdoutBytes += chunk.byteLength
-        if (stdoutBytes > maxBuffer) {
-          void killSpawnedCommandTree(child)
-          finish(new Error('git stdout exceeded maxBuffer.'))
-          return
-        }
-        // Why: a throw from the caller's parser would escape this event handler and crash main; convert to a rejection.
-        let shouldStop: boolean | void
-        try {
-          shouldStop = options.onStdoutBytes?.(chunk)
-        } catch (error) {
-          void killSpawnedCommandTree(child)
-          finish(error instanceof Error ? error : new Error(String(error)))
-          return
-        }
-        if (shouldStop === true) {
-          // Parser hit its limit: kill git and resolve cleanly with the partial output.
-          stoppedEarly = true
-          void killSpawnedCommandTree(child)
-          finish(null)
-        }
-      }
-      function onStderrData(chunk: Buffer): void {
-        stderrBytes += chunk.byteLength
-        if (stderrBytes > maxBuffer) {
-          void killSpawnedCommandTree(child)
-          finish(new Error('git stderr exceeded maxBuffer.'))
-          return
-        }
-        stderr += stderrDecoder.write(chunk)
-      }
-      function onError(error: Error): void {
-        finish(error)
-      }
-      function onClose(code: number | null): void {
-        if (stoppedEarly || code === 0) {
-          finish(null)
-          return
-        }
-        finish(new Error(`git exited with ${code}: ${stderr}`))
-      }
-      function onAbort(): void {
-        if (!child.pid) {
-          // Why: failed spawn reports ENOENT after abort cleanup; retain a listener so it cannot crash main.
-          child.once('error', () => {})
-        }
-        void killSpawnedCommandTree(child)
-        finish(createAbortError())
-      }
-
-      child.stdout?.on('data', onStdoutData)
-      child.stderr?.on('data', onStderrData)
-      child.on('error', onError)
-      child.on('close', onClose)
-      options.signal?.addEventListener('abort', onAbort, { once: true })
-      // Why: bound the scan so a wedged filesystem can't leave the promise (and the
-      // getStatus in-flight dedupe) unsettled forever; tag ETIMEDOUT for classifiers.
-      if (options.timeout && options.timeout > 0) {
-        timer = setTimeout(() => {
-          void killSpawnedCommandTree(child)
-          finish(Object.assign(new Error('git stream timed out.'), { code: 'ETIMEDOUT' }))
-        }, options.timeout)
-      }
-      if (options.signal?.aborted) {
-        onAbort()
-      }
-    })
+      throw error
+    }
   })
 }
 
@@ -1451,8 +1678,24 @@ const GH_RETRY_DELAYS_MS = [250, 1000] as const
 const GH_RETRY_AFTER_MAX_MS = 30_000
 const DEFAULT_GH_EXEC_TIMEOUT_MS = 30_000
 
-async function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    throw createAbortError()
+  }
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(finish, ms)
+    const onAbort = (): void => finish(createAbortError())
+    function finish(error?: Error): void {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      if (error) {
+        reject(error)
+      } else {
+        resolve()
+      }
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 function defaultGhExecTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
@@ -1624,7 +1867,8 @@ export async function ghExecFileAsync(
         maxBuffer: options.maxBuffer,
         // Why: bound gh so one stuck child fails visibly instead of wedging the IPC lane.
         timeout: options.timeout ?? defaultGhExecTimeoutMs(options.env),
-        env: nonInteractiveGhEnv(options.env)
+        env: nonInteractiveGhEnv(options.env),
+        signal: options.signal
       })
       return { stdout: stdout as string, stderr: stderr as string }
     } catch (err) {
@@ -1666,7 +1910,7 @@ export async function ghExecFileAsync(
           retryAfterMs !== null
             ? Math.min(retryAfterMs, GH_RETRY_AFTER_MAX_MS)
             : GH_RETRY_DELAYS_MS[attempt]
-        await sleep(delayMs)
+        await sleep(delayMs, options.signal)
         continue
       }
       throw err

@@ -95,9 +95,9 @@ describe('agent hibernation cold-restore (alt-screen TUI)', () => {
     expect(adapterScrollback).not.toBeNull()
 
     // Must end in the normal buffer (no alt-screen re-entry) so it won't fight the agent's own repaint when resume relaunches it.
-    // POST_REPLAY_MODE_RESET copied literally from renderer layout-serialization.ts (main-process test can't import renderer) — keep in sync.
+    // POST_REPLAY_MODE_RESET copied literally from renderer layout-serialization.ts (main-process test can't import renderer) — keep in sync. Leading \x1b[0m grounds SGR and trailing \x1b7 grounds the saved-cursor register (STA-4042).
     const POST_REPLAY_MODE_RESET =
-      '\x1b[0 q\x1b[<99u\x1b[=0u\x1b[?25h\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1016l\x1b[?1004l\x1b[?2004l'
+      '\x1b[0m\x1b[0 q\x1b[<99u\x1b[=0u\x1b[?25h\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1016l\x1b[?1004l\x1b[?2004l\x1b7'
     const fresh = new HeadlessEmulator({ cols: 80, rows: 24 })
     fresh.writeSync('\x1b[2J\x1b[3J\x1b[H')
     fresh.writeSync(adapterScrollback as string)

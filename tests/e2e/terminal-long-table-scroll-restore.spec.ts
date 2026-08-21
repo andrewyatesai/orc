@@ -58,7 +58,6 @@ type LongTableDebugWindow = Window & {
     snapshot: () => {
       hiddenRendererSkipCount: number
       hiddenRendererSkippedChars: number
-      hiddenRendererMode2031ReplyCount: number
     }
   }
 }
@@ -462,7 +461,10 @@ test.describe('Terminal long table scroll restore repro', () => {
         .poll(
           async () =>
             (diagnostics = await readTerminalRenderDiagnostics(orcaPage)).cursorHidden === false,
-          { timeout: 15_000, message: 'terminal cursorHidden did not settle to false after restore' }
+          {
+            timeout: 15_000,
+            message: 'terminal cursorHidden did not settle to false after restore'
+          }
         )
         .toBe(true)
       await orcaPage.waitForTimeout(100)
@@ -553,7 +555,10 @@ test.describe('Terminal long table scroll restore repro', () => {
         .poll(
           async () =>
             (diagnostics = await readTerminalRenderDiagnostics(orcaPage)).cursorHidden === false,
-          { timeout: 15_000, message: 'terminal cursorHidden did not settle to false after restore' }
+          {
+            timeout: 15_000,
+            message: 'terminal cursorHidden did not settle to false after restore'
+          }
         )
         .toBe(true)
 
@@ -693,7 +698,10 @@ test.describe('Terminal long table scroll restore repro', () => {
         .poll(
           async () =>
             (diagnostics = await readTerminalRenderDiagnostics(orcaPage)).cursorHidden === false,
-          { timeout: 15_000, message: 'terminal cursorHidden did not settle to false after restore' }
+          {
+            timeout: 15_000,
+            message: 'terminal cursorHidden did not settle to false after restore'
+          }
         )
         .toBe(true)
       testInfo.annotations.push({

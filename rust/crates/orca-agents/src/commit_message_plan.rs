@@ -10,13 +10,17 @@ use crate::commit_message_agent_spec::{
     PromptDelivery,
 };
 use crate::commit_message_prompt::{
-    plan_custom_command, tokenize_custom_command_template, CUSTOM_PROMPT_PLACEHOLDER,
+    plan_custom_command, tokenize_custom_command_template, CommandTemplateBackslash, CUSTOM_PROMPT_PLACEHOLDER,
 };
 
 #[derive(Clone, Debug, Default)]
 pub struct CommitMessagePlanInput<'a> {
     /// A `TuiAgent` id or the `"custom"` sentinel.
     pub agent_id: &'a str,
+    /// How to read `\` in the command override / args / custom command. Defaults
+    /// to POSIX escaping; `Literal` only when the command is known to run on
+    /// native Windows, where `\` is the path separator (#11375).
+    pub backslash: CommandTemplateBackslash,
     pub model: &'a str,
     pub thinking_level: Option<&'a str>,
     pub custom_agent_command: Option<&'a str>,
@@ -39,11 +43,15 @@ pub struct CommitMessagePlan {
 /// Resolve the spawn binary + any prefix args from an optional command override
 /// (e.g. `npx codex`); without an override the spec binary is used directly.
 /// Public: the napi whole-plan surface resolves binaries through this too.
-pub fn plan_agent_binary(default_binary: &str, command_override: Option<&str>) -> Result<(String, Vec<String>), String> {
+pub fn plan_agent_binary(
+    default_binary: &str,
+    command_override: Option<&str>,
+    backslash: CommandTemplateBackslash,
+) -> Result<(String, Vec<String>), String> {
     let Some(command) = command_override.map(str::trim).filter(|c| !c.is_empty()) else {
         return Ok((default_binary.to_string(), Vec::new()));
     };
-    let tokens = tokenize_custom_command_template(command)
+    let tokens = tokenize_custom_command_template(command, backslash)
         .map_err(|error| format!("Agent command override is invalid: {error}"))?;
     match tokens.split_first() {
         Some((binary, prefix_args)) if !binary.is_empty() => Ok((binary.clone(), prefix_args.to_vec())),
@@ -54,11 +62,14 @@ pub fn plan_agent_binary(default_binary: &str, command_override: Option<&str>) -
 /// Tokenize the user's extra CLI args (same POSIX-ish tokenizer as the command
 /// override); a blank value contributes nothing. The error is prefixed to match
 /// the TS "CLI arguments are invalid: …" surface.
-fn plan_additional_agent_args(agent_args: Option<&str>) -> Result<Vec<String>, String> {
+fn plan_additional_agent_args(
+    agent_args: Option<&str>,
+    backslash: CommandTemplateBackslash,
+) -> Result<Vec<String>, String> {
     let Some(trimmed) = agent_args.map(str::trim).filter(|s| !s.is_empty()) else {
         return Ok(Vec::new());
     };
-    tokenize_custom_command_template(trimmed).map_err(|error| format!("CLI arguments are invalid: {error}"))
+    tokenize_custom_command_template(trimmed, backslash).map_err(|error| format!("CLI arguments are invalid: {error}"))
 }
 
 /// Weave the extra args into the base argv: before a `{prompt}` placeholder if
@@ -161,8 +172,8 @@ pub fn plan_commit_message_generation(input: &CommitMessagePlanInput, prompt: &s
         let Some(command) = input.custom_agent_command.map(str::trim).filter(|c| !c.is_empty()) else {
             return Err("Custom command is empty. Add one in Settings → Git → AI Commit Messages.".to_string());
         };
-        let planned = plan_custom_command(command, prompt)?;
-        let agent_args = plan_additional_agent_args(input.agent_args)?;
+        let planned = plan_custom_command(command, prompt, input.backslash)?;
+        let agent_args = plan_additional_agent_args(input.agent_args, input.backslash)?;
         // Custom stdin delivery is signalled by a `None` payload sibling in the plan.
         let delivery =
             if planned.stdin_payload.is_none() { PromptDelivery::Argv } else { PromptDelivery::Stdin };
@@ -194,7 +205,7 @@ pub fn plan_commit_message_generation(input: &CommitMessagePlanInput, prompt: &s
 
     let argv_prompt = if spec.prompt_delivery == PromptDelivery::Argv { prompt } else { "" };
     let base_args = (spec.build_args)(&BuildArgsParams { prompt: argv_prompt, model: input.model, thinking_level: input.thinking_level });
-    let agent_args = plan_additional_agent_args(input.agent_args)?;
+    let agent_args = plan_additional_agent_args(input.agent_args, input.backslash)?;
     // Why: Codex rejects repeated singleton model flags, so a recipe's model arg
     // replaces Orca's generated model rather than being appended alongside it (#8773).
     let (base_args, agent_args) = if input.agent_id == "codex" {
@@ -203,7 +214,7 @@ pub fn plan_commit_message_generation(input: &CommitMessagePlanInput, prompt: &s
         (base_args, agent_args)
     };
     let args = insert_additional_agent_args(base_args, &agent_args, spec.prompt_delivery, argv_prompt);
-    let (binary, mut full_args) = plan_agent_binary(spec.binary, input.agent_command_override)?;
+    let (binary, mut full_args) = plan_agent_binary(spec.binary, input.agent_command_override, input.backslash)?;
     full_args.extend(args);
 
     Ok(CommitMessagePlan {
@@ -423,5 +434,75 @@ mod tests {
             insert_additional_agent_args(strs(&["run", "-p"]), &[], PromptDelivery::Stdin, ""),
             strs(&["run", "-p"])
         );
+    }
+
+    // --- backslash mode reaches every command the user can type (#11375) ---
+
+    const WINDOWS_BINARY: &str = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe";
+
+    #[test]
+    fn literal_keeps_an_agent_command_override_intact_where_escape_would_eat_it() {
+        let posix = plan_agent_binary("claude", Some(WINDOWS_BINARY), CommandTemplateBackslash::Escape).unwrap();
+        let literal = plan_agent_binary("claude", Some(WINDOWS_BINARY), CommandTemplateBackslash::Literal).unwrap();
+        // The bug: POSIX escaping eats every separator, so the binary is not found.
+        assert_eq!(posix.0, "C:WindowsSystem32WindowsPowerShellv1.0powershell.exe");
+        assert_eq!(literal.0, WINDOWS_BINARY);
+    }
+
+    #[test]
+    fn literal_backslash_keeps_the_windows_override_intact_through_the_whole_plan() {
+        let result = plan_commit_message_generation(
+            &CommitMessagePlanInput {
+                agent_id: "claude",
+                model: "sonnet",
+                agent_command_override: Some(WINDOWS_BINARY),
+                backslash: CommandTemplateBackslash::Literal,
+                ..Default::default()
+            },
+            "PROMPT",
+        )
+        .unwrap();
+        assert_eq!(result.binary, WINDOWS_BINARY);
+    }
+
+    #[test]
+    fn escape_default_eats_the_windows_override_which_is_the_bug_literal_fixes() {
+        let result = plan_commit_message_generation(
+            &CommitMessagePlanInput {
+                agent_id: "claude",
+                model: "sonnet",
+                agent_command_override: Some(r"C:\Windows\System32\powershell.exe"),
+                ..Default::default()
+            },
+            "PROMPT",
+        )
+        .unwrap();
+        assert_eq!(result.binary, "C:WindowsSystem32powershell.exe");
+    }
+
+    #[test]
+    fn literal_keeps_extra_cli_args_with_backslash_paths_intact() {
+        let result = plan_commit_message_generation(
+            &CommitMessagePlanInput {
+                agent_id: "claude",
+                model: "sonnet",
+                agent_args: Some(r"--config C:\Users\me\.claude.json"),
+                backslash: CommandTemplateBackslash::Literal,
+                ..Default::default()
+            },
+            "PROMPT",
+        )
+        .unwrap();
+        assert!(result.args.iter().any(|a| a == r"C:\Users\me\.claude.json"));
+    }
+
+    #[test]
+    fn defaults_to_posix_escaping_when_no_mode_is_given() {
+        let result = plan_commit_message_generation(
+            &CommitMessagePlanInput { agent_id: "claude", model: "sonnet", agent_args: Some(r"--dir /my\ dir"), ..Default::default() },
+            "PROMPT",
+        )
+        .unwrap();
+        assert!(result.args.iter().any(|a| a == "/my dir"));
     }
 }

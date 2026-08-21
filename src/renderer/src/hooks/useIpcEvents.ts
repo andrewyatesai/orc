@@ -13,7 +13,7 @@ import { buildLinearIssueLinkedWorkItem } from '@/lib/linear-linked-work-item'
 import { runWorktreeDelete } from '@/components/sidebar/delete-worktree-flow'
 import { runSleepWorktree } from '@/components/sidebar/sleep-worktree-flow'
 import { createBackgroundSleepingAgentWakeDispatcher } from '@/lib/wake-sleeping-agents-in-background'
-import { OPEN_WORKSPACE_BOARD_EVENT } from '@/components/sidebar/useWorkspaceBoardPanel'
+import { TOGGLE_WORKSPACE_BOARD_EVENT } from '@/components/sidebar/useWorkspaceBoardPanel'
 import { SPLIT_TERMINAL_PANE_EVENT, CLOSE_TERMINAL_PANE_EVENT } from '@/constants/terminal'
 import { requestBackgroundTerminalWorktreeMount } from '@/components/terminal/background-terminal-worktree-mount'
 import { planMobileTerminalTabMount } from '@/lib/mobile-terminal-tab-mount'
@@ -25,7 +25,6 @@ import { activateTabNumberShortcut } from '@/lib/tab-number-shortcuts'
 import { emitCmdJRowIndexJump } from '@/lib/cmd-j-row-index-jump'
 import { nextEditorFontZoomLevel, computeEditorFontSize } from '@/lib/editor-font-zoom'
 import type {
-  Repo,
   TerminalLayoutSnapshot,
   TerminalPaneLayoutNode,
   UpdateStatus,
@@ -89,6 +88,7 @@ import {
   setDriverForBrowserPage
 } from '@/lib/pane-manager/browser-mobile-driver-state'
 import { destroyPersistentWebview } from '@/components/browser-pane/webview-registry'
+import { rememberLiveBrowserUrl } from '@/components/browser-pane/browser-runtime'
 import {
   acquireBrowserAutomationVisibility,
   releaseBrowserAutomationVisibility
@@ -100,9 +100,14 @@ import { subscribeRuntimeClientEvents } from '@/runtime/runtime-client-events'
 import { subscribeToUnpairedDeviceAuthNotification } from './unpaired-device-auth-notification'
 import {
   applyRuntimeEnvironmentSshStateChanged,
-  hydrateRuntimeEnvironmentSshState
+  hydrateRuntimeEnvironmentSshState,
+  refreshRuntimeEnvironmentSshTargetMetadata
 } from '@/runtime/runtime-environment-ssh-state'
 import { createRuntimeProjectRefreshScheduler } from './runtime-project-refresh-scheduler'
+import {
+  refreshRuntimeProjectWorktrees,
+  refreshRuntimeProjectWorktreesAndLineage
+} from './runtime-project-lineage-coalesce'
 import { createRuntimeClientEventsSync } from './runtime-client-events-sync'
 import { detectLanguage } from '@/lib/language-detect'
 import { makePaneKey, parsePaneKey } from '../../../shared/stable-pane-identity'
@@ -144,6 +149,7 @@ import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner
 import { resolveTerminalWorktreeRoute } from '@/lib/terminal-worktree-route'
 import { resolveAgentPaneAuthorityKey } from '@/store/slices/agent-pane-authority'
 import { translate } from '@/i18n/i18n'
+import { redactKagiSessionToken } from '../../../shared/browser-url'
 import { closeTerminalTab } from '@/components/terminal/terminal-tab-actions'
 import { initialAgentTabViewModeProps } from '@/lib/native-chat-initial-view-mode'
 import { getConnectionIdFromState } from '@/lib/connection-context'
@@ -165,7 +171,6 @@ function getShortcutPlatform(): NodeJS.Platform {
 }
 
 const BROWSER_AUTOMATION_BOOTSTRAP_LEASE_MS = 10_000
-const RUNTIME_PROJECT_REFRESH_CONCURRENCY = 5
 const browserAutomationBootstrapLeaseByPageId = new Map<string, { token: string; timer: number }>()
 
 function resolveTerminalPresentation(data: {
@@ -828,41 +833,6 @@ export function getRuntimeProjectRefreshEnvironmentIds(args: {
   ]
 }
 
-async function refreshRuntimeProjectWorktrees(
-  repos: readonly Pick<Repo, 'id' | 'connectionId' | 'executionHostId'>[]
-): Promise<void> {
-  let nextIndex = 0
-  const failures: { repoId: string; error: unknown }[] = []
-  const workerCount = Math.min(RUNTIME_PROJECT_REFRESH_CONCURRENCY, repos.length)
-
-  // Why: one coalesced repo event can represent many repos; bound the probes so idle refresh never floods the renderer.
-  await Promise.all(
-    Array.from({ length: workerCount }, async () => {
-      while (nextIndex < repos.length) {
-        const index = nextIndex
-        nextIndex += 1
-        const repo = repos[index]
-        try {
-          // Why: a runtime repo can share its id with a local checkout; scope the refresh to the owning host's rows.
-          await useAppStore
-            .getState()
-            .fetchWorktrees(repo.id, { ownerHostId: getRepoExecutionHostId(repo) })
-        } catch (error) {
-          failures.push({ repoId: repo.id, error })
-        }
-      }
-    })
-  )
-  if (failures.length > 0) {
-    throw new AggregateError(
-      failures.map((failure) => failure.error),
-      `Failed to refresh ${failures.length} runtime project worktree(s): ${failures
-        .map((failure) => failure.repoId)
-        .join(', ')}`
-    )
-  }
-}
-
 function getWorktreeRuntimeEnvironmentId(worktreeId: string | null | undefined): string | null {
   return getRuntimeEnvironmentIdForWorktree(useAppStore.getState(), worktreeId)
 }
@@ -1023,11 +993,25 @@ export function useIpcEvents(): void {
 
     const runtimeProjectRefreshScheduler = createRuntimeProjectRefreshScheduler({
       refresh: async (environmentId) => {
-        // Why: refresh the env's SSH bucket on (re)connect so a pre-drop snapshot can't keep a reconnect overlay stale.
-        void hydrateRuntimeEnvironmentSshState(environmentId, { force: true }).catch(() => {})
+        // Why: project events can reveal target CRUD, but known target states already arrive by push.
+        void refreshRuntimeEnvironmentSshTargetMetadata(environmentId).catch(() => {})
         const repos = await useAppStore.getState().fetchRuntimeEnvironmentRepos(environmentId)
-        await refreshRuntimeProjectWorktrees(repos)
-        await useAppStore.getState().fetchWorktreeLineage()
+        // Why: the host emits one reposChanged for group/folder-workspace edits too, so those
+        // catalogs go stale without this; groups first because folder workspaces resolve owners from them.
+        await useAppStore.getState().fetchProjectGroupsForRuntimeEnvironment(environmentId)
+        await useAppStore.getState().fetchFolderWorkspacesForRuntimeEnvironment(environmentId)
+        // Why: coalesce the per-repo lineage probes into one final host-wide snapshot,
+        // scoped to the environment just refreshed, without stranding it if a repo fails.
+        await refreshRuntimeProjectWorktreesAndLineage(
+          () =>
+            refreshRuntimeProjectWorktrees(repos, (repoId, options) =>
+              useAppStore.getState().fetchWorktrees(repoId, options)
+            ),
+          () =>
+            useAppStore.getState().fetchWorktreeLineage({
+              executionHostId: toRuntimeExecutionHostId(environmentId)
+            })
+        )
       },
       onError: (error) => {
         console.error('Failed to refresh runtime projects:', error)
@@ -1177,9 +1161,10 @@ export function useIpcEvents(): void {
         if (isRuntimeEnvironmentActive()) {
           // Why: the all-host sidebar shows local repos even under a runtime; refresh the local slice, keep runtime slices.
           void (async () => {
-            await state.fetchReposForAllHosts()
-            await state.fetchProjectGroupsForAllHosts()
-            await state.fetchFolderWorkspacesForAllHosts()
+            const localOwner = { runtimeEnvironmentId: null }
+            await state.fetchRepos(localOwner)
+            await state.fetchProjectGroups(localOwner)
+            await state.fetchFolderWorkspaces(localOwner)
             remountTerminalTabsAwaitingHostHydration()
           })()
           return
@@ -1444,7 +1429,7 @@ export function useIpcEvents(): void {
             return
           }
           store.setSidebarOpen(true)
-          window.dispatchEvent(new CustomEvent(OPEN_WORKSPACE_BOARD_EVENT))
+          window.dispatchEvent(new CustomEvent(TOGGLE_WORKSPACE_BOARD_EVENT))
         })
       )
     }
@@ -2183,6 +2168,7 @@ export function useIpcEvents(): void {
           return
         }
         const store = useAppStore.getState()
+        rememberLiveBrowserUrl(browserPageId, redactKagiSessionToken(url))
         store.setBrowserPageUrl(browserPageId, url)
         store.updateBrowserPageState(browserPageId, { title, loading: false })
       })
@@ -3074,6 +3060,7 @@ export function useIpcEvents(): void {
         interactivePrompt: data.interactivePrompt,
         lastAssistantMessage: data.lastAssistantMessage,
         interrupted: data.interrupted,
+        turnCompletedAt: data.turnCompletedAt,
         // Why: same trap as interactivePrompt — this rebuild is a field whitelist, so subagent child rows vanish if omitted.
         subagents: data.subagents
       })
@@ -3248,7 +3235,7 @@ export function useIpcEvents(): void {
       if (options?.replay !== true && data.rainPulse) {
         deliverAtermRainPulse(data.paneKey, data.rainPulse)
       }
-      if (options?.replay !== true && statusWorktreeId) {
+      if (statusWorktreeId && (options?.replay !== true || resolvedPayload.state === 'working')) {
         // Why: local Codex/Claude hooks arrive via this main-process IPC path, not the PTY OSC fallback, so task-complete notifications must observe accepted hook state here too.
         const notificationPayload = {
           ...resolvedPayload,
@@ -3258,12 +3245,17 @@ export function useIpcEvents(): void {
           // Why: carry the turn-boundary signals so the coordinator can ignore
           // background plugin hook churn (Claude-Mem) after the turn finished.
           ...(data.hookEventName ? { hookEventName: data.hookEventName } : {}),
-          ...(data.hasExplicitPrompt === true ? { hasExplicitPrompt: true } : {})
+          ...(data.hasExplicitPrompt === true ? { hasExplicitPrompt: true } : {}),
+          ...(typeof data.turnCompletedAt === 'number'
+            ? { turnCompletedAt: data.turnCompletedAt }
+            : {})
         }
         observeAgentHookCompletionForNotification({
           paneKey,
           worktreeId: statusWorktreeId,
-          payload: notificationPayload
+          payload: notificationPayload,
+          // Why: replayed non-working rows seed the coordinator's handled set without re-announcing a stale completion.
+          ...(options?.replay === true ? { seedOnly: true } : {})
         })
       }
       return 'applied'

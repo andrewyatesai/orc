@@ -289,3 +289,50 @@ describe('SSH repo host reconciliation', () => {
     expect(store.getState().projectHostSetups).toHaveLength(2)
   })
 })
+
+describe('SSH readoption catalog identity', () => {
+  it('hands the state object back untouched on a no-op recordSshRepoReadoptions([])', () => {
+    const store = createTestStore()
+    store.setState({
+      repos: [directSshRepo('ssh-old')],
+      projects: [project],
+      projectHostSetups: [directSshSetup('ssh-old')]
+    })
+    const before = store.getState()
+    expect(before.pendingSshRepoReadoptions).toHaveLength(0)
+
+    store.getState().recordSshRepoReadoptions([])
+
+    // Why: empty-in/empty-pending must return the same state object, or the freshly allocated
+    // pendingSshRepoReadoptions alone would wake every store subscriber. Guards the early return.
+    expect(store.getState()).toBe(before)
+    expect(store.getState().pendingSshRepoReadoptions).toBe(before.pendingSshRepoReadoptions)
+    expect(store.getState().projects).toBe(before.projects)
+    expect(store.getState().projects[0]).toBe(before.projects[0])
+    expect(store.getState().projectHostSetups).toBe(before.projectHostSetups)
+    expect(store.getState().projectHostSetups[0]).toBe(before.projectHostSetups[0])
+  })
+
+  it('keeps catalog identity for a pending-only readoption while pending updates', () => {
+    const store = createTestStore()
+    store.setState({
+      repos: [directSshRepo('ssh-old')],
+      projects: [project],
+      projectHostSetups: [directSshSetup('ssh-old')]
+    })
+    const projects = store.getState().projects
+    const setups = store.getState().projectHostSetups
+    const readoption = { oldTargetId: 'ssh-old', newTargetId: 'ssh-new', repoIds: [repoId] }
+
+    // No ssh-new row exists yet, so the readoption stays fully pending and nothing is pruned.
+    // The rebuilt catalog must still hand the previous arrays back — guards the reconcile calls,
+    // which the whole-state assertion above cannot distinguish. Removing them turns this red.
+    store.getState().recordSshRepoReadoptions([readoption])
+
+    expect(store.getState().pendingSshRepoReadoptions).toEqual([readoption])
+    expect(store.getState().projects).toBe(projects)
+    expect(store.getState().projects[0]).toBe(projects[0])
+    expect(store.getState().projectHostSetups).toBe(setups)
+    expect(store.getState().projectHostSetups[0]).toBe(setups[0])
+  })
+})

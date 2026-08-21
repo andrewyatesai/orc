@@ -12,6 +12,7 @@
   },
   "rules": {
     "typescript/await-thenable": "warn",
+    "typescript/no-redundant-type-constituents": "warn",
     "typescript/no-floating-promises": "warn",
     "typescript/no-misused-promises": "warn",
     "typescript/only-throw-error": "warn",

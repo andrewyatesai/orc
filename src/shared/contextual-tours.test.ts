@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CONTEXTUAL_TOURS, type ContextualTour, type ContextualTourId } from './contextual-tours'
-
+import { normalizeContextualTourIds } from './contextual-tour-id-normalization'
 describe('contextual tour definitions', () => {
   it('defines the required tours with concise visible steps', () => {
     const expectedIds: ContextualTourId[] = [
@@ -182,5 +182,19 @@ describe('contextual tour definitions', () => {
 
     expect(modalTours.map((tour) => tour.id)).toEqual(['workspace-creation'])
     expect(modalTours[0]?.allowedActiveModals).toEqual(['new-workspace-composer'])
+  })
+
+  it('normalizes persisted ids by removing unknowns and duplicates', () => {
+    expect(
+      normalizeContextualTourIds([
+        'tasks',
+        'unknown',
+        'workspace-agent-sessions',
+        'browser',
+        'tasks',
+        null,
+        'workspace-creation'
+      ])
+    ).toEqual(['tasks', 'workspace-agent-sessions', 'browser', 'workspace-creation'])
   })
 })

@@ -1,30 +1,37 @@
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, extname, join, win32 } from 'node:path'
 import {
   buildManagedCommandHook,
   createManagedCommandMatcher,
   getSharedManagedScriptPath,
   isPlainObject,
+  MANAGED_HOOK_TIMEOUT_SECONDS,
+  quotePowerShellString,
   removeManagedCommands,
-  wrapPosixHookCommand,
-  wrapWindowsGitBashHookCommand,
+  wrapWindowsPowerShellEncodedCommand,
+  type HookCommandConfig,
   type HookDefinition,
   type HooksConfig
 } from '../agent-hooks/installer-utils'
+import { wrapRuntimeHomeHookCommand } from '../agent-hooks/runtime-home-hook-command'
 
 export type ClaudeCompatibleHookSettings = {
   configDirName: '.claude' | '.openclaude'
   scriptBaseName: 'claude-hook' | 'openclaude-hook'
+  // Why: only Claude Code hides the Windows console via the hidden-PowerShell launcher; OpenClaude still needs the portable shell string.
+  usesWindowsPowerShellLauncher: boolean
 }
 
 export const CLAUDE_HOOK_SETTINGS: ClaudeCompatibleHookSettings = {
   configDirName: '.claude',
-  scriptBaseName: 'claude-hook'
+  scriptBaseName: 'claude-hook',
+  usesWindowsPowerShellLauncher: true
 }
 
 export const OPENCLAUDE_HOOK_SETTINGS: ClaudeCompatibleHookSettings = {
   configDirName: '.openclaude',
-  scriptBaseName: 'openclaude-hook'
+  scriptBaseName: 'openclaude-hook',
+  usesWindowsPowerShellLauncher: false
 }
 
 export const CLAUDE_EVENTS = [
@@ -101,19 +108,64 @@ export function getRemoteConfigPath(remoteHome: string, settings = CLAUDE_HOOK_S
   return `${remoteHome.replace(/\/$/, '')}/${settings.configDirName}/settings.json`
 }
 
-export function getManagedCommand(scriptPath: string): string {
-  return process.platform === 'win32'
-    ? wrapWindowsGitBashHookCommand(scriptPath)
-    : wrapPosixHookCommand(scriptPath)
+// Why: settings resolve $HOME (POSIX) / %USERPROFILE% (Windows) at runtime, so the
+// command is byte-identical across profiles and never bakes an install-time path.
+export function getManagedCommand(
+  scriptPath: string,
+  options: { neutralJsonWhenMissing?: boolean } = {}
+): string {
+  const scriptFileName = basename(scriptPath)
+  const extension = extname(scriptFileName)
+  return wrapRuntimeHomeHookCommand(
+    extension ? scriptFileName.slice(0, -extension.length) : scriptFileName,
+    options
+  )
+}
+
+export function getManagedLifecycleHook(
+  scriptPath: string,
+  settings = CLAUDE_HOOK_SETTINGS
+): HookCommandConfig {
+  if (process.platform !== 'win32' || !settings.usesWindowsPowerShellLauncher) {
+    return buildManagedCommandHook(getManagedCommand(scriptPath, { neutralJsonWhenMissing: true }))
+  }
+  return getWindowsManagedLifecycleHook(scriptPath)
+}
+
+// Why: some Claude-compatible consumers ignore `args`, so the invocation must be self-contained.
+export function getWindowsManagedLifecycleHook(scriptPath: string): HookCommandConfig {
+  const scriptFileName = win32.basename(scriptPath)
+  // Why: runtime profile resolution keeps the managed entry portable across users (STA-3348).
+  const quotedRelativePath = quotePowerShellString(`.orca\\agent-hooks\\${scriptFileName}`)
+  // Why: compat consumers require neutral JSON even when the managed script is missing (#14818).
+  const innerCommand =
+    `$scriptPath = Join-Path $env:USERPROFILE ${quotedRelativePath}; ` +
+    'if (Test-Path -LiteralPath $scriptPath -PathType Leaf) { & $scriptPath; exit $LASTEXITCODE }; ' +
+    "[Console]::In.ReadToEnd() | Out-Null; Write-Output '{}'; exit 0"
+  return {
+    type: 'command',
+    command: wrapWindowsPowerShellEncodedCommand(innerCommand),
+    timeout: MANAGED_HOOK_TIMEOUT_SECONDS
+  }
+}
+
+export function hasSameManagedHookInvocation(
+  actual: HookCommandConfig,
+  expected: HookCommandConfig
+): boolean {
+  return (
+    actual.command === expected.command &&
+    JSON.stringify(actual.args ?? []) === JSON.stringify(expected.args ?? [])
+  )
 }
 
 export function getRemoteManagedCommand(scriptPath: string): string {
-  return wrapPosixHookCommand(scriptPath)
+  return getManagedCommand(scriptPath, { neutralJsonWhenMissing: true })
 }
 
 export function applyManagedHooks(
   config: HooksConfig,
-  command: string,
+  hook: HookCommandConfig,
   scriptFileName = getManagedScriptFileName()
 ): HooksConfig {
   const nextHooks = { ...config.hooks }
@@ -124,7 +176,7 @@ export function applyManagedHooks(
     const cleaned = removeManagedCommands(current, isManagedCommand)
     const definition: HookDefinition = {
       ...event.definition,
-      hooks: [buildManagedCommandHook(command)]
+      hooks: [hook]
     }
     nextHooks[event.eventName] = [...cleaned, definition]
   }

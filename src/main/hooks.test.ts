@@ -1014,7 +1014,7 @@ describe('runHook', () => {
       expect(result).toEqual({ success: true, output: '' })
       expect(execFileMock).toHaveBeenCalledWith(
         'wsl.exe',
-        ['-d', 'Ubuntu', '--', 'bash', '-c', "cd '/home/jin/feature' && echo hello"],
+        ['-d', 'Ubuntu', '--exec', 'bash', '-c', "cd '/home/jin/feature' && echo hello"],
         // #7652 regression: the unattended WSL hook branch must carry the
         // credential guard, and WSLENV is what carries it into the distro.
         expect.objectContaining({
@@ -1079,7 +1079,7 @@ describe('runHook', () => {
         [
           '-d',
           'Ubuntu',
-          '--',
+          '--exec',
           'bash',
           '-c',
           "cd '/mnt/c/userhome/jinwo/git/orca-feature' && echo hello"
@@ -1122,7 +1122,9 @@ describe('runHook', () => {
 
   it('writes Windows-path setup runners through WSL git when the project runtime targets WSL', async () => {
     gitExecFileSyncMock.mockReset()
-    gitExecFileSyncMock.mockReturnValue('/mnt/c/userhome/jinwo/git/orca/.git/orca/setup-runner.sh\n')
+    gitExecFileSyncMock.mockReturnValue(
+      '/mnt/c/userhome/jinwo/git/orca/.git/orca/setup-runner.sh\n'
+    )
 
     const fs = await import('node:fs')
     const mkdirSyncMock = vi.mocked(fs.mkdirSync)
@@ -1429,8 +1431,7 @@ describe('parseOrcaYaml quickCommands (#8481)', () => {
     const contentA = getSharedCommandTrustContent(hooksA)
     const contentB = getSharedCommandTrustContent(hooksB)
     expect(contentA).toContain('# quickCommands[1] Dev')
-    const hashOf = (content: string): string =>
-      createHash('sha256').update(content).digest('hex')
+    const hashOf = (content: string): string => createHash('sha256').update(content).digest('hex')
     expect(hashOf(contentA)).not.toEqual(hashOf(contentB))
   })
 

@@ -240,10 +240,7 @@ function removeConflictingOverrides(
       )
       if (customIds.length === 0) {
         for (const actionId of conflict.actionIds) {
-          if (
-            isKeybindingActionId(actionId) &&
-            Object.prototype.hasOwnProperty.call(next, actionId)
-          ) {
+          if (isKeybindingActionId(actionId) && Object.hasOwn(next, actionId)) {
             conflictingOverrides.add(actionId)
           }
         }
@@ -410,8 +407,8 @@ export function seedLegacyTabSwitchBindings(
   // common + active-platform sections directly so the seed never replaces it.
   const toSeed = actionIds.filter(
     (actionId) =>
-      !Object.prototype.hasOwnProperty.call(current.commonOverrides, actionId) &&
-      !Object.prototype.hasOwnProperty.call(activePlatformOverrides, actionId)
+      !Object.hasOwn(current.commonOverrides, actionId) &&
+      !Object.hasOwn(activePlatformOverrides, actionId)
   )
   if (toSeed.length === 0) {
     return { seeded: false, snapshot: current }

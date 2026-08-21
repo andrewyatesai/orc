@@ -1075,6 +1075,95 @@ describe('createEditorSlice openDiff', () => {
   })
 })
 
+describe('createEditorSlice openFile local WSL aliases', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('reuses a restored local WSL alias without folding the Linux path tail', () => {
+    vi.stubGlobal('navigator', { userAgent: 'Windows' })
+    const store = createEditorStore()
+    const restoredPath = '//wsl.localhost/Ubuntu/home/Alice/repo/file.ts'
+    store.setState({
+      openFiles: [
+        {
+          id: restoredPath,
+          filePath: restoredPath,
+          relativePath: 'file.ts',
+          worktreeId: 'wt-1',
+          runtimeEnvironmentId: null,
+          language: 'typescript',
+          isDirty: false,
+          mode: 'edit'
+        }
+      ]
+    } as Partial<AppState>)
+
+    // The backslash UNC alias folds onto the restored forward-slash tab.
+    expect(
+      store.getState().openFile(
+        {
+          filePath: '\\\\wsl.localhost\\ubuntu\\home\\Alice\\repo\\file.ts',
+          relativePath: 'file.ts',
+          worktreeId: 'wt-1',
+          runtimeEnvironmentId: null,
+          language: 'typescript',
+          mode: 'edit'
+        },
+        { suppressActiveRuntimeFallback: true }
+      )
+    ).toBe(restoredPath)
+    expect(store.getState().openFiles).toHaveLength(1)
+
+    // A case-different Linux tail is a distinct file, so it opens a second tab.
+    store.getState().openFile(
+      {
+        filePath: '\\\\wsl.localhost\\Ubuntu\\home\\alice\\repo\\file.ts',
+        relativePath: 'file.ts',
+        worktreeId: 'wt-1',
+        runtimeEnvironmentId: null,
+        language: 'typescript',
+        mode: 'edit'
+      },
+      { suppressActiveRuntimeFallback: true }
+    )
+    expect(store.getState().openFiles).toHaveLength(2)
+  })
+
+  it('keeps local WSL-looking aliases distinct on POSIX clients', () => {
+    vi.stubGlobal('navigator', { userAgent: 'Linux' })
+    const store = createEditorStore()
+    store.setState({
+      openFiles: [
+        {
+          id: 'forward',
+          filePath: '//wsl.localhost/Ubuntu/repo/file.ts',
+          relativePath: 'file.ts',
+          worktreeId: 'wt-1',
+          runtimeEnvironmentId: null,
+          language: 'typescript',
+          isDirty: false,
+          mode: 'edit'
+        }
+      ]
+    } as Partial<AppState>)
+
+    store.getState().openFile(
+      {
+        filePath: '\\\\wsl.localhost\\Ubuntu\\repo\\file.ts',
+        relativePath: 'file.ts',
+        worktreeId: 'wt-1',
+        runtimeEnvironmentId: null,
+        language: 'typescript',
+        mode: 'edit'
+      },
+      { suppressActiveRuntimeFallback: true }
+    )
+
+    expect(store.getState().openFiles).toHaveLength(2)
+  })
+})
+
 describe('createEditorSlice floating editor activation', () => {
   it('creates a visible floating editor tab when the floating workspace is empty', () => {
     const store = createEditorTabsStore()
@@ -2910,6 +2999,41 @@ describe('createEditorSlice conflict status reconciliation', () => {
         conflictStatusSource: 'session'
       }
     ])
+  })
+
+  it('opens no workspace editor tab when conflict metadata is missing (#14850)', () => {
+    const store = createEditorTabsStore()
+
+    // No conflictKind/status/source resolves to no OpenConflictMetadata, so
+    // openConflictFile adds no OpenFile — a workspace tab would point at nothing.
+    store
+      .getState()
+      .openConflictFile(
+        'wt-1',
+        '/repo',
+        { path: 'src/plain.ts', status: 'modified', area: 'unstaged' },
+        'typescript'
+      )
+
+    expect(store.getState().openFiles).toHaveLength(0)
+    expect(store.getState().unifiedTabsByWorktree['wt-1'] ?? []).toHaveLength(0)
+  })
+
+  it('opens no workspace editor tab from conflict review when metadata is missing (#14850)', () => {
+    const store = createEditorTabsStore()
+
+    store
+      .getState()
+      .openConflictReviewFile(
+        'review-file',
+        'wt-1',
+        '/repo',
+        { path: 'src/plain.ts', status: 'modified', area: 'unstaged' },
+        'typescript'
+      )
+
+    expect(store.getState().openFiles).toHaveLength(0)
+    expect(store.getState().unifiedTabsByWorktree['wt-1'] ?? []).toHaveLength(0)
   })
 
   it('reloads an open check-details tab from the hosted provider', async () => {
@@ -5142,5 +5266,32 @@ describe('read-only editor tabs (AI Vault View Log)', () => {
     expect(store.getState().openFiles[0]).toEqual(
       expect.objectContaining({ externalSshTargetId: 'ssh-1' })
     )
+  })
+})
+
+describe('hydrateEditorSession duplicate id resolution (#14850)', () => {
+  it('drops a persisted file whose resolved id is already used', () => {
+    const store = createEditorStore()
+    // Production always seeds this; the minimal editor-only store does not.
+    store.setState({ unifiedTabsByWorktree: {} } as never)
+    const filePath = '/repo/src/app.ts'
+    const runtimeEnvironmentId = 'runtime-1'
+    // A runtime-owned tuple resolves to one owned id; the session schema allows
+    // the same (path, worktree, runtime) tuple twice, so only one may restore.
+    const persistedFile = {
+      filePath,
+      relativePath: 'src/app.ts',
+      worktreeId: 'wt-1',
+      language: 'typescript',
+      runtimeEnvironmentId
+    }
+
+    store.getState().hydrateEditorSession({
+      openFilesByWorktree: { 'wt-1': [persistedFile, { ...persistedFile }] }
+    } as never)
+
+    expect(store.getState().openFiles.map((file) => file.id)).toEqual([
+      ownedEditorFileId(filePath, 'wt-1', runtimeEnvironmentId)
+    ])
   })
 })

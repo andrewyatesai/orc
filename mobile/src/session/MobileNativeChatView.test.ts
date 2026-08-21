@@ -62,6 +62,7 @@ type Overrides = {
   onClearSendError?: () => void
   inputLockReason?: 'disconnected' | 'waiting' | null
   onSend?: (text: string) => Promise<boolean>
+  pending?: Parameters<typeof MobileNativeChatView>[0]['pending']
 }
 
 function suppressRendererWarning(): () => void {
@@ -114,6 +115,15 @@ describe('MobileNativeChatView send-error banner', () => {
     return renderer!.root.findAll((node) => node.props.accessibilityRole === 'alert')
   }
 
+  // The FlatList mock is a host stub, so its `renderItem` never fires on its own;
+  // call it directly to inspect the props the row hands to MobileNativeChatMessage.
+  function renderedRow(id: string): ReturnType<typeof createElement> {
+    const list = renderer!.root.find((node) => node.type === 'FlatList')
+    const data = list.props.data as { id: string }[]
+    const index = data.findIndex((row) => row.id === id)
+    return list.props.renderItem({ item: data[index], index })
+  }
+
   function bannerText(): string {
     const [alert, ...rest] = banners()
     expect(rest).toHaveLength(0)
@@ -162,5 +172,13 @@ describe('MobileNativeChatView send-error banner', () => {
     await pressSend()
 
     expect(onClearSendError).toHaveBeenCalledOnce()
+  })
+
+  it('renders an accepted optimistic send without a queued state', async () => {
+    await render({
+      pending: [{ id: 'pending-1', text: 'look', images: ['file:///phone-photo.jpg'] }]
+    })
+
+    expect(renderedRow('pending-1').props).not.toHaveProperty('queued')
   })
 })

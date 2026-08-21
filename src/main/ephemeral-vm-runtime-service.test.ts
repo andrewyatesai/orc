@@ -1,10 +1,13 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { encodePairingOffer } from '../shared/pairing-deep-link'
 import { PAIRING_OFFER_VERSION } from '../shared/pairing'
-import { listEphemeralVmRuntimes } from '../shared/ephemeral-vm-runtime-store'
+import {
+  listEphemeralVmRuntimes,
+  upsertEphemeralVmRuntime
+} from '../shared/ephemeral-vm-runtime-store'
 import {
   cleanupEphemeralVmRuntime,
   provisionEphemeralVmRuntime
@@ -137,6 +140,61 @@ describe('ephemeral VM runtime service', () => {
         cleanupLastAttemptAt: 2_000
       }
     })
+  })
+
+  it('times out a hung destroy and starts a fresh retry', async () => {
+    const userDataPath = makeDir('orca-ephemeral-vm-service-user-data-')
+    const repoPath = makeDir('orca-ephemeral-vm-service-repo-')
+    const cleanupPath = join(repoPath, 'cleanup.js')
+    const countPath = join(repoPath, 'cleanup-count.txt')
+    writeFileSync(
+      cleanupPath,
+      `require('fs').appendFileSync(${JSON.stringify(countPath)}, 'x'); setInterval(() => {}, 1000)`
+    )
+    const recipe: OrcaVmRecipe = {
+      id: 'cloud-sandbox',
+      name: 'Cloud Sandbox',
+      create: 'unused',
+      destroy: nodeCommand(cleanupPath)
+    }
+    upsertEphemeralVmRuntime(userDataPath, {
+      id: 'runtime-1',
+      recipeId: recipe.id,
+      recipe,
+      status: 'running',
+      cleanupStatus: 'not_started',
+      createdAt: 1_000,
+      updatedAt: 1_000,
+      recipeResult: {
+        schemaVersion: 1,
+        connection: {
+          type: 'ssh',
+          projectRoot: '/workspace/repo',
+          target: { label: 'VM', host: 'host', port: 22, username: 'orca' }
+        }
+      }
+    })
+    const cleanupArgs = {
+      userDataPath,
+      repoPath,
+      recipe,
+      runtimeId: 'runtime-1',
+      destroyTimeoutMs: 100
+    }
+
+    await expect(cleanupEphemeralVmRuntime(cleanupArgs)).resolves.toMatchObject({
+      ok: false,
+      runtime: { status: 'cleanup_failed', cleanupStatus: 'failed' },
+      error: expect.stringContaining('timed out')
+    })
+    writeFileSync(cleanupPath, `require('fs').appendFileSync(${JSON.stringify(countPath)}, 'x')`)
+    await expect(
+      cleanupEphemeralVmRuntime({ ...cleanupArgs, destroyTimeoutMs: 2_000 })
+    ).resolves.toMatchObject({
+      ok: true,
+      runtime: { status: 'cleaned', cleanupStatus: 'succeeded' }
+    })
+    expect(readFileSync(countPath, 'utf8')).toBe('xx')
   })
 
   it('does not persist a runtime when recipe output cannot be parsed', async () => {

@@ -202,6 +202,7 @@
         },
         "editor": {
           "dcb521ed29": "이 파일은 충돌 상태에 있지만 편집할 수 있는 작업 트리 파일이 없습니다.",
+          "conflictPlaceholderGuidance": "Git에서 충돌을 해결하거나 한쪽을 복원한 후 다시 여세요.",
           "51f15c37d3": "디렉터리를 열 수 없습니다: {{value0}}",
           "f2e00db373": "파일을 찾을 수 없습니다: {{value0}}",
           "checkRunDetailsUnavailable": "이 체크에 사용할 수 있는 세부 정보가 없습니다.",
@@ -237,7 +238,9 @@
         "workspace": {
           "cleanup": {
             "9d6e531da6": "워크스페이스가 더 이상 존재하지 않습니다.",
-            "changedSinceConfirmation": "확인 후 워크스페이스가 변경되었습니다. 제거하기 전에 새로 고쳐 검토하세요."
+            "changedSinceConfirmation": "확인 후 워크스페이스가 변경되었습니다. 제거하기 전에 새로 고쳐 검토하세요.",
+            "hostCollision": "오류: 이 워크스페이스가 여러 호스트의 동일한 경로에 존재합니다",
+            "hostUnresolved": "Orca가 이 워크스페이스를 소유한 호스트를 확인할 수 없습니다. 프로젝트를 새로 고쳐 다시 검토하세요."
           }
         },
         "worktrees": {
@@ -263,6 +266,7 @@
           "81f13f48d2": "\"{{value1}}\" 워크트리를 삭제한 후 Git이 \"{{value0}}\" 브랜치를 안전하게 삭제할 수 없어 Orca가 로컬 커밋 손실을 방지하기 위해 유지했습니다.",
           "runtimeScopeForbiddenTitle": "이 연결은 제한된(모바일) 액세스입니다",
           "runtimeScopeForbiddenDescription": "모바일 범위 페어링에서는 워크스페이스를 사용할 수 없습니다. 설정 → 원격 Orca 서버 → 이 Orca 서버 공유에서 브라우저 액세스 링크로 다시 연결하세요.",
+          "preservedBranchCleanupHostAmbiguous": "\"{{value0}}\"에 대해 보류 중인 보존된 브랜치 정리가 여러 개 있습니다. 호스트를 지정하세요.",
           "localBaseRefRefreshFailedForWorktree": "Local {{value0}} was not refreshed for \"{{value1}}\"",
           "localBaseRefRefreshFailedDescriptionNamed": "Workspace \"{{value0}}\" was created from {{value1}}, but Orca could not fast-forward local {{value2}}. {{value3}}",
           "localBaseRefRefreshFailedDetailDirtyNamed": "The worktree at {{value0}} (where local {{value1}} is checked out) has uncommitted changes. Commit, stash, or discard those changes, then update local {{value1}} manually.",
@@ -579,13 +583,15 @@
           "missing": "폴더를 찾을 수 없습니다",
           "notDirectory": "경로가 폴더가 아닙니다",
           "ambiguousConnection": "연결을 확인할 수 없습니다",
-          "unavailable": "폴더를 확인할 수 없습니다"
+          "unavailable": "폴더를 확인할 수 없습니다",
+          "unrecognized": "폴더를 사용할 수 없습니다"
         },
         "description": {
           "missing": "Orca가 {{path}}을(를) 찾을 수 없습니다. 이 폴더 워크스페이스를 제거하고 다시 가져오세요.",
           "notDirectory": "{{path}}이(가) 존재하지만 폴더가 아닙니다.",
           "ambiguousConnection": "Orca가 이 폴더 범위를 소유한 SSH 연결을 확인할 수 없습니다.",
-          "unavailable": "Orca가 지금 이 폴더를 확인할 수 없습니다. 런타임 또는 SSH 연결을 확인한 후 다시 시도하세요."
+          "unavailable": "Orca가 지금 이 폴더를 확인할 수 없습니다. 런타임 또는 SSH 연결을 확인한 후 다시 시도하세요.",
+          "unrecognized": "Orca가 {{path}}을(를) 사용할 수 없으며 이 버전에서는 이유를 인식하지 못합니다. 자세한 내용을 보려면 Orca를 업데이트하세요."
         },
         "createError": {
           "title": {
@@ -667,7 +673,9 @@
           "import": {
             "toast": {
               "restartFallbackUnavailableNone": "None of the {{value0}} cookies could be loaded, and the restart fallback was unavailable. The previous cookies for this profile were replaced. Try the import again.",
-              "restartFallbackUnavailablePartial": "Imported {{value0}} of {{value1}} cookies. The rest could not be loaded, and the restart fallback was unavailable. Try the import again."
+              "restartFallbackUnavailablePartial": "Imported {{value0}} of {{value1}} cookies. The rest could not be loaded, and the restart fallback was unavailable. Try the import again.",
+              "googleCookiesSkipped": "Google 쿠키를 가져오지 않았습니다. {{value0}}에서 이 프로필로 Orca 브라우저를 연 다음 Google에 로그인하세요.",
+              "unrecognizedWarning": "쿠키 가져오기가 이 버전의 Orca가 인식하지 못하는 경고와 함께 완료되었습니다. 자세한 내용을 보려면 Orca를 업데이트한 다음 쿠키를 사용하기 전에 이 프로필을 확인하세요."
             }
           }
         }
@@ -1228,6 +1236,7 @@
         "9e3c49beb8": "이슈 식별자 복사",
         "9a9a884236": "URL 복사",
         "97c19a84f1": "Linear URL 복사",
+        "openOnLinear": "Linear에서 열기",
         "f63ef94ea8": "이슈",
         "f6c6381593": "프롬프트 복사",
         "5d670ec8dc": "추천 브랜치 이름 복사",
@@ -2027,7 +2036,9 @@
         "workspaceTabMissing": "탭이 더 이상 존재하지 않습니다",
         "projectsGroupsHeader": "프로젝트 및 그룹",
         "projectBadge": "프로젝트",
-        "repoGroupBadge": "리포지토리 그룹"
+        "repoGroupBadge": "리포지토리 그룹",
+        "paletteOpenTabBranch": "브랜치 이름",
+        "paletteOpenTabWorkspace": "워크스페이스 이름"
       },
       "github": {
         "pr": {
@@ -2616,15 +2627,6 @@
         },
         "sheet": {
           "1189e9fe0a": "닫기"
-        },
-        "team": {
-          "multi": {
-            "combobox": {
-              "de83523bf9": "검색어와 일치하는 팀이 없습니다.",
-              "301f2a796e": "모든 팀",
-              "18ec58881e": "팀 검색..."
-            }
-          }
         }
       },
       "terminal": {
@@ -2754,7 +2756,9 @@
             "e4aa243f8c": "데몬 재시작",
             "a7e2fd2699": "이슈 등록",
             "5c8ce20be6": "문제가 계속되면",
-            "cc6d997c65": "오래된 데몬 상태를 지우려면 여기에서 terminal 데몬을 다시 시작하세요."
+            "cc6d997c65": "오래된 데몬 상태를 지우려면 여기에서 terminal 데몬을 다시 시작하세요.",
+            "e16012e31e": "이 세션을 소유한 terminal 데몬이 종료되어 세션과 스크롤백을 복구할 수 없습니다. 계속하려면 새 terminal을 여세요.",
+            "sessionUnavailable": "Orca가 호스트에서 이 창의 terminal 세션에 다시 연결하지 못했습니다. 계속하려면 새 terminal을 여세요."
           },
           "TerminalPane": {
             "ac112e9036": "제목 삭제",
@@ -3066,6 +3070,11 @@
             "b775303755": "빠른 명령 실행: {{value0}}",
             "196593b6a9": "{{value0}} 제거",
             "15529ede69": "{{value0}} 편집",
+            "8d525e5f15": "복사됨",
+            "53b17a4b1b": "복사하지 못함",
+            "a9a564b7e7": "{{value0}} 복사",
+            "69a1441a21": "복사할 내용 없음",
+            "192a4616a5": "빠른 명령 작업",
             "1d411fb6a5": "이 repo에 대한 빠른 명령 저장",
             "8f1e971966": "빠른 명령 추가",
             "3220e2da27": "이 빠른 명령은 저장된 목록에서 제거됩니다.",
@@ -4756,7 +4765,8 @@
               "ae57cbf6e4": "워크스페이스를 삭제하지 못했습니다.",
               "7488ed8711": "보기",
               "2b20ce87b3": "강제 삭제",
-              "4f3876c0f5": "강제 삭제 실패"
+              "4f3876c0f5": "강제 삭제 실패",
+              "workspaceListChanged": "워크스페이스 목록이 변경되었습니다"
             },
             "toast": {
               "1d0fa5c0a5": "워크스페이스 {{value0}}을(를) 삭제하지 못했습니다.",
@@ -5063,14 +5073,11 @@
         },
         "NewExternalWorktreesInboxLine": {
           "9f2d4c8b17": "{{value0}}의 외부 워크트리를 영구적으로 숨기기",
-          "d9f7b2a14c": "{{value0}}의 외부에서 생성된 새 워크트리 접기",
-          "e2c4a8d91f": "{{value0}}의 외부에서 생성된 새 워크트리 펼치기",
-          "7c4e9b2a81": "외부에서 생성된 새 워크트리",
           "5e1b8d3f62": "외부 워크트리를 영구적으로 숨기기",
-          "4d7a1c9e53": "이 워크트리는 Orca 외부에서 생성되었습니다.",
-          "8b3f2e1d74": "가져오기",
-          "1c9e7a4b28": "숨긴 상태 유지",
-          "6f2d8c1e95": "모두 가져오기",
+          "2a6f31d8c7": "숨겨진 워크트리",
+          "5b90e4a2f6": "숨겨진 워크트리",
+          "7f18c5b0d3": "{{value1}}의 숨겨진 워크트리 {{value0}}개 검토",
+          "4e2b7a9c05": "{{value1}}의 숨겨진 워크트리 {{value0}}개 검토",
           "c3e8a1f4b2": "다시 표시하지 않기"
         },
         "newExternalWorktreesInboxActions": {
@@ -5155,6 +5162,48 @@
           "3b7ea51793": "검색 지우기",
           "7f1c2e94a5": "검색어가 너무 깁니다 — 보드가 필터링되지 않았습니다",
           "9a4d0f6b21": "너무 김"
+        },
+        "PreservedBranchBatchReviewDialog": {
+          "c4bf8e7eaf": "보존된 브랜치 검토",
+          "f21976c9a8": "강제 삭제할 로컬 브랜치를 선택하세요. 선택하지 않은 브랜치는 저장소에 남아 있습니다.",
+          "38c947f7c5": "모두 선택",
+          "9602129d38": "{{value1}}개 중 {{value0}}개 선택됨",
+          "ee39e872d5": "병합되지 않았을 수 있음",
+          "676db406fd": "HEAD를 사용할 수 없음",
+          "285e1e4882": "취소",
+          "a0f9863597": "{{count}}개 브랜치 강제 삭제",
+          "a0f9863597_one": "{{count}}개 브랜치 강제 삭제",
+          "a0f9863597_other": "{{count}}개 브랜치 강제 삭제"
+        },
+        "preserved": {
+          "branch": {
+            "batch": {
+              "toast": {
+                "a3cdd9d9e6": "병합되지 않은 커밋이 포함되어 있을 수 있으므로 Git이 {{count}}개의 로컬 브랜치를 보존했습니다. 보존된 브랜치는 작업 공간 폴더를 유지하지 않으며 해당 커밋은 저장소에 남아 있습니다. Orca는 백그라운드에서 작업 공간 디스크 공간을 계속 확보할 수 있습니다.",
+                "6310412304": "{{count}}개 브랜치 검토",
+                "cea24c2b7d": "{{count}}개 작업 공간 제거됨",
+                "0e0379f24a": "{{count}}개 브랜치 보존됨",
+                "4cf75caab7": "{{value0}}, {{value1}}",
+                "e61d78054f": "로컬 브랜치 삭제 중: {{value0}}",
+                "1e1a5f6763": "로컬 브랜치 삭제됨: {{value0}}",
+                "43d9395605": "{{value0}}개 삭제됨, {{value1}}개 삭제 안 됨",
+                "d42f1f14e0": "{{count}}개 브랜치 재시도",
+                "a3cdd9d9e6_one": "병합되지 않은 커밋이 포함되어 있을 수 있으므로 Git이 {{count}}개의 로컬 브랜치를 보존했습니다. 보존된 브랜치는 작업 공간 폴더를 유지하지 않으며 해당 커밋은 저장소에 남아 있습니다. Orca는 백그라운드에서 작업 공간 디스크 공간을 계속 확보할 수 있습니다.",
+                "a3cdd9d9e6_other": "병합되지 않은 커밋이 포함되어 있을 수 있으므로 Git이 {{count}}개의 로컬 브랜치를 보존했습니다. 보존된 브랜치는 작업 공간 폴더를 유지하지 않으며 해당 커밋은 저장소에 남아 있습니다. Orca는 백그라운드에서 작업 공간 디스크 공간을 계속 확보할 수 있습니다.",
+                "6310412304_one": "{{count}}개 브랜치 검토",
+                "6310412304_other": "{{count}}개 브랜치 검토",
+                "cea24c2b7d_one": "{{count}}개 작업 공간 제거됨",
+                "cea24c2b7d_other": "{{count}}개 작업 공간 제거됨",
+                "0e0379f24a_one": "{{count}}개 브랜치 보존됨",
+                "0e0379f24a_other": "{{count}}개 브랜치 보존됨",
+                "d42f1f14e0_one": "{{count}}개 브랜치 재시도",
+                "d42f1f14e0_other": "{{count}}개 브랜치 재시도"
+              }
+            }
+          }
+        },
+        "WorktreeListScrollToTopButton": {
+          "jumpToTop": "맨 위로 이동"
         }
       },
       "shared": {
@@ -6460,6 +6509,10 @@
         "QuickCommandsPane": {
           "8764c6e9e4": "{{value0}} 제거",
           "7d90fd5299": "{{value0}} 편집",
+          "8d525e5f15": "복사됨",
+          "53b17a4b1b": "복사하지 못함",
+          "a9a564b7e7": "{{value0}} 복사",
+          "69a1441a21": "복사할 내용 없음",
           "8c877dec41": "글로벌",
           "c6b155911b": "모든 명령",
           "5aacc8f7dc": "명령 추가",
@@ -10236,7 +10289,8 @@
             "f9d7ca753d": "경로 복사",
             "3161c4e425": "폴더",
             "e887fa4b2e": "터미널에서 열기",
-            "1d8e182c32": "파일 보기"
+            "1d8e182c32": "파일 보기",
+            "clipboardStagingUnavailable": "Orca의 임시 저장소를 사용할 수 없어 파일을 복사하지 못했습니다"
           },
           "FileExplorerToolbar": {
             "d238264654": "Git이 무시한 파일 표시",
@@ -11473,17 +11527,6 @@
           "yoloPermissionsInfo": "Agent 권한 정보",
           "yoloPermissionsTooltip": "중단을 줄이기 위해 agents 권한 확인을 건너뜁니다."
         },
-        "FeatureSetupChecklist": {
-          "77f74946f5": "Agents는 서로 메시지를 보내고, 작업을 수행하고, 핸드오프를 조정할 수 있습니다.",
-          "399cf885c0": "Agent 오케스트레이션",
-          "c5292c409d": "Agents는 요청 시 앱 창을 검사하고 로컬 앱을 작동할 수 있습니다.",
-          "1ecfb490ac": "컴퓨터 사용",
-          "01426f3a23": "Agents가 사이트를 탐색하고, 페이지를 검사하고, 브라우저 작업을 처리할 수 있습니다.",
-          "ea85d9e628": "Agent 브라우저 사용",
-          "linearTicketsTitle": "Linear agent 스킬",
-          "linearTicketsDescription": "Agents는 연결된 Linear 작업을 사용해 티켓 맥락을 반영한 더 풍부한 인계를 할 수 있습니다.",
-          "linearTicketsSetupSummary": "Linear 워크스페이스에 권장됩니다. Linear 연결 설정에는 영향을 주지 않습니다."
-        },
         "FeatureSetupInlineTerminal": {
           "789b59936e": "Enter를 눌러 명령을 실행하고 요청 시 npx를 확인합니다. 나중에 설정에서 설정할 수도 있습니다.",
           "47fc6cc6dc": "스킬 설정 명령어",
@@ -11569,37 +11612,6 @@
           "9f47f345a4": "오래 걸리지 않을 거예요!",
           "e4726b2d50": "온보딩을 건너뛰시겠습니까?"
         },
-        "OnboardingTourStep": {
-          "3f9586c043": "둘러보기",
-          "60c5576353": "투어 종료"
-        },
-        "RepoStep": {
-          "e8fdb36338": "repos를 스캔하는 중입니다. 중지하려면 클릭하세요.",
-          "b7c4da0504": "SSH? 설정에서 호스트를 설정하세요",
-          "c33b190ca3": "호스트 경로만",
-          "7b679207e4": "워크스페이스",
-          "24c7c8696c": "서버 경로로 복제",
-          "7932e95f68": "클론",
-          "955134915e": "git@github.com:org/repo.git",
-          "288d8444b7": "HTTPS 또는 SSH URL을 붙여넣습니다.",
-          "132425a3e3": "repo 복제",
-          "6558d50c69": "한 번에 여러 repos를 가져오고 싶으신가요? 상위 폴더를 선택하세요.",
-          "831524961f": "로컬 디렉터리(git repo 여부)를 선택하세요.",
-          "f4e9c8dcf8": "폴더 찾아보기",
-          "e8214aa632": "폴더로 열기",
-          "3863747c56": "Git 프로젝트 추가",
-          "2ebbc26343": "/home/user/project",
-          "466108ab89": "선택한 호스트에 존재하는 경로를 입력하세요.",
-          "8cab104e3c": "서버 프로젝트 열기",
-          "2d20200346": "repos 가져오기",
-          "27ca610db1": "뒤로",
-          "cecd6593fa": "스캔한 폴더:",
-          "c7af322fc3": "스캔 중지",
-          "c3d9d44ca2": "스캔 중지",
-          "cf23006ba7": "선택한 호스트",
-          "7ec3f48820": "/home/user",
-          "2e6438dd34": "{{value0}}이 폴더에서 {{value1}} {{value2}}을(를) 찾았습니다."
-        },
         "ThemeStep": {
           "a4b254779d": "macOS 옵션 키",
           "6c51398942": "마우스",
@@ -11627,14 +11639,9 @@
         "use": {
           "onboarding": {
             "flow": {
-              "dce4bdce5b": "SSH 설정을 열 수 없습니다.",
-              "fd74e7558e": "복제 실패",
               "52acfbef51": "진행 상황을 저장할 수 없습니다."
             }
           }
-        },
-        "AgentFeatureSetupStep": {
-          "97dcdc010f": "기능 활성화"
         },
         "WindowsTerminalStep": {
           "powerShell": "PowerShell",
@@ -11727,10 +11734,6 @@
             "workspaceName": "워크스페이스 이름",
             "branchSearchFailed": "브랜치 검색에 실패하여 브랜치를 표시할 수 없습니다."
           },
-          "ProjectHostSetupCombobox": {
-            "empty": "이 프로젝트에 준비된 호스트가 없습니다.",
-            "placeholder": "호스트 선택"
-          },
           "ProjectCombobox": {
             "search": "프로젝트 검색...",
             "empty": "검색과 일치하는 프로젝트가 없습니다.",
@@ -11784,6 +11787,9 @@
             "group": "릴리스 채널",
             "preview": "미리 보기",
             "stable": "안정 버전"
+          },
+          "androidHelp": {
+            "guide": "설치 가이드"
           },
           "relayDegradedNotice": "Relay에 연결할 수 없습니다 — 이 코드는 LAN 또는 Tailscale에서만 작동합니다."
         },
@@ -12097,43 +12103,6 @@
             "218503f9f3": "자동 저장됨",
             "cda56c5915": "메모 / launch-plan.md",
             "e16479c1c5": "[data-slash-menu] [data-slash-row].slash-active { background: rgba(24,24,27,0.07); box-shadow: inset 0 0 0 1px rgba(24,24,27,0.06); } [data-md-active-line][data-role=\"active\"] { color: rgb(113 113 122); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; } [data-md-active-line][data-role=\"h1\"] { color: inherit; font-family: inherit; font-size: 18px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; margin-top: 6px; } [data-md-caret] { display: inline-block; width: 1.5px; height: 1em; background: currentColor; vertical-align: -2px; margin-left: 1px; animation: md-caret-blink 1.05s steps(1) infinite; } @keyframes md-caret-blink { 0%, 50% { opacity: 1 } 51%, 100% { opacity: 0 } } @keyframes md-block-in { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } } @keyframes md-cursor-ripple { 0% { transform: scale(0.4); opacity: 0.9; } 100% { transform: scale(1.4); opacity: 0; } } [data-clicking=\"1\"] [data-cursor-ripple] { animation: md-cursor-ripple 460ms ease-out forwards; }"
-          },
-          "FeatureTourPreview": {
-            "1170621527": ">",
-            "304ad0dfc1": "생각 중...",
-            "ef8b164dd1": "src/auth 리뷰",
-            "952d3ddd9a": "세션이 시작되었습니다",
-            "771d8881c2": "claude",
-            "6ed43cb0e0": "dashboard.spec.ts",
-            "24fedd5a52": "login.spec.ts",
-            "8279e9d95b": "12개 테스트 실행",
-            "6218a9014d": "pnpm playwright test",
-            "04d54d50ec": "orca · zsh",
-            "1aa8a9a24a": "분할 가능한 terminal",
-            "2a7cfc82c8": "GH #1842와 연결됨",
-            "3822d8d14b": "fix/worktree-picker-truncates",
-            "d54aefe09e": "LIN-329",
-            "40bbd92ef4": "시작",
-            "c1f28c03b2": "작업 트리 선택 도구가 잘립니다.",
-            "fc0cc0b267": "GH #1842",
-            "0688842445": "GH #1799",
-            "bee6b4088d": "GitHub 및 Linear 작업",
-            "5171768676": "agents 3개 조율",
-            "cebc7769cd": "인증 흐름 재설계",
-            "e44269e97d": "Agent 오케스트레이션",
-            "ec4a73f5e6": "PR 3/3",
-            "cfdfd4d6b4": "PR 2/3",
-            "b1f17bcc74": "PR 1/3",
-            "e38112b289": "청구 웹훅 리팩터링",
-            "9c812e0d7c": "CI 파이프라인 속도 향상",
-            "3c4adfd821": "로그인 경쟁 조건 수정",
-            "56a0271428": "격리된 워크스페이스",
-            "ef737dcee1": "GitHub 및 Linear 작업",
-            "ac51c061e2": "codex",
-            "47f16ecf34": "여러 작업을 동시에 진행하세요. 각 워크스페이스는 브랜치, terminal, agent 활동을 함께 보관합니다.",
-            "70aa182266": "목표를 넘겨두고 자리를 비우세요. 코디네이터 agent가 작업을 나누어 병렬 PR을 만듭니다.",
-            "f10c14dd9d": "탭을 오갈 필요 없이 GitHub 또는 Linear 백로그에서 선택하고 한 번의 클릭으로 워크스페이스를 시작하세요.",
-            "5d6ee181b6": "워크스페이스를 열어 terminal로 돌아가고, 테스트와 로그, agents 용으로 패널을 나누세요."
           },
           "FeatureWallBody": {
             "25ec5356d6": "설정"
@@ -12457,11 +12426,6 @@
                 }
               }
             }
-          },
-          "FeatureTourWorkspaceCard": {
-            "a23ed9da7f": "codex",
-            "2f33dc932b": "claude",
-            "9220794f6a": "작업 중"
           },
           "ReviewAnimatedVisual": {
             "8df4d52b68": "pr-view",
@@ -14133,6 +14097,13 @@
           "968e66d686": "5개 필드 크론을 입력하세요.",
           "cadb7b0bc9": "유효하지 않은"
         },
+        "AutomationAgentFilterMenu": {
+          "agent": "에이전트",
+          "all": "전체",
+          "926e785e4d": "agents 검색...",
+          "491043ee45": "검색어와 일치하는 agents가 없습니다.",
+          "clear": "필터 지우기"
+        },
         "AutomationDetail": {
           "007c8ad874": "프롬프트",
           "a1d52c2189": "사용 범위",
@@ -14943,6 +14914,10 @@
         "useManualTerminalWorktreeParking": {
           "cannotPark": "These terminals cannot be parked safely."
         }
+      },
+      "BrowserCookieImportDisclosure": {
+        "title": "Google 로그인은 가져오지 않습니다",
+        "description": "Orca에서 직접 Google에 로그인하세요."
       }
     },
     "i18n": {
@@ -15180,6 +15155,9 @@
       },
       "webRuntimeSession": {
         "remoteHostDisconnected": "The workspace is not connected to a remote Orca host."
+      },
+      "githubCheckDetailsTimeout": {
+        "timedOut": "체크 세부 정보를 불러오는 중 시간이 초과되었습니다."
       }
     }
   },
@@ -15224,6 +15202,7 @@
           "high": "높음",
           "xhigh": "매우 높음",
           "max": "최대",
+          "ultra": "울트라",
           "on": "켜짐",
           "off": "꺼짐"
         },

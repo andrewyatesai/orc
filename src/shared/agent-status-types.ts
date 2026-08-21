@@ -158,6 +158,10 @@ export type AgentStatusEntry = {
   providerSession?: AgentProviderSessionMetadata
   /** Live-only Command Code turn boundary key; not persisted to last-status.json. */
   promptInteractionKey?: string
+  /** True for a nonterminal state hydrated from last-status.json with no live hook since:
+   *  the transition may have been missed while no receiver was up, so freshness gates
+   *  treat the row as stale immediately. Cleared by any accepted live event. */
+  restoredUnconfirmed?: boolean
 }
 
 export type MigrationUnsupportedPtyEntry = {
@@ -190,6 +194,10 @@ export type AgentStatusPayload = {
   /** True when this `done` means the agent CLI never started (immediate exit
    *  126/127 before any recognition, #7047). Undefined otherwise. */
   launchFailed?: boolean
+  /** Wall-clock ms when the lead turn ended while Claude background inventory kept the pane `working`.
+   *  `stateStartedAt` stays pinned for that whole working run, so this is the per-turn identity.
+   *  Present on the gated `working` row and that turn's later all-clear `done`. Event-only — not stored on AgentStatusEntry. */
+  turnCompletedAt?: number
   /** Live in-process children of the reporting session. See AgentStatusEntry. */
   subagents?: AgentSubagentSnapshot[]
 }

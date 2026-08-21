@@ -92,7 +92,7 @@ function makeHarness(): {
     flushFrame: () => {
       // One rendering frame: run every armed rAF callback (the shared loop
       // enqueues ONE flush per frame; flushing it runs panes + the epilogue).
-      const run = rafQueue.splice(0, rafQueue.length)
+      const run = rafQueue.splice(0)
       for (const cb of run) {
         cb()
       }

@@ -51,6 +51,7 @@ export type CleanupEphemeralVmRuntimeArgs = {
   recipe: OrcaVmRecipe
   runtimeId: string
   now?: number
+  destroyTimeoutMs?: number
   signal?: AbortSignal
   onStdout?: (chunk: string) => void
   onStderr?: (chunk: string) => void
@@ -91,6 +92,10 @@ export type ResumeEphemeralVmRuntimeResult =
       runtime: EphemeralVmRuntimeRecord
       error: string
     }
+
+// Collapses concurrent cleanup calls for one runtime so a double-click or a
+// workspace-delete racing the settings retry can't run the provider destroy twice.
+const cleanupInFlight = new Map<string, Promise<CleanupEphemeralVmRuntimeResult>>()
 
 export async function provisionEphemeralVmRuntime(
   args: ProvisionEphemeralVmRuntimeArgs
@@ -137,7 +142,27 @@ export async function provisionEphemeralVmRuntime(
   return { ok: true, start, runtime }
 }
 
-export async function cleanupEphemeralVmRuntime(
+export function cleanupEphemeralVmRuntime(
+  args: CleanupEphemeralVmRuntimeArgs
+): Promise<CleanupEphemeralVmRuntimeResult> {
+  const key = `${args.userDataPath}\0${args.runtimeId}`
+  const existing = cleanupInFlight.get(key)
+  if (existing) {
+    return existing
+  }
+
+  const cleanup = cleanupEphemeralVmRuntimeOnce(args)
+  cleanupInFlight.set(key, cleanup)
+  const forget = (): void => {
+    if (cleanupInFlight.get(key) === cleanup) {
+      cleanupInFlight.delete(key)
+    }
+  }
+  void cleanup.then(forget, forget)
+  return cleanup
+}
+
+async function cleanupEphemeralVmRuntimeOnce(
   args: CleanupEphemeralVmRuntimeArgs
 ): Promise<CleanupEphemeralVmRuntimeResult> {
   const existing = listEphemeralVmRuntimes(args.userDataPath).find(
@@ -145,6 +170,14 @@ export async function cleanupEphemeralVmRuntime(
   )
   if (!existing) {
     throw new Error(`Unknown ephemeral VM runtime: ${args.runtimeId}`)
+  }
+  if (existing.status === 'cleaned') {
+    // Provider resources are already gone; a repeat call must not re-run destroy.
+    return {
+      ok: true,
+      runtime: existing,
+      skipped: existing.cleanupStatus === 'disabled'
+    }
   }
 
   const now = args.now ?? Date.now()
@@ -160,6 +193,7 @@ export async function cleanupEphemeralVmRuntime(
     recipe: args.recipe,
     context: contextFromRuntime(args.repoPath, running),
     recipeResult: running.recipeResult,
+    timeoutMs: args.destroyTimeoutMs,
     signal: args.signal,
     onStdout: args.onStdout,
     onStderr: args.onStderr

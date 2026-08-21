@@ -560,13 +560,25 @@ describe('renderer startup runtime routing', () => {
     expect(checkpointEnd).toBeGreaterThan(checkpointStart)
     const checkpointBlock = source.slice(checkpointStart, checkpointEnd)
 
-    expect(checkpointBlock).toContain('const sessionSnapshots = shouldCaptureSession')
+    expect(checkpointBlock).toContain(
+      'let sessionSnapshots: ReturnType<typeof buildWorkspaceSessionHostSnapshots> = []'
+    )
     expect(checkpointBlock).toContain(
       'buildWorkspaceSessionHostSnapshots(buildWorkspaceSessionPayload(freshState), freshState)'
     )
     expect(checkpointBlock).toContain('window.api.app.persistBeforeUnloadSync({')
     expect(checkpointBlock).toContain('sessions: sessionSnapshots')
     expect(checkpointBlock).toContain('ui: buildActiveViewUnloadPatch(freshState)')
+    // The clean-session recovery must gate on an intentional restart with no dirty drafts,
+    // fall back to a durable (empty) session, and re-throw otherwise.
+    expect(checkpointBlock).toContain('!isIntentionalAppRestartInProgress()')
+    expect(checkpointBlock).toContain('freshState.openFiles.some((file) => file.isDirty)')
+    expect(checkpointBlock).toContain('throw error')
+    expect(checkpointBlock).toContain('sessions: []')
+    // The fallback must return before the full-snapshot persist runs.
+    expect(checkpointBlock.indexOf('sessions: []')).toBeLessThan(
+      checkpointBlock.indexOf('sessions: sessionSnapshots')
+    )
     // The guard must wrap that capture, and every abort path must reset it.
     expect(source).toContain('createShutdownCheckpointGuard(captureShutdownCheckpoint)')
     expect(source).toContain(

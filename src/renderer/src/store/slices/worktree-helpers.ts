@@ -39,6 +39,15 @@ export type WorktreeDeleteState = {
   lockReason?: string | null
 }
 
+// Why: the renderer tags a preserved branch with the deletion-time route so a
+// later force-delete lands on the same host, even after the row is gone.
+type RendererRemoveWorktreeResult = Omit<RemoveWorktreeResult, 'preservedBranch'> & {
+  preservedBranch?: NonNullable<RemoveWorktreeResult['preservedBranch']> & {
+    hostId?: ExecutionHostId
+    runtimeEnvironmentId?: string
+  }
+}
+
 export type WorktreeMetaUpdateGuard = (worktree: Worktree | DetectedWorktree | undefined) => boolean
 
 export type WorktreeMetaUpdateOptions = {
@@ -55,8 +64,8 @@ export type WorktreeRenameRequest = {
 export type WorktreeSlice = {
   worktreesByRepo: Record<string, Worktree[]>
   detectedWorktreesByRepo: Record<string, DetectedWorktreeListResult>
-  worktreeLineageById: Record<string, WorktreeLineage>
-  workspaceLineageByChildKey: Record<WorkspaceKey, WorkspaceLineage>
+  worktreeLineageById: Readonly<Record<string, WorktreeLineage>>
+  workspaceLineageByChildKey: Readonly<Record<WorkspaceKey, WorkspaceLineage>>
   activeWorktreeId: string | null
   activeWorkspaceKey: WorkspaceKey | null
   /**
@@ -129,10 +138,16 @@ export type WorktreeSlice = {
       // Why: pin an unbound repo's refresh to the local host so a local
       // worktrees:changed under an active runtime lists local rows (#6628).
       forceLocalOwner?: boolean
+      /** Skip the per-repo remote lineage pass when the caller owns a final host-wide lineage refresh. */
+      suppressRemoteLineageRefresh?: boolean
     }
   ) => Promise<boolean>
   fetchAllWorktrees: (options?: { hydrationPurge?: 'allow' | 'defer' }) => Promise<void>
-  fetchWorktreeLineage: (options?: { forceLocalOwner?: boolean }) => Promise<void>
+  fetchWorktreeLineage: (options?: {
+    forceLocalOwner?: boolean
+    /** Scope the refresh to a specific host's lineage instead of the focused one. */
+    executionHostId?: ExecutionHostId
+  }) => Promise<void>
   updateWorktreeLineage: (
     worktreeId: string,
     args: { parentWorktreeId?: string; noParent?: boolean }
@@ -203,14 +218,22 @@ export type WorktreeSlice = {
     options?: {
       mode?: 'remove' | 'forget-local'
       suppressPreservedBranchToast?: boolean
+      // Why (#11960): only an explicit Force Delete waives the proof that every
+      // PTY stopped; `force` alone is set by the ordinary delete confirmation.
+      allowUnverifiedPtyStop?: boolean
     }
-  ) => Promise<({ ok: true } & RemoveWorktreeResult) | { ok: false; error: string }>
+  ) => Promise<({ ok: true } & RendererRemoveWorktreeResult) | { ok: false; error: string }>
   markWorktreesDeleting: (worktreeIds: readonly string[]) => void
   markWorktreesQueuedForDeletion: (worktreeIds: readonly string[]) => void
   forceDeletePreservedBranch: (
     worktreeId: string,
     branchName: string,
-    expectedHead: string
+    expectedHead: string,
+    options?: {
+      suppressToast?: boolean
+      hostId?: ExecutionHostId
+      runtimeEnvironmentId?: string
+    }
   ) => Promise<({ ok: true } & ForceDeleteWorktreeBranchResult) | { ok: false; error: string }>
   clearWorktreeDeleteState: (worktreeId: string) => void
   updateWorktreeMeta: (
@@ -314,11 +337,49 @@ export function findWorktreeById(
   return undefined
 }
 
+type RequiredKey<T> = { [K in keyof T]-?: undefined extends T[K] ? never : K }[keyof T]
+
+// Why: a present-but-undefined key in a spread ERASES the field. That is the
+// intended wire signal for clearing optional metadata (pushTarget), but on a
+// field Worktree declares required it produced a live `displayName: undefined`
+// that crashed the worktree palette (crash a1f81ea1). Typed off Worktree so a
+// newly-required field is protected automatically.
+const ERASURE_PROTECTED_KEYS: Record<Extract<RequiredKey<Worktree>, keyof WorktreeMeta>, true> = {
+  displayName: true,
+  comment: true,
+  linkedIssue: true,
+  linkedPR: true,
+  linkedLinearIssue: true,
+  isArchived: true,
+  isUnread: true,
+  isPinned: true,
+  sortOrder: true,
+  lastActivityAt: true
+}
+
+export function withoutErasedRequiredWorktreeFields(
+  updates: Partial<WorktreeMeta>
+): Partial<WorktreeMeta> {
+  const erased = Object.keys(ERASURE_PROTECTED_KEYS).filter(
+    (key) => updates[key as keyof WorktreeMeta] === undefined && Object.hasOwn(updates, key)
+  )
+  if (erased.length === 0) {
+    return updates
+  }
+
+  const next = { ...updates }
+  for (const key of erased) {
+    delete next[key as keyof WorktreeMeta]
+  }
+  return next
+}
+
 export function applyWorktreeUpdates(
   worktreesByRepo: Record<string, Worktree[]>,
   worktreeId: string,
-  updates: Partial<WorktreeMeta>
+  rawUpdates: Partial<WorktreeMeta>
 ): Record<string, Worktree[]> {
+  const updates = withoutErasedRequiredWorktreeFields(rawUpdates)
   const repoId = getRepoIdFromWorktreeId(worktreeId)
   const worktrees = worktreesByRepo[repoId]
   if (!worktrees) {

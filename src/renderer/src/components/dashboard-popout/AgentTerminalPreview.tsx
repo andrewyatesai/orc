@@ -19,7 +19,6 @@ import {
   installTerminalImeNativeTextForwarder,
   type TerminalImeNativeTextForwarder
 } from '@/components/terminal-pane/terminal-ime-native-text-forwarder'
-import { getMacNativeTextInputSourceTracker } from '@/components/terminal-pane/terminal-ime-input-source'
 import { composeActiveTerminalTheme } from '@/components/terminal-pane/terminal-appearance'
 import { useSystemPrefersDark } from '@/components/terminal-pane/use-system-prefers-dark'
 import { translate } from '@/i18n/i18n'
@@ -202,14 +201,11 @@ export function AgentTerminalPreview({ ptyId }: { ptyId: string }): React.JSX.El
       if (!terminal || getShortcutPlatform() !== 'darwin') {
         return
       }
-      // Why: prewarm the async input-source lookup before the first native-text key needs classification.
-      const inputSourceTracker = getMacNativeTextInputSourceTracker()
       imeCompositionTracker = installTerminalImeCompositionTracker(terminal.element)
       imeNativeTextForwarder = installTerminalImeNativeTextForwarder({
         terminalElement: terminal.element,
         isComposing: () => imeCompositionTracker?.isActive() ?? false,
-        sendInput: (data) => terminal?.input(data),
-        getInputSourceFeatures: () => inputSourceTracker.getFeatures()
+        sendInput: (data) => terminal?.input(data)
       })
     }
 

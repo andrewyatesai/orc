@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   activateBrowserPage: vi.fn(),
   activateSimulatorTab: vi.fn(),
   focusTerminalTabSurface: vi.fn(),
-  queueBrowserFocusRequest: vi.fn()
+  requestBrowserFocus: vi.fn()
 }))
 
 vi.mock('@/lib/workspace-tab-palette-activation', () => ({
@@ -24,8 +24,7 @@ vi.mock('@/lib/focus-terminal-tab-surface', () => ({
   focusTerminalTabSurface: mocks.focusTerminalTabSurface
 }))
 vi.mock('@/components/browser-pane/browser-focus', () => ({
-  ORCA_BROWSER_FOCUS_REQUEST_EVENT: 'orca:browser-focus-request',
-  queueBrowserFocusRequest: mocks.queueBrowserFocusRequest
+  requestBrowserFocus: mocks.requestBrowserFocus
 }))
 
 import { activateOpenTabSearchResult } from './open-tab-selection-routing'
@@ -40,7 +39,8 @@ const terminalResult: OpenTabSearchResult = {
   tabId: 'tab-1',
   entityId: 'term-1',
   groupId: 'group-2',
-  relativePath: null
+  relativePath: null,
+  occupantAgent: null
 }
 
 const editorResult: OpenTabSearchResult = {
@@ -117,31 +117,24 @@ describe('activateOpenTabSearchResult', () => {
       worktreeId: 'wt-1'
     })
 
-    const events: CustomEvent[] = []
-    const onFocusRequest = (event: Event): void => {
-      events.push(event as CustomEvent)
-    }
-    window.addEventListener('orca:browser-focus-request', onFocusRequest)
     if (outcome.status !== 'activated') {
       throw new Error('expected activation')
     }
     outcome.focus?.()
-    window.removeEventListener('orca:browser-focus-request', onFocusRequest)
-
-    const detail = { pageId: 'page-1', target: 'address-bar' }
-    expect(mocks.queueBrowserFocusRequest).toHaveBeenCalledWith(detail)
-    expect(events[0]?.detail).toEqual(detail)
+    // The consolidated helper owns queue + event dispatch; routing only hands it
+    // the page and target (browser-focus.test.ts proves it announces).
+    expect(mocks.requestBrowserFocus).toHaveBeenCalledWith({
+      pageId: 'page-1',
+      target: 'address-bar'
+    })
   })
 
-  it('focuses the simulator tab the activation reports', () => {
+  it('does not steal focus for a simulator tab, which focuses itself', () => {
     const outcome = activateOpenTabSearchResult(simulatorResult)
 
-    if (outcome.status !== 'activated') {
-      throw new Error('expected activation')
-    }
-    outcome.focus?.()
     expect(mocks.activateSimulatorTab).toHaveBeenCalledWith({ tabId: 'tab-3', worktreeId: 'wt-1' })
-    expect(mocks.focusTerminalTabSurface).toHaveBeenCalledWith('tab-3')
+    expect(outcome).toEqual({ status: 'activated', focus: null })
+    expect(mocks.focusTerminalTabSurface).not.toHaveBeenCalled()
   })
 
   it('reports a stale target per source', () => {
@@ -167,12 +160,19 @@ describe('activateOpenTabSearchResult', () => {
   it('reports a missing worktree distinguishably from a stale tab', () => {
     mocks.activateWorkspaceTab.mockReturnValue({ status: 'failed', reason: 'missing-worktree' })
     mocks.activateSimulatorTab.mockReturnValue({ status: 'failed', reason: 'missing-worktree' })
+    // A deleted worktree purges its browser pages too, so the page activation now
+    // surfaces missing-worktree; routing must word it as a dead workspace.
+    mocks.activateBrowserPage.mockReturnValue({ status: 'failed', reason: 'missing-worktree' })
 
     expect(activateOpenTabSearchResult(terminalResult)).toEqual({
       status: 'failed',
       message: 'Workspace no longer exists'
     })
     expect(activateOpenTabSearchResult(simulatorResult)).toEqual({
+      status: 'failed',
+      message: 'Workspace no longer exists'
+    })
+    expect(activateOpenTabSearchResult(browserResult)).toEqual({
       status: 'failed',
       message: 'Workspace no longer exists'
     })

@@ -10,16 +10,29 @@ describe('buildWslBridgeScript', () => {
     expect(script).toContain('FreeEnvironmentStringsW')
     // Why: the dedupe must run before the launcher spawn or .NET children still crash.
     expect(script.indexOf('Repair-OrcaDuplicateEnvNames')).toBeLessThan(
-      script.indexOf('& $OrcaLauncher @ForwardArgs')
+      script.indexOf('[System.Diagnostics.Process]::Start($StartInfo)')
     )
   })
 
   it('keeps the managed marker and launcher contract intact', () => {
     expect(script.startsWith(getWslBridgeMarker())).toBe(true)
-    expect(script).toContain('& $OrcaLauncher @ForwardArgs')
+    expect(script).toContain('$StartInfo.FileName = $OrcaLauncher')
     expect(script).toContain('exit $exitCode')
     // Why: a stray TS template interpolation would serialize as 'undefined' in the script.
     expect(script).not.toContain('undefined')
+  })
+
+  it('forwards native argv losslessly instead of PowerShell splatting (#12582)', () => {
+    // Why: PS 5.1 @splat strips quotes/backslashes; ProcessStartInfo takes a
+    // pre-escaped native command line so quoted --deps and paths survive.
+    expect(script).toContain('function ConvertTo-NativeCommandLineArgument')
+    expect(script).toContain('$StartInfo.UseShellExecute = $false')
+    expect(script).toContain('[System.Diagnostics.Process]::Start($StartInfo)')
+    expect(script).toContain('$Process.WaitForExit()')
+    expect(script).toContain('$exitCode = $Process.ExitCode')
+    // Why: the Windows argv rule doubles backslashes that precede a quote.
+    expect(script).toContain("[void]$Quoted.Append([char]'\\', $BackslashCount * 2 + 1)")
+    expect(script).not.toContain('& $OrcaLauncher @ForwardArgs')
   })
 
   it('stays embeddable in the installer bash heredoc', () => {

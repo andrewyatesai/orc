@@ -1,10 +1,17 @@
 import { getEditorDisplayLabel } from '@/components/editor/editor-labels'
 import type { OpenFile } from '@/store/slices/editor'
-import {
-  resolveTerminalTabTitle,
-  resolveUnifiedTabLabel
-} from '../../../shared/tab-title-ladder'
-import type { Tab, TabContentType, TabGroup, TerminalTab, Worktree } from '../../../shared/types'
+import { resolveTerminalTabTitle, resolveUnifiedTabLabel } from '../../../shared/tab-title-ladder'
+import type { PaneForegroundAgentEntry } from '@/store/slices/pane-foreground-agent'
+import type {
+  Tab,
+  TabContentType,
+  TabGroup,
+  TerminalLayoutSnapshot,
+  TerminalTab,
+  TuiAgent,
+  Worktree
+} from '../../../shared/types'
+import { resolveOpenTabOccupantAgent } from './open-tab-occupant-agent'
 import {
   collectAgentMetadataForTerminal,
   type AgentMetadata,
@@ -33,10 +40,21 @@ export type SearchableWorkspaceTab = {
   secondaryText: string
   titleSearchText: string
   secondarySearchTexts: string[]
+  /**
+   * Search-only type labels (e.g. "terminal tab"). Matched without writing into
+   * the row secondary — the content icon already conveys type.
+   */
+  typeSearchAliases?: readonly string[]
   agentMetadata: AgentMetadata[]
+  /** Confident occupant for the row icon; null when the pane is a plain shell. */
+  occupantAgent: TuiAgent | null
   isCurrentTab: boolean
   isCurrentWorktree: boolean
 }
+
+// Why search-only: the status/content icon already says "terminal"; a fixed
+// secondary crowds the row. Keep these matchable so typing "terminal" still finds them.
+export const TERMINAL_TYPE_SEARCH_ALIASES = ['terminal tab', 'terminal'] as const
 
 type WorkspaceTabPaletteActiveTabType = 'browser' | 'editor' | 'terminal' | 'simulator'
 
@@ -57,6 +75,8 @@ export type BuildSearchableWorkspaceTabsOptions = WorkspaceTabAgentMetadataState
   activeFileIdByWorktree: Record<string, string | null | undefined>
   activeTabTypeByWorktree: Record<string, WorkspaceTabPaletteActiveTabType | undefined>
   generatedTitlesEnabled: boolean
+  terminalLayoutsByTabId?: Record<string, TerminalLayoutSnapshot | undefined>
+  paneForegroundAgentByPaneKey?: Record<string, PaneForegroundAgentEntry>
 }
 
 function getActiveUnifiedTabId({
@@ -150,7 +170,9 @@ export function buildSearchableWorkspaceTabs({
   activeFileId,
   activeFileIdByWorktree,
   activeTabTypeByWorktree,
-  generatedTitlesEnabled
+  generatedTitlesEnabled,
+  terminalLayoutsByTabId,
+  paneForegroundAgentByPaneKey
 }: BuildSearchableWorkspaceTabsOptions): SearchableWorkspaceTab[] {
   const entries: SearchableWorkspaceTab[] = []
   const openFilesById = new Map(openFiles.map((file) => [file.id, file]))
@@ -208,15 +230,29 @@ export function buildSearchableWorkspaceTabs({
         entries.push({
           ...baseEntry,
           title,
-          secondaryText: 'Terminal tab',
+          // Why: type is already clear from the status/content icon; a fixed
+          // "Terminal tab" label only crowds the row (and used to leave a bare "· ·").
+          secondaryText: '',
           titleSearchText: title,
-          secondarySearchTexts: ['Terminal tab'],
+          secondarySearchTexts: [],
+          typeSearchAliases: TERMINAL_TYPE_SEARCH_ALIASES,
           agentMetadata: collectAgentMetadataForTerminal({
             terminalTabId: tab.entityId,
             worktreeId: worktree.id,
             agentStatusByPaneKey,
             retainedAgentsByPaneKey,
             sleepingAgentSessionsByPaneKey
+          }),
+          occupantAgent: resolveOpenTabOccupantAgent({
+            tabId: tab.entityId,
+            // The row's resolved title, not terminalTab.title: it already carries the live label.
+            title,
+            defaultTitle: terminalTab?.defaultTitle,
+            launchAgent: terminalTab?.launchAgent,
+            layout: terminalLayoutsByTabId?.[tab.entityId],
+            agentStatusByPaneKey,
+            sleepingAgentSessionsByPaneKey,
+            paneForegroundAgentByPaneKey
           })
         })
         continue
@@ -233,7 +269,8 @@ export function buildSearchableWorkspaceTabs({
         secondaryText: file.relativePath,
         titleSearchText: title,
         secondarySearchTexts: [file.relativePath, file.filePath],
-        agentMetadata: []
+        agentMetadata: [],
+        occupantAgent: null
       })
     }
   }

@@ -38,13 +38,13 @@ const CASES = [
     numeric: true,
     // A ~26 ns baseline is all fixed cost, so the ratio is the least meaningful
     // here and the absolute delta (~50 ns/call) is the number that matters.
-    maxSafeRatio: 4.0,
+    maxSafeRatio: 4,
     iterations: 200_000
   },
   {
     name: 'scalar string argument',
     payload: 'is:open repo:andrewyatesai/orca-alab author:@me',
-    maxSafeRatio: 2.0,
+    maxSafeRatio: 2,
     iterations: 200_000
   },
   {
@@ -54,7 +54,7 @@ const CASES = [
       claimedAt: 1_756_000_000_000,
       filesModified: Array.from({ length: 30 }, (_, i) => `src/shared/module-${i}/index.ts`)
     },
-    maxSafeRatio: 2.0,
+    maxSafeRatio: 2,
     iterations: 100_000
   },
   {
@@ -74,7 +74,7 @@ const CASES = [
   {
     name: 'astral text (emoji, the surrogate control)',
     payload: { title: '🚀 ship it', body: '🎉'.repeat(200) },
-    maxSafeRatio: 2.0,
+    maxSafeRatio: 2,
     iterations: 100_000
   }
 ]

@@ -419,6 +419,9 @@ export class SshRelaySession {
       return
     }
 
+    // Why: drop the relay-loss watcher before any teardown mux write, so a teardown-time
+    // connection_lost can't re-enter recovery as a spurious relay loss (see releaseRelayLossWatcher).
+    this.releaseRelayLossWatcher()
     // Cancel any in-flight reconnect
     this.abortController?.abort()
     const abortController = new AbortController()
@@ -554,6 +557,7 @@ export class SshRelaySession {
     if (this._state === 'disposed') {
       return
     }
+    this.releaseRelayLossWatcher()
     this.abortController?.abort()
     this.stopPortScanning()
     // Why: fire-and-forget — nothing rebinds after dispose, so no need to await port release.
@@ -569,6 +573,7 @@ export class SshRelaySession {
     if (this._state === 'disposed') {
       return
     }
+    this.releaseRelayLossWatcher()
     this.abortController?.abort()
     this.stopPortScanning()
     this.broadcastEmptyLists()
@@ -581,9 +586,20 @@ export class SshRelaySession {
 
   // ── Private ───────────────────────────────────────────────────────
 
+  // Why: teardown itself can kill the mux — a saturated control lane turns a teardown write into
+  // mux.dispose('connection_lost'), and if the watcher is still live our own shutdown re-enters
+  // recovery as a spurious relay loss. Every teardown path must release it before its first mux
+  // write; teardownProviders is not early enough since stopPortScanning runs ahead of it. Release
+  // ahead of abortController.abort() too: that signal reaches no mux request today, but plumbing it
+  // into one would otherwise reopen the same hole silently.
+  private releaseRelayLossWatcher(): void {
+    this.muxDisposeCleanup?.()
+    this.muxDisposeCleanup = null
+  }
+
   // Why: onStateChange only fires on SSH-level reconnects, so watch for relay-channel loss while SSH stays up and fire onRelayLost.
   private watchMuxForRelayLoss(mux: SshChannelMultiplexer): void {
-    this.muxDisposeCleanup?.()
+    this.releaseRelayLossWatcher()
     this.muxDisposeCleanup = mux.onDispose((reason) => {
       if (reason === 'connection_lost' && this.mux === mux && !this.isDisposed()) {
         console.warn(
@@ -780,7 +796,7 @@ export class SshRelaySession {
     })
   }
 
-  // Why: ship plugin/extension source from Orca so agent-event changes don't force a relay redeploy (agent-status-over-ssh.md §4/§8). Best-effort.
+  // Why: ship plugin/extension source from Orca so agent-event changes don't force a relay redeploy — the relay is versioned independently. Best-effort: failure only costs agent status on this host.
   private async installPluginsOnRelay(mux: SshChannelMultiplexer): Promise<void> {
     if (!isRemoteAgentHooksEnabled() || !this.areAgentStatusHooksEnabled()) {
       return
@@ -842,6 +858,7 @@ export class SshRelaySession {
         hookEventName?: unknown
         toolUseId?: unknown
         toolAgentId?: unknown
+        teammateName?: unknown
         toolAgentType?: unknown
         isReplay?: unknown
         providerSession?: unknown
@@ -851,7 +868,7 @@ export class SshRelaySession {
       if (typeof envelope.paneKey !== 'string') {
         return
       }
-      // Why: forward env/version verbatim so cross-build warn-once diagnostics fire on remote events too (agent-status-over-ssh.md §3).
+      // Why: forward the agent CLI's env/version verbatim (not the relay's) so warn-once protocol-mismatch diagnostics fire for remote events too.
       agentHookServer.ingestRemote(
         {
           paneKey: envelope.paneKey,
@@ -869,6 +886,8 @@ export class SshRelaySession {
             typeof envelope.hookEventName === 'string' ? envelope.hookEventName : undefined,
           toolUseId: typeof envelope.toolUseId === 'string' ? envelope.toolUseId : undefined,
           toolAgentId: typeof envelope.toolAgentId === 'string' ? envelope.toolAgentId : undefined,
+          teammateName:
+            typeof envelope.teammateName === 'string' ? envelope.teammateName : undefined,
           toolAgentType:
             typeof envelope.toolAgentType === 'string' ? envelope.toolAgentType : undefined,
           isReplay: envelope.isReplay === true ? true : undefined,
@@ -902,8 +921,7 @@ export class SshRelaySession {
   }
 
   private teardownProviders(reason: 'shutdown' | 'connection_lost'): void {
-    this.muxDisposeCleanup?.()
-    this.muxDisposeCleanup = null
+    this.releaseRelayLossWatcher()
     this.muxNotificationCleanup?.()
     this.muxNotificationCleanup = null
     if (this.mux && !this.mux.isDisposed()) {

@@ -233,7 +233,7 @@ export function createTerminalInputCoordinator(
       const waiter: Waiter = { request, resolve, detach: () => {} }
       const onAbort = (): void => {
         const index = state.waiters.indexOf(waiter)
-        if (index >= 0) {
+        if (index !== -1) {
           state.waiters.splice(index, 1)
         }
         resolve({ ok: false, reason: 'cancelled' })

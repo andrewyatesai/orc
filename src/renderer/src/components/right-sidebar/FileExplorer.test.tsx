@@ -661,6 +661,24 @@ describe('FileExplorerRow collapse folder action', () => {
     expect(toastErrorMock).toHaveBeenCalledWith('Could not copy the file to the clipboard')
   })
 
+  it('shows an actionable toast when remote clipboard staging is unavailable', async () => {
+    const writeClipboardFile = vi.fn().mockResolvedValue({
+      ok: false,
+      reason: 'staging-unavailable'
+    })
+    ;(
+      globalThis as unknown as {
+        window: { api: { ui: { writeClipboardFile: typeof writeClipboardFile } } }
+      }
+    ).window = { api: { ui: { writeClipboardFile } } }
+
+    await copyFileToOsClipboard(fileNode, 'ssh-1')
+
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "Could not copy the file because Orca's temporary storage is unavailable"
+    )
+  })
+
   it('shows the remote copy rejection message when SSH materialization fails', async () => {
     const writeClipboardFile = vi.fn().mockRejectedValue(new Error('Remote connection dropped'))
     ;(
@@ -714,12 +732,10 @@ describe('FileExplorerRow collapse folder action', () => {
   })
 
   it('reports the saved filename in the toast when the save dialog renamed the download (#12959)', async () => {
-    const downloadFile = vi
-      .fn()
-      .mockResolvedValue({
-        canceled: false,
-        destinationPath: 'C:\\Users\\a\\Downloads\\renamed.ts'
-      })
+    const downloadFile = vi.fn().mockResolvedValue({
+      canceled: false,
+      destinationPath: 'C:\\Users\\a\\Downloads\\renamed.ts'
+    })
     const openPath = vi.fn().mockResolvedValue(undefined)
     ;(
       globalThis as unknown as {

@@ -10,13 +10,17 @@ import {
 import { settingsForRuntimeOwner } from '@/runtime/runtime-rpc-client'
 import { useAppStore } from '@/store'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
-import { mapPosixPathToWslWorktreeUncPath } from '../../../../shared/wsl-unc-paths'
+import {
+  mapPosixPathToWslWorktreeUncPath,
+  toWindowsWslPath
+} from '../../../../shared/wsl-unc-paths'
 import { resolveKnownWorktreeRootPathLink } from './terminal-worktree-path-link'
 
 type TerminalFileOpenDeps = {
   worktreeId: string
   worktreePath: string
   runtimeEnvironmentId?: string | null
+  wslDistro?: string | null
   openWithSystemDefault?: boolean
 }
 
@@ -53,8 +57,33 @@ export function getTerminalFileContext(
 // Why (issue #8156): WSL terminals emit POSIX paths (detected links, OSC 8) the
 // Windows host cannot stat or open; rebase onto the worktree's own UNC share so
 // mapped paths still relativize against worktreePath (\\wsl$ vs \\wsl.localhost).
-export function mapTerminalFilePath(filePath: string, worktreePath: string): string {
-  return mapPosixPathToWslWorktreeUncPath(filePath, worktreePath) ?? filePath
+// A worktree on a native Windows drive whose project runs under WSL prints POSIX
+// paths with no distro in the worktree shape, so accept the pane runtime's distro
+// (from resolvePaneWslDistro) and map through it — routing /mnt/<drive> to the
+// native drive rather than back through the 9P share.
+export function mapTerminalFilePath(
+  filePath: string,
+  worktreePath: string,
+  wslDistro?: string | null
+): string {
+  const worktreeMapped = mapPosixPathToWslWorktreeUncPath(filePath, worktreePath)
+  if (worktreeMapped) {
+    return worktreeMapped
+  }
+  const distro = wslDistro?.trim()
+  if (!distro || !filePath.startsWith('/') || filePath.startsWith('//')) {
+    return filePath
+  }
+  return toWindowsWslPath(filePath, distro)
+}
+
+// Why: remote-runtime panes print the remote host's POSIX paths; the local WSL
+// distro must never rewrite them, so it only applies to local panes.
+export function terminalLinkWslDistro(
+  wslDistro: string | null | undefined,
+  runtimeEnvironmentId: string | null | undefined
+): string | null {
+  return runtimeEnvironmentId ? null : (wslDistro ?? null)
 }
 
 export function shouldOpenTerminalFileWithSystemDefault(
@@ -100,7 +129,11 @@ export function openDetectedFilePath(
   deps: TerminalFileOpenDeps
 ): void {
   const { openWithSystemDefault = false, runtimeEnvironmentId, worktreeId, worktreePath } = deps
-  const mappedFilePath = mapTerminalFilePath(detectedFilePath, worktreePath)
+  const mappedFilePath = mapTerminalFilePath(
+    detectedFilePath,
+    worktreePath,
+    terminalLinkWslDistro(deps.wslDistro, runtimeEnvironmentId)
+  )
   const requestId = ++latestOpenDetectedFilePathRequestId
   cancelPendingEditorRevealFrames()
 

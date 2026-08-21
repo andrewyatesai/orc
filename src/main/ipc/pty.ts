@@ -17,7 +17,15 @@ import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import type { Store } from '../persistence'
 import type { GlobalSettings, TuiAgent } from '../../shared/types'
 import { FLEET_GRANT_ENV_VAR, stripFleetGrantEnv } from '../../shared/fleet-grant'
-import { toSshExecutionHostId } from '../../shared/execution-host'
+import {
+  LOCAL_EXECUTION_HOST_ID,
+  toSshExecutionHostId,
+  type ExecutionHostId
+} from '../../shared/execution-host'
+import {
+  SSH_PROVIDER_UNREGISTERED_REASON,
+  describeUnconfirmedStop
+} from '../../shared/pty-liveness-verdict'
 import { normalizeRuntimePathForComparison } from '../../shared/cross-platform-path-resolution'
 import {
   normalizeDesktopTerminalScrollbackRows,
@@ -66,15 +74,21 @@ import {
 } from '../../shared/command-token-scanner'
 import { agentHookServer } from '../agent-hooks/server'
 import { wslHookRelayManager } from '../agent-hooks/wsl-hook-relay-manager'
+import { ensureWslHookRelayForReattach } from '../agent-hooks/wsl-hook-relay-reattach'
 import { isAgentStatusHooksEnabled } from '../agent-hooks/managed-agent-hook-controls'
 import { piTitlebarExtensionService } from '../pi/titlebar-extension-service'
-import type { PiAgentKind } from '../../shared/pi-agent-kind'
+import { isPiCompatibleAgentType, type PiAgentKind } from '../../shared/pi-agent-kind'
+import { detectExplicitPiAgentKindFromCommand } from '../../shared/explicit-pi-agent-launch'
 import { detectPiAgentKindFromCommand } from '../pi/rust-pi-agent-kind'
 import { isPwshAvailable } from '../pwsh'
 import { LocalPtyProvider } from '../providers/local-pty-provider'
+import type { PtyProcessInfo } from '../providers/pty-process-info'
 import type { IPtyProvider, PtySpawnOptions, PtySpawnResult } from '../providers/types'
 import { isPtyWriteUnavailableError } from '../providers/pty-write-unavailable-error'
-import { inspectPtyProviderProcess } from '../providers/pty-process-inspection'
+import {
+  inspectPtyProviderProcess,
+  inspectPtyProviderProcessForRenderer
+} from '../providers/pty-process-inspection'
 import {
   PtyProcessListAdmission,
   visitPtyProcessListingsInBatches
@@ -94,6 +108,7 @@ import {
 } from '../daemon/pty-session-id'
 import { resolveWslSessionContext } from '../daemon/wsl-session-context'
 import { addNodePtyRecoveryHint } from '../daemon/node-pty-error-hints'
+import { isDaemonEndpointGoneError, TerminalHostGoneError } from '../daemon/daemon-errors'
 import { recordDaemonStreamBacklogEvent } from '../daemon/daemon-stream-backlog-probe'
 import type { ClaudeRuntimeAuthPreparation } from '../claude-accounts/runtime-auth-service'
 import type { ClaudeAccountSelectionTarget } from '../claude-accounts/runtime-selection'
@@ -188,6 +203,7 @@ import {
 } from '../codex/codex-pane-account-registry'
 import { resolveCodexPaneLaunchAccount } from '../codex/codex-pane-launch-account'
 import { getSystemCodexHomePath } from '../codex/codex-home-paths'
+import { ensureCodexStateDbBackfillRecoveryStarted } from '../codex/codex-state-db-backfill-recovery'
 import { isCodexSystemDefaultRealHomeEnabled } from '../codex/codex-real-home-flag'
 import type { CodexSessionResumePreparation } from '../codex/codex-session-resume-home'
 import { dropUnverifiedCodexResumeArgv } from '../codex/codex-unverified-resume-launch'
@@ -214,9 +230,6 @@ import type { PtyListedSession } from '../../shared/pty-listed-session'
 // Routes PTY operations by connectionId (null = local provider).
 
 let localProvider: IPtyProvider = new LocalPtyProvider()
-type FreshLocalFallbackProvider = IPtyProvider & {
-  routesFreshSpawnsToLocalProvider?: true
-}
 const sshProviders = new Map<string, IPtyProvider>()
 
 type RegisteredPtyProvider = {
@@ -229,6 +242,46 @@ function registeredPtyProviders(): RegisteredPtyProvider[] {
     { provider: localProvider, connectionId: null },
     ...Array.from(sshProviders, ([connectionId, provider]) => ({ provider, connectionId }))
   ]
+}
+
+// Why: the runtime cannot say which hosts a listing covered unless the listing
+// names them; a null connectionId is the machine running Orca (the local host).
+//
+// Settle each SSH provider independently and forward the caller's deadline (STA-517):
+// a single unreachable relay used to reject the whole Promise.all, so the runtime lost
+// the inventory it needs to retire exited PTYs and every retained pane stayed "active".
+// A provider that does not answer is unknown, not empty — it drops out of the aggregate
+// and its host is simply absent from hostIds (never proven dead). A local failure still
+// fails the aggregate; that is a real controller fault, not one unreachable host.
+async function listRegisteredPtyProcessesWithHostScope(opts?: { deadlineMs?: number }): Promise<{
+  processes: PtyProcessInfo[]
+  hostIds: ExecutionHostId[]
+}> {
+  const providers = registeredPtyProviders()
+  const providerSessions = await Promise.all(
+    providers.map(async ({ provider, connectionId }) => {
+      const hostId: ExecutionHostId = connectionId
+        ? toSshExecutionHostId(connectionId)
+        : LOCAL_EXECUTION_HOST_ID
+      try {
+        // Why: the deadline only bounds relay round-trips; the local provider answers in-process.
+        const processes = await (connectionId
+          ? provider.listProcesses(opts)
+          : provider.listProcesses())
+        return { processes, hostId }
+      } catch (error) {
+        if (!connectionId) {
+          throw error
+        }
+        return null
+      }
+    })
+  )
+  const responding = providerSessions.filter((session) => session !== null)
+  return {
+    processes: responding.flatMap((session) => session.processes),
+    hostIds: responding.map((session) => session.hostId)
+  }
 }
 
 const SYNTHETIC_KILL_EXIT_DUPLICATE_WINDOW_MS = 30_000
@@ -334,6 +387,39 @@ const paneSpawnReservationsByPaneKey = new Map<string, PaneSpawnReservation>()
 // multiple SSH relays; coordinate claims above every provider boundary too.
 const agentSessionOwners = new ClaimedAgentPtyOwnerRegistry()
 let agentSessionOwnerReconciliation: Promise<void> | null = null
+
+// Why: restore payloads (reattach snapshot / cold-restore scrollback / relay
+// replay + lastTitle) ride spawn RPC results, never onPtyData, so EVERY spawn
+// choke point — renderer pty:spawn and the runtime controller — must seed the
+// terminal list/read records or headless/CLI-created reattaches stay blank.
+// The runtime's empty-record guard makes a second seed for the same session a
+// no-op, so overlapping paths cannot double-apply history.
+function seedTerminalRestoreRecordsFromSpawnResult(
+  runtime: OrcaRuntimeService | undefined,
+  result: PtySpawnResult
+): void {
+  const text =
+    typeof result.snapshot === 'string' && result.snapshot.length > 0
+      ? result.snapshot
+      : typeof result.coldRestore?.scrollback === 'string' &&
+          result.coldRestore.scrollback.length > 0
+        ? result.coldRestore.scrollback
+        : typeof result.replay === 'string' && result.replay.length > 0
+          ? result.replay
+          : undefined
+  // Why lastTitle rides only the reattach snapshot here: the fork's cold-restore
+  // checkpoint schema does not persist a title, so cold restores seed preview only.
+  const lastTitle =
+    typeof result.lastTitle === 'string' && result.lastTitle.length > 0
+      ? result.lastTitle
+      : undefined
+  if (text !== undefined || lastTitle !== undefined) {
+    runtime?.seedTerminalRestoreTail?.(result.id, {
+      ...(text !== undefined ? { text } : {}),
+      ...(lastTitle !== undefined ? { lastTitle } : {})
+    })
+  }
+}
 
 function assertSpawnReplyWasLive(result: PtySpawnResult): void {
   if (!result.exitedBeforeSpawnReply) {
@@ -627,6 +713,12 @@ function tryGetProviderForAgentSessionOwner(ptyId: string): IPtyProvider | undef
 }
 
 function normalizeNodePtySpawnError(err: unknown): Error {
+  // Why: a resume whose owning daemon exited hits a dead endpoint (connect ENOENT/ECONNREFUSED)
+  // once withDaemonRetry's respawn is exhausted or unavailable. Translate here — the first catch
+  // both the local and paired-runtime spawn paths reach — before RPC strips the socket code/syscall.
+  if (isDaemonEndpointGoneError(err)) {
+    return new TerminalHostGoneError()
+  }
   const rawMessage = err instanceof Error ? err.message : String(err)
   const hintedMessage = addNodePtyRecoveryHint(rawMessage)
   if (hintedMessage === rawMessage && err instanceof Error) {
@@ -1146,6 +1238,16 @@ export function buildPtyHostEnv(
   const preexistingOpenCodeConfigDir = resolveOpenCodeSourceConfigDir(baseEnv)
   const launchCommandHint = resolveSetupAgentSequenceLaunchCommand(baseEnv, opts.launchCommand)
   const piAgentKind = detectPiAgentKindFromCommand(launchCommandHint)
+  // Why: `piAgentKind` (Rust) defaults bare shells to 'pi'; the explicit kind is
+  // null for bare shells and other agents. Only an explicit Pi/OMP launch (a
+  // trusted `launchAgent` or a command whose binary is `pi`/`omp`) may
+  // materialize the default agent home — otherwise unused agents recreate
+  // deleted `~/.<agent>` dirs on every open (#10196).
+  const explicitPiAgentKind = isPiCompatibleAgentType(opts.launchAgent)
+    ? opts.launchAgent
+    : opts.launchAgent === undefined
+      ? detectExplicitPiAgentKindFromCommand(launchCommandHint)
+      : null
   const hasLaunchCommand =
     typeof launchCommandHint === 'string' && launchCommandHint.trim().length > 0
 
@@ -1236,13 +1338,17 @@ export function buildPtyHostEnv(
     clearPiAgentShadowEnv(baseEnv, 'pi')
     clearPiAgentShadowEnv(baseEnv, 'omp')
     if (piAgentKind === 'pi') {
-      const piEnv = piTitlebarExtensionService.buildPtyEnv(id, preexistingPiAgentDir, 'pi')
+      const piEnv = piTitlebarExtensionService.buildPtyEnv(id, preexistingPiAgentDir, 'pi', {
+        materializeDefaultHome: explicitPiAgentKind === 'pi'
+      })
       Object.assign(baseEnv, piEnv)
       exposePiManagedExtensionEnv(baseEnv, 'pi', piEnv)
     }
 
     if (shouldPrepareOmpShadow) {
-      const ompEnv = piTitlebarExtensionService.buildPtyEnv(id, preexistingOmpAgentDir, 'omp')
+      const ompEnv = piTitlebarExtensionService.buildPtyEnv(id, preexistingOmpAgentDir, 'omp', {
+        materializeDefaultHome: explicitPiAgentKind === 'omp'
+      })
       Object.assign(baseEnv, ompEnv)
       exposePiManagedExtensionEnv(baseEnv, 'omp', ompEnv)
     }
@@ -1373,10 +1479,23 @@ function pinClaudeSessionIdForPaneAttribution(command: string | undefined): {
   return { command: `${trimmed} --session-id ${pinnedSessionId}`, pinnedSessionId }
 }
 
-function routesFreshSpawnsToLocalProvider(
-  provider: IPtyProvider
-): provider is FreshLocalFallbackProvider {
-  return (provider as FreshLocalFallbackProvider).routesFreshSpawnsToLocalProvider === true
+function routesFreshSpawnsToLocalProvider(provider: IPtyProvider): boolean {
+  return provider.routesFreshSpawnsToLocalProvider === true
+}
+
+// Why: a degraded daemon can regain spawn health; re-probe before a fresh spawn so
+// new terminals route back to the daemon instead of the non-persistent fallback.
+// Skips reattaches (an existing sessionId that is not a fresh create) and SSH.
+function recoverFreshSpawnProviderRouting(
+  provider: IPtyProvider,
+  connectionId: string | null | undefined,
+  sessionId: string | undefined,
+  isNewSession = sessionId === undefined
+): Promise<boolean> | undefined {
+  if (connectionId || (!isNewSession && sessionId) || !routesFreshSpawnsToLocalProvider(provider)) {
+    return
+  }
+  return provider.recoverFreshSpawnRouting?.()
 }
 
 function beginPtySpawnForWorktree(
@@ -1829,7 +1948,7 @@ export function registerPtyHandlers(
   ipcMain.removeHandler('pty:confirmForegroundProcess')
   ipcMain.removeHandler('pty:getCwd')
   ipcMain.removeHandler('pty:getSize')
-  ipcMain.removeAllListeners('pty:getAuthoritativeBufferSnapshotCapabilitiesSync')
+  ipcMain.removeHandler('pty:getAuthoritativeBufferSnapshotCapabilities')
   ipcMain.removeHandler('pty:declarePendingPaneSerializer')
   ipcMain.removeHandler('pty:settlePaneSerializer')
   ipcMain.removeHandler('pty:clearPendingPaneSerializer')
@@ -3465,6 +3584,15 @@ export function registerPtyHandlers(
       await assertFolderWorkspacePtyPathUsable(args.worktreeId)
       const cwd = resolvePtySpawnStartupCwd(args.worktreeId, args.cwd)
       const provider = getProvider(args.connectionId)
+      const freshSpawnRecovery = recoverFreshSpawnProviderRouting(
+        provider,
+        args.connectionId,
+        args.sessionId,
+        args.isNewSession
+      )
+      if (freshSpawnRecovery) {
+        await freshSpawnRecovery
+      }
       const isClaudeLaunch = !args.connectionId && isClaudeLaunchCommand(args.command)
       const claudePin = isClaudeLaunch
         ? pinClaudeSessionIdForPaneAttribution(args.command)
@@ -3536,7 +3664,11 @@ export function registerPtyHandlers(
         sessionId !== undefined ? getRelayPtyId(args.connectionId, sessionId) : undefined
       const effectiveSessionAppId =
         sessionId !== undefined ? getAppPtyId(args.connectionId, sessionId) : undefined
-      const isMintedSessionId = callerRequestedSessionId === undefined && isDaemonHostSpawn
+      // Why: a caller-provided id that is explicitly a fresh create (isNewSession)
+      // is still a minted daemon session after recovery — reset its incarnation
+      // rather than treat it as a reattach.
+      const isMintedSessionId =
+        (callerRequestedSessionId === undefined || args.isNewSession === true) && isDaemonHostSpawn
       const expectedWslDistro = !args.connectionId
         ? (resolveWslSessionContext({
             cwd,
@@ -3592,6 +3724,11 @@ export function registerPtyHandlers(
                 }) ?? null)
           )
         : null
+      if (args.launchAgent === 'codex' && selectedCodexHomePath) {
+        // Why: a launch into this home must not race Codex's own index rebuild;
+        // claim the supervisor lease first so a bounded pane never steals it.
+        await ensureCodexStateDbBackfillRecoveryStarted(selectedCodexHomePath)
+      }
       const skipCodexHomeEnv =
         isDaemonHostSpawn &&
         shouldSkipCodexHomeEnvForWindowsShell(daemonShellOverride, cwd) &&
@@ -3911,6 +4048,7 @@ export function registerPtyHandlers(
               sequenceBeforeProviderSpawn
             )
           }
+          ensureWslHookRelayForReattach(result, args.connectionId)
           runtime?.preparePtyExecutionContext?.(
             result.id,
             args.connectionId
@@ -4103,6 +4241,8 @@ export function registerPtyHandlers(
           // Why: non-worktree PTYs have no later surface-registration phase to clear admission intent.
           runtime?.cancelPendingPtyRegistration?.(result.id, result.incarnationId)
         }
+        // Why: runtime-controller creates (headless serve, CLI, splits) adopt surviving daemon sessions too; without this seed their records stay blank.
+        seedTerminalRestoreRecordsFromSpawnResult(runtime, result)
         // Why: arms main's per-PTY Command Code output detector from the launch command (renderer startupCommand parity).
         runtime?.noteTerminalSpawnCommand?.(result.id, launchCommand ?? null)
         if (isClaudeLaunch) {
@@ -4184,6 +4324,38 @@ export function registerPtyHandlers(
         return false
       }
     },
+    // Why: subscriber-driven ingestion for a daemon session no renderer pane
+    // ever attached. Local daemon sessions only — SSH panes have their own
+    // lease machinery, and the in-process local provider streams without an
+    // attach. Attach-only and false-on-doubt: never creates or resizes.
+    attach: async (ptyId) => {
+      if (ptyOwnership.get(ptyId) != null || parseAppSshPtyId(ptyId)) {
+        return false
+      }
+      let provider: IPtyProvider
+      try {
+        provider = getProviderForPty(ptyId)
+      } catch {
+        return false
+      }
+      if (provider !== localProvider || provider instanceof LocalPtyProvider) {
+        return false
+      }
+      try {
+        const sequenceBeforeProviderAttach = runtime?.getPtyOutputSequence?.(ptyId) ?? 0
+        const attachResult = await provider.attach(ptyId)
+        if (attachResult?.providerSequence) {
+          runtime?.synchronizePtyOutputSequenceFromProvider?.(
+            ptyId,
+            attachResult.providerSequence,
+            sequenceBeforeProviderAttach
+          )
+        }
+        return true
+      } catch {
+        return false
+      }
+    },
     kill: (ptyId) => {
       let connectionId: string | null | undefined = ptyOwnership.get(ptyId)
       const parsedSshId = connectionId === undefined ? parseAppSshPtyId(ptyId) : null
@@ -4196,12 +4368,15 @@ export function registerPtyHandlers(
           if (connectionId) {
             // Why: runtime/CLI close can target a detached SSH PTY after its
             // provider was unregistered. Tombstone the lease so reconnect does
-            // not revive a terminal the user explicitly closed.
+            // not revive a terminal the user explicitly closed — but a detached
+            // relay PTY outlives its provider, so this is lost contact, not a
+            // kill anyone confirmed; report an unconfirmed stop (#14977).
             const incarnationId = finishUnreachableSshPtyShutdown(ptyId, connectionId, store)
             runtime?.onPtyExit(ptyId, -1, incarnationId)
             rememberSyntheticKillExit(ptyId)
             sendPtyExitToRenderer({ id: ptyId, code: -1 })
-            return true
+            console.warn(`[pty] ${describeUnconfirmedStop(SSH_PROVIDER_UNREGISTERED_REASON)}`)
+            return false
           }
           return false
         }
@@ -4301,13 +4476,15 @@ export function registerPtyHandlers(
         provider = connectionId ? getProvider(connectionId) : getProviderForPty(ptyId)
       } catch {
         if (connectionId) {
-          // Why: an absent SSH provider means there is no live target left to
-          // await, but the relay lease must still be tombstoned.
+          // Why: the relay lease must still be tombstoned, but an absent SSH
+          // provider is lost contact — the remote PTY is designed to survive it,
+          // so nothing here observed an exit to report as a confirmed stop. Fall
+          // through to the unconfirmed `false` instead of fabricating a kill (#14977).
           const incarnationId = finishUnreachableSshPtyShutdown(ptyId, connectionId, store)
           runtime?.onPtyExit(ptyId, -1, incarnationId)
           rememberSyntheticKillExit(ptyId)
           sendPtyExitToRenderer({ id: ptyId, code: -1 })
-          return true
+          console.warn(`[pty] ${describeUnconfirmedStop(SSH_PROVIDER_UNREGISTERED_REASON)}`)
         }
         return false
       }
@@ -4402,13 +4579,10 @@ export function registerPtyHandlers(
         return null
       }
     },
-    listProcesses: async () => {
-      const providerSessions = await Promise.all([
-        localProvider.listProcesses(),
-        ...Array.from(sshProviders.values(), (provider) => provider.listProcesses())
-      ])
-      return providerSessions.flat()
+    listProcesses: async (opts) => {
+      return (await listRegisteredPtyProcessesWithHostScope(opts)).processes
     },
+    listProcessesWithHostScope: (opts) => listRegisteredPtyProcessesWithHostScope(opts),
     serializeBuffer: (ptyId, opts) => {
       // Why: mobile xterm must start from the desktop's exact screen state/dimensions before live TUI chunks render correctly.
       return requestSerializedBuffer(ptyId, opts)
@@ -4595,6 +4769,14 @@ export function registerPtyHandlers(
         didFallbackToWorkspaceRootCwd && cwd ? ({ kind: 'worktree', cwd } as const) : undefined
       spawnTiming.mark('preflight')
       const provider = getProvider(args.connectionId)
+      const freshSpawnRecovery = recoverFreshSpawnProviderRouting(
+        provider,
+        args.connectionId,
+        args.sessionId
+      )
+      if (freshSpawnRecovery) {
+        await freshSpawnRecovery
+      }
       const isClaudeLaunch = !args.connectionId && isClaudeLaunchCommand(args.command)
       const claudePin = isClaudeLaunch
         ? pinClaudeSessionIdForPaneAttribution(args.command)
@@ -4805,6 +4987,11 @@ export function registerPtyHandlers(
                 }) ?? null)
           )
         : null
+      if (args.launchAgent === 'codex' && selectedCodexHomePath) {
+        // Why: a launch into this home must not race Codex's own index rebuild;
+        // claim the supervisor lease first so a bounded pane never steals it.
+        await ensureCodexStateDbBackfillRecoveryStarted(selectedCodexHomePath)
+      }
       const skipCodexHomeEnv =
         isDaemonHostSpawn &&
         shouldSkipCodexHomeEnvForWindowsShell(effectiveShellOverride, cwd) &&
@@ -5033,6 +5220,7 @@ export function registerPtyHandlers(
               sequenceBeforeProviderSpawn
             )
           }
+          ensureWslHookRelayForReattach(result, args.connectionId)
           runtime?.preparePtyExecutionContext?.(
             result.id,
             args.connectionId
@@ -5296,6 +5484,10 @@ export function registerPtyHandlers(
           runtime?.cancelPendingPtyRegistration?.(pendingRegistrationPtyId, result.incarnationId)
           pendingRegistrationPtyId = null
         }
+        // Why: seed after registerPty binds the worktree — including on
+        // desktop, where the renderer-authority gate above skips the emulator
+        // seed but the list/read records still live main-side.
+        seedTerminalRestoreRecordsFromSpawnResult(runtime, result)
         // Why: arm main's per-PTY Command Code output detector from the launch command (startupCommand parity); banner detection covers PTYs without one.
         runtime?.noteTerminalSpawnCommand?.(
           result.id,
@@ -6027,9 +6219,9 @@ export function registerPtyHandlers(
     return Array.from(deduped.values())
   })
 
-  ipcMain.on(
-    'pty:getAuthoritativeBufferSnapshotCapabilitiesSync',
-    (event, args: { ids?: unknown }) => {
+  ipcMain.handle(
+    'pty:getAuthoritativeBufferSnapshotCapabilities',
+    (_event, args: { ids?: unknown }) => {
       const ids = Array.isArray(args?.ids) ? args.ids.slice(0, 512) : []
       const capabilities: { id: string; authoritative: boolean | null }[] = []
       const seen = new Set<string>()
@@ -6044,22 +6236,33 @@ export function registerPtyHandlers(
         }
         seen.add(value)
         const provider = tryGetProviderForPty(value)
-        // Why: degraded routing mixes preserved daemons with an in-process fallback; keep all panes mounted rather than guess ownership.
+        // Why null is reserved for an unresolved route: the renderer never caches
+        // it and keeps re-arming, so a provider that merely omits the optional
+        // method would poll forever. Omitting it means "no authoritative
+        // snapshot" — the same mount-eagerly outcome null already produced, but
+        // cacheable. Degraded routing keeps its explicit false for the same reason.
         capabilities.push({
           id: value,
-          authoritative: provider?.canProvideAuthoritativeBufferSnapshot
-            ? provider.canProvideAuthoritativeBufferSnapshot(value)
-            : provider && routesFreshSpawnsToLocalProvider(provider)
-              ? false
-              : null
+          authoritative:
+            provider === undefined || provider === null
+              ? null
+              : provider.canProvideAuthoritativeBufferSnapshot
+                ? provider.canProvideAuthoritativeBufferSnapshot(value)
+                : false
         })
       }
-      // Why: cold deferral runs during render before hidden panes mount; this in-memory route lookup lets legacy PTYs mount in that pass.
-      event.returnValue = capabilities
+      return capabilities
     }
   )
 
   ipcMain.handle('pty:hasPty', async (_event, args: { id: string }): Promise<boolean | null> => {
+    if (typeof args?.id !== 'string' || args.id.startsWith('remote:')) {
+      // Why: same routing hazard pty:kill guards against — ptyOwnership never holds
+      // a runtime terminal handle and parseAppSshPtyId ignores it, so the lookup
+      // falls through to the local provider and its "not in my table" reads as an
+      // authoritative dead. That is a fabricated answer about another host's PTY.
+      return null
+    }
     const ownedConnectionId = ptyOwnership.get(args.id)
     const parsedSshId = ownedConnectionId === undefined ? parseAppSshPtyId(args.id) : null
     const provider = parsedSshId
@@ -6097,7 +6300,7 @@ export function registerPtyHandlers(
   )
 
   ipcMain.handle('pty:inspectProcess', async (_event, args: { id: string }) =>
-    inspectPtyProviderProcess(getProviderForPty(args.id), args.id)
+    inspectPtyProviderProcessForRenderer(getProviderForPty(args.id), args.id)
   )
 
   ipcMain.handle(

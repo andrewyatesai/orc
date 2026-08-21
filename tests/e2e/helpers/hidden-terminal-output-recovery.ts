@@ -17,7 +17,6 @@ type SchedulerDebugWindow = Window & {
 export type HiddenOutputDebugSnapshot = {
   hiddenRendererSkipCount: number
   hiddenRendererSkippedChars: number
-  hiddenRendererMode2031ReplyCount: number
 }
 
 type HiddenOutputRecoveryWindow = Window & {

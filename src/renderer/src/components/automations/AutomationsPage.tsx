@@ -112,6 +112,13 @@ import {
 } from './AutomationEditorDialog'
 import { AutomationRunPageFrame } from './AutomationRunPageFrame'
 import { AutomationRunHistory } from './AutomationRunHistory'
+import { AutomationAgentFilterMenu } from './AutomationAgentFilterMenu'
+import {
+  EMPTY_AUTOMATION_AGENT_FILTER,
+  filterByAutomationAgentFilter,
+  isAutomationAgentFilterActive,
+  type AutomationAgentFilter
+} from './automation-agent-filter'
 import {
   getAutomationSetupDecisionDraftValue,
   getVisibleAutomationSetupDecision,
@@ -435,6 +442,9 @@ export default function AutomationsPage(): React.JSX.Element {
   const [selectedExternalKey, setSelectedExternalKey] = useState<string | null>(null)
   const [selectedExternalRunPage, setSelectedExternalRunPage] =
     useState<SelectedExternalRunPage | null>(null)
+  const [agentFilter, setAgentFilter] = useState<AutomationAgentFilter>(
+    EMPTY_AUTOMATION_AGENT_FILTER
+  )
   const runtimePreflightMountedRef = useRef(true)
   const runtimePreflightRequestedHostIdsRef = useRef<Set<TaskSourceContext['hostId']>>(new Set())
   const [runtimePreflightStatusByHostId, setRuntimePreflightStatusByHostId] = useState<
@@ -531,6 +541,13 @@ export default function AutomationsPage(): React.JSX.Element {
       }),
     [externalManagers]
   )
+  const agentFilterActive = isAutomationAgentFilterActive(agentFilter)
+  const visibleAutomations = useMemo(
+    () => filterByAutomationAgentFilter(automations, agentFilter),
+    [automations, agentFilter]
+  )
+  // External automations carry no agent identity, so an active agent filter drops them all.
+  const visibleExternalAutomationEntries = agentFilterActive ? [] : externalAutomationEntries
   const selectedExternal =
     externalAutomationEntries.find((entry) => entry.key === selectedExternalKey) ??
     (automations.length === 0 ? (externalAutomationEntries[0] ?? null) : null)
@@ -600,7 +617,7 @@ export default function AutomationsPage(): React.JSX.Element {
   const loadAutomationYamlHooksForRepo = useCallback(
     async (repoId: string): Promise<OrcaHooks | null> => {
       const key = getAutomationHooksCacheKey(repoId)
-      if (Object.prototype.hasOwnProperty.call(automationYamlHooksByRepoKey, key)) {
+      if (Object.hasOwn(automationYamlHooksByRepoKey, key)) {
         return automationYamlHooksByRepoKey[key] ?? null
       }
       const existingPromise = automationHookCheckPromisesRef.current.get(key)
@@ -621,7 +638,7 @@ export default function AutomationsPage(): React.JSX.Element {
         return hooks
       }
       setAutomationYamlHooksByRepoKey((current) =>
-        Object.prototype.hasOwnProperty.call(current, key) ? current : { ...current, [key]: hooks }
+        Object.hasOwn(current, key) ? current : { ...current, [key]: hooks }
       )
       return hooks
     },
@@ -2404,6 +2421,11 @@ export default function AutomationsPage(): React.JSX.Element {
           className="flex min-h-0 flex-col border-r border-border/50 bg-muted/20"
           data-contextual-tour-target="automations-list"
         >
+          {automations.length > 0 || agentFilterActive ? (
+            <div className="flex items-center gap-2 border-b border-border/50 px-3 py-2">
+              <AutomationAgentFilterMenu filter={agentFilter} onChange={setAgentFilter} />
+            </div>
+          ) : null}
           <div className="scrollbar-sleek min-h-0 flex-1 overflow-auto p-2">
             {automations.length + externalAutomationEntries.length > 0 ? (
               <div className="grid grid-cols-[1fr_auto] gap-2 px-2 pb-2 text-[11px] font-medium uppercase text-muted-foreground">
@@ -2418,7 +2440,7 @@ export default function AutomationsPage(): React.JSX.Element {
                 </span>
               </div>
             ) : null}
-            {automations.map((automation) => {
+            {visibleAutomations.map((automation) => {
               const automationRepo = repoMap.get(getAutomationRunRepoId(automation))
               const automationWorktree = automation.workspaceId
                 ? worktreeMap.get(automation.workspaceId)
@@ -2567,7 +2589,7 @@ export default function AutomationsPage(): React.JSX.Element {
                 </ContextMenu>
               )
             })}
-            {externalAutomationEntries.map((entry) => {
+            {visibleExternalAutomationEntries.map((entry) => {
               const providerLabel = getExternalProviderLabel(entry.manager)
               const targetKindLabel = getExternalTargetKindLabel(entry.manager)
               if (entry.kind === 'source') {

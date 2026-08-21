@@ -26,6 +26,11 @@ import {
 import { mapWithConcurrency } from '../../../../shared/map-with-concurrency'
 import { classifyTitleActivity, isExplicitAgentStatusFresh } from '@/lib/pane-agent-evidence'
 import { translate } from '@/i18n/i18n'
+import { resolveWorktreeOperationRoute } from '@/lib/worktree-operation-route'
+import type { ExecutionHostId } from '../../../../shared/execution-host'
+import { resolveWorkspaceCleanupRemovalHostId } from '../../../../shared/workspace-cleanup-host-identity'
+import { isWorkspaceCleanupRemovalHostCertain } from './workspace-cleanup-removal-host-guard'
+import type { PreservedBranchCleanup } from '@/lib/preserved-branch-cleanup'
 
 export type WorkspaceCleanupFailure = {
   worktreeId: string
@@ -36,6 +41,7 @@ export type WorkspaceCleanupFailure = {
 export type WorkspaceCleanupRemoveResult = {
   removedIds: string[]
   failures: WorkspaceCleanupFailure[]
+  preservedBranches?: PreservedBranchCleanup[]
 }
 
 export type WorkspaceCleanupRemoveOptions = {
@@ -302,6 +308,7 @@ export const createWorkspaceCleanupSlice: StateCreator<AppState, [], [], Workspa
   removeWorkspaceCleanupCandidates: async (worktreeIds, options) => {
     const removedIds: string[] = []
     const failures: WorkspaceCleanupFailure[] = []
+    const preservedBranches: PreservedBranchCleanup[] = []
     const approvedCandidatesByWorktreeId = new Map(
       (options?.approvedCandidates ?? []).map((candidate) => [candidate.worktreeId, candidate])
     )
@@ -329,6 +336,28 @@ export const createWorkspaceCleanupSlice: StateCreator<AppState, [], [], Workspa
     // Why: nested workspaces can belong to different repos; parent removal must
     // not race child cleanup hooks, PTY teardown, or metadata deletion.
     for (const candidate of [...candidatesToRemove].sort((a, b) => b.path.length - a.path.length)) {
+      // Why: earlier rows can await long enough for owner routing to change after
+      // the batched preflight; recheck host in the same turn as removeWorktree (STA-4343).
+      const scannedHostId = resolveWorkspaceCleanupRemovalHostId(candidate)
+      if (
+        !isWorkspaceCleanupRemovalHostCertain({
+          confirmedCandidate: candidate,
+          scannedCandidate: candidate,
+          scannedHostIds: [scannedHostId],
+          routeHostId:
+            resolveWorktreeOperationRoute(get(), candidate.worktreeId)?.executionHostId ?? null
+        })
+      ) {
+        failures.push({
+          worktreeId: candidate.worktreeId,
+          displayName: candidate.displayName,
+          message: translate(
+            'auto.store.slices.workspace.cleanup.hostUnresolved',
+            'Orca cannot tell which host owns this workspace. Refresh projects and review it again.'
+          )
+        })
+        continue
+      }
       const result = await get().removeWorktree(
         candidate.worktreeId,
         shouldForceWorkspaceCleanupRemoval(candidate),
@@ -338,6 +367,13 @@ export const createWorkspaceCleanupSlice: StateCreator<AppState, [], [], Workspa
       )
       if (result.ok) {
         removedIds.push(candidate.worktreeId)
+        if (result.preservedBranch) {
+          preservedBranches.push({
+            worktreeId: candidate.worktreeId,
+            branchName: result.preservedBranch.branchName,
+            expectedHead: result.preservedBranch.head
+          })
+        }
       } else {
         failures.push({
           worktreeId: candidate.worktreeId,
@@ -363,7 +399,11 @@ export const createWorkspaceCleanupSlice: StateCreator<AppState, [], [], Workspa
       }))
     }
 
-    return { removedIds, failures }
+    return {
+      removedIds,
+      failures,
+      ...(preservedBranches.length > 0 ? { preservedBranches } : {})
+    }
   }
 })
 
@@ -813,6 +853,11 @@ async function preflightWorkspaceCleanupCandidate(
   | { ok: false; failure: WorkspaceCleanupFailure }
 > {
   const scan = await window.api.workspaceCleanup.scan({ worktreeId })
+  // Why: the id can collide across hosts; record every owner the scan reported
+  // for it before enrichment collapses to the first row (STA-4343).
+  const scannedHostIds = scan.candidates
+    .filter((entry) => entry.worktreeId === worktreeId)
+    .map((entry) => resolveWorkspaceCleanupRemovalHostId(entry))
   const [candidate] = await enrichWorkspaceCleanupCandidates(scan.candidates, getState(), {
     applyDismissals: false
   })
@@ -865,6 +910,36 @@ async function preflightWorkspaceCleanupCandidate(
             'Workspace changed after confirmation. Refresh to review it before removing.'
           )
         }
+      }
+    }
+  }
+  // STA-4343: fail closed rather than delete another host's uncommitted work.
+  if (
+    !isWorkspaceCleanupRemovalHostCertain({
+      confirmedCandidate: approvedCandidate,
+      scannedCandidate: candidate,
+      scannedHostIds,
+      routeHostId: resolveWorktreeOperationRoute(getState(), worktreeId)?.executionHostId ?? null
+    })
+  ) {
+    const distinctKnownHostCount = new Set(
+      scannedHostIds.filter((hostId): hostId is ExecutionHostId => hostId !== null)
+    ).size
+    return {
+      ok: false,
+      failure: {
+        worktreeId,
+        displayName: candidate.displayName,
+        message:
+          distinctKnownHostCount > 1
+            ? translate(
+                'auto.store.slices.workspace.cleanup.hostCollision',
+                'Error: this workspace exists on multiple hosts at the same path'
+              )
+            : translate(
+                'auto.store.slices.workspace.cleanup.hostUnresolved',
+                'Orca cannot tell which host owns this workspace. Refresh projects and review it again.'
+              )
       }
     }
   }

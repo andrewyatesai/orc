@@ -7,6 +7,7 @@ import {
   callerScopeExempt
 } from './rpc-method-group-caller-scope'
 import { defineMethod, isStreamingMethod, type RpcContext } from '../core'
+import { attachOwnedSubscriptionCleanupRouting } from '../subscription-registry-test-double'
 
 vi.mock('electron', () => ({
   BrowserWindow: { fromId: vi.fn(() => null) },
@@ -377,7 +378,7 @@ describe('the exempt terminal group and the methods that name no pane', () => {
 // the id was built from, and a string no handle answers for is refused.
 describe('the exempt terminal group and the subscription id that names a pane', () => {
   function unsubscribeRuntime(cleaned: string[]): OrcaRuntimeService {
-    return {
+    const runtime = {
       cleanupSubscription: (id: string) => cleaned.push(id),
       assertTerminalHandleInCallerScope: (handle: string) => {
         if (handle !== 'term_mine') {
@@ -385,6 +386,7 @@ describe('the exempt terminal group and the subscription id that names a pane', 
         }
       }
     } as unknown as OrcaRuntimeService
+    return attachOwnedSubscriptionCleanupRouting(runtime)
   }
 
   it.each([

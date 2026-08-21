@@ -10,7 +10,6 @@ export type WorktreePaletteCreateActionState = {
 export function getWorktreePaletteCreateActionState({
   query
 }: {
-  canCreateWorktree: boolean
   query: string
 }): WorktreePaletteCreateActionState {
   const createWorktreeName = query.trim()
@@ -20,6 +19,8 @@ export function getWorktreePaletteCreateActionState({
       showCreateAction: false
     }
   }
+  // Why no project gate: the composer can add the first project inline, so
+  // creation stays offered with zero projects.
   const showCreateAction = createWorktreeName.length > 0
   return {
     createWorktreeName,
@@ -60,10 +61,16 @@ export function isSelectableWorktreePaletteEntry(
 
 export function getWorktreePaletteSelectionItemIds<
   T extends WorktreePaletteSelectionCandidateEntry
->(entries: readonly T[]): string[] {
+>(entries: readonly T[], renderKeys: readonly string[] = []): string[] {
   // Why: keyboard focus should mirror rendered order, including synthetic
   // action rows, while skipping headers and explanatory hint rows.
-  return entries.filter(isSelectableWorktreePaletteEntry).map((entry) => entry.id)
+  // Why renderKeys wins: rows render under de-duplicated keys, so naming the bare
+  // id here would leave a duplicate row absent from the list the `includes` check
+  // above consults — arrowing onto it would snap the highlight back to the top.
+  return entries
+    .map((entry, index) => ({ entry, id: renderKeys[index] ?? entry.id }))
+    .filter(({ entry }) => isSelectableWorktreePaletteEntry(entry))
+    .map(({ id }) => id)
 }
 
 export function getNextWorktreePaletteSelection({

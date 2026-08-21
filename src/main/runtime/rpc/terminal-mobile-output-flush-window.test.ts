@@ -4,6 +4,7 @@ import { RpcDispatcher } from './dispatcher'
 import type { RpcRequest } from './core'
 import type { OrcaRuntimeService } from '../orca-runtime'
 import { TERMINAL_METHODS } from './methods/terminal'
+import { attachOwnedSubscriptionCleanupRouting } from './subscription-registry-test-double'
 import {
   TerminalStreamOpcode,
   decodeTerminalStreamFrame,
@@ -59,6 +60,7 @@ function makeSubscribeHarness(): {
     }),
     waitForTerminal: vi.fn(() => new Promise<RuntimeTerminalWait>(() => {}))
   } as unknown as OrcaRuntimeService
+  attachOwnedSubscriptionCleanupRouting(runtime)
   return {
     runtime,
     sendBinary,

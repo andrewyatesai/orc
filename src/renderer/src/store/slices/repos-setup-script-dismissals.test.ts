@@ -42,4 +42,19 @@ describe('repo setup script prompt dismissals', () => {
       getSetupScriptPromptDismissalKey(localRepo.id)
     ])
   })
+
+  it('keeps the dismissal array identity when a refetch prunes nothing', async () => {
+    reposList.mockResolvedValue([localRepo])
+    const store = createTestStore()
+    store.setState({
+      setupScriptPromptDismissedRepoIds: [getSetupScriptPromptDismissalKey(localRepo.id)]
+    })
+    const first = store.getState().setupScriptPromptDismissedRepoIds
+
+    await store.getState().fetchRepos()
+
+    // Why: SetupScriptPromptCard Object.is-subscribes to this array. A no-op catalog
+    // refresh must not allocate just because the helper rebuilt the pruned copy.
+    expect(store.getState().setupScriptPromptDismissedRepoIds).toBe(first)
+  })
 })

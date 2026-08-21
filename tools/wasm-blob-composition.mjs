@@ -89,7 +89,14 @@ function parseSections(bytes) {
       const probe = new Reader(bytes, body)
       customName = probe.name()
     }
-    sections.push({ id, name: SECTION_NAMES[id] ?? `unknown(${id})`, customName, body, size, headerBytes })
+    sections.push({
+      id,
+      name: SECTION_NAMES[id] ?? `unknown(${id})`,
+      customName,
+      body,
+      size,
+      headerBytes
+    })
     reader.pos = body + size
   }
   return sections
@@ -359,11 +366,11 @@ function kib(n) {
 
 const args = process.argv.slice(2)
 const topIndex = args.indexOf('--top')
-const topN = topIndex >= 0 ? Number(args[topIndex + 1]) : 25
+const topN = topIndex !== -1 ? Number(args[topIndex + 1]) : 25
 const json = args.includes('--json')
 // Why the guard: indexOf returns -1 when --top is absent, and -1 + 1 === 0 would
 // silently drop the FIRST file argument.
-const topValueIndex = topIndex >= 0 ? topIndex + 1 : -1
+const topValueIndex = topIndex !== -1 ? topIndex + 1 : -1
 const files = args.filter((a, i) => !a.startsWith('--') && i !== topValueIndex)
 if (files.length === 0) {
   console.error('usage: node tools/wasm-blob-composition.mjs <file.wasm> [...] [--top N] [--json]')
@@ -405,7 +412,9 @@ if (json) {
     }
     console.log(`\n  top ${report.topFunctions.length} functions by code bytes:`)
     for (const fn of report.topFunctions) {
-      console.log(`  ${String(fn.size).padStart(8)}  ${(fn.demangled ?? `#${fn.index}`).slice(0, 150)}`)
+      console.log(
+        `  ${String(fn.size).padStart(8)}  ${(fn.demangled ?? `#${fn.index}`).slice(0, 150)}`
+      )
     }
   }
 }
