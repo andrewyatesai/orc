@@ -24,6 +24,8 @@ import {
 import { useAppStore } from '../store'
 import { WORKTREE_REFRESH_CONCURRENCY } from '../store/slices/worktrees'
 import { awaitGitWasmReadyForStartupHydration } from '../lib/git-wasm/git-wasm-startup-gate'
+import { warmTerminalProviderSnapshotCapabilities } from '../components/terminal/terminal-provider-snapshot-warm'
+import { refreshRemoteCatalogAfterHydration } from './app-startup-remote-catalog-refresh'
 import { reconnectSshTargetsForStartup } from './app-startup-ssh-reconnect'
 import { recoverFromStartupHydrationFailure } from './app-startup-recovery'
 import { createBootSessionApi, primeStartupSnapshot } from './app-startup-snapshot'
@@ -67,42 +69,6 @@ async function listRuntimeSessionHostIdsForStartup(): Promise<ExecutionHostId[]>
   } catch (err) {
     console.warn('Failed to list runtime session hosts for startup:', err)
     return []
-  }
-}
-
-// Why (#18): the full worktree/catalog scan is not required for session recovery, so keep it off the startup-critical path.
-async function refreshRemoteCatalogAfterHydration(
-  actions: StartupHydrationActions,
-  isCancelled: () => boolean
-): Promise<void> {
-  try {
-    try {
-      await timeRendererStartupStep('remote-catalog-refresh', async () => {
-        await actions.fetchReposForAllHosts()
-        await actions.fetchProjectGroupsForAllHosts()
-        await actions.fetchFolderWorkspacesForAllHosts()
-      })
-    } catch (err) {
-      console.warn('Remote startup catalog refresh failed:', err)
-    }
-    if (!isCancelled()) {
-      try {
-        await timeRendererStartupStep('remote-worktree-refresh', async () => {
-          await actions.fetchAllWorktrees()
-          // Why: the startup prune only saw session-referenced repos; use the deferred scan's
-          // authoritative results to drop deleted-worktree visit timestamps that would
-          // otherwise accumulate unbounded (disconnected SSH stays non-authoritative and is kept).
-          actions.pruneLastVisitedTimestamps()
-          await actions.fetchWorktreeLineage()
-        })
-      } catch (err) {
-        console.warn('Deferred startup worktree refresh failed:', err)
-      }
-    }
-  } finally {
-    if (!isCancelled()) {
-      useAppStore.setState({ startupWorktreeRefreshCompleted: true })
-    }
   }
 }
 
@@ -341,6 +307,10 @@ export async function runAppStartupHydration({
     // Why: main overlaps daemon/hook startup with hydration, but restored terminals need those services ready before they spawn/reconnect PTYs.
     await timeRendererStartupStep('first-window-services-await', () =>
       window.api.app.awaitFirstWindowStartupServices()
+    )
+    // Why: reconnect renders TerminalPane before the async hook effect runs; warm the route cache first so deferrable panes park instead of eagerly spawning.
+    await timeRendererStartupStep('terminal-provider-snapshot-capabilities', () =>
+      warmTerminalProviderSnapshotCapabilities(useAppStore.getState())
     )
     reconnectStarted = true
     await timeRendererStartupStep('reconnect-terminals', () =>

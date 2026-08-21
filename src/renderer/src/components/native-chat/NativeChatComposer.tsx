@@ -348,6 +348,17 @@ export const NativeChatComposer = forwardRef<NativeChatComposerHandle, NativeCha
       setHistory
     })
 
+    const handleDraftChange = useCallback(
+      (value: string, element: HTMLTextAreaElement) => {
+        setDraft(value)
+        setHistory((prev) => ({ entries: prev.entries, index: null }))
+        syncCaret(element)
+        handleDraftOrCaretChange(value, element.selectionStart ?? value.length)
+        setActiveSuggestion(0)
+      },
+      [handleDraftOrCaretChange, setDraft, syncCaret]
+    )
+
     return (
       <NativeChatComposerField
         textareaRef={textareaRef}
@@ -365,13 +376,7 @@ export const NativeChatComposer = forwardRef<NativeChatComposerHandle, NativeCha
         dictationDisabled={dictationDisabled}
         isDictating={isDictating}
         isDictationHoldMode={isDictationHoldMode}
-        onDraftChange={(value, element) => {
-          setDraft(value)
-          setHistory((prev) => ({ entries: prev.entries, index: null }))
-          syncCaret(element)
-          handleDraftOrCaretChange(value, element.selectionStart ?? value.length)
-          setActiveSuggestion(0)
-        }}
+        onDraftChange={handleDraftChange}
         onTextareaSelect={(element) => {
           syncCaret(element)
           handleDraftOrCaretChange(element.value, element.selectionStart ?? element.value.length)
@@ -381,8 +386,13 @@ export const NativeChatComposer = forwardRef<NativeChatComposerHandle, NativeCha
         onCompositionStart={() => {
           isComposingRef.current = true
         }}
-        onCompositionEnd={() => {
+        onCompositionEnd={(event) => {
           isComposingRef.current = false
+          // Some IMEs (e.g. macOS/Hangul) deliver a mid-composition deletion only
+          // on compositionend, without a trailing change event — adopt it here.
+          if (event.currentTarget.value !== draft) {
+            handleDraftChange(event.currentTarget.value, event.currentTarget)
+          }
         }}
         onPaste={handlePaste}
         pickerListboxId={picker.listboxId}
