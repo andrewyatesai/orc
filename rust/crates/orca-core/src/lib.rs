@@ -67,6 +67,7 @@ pub mod task_query;
 pub mod terminal_fonts;
 pub mod terminal_surface_id;
 pub mod terminal_tab_id;
+pub mod terminal_title_agent_type;
 pub mod unicode_nfc;
 mod unicode_nfc_data;
 pub mod uri_component;

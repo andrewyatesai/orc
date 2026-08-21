@@ -15,6 +15,7 @@ pub mod agent_recognition;
 pub mod agent_scratch_worktrees;
 pub mod agent_status_types;
 pub mod agent_tab_title;
+pub mod agent_title_identity;
 pub mod base_ref_search_result;
 pub mod branch_name_from_work;
 pub mod browser_screencast_protocol;
@@ -83,6 +84,7 @@ pub mod terminal_quick_commands;
 pub mod terminal_stream;
 pub mod terminal_surface_id;
 pub mod terminal_tab_id;
+pub mod terminal_title_agent_type;
 pub mod tui_agent_selection;
 pub mod tui_agent_startup;
 pub mod uri_component;
@@ -104,6 +106,9 @@ pub fn dispatch(module: &str, function: &str, input: &Value) -> Option<Value> {
         "agent-scratch-worktrees" => Some(agent_scratch_worktrees::dispatch(function, input)),
         "agent-status-types" => Some(agent_status_types::dispatch(function, input)),
         "agent-tab-title" => Some(agent_tab_title::dispatch(function, input)),
+        // The TS twin of the `terminal-title-agent-type` ladder; one Rust impl
+        // backs both so the harness can catch drift between the two TS copies.
+        "agent-title-identity" => Some(agent_title_identity::dispatch(function, input)),
         "base-ref-search-result" => Some(base_ref_search_result::dispatch(function, input)),
         "branch-name-from-work" => Some(branch_name_from_work::dispatch(function, input)),
         "browser-screencast-protocol" => Some(browser_screencast_protocol::dispatch(function, input)),
@@ -174,6 +179,7 @@ pub fn dispatch(module: &str, function: &str, input: &Value) -> Option<Value> {
         "terminal-stream-protocol" => Some(terminal_stream::dispatch(function, input)),
         "terminal-surface-id" => Some(terminal_surface_id::dispatch(function, input)),
         "terminal-tab-id" => Some(terminal_tab_id::dispatch(function, input)),
+        "terminal-title-agent-type" => Some(terminal_title_agent_type::dispatch(function, input)),
         "tui-agent-selection" => Some(tui_agent_selection::dispatch(function, input)),
         "tui-agent-startup" => Some(tui_agent_startup::dispatch(function, input)),
         "uri-component" => Some(uri_component::dispatch(function, input)),
