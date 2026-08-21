@@ -318,7 +318,9 @@ function shapeSubagents(value: unknown): AgentSubagentSnapshot[] | undefined {
   })
 }
 
-/** Rebuild the twin's eleven-key payload literal from the core's lean object. */
+/** Rebuild the twin's twelve-key payload literal from the core's lean object.
+ *  `turnCompletedAt` is undefined here — the shipped core predates the field —
+ *  and the overlay stamps the real value from the original input. */
 function shapePayload(answer: unknown): ParsedAgentStatusPayload {
   const raw = answer as Record<string, unknown>
   return {
@@ -332,6 +334,7 @@ function shapePayload(answer: unknown): ParsedAgentStatusPayload {
     lastAssistantMessage: raw.lastAssistantMessage as string | undefined,
     interrupted: raw.interrupted as true | undefined,
     launchFailed: raw.launchFailed as true | undefined,
+    turnCompletedAt: raw.turnCompletedAt as number | undefined,
     subagents: shapeSubagents(raw.subagents)
   }
 }

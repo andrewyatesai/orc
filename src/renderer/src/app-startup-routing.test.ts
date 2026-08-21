@@ -8,6 +8,7 @@ const read = (relativePath: string): string =>
 
 const APP = 'src/renderer/src/App.tsx'
 const HYDRATION = 'src/renderer/src/app-shell/app-startup-hydration.ts'
+const REMOTE_REFRESH = 'src/renderer/src/app-shell/app-startup-remote-catalog-refresh.ts'
 const LAZY_SURFACES = 'src/renderer/src/app-shell/app-lazy-surfaces.ts'
 const OVERLAY_HOST = 'src/renderer/src/app-shell/AppOverlayHost.tsx'
 const WORKSPACE_SHELL = 'src/renderer/src/app-shell/AppWorkspaceShell.tsx'
@@ -201,10 +202,7 @@ describe('renderer startup runtime routing', () => {
 
     // The deferred remote refresh must keep the live channels (no prefetched rows):
     // repos:list still runs there so its enrichment effects keep their refresh cadence.
-    const remoteRefreshBlock = source.slice(
-      source.indexOf('async function refreshRemoteCatalogAfterHydration'),
-      source.indexOf('type StartupHydrationParams')
-    )
+    const remoteRefreshBlock = read(REMOTE_REFRESH)
     expect(remoteRefreshBlock).toContain('actions.fetchReposForAllHosts()')
     expect(remoteRefreshBlock).toContain('actions.fetchProjectGroupsForAllHosts()')
     expect(remoteRefreshBlock).toContain('actions.fetchFolderWorkspacesForAllHosts()')
@@ -227,7 +225,9 @@ describe('renderer startup runtime routing', () => {
   })
 
   it('refreshes remote catalogs after startup hydration succeeds', () => {
-    const source = read(HYDRATION)
+    const source = read(REMOTE_REFRESH)
+    // The hydration file must still hand off to the extracted refresher.
+    expect(read(HYDRATION)).toContain('refreshRemoteCatalogAfterHydration(')
     const remoteCatalogIndex = source.indexOf("timeRendererStartupStep('remote-catalog-refresh'")
     const remoteWorktreeIndex = source.indexOf("timeRendererStartupStep('remote-worktree-refresh'")
     const remoteCatalogFailureIndex = source.indexOf(
