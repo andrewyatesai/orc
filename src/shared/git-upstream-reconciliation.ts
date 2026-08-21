@@ -27,29 +27,26 @@
 // equal ready for every input.
 //
 // THE COUNTER GUARD, and it is measured rather than defensive. `parse_status`
-// reads `ahead`/`behind` out of the payload; the SHIPPED `orca_git_wasm_bg.wasm`
-// and `orca_node.node` (both built 17:24, before the 17:32 routing commit
-// 25d68c0562) still do it with serde `as_i64().unwrap_or(0)`, which reads
-// ABSENT, `null`, `"0"`, `0.5` and anything past i64 as a real ZERO. The twin's
-// `ahead === 0` is strict and its `behind > 0` COERCES, so those inputs answer
-// differently on the two legs — `{hasUpstream: true, behind: 4}` is the twin's
-// false against the shipped core's TRUE, on the predicate that decides whether
-// Create PR fast-forwards, and an upstream status arrives from a peer runtime
-// over SSH/relay as an unvalidated cast (`unwrapRuntimeRpcResult` is not a
-// schema). A counter that is not a safe integer therefore never crosses; it is
-// answered from the same local body the unbound seam uses. `git-upstream-reconciliation.test.ts`
-// pins both halves — the twin's answer AND that the raw shipped core disagrees —
-// so once the blobs are rebuilt onto the f64 core the second half turns red and
-// the guard is re-derived instead of outliving its reason.
+// reads `ahead`/`behind` with serde `as_f64().unwrap_or(NAN)` (25d68c0562; the
+// shipped blobs carry it since the 5d81e7c73d rebuild), which answers absent /
+// null / fractional / past-i64 counters exactly the twin's way. The remaining
+// measured divergence is the NUMERIC STRING class: the twin COERCES (`'3' > 0`
+// is true) where `as_f64` reads a string as NaN and answers false — on the
+// predicate that decides whether Create PR fast-forwards, and an upstream
+// status arrives from a peer runtime over SSH/relay as an unvalidated cast
+// (`unwrapRuntimeRpcResult` is not a schema). A counter that is not a safe
+// integer therefore never crosses; it is answered from the same local body the
+// unbound seam uses (which also keeps NaN/±Infinity/-0 off the codec).
+// `git-upstream-reconciliation.test.ts` pins both halves — the f64 classes
+// agreeing raw AND the string class still disagreeing — so the guard stays
+// exactly as wide as its measured reason.
 import type { GitUpstreamStatus } from './git-status-types'
 import { tryOrcaDispatch } from './orca-dispatch-seam'
 
 const GIT_UPSTREAM_STATUS = 'git-upstream-status'
 
 /** The deleted twin's body, verbatim. */
-function legacyShouldForcePushWithLeaseForUpstream(
-  status: GitUpstreamStatus | undefined
-): boolean {
+function legacyShouldForcePushWithLeaseForUpstream(status: GitUpstreamStatus | undefined): boolean {
   return (
     status?.hasUpstream === true &&
     status.ahead > 0 &&

@@ -89,10 +89,40 @@ function twinIsBehindOnly(status: GitUpstreamStatus | undefined): boolean {
 }
 
 const COUNTERS: unknown[] = [
-  0, 1, 2, 3, 100, -1, -2, 9007199254740991, -9007199254740991, 9007199254740992,
-  0.5, -0.5, 1.5, 1e21, 2 ** 60, 9223372036854775808, Number.MAX_VALUE, -0,
-  Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, undefined, null,
-  '0', '3', '', ' 2 ', 'abc', true, false, [], [5], [0], {}
+  0,
+  1,
+  2,
+  3,
+  100,
+  -1,
+  -2,
+  9007199254740991,
+  -9007199254740991,
+  9007199254740992,
+  0.5,
+  -0.5,
+  1.5,
+  1e21,
+  2 ** 60,
+  9223372036854775808,
+  Number.MAX_VALUE,
+  -0,
+  Number.NaN,
+  Number.POSITIVE_INFINITY,
+  Number.NEGATIVE_INFINITY,
+  undefined,
+  null,
+  '0',
+  '3',
+  '',
+  ' 2 ',
+  'abc',
+  true,
+  false,
+  [],
+  [5],
+  [0],
+  {}
 ]
 const FLAGS: unknown[] = [true, false, undefined, null, 1, 0, 'true', '', {}]
 const NON_RECORDS: unknown[] = [undefined, null, 'x', '', 0, 5, true, false, [], [1, 2]]
@@ -189,10 +219,10 @@ function divergences(): string[] {
 
 // Trap 4 of the migration: a fallback-vs-core differential cannot see a
 // divergence that only exists once the seam is BOUND, so both states are swept
-// against the twin, not against each other. Watched failing: relaxing the
-// counter guard to `Number.isFinite` reddens 224 of these, and admitting an
-// absent/null counter reddens 30 — the `{hasUpstream: true, behind: N}` class
-// the shipped i64 core answers TRUE and the twin answers false.
+// against the twin, not against each other. Watched failing (re-measured on the
+// 5d81e7c73d f64 blob — the old i64 counts are history): dropping the counter
+// guard reddens the COERCION classes, where the twin coerces (`'3' > 0`,
+// `true > 0`, `[5] > 0` are all true) and serde reads NaN, answering false.
 describe('every probe answers the twin in BOTH seam states', () => {
   it('unbound — mobile, the preload, and the renderer before wasm init', () => {
     unbindCore()
@@ -205,44 +235,60 @@ describe('every probe answers the twin in BOTH seam states', () => {
   })
 })
 
-// The other half of the guard, and the reason it exists: the SHIPPED
-// orca_git_wasm_bg.wasm / orca_node.node predate 25d68c0562 and still read the
-// counters with `as_i64().unwrap_or(0)`. When the blobs are rebuilt onto the f64
-// core these turn red — re-derive the guard then instead of leaving it to
-// outlive its reason.
-describe('the raw core still disagrees with the twin on the guarded classes', () => {
+// The other half of the guard, RE-DERIVED after 5d81e7c73d rebuilt the shipped
+// blobs onto the f64 core (25d68c0562, `as_f64().unwrap_or(NAN)`): the old
+// `as_i64` classes — absent / null / fractional / past-i64 — now answer the
+// twin's way raw, pinned below so a stale i64 blob can never ship silently
+// again. The guard's LIVE reason is the last case: the twin COERCES numeric
+// strings (`'3' > 0` is true) where serde's `as_f64` reads NaN and answers
+// false, so string counters must keep answering from the twin body.
+describe('the rebuilt raw core reads the once-guarded classes the twin way', () => {
   const raw = (fn: string, status: unknown): unknown =>
     JSON.parse(orcaDispatch('git-upstream-status', fn, JSON.stringify(status)))
 
-  it('reads an absent counter as a real zero', () => {
+  it('reads an absent counter as absent, not zero', () => {
     const absentAhead = { hasUpstream: true, behind: 4 }
     expect(twinIsBehindOnly(absentAhead as GitUpstreamStatus)).toBe(false)
-    expect(raw('isBehindOnlyUpstream', absentAhead)).toBe(true)
+    expect(raw('isBehindOnlyUpstream', absentAhead)).toBe(false)
     bindCore()
     expect(isBehindOnlyUpstream(absentAhead as GitUpstreamStatus)).toBe(false)
   })
 
-  it('reads a null counter as a real zero', () => {
+  it('reads a null counter as absent, not zero', () => {
     const nullAhead = { hasUpstream: true, ahead: null, behind: 4 }
     expect(twinIsBehindOnly(nullAhead as unknown as GitUpstreamStatus)).toBe(false)
-    expect(raw('isBehindOnlyUpstream', nullAhead)).toBe(true)
+    expect(raw('isBehindOnlyUpstream', nullAhead)).toBe(false)
     bindCore()
     expect(isBehindOnlyUpstream(nullAhead as unknown as GitUpstreamStatus)).toBe(false)
   })
 
-  it('reads a fractional counter as a real zero', () => {
+  it('carries a fractional counter instead of truncating it to zero', () => {
     const fractional = { hasUpstream: true, ahead: 0, behind: 0.5 }
     expect(twinIsBehindOnly(fractional)).toBe(true)
-    expect(raw('isBehindOnlyUpstream', fractional)).toBe(false)
+    expect(raw('isBehindOnlyUpstream', fractional)).toBe(true)
     bindCore()
     expect(isBehindOnlyUpstream(fractional)).toBe(true)
   })
 
-  it('reads a past-i64 counter as a real zero', () => {
-    const huge = { hasUpstream: true, ahead: 2, behind: 9223372036854775808, behindCommitsArePatchEquivalent: true }
+  it('carries a past-i64 counter instead of zeroing it', () => {
+    const huge = {
+      hasUpstream: true,
+      ahead: 2,
+      behind: 9223372036854775808,
+      behindCommitsArePatchEquivalent: true
+    }
     expect(twinShouldForcePush(huge)).toBe(true)
-    expect(raw('shouldForcePushWithLeaseForUpstream', huge)).toBe(false)
+    expect(raw('shouldForcePushWithLeaseForUpstream', huge)).toBe(true)
     bindCore()
     expect(shouldForcePushWithLeaseForUpstream(huge)).toBe(true)
+  })
+
+  it("still refuses the numeric string the twin coerces — the guard's live reason", () => {
+    const stringBehind = { hasUpstream: true, ahead: 0, behind: '3' }
+    expect(twinIsBehindOnly(stringBehind as unknown as GitUpstreamStatus)).toBe(true)
+    expect(raw('isBehindOnlyUpstream', stringBehind)).toBe(false)
+    bindCore()
+    // The guard keeps the string off the wire; the shim answers from the twin body.
+    expect(isBehindOnlyUpstream(stringBehind as unknown as GitUpstreamStatus)).toBe(true)
   })
 })

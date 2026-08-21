@@ -241,9 +241,19 @@
       "why": [
         "+34 cadence sync attach-kind: pty.ts 6411->6433 = STA-517 relay-deadline-budget rewrite of listRegisteredPtyProcessesWithHostScope (settle each SSH provider independently under the caller deadline so one dead relay can't freeze every workspace); orca-runtime.ts 36901->36903 net = the STA-517 listBudgetMs/provider-margin plumbing minus the AgentDetector->AgentSessionTransitionRecorder field/hook removals. shim flat 2823."
       ]
+    },
+    {
+      "date": "2026-08-21",
+      "head": "d013ef6985",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36903
+      },
+      "why": [
+        "orca-runtime.ts TIGHTENED 36903->36897: the origin/main merge (7a5038008a) resolved this file to theirs' ceiling, measured on origin/main's tree, but the merged tree's fork seam-module renames (worktree-id-parsing, stable-pane-identity, cross-platform-path-resolution, wsl-unc-paths, tui-agent-selection-resolution, rust-terminal-tab-id, setup-runner-command-resolution) plus the agent-scratch checkout-paths classifier refactor net -6 on the god object. Pulling the ratchet in so the freed headroom cannot hide future drift. pty.ts (6433) and shimWholeFileLoc (2823) measure exactly at their ceilings on the merged tree and are unchanged."
+      ]
     }
   ],
   "shimWholeFileLoc": 2823,
-  "src/main/runtime/orca-runtime.ts": 36903,
+  "src/main/runtime/orca-runtime.ts": 36897,
   "src/main/ipc/pty.ts": 6433
 }

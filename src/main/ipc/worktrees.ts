@@ -118,23 +118,33 @@ type RemoveWorktreeArgs = {
   worktreeId: string
   hostId?: ExecutionHostId
   force?: boolean
+  /** Explicit Force Delete only — `force` alone is set by the ordinary confirmation (#11960). */
+  allowUnverifiedPtyStop?: boolean
   skipArchive?: boolean
 }
 
 async function stopPtysForDestructiveWorktreeRemoval(
   runtime: OrcaRuntimeService,
   worktreeId: string,
-  connectionId?: string
+  options: { connectionId?: string; allowUnverifiedStop?: boolean } = {}
 ): Promise<void> {
+  const { connectionId, allowUnverifiedStop } = options
   const provider = connectionId ? getSshPtyProvider(connectionId) : getLocalPtyProvider()
   if (!provider) {
     throw new Error(`PTY provider unavailable for worktree deletion: ${worktreeId}`)
   }
   const teardownResult = await killAllProcessesForWorktree(worktreeId, {
     runtime,
+    // Why: fence the runtime-graph sweep to the owning host so an SSH delete cannot
+    // stop a same-id local (or other-connection) workspace's terminals (#12388-parity).
+    resolvedWorktreeId: worktreeId,
+    ...(connectionId ? { resolvedConnectionId: connectionId } : {}),
     localProvider: provider,
     onPtyStopped: clearProviderPtyState,
     requirePhysicalStop: true,
+    // Why (#11960): set only by an explicit Force Delete, never by the ordinary
+    // confirmation — otherwise the gate would be off on the primary delete path.
+    ...(allowUnverifiedStop ? { allowUnverifiedStop: true } : {}),
     ...(connectionId ? { includeLocalRegistry: false } : {})
   })
   const total =
@@ -332,10 +342,17 @@ function gitStatusErrorMeansNotRepository(error: unknown): boolean {
   return /not a git repository/i.test(`${message}\n${stderr}`)
 }
 
-function getWorktreeRemovalOptionsKey(args: { force?: boolean; skipArchive?: boolean }): string {
+function getWorktreeRemovalOptionsKey(args: {
+  force?: boolean
+  allowUnverifiedPtyStop?: boolean
+  skipArchive?: boolean
+}): string {
   const forceKey = args.force === true ? 'force' : 'normal'
   const archiveKey = args.skipArchive === true ? 'skip-archive' : 'run-archive'
-  return `${forceKey}:${archiveKey}`
+  // Why: a Force Delete retry must not coalesce onto the in-flight attempt that
+  // just failed the PTY gate — it would inherit that failure instead of retrying.
+  const ptyKey = args.allowUnverifiedPtyStop === true ? 'allow-unverified-pty' : 'require-pty-stop'
+  return `${forceKey}:${archiveKey}:${ptyKey}`
 }
 
 function getWorktreeRemovalInFlightKey(worktreeId: string, hostId?: ExecutionHostId): string {
@@ -1461,10 +1478,24 @@ export function registerWorktreeHandlers(
             )
           }
           // Why: folder workspaces share one root, so there's no Git remove step to close shells; sweep PTYs before dropping metadata.
+          // Folder projects can be SSH-backed, so fence the sweep to the owning host
+          // exactly like the git paths — a local inventory must never reach a remote id.
+          const folderConnectionId = repo.connectionId ?? undefined
+          const folderSshPtyProvider = folderConnectionId
+            ? getSshPtyProvider(folderConnectionId)
+            : undefined
           await killAllProcessesForWorktree(args.worktreeId, {
             runtime,
-            localProvider: getLocalPtyProvider(),
-            onPtyStopped: clearProviderPtyState
+            resolvedWorktreeId: args.worktreeId,
+            ...(folderConnectionId ? { resolvedConnectionId: folderConnectionId } : {}),
+            localProvider: folderSshPtyProvider ?? getLocalPtyProvider(),
+            onPtyStopped: clearProviderPtyState,
+            ...(folderConnectionId
+              ? {
+                  includeProviderInventory: Boolean(folderSshPtyProvider),
+                  includeLocalRegistry: false
+                }
+              : {})
           }).catch((err) => {
             console.warn(`[worktree-teardown] failed for ${args.worktreeId}:`, err)
           })
@@ -1539,11 +1570,10 @@ export function registerWorktreeHandlers(
               )
               let removalCompleted = false
               try {
-                await stopPtysForDestructiveWorktreeRemoval(
-                  runtime,
-                  args.worktreeId,
-                  repo.connectionId
-                )
+                await stopPtysForDestructiveWorktreeRemoval(runtime, args.worktreeId, {
+                  connectionId: repo.connectionId,
+                  allowUnverifiedStop: args.allowUnverifiedPtyStop
+                })
                 await fsProvider!.deletePath(worktreePath, true)
                 removalCompleted = true
               } finally {
@@ -1560,7 +1590,9 @@ export function registerWorktreeHandlers(
               const removalGate = await runtime.acquireFileWatcherRemoval(worktreePath)
               let removalCompleted = false
               try {
-                await stopPtysForDestructiveWorktreeRemoval(runtime, args.worktreeId)
+                await stopPtysForDestructiveWorktreeRemoval(runtime, args.worktreeId, {
+                  allowUnverifiedStop: args.allowUnverifiedPtyStop
+                })
                 await removeLocalWorktreePath(worktreePath, localWorktreeGitOptions)
                 removalCompleted = true
               } finally {
@@ -1607,7 +1639,9 @@ export function registerWorktreeHandlers(
               const removalGate = await runtime.acquireFileWatcherRemoval(worktreePath)
               let removalCompleted = false
               try {
-                await stopPtysForDestructiveWorktreeRemoval(runtime, args.worktreeId)
+                await stopPtysForDestructiveWorktreeRemoval(runtime, args.worktreeId, {
+                  allowUnverifiedStop: args.allowUnverifiedPtyStop
+                })
                 await removeLocalWorktreePath(worktreePath, localWorktreeGitOptions)
                 removalCompleted = true
               } finally {
@@ -1756,7 +1790,10 @@ export function registerWorktreeHandlers(
           let rawRemovalResult: RemoveWorktreeResult | undefined
           let removalCompleted = false
           try {
-            await stopPtysForDestructiveWorktreeRemoval(runtime, args.worktreeId, repo.connectionId)
+            await stopPtysForDestructiveWorktreeRemoval(runtime, args.worktreeId, {
+              connectionId: repo.connectionId,
+              allowUnverifiedStop: args.allowUnverifiedPtyStop
+            })
             rawRemovalResult = await (Object.keys(remoteRemoveOptions).length > 0
               ? provider!.removeWorktree(canonicalWorktreePath, args.force, remoteRemoveOptions)
               : provider!.removeWorktree(canonicalWorktreePath, args.force))
@@ -1846,7 +1883,9 @@ export function registerWorktreeHandlers(
           }
 
           // Why: hold the watcher/terminal gate through Git and any recursive fallback so no late spawn recreates a native handle.
-          await stopPtysForDestructiveWorktreeRemoval(runtime, args.worktreeId)
+          await stopPtysForDestructiveWorktreeRemoval(runtime, args.worktreeId, {
+            allowUnverifiedStop: args.allowUnverifiedPtyStop
+          })
 
           const removeOptions = {
             ...(!deleteBranch ? { deleteBranch } : {}),
