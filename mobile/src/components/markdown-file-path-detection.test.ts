@@ -66,9 +66,9 @@ describe('detectFilePathSegments', () => {
   })
 
   it('detects POSIX absolute paths', () => {
-    expect(detectFilePathSegments('Wrote /Users/me/wt/src/app.tsx today')).toEqual([
+    expect(detectFilePathSegments('Wrote /home/me/wt/src/app.tsx today')).toEqual([
       { type: 'text', value: 'Wrote ' },
-      { type: 'file', value: '/Users/me/wt/src/app.tsx', path: '/Users/me/wt/src/app.tsx' },
+      { type: 'file', value: '/home/me/wt/src/app.tsx', path: '/home/me/wt/src/app.tsx' },
       { type: 'text', value: ' today' }
     ])
     expect(detectFilePathSegments('/repo/src/index.ts')).toEqual([

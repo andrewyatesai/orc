@@ -37,7 +37,7 @@ export function mergeLegacyModelSelectionDelta<T>(
   let changed = false
   const keys = new Set([...Object.keys(legacy ?? {}), ...Object.keys(projected ?? {})])
   for (const key of keys) {
-    const legacyHasKey = Object.prototype.hasOwnProperty.call(legacy ?? {}, key)
+    const legacyHasKey = Object.hasOwn(legacy ?? {}, key)
     const legacyValue = legacy?.[key]
     if (JSON.stringify(projected?.[key]) === JSON.stringify(legacyValue)) {
       continue

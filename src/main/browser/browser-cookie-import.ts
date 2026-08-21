@@ -994,7 +994,7 @@ export function buildChromiumCookieInsertParams(
       return decryptedValue
     }
 
-    const sourceHasColumn = Object.prototype.hasOwnProperty.call(sourceRow, column.name)
+    const sourceHasColumn = Object.hasOwn(sourceRow, column.name)
     const sourceValue = sourceHasColumn ? normalizeSqliteCookieValue(sourceRow[column.name]) : null
     if (sourceValue !== null) {
       return sourceValue

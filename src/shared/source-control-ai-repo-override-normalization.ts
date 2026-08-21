@@ -113,7 +113,7 @@ function normalizeOperationRecord<T>(
   }
   const normalized: Partial<Record<SourceControlAiOperation, T>> = {}
   for (const operation of SOURCE_CONTROL_AI_OPERATIONS) {
-    if (!Object.prototype.hasOwnProperty.call(value, operation)) {
+    if (!Object.hasOwn(value, operation)) {
       continue
     }
     const normalizedValue = normalizeValue(value[operation])
@@ -133,7 +133,7 @@ function normalizeActionRecord<T>(
   }
   const normalized: Partial<Record<SourceControlActionId, T>> = {}
   for (const actionId of SOURCE_CONTROL_ACTION_IDS) {
-    if (!Object.prototype.hasOwnProperty.call(value, actionId)) {
+    if (!Object.hasOwn(value, actionId)) {
       continue
     }
     const normalizedValue = normalizeValue(value[actionId])

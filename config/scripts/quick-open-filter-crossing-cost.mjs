@@ -59,7 +59,9 @@ const ARTIFACTS = []
 // The COMMITTED wasm, i.e. the base64 module the vitest seam setup binds, not the
 // build-output `.wasm` — this script has to run from a fresh checkout.
 const wasm = await import(`${repoRoot}src/relay/wasm/orca_git_wasm.js`)
-const { ORCA_GIT_WASM_BASE64 } = await loadTs('../../src/relay/wasm/orca_git_wasm_bg.wasm.base64.ts')
+const { ORCA_GIT_WASM_BASE64 } = await loadTs(
+  '../../src/relay/wasm/orca_git_wasm_bg.wasm.base64.ts'
+)
 wasm.initSync({ module: Buffer.from(ORCA_GIT_WASM_BASE64, 'base64') })
 
 // napi is a BUILD ARTIFACT (`pnpm run build:terminal-addon`), so it may be absent.
@@ -67,7 +69,10 @@ wasm.initSync({ module: Buffer.from(ORCA_GIT_WASM_BASE64, 'base64') })
 // verdict about the crossing.
 try {
   const napi = require(`${repoRoot}native/orca-node/orca_node.node`)
-  ARTIFACTS.push(['napi (main, cli)', (fn, json) => napi.orcaDispatch('quick-open-filter', fn, json)])
+  ARTIFACTS.push([
+    'napi (main, cli)',
+    (fn, json) => napi.orcaDispatch('quick-open-filter', fn, json)
+  ])
 } catch {
   console.log('[skip] native/orca-node/orca_node.node is not built — wasm only\n')
 }
@@ -126,8 +131,7 @@ function nanosPerCall(fn, iterations) {
 // The crossing exactly as a shim would do it: the REAL codec (its object walk and
 // its lone-surrogate scan are not optional), the real entry, the real decode.
 function crossing(subject, dispatch) {
-  return (path) =>
-    JSON.parse(dispatch(subject.name, encodeDispatchPayload(subject.payload(path))))
+  return (path) => JSON.parse(dispatch(subject.name, encodeDispatchPayload(subject.payload(path))))
 }
 
 const check = process.argv.includes('--check')
@@ -214,7 +218,7 @@ const failures = []
 // The refusal is stale when a crossing stops costing materially more than the
 // body it replaces. 2.0x is deliberately generous against the observed 5-9x: it
 // fires on a design change (a batched arm, a cheaper entry), not on noise.
-const STALE_BELOW_RATIO = 2.0
+const STALE_BELOW_RATIO = 2
 for (const [label, crossedNs] of totals) {
   const ratio = crossedNs / twinTotal
   if (ratio < STALE_BELOW_RATIO) {

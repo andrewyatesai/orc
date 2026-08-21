@@ -105,7 +105,7 @@ function readLaunchEnvValue(
   launchEnv: NodeJS.ProcessEnv,
   key: 'CODEX_HOME' | 'ORCA_CODEX_HOME' | 'HOME' | 'SHELL'
 ): string | undefined {
-  return Object.prototype.hasOwnProperty.call(launchEnv, key) ? launchEnv[key] : process.env[key]
+  return Object.hasOwn(launchEnv, key) ? launchEnv[key] : process.env[key]
 }
 
 function getEffectiveCodexHomeEnv(launchEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {

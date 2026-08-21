@@ -67,14 +67,14 @@ export function legacyPromptFromCommandTemplate(
 export function hasActionAgentRecipe(recipe: {
   agentId?: TuiAgent | CustomAgentId | null
 }): recipe is { agentId: TuiAgent | CustomAgentId | null } {
-  return Object.prototype.hasOwnProperty.call(recipe, 'agentId')
+  return Object.hasOwn(recipe, 'agentId')
 }
 
 function hasOwnInstruction(
   instructions: Partial<Record<SourceControlAiOperation, string | null>> | null | undefined,
   operation: SourceControlAiOperation
 ): boolean {
-  return Object.prototype.hasOwnProperty.call(instructions ?? {}, operation)
+  return Object.hasOwn(instructions ?? {}, operation)
 }
 
 export function readRepoInstructionOverride(
