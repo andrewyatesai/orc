@@ -21,6 +21,8 @@ Agent Discovery:
 Skills:
   skills list               List version-matched skill guides bundled with this Orca CLI
   skills get                Print a version-matched skill guide as Markdown
+  skills install            Install bundled Orca skills globally via the community skills CLI
+  skills update             Update already-installed Orca skills via the community skills CLI
 
 Environments:
   environment add           Save a remote Orca runtime from a pairing code
@@ -215,7 +217,7 @@ Common Commands:
   orca file open <path> [--worktree <selector>] [--json]
   orca file diff <path> [--staged] [--worktree <selector>] [--json]
   orca file open-changed [--mode edit|diff|both] [--worktree <selector>] [--json]
-  orca terminal list [--worktree <selector>] [--limit <n>] [--json]
+  orca terminal list [--worktree <selector>] [--limit <n>] [--include-visual-layouts] [--json]
   orca terminal show [--terminal <handle>] [--json]
   orca terminal read [--terminal <handle>] [--cursor <n>] [--limit <n>] [--json]
   orca terminal send [--terminal <handle>] [--text <text>] [--enter] [--interrupt] [--json]
@@ -250,6 +252,9 @@ Terminal Send Options:
   --text <text>             Text to send to the terminal
   --enter                   Append Enter after sending text
   --interrupt               Send as an interrupt-style input when supported
+
+Terminal List Options:
+  --include-visual-layouts  Include tab and pane topology in JSON output
 
 Wait Options:
   --for exit                Wait until the target terminal exits
@@ -402,6 +407,9 @@ export function formatGroupHelp(specs: CommandSpec[], group: string): string {
 
 function formatCommandFlagHelp(flag: string, commandPath: string[]): string {
   const command = commandPath.join(' ')
+  if (command === 'skills install' && flag === 'agent') {
+    return '--agent <names>        Comma-separated install targets; default is detected agents'
+  }
   if (command === 'terminal close' && flag === 'tab') {
     return '--tab                  Close the whole tab and wait for durable persistence'
   }
@@ -474,6 +482,9 @@ function formatCommandFlagHelp(flag: string, commandPath: string[]): string {
   if (flag === 'key' && command === 'computer press-key') {
     return '--key <key>            Single key, e.g. Return, Escape, Tab, Left, or PageUp'
   }
+  if (command === 'artifacts list' && flag === 'cursor') {
+    return '--cursor <cursor>      Opaque cursor returned by a previous artifacts page'
+  }
   return formatFlagHelp(flag)
 }
 
@@ -500,6 +511,8 @@ export function formatFlagHelp(flag: string): string {
     'from-x': '--from-x <x>           Source window-local x coordinate',
     'from-y': '--from-y <y>           Source window-local y coordinate',
     help: '--help                 Show this help message',
+    'include-visual-layouts':
+      '--include-visual-layouts Include tab and pane topology in JSON output',
     interrupt: '--interrupt            Send as an interrupt-style input when supported',
     id: '--id <id>             Identifier for a target item or permission',
     issue: '--issue <number|null>  Linked GitHub issue number',
@@ -508,6 +521,8 @@ export function formatFlagHelp(flag: string): string {
     json: '--json                 Emit machine-readable JSON',
     key: '--key <key>            Key argument for this command',
     limit: '--limit <n>            Maximum number of rows to return',
+    local: '--local                Target the current project instead of the global install',
+    skill: '--skill <name>         Bundled skill to act on; repeat for several',
     mode: '--mode <mode>          Mode such as edit, diff, or both',
     'mouse-button': '--mouse-button <btn>   Mouse button: left, right, or middle',
     name: '--name <name>          Name for the new worktree or automation',

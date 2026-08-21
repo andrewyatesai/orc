@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { resolveAdvertisedPairingEndpoint } from './pairing-endpoint'
+import {
+  isLoopbackPairingHostname,
+  resolveAdvertisedPairingEndpoint,
+  resolveAdvertisedPairingHostname
+} from './pairing-endpoint'
 
 describe('resolveAdvertisedPairingEndpoint', () => {
   const bound = 'ws://0.0.0.0:6768'
@@ -50,4 +54,42 @@ describe('resolveAdvertisedPairingEndpoint', () => {
       reason: 'invalid_advertised_endpoint'
     })
   })
+})
+
+describe('resolveAdvertisedPairingHostname', () => {
+  it.each([
+    ['127.0.0.1', '127.0.0.1'],
+    ['127.0.0.1:8443', '127.0.0.1'],
+    ['[::1]:6768', '::1'],
+    ['ws://127.0.0.1:6768', '127.0.0.1'],
+    ['ws://[::1]:6768/orca', '::1'],
+    ['100.64.1.20', '100.64.1.20'],
+    ['lan-host:7443', 'lan-host'],
+    ['wss://proxy.example.test:8443/orca', 'proxy.example.test']
+  ])('extracts the advertised hostname from %s', (input, expected) => {
+    expect(resolveAdvertisedPairingHostname(input)).toBe(expected)
+  })
+
+  it.each([null, undefined, '', '   ', 'host.example.test:'])(
+    'returns null for the unusable input %s',
+    (input) => {
+      expect(resolveAdvertisedPairingHostname(input)).toBeNull()
+    }
+  )
+})
+
+describe('isLoopbackPairingHostname', () => {
+  it.each(['127.0.0.1', '127.0.0.5', '127.255.255.254', '::1', 'localhost', 'dev.localhost'])(
+    'classifies %s as loopback',
+    (hostname) => {
+      expect(isLoopbackPairingHostname(hostname)).toBe(true)
+    }
+  )
+
+  it.each(['100.64.1.20', '192.168.1.24', 'host.tailnet.ts.net', '0.0.0.0', '::'])(
+    'classifies %s as off-host',
+    (hostname) => {
+      expect(isLoopbackPairingHostname(hostname)).toBe(false)
+    }
+  )
 })

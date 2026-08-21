@@ -55,7 +55,10 @@
       "function": "splitWorktreeId",
       "note": "splits a canonical worktree id into repo id and path",
       "input": "repo-123::/abs/path",
-      "expected": { "repoId": "repo-123", "worktreePath": "/abs/path" }
+      "expected": {
+        "repoId": "repo-123",
+        "worktreePath": "/abs/path"
+      }
     },
     {
       "function": "splitWorktreeId",
@@ -73,25 +76,37 @@
       "function": "splitWorktreeId",
       "note": "returns empty repo id and empty path for a bare separator",
       "input": "::",
-      "expected": { "repoId": "", "worktreePath": "" }
+      "expected": {
+        "repoId": "",
+        "worktreePath": ""
+      }
     },
     {
       "function": "splitWorktreeId",
       "note": "returns an empty repo id when the separator is leading",
       "input": "::path",
-      "expected": { "repoId": "", "worktreePath": "path" }
+      "expected": {
+        "repoId": "",
+        "worktreePath": "path"
+      }
     },
     {
       "function": "splitWorktreeId",
       "note": "returns an empty path when the separator is trailing",
       "input": "repo::",
-      "expected": { "repoId": "repo", "worktreePath": "" }
+      "expected": {
+        "repoId": "repo",
+        "worktreePath": ""
+      }
     },
     {
       "function": "splitWorktreeId",
       "note": "splits on the first separator when the path itself contains '::'",
       "input": "repo::a::b",
-      "expected": { "repoId": "repo", "worktreePath": "a::b" }
+      "expected": {
+        "repoId": "repo",
+        "worktreePath": "a::b"
+      }
     },
     {
       "function": "splitWorktreeId",
@@ -106,13 +121,19 @@
       "function": "splitWorktreeId",
       "note": "extra: plain absolute path without a suffix",
       "input": "repo::/folder",
-      "expected": { "repoId": "repo", "worktreePath": "/folder" }
+      "expected": {
+        "repoId": "repo",
+        "worktreePath": "/folder"
+      }
     },
     {
       "function": "splitWorktreeIdForFilesystem",
       "note": "strips folder workspace instance suffixes from the parsed path",
       "input": "repo::/folder::workspace:123e4567-e89b-12d3-a456-426614174000",
-      "expected": { "repoId": "repo", "worktreePath": "/folder" }
+      "expected": {
+        "repoId": "repo",
+        "worktreePath": "/folder"
+      }
     },
     {
       "function": "splitWorktreeIdForFilesystem",
@@ -124,7 +145,10 @@
       "function": "splitWorktreeIdForFilesystem",
       "note": "extra: leaves a path without an instance suffix unchanged",
       "input": "repo::/plain/path",
-      "expected": { "repoId": "repo", "worktreePath": "/plain/path" }
+      "expected": {
+        "repoId": "repo",
+        "worktreePath": "/plain/path"
+      }
     },
     {
       "function": "getWorktreePathBasenameFromId",
@@ -167,6 +191,66 @@
       "note": "extra: a whitespace-only path normalizes to empty and returns null",
       "input": "repo-123::   ",
       "expected": null
+    },
+    {
+      "function": "getWorktreePathBasenameFromId",
+      "note": "JS .trim() vs Rust trim(): JS strips U+FEFF and not U+0085, Rust the reverse. Both directions diverged here before trim_js",
+      "input": "r::/a/b﻿",
+      "expected": "b"
+    },
+    {
+      "function": "getWorktreePathBasenameFromId",
+      "note": "JS .trim() vs Rust trim(): JS strips U+FEFF and not U+0085, Rust the reverse. Both directions diverged here before trim_js",
+      "input": "r::/a/b",
+      "expected": "b"
+    },
+    {
+      "function": "getWorktreePathBasenameFromId",
+      "note": "JS .trim() vs Rust trim(): JS strips U+FEFF and not U+0085, Rust the reverse. Both directions diverged here before trim_js",
+      "input": "r::/a/b/c﻿",
+      "expected": "c"
+    },
+    {
+      "function": "getWorktreePathBasenameFromId",
+      "note": "JS .trim() vs Rust trim(): JS strips U+FEFF and not U+0085, Rust the reverse. Both directions diverged here before trim_js",
+      "input": "r::/a/b/c",
+      "expected": "c"
+    },
+    {
+      "function": "getWorktreePathBasenameFromId",
+      "note": "JS .trim() vs Rust trim(): JS strips U+FEFF and not U+0085, Rust the reverse. Both directions diverged here before trim_js",
+      "input": "r::﻿",
+      "expected": null
+    },
+    {
+      "function": "getWorktreePathBasenameFromId",
+      "note": "JS .trim() vs Rust trim(): JS strips U+FEFF and not U+0085, Rust the reverse. Both directions diverged here before trim_js",
+      "input": "r::",
+      "expected": ""
+    },
+    {
+      "function": "getWorktreePathBasenameFromId",
+      "note": "JS .trim() vs Rust trim(): JS strips U+FEFF and not U+0085, Rust the reverse. Both directions diverged here before trim_js",
+      "input": "r::﻿/a/b",
+      "expected": "b"
+    },
+    {
+      "function": "getWorktreePathBasenameFromId",
+      "note": "JS .trim() vs Rust trim(): JS strips U+FEFF and not U+0085, Rust the reverse. Both directions diverged here before trim_js",
+      "input": "r::/a/b",
+      "expected": "b"
+    },
+    {
+      "function": "getWorktreePathBasenameFromId",
+      "note": "JS .trim() vs Rust trim(): JS strips U+FEFF and not U+0085, Rust the reverse. Both directions diverged here before trim_js",
+      "input": "r::/a/b/ ",
+      "expected": "b"
+    },
+    {
+      "function": "getWorktreePathBasenameFromId",
+      "note": "JS .trim() vs Rust trim(): JS strips U+FEFF and not U+0085, Rust the reverse. Both directions diverged here before trim_js",
+      "input": "r::/a/b/　",
+      "expected": "b"
     }
   ]
 }

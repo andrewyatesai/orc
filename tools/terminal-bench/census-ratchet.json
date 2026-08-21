@@ -29,9 +29,124 @@
         "Accepted rather than refused: it narrows an RPC exemption from whole-surface to per-method, which is a security tightening whose cost is more code. Refusing it would push back on the wrong thing.",
         "The other two ceilings are UNCHANGED and deliberately not re-measured \u2014 shimWholeFileLoc 2813 and pty.ts 6230 held across these 11 commits, and a ratchet that re-pins every key on every touch stops being a ratchet."
       ]
+    },
+    {
+      "date": "2026-08-12",
+      "head": "b6250648b",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 35905,
+        "src/main/ipc/pty.ts": 6230
+      },
+      "why": [
+        "+119 on orca-runtime.ts and +11 on pty.ts across 22 upstream commits, net +130 total, attributable to four: f5e79827a account-backed artifact sharing (+63), 2fef23b4e mobile inline restore on re-subscribe (+38), 0906471fb parity port of 11 medium items (+18), f8b57aac5 parity port of 7 medium items (+11). Every other commit in the range left both files untouched.",
+        "Accepted: three are upstream feature/port work landing through the fork, and none is the delivery-reliability shim this ratchet was built to watch \u2014 that held at 2813 across all 22 commits, which is the number that would have justified refusing.",
+        "Worth stating since this is the third re-baseline in three days: orca-runtime.ts grows because it is where upstream features attach, and a ratchet that only ever ratchets UP on one file is measuring drift it cannot stop. The useful signal here has been the shim staying flat, not the god object staying small."
+      ]
+    },
+    {
+      "date": "2026-08-12",
+      "head": "tail-batch2",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36024,
+        "src/main/ipc/pty.ts": 6241
+      },
+      "why": [
+        "+83 on orca-runtime.ts and +3 on pty.ts from the batch-2 parity port (15 medium items). orca-runtime.ts: the #11611 desktop-promotion PTY-identity work (runtimeSessionOwned flag + getRuntimeWorktreeRemovalOptionsKey so a forced worktree-removal retry does not coalesce onto the attempt that just failed the PTY gate). pty.ts: a single provider-inspection call swap for the same feature.",
+        "Accepted: upstream feature/port work attaching to the god object where features attach, not the delivery-reliability shim this ratchet watches (that held flat at 2813). Decomposition of orca-runtime.ts remains owed; the next movement should be down."
+      ]
+    },
+    {
+      "date": "2026-08-12",
+      "head": "tail-batch3",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36107,
+        "src/main/ipc/pty.ts": 6244
+      },
+      "why": [
+        "+182 on orca-runtime.ts and +31 on pty.ts from the batch-3 parity port (miscellaneous tail medium items). orca-runtime.ts breaks down as: 339045b15 (coalesce concurrent host terminal.focus, #11841) \u2014 the largest share, a latest-wins single-flight rewrite of focusTerminal via TerminalFocusNavigationCoalescer; #12388-parity worktree-teardown host fence \u2014 ptyBelongsToTeardownFence gating in killAllProcessesForWorktree plus SSH-aware provider resolution for folder-workspace deletes and resolvedWorktreeId/resolvedConnectionId threading; and 866bcda46 (recover degraded daemon spawn routing) \u2014 isNewSession threaded through TerminalCreateOptions/RuntimePtyController/launch.",
+        "pty.ts +31 is 866bcda46 in full: a recoverFreshSpawnProviderRouting re-probe helper wired into both spawn paths and an isMintedSessionId fresh-create branch, replacing the deleted FreshLocalFallbackProvider type-predicate.",
+        "Accepted: upstream feature/port work attaching to the god object where features attach, not the delivery-reliability shim this ratchet watches \u2014 shimWholeFileLoc held flat at 2813 across the batch, which is the number that would have justified refusing. Decomposition of orca-runtime.ts remains owed; the next movement should be down."
+      ]
+    },
+    {
+      "date": "2026-08-12",
+      "head": "tail-batch4",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36289
+      },
+      "why": [
+        "+11 net on orca-runtime.ts (+20/-9) from the batch-4 parity port, attributable in full to 8f29f58ab (#12222, 'keep showing your workspaces when a project is too slow to answer instead of reporting zero'): the SSH-only listStoredSshWorktreesForResolution fallback is generalised to listStoredWorktreesForResolution for any repo kind, gated on getRepoExecutionHostId so a degraded host does not republish another host's rows, and the resolution scan now distinguishes a timeout (null -> restore persisted rows) from a rejection (keeps shipped zero-row semantics). No other batch-4 change touched the file.",
+        "pty.ts held flat at 6275 and shimWholeFileLoc held flat at 2813 across the batch \u2014 the delivery-reliability shim this ratchet watches did not move, which is the number that would have justified refusing. The touch was minimal and confined to private worktree-resolution methods that operate on this.store; decomposition of orca-runtime.ts remains owed and the next movement should be down."
+      ]
+    },
+    {
+      "date": "2026-08-12",
+      "head": "tail-batch5",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36300,
+        "src/main/ipc/pty.ts": 6275
+      },
+      "why": [
+        "+265 net on orca-runtime.ts (+293/-28) and +70 on pty.ts from the batch-5 parity port (miscellaneous tail medium items). The single largest orca-runtime.ts share is 51ca82d02 (seed terminal previews+titles from restore payloads): a +108 module-level block \u2014 buildRestoredTerminalTailSeed / restoredTerminalTailSeedAllowed / applyRestoredTerminalTailSeed plus the RestoredTerminalTailSeed types \u2014 kept in-file because it drives the private tail-buffer pipeline (normalizeTerminalChunk, appendNormalizedToTailBuffer, appendCompletedTerminalTranscript, buildPreview) and extracting it would export that internal surface. The remainder is method-body wiring for 27da04d50 (truthful handle liveness / terminal-leaf-liveness demotion), 72245918a (#12589 subscriber-driven daemon attach / degraded-daemon session routing), and the browser-screencast frame-admission and system-power-lifecycle helpers.",
+        "pty.ts +70 breaks down as 51ca82d02 seedTerminalRestoreRecordsFromSpawnResult (~37, the helper + two spawn-path call sites), 72245918a the subscriber-driven attach method on the pty controller (~24), and the STA-2830 pty:hasPty `remote:` guard (~9) that stops the local provider fabricating a dead answer for another host's PTY.",
+        "Accepted: upstream feature/port work attaching to the god object where features attach, and every extractable piece this batch DID land in a new named module (terminal-leaf-liveness-demotion, subscriber-driven-daemon-attach, degraded-daemon-session-routing, terminal-retirement-host-partition, renderer-owned-agent-status-registry, terminal-error-accumulation, sleeping-record-park-exemption, remote-browser-screencast-frame-admission, ssh-file-stream-inactivity-deadline, system-power-lifecycle). shimWholeFileLoc held flat at 2813 across the batch \u2014 the delivery-reliability shim this ratchet watches did not move, which is the number that would have justified refusing. Decomposition of orca-runtime.ts remains owed; the next movement should be down."
+      ]
+    },
+    {
+      "date": "2026-08-12",
+      "head": "tail-batch6",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36565
+      },
+      "why": [
+        "+58 net on orca-runtime.ts (+74/-16) from the batch-6 parity port (miscellaneous tail medium items). Largest share is 5d2ad3597 (Codex direct model selection / title-driven agent-exit confirmation): the confirmPtyAgentExit method plus the loadPtyForegroundAgentFromController afterTitleObservation rework, kept in-file because both are OrcaRuntimeService methods over private ptysById/ptyController/ptyTitleTrackersByPtyId state. The reusable half \u2014 the per-PTY getForegroundProcess dedupe cache \u2014 was extracted to a NEW named module (pty-foreground-process-read.ts), so only the service-coupled remainder landed here. aa64ac9606 (#12791) contributed a few lines collapsing shouldCreateInBackground's renderer-window check to availableAuthoritativeWindow === null. 6df8997c3 (file-name-sort) REDUCED the file, swapping two 6-line inline directory sorts for one-line sortDirEntries calls, partially offsetting.",
+        "Accepted: upstream feature/port work attaching to the god object where features attach, not the delivery-reliability shim this ratchet watches. pty.ts held flat at 6345 and shimWholeFileLoc held flat at 2813 across the batch \u2014 the shim not moving is the number that would have justified refusing. Decomposition of orca-runtime.ts remains owed; the next movement should be down."
+      ]
+    },
+    {
+      "date": "2026-08-12",
+      "head": "low-batch1",
+      "from": {
+        "src/main/ipc/pty.ts": 6345
+      },
+      "why": [
+        "+15 on pty.ts from the low-impact parity batch, attributable in full to the #10196 port: buildPtyHostEnv now derives an explicitPiAgentKind and passes materializeDefaultHome to piTitlebarExtensionService.buildPtyEnv so only an explicit Pi/OMP launch may recreate the default ~/.<agent> home, instead of every bare-shell open re-materializing deleted agent dirs. The reusable detector was extracted to a NEW named module (src/shared/explicit-pi-agent-launch.ts); only the call-site guard, which is intrinsic to buildPtyHostEnv, landed in pty.ts.",
+        "Accepted: upstream port work at the env-build call site, not the delivery-reliability shim this ratchet watches. orca-runtime.ts held flat at 36623 and shimWholeFileLoc held flat at 2813 across the batch \u2014 the god object was not touched at all, and the shim not moving is the number that would have justified refusing. Decomposition of orca-runtime.ts remains owed; the next movement should be down."
+      ]
+    },
+    {
+      "date": "2026-08-12",
+      "head": "low-batch3",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36623
+      },
+      "why": [
+        "+36 net on orca-runtime.ts (+39/-3) from the low-batch3 parity port, attributable in full to 4f00b2118 (#11636, 'fix(mobile): restore Codex chat session identity'): the mobile-tab agent-status builder now resolves the hook session row's own agent identity (providerSessionAgentType added to getHookAgentRowForPane) so a renderer status published by a different agent cannot adopt a hook providerSession that is not its transcript. The change is a surgical edit to an existing OrcaRuntimeService method body over private this-state (getHookAgentRowForPane, getHookRowsForPane, ownerAgent, tab.agentStatus); it is not extractable without exporting that internal surface.",
+        "Accepted: upstream port work attaching to the god object where features attach, not the delivery-reliability shim this ratchet watches \u2014 pty.ts held flat at 6360 and shimWholeFileLoc held flat at 2813 across the batch, which is the number that would have justified refusing. Decomposition of orca-runtime.ts remains owed; the next movement should be down."
+      ]
+    },
+    {
+      "date": "2026-08-12",
+      "head": "low-batch6",
+      "from": {
+        "src/main/ipc/pty.ts": 6360
+      },
+      "why": [
+        "+4 on pty.ts from the low-batch6 port (a call-site guard); orca-runtime.ts + shim held flat. Accepted attach-kind growth."
+      ]
+    },
+    {
+      "date": "2026-08-12",
+      "head": "low-batch8",
+      "from": {
+        "src/main/runtime/orca-runtime.ts": 36659
+      },
+      "why": [
+        "+22 on orca-runtime.ts from the checkRepoHooks status-field port (7956335ce); pty.ts + shim flat. Accepted attach-kind growth."
+      ]
     }
   ],
   "shimWholeFileLoc": 2813,
-  "src/main/runtime/orca-runtime.ts": 35905,
-  "src/main/ipc/pty.ts": 6230
+  "src/main/runtime/orca-runtime.ts": 36681,
+  "src/main/ipc/pty.ts": 6364
 }

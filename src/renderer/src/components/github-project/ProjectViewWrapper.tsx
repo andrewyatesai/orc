@@ -140,7 +140,7 @@ export default function ProjectViewWrapper({ selectedRepoIds }: Props): React.JS
   const patchProjectRowIssueType = useAppStore((s) => s.patchProjectRowIssueType)
   const addRepoFromStore = useAppStore((s) => s.addRepo)
   const repos = useAppStore((s) => s.repos)
-  const { lookupSlug, ready: slugIndexReady } = useRepoSlugIndex()
+  const { lookupSlug, lookupSlugMatches, ready: slugIndexReady } = useRepoSlugIndex()
   const mountedRef = useMountedRef()
 
   const activeProject = settings?.githubProjects?.activeProject ?? null
@@ -374,9 +374,14 @@ export default function ProjectViewWrapper({ selectedRepoIds }: Props): React.JS
   const filteredTable = useMemo(
     () =>
       table && slugIndexReady
-        ? filterProjectTableRowsBySelectedRepos(table, lookupSlug, slugIndexReady, selectedRepoIds)
+        ? filterProjectTableRowsBySelectedRepos(
+            table,
+            lookupSlugMatches,
+            slugIndexReady,
+            selectedRepoIds
+          )
         : null,
-    [table, slugIndexReady, lookupSlug, selectedRepoIds]
+    [table, slugIndexReady, lookupSlugMatches, selectedRepoIds]
   )
   const lastFilteredTableRef = useRef<CachedVisibleProjectTable | null>(null)
   // Why: ref-cache prevents a blank table while the slug index rebuilds, without forcing a second render.
@@ -527,7 +532,7 @@ export default function ProjectViewWrapper({ selectedRepoIds }: Props): React.JS
       }
       const resolution = resolveSelectedProjectRowRepo({
         row,
-        lookupSlug,
+        lookupSlugMatches,
         host: table.project.host,
         slugIndexReady,
         selectedRepoIds
@@ -583,7 +588,7 @@ export default function ProjectViewWrapper({ selectedRepoIds }: Props): React.JS
       currentCacheKey,
       table,
       buildOrigin,
-      lookupSlug,
+      lookupSlugMatches,
       slugIndexReady,
       selectedRepoIds,
       openProjectRowUrlWithToast
@@ -601,7 +606,7 @@ export default function ProjectViewWrapper({ selectedRepoIds }: Props): React.JS
       }
       const resolution = resolveSelectedProjectRowRepo({
         row,
-        lookupSlug,
+        lookupSlugMatches,
         host: table.project.host,
         slugIndexReady,
         selectedRepoIds
@@ -670,7 +675,7 @@ export default function ProjectViewWrapper({ selectedRepoIds }: Props): React.JS
       currentCacheKey,
       table,
       buildOrigin,
-      lookupSlug,
+      lookupSlugMatches,
       slugIndexReady,
       selectedRepoIds,
       openProjectRowUrlWithToast

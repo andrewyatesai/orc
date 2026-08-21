@@ -37,6 +37,8 @@ const AddProjectFromFolderDialog = React.memo(function AddProjectFromFolderDialo
   const [previousOpen, setPreviousOpen] = useState(isOpen)
   const folderPath = typeof modalData.folderPath === 'string' ? modalData.folderPath : ''
   const connectionId = typeof modalData.connectionId === 'string' ? modalData.connectionId : ''
+  const runtimeEnvironmentId =
+    typeof modalData.runtimeEnvironmentId === 'string' ? modalData.runtimeEnvironmentId : null
 
   if (isOpen !== previousOpen) {
     setPreviousOpen(isOpen)
@@ -53,9 +55,12 @@ const AddProjectFromFolderDialog = React.memo(function AddProjectFromFolderDialo
     closeModal()
     openModal('confirm-non-git-folder', {
       folderPath,
-      ...(connectionId ? { connectionId } : {})
+      ...(connectionId ? { connectionId } : {}),
+      // Absence === local: NonGitFolderDialog coerces a missing/empty
+      // runtimeEnvironmentId to null, so omitting the spread signals local.
+      ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {})
     })
-  }, [closeModal, connectionId, folderPath, openModal])
+  }, [closeModal, connectionId, folderPath, openModal, runtimeEnvironmentId])
 
   const handleConfirm = useCallback(async () => {
     if (!folderPath || isAdding) {
@@ -96,7 +101,9 @@ const AddProjectFromFolderDialog = React.memo(function AddProjectFromFolderDialo
           { description: repo.displayName }
         )
       } else {
-        repo = await addRepoPath(folderPath)
+        // Why: route the add to the subfolder's owning host (null forces local)
+        // instead of inheriting the mutable global active runtime (#9541).
+        repo = await addRepoPath(folderPath, 'git', { runtimeEnvironmentId })
       }
 
       if (!mountedRef.current || gen !== addGenRef.current) {
@@ -117,7 +124,11 @@ const AddProjectFromFolderDialog = React.memo(function AddProjectFromFolderDialo
       }
       await finishProjectAddWithDefaultCheckout({
         repoId: repo.id,
-        source: connectionId ? 'ssh_remote_path' : 'local_folder_picker',
+        source: connectionId
+          ? 'ssh_remote_path'
+          : runtimeEnvironmentId
+            ? 'runtime_server_path'
+            : 'local_folder_picker',
         selectedPath: folderPath,
         closeModal,
         setHideDefaultBranchWorkspace
@@ -147,6 +158,7 @@ const AddProjectFromFolderDialog = React.memo(function AddProjectFromFolderDialo
     isAdding,
     mountedRef,
     openNonGitConfirmation,
+    runtimeEnvironmentId,
     setHideDefaultBranchWorkspace
   ])
 

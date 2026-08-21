@@ -14,6 +14,7 @@ import type { RuntimeStatus } from '../../shared/runtime-types'
 import type { RuntimeRpcResponse } from '../../shared/runtime-rpc-envelope'
 import type { Store } from '../persistence'
 import { registerRuntimeHostPtyBindingChurnPruneStore } from '../runtime-host-pty-binding-churn-prune'
+import { runtimeEnvironmentCallFailure } from './runtime-environment-call-failure'
 import { closeRemoteRuntimeRequestConnection } from './runtime-environment-request-connections'
 import { registerRuntimeEnvironmentRecoveryHandler } from './runtime-environment-recovery-handler'
 import { advanceRuntimeEnvironmentTransportGeneration } from './runtime-environment-transport-generation'
@@ -137,14 +138,25 @@ export function registerRuntimeEnvironmentHandlers(store: Store): void {
         expectedEnvironmentPairingRevision?: number
       }
     ): Promise<RuntimeRpcResponse<unknown>> => {
-      return callRuntimeEnvironment(
-        getUserDataPath(),
-        args.selector,
-        args.method,
-        args.params,
-        args.timeoutMs,
-        args.expectedEnvironmentPairingRevision
-      )
+      // Why: a typed client/queue rejection thrown here loses its code crossing
+      // IPC; hand it back as a structured failure so the code reaches the
+      // renderer's classification instead of a code-less English message (#12667).
+      try {
+        return await callRuntimeEnvironment(
+          getUserDataPath(),
+          args.selector,
+          args.method,
+          args.params,
+          args.timeoutMs,
+          args.expectedEnvironmentPairingRevision
+        )
+      } catch (error) {
+        const failure = runtimeEnvironmentCallFailure(args.method, error)
+        if (failure) {
+          return failure
+        }
+        throw error
+      }
     }
   )
   registerRuntimeEnvironmentSubscriptionHandlers()

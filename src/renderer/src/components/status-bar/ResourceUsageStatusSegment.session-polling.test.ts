@@ -49,4 +49,14 @@ describe('ResourceUsageStatusSegment session inventory', () => {
     expect(readySeedBlock).toContain('void fetchSnapshot()')
     expect(readySeedBlock).toContain('workspaceSessionReady')
   })
+
+  it('clears the stale sessions error when the popover closes', () => {
+    const source = readFileSync(SOURCE_PATH, 'utf8')
+
+    // Why: a sessions failure sets sessionsError, which feeds daemonUnreachable on
+    // the closed badge; without a close-time clear a recovered daemon stays stuck.
+    const clearOnCloseEffect =
+      /useEffect\(\(\)\s*=>\s*\{\s*if \(!open\) \{\s*clearSessionsError\(\)\s*\}\s*\},\s*\[open, clearSessionsError\]\)/
+    expect(clearOnCloseEffect.test(source)).toBe(true)
+  })
 })

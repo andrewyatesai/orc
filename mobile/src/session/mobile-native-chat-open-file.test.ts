@@ -30,6 +30,29 @@ describe('resolveMobileNativeChatWorktreePath', () => {
     })
   })
 
+  it('strips an agent-style :line(:col) citation tail before resolving', async () => {
+    const sendRequest = vi.fn().mockResolvedValue({
+      ok: true,
+      result: {
+        exists: true,
+        isDirectory: false,
+        openTarget: { kind: 'worktree-file', relativePath: 'src/foo.ts' }
+      }
+    })
+    await expect(
+      resolveMobileNativeChatWorktreePath({
+        client: { sendRequest } as unknown as RpcClient,
+        worktreeId: 'worktree',
+        pathText: 'src/foo.ts:42:7',
+        terminal: null
+      })
+    ).resolves.toBe('src/foo.ts')
+    expect(sendRequest).toHaveBeenCalledWith('files.resolveTerminalPath', {
+      worktree: 'id:worktree',
+      pathText: 'src/foo.ts'
+    })
+  })
+
   it('opens only the resolved worktree-relative target', async () => {
     const sendRequest = vi
       .fn()

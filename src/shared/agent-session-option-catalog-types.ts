@@ -54,6 +54,18 @@ export type AgentSessionOptionCatalog = {
   models: CatalogModel[]
   modelApply: CatalogOptionApply
   composeModelValue?: (modelId: string, values: Record<string, SessionOptionValue>) => string
+  /** Why: a seeded id the CLI has retired is a fatal launch, so a successful probe
+   * must be able to drop it rather than only add. Membership only — option menus
+   * still come from the seed. */
+  discoveredModelsAreAuthoritative?: true
+  /** Set only when the `isDefault` model is provably what the CLI runs with no model
+   * flag, so an untouched draft may show it as selected. Off means `isDefault` stays
+   * decorative: agents whose default comes from account or user config would otherwise
+   * present a guess as the launch's model.
+   *
+   * Known gap: "no model flag" is unverified. A user `-m` in `agentArgs` launches that
+   * model while the picker, which never reads launch args, still names the CLI default. */
+  defaultModelIsCliDefault?: true
   listModels?: {
     command: string
     parse: (stdout: string) => CatalogModel[]

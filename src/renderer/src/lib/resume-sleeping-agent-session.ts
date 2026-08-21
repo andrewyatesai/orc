@@ -144,10 +144,9 @@ function runtimeHostOwnsAgentWake(
   return isWebRuntimeSessionActive(getRuntimeEnvironmentIdForWorktree(wakeOwnerState, worktreeId))
 }
 
+// Why: an interrupted turn is still resumable — `claude --resume` reopens the transcript at the
+// prompt — so discarding those records only stranded the session across wake and restart.
 function isInvalidWorktreeActivationRecord(record: SleepingAgentSessionRecord): boolean {
-  if (record.interrupted === true) {
-    return true
-  }
   if (!record.origin && record.state === 'done') {
     return true
   }

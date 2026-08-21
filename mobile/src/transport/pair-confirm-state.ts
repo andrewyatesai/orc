@@ -1,4 +1,4 @@
-import { parsePairingCode } from './pairing'
+import { parsePairingCode } from './pairing-deep-link'
 import type { PairingOffer } from './types'
 
 export type PairConfirmRouteState =

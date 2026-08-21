@@ -37,10 +37,17 @@ const ORACLE = /gitWasmOracle|requireRustGitBinding|rust-git-addon/
 // Any route to the core counts, including the napi binding a main-only shim
 // uses — omitting `requireRustGitBinding` here is what made this gate's first
 // run accuse `skill-metadata` of a reverted cutover it had not reverted.
-const DISPATCH = /tryOrcaDispatch|requireOrcaDispatch|dispatchToWasmCore|isOrcaDispatchReady|orcaDispatch\(|requireRustGitBinding/
+const DISPATCH =
+  /tryOrcaDispatch|requireOrcaDispatch|dispatchToWasmCore|isOrcaDispatchReady|orcaDispatch\(|requireRustGitBinding/
 const STATES = new Set(['crossed', 'retained', 'never'])
 
-const git = (args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 256e6, stdio: ['ignore', 'pipe', 'ignore'] })
+const git = (args) =>
+  execFileSync('git', args, {
+    cwd: ROOT,
+    encoding: 'utf8',
+    maxBuffer: 256e6,
+    stdio: ['ignore', 'pipe', 'ignore']
+  })
 // The INDEX, not the working tree: it is exactly what a commit would contain,
 // so a new file works as soon as it is staged, while the ~1,700 uncommitted
 // files other sessions keep in this tree cannot redden the gate.
@@ -56,7 +63,10 @@ const headFile = (path) => {
   }
 }
 
-const census = JSON.parse(headFile('config/cutover-census.json') ?? readFileSync(join(ROOT, 'config/cutover-census.json'), 'utf8'))
+const census = JSON.parse(
+  headFile('config/cutover-census.json') ??
+    readFileSync(join(ROOT, 'config/cutover-census.json'), 'utf8')
+)
 const onDisk = git(['ls-files', 'tools/parity/vectors/'])
   .split('\n')
   .filter((f) => f.endsWith('.json'))
@@ -92,12 +102,16 @@ function reachesCore(module) {
 
 for (const module of onDisk) {
   if (!census.modules[module]) {
-    problems.push(`${module}: no census entry — decide its terminal state in config/cutover-census.json`)
+    problems.push(
+      `${module}: no census entry — decide its terminal state in config/cutover-census.json`
+    )
   }
 }
 for (const [module, entry] of Object.entries(census.modules)) {
   if (!onDisk.includes(module)) {
-    problems.push(`${module}: census entry has no vector file — remove the entry or restore the module`)
+    problems.push(
+      `${module}: census entry has no vector file — remove the entry or restore the module`
+    )
     continue
   }
   if (!STATES.has(entry.state)) {
@@ -126,9 +140,13 @@ for (const [module, entry] of Object.entries(census.modules)) {
     } catch (error) {
       const stderr = String(error.stderr ?? '').trim()
       if (stderr) {
-        problems.push(`${module}: its check ${entry.check} ERRORED — this is a broken check, not a cleared blocker. Fix the check.\n      ${stderr.split('\n')[0]}`)
+        problems.push(
+          `${module}: its check ${entry.check} ERRORED — this is a broken check, not a cleared blocker. Fix the check.\n      ${stderr.split('\n')[0]}`
+        )
       } else {
-        problems.push(`${module}: its refusal is STALE — ${entry.check} exited non-zero, meaning the blocker it names has cleared. Re-check the module.`)
+        problems.push(
+          `${module}: its refusal is STALE — ${entry.check} exited non-zero, meaning the blocker it names has cleared. Re-check the module.`
+        )
       }
     }
   }
@@ -138,7 +156,9 @@ const tally = {}
 for (const entry of Object.values(census.modules)) {
   tally[entry.state] = (tally[entry.state] ?? 0) + 1
 }
-const summary = Object.entries(tally).map(([k, v]) => `${v} ${k}`).join(', ')
+const summary = Object.entries(tally)
+  .map(([k, v]) => `${v} ${k}`)
+  .join(', ')
 console.log(`[cutover-census] ${onDisk.length} modules — ${summary}`)
 
 if (problems.length > 0) {

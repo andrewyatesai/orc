@@ -1,15 +1,5 @@
+import { hasFlag } from './agent-cli-flag-detection'
 import type { AgentSessionOptionCatalog, CatalogOption } from './agent-session-option-catalog-types'
-
-function hasFlag(tokens: readonly string[], flags: readonly string[]): boolean {
-  return tokens.some((token) =>
-    flags.some(
-      (flag) =>
-        token === flag ||
-        token.startsWith(`${flag}=`) ||
-        (flag.startsWith('-') && !flag.startsWith('--') && token.startsWith(flag))
-    )
-  )
-}
 
 function hasCodexEffortOverride(tokens: readonly string[]): boolean {
   if (hasFlag(tokens, ['--reasoning-effort'])) {
@@ -148,6 +138,11 @@ export const CODEX_SESSION_OPTION_CATALOG: AgentSessionOptionCatalog = {
   modelApply: {
     launchArgs: (value) => ['-m', String(value)],
     agentArgsOverride: (tokens) => hasFlag(tokens, ['-m', '--model']),
-    midSession: { kind: 'agent-picker', command: '/model' }
+    // Codex accepts a model argument in its live /model command.
+    midSession: {
+      kind: 'command',
+      build: (value) => `/model ${String(value)}`,
+      pickerCommand: '/model'
+    }
   }
 }

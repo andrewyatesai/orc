@@ -225,6 +225,81 @@ describe('terminal multiplex RPC', () => {
     }
   )
 
+  it.each([
+    {
+      label: 'a capability-negotiated',
+      capabilities: { ackOutput: 1, desktopViewportClaims: 1, writeUnavailable: 1 },
+      expectFrame: true
+    },
+    {
+      label: 'an un-negotiated legacy',
+      capabilities: { ackOutput: 1, desktopViewportClaims: 1 },
+      expectFrame: false
+    }
+  ])(
+    'signals WriteUnavailable on a host-rejected write only for $label client',
+    async ({ capabilities, expectFrame }) => {
+      const harness = startDesktopMultiplexSubscribe({
+        resolveLiveLeafForHandle: vi.fn().mockReturnValue({ ptyId: 'pty-1' }),
+        // The host accepts the RPC but refuses the PTY write (STA-2830).
+        sendTerminal: vi.fn().mockRejectedValue(new Error('terminal_not_writable'))
+      })
+      await vi.waitFor(() =>
+        expect(harness.messages.some((msg) => JSON.parse(msg).result?.type === 'ready')).toBe(true)
+      )
+      harness.handlers.get(0)?.(
+        decodeTerminalStreamFrame(
+          encodeTerminalStreamFrame({
+            opcode: TerminalStreamOpcode.Subscribe,
+            streamId: 0,
+            seq: 1,
+            payload: encodeTerminalStreamJson({
+              streamId: 7,
+              terminal: 'terminal-1',
+              client: { id: 'desktop-1', type: 'desktop' },
+              capabilities,
+              viewport: { cols: 120, rows: 40 }
+            })
+          })
+        )!
+      )
+      await vi.waitFor(() =>
+        expect(harness.messages.some((msg) => JSON.parse(msg).result?.type === 'subscribed')).toBe(
+          true
+        )
+      )
+      harness.binaryFrames.splice(0)
+      harness.handlers.get(7)?.(
+        decodeTerminalStreamFrame(
+          encodeTerminalStreamFrame({
+            opcode: TerminalStreamOpcode.Input,
+            streamId: 7,
+            seq: 1,
+            payload: encodeTerminalStreamText('ls\r')
+          })
+        )!
+      )
+      const sawWriteUnavailable = (): boolean =>
+        harness.binaryFrames.some(
+          (bytes) =>
+            decodeTerminalStreamFrame(bytes)?.opcode === TerminalStreamOpcode.WriteUnavailable
+        )
+      if (expectFrame) {
+        await vi.waitFor(() => expect(sawWriteUnavailable()).toBe(true))
+      } else {
+        await vi.waitFor(() => expect(harness.runtime.sendTerminal).toHaveBeenCalled())
+        // Let every post-send notification microtask settle before asserting absence.
+        for (let i = 0; i < 20; i += 1) {
+          await Promise.resolve()
+        }
+        expect(sawWriteUnavailable()).toBe(false)
+      }
+
+      harness.cleanups.get('terminal-multiplex:conn-desktop-first-paint')?.()
+      await harness.dispatchPromise
+    }
+  )
+
   it('multiplexes terminal streams and routes desktop resize to the source PTY', async () => {
     vi.useFakeTimers()
     try {

@@ -16,9 +16,9 @@ import type {
   RelayDeviceBinding,
   RelayRevokeOutboxItem
 } from './relay-revoke-outbox'
-import type { DeviceCredentialInstallAuthorization } from './relay-control-requests'
 import { deriveRelayHostId } from './relay-http-client'
 import { RelayDemandLedger } from './relay-demand-ledger'
+import { pairingAuthorizationForContext } from './relay-pairing-authorization'
 
 type DesktopRelayServiceOptions = {
   authConfig: OrcaCloudAuthConfig
@@ -28,20 +28,10 @@ type DesktopRelayServiceOptions = {
   onStatus: (status: RelayBrokerStatus) => void
 }
 
-export function pairingAuthorizationForContext(
-  context: MobilePairingConnectionContext,
-  relayHostId: string
-): DeviceCredentialInstallAuthorization | null {
-  if (context.transport.transport === 'direct') {
-    return { mode: 'authenticated-direct', directAuthId: context.connectionId }
-  }
-  if (context.transport.relayHostId !== relayHostId) {
-    throw new Error('stale_relay_connection')
-  }
-  return context.transport.credentialKind === 'invite'
-    ? { mode: 'relay-basis', basisConnId: context.transport.basisConnId }
-    : null
-}
+// Why: a broker that died without arming a retry (sleep past token expiry,
+// transient auth read) must not stay dead until the user clicks Retry. The
+// cadence is slow because it is a safety net, not the primary retry path.
+const RELAY_LIVENESS_INTERVAL_MS = 5 * 60_000
 
 export class DesktopRelayService {
   private readonly coordinator: RelayAuthCoordinator
@@ -49,6 +39,7 @@ export class DesktopRelayService {
   private readonly runtimeRpc: OrcaRuntimeRpcServer
   private readonly demandLedger: RelayDemandLedger
   private demandExpiryTimer: ReturnType<typeof setTimeout> | null = null
+  private livenessTimer: ReturnType<typeof setInterval> | null = null
   private stopped = false
 
   constructor(options: DesktopRelayServiceOptions) {
@@ -102,6 +93,7 @@ export class DesktopRelayService {
     // Why: the E2EE identity now resolves in a child process, so it is not warm the instant the
     // runtime starts. Refreshing demand before it lands throws mobile_runtime_not_ready and would
     // leave relay disabled for the whole session; the resolve is bounded, so waiting is safe.
+    // refreshDemand also arms the liveness safety net, so a post-fence auth mutation re-arms it.
     void this.runtimeRpc.resolveE2EEIdentity().then((resolution) => {
       if (resolution.ok && !this.stopped) {
         this.refreshDemand()
@@ -109,11 +101,25 @@ export class DesktopRelayService {
     })
   }
 
+  // Safe to call from any wake signal (power resume, network change).
+  ensureLive(): void {
+    if (!this.stopped) {
+      this.coordinator.ensureLive()
+    }
+  }
+
   authMutated(): void {
     this.refreshDemand()
   }
 
   fenceAndCloseNow(): void {
+    // Why: a fence must be hard — a surviving liveness tick could catch the
+    // window between the pre-sign-out fence and the profile wipe and briefly
+    // resurrect a broker. The next auth mutation re-arms via refreshDemand.
+    if (this.livenessTimer) {
+      clearInterval(this.livenessTimer)
+      this.livenessTimer = null
+    }
     this.coordinator.fenceAndCloseNow()
   }
 
@@ -234,6 +240,10 @@ export class DesktopRelayService {
       clearTimeout(this.demandExpiryTimer)
       this.demandExpiryTimer = null
     }
+    if (this.livenessTimer) {
+      clearInterval(this.livenessTimer)
+      this.livenessTimer = null
+    }
     this.coordinator.stop()
   }
 
@@ -303,6 +313,9 @@ export class DesktopRelayService {
   private refreshDemand(): void {
     if (this.stopped) {
       return
+    }
+    if (!this.livenessTimer) {
+      this.livenessTimer = setInterval(() => this.ensureLive(), RELAY_LIVENESS_INTERVAL_MS)
     }
     if (this.demandExpiryTimer) {
       clearTimeout(this.demandExpiryTimer)

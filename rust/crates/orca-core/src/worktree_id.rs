@@ -5,6 +5,8 @@
 //! `::workspace:<uuid>` suffix that filesystem callers must strip to recover the
 //! real folder path.
 
+use crate::js_string::trim_js;
+
 /// The literal `"::"` separator between repo id and worktree path.
 pub const WORKTREE_ID_SEPARATOR: &str = "::";
 
@@ -65,14 +67,19 @@ pub fn get_worktree_path_basename_from_id(worktree_id: &str) -> Option<String> {
     let worktree_path = split_worktree_id_for_filesystem(worktree_id)
         .map(|p| p.worktree_path)
         .unwrap_or_default();
-    let normalized_path = worktree_path.trim().trim_end_matches(['\\', '/']);
+    // `trim_js`, not `trim`: the twin calls JS `.trim()`, whose whitespace set is
+    // not Rust's. JS strips U+FEFF and Rust does not; Rust strips U+0085 (NEL)
+    // and JS does not. Both directions were live here — `"r::/a/b\u{feff}"`
+    // answered `"b\u{feff}"` against the twin's `"b"`, and `"r::\u{85}"`
+    // answered `None` against the twin's `"\u{85}"`. Six vectors pin it.
+    let normalized_path = trim_js(&worktree_path).trim_end_matches(['\\', '/']);
     if normalized_path.is_empty() {
         return None;
     }
     let basename = normalized_path
         .split(['\\', '/'])
         .rfind(|s| !s.is_empty())
-        .map(str::trim)
+        .map(trim_js)
         .unwrap_or("");
     if basename.is_empty() {
         None

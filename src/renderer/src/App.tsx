@@ -8,6 +8,7 @@ import { useAutomationDispatchEvents } from './hooks/useAutomationDispatchEvents
 import RetainedAgentsSyncGate from './components/dashboard/RetainedAgentsSyncGate'
 import ClosedEditorTabCleanupGate from './components/editor/ClosedEditorTabCleanupGate'
 import { AgentHibernationGate } from './components/AgentHibernationGate'
+import { AiVaultTabTitleSyncGate } from './components/AiVaultTabTitleSyncGate'
 import { SkillFreshnessNudge } from './components/skills/SkillFreshnessNudge'
 import { WorkspacePortScanner } from './components/ports/WorkspacePortScanner'
 import { RecoverableRenderErrorBoundary } from './components/error-boundaries/RecoverableRenderErrorBoundary'
@@ -274,6 +275,7 @@ function App(): React.JSX.Element {
             <WorkspacePortScanner enabled={vm.workspaceSessionReady} />
             {/* Why: leaf-mounted retention sync keeps agent-status subscriptions out of the App render tree. */}
             <RetainedAgentsSyncGate />
+            <AiVaultTabTitleSyncGate />
             {/* Why: EditorPanel unmounts when its last tab closes, so close cleanup must run from an always-mounted host to not leak models. */}
             <ClosedEditorTabCleanupGate />
             <AgentHibernationGate />

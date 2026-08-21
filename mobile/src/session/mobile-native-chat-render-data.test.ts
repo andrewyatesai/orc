@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { NativeChatMessage } from '../../../src/shared/native-chat-types'
 import {
-  buildMobileNativeChatData,
+  buildMobileNativeChatTransientData,
+  foldMobileNativeChatMessages,
   mobileNativeChatEmptyState
 } from './mobile-native-chat-render-data'
 
@@ -50,13 +51,22 @@ describe('mobileNativeChatEmptyState', () => {
   })
 })
 
-describe('buildMobileNativeChatData', () => {
+/** Mirrors the view: fold the raw transcript, then assemble the list. */
+function build(
+  messages: NativeChatMessage[],
+  streaming: string | null,
+  pending: Parameters<typeof buildMobileNativeChatTransientData>[0]['pending']
+): NativeChatMessage[] {
+  return buildMobileNativeChatTransientData({
+    folded: foldMobileNativeChatMessages(messages),
+    streaming,
+    pending
+  }).data
+}
+
+describe('buildMobileNativeChatTransientData', () => {
   it('appends pending optimistic messages at the tail as user turns', () => {
-    const { data } = buildMobileNativeChatData({
-      messages: [assistant('a1', 'hello')],
-      streamingText: undefined,
-      pending: [{ id: 'p1', text: 'queued' }]
-    })
+    const data = build([assistant('a1', 'hello')], null, [{ id: 'p1', text: 'queued' }])
     const last = data[data.length - 1]
     expect(last.id).toBe('p1')
     expect(last.role).toBe('user')
@@ -64,10 +74,9 @@ describe('buildMobileNativeChatData', () => {
   })
 
   it('renders a pending send with images as text followed by image-ref thumbnails', () => {
-    const { data } = buildMobileNativeChatData({
-      messages: [],
-      pending: [{ id: 'p1', text: 'look', images: ['file:///a.jpg', 'file:///b.jpg'] }]
-    })
+    const data = build([], null, [
+      { id: 'p1', text: 'look', images: ['file:///a.jpg', 'file:///b.jpg'] }
+    ])
     const last = data[data.length - 1]
     expect(last.role).toBe('user')
     expect(last.blocks).toEqual([
@@ -78,10 +87,7 @@ describe('buildMobileNativeChatData', () => {
   })
 
   it('renders an image-only pending send (no text) as just the thumbnail', () => {
-    const { data } = buildMobileNativeChatData({
-      messages: [],
-      pending: [{ id: 'p1', text: '', images: ['file:///a.jpg'] }]
-    })
+    const data = build([], null, [{ id: 'p1', text: '', images: ['file:///a.jpg'] }])
     expect(data[data.length - 1].blocks).toEqual([{ type: 'image-ref', url: 'file:///a.jpg' }])
   })
 
@@ -89,14 +95,15 @@ describe('buildMobileNativeChatData', () => {
     // Claude records an attached image as `[Image: source: /path]` + an
     // `[Image #1] `-prefixed caption turn; the fold must merge them into one
     // user turn with an image-ref block instead of showing raw marker text.
-    const { data } = buildMobileNativeChatData({
-      messages: [
+    const data = build(
+      [
         user('u1', '[Image: source: /tmp/a.png]'),
         user('u2', '[Image #1] look at this'),
         assistant('a1', 'nice photo')
       ],
-      pending: []
-    })
+      null,
+      []
+    )
     const merged = data.find((message) => message.role === 'user')
     expect(merged?.blocks).toEqual([
       { type: 'image-ref', path: '/tmp/a.png' },
@@ -105,49 +112,60 @@ describe('buildMobileNativeChatData', () => {
   })
 
   it('renders a lone image marker turn (no caption) as an image-ref block', () => {
-    const { data } = buildMobileNativeChatData({
-      messages: [user('u1', '[Image: source: /tmp/a.png]')],
-      pending: []
-    })
+    const data = build([user('u1', '[Image: source: /tmp/a.png]')], null, [])
     expect(data[0]?.blocks).toEqual([{ type: 'image-ref', path: '/tmp/a.png' }])
   })
 
-  it('adds a synthetic streaming bubble while the partial text leads the transcript', () => {
-    const { streaming, data } = buildMobileNativeChatData({
-      messages: [user('u1', 'hi')],
-      streamingText: 'thinking out loud',
-      pending: []
+  it('paints a retained local preview onto the captioned transcript image turn', () => {
+    // After the optimistic bubble clears, the marker turn only carries the host
+    // path; the rebound preview URI must render as the image-ref `url` (which the
+    // message component prefers over `path`) so the phone photo still shows.
+    const folded = foldMobileNativeChatMessages([
+      user('u1', '[Image: source: /tmp/a.png]'),
+      user('u2', '[Image #1] look at this')
+    ])
+    const { data } = buildMobileNativeChatTransientData({
+      folded,
+      streaming: null,
+      pending: [],
+      imagePreviewsByMessageId: { u2: ['file:///local.jpg'] }
     })
-    expect(streaming).toBe('thinking out loud')
-    expect(data.some((m) => m.id === 'streaming')).toBe(true)
+    const turn = data.find((message) => message.role === 'user')
+    expect(turn?.blocks).toEqual([
+      { type: 'image-ref', path: '/tmp/a.png', url: 'file:///local.jpg' },
+      { type: 'text', text: 'look at this' }
+    ])
   })
 
-  it('shows a short new streaming reply even after a longer previous turn', () => {
-    // The last folded turn is a long completed reply; a short new stream must not
-    // be suppressed just for being shorter than the prior turn.
-    const { streaming, data } = buildMobileNativeChatData({
-      messages: [assistant('a1', 'This is a long completed previous answer that ran on a while')],
-      streamingText: 'Ok',
-      pending: []
+  it('appends extra retained previews beyond the turn image-ref count as new blocks', () => {
+    const folded = foldMobileNativeChatMessages([user('u1', '[Image: source: /tmp/a.png]')])
+    const { data } = buildMobileNativeChatTransientData({
+      folded,
+      streaming: null,
+      pending: [],
+      imagePreviewsByMessageId: { u1: ['file:///a.jpg', 'file:///b.jpg'] }
     })
-    expect(streaming).toBe('Ok')
-    expect(data.some((m) => m.id === 'streaming')).toBe(true)
+    expect(data[0]?.blocks).toEqual([
+      { type: 'image-ref', path: '/tmp/a.png', url: 'file:///a.jpg' },
+      { type: 'image-ref', url: 'file:///b.jpg' }
+    ])
   })
 
-  it('drops the streaming bubble once the real assistant turn already contains it', () => {
-    const { streaming, data } = buildMobileNativeChatData({
-      messages: [assistant('a1', 'done answer')],
-      streamingText: 'done',
-      pending: []
-    })
-    expect(streaming).toBeNull()
-    expect(data.some((m) => m.id === 'streaming')).toBe(false)
+  it('leaves turns without retained previews untouched', () => {
+    const data = build([user('u1', 'plain text turn')], null, [])
+    expect(data[0]?.blocks).toEqual([{ type: 'text', text: 'plain text turn' }])
   })
 
-  it('returns no streaming bubble for empty/whitespace streaming text', () => {
-    expect(
-      buildMobileNativeChatData({ messages: [], streamingText: '   ', pending: [] }).streaming
-    ).toBeNull()
-    expect(buildMobileNativeChatData({ messages: [], pending: [] }).streaming).toBeNull()
+  it('appends a synthetic bubble for gated streaming text, between transcript and pending', () => {
+    // Whether text streams at all is the gate's call
+    // (`mobile-native-chat-streaming-gate.test.ts`); this only places it.
+    const data = build([user('u1', 'hi')], 'thinking out loud', [{ id: 'p1', text: 'queued' }])
+    expect(data.map((message) => message.id)).toEqual(['u1', 'streaming', 'p1'])
+    expect(data[1].blocks).toEqual([{ type: 'text', text: 'thinking out loud' }])
+  })
+
+  it('omits the bubble when the gate withheld the streaming text', () => {
+    const data = build([assistant('a1', 'done answer')], null, [])
+    expect(data.some((message) => message.id === 'streaming')).toBe(false)
   })
 })

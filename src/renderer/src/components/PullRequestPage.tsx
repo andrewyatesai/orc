@@ -50,7 +50,7 @@ import { Button } from '@/components/ui/button'
 import { ButtonGroup } from '@/components/ui/button-group'
 import { Input } from '@/components/ui/input'
 import { useMountedRef } from '@/hooks/useMountedRef'
-import { useConfirmationDialog } from '@/components/confirmation-dialog'
+import { useConfirmationDialog } from '@/components/confirmation-dialog-context'
 import {
   Accordion,
   AccordionContent,
@@ -227,7 +227,9 @@ import {
   type TaskSourceContext
 } from '../../../shared/task-source-context'
 import { translate } from '@/i18n/i18n'
+import { formatUiRelativeTimeFromDate } from '@/i18n/relative-time-format'
 import { getSettingsForRepoRuntimeOwner } from '@/lib/repo-runtime-owner'
+import { sortChecksBySeverity } from '../../../shared/pr-check-severity-order'
 
 // Why: the item URL is the only host-aware repository identity present on every work item across IPC.
 function parseOwnerRepoFromItemUrl(url: string): GitHubOwnerRepo | null {
@@ -336,27 +338,8 @@ type PullRequestPageProps = {
   projectOrigin?: PullRequestPageProjectOrigin
 }
 
-// Module singleton: Intl formatter construction loads locale data, so building
-// one per PR comment (formatRelativeTime runs per timeline item) was wasteful.
-const RELATIVE_TIME_FORMAT = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
-
 function formatRelativeTime(input: string): string {
-  const date = new Date(input)
-  if (Number.isNaN(date.getTime())) {
-    return 'recently'
-  }
-  const diffMs = date.getTime() - Date.now()
-  const diffMinutes = Math.round(diffMs / 60_000)
-  const formatter = RELATIVE_TIME_FORMAT
-  if (Math.abs(diffMinutes) < 60) {
-    return formatter.format(diffMinutes, 'minute')
-  }
-  const diffHours = Math.round(diffMinutes / 60)
-  if (Math.abs(diffHours) < 24) {
-    return formatter.format(diffHours, 'hour')
-  }
-  const diffDays = Math.round(diffHours / 24)
-  return formatter.format(diffDays, 'day')
+  return formatUiRelativeTimeFromDate(input)
 }
 
 function findMentionQuery(value: string, caret: number): MentionQuery | null {
@@ -4336,17 +4319,6 @@ function CommentReplyForm({
   )
 }
 
-const CHECK_SORT_ORDER: Record<string, number> = {
-  failure: 0,
-  timed_out: 0,
-  action_required: 0,
-  cancelled: 1,
-  pending: 2,
-  neutral: 3,
-  skipped: 4,
-  success: 5
-}
-
 function getCheckStatusLabel(check: PRCheckDetail): string {
   const conclusion = getCheckConclusion(check)
   if (conclusion === 'success') {
@@ -4551,11 +4523,7 @@ function ChecksTab({
   const prRepo = useMemo(() => resolvePullRequestRepo(item), [item])
   const runtimeHost = getGitHubSourceRuntimeHost(sourceContext)
   const canUseChecksRepoContext = canUseGitHubRepoContext(repoPath, sourceContext)
-  const sorted = [...list].sort(
-    (a, b) =>
-      (CHECK_SORT_ORDER[getCheckConclusion(a)] ?? 3) -
-      (CHECK_SORT_ORDER[getCheckConclusion(b)] ?? 3)
-  )
+  const sorted = sortChecksBySeverity(list)
   const failedChecks = getBrokenChecks(list)
   const counts = getCheckCounts(list)
   const summaryLabel = getChecksSummaryLabel(list)

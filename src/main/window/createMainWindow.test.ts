@@ -74,6 +74,12 @@ import {
 } from './createMainWindow'
 import { ipcMain } from 'electron'
 import { shouldRecoverRendererAfterProcessGone } from '../crash-reporting/process-gone-classification'
+import { BROWSER_WINDOW_CLOSE_ALLOWED_PRELOAD } from '../../shared/browser-window-close-policy'
+import { fileURLToPath } from 'node:url'
+import {
+  resetExpectedTeardownStateForTest,
+  resolveExpectedTeardownScope
+} from '../crash-reporting/expected-teardown-state'
 
 function withPlatform<T>(platform: NodeJS.Platform, run: () => T): T {
   const original = process.platform
@@ -102,6 +108,7 @@ describe('createMainWindow', () => {
     vi.mocked(ipcMain.removeListener).mockReset()
     vi.mocked(ipcMain.handle).mockReset()
     vi.mocked(ipcMain.removeHandler).mockReset()
+    resetExpectedTeardownStateForTest()
     vi.useRealTimers()
   })
 
@@ -248,6 +255,7 @@ describe('createMainWindow', () => {
     expect(allowBlankPrefs).toMatchObject({
       disableHtmlFullscreenWindowResize: true,
       partition: 'persist:orca-browser',
+      preload: expect.stringMatching(/browser-window-close-preload\.js$/),
       sandbox: true
     })
 
@@ -262,6 +270,36 @@ describe('createMainWindow', () => {
     const guest = { marker: 'guest' }
     windowHandlers['did-attach-webview']({} as never, guest as never)
     expect(attachGuestPoliciesMock).toHaveBeenCalledWith(guest)
+
+    const allowWindowCloseEvent = { preventDefault: vi.fn() }
+    const allowWindowCloseParams = {
+      src: 'data:text/html,',
+      preload: BROWSER_WINDOW_CLOSE_ALLOWED_PRELOAD
+    }
+    const allowWindowClosePrefs = { partition: 'persist:orca-browser' }
+    windowHandlers['will-attach-webview'](
+      allowWindowCloseEvent as never,
+      allowWindowClosePrefs as never,
+      allowWindowCloseParams as never
+    )
+    expect(allowWindowCloseEvent.preventDefault).not.toHaveBeenCalled()
+    expect(allowWindowCloseParams.preload).toBeUndefined()
+    expect(allowWindowClosePrefs).not.toHaveProperty('preload')
+
+    const allowWindowClosePathPrefs = {
+      partition: 'persist:orca-browser',
+      preload: fileURLToPath(BROWSER_WINDOW_CLOSE_ALLOWED_PRELOAD)
+    }
+    windowHandlers['will-attach-webview'](
+      { preventDefault: vi.fn() } as never,
+      allowWindowClosePathPrefs as never,
+      { src: 'data:text/html,', preload: '' } as never
+    )
+    expect(allowWindowClosePathPrefs).not.toHaveProperty('preload')
+
+    const cliGuest = { marker: 'cli-guest' }
+    windowHandlers['did-attach-webview']({} as never, cliGuest as never)
+    expect(attachGuestPoliciesMock).toHaveBeenLastCalledWith(cliGuest)
   })
 
   it('notifies the renderer when the window minimizes and restores', () => {
@@ -3829,5 +3867,42 @@ describe('createMainWindow', () => {
         isQuitting: false
       })
     })
+
+    it('marks teardown state on an irrevocable Windows session-end', () => {
+      setPlatform('win32')
+      resetExpectedTeardownStateForTest(() => 1_000)
+      const { windowHandlers } = setupCloseWindow()
+
+      createMainWindow(null)
+      windowHandlers['session-end']?.({} as never)
+
+      expect(
+        resolveExpectedTeardownScope({
+          isQuitting: false,
+          isQuittingForUpdate: false,
+          isExpectedRendererReload: false
+        })
+      ).toBe('app-shutdown')
+    })
+
+    it.each(['darwin', 'linux'] as const)(
+      'does not register or mark session teardown state on %s',
+      (platform) => {
+        setPlatform(platform)
+        resetExpectedTeardownStateForTest(() => 1_000)
+        const { windowHandlers } = setupCloseWindow()
+
+        createMainWindow(null)
+
+        expect(windowHandlers['session-end']).toBeUndefined()
+        expect(
+          resolveExpectedTeardownScope({
+            isQuitting: false,
+            isQuittingForUpdate: false,
+            isExpectedRendererReload: false
+          })
+        ).toBe('none')
+      }
+    )
   })
 })

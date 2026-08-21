@@ -39,10 +39,13 @@ const callCounts = {
 }
 console.log(`  dispatch arms: ${arms.join(', ')}`)
 for (const [file, n] of Object.entries(callCounts)) {
-  const actual = (readFileSync(`${ROOT}/${file}`, 'utf8').match(/titleHasAgentName\(/g) ?? []).length
+  const actual = (readFileSync(`${ROOT}/${file}`, 'utf8').match(/titleHasAgentName\(/g) ?? [])
+    .length
   console.log(`  ${file}: ${actual} predicate calls per classification (recorded ${n})`)
 }
-console.log('  measured: 28.1 ns TS body vs 1810.9 ns wasm seam (65x; object payload, not a bare string)')
+console.log(
+  '  measured: 28.1 ns TS body vs 1810.9 ns wasm seam (65x; object payload, not a bare string)'
+)
 
 if (changed) {
   console.log('\nThe routed arm set has CHANGED — this refusal is stale, re-check the module.')

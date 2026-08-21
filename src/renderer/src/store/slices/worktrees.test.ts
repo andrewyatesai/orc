@@ -504,6 +504,55 @@ describe('fetchWorktrees', () => {
     expect(mockApi.worktrees.updateMeta).not.toHaveBeenCalled()
   })
 
+  it('does not merge stale manual order over a reorder completed during refresh', async () => {
+    const store = createTestStore()
+    const daily = makeWorktree({
+      id: 'repo1::/path/daily',
+      repoId: 'repo1',
+      path: '/path/daily',
+      manualOrder: 20
+    })
+    const relay = makeWorktree({
+      id: 'repo1::/path/relay',
+      repoId: 'repo1',
+      path: '/path/relay',
+      manualOrder: 10
+    })
+    const refreshedDaily = { ...daily, head: 'def456' }
+    const detected = makeDetectedResult('repo1', [daily, relay])
+    let resolveListing!: (worktrees: Worktree[]) => void
+    const listing = new Promise<Worktree[]>((resolve) => {
+      resolveListing = resolve
+    })
+    worktreeListMock.mockReturnValueOnce(listing)
+    store.setState({
+      worktreesByRepo: { repo1: [daily, relay] },
+      detectedWorktreesByRepo: { repo1: detected }
+    } as Partial<AppState>)
+
+    const refresh = store.getState().fetchWorktrees('repo1')
+    await vi.waitFor(() => expect(worktreeListMock).toHaveBeenCalledTimes(1))
+    await store.getState().updateWorktreesMeta(
+      new Map([
+        [daily.id, { manualOrder: 100 }],
+        [relay.id, { manualOrder: 200 }]
+      ])
+    )
+    resolveListing([refreshedDaily, relay])
+
+    await refresh
+
+    expect(store.getState().worktreesByRepo.repo1.map((worktree) => worktree.manualOrder)).toEqual([
+      100, 200
+    ])
+    expect(
+      store
+        .getState()
+        .detectedWorktreesByRepo.repo1.worktrees.map((worktree) => worktree.manualOrder)
+    ).toEqual([100, 200])
+    expect(store.getState().worktreesByRepo.repo1[0]?.head).toBe('def456')
+  })
+
   it('updates the repo entry when only the persisted base ref changes', async () => {
     const store = createTestStore()
     const existing = makeWorktree({
@@ -3411,7 +3460,8 @@ describe('createWorktree base status merge', () => {
     const wt = makeWorktree({
       id: 'repo1::/path/wt1',
       repoId: 'repo1',
-      path: '/path/wt1'
+      path: '/path/wt1',
+      displayName: 'feature-wt'
     })
     mockApi.worktrees.create.mockResolvedValue({
       worktree: wt,
@@ -3425,12 +3475,92 @@ describe('createWorktree base status merge', () => {
 
     await store.getState().createWorktree('repo1', 'feature', 'origin/main')
 
-    expect(toast.warning).toHaveBeenCalledWith('Local main was not refreshed', {
-      description: expect.stringContaining(expectedReason)
+    expect(toast.warning).toHaveBeenCalledWith('Local main was not refreshed for "feature-wt"', {
+      id: 'local-base-ref-refresh-failed:repo1::/path/wt1:main',
+      description: expect.stringContaining(expectedReason),
+      duration: Infinity,
+      dismissible: true
     })
     const description = vi.mocked(toast.warning).mock.calls.at(-1)?.[1]?.description
+    expect(description).toContain('feature-wt')
+    // Create already succeeded — guidance must push manual recovery, not "try again".
+    expect(description).toMatch(/manually/i)
+    expect(description).not.toContain('try again')
     expect(description).not.toContain('AI tools')
     expect(description).not.toContain('git diff')
+    // Owner path is only meaningful for the dirty-owner skip; do not leak it into other reasons.
+    if (status === 'skipped_dirty_worktree') {
+      expect(description).toContain('/repo')
+    } else {
+      expect(description).not.toContain('/repo')
+    }
+  })
+
+  it('falls back to the generic dirty detail when ownerWorktreePath is missing', async () => {
+    const store = createTestStore()
+    const wt = makeWorktree({
+      id: 'repo1::/path/wt1',
+      repoId: 'repo1',
+      path: '/path/wt1',
+      displayName: 'feature-wt'
+    })
+    mockApi.worktrees.create.mockResolvedValue({
+      worktree: wt,
+      localBaseRefRefresh: {
+        status: 'skipped_dirty_worktree',
+        baseRef: 'origin/main',
+        localBranch: 'main'
+      }
+    })
+
+    await store.getState().createWorktree('repo1', 'feature', 'origin/main')
+
+    const description = vi.mocked(toast.warning).mock.calls.at(-1)?.[1]?.description
+    expect(description).toContain('uncommitted changes')
+    expect(description).toContain('where local main is checked out')
+    expect(description).not.toContain('The worktree at')
+  })
+
+  it('names the toast from branch when displayName is blank', async () => {
+    const store = createTestStore()
+    const wt = makeWorktree({
+      id: 'repo1::/path/wt1',
+      repoId: 'repo1',
+      path: '/path/wt1',
+      branch: 'refs/heads/feature',
+      displayName: '   '
+    })
+    mockApi.worktrees.create.mockResolvedValue({
+      worktree: wt,
+      localBaseRefRefresh: {
+        status: 'skipped_error',
+        baseRef: 'origin/main',
+        localBranch: 'main'
+      }
+    })
+
+    await store.getState().createWorktree('repo1', 'feature', 'origin/main')
+
+    expect(toast.warning).toHaveBeenCalledWith(
+      'Local main was not refreshed for "feature"',
+      expect.objectContaining({
+        id: 'local-base-ref-refresh-failed:repo1::/path/wt1:main'
+      })
+    )
+  })
+
+  it('does not warn when local base ref refresh is omitted from the create result', async () => {
+    const store = createTestStore()
+    const wt = makeWorktree({
+      id: 'repo1::/path/wt1',
+      repoId: 'repo1',
+      path: '/path/wt1'
+    })
+    mockApi.worktrees.create.mockResolvedValue({ worktree: wt })
+
+    await store.getState().createWorktree('repo1', 'feature', 'origin/main')
+
+    expect(toast.warning).not.toHaveBeenCalled()
   })
 
   it('does not warn when the local base ref refresh succeeds', async () => {
@@ -4574,7 +4704,12 @@ describe('worktree remote runtime mutations', () => {
     expect(runtimeEnvironmentCall).toHaveBeenCalledWith({
       selector: 'env-1',
       method: 'worktree.rm',
-      params: { worktree: `id:${wt.id}`, force: undefined, runHooks: true },
+      params: {
+        worktree: `id:${wt.id}`,
+        force: undefined,
+        allowUnverifiedPtyStop: false,
+        runHooks: true
+      },
       timeoutMs: 60_000
     })
     expect(mockApi.worktrees.remove).not.toHaveBeenCalled()
@@ -4607,7 +4742,12 @@ describe('worktree remote runtime mutations', () => {
     expect(runtimeEnvironmentCall).toHaveBeenCalledWith({
       selector: 'owner-hub',
       method: 'worktree.rm',
-      params: { worktree: `id:${wt.id}`, force: undefined, runHooks: true },
+      params: {
+        worktree: `id:${wt.id}`,
+        force: undefined,
+        allowUnverifiedPtyStop: false,
+        runHooks: true
+      },
       timeoutMs: 60_000
     })
     expect(mockApi.worktrees.remove).not.toHaveBeenCalled()
@@ -4674,10 +4814,47 @@ describe('worktree remote runtime mutations', () => {
       worktreeId: wt.id,
       hostId: 'ssh:ssh-1',
       force: undefined,
+      // Why (#11960): an ordinary remove never waives the PTY-stop proof.
+      allowUnverifiedPtyStop: false,
       skipArchive: false
     })
     expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
     expect(store.getState().worktreesByRepo['repo-ssh']).toEqual([])
+  })
+
+  // Why (#11960): the store is where `force` and the PTY-stop waiver could most
+  // easily be collapsed back into one flag. The ordinary delete confirmation
+  // passes force:true, so that alone must never reach the gate as a waiver.
+  it('sends force without the PTY-stop waiver unless a caller asks for it', async () => {
+    const store = createTestStore()
+    const wt = makeWorktree({ id: 'repo1::/w/one', repoId: 'repo1', path: '/w/one' })
+    store.setState({
+      repos: [
+        {
+          id: 'repo1',
+          path: '/w',
+          displayName: 'Local Repo',
+          badgeColor: '#000',
+          addedAt: 0
+        }
+      ],
+      worktreesByRepo: { repo1: [wt] }
+    } as Partial<AppState>)
+
+    await store.getState().removeWorktree(wt.id, true)
+    expect(mockApi.worktrees.remove).toHaveBeenLastCalledWith(
+      expect.objectContaining({ force: true, allowUnverifiedPtyStop: false })
+    )
+
+    // Re-seed: the first removal dropped the row, and a second call for a missing
+    // worktree never reaches the API — which would silently re-read the call above.
+    const retry = makeWorktree({ id: 'repo1::/w/two', repoId: 'repo1', path: '/w/two' })
+    store.setState({ worktreesByRepo: { repo1: [retry] } } as Partial<AppState>)
+
+    await store.getState().removeWorktree(retry.id, true, { allowUnverifiedPtyStop: true })
+    expect(mockApi.worktrees.remove).toHaveBeenLastCalledWith(
+      expect.objectContaining({ force: true, allowUnverifiedPtyStop: true })
+    )
   })
 
   it('fails closed before deleting an exact worktree id owned by multiple hosts', async () => {

@@ -673,7 +673,7 @@ describe('createEditorSlice openDiff', () => {
   it('bumps fileContentReloadNonce when re-opening an existing clean file with reload requested', () => {
     const store = createEditorStore()
 
-    const openFileWithReloadRequest = (): void =>
+    const openFileWithReloadRequest = (): void => {
       store.getState().openFile(
         {
           filePath: '/repo/file.ts',
@@ -684,6 +684,7 @@ describe('createEditorSlice openDiff', () => {
         },
         { forceContentReload: true }
       )
+    }
 
     openFileWithReloadRequest()
     expect(store.getState().openFiles[0]?.fileContentReloadNonce).toBeUndefined()
@@ -879,7 +880,7 @@ describe('createEditorSlice openDiff', () => {
   it('keeps an existing preview replaceable when it is opened as preview again', () => {
     const store = createEditorTabsStore()
 
-    const openPreviewFile = (): void =>
+    const openPreviewFile = (): void => {
       store.getState().openFile(
         {
           filePath: '/repo/a.ts',
@@ -890,6 +891,7 @@ describe('createEditorSlice openDiff', () => {
         },
         { preview: true }
       )
+    }
 
     openPreviewFile()
     openPreviewFile()
@@ -1633,6 +1635,51 @@ describe('createEditorSlice recently closed editor tabs', () => {
     expect(store.getState().reopenClosedEditorTab('wt-1')).toBe(true)
     expect(store.getState().openFiles.at(-1)).toMatchObject({ filePath: '/repo/notes.md' })
     expect(store.getState().openFiles.at(-1)).not.toHaveProperty('mirroredFromRuntimeSession')
+  })
+
+  it('reactivates the live tab when a stale reopen id targets an already-open file', () => {
+    const store = createEditorTabsStore()
+    store.setState({
+      // Why: createEditorTabsStore omits the terminals slice that defaults tabBarOrderByWorktree, so seed it to mirror the shipped store where the editor slice maintains it.
+      tabBarOrderByWorktree: {},
+      worktreesByRepo: {
+        'repo-1': [
+          { id: 'wt-1', repoId: 'repo-1', path: '/repo' },
+          { id: 'wt-2', repoId: 'repo-1', path: '/repo-2' }
+        ]
+      }
+    } as unknown as Partial<AppState>)
+    const sharedPath = '/home/me/.zshrc'
+    const openShared = (worktreeId: string): string =>
+      store.getState().openFile({
+        filePath: sharedPath,
+        relativePath: '.zshrc',
+        worktreeId,
+        language: 'shell',
+        mode: 'edit'
+      })
+
+    // Bare path id: nothing else owns this path yet.
+    const staleWt1Id = openShared('wt-1')
+    expect(staleWt1Id).toBe(sharedPath)
+    store.getState().closeFile(staleWt1Id)
+
+    // wt-2 claims the bare id, so wt-1's reopen gets a namespaced id instead.
+    const wt2Id = openShared('wt-2')
+    expect(wt2Id).toBe(sharedPath)
+    const liveWt1Id = openShared('wt-1')
+    expect(liveWt1Id).toBe(ownedEditorFileId(sharedPath, 'wt-1', null))
+    store.getState().closeFile(wt2Id)
+
+    expect(store.getState().reopenClosedEditorTab('wt-1')).toBe(true)
+
+    expect(store.getState().openFiles.map((file) => file.id)).toEqual([liveWt1Id])
+    expect(store.getState().activeFileId).toBe(liveWt1Id)
+    expect(store.getState().activeFileIdByWorktree['wt-1']).toBe(liveWt1Id)
+    expect(
+      (store.getState().unifiedTabsByWorktree['wt-1'] ?? []).map((tab) => tab.entityId)
+    ).toEqual([liveWt1Id])
+    expect(store.getState().tabBarOrderByWorktree['wt-1']).toEqual([liveWt1Id])
   })
 })
 
@@ -4951,7 +4998,7 @@ describe('closeFile host mirroring', () => {
 describe('read-only editor tabs (AI Vault View Log)', () => {
   const LOG_PATH = '/home/user/.claude/sessions/log.jsonl'
 
-  const openReadOnlyLog = (store: StoreApi<AppState>): void =>
+  const openReadOnlyLog = (store: StoreApi<AppState>): void => {
     store.getState().openFile(
       {
         filePath: LOG_PATH,
@@ -4965,6 +5012,7 @@ describe('read-only editor tabs (AI Vault View Log)', () => {
       },
       { preview: false, forceContentReload: true, suppressActiveRuntimeFallback: true }
     )
+  }
 
   it('creates a permanent read-only edit tab', () => {
     const store = createEditorStore()

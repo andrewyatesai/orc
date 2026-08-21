@@ -28,7 +28,7 @@ type UpdaterHandlerContext = {
   getKnownReleaseUrl: () => string | undefined
   getPendingInstallVersion: () => string
   getUserInitiatedCheck: () => boolean
-  handleQuitAndInstallFailure: () => boolean
+  handleQuitAndInstallFailure: (error?: unknown) => boolean
   isQuitAndInstallHandoffActive: () => boolean
   hasNewerDownloadedVersion: () => boolean
   shouldHandleUpdaterErrorEvent: () => boolean
@@ -266,7 +266,7 @@ export function registerAutoUpdaterHandlers({
   autoUpdater.on('error', (err) => {
     const message = err?.message ?? 'Unknown error'
     // Why: quitAndInstall reports "no staged update" via this error event (async on macOS); recover quit flags before suppression guards run.
-    if (handleQuitAndInstallFailure()) {
+    if (handleQuitAndInstallFailure(err)) {
       return
     }
     // Why: handoff still owns the process; don't treat as a check/download error.

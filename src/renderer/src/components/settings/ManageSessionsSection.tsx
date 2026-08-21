@@ -10,6 +10,7 @@ import { activateTabAndFocusPane } from '@/lib/activate-tab-and-focus-pane'
 import { useDaemonActions, DaemonActionDialog } from '../shared/useDaemonActions'
 import { ManageSessionKillDialog } from './ManageSessionKillDialog'
 import { ManageSessionsTable } from './ManageSessionsTable'
+import { notifyDaemonSessionInventoryInvalidated } from '../status-bar/daemon-session-inventory-invalidation'
 import { useDaemonRuntimeStatus } from '@/lib/daemon-runtime-status-store'
 import { translate } from '@/i18n/i18n'
 
@@ -130,6 +131,7 @@ export function ManageSessionsSection(): React.JSX.Element {
       void refresh()
     },
     onRestartSettled: () => {
+      notifyDaemonSessionInventoryInvalidated()
       void refresh()
     }
   })
@@ -158,6 +160,7 @@ export function ManageSessionsSection(): React.JSX.Element {
           )
         }
         mutationInFlight.current = false
+        notifyDaemonSessionInventoryInvalidated()
         await refresh()
       } catch (err) {
         toast.error(
@@ -225,9 +228,7 @@ export function ManageSessionsSection(): React.JSX.Element {
                 failed daemon (missing binary, exec perms); surface it where the
                 recovery action lives. */}
             {daemonStatus.detail ? (
-              <div className="break-all text-[11px] text-destructive/80">
-                {daemonStatus.detail}
-              </div>
+              <div className="break-all text-[11px] text-destructive/80">{daemonStatus.detail}</div>
             ) : null}
           </div>
         </div>

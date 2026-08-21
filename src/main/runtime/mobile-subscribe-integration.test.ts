@@ -299,8 +299,7 @@ describe('mobile subscribe integration', () => {
     expect(ptySizes.get('pty-1')).toEqual({ cols: 150, rows: 40 })
   })
 
-  // TODO: inline restore on re-subscribe not yet implemented
-  it.skip('re-subscribe within 300ms cancels debounce timer and inline-restores old PTY', async () => {
+  it('re-subscribe within 300ms cancels debounce timer and inline-restores old PTY', async () => {
     const { runtime, ptySizes } = createRuntime()
     await runtime.handleMobileSubscribe('pty-1', 'client-a', { cols: 45, rows: 20 })
     runtime.handleMobileUnsubscribe('pty-1', 'client-a')
@@ -318,8 +317,7 @@ describe('mobile subscribe integration', () => {
     expect(ptySizes.get('pty-1')).toEqual({ cols: 150, rows: 40 })
   })
 
-  // TODO: inline restore on re-subscribe not yet implemented
-  it.skip('rapid A→B→C tab navigation: inline restore of A when B subscribes', async () => {
+  it('rapid A→B→C tab navigation: inline restore of A when B subscribes', async () => {
     const { runtime, ptySizes } = createRuntime()
 
     // Subscribe to A

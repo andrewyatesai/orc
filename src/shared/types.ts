@@ -46,6 +46,7 @@ import type { UsagePercentageDisplay } from './usage-percentage-display'
 import type { StatusBarUsageMode } from './status-bar-usage-mode'
 import type { PersistedNativeChatSessionOptions } from './native-chat-session-options'
 import type { CodexResetCreditAttemptLedger } from './codex-reset-credit-attempt-ledger'
+import type { AiVaultSessionTitle } from './ai-vault-session-title'
 
 // Re-exported for backward compat with renderer call sites that import
 // `WorkspaceCreateTelemetrySource` from '../../../shared/types'.
@@ -824,6 +825,8 @@ export type Tab = {
   contentType: TabContentType
   label: string // display title (auto-derived from PTY or filename)
   generatedLabel?: string | null
+  /** Stable AI Vault conversation name, bound to its provider session identity. */
+  aiVaultTitle?: AiVaultSessionTitle | null
   quickCommandLabel?: string | null
   customLabel: string | null
   color: string | null
@@ -864,6 +867,8 @@ export type TerminalTab = {
   defaultTitle?: string
   /** Stable opt-in label derived from the first known agent prompt. */
   generatedTitle?: string | null
+  /** Stable AI Vault conversation name, bound to its provider session identity. */
+  aiVaultTitle?: AiVaultSessionTitle | null
   /** Stable label from the tab-bar Quick Command that created this terminal. */
   quickCommandLabel?: string | null
   customTitle: string | null
@@ -968,6 +973,8 @@ export type BrowserPage = {
   canGoForward: boolean
   loadError: BrowserLoadError | null
   createdAt: number
+  // Why: CLI-created pages retain Chromium's native window.close behavior; ordinary embedded pages are guarded.
+  allowWindowClose?: boolean
   // Why: remote-owned worktrees can still host client-local fallback browser
   // pages until headless remote runtimes support real browser panes.
   browserRuntimeEnvironmentId?: string | null
@@ -2053,6 +2060,7 @@ export type ListWorkItemsResult<T> = {
   }
   errors?: {
     issues?: ClassifiedError
+    prs?: ClassifiedError
   }
   /** True when the user's per-repo preference was `'upstream'` but no upstream
    *  remote is configured, so the resolver fell back to origin. Renderer uses
@@ -2936,6 +2944,8 @@ export type GlobalSettings = {
   combinedDiffFileTreeVisibleByDefault: boolean
   /** Bot-marked comment-author logins (stored lowercased); escape hatch for review bots on regular accounts that defeat provider metadata/heuristics. */
   prBotAuthorOverrides: string[]
+  /** Capability gate for agent-driven artifact publishing; off until granted, enforced in main, not just the UI. */
+  artifactSharingEnabled?: boolean
   notifications: NotificationSettings
   /** Countdown after a Claude agent goes idle showing time left before the prompt cache expires. */
   promptCacheTimerEnabled: boolean
@@ -3419,6 +3429,7 @@ export type PersistedUIState = {
   rightSidebarExplorerView: RightSidebarExplorerView
   rightSidebarWidth: number
   markdownTocPanelWidth?: number
+  combinedDiffFileTreeWidth?: number
   groupBy: 'none' | 'workspace-status' | 'repo' | 'pr-status'
   sortBy: 'name' | 'smart' | 'recent' | 'repo' | 'manual'
   /** Project header ordering in `groupBy: 'repo'`, independent of `sortBy`: 'manual' uses persisted order + header drag, 'recent' by latest visible activity. */

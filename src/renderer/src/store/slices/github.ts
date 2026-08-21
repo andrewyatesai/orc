@@ -53,7 +53,10 @@ import { rightSidebarShowsPullRequestData } from '@/lib/right-sidebar-visibility
 import { hostedReviewInfoFromGitHubPRInfo } from '../../../../shared/hosted-review-github'
 import { getHostedReviewCacheKey, linkedReviewHintKey } from './hosted-review-cache-identity'
 import { getGitHubPRCacheKey, getGitHubRepoCacheKey } from './github-cache-key'
-import { isGitHubWorkItemsQueryTooLarge } from './github-work-items-query-bounds'
+import {
+  GITHUB_SEARCH_RESULT_WINDOW_ERROR_PATTERN,
+  isGitHubWorkItemsQueryTooLarge
+} from './github-work-items-query-bounds'
 import { classifyGitHubUnavailable } from '../../../../shared/github-api-availability'
 import { isMacAppDataPath } from '@/lib/passive-macos-app-data-access'
 import { translate } from '@/i18n/i18n'
@@ -70,6 +73,7 @@ import {
   getTaskSourceRuntimeSettings,
   type TaskSourceContext
 } from '../../../../shared/task-source-context'
+import { normalizeGitHubPRForBranchOutcome } from '../../../../shared/github-pr-for-branch-outcome'
 
 // ─── ProjectV2 cache types ────────────────────────────────────────────
 // Why: separate from CacheEntry<T> — project-view has a single GraphQL source (no issue/PR fallback) and a distinct error union.
@@ -655,6 +659,9 @@ const CHECKS_CACHE_TTL = 60_000 // 1 minute — checks change more frequently
 const EMPTY_CHECKS_CACHE_TTL = 10_000
 // Why: the work-item list is a browse surface, not a source of truth, so 60s staleness is fine (SWR keeps it current).
 const WORK_ITEMS_CACHE_TTL = 60_000
+// GitHub's Search API serves the page that starts within its first 1000 results;
+// the next page 422s even when the final reachable page crosses the boundary.
+const GITHUB_SEARCH_RESULT_WINDOW = 1000
 // Why: long-lived (matches repos.ts) so the user has time to read + act on persist failures before the toast vanishes.
 const ERROR_TOAST_DURATION = 60_000
 
@@ -2003,7 +2010,11 @@ export type GitHubSlice = {
     displayLimit: number,
     query: string,
     page: number
-  ) => Promise<{ items: GitHubWorkItem[]; failedCount: number }>
+  ) => Promise<{
+    items: GitHubWorkItem[]
+    failedCount: number
+    errorTypes: ClassifiedError['type'][]
+  }>
   /** Count items and derive pages from the largest per-repo result set. */
   countWorkItemsAcrossRepos: (
     repos: {
@@ -2067,18 +2078,6 @@ export type GitHubSlice = {
   ) => Promise<GitHubProjectMutationResult>
   /** Optimistic, IPC-free patcher for a single `projectViewCache` row's `content`; `patchWorkItem` only walks `workItemsCache` and would leave the Project view stale until the next refresh. */
   patchProjectRowContent: (cacheKey: string, rowId: string, patch: ProjectRowContentPatch) => void
-}
-
-/** Normalizes `github.prForBranch` into a {@link PRRefreshOutcome}: preserves a runtime `upstream-error` instead of collapsing to a false "no PR"; a legacy host returning `PRInfo | null` maps to `found`/`no-pr`. */
-function normalizeRuntimePRForBranchOutcome(
-  result: PRRefreshOutcome | PRInfo | null
-): PRRefreshOutcome {
-  if (result && typeof result === 'object' && 'kind' in result) {
-    return result
-  }
-  return result
-    ? { kind: 'found', pr: result, fetchedAt: Date.now() }
-    : { kind: 'no-pr', fetchedAt: Date.now() }
 }
 
 export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (set, get) => ({
@@ -2823,9 +2822,10 @@ export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (s
 
   fetchWorkItemsNextPage: async (repos, perRepoLimit, displayLimit, query, page) => {
     if (isGitHubWorkItemsQueryTooLarge(query)) {
-      return { items: [], failedCount: 0 }
+      return { items: [], failedCount: 0, errorTypes: [] }
     }
     let failedCount = 0
+    const errorTypes: ClassifiedError['type'][] = []
     const perProjectResults = await Promise.all(
       repos.map(async (r) => {
         const requestState = get()
@@ -2851,9 +2851,28 @@ export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (s
           })
           // Why: page-N failures aren't in the per-repo banner (keyed on the initial fetch); log them so pagination failures are observable instead of silently truncating (richer surface deferred, design doc §6).
           if (envelope.errors?.issues) {
+            const { type, message } = envelope.errors.issues
+            // Why: only the 1000-result-window 422 may drive the unreachable
+            // clamp; demote other validation errors so they read as failures.
+            errorTypes.push(
+              type === 'validation_error' &&
+                !GITHUB_SEARCH_RESULT_WINDOW_ERROR_PATTERN.test(message)
+                ? 'unknown'
+                : type
+            )
             console.warn(
               `[workItems] next page ${r.repoId} issues-side partial failure:`,
               envelope.errors.issues
+            )
+          }
+          if (envelope.errors?.prs) {
+            // Why: the window 422 is issue-side only — a PR-side validation
+            // error must never join the unreachable signal.
+            const { type } = envelope.errors.prs
+            errorTypes.push(type === 'validation_error' ? 'unknown' : type)
+            console.warn(
+              `[workItems] next page ${r.repoId} prs-side partial failure:`,
+              envelope.errors.prs
             )
           }
           return envelope.items.map((item): GitHubWorkItem => ({ ...item, repoId: r.repoId }))
@@ -2870,7 +2889,7 @@ export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (s
       })
     )
     const merged = sortWorkItemsByNumber(perProjectResults.flat()).slice(0, displayLimit)
-    return { items: merged, failedCount }
+    return { items: merged, failedCount, errorTypes }
   },
 
   countWorkItemsAcrossRepos: async (repos, query, perRepoLimit) => {
@@ -2878,6 +2897,8 @@ export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (s
       return { totalCount: 0, totalPages: 0 }
     }
     const normalizedLimit = Math.max(1, Math.floor(perRepoLimit))
+    // Why: GitHub 422s pages that start past its 1000-result search window.
+    const maxReachablePages = Math.max(1, Math.ceil(GITHUB_SEARCH_RESULT_WINDOW / normalizedLimit))
     const counts = await Promise.all(
       repos.map(async (r) => {
         // Why: same stampede cap as item-fetch — without a slot a 90-repo selection fires 90 concurrent count IPCs before the main-side rate-limit guard sees the first 403.
@@ -2909,7 +2930,8 @@ export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (s
       totalCount: counts.reduce((sum, count) => sum + count, 0),
       // Why: repos advance independently by page, so take the max across repos — a sum/page-width undercounts when one repo owns most results.
       totalPages: counts.reduce(
-        (maxPages, count) => Math.max(maxPages, Math.ceil(count / normalizedLimit)),
+        (maxPages, count) =>
+          Math.max(maxPages, Math.min(Math.ceil(count / normalizedLimit), maxReachablePages)),
         0
       )
     }
@@ -3083,7 +3105,7 @@ export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (s
                   : {})
               },
               { timeoutMs: 30_000 }
-            ).then((result) => normalizeRuntimePRForBranchOutcome(result))
+            ).then((result) => normalizeGitHubPRForBranchOutcome(result))
           : await (async () => {
               const candidate: GitHubPRRefreshCandidate = {
                 repoId: repoId ?? '',
@@ -3105,24 +3127,18 @@ export const createGitHubSlice: StateCreator<AppState, [], [], GitHubSlice> = (s
                 cachedMergeable: cached?.data?.mergeable ?? null,
                 cachedMergeStateStatus: cached?.data?.mergeStateStatus ?? null
               }
-              return window.api.gh.refreshPRNow
+              const response = window.api.gh.refreshPRNow
                 ? await window.api.gh.refreshPRNow({ candidate })
-                : await window.api.gh
-                    .prForBranch({
-                      repoPath,
-                      repoId,
-                      branch,
-                      linkedPRNumber,
-                      fallbackPRNumber,
-                      acceptMergedFallbackPR:
-                        fallbackPRNumber !== null && fallbackPRSource !== null,
-                      currentHeadOid: requestHeadOid
-                    })
-                    .then((pr) =>
-                      pr
-                        ? ({ kind: 'found', pr, fetchedAt: Date.now() } as const)
-                        : ({ kind: 'no-pr', fetchedAt: Date.now() } as const)
-                    )
+                : await window.api.gh.prForBranch({
+                    repoPath,
+                    repoId,
+                    branch,
+                    linkedPRNumber,
+                    fallbackPRNumber,
+                    acceptMergedFallbackPR: fallbackPRNumber !== null && fallbackPRSource !== null,
+                    currentHeadOid: requestHeadOid
+                  })
+              return normalizeGitHubPRForBranchOutcome(response)
             })()
         const pr: PRInfo | null =
           outcome.kind === 'found' ? outcome.pr : outcome.kind === 'no-pr' ? null : null

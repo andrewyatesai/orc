@@ -1,6 +1,15 @@
 // @proves-gate-fires verify:localization-catalog
 import { existsSync } from 'node:fs'
-import { copyFile, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readdir,
+  realpath,
+  rm,
+  symlink,
+  writeFile
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, it } from 'vitest'
@@ -47,6 +56,24 @@ function writeJson(filePath, value) {
   return writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
 }
 
+// The gate imports the locale-translation-policy chain, whose modules resolve each other and a
+// runtime JSON relative to their own directory, so the sandbox needs the whole locale-* closure
+// beside the gate — not the single gate file.
+async function copyGateModules(scriptDir) {
+  const entries = await readdir(import.meta.dirname)
+  const modules = entries.filter(
+    (name) =>
+      name === GATE_MODULE ||
+      ((name.startsWith('locale-') || name === 'locale.mjs') &&
+        (name.endsWith('.json') || (name.endsWith('.mjs') && !name.endsWith('.test.mjs'))))
+  )
+  await Promise.all(
+    modules.map((name) =>
+      copyFile(path.join(import.meta.dirname, name), path.join(scriptDir, name))
+    )
+  )
+}
+
 // A miniature app — one catalog, one translation, and both source roots the gate walks —
 // wired so the real gate passes, leaving the planted violation as the only difference.
 async function createSandbox() {
@@ -60,7 +87,7 @@ async function createSandbox() {
   await mkdir(path.join(root, RENDERER_DIR), { recursive: true })
   await mkdir(path.join(root, MAIN_DIR), { recursive: true })
   await symlink(installedModulesRoot(), path.join(root, 'node_modules'), 'dir')
-  await copyFile(path.join(import.meta.dirname, GATE_MODULE), path.join(scriptDir, GATE_MODULE))
+  await copyGateModules(scriptDir)
 
   await writeJson(path.join(root, LOCALES_DIR, 'en.json'), structuredClone(EN_CATALOG))
   await writeJson(path.join(root, LOCALES_DIR, 'es.json'), structuredClone(ES_CATALOG))
@@ -172,6 +199,30 @@ describe('verify:localization-catalog rejects catalog drift it is supposed to ca
     sandbox.rejects(
       'a translation whose placeholder was renamed',
       'interpolation mismatch: sandbox.greeting'
+    )
+  })
+
+  // Why: #12113 — a translated generic term the repair policy would rewrite back to English must
+  // fail the gate, not slip through parity. 'Claude Agent Teams' is a pinned product name, so
+  // repair reverts the whole value and destroys the translated 'Agente'.
+  it('fails when a translated generic term would be rewritten to English', async () => {
+    const sandbox = await createSandbox()
+    sandbox.accepts()
+
+    await sandbox.addSource(
+      'SandboxTeams.tsx',
+      "export const teams = () => t('sandbox.teams', 'Claude Agent Teams')\n"
+    )
+    await sandbox.writeCatalog('en.json', {
+      sandbox: { ...EN_CATALOG.sandbox, teams: 'Claude Agent Teams' }
+    })
+    await sandbox.writeCatalog('es.json', {
+      sandbox: { ...ES_CATALOG.sandbox, teams: 'Equipos de Agente' }
+    })
+
+    sandbox.rejects(
+      'a translated generic term the repair policy would revert to English',
+      'sandbox.teams: Agente -> English'
     )
   })
 })

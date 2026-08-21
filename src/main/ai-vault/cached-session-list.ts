@@ -7,7 +7,7 @@ import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
 // Why: ONE module owns the scan cache so the desktop IPC handler AND the runtime
 // RPC method share a single cache instance — opening the desktop panel and the
 // mobile screen for the same scope must not double-scan hundreds of transcripts.
-const AI_VAULT_CACHE_TTL_MS = 15_000
+const AI_VAULT_CACHE_TTL_MS = 60_000
 
 // Why: codex-home + WSL home dirs must be sourced from a serve-mode-reachable
 // seam (the OrcaRuntimeService deps), NOT the window-only registerCoreHandlers
@@ -27,6 +27,12 @@ let cachedList: CachedAiVaultList | null = null
 let inflightList: Promise<AiVaultListResult> | null = null
 let inflightKey: string | null = null
 let sources: AiVaultSessionSources = {}
+// Bumped by invalidateAiVaultSessionListCache. A scan already in flight when a
+// delete lands carries the pre-delete generation and must not write its stale
+// result back into the cache, which would resurrect the deleted session for the
+// whole TTL (and for every consumer of this shared module — desktop, runtime
+// RPC, and the paired mobile client — not just the panel that force-refreshed).
+let cacheGeneration = 0
 
 export function configureAiVaultSessionSources(next: AiVaultSessionSources): void {
   sources = next
@@ -36,6 +42,7 @@ export async function listAiVaultSessions(args?: AiVaultListArgs): Promise<AiVau
   // Scope paths change the result set, so they must be part of the cache key.
   const key = JSON.stringify({
     limit: args?.limit ?? 'default',
+    unlimited: args?.unlimited ?? false,
     scopePaths: args?.scopePaths ?? []
   })
   const now = Date.now()
@@ -49,11 +56,15 @@ export async function listAiVaultSessions(args?: AiVaultListArgs): Promise<AiVau
   }
 
   inflightKey = key
+  // Captured before the scan: a delete that invalidates mid-scan bumps the
+  // generation, so this resolution must not write its now-stale result back.
+  const scanGeneration = cacheGeneration
   const additionalCodexSessionsDirs =
     sources.getAdditionalCodexHomePaths?.().map((homePath) => join(homePath, 'sessions')) ?? []
   inflightList = (async () =>
     scanAiVaultSessions({
       limit: args?.limit,
+      unlimited: args?.unlimited,
       scopePaths: args?.scopePaths,
       additionalCodexSessionsDirs,
       wslHomeDirs: await getAiVaultWslHomeDirs(),
@@ -62,10 +73,12 @@ export async function listAiVaultSessions(args?: AiVaultListArgs): Promise<AiVau
       executionHostId: LOCAL_EXECUTION_HOST_ID
     }))()
     .then((result) => {
-      cachedList = {
-        key,
-        result,
-        expiresAt: Date.now() + AI_VAULT_CACHE_TTL_MS
+      if (scanGeneration === cacheGeneration) {
+        cachedList = {
+          key,
+          result,
+          expiresAt: Date.now() + AI_VAULT_CACHE_TTL_MS
+        }
       }
       return result
     })
@@ -78,6 +91,14 @@ export async function listAiVaultSessions(args?: AiVaultListArgs): Promise<AiVau
       }
     })
   return inflightList
+}
+
+// Drops the cached list and bumps the generation so any in-flight scan can't
+// write its pre-delete result back. Called after a session delete so the panel,
+// runtime RPC, and paired mobile client stop serving the removed session.
+export function invalidateAiVaultSessionListCache(): void {
+  cachedList = null
+  cacheGeneration += 1
 }
 
 // Exported for the subagent-transcript IPC path, which validates
@@ -98,4 +119,5 @@ export function resetAiVaultSessionListCacheForTests(): void {
   inflightList = null
   inflightKey = null
   sources = {}
+  cacheGeneration = 0
 }

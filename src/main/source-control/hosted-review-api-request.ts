@@ -92,7 +92,10 @@ function decodeUtf8(buffer: Buffer): string {
   return new TextDecoder('utf-8').decode(buffer)
 }
 
-async function readResponseText(response: Response): Promise<string> {
+// Bounded, never-throwing read of an error body. Shared with the provider read
+// paths so they can inspect a rejection (e.g. Azure DevOps -preview) without
+// risking the main-process OOM that an unbounded response.text() would allow.
+export async function readHostedReviewErrorText(response: Response): Promise<string> {
   try {
     const buffer = await readBoundedBytes(response, MAX_RESPONSE_BYTES, 'truncate')
     return decodeUtf8(buffer)
@@ -187,7 +190,7 @@ export async function requestHostedReviewJson<T>(
       AbortSignal.timeout(timeoutMs)
     )
     if (!response.ok) {
-      const body = await readResponseText(response)
+      const body = await readHostedReviewErrorText(response)
       throw new HostedReviewApiRequestError(body || response.statusText, {
         status: response.status
       })

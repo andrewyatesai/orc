@@ -16,6 +16,7 @@ import {
 } from '../ui/dropdown-menu'
 import { AgentIcon } from '@/lib/agent-catalog'
 import { translate } from '@/i18n/i18n'
+import { formatTrackingSince } from './stats-tracking-since'
 export { getStatsPaneSearchEntries } from './stats-search'
 
 function formatDuration(ms: number): string {
@@ -36,14 +37,6 @@ function formatDuration(ms: number): string {
     return `${totalHours}h ${remainingMinutes}m`
   }
   return `${totalMinutes}m`
-}
-
-function formatTrackingSince(timestamp: number | null): string {
-  if (!timestamp) {
-    return ''
-  }
-  const date = new Date(timestamp)
-  return `Tracking since ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
 }
 
 type UsageTab = 'overview' | 'claude' | 'codex' | 'opencode' | 'grok'

@@ -1534,7 +1534,9 @@ describe('updater', () => {
       'updater:status',
       expect.objectContaining({
         state: 'error',
-        message: 'Could not restart to install the update. Quit and reopen Orca, then try again.'
+        // The updater's own text is appended because it is the only record of why the install never ran.
+        message:
+          "Could not restart to install the update. Quit and reopen Orca, then try again. (No update filepath provided, can't quit and install)"
       })
     )
   })

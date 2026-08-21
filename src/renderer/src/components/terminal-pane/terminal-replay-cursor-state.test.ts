@@ -4,6 +4,7 @@ import {
   POST_REPLAY_LIVE_SNAPSHOT_RESET,
   POST_REPLAY_MODE_RESET,
   POST_REPLAY_REATTACH_RESET,
+  POST_REPLAY_REATTACH_RESET_KEEP_MOUSE,
   RESET_KITTY_KEYBOARD_PROTOCOL,
   RESET_MOUSE_REPORTING,
   RESET_TERMINAL_CURSOR_STYLE
@@ -51,6 +52,20 @@ describe('terminal replay state reset constants', () => {
     expect(POST_REPLAY_REATTACH_RESET).toContain('\x1b[?1000l')
     // Bracketed paste (2004) stays armed on reattach — only the cold restore clears it.
     expect(POST_REPLAY_REATTACH_RESET).not.toContain('\x1b[?2004l')
+  })
+
+  it('keeps re-armed mouse modes for an alternate-screen reattach (#8291)', () => {
+    // An alt-screen reattach replays the daemon's rehydrate sequences, which re-arm the live
+    // TUI's own mouse modes; the keep-mouse variant is POST_REPLAY_REATTACH_RESET minus the mouse
+    // reset, so a drag over the still-running TUI reaches it instead of xterm's row selection.
+    expect(POST_REPLAY_REATTACH_RESET_KEEP_MOUSE).toBe(
+      `${RESET_TERMINAL_CURSOR_STYLE}${RESET_KITTY_KEYBOARD_PROTOCOL}\x1b[?25h\x1b[?1004l`
+    )
+    expect(POST_REPLAY_REATTACH_RESET_KEEP_MOUSE).not.toContain(RESET_MOUSE_REPORTING)
+    expect(POST_REPLAY_REATTACH_RESET_KEEP_MOUSE).not.toContain('\x1b[?1000l')
+    // Everything else the plain reattach reset drops stays dropped.
+    expect(POST_REPLAY_REATTACH_RESET_KEEP_MOUSE).toContain(RESET_KITTY_KEYBOARD_PROTOCOL)
+    expect(POST_REPLAY_REATTACH_RESET_KEEP_MOUSE).toContain('\x1b[?1004l')
   })
 
   it('keeps focus reporting on the live-agent reattach reset (upstream #7061)', () => {

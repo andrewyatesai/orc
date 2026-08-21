@@ -22,7 +22,7 @@ import { useAppStore } from '../../store'
 import { useSystemPrefersDark } from '@/components/terminal-pane/use-system-prefers-dark'
 import { isMacUserAgent, isWindowsUserAgent } from '@/components/terminal-pane/pane-helpers'
 import { applyDocumentTheme } from '@/lib/document-theme'
-import { useConfirmationDialog } from '@/components/confirmation-dialog'
+import { useConfirmationDialog } from '@/components/confirmation-dialog-context'
 import {
   SCROLLBACK_PRESETS_ROWS,
   getFallbackTerminalFonts,
@@ -630,7 +630,7 @@ function Settings(): React.JSX.Element {
     }
 
     const paneSectionId = getSettingsSectionId(
-      settingsNavigationTarget.pane as SettingsNavTarget,
+      settingsNavigationTarget.pane,
       settingsNavigationTarget.repoId,
       repoIdToRepresentative
     )

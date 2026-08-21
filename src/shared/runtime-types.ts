@@ -681,6 +681,12 @@ export type RuntimeTerminalFocus = {
   handle: string
   tabId: string
   worktreeId: string
+  /**
+   * Whether this request remained the winning applied host navigation when it settled.
+   * False also covers identity-only requests and unavailable host navigation.
+   * Optional for older clients; omit only when unknown.
+   */
+  navigated?: boolean
 }
 
 export type RuntimeTerminalClose = {
@@ -839,6 +845,19 @@ export type RuntimeWorktreePsResult = {
   totalCount: number
   truncated: boolean
 }
+
+export type RuntimeWorktreePsSnapshotResult = RuntimeWorktreePsResult & {
+  snapshotId: string
+}
+
+export type RuntimeWorktreePsUnchangedResult = {
+  unchanged: true
+  snapshotId: string
+}
+
+export type RuntimeWorktreePsConditionalResult =
+  | RuntimeWorktreePsSnapshotResult
+  | RuntimeWorktreePsUnchangedResult
 
 export type RuntimeRepoList = {
   repos: Repo[]

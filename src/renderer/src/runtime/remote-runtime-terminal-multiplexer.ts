@@ -62,6 +62,9 @@ export type RemoteRuntimeMultiplexedTerminalCallbacks = {
   onDriverChanged?: (
     driver: { kind: 'idle' } | { kind: 'desktop' } | { kind: 'mobile'; clientId: string }
   ) => void
+  // The authoritative host refused a PTY write over this live stream; negotiated
+  // via the `writeUnavailable` subscribe capability so older hosts never send it.
+  onWriteUnavailable?: () => void
   // Why: the #9156 reply-authority verdict — delivered in the subscribe ack (so a
   // headless-serve viewer knows it answers before the first drained query) and on
   // every re-election. Old hosts never send it; absence fails open viewer-side.
@@ -355,7 +358,9 @@ class RemoteRuntimeTerminalMultiplexer {
           client: args.client,
           viewport: args.viewport,
           capabilities:
-            args.client.type === 'desktop' ? { ackOutput: 1, desktopViewportClaims: 1 } : undefined
+            args.client.type === 'desktop'
+              ? { ackOutput: 1, desktopViewportClaims: 1, writeUnavailable: 1 }
+              : undefined
         })
       )
       if (!sent) {
@@ -546,6 +551,11 @@ class RemoteRuntimeTerminalMultiplexer {
         // Why: the renderer already disposed this stream; unsubscribe releases server credit that cannot reach a parser.
         this.sendFrame(frame.streamId, TerminalStreamOpcode.Unsubscribe)
       }
+      return
+    }
+    if (frame.opcode === TerminalStreamOpcode.WriteUnavailable) {
+      // Host refused a PTY write over this live stream; feed the pane's recovery hook.
+      stream.callbacks.onWriteUnavailable?.()
       return
     }
     if (

@@ -24,11 +24,17 @@ export function createConnectionLogEmitter(
   }
 }
 
-// Why: keep device tokens / full URLs out of log scrolls — truncate to host:port.
+// Why: keep device tokens / full URLs out of log scrolls — truncate to host:port,
+// dropping any `user:password@` userinfo the authority may carry.
 export function redactedEndpoint(ep: string): string {
   try {
     const m = ep.match(/^wss?:\/\/([^/]+)/i)
-    return m ? m[1] : 'unknown'
+    if (!m) {
+      return 'unknown'
+    }
+    const authority = m[1]
+    const at = authority.lastIndexOf('@')
+    return at >= 0 ? authority.slice(at + 1) : authority
   } catch {
     return 'unknown'
   }

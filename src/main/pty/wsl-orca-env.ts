@@ -1,3 +1,8 @@
+import {
+  SETUP_AGENT_SEQUENCE_STARTUP_COMMAND_ENV,
+  SETUP_AGENT_SEQUENCE_STARTUP_SCRIPT_ENV
+} from '../../shared/setup-agent-sequencing'
+
 const WSLENV_ENTRY_SEPARATOR = ':'
 
 function parseWslenvEntries(value: string | undefined): string[] {
@@ -70,6 +75,10 @@ export function addOrcaWslInteropEnv(env: Record<string, string>): void {
     'ORCA_TAB_ID/u',
     'ORCA_WORKTREE_ID/u',
     'ORCA_AGENT_LAUNCH_TOKEN/u',
+    // Why: setup-gated startup keeps the long wait-for-marker script in an env var
+    // (long paths blow the PTY canonical input cap); wsl.exe must import both untranslated.
+    `${SETUP_AGENT_SEQUENCE_STARTUP_COMMAND_ENV}/u`,
+    `${SETUP_AGENT_SEQUENCE_STARTUP_SCRIPT_ENV}/u`,
     'ORCA_AGENT_HOOK_PORT/u',
     'ORCA_AGENT_HOOK_TOKEN/u',
     'ORCA_AGENT_HOOK_ENV/u',

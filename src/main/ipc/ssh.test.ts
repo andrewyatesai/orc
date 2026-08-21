@@ -578,6 +578,7 @@ describe('SSH IPC handlers', () => {
       status: 'connected',
       error: null,
       reconnectAttempt: 0,
+      providerEpoch: expect.any(String),
       connectionGeneration: 1,
       remotePlatform: 'win32'
     })
@@ -588,6 +589,7 @@ describe('SSH IPC handlers', () => {
         status: 'connected',
         error: null,
         reconnectAttempt: 0,
+        providerEpoch: expect.any(String),
         connectionGeneration: 1,
         supportsFolderDownload: true,
         remotePlatform: 'win32'
@@ -630,6 +632,7 @@ describe('SSH IPC handlers', () => {
           status: 'reconnecting',
           error: 'Relay channel lost. Reconnecting...',
           reconnectAttempt: 1,
+          providerEpoch: expect.any(String),
           connectionGeneration: 1
         }
       })
@@ -638,6 +641,7 @@ describe('SSH IPC handlers', () => {
         status: 'reconnecting',
         error: 'Relay channel lost. Reconnecting...',
         reconnectAttempt: 1,
+        providerEpoch: expect.any(String),
         connectionGeneration: 1
       })
 
@@ -650,6 +654,7 @@ describe('SSH IPC handlers', () => {
           status: 'connected',
           error: null,
           reconnectAttempt: 0,
+          providerEpoch: expect.any(String),
           connectionGeneration: 1,
           supportsFolderDownload: true
         }
@@ -659,6 +664,7 @@ describe('SSH IPC handlers', () => {
         status: 'connected',
         error: null,
         reconnectAttempt: 0,
+        providerEpoch: expect.any(String),
         connectionGeneration: 1
       })
       expect(() => assertSshMutationExpectation('ssh-1', 'ssh-1', 1)).not.toThrow()
@@ -716,6 +722,7 @@ describe('SSH IPC handlers', () => {
       status: 'reconnecting',
       error: 'Relay channel reconnecting...',
       reconnectAttempt: 0,
+      providerEpoch: expect.any(String),
       connectionGeneration: 2
     })
     expect(() => assertSshMutationExpectation('ssh-1', 'ssh-1', stagedGeneration)).toThrow(
@@ -905,6 +912,7 @@ describe('SSH IPC handlers', () => {
         status: 'reconnecting',
         error: 'Relay channel lost. Reconnecting...',
         reconnectAttempt: 1,
+        providerEpoch: expect.any(String),
         connectionGeneration: 1
       })
 
@@ -916,6 +924,7 @@ describe('SSH IPC handlers', () => {
         status: 'connected',
         error: null,
         reconnectAttempt: 0,
+        providerEpoch: expect.any(String),
         connectionGeneration: 2
       })
 
@@ -926,6 +935,7 @@ describe('SSH IPC handlers', () => {
         status: 'connected',
         error: null,
         reconnectAttempt: 0,
+        providerEpoch: expect.any(String),
         connectionGeneration: 2
       })
     } finally {
@@ -966,6 +976,7 @@ describe('SSH IPC handlers', () => {
           status: 'connected',
           error: null,
           reconnectAttempt: 0,
+          providerEpoch: expect.any(String),
           connectionGeneration: 1
         })
       }
@@ -977,6 +988,7 @@ describe('SSH IPC handlers', () => {
         status: 'error',
         error: 'Relay channel kept dropping. Click Reconnect on the SSH target before retrying.',
         reconnectAttempt: 0,
+        providerEpoch: expect.any(String),
         connectionGeneration: 1
       })
     } finally {
@@ -1015,6 +1027,7 @@ describe('SSH IPC handlers', () => {
         status: 'connected',
         error: null,
         reconnectAttempt: 0,
+        providerEpoch: expect.any(String),
         connectionGeneration: 1
       })
 
@@ -1027,6 +1040,7 @@ describe('SSH IPC handlers', () => {
         status: 'connected',
         error: null,
         reconnectAttempt: 0,
+        providerEpoch: expect.any(String),
         connectionGeneration: 1
       })
       expect(mockPortForwardManager.removeAllForwards).not.toHaveBeenCalled()
@@ -1234,6 +1248,7 @@ describe('SSH IPC handlers', () => {
 
     await expect(handlers.get('ssh:connect')!(null, { targetId: 'ssh-1' })).resolves.toEqual({
       ...connectedState,
+      providerEpoch: expect.any(String),
       connectionGeneration: 1
     })
     expect(mockDeployAndLaunchRelay).not.toHaveBeenCalled()
@@ -1435,6 +1450,7 @@ describe('SSH IPC handlers', () => {
         status: 'error',
         error: 'network down',
         reconnectAttempt: 0,
+        providerEpoch: expect.any(String),
         connectionGeneration: 1
       }
     })
@@ -1607,7 +1623,9 @@ describe('SSH IPC handlers', () => {
     expect(mockStore.markSshRemotePtyLease).toHaveBeenCalledWith('ssh-1', 'pty-lease', 'terminated')
   })
 
-  it('ssh:terminateSessions ignores expired leases when disconnected', async () => {
+  it('ssh:terminateSessions does not force a reconnect for expired orphan leases when disconnected', async () => {
+    // Why: 'expired' means reattach gave up, not that the app still owns the PTY, so an
+    // orphan-only terminate must not raise SSH_TERMINATE_RECONNECT_REQUIRED.
     mockStore.getSshRemotePtyLeases.mockReturnValue([
       { targetId: 'ssh-1', ptyId: 'pty-expired', state: 'expired' }
     ])
@@ -1620,6 +1638,74 @@ describe('SSH IPC handlers', () => {
 
     expect(mockPtyProvider.shutdown).not.toHaveBeenCalled()
     expect(mockConnectionManager.disconnect).toHaveBeenCalledWith('ssh-1')
+  })
+
+  it('ssh:terminateSessions reaches expired orphan leases once the relay is connected', async () => {
+    const target: SshTarget = {
+      id: 'ssh-1',
+      label: 'Server',
+      host: 'example.com',
+      port: 22,
+      username: 'deploy'
+    }
+    mockSshStore.getTarget.mockReturnValue(target)
+    mockConnectionManager.connect.mockResolvedValue({})
+    mockConnectionManager.getState.mockReturnValue({
+      targetId: 'ssh-1',
+      status: 'connected',
+      error: null,
+      reconnectAttempt: 0
+    })
+    mockStore.getSshRemotePtyLeases.mockReturnValue([
+      { targetId: 'ssh-1', ptyId: 'pty-expired', state: 'expired' }
+    ])
+    vi.mocked(getSshPtyProvider).mockReturnValue(mockPtyProvider as never)
+    vi.mocked(getPtyIdsForConnection).mockReturnValue([])
+    mockPtyProvider.shutdown.mockResolvedValue(undefined)
+
+    await handlers.get('ssh:connect')!(null, { targetId: 'ssh-1' })
+    await handlers.get('ssh:terminateSessions')!(null, { targetId: 'ssh-1' })
+
+    // The abandoned remote shell is reachable by an explicit terminate, and a clean
+    // shutdown tombstones the lease.
+    expect(mockPtyProvider.shutdown).toHaveBeenCalledWith('ssh:ssh-1@@pty-expired', {
+      immediate: true,
+      keepHistory: false
+    })
+    expect(mockStore.markSshRemotePtyLease).toHaveBeenCalledWith(
+      'ssh-1',
+      'pty-expired',
+      'terminated'
+    )
+  })
+
+  it('ssh:terminateSessions leaves already-terminated leases alone', async () => {
+    const target: SshTarget = {
+      id: 'ssh-1',
+      label: 'Server',
+      host: 'example.com',
+      port: 22,
+      username: 'deploy'
+    }
+    mockSshStore.getTarget.mockReturnValue(target)
+    mockConnectionManager.connect.mockResolvedValue({})
+    mockConnectionManager.getState.mockReturnValue({
+      targetId: 'ssh-1',
+      status: 'connected',
+      error: null,
+      reconnectAttempt: 0
+    })
+    mockStore.getSshRemotePtyLeases.mockReturnValue([
+      { targetId: 'ssh-1', ptyId: 'pty-dead', state: 'terminated' }
+    ])
+    vi.mocked(getSshPtyProvider).mockReturnValue(mockPtyProvider as never)
+    vi.mocked(getPtyIdsForConnection).mockReturnValue([])
+    mockPtyProvider.shutdown.mockResolvedValue(undefined)
+
+    await handlers.get('ssh:connect')!(null, { targetId: 'ssh-1' })
+    await handlers.get('ssh:terminateSessions')!(null, { targetId: 'ssh-1' })
+
+    expect(mockPtyProvider.shutdown).not.toHaveBeenCalled()
   })
 
   it('ssh:resetRelay force-stops the remote relay and expires tracked leases', async () => {
@@ -1864,6 +1950,7 @@ describe('SSH IPC handlers', () => {
     // Why: a failed first probe gets one retry before teardown (slow post-wake network).
     expect(mockMux.probeLiveness).toHaveBeenCalledTimes(2)
     expect(handlers.get('ssh:getState')!(null, { targetId: 'ssh-1' })).toMatchObject({
+      providerEpoch: expect.any(String),
       connectionGeneration: 2
     })
   })
@@ -2016,6 +2103,6 @@ describe('SSH IPC handlers', () => {
     mockConnectionManager.getState.mockReturnValue(state)
 
     const result = await handlers.get('ssh:getState')!(null, { targetId: 'ssh-1' })
-    expect(result).toEqual({ ...state, connectionGeneration: 0 })
+    expect(result).toEqual({ ...state, connectionGeneration: 0, providerEpoch: expect.any(String) })
   })
 })

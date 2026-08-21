@@ -4,7 +4,13 @@
 // pure functions are covered; the Kagi session-link / navigation normaliser is
 // deferred in the Rust port.
 
-import { buildSearchUrl, looksLikeSearchQuery, type SearchEngine } from '../../../src/shared/browser-url'
+// `looksLikeSearchQuery` was CUT OVER, so it comes from the shim — unbound in the
+// parity config, so it answers from its `parity` fallback, which keeps this leg a
+// real differential rather than a self-comparison. `buildSearchUrl` is REFUSED:
+// the core takes no options and would drop the Kagi private-session link. See
+// config/scripts/browser-search-kagi-session-gap.mjs.
+import { buildSearchUrl, type SearchEngine } from '../../../src/shared/browser-url'
+import { looksLikeSearchQuery } from '../../../src/shared/browser-search-query-detection'
 
 export function dispatch(fn: string, input: unknown): unknown {
   switch (fn) {

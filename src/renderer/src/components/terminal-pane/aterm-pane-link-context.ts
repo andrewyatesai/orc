@@ -1,4 +1,5 @@
 import type { AtermLinkContext } from '@/lib/pane-manager/aterm/aterm-url-link-routing'
+import type { HttpLinkSourceOwner } from '@/lib/http-link-routing'
 import type { TerminalLinkRoutingPreferenceRequester } from './terminal-url-link-hit-testing'
 
 export type AtermPaneLinkContextDeps = {
@@ -9,6 +10,8 @@ export type AtermPaneLinkContextDeps = {
   /** Live pane cwd resolver (paneCwd cache → lifecycle startupCwd fallback). */
   getPaneLinkCwd: (paneId: number) => string
   getRuntimeEnvironmentIdForPane?: (paneId: number) => string | null
+  /** Live pane host owner resolver (transport-derived), for http-link routing. */
+  getSourceOwnerForPane?: (paneId: number) => HttpLinkSourceOwner
 }
 
 /** The pane-scoped link context the lifecycle binds onto the aterm controller:
@@ -25,6 +28,7 @@ export function buildAtermPaneLinkContext(
     terminalHomePath: deps.terminalHomePath,
     requestOpenLinksInAppPreference: deps.requestOpenLinksInAppPreference,
     getStartupCwd: () => deps.getPaneLinkCwd(paneId),
-    getRuntimeEnvironmentId: () => deps.getRuntimeEnvironmentIdForPane?.(paneId) ?? null
+    getRuntimeEnvironmentId: () => deps.getRuntimeEnvironmentIdForPane?.(paneId) ?? null,
+    getSourceOwner: () => deps.getSourceOwnerForPane?.(paneId) ?? { kind: 'local' }
   }
 }

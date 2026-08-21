@@ -4,58 +4,35 @@ import type {
   IDisposable
 } from '../../lib/pane-manager/aterm/terminal-types'
 import type { AtermTerminalFacade as Terminal } from '@/lib/pane-manager/aterm/aterm-terminal-facade'
-import { openHttpLink } from '@/lib/http-link-routing'
+import { openHttpLink, type HttpLinkSourceOwner } from '@/lib/http-link-routing'
 import { buildEdgeWrappedHttpLogicalLineCandidates } from './edge-wrapped-terminal-http-links'
 import { buildHardWrappedHttpLogicalLineCandidates } from './hard-wrapped-terminal-http-links'
 import { dedupeLogicalLines } from './terminal-file-link-hit-testing'
 import { isTerminalLinkActivation } from './terminal-link-activation'
-import { TERMINAL_HTTP_URL_MAX_LENGTH } from './terminal-http-link-limits'
+import { extractTerminalHttpLinks } from './terminal-http-url-extraction'
 import { buildWrappedLogicalLine, rangeForParsedFileLink } from './wrapped-terminal-link-ranges'
+
+export { extractTerminalHttpLinks } from './terminal-http-url-extraction'
+export { TERMINAL_HTTP_URL_MAX_LENGTH } from './terminal-http-link-limits'
 
 type UrlLinkHitTestDeps = {
   worktreeId: string
   forceSystemBrowser?: boolean
+  /** The clicked pane's host — decides Orca tab vs system browser, not global runtime state. */
+  sourceOwner?: HttpLinkSourceOwner
   requestOpenLinksInAppPreference?: TerminalLinkRoutingPreferenceRequester
 }
 
 type UrlLinkClickFallbackDeps = {
   worktreeId: string
+  /** Resolved per click: the pane's PTY (and its runtime binding) may not exist at install time. */
+  getSourceOwner?: () => HttpLinkSourceOwner
   requestOpenLinksInAppPreference?: TerminalLinkRoutingPreferenceRequester
 }
 
 export type TerminalLinkRoutingPreferenceRequester = (
   url: string
 ) => boolean | Promise<boolean> | null | undefined
-
-type ParsedTerminalHttpLink = {
-  url: string
-  startIndex: number
-  endIndex: number
-}
-
-const HTTP_SCHEME_PREFIXES = ['https://', 'http://'] as const
-export { TERMINAL_HTTP_URL_MAX_LENGTH } from './terminal-http-link-limits'
-
-export function extractTerminalHttpLinks(lineText: string): ParsedTerminalHttpLink[] {
-  const links: ParsedTerminalHttpLink[] = []
-  for (const candidate of iterateTerminalHttpUrlCandidates(lineText)) {
-    let parsed: URL
-    try {
-      parsed = new URL(candidate.url)
-    } catch {
-      continue
-    }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      continue
-    }
-    links.push({
-      url: parsed.toString(),
-      startIndex: candidate.startIndex,
-      endIndex: candidate.endIndex
-    })
-  }
-  return links
-}
 
 export function isDesktopHttpLinkFallbackActivation(event: MouseEvent): boolean {
   if (event.defaultPrevented || event.button !== 0) {
@@ -71,132 +48,6 @@ export function isDesktopHttpLinkFallbackActivation(event: MouseEvent): boolean 
   // plain clicks remain available for cursor placement and selection. Mobile
   // tap routing is handled separately under mobile/src/terminal.
   return isTerminalLinkActivation(event)
-}
-
-function* iterateTerminalHttpUrlCandidates(
-  lineText: string
-): Generator<{ url: string; startIndex: number; endIndex: number }> {
-  let searchStart = 0
-  while (searchStart < lineText.length) {
-    const startIndex = findNextHttpSchemeIndex(lineText, searchStart)
-    if (startIndex === -1) {
-      return
-    }
-
-    if (!hasHttpUrlWordBoundary(lineText, startIndex)) {
-      searchStart = startIndex + 1
-      continue
-    }
-
-    const rawEndIndex = findHttpUrlCandidateEnd(lineText, startIndex)
-    const endIndex = trimHttpUrlTrailingPunctuation(lineText, startIndex, rawEndIndex)
-    searchStart = Math.max(rawEndIndex, startIndex + 1)
-    if (endIndex <= startIndex || rawEndIndex - startIndex > TERMINAL_HTTP_URL_MAX_LENGTH) {
-      continue
-    }
-
-    yield {
-      url: lineText.slice(startIndex, endIndex),
-      startIndex,
-      endIndex
-    }
-  }
-}
-
-function findNextHttpSchemeIndex(lineText: string, searchStart: number): number {
-  let nextIndex = -1
-  for (const prefix of HTTP_SCHEME_PREFIXES) {
-    const candidateIndex = lineText.indexOf(prefix, searchStart)
-    if (candidateIndex !== -1 && (nextIndex === -1 || candidateIndex < nextIndex)) {
-      nextIndex = candidateIndex
-    }
-  }
-  return nextIndex
-}
-
-function hasHttpUrlWordBoundary(lineText: string, startIndex: number): boolean {
-  return startIndex === 0 || !isAsciiWordCode(lineText.charCodeAt(startIndex - 1))
-}
-
-function findHttpUrlCandidateEnd(lineText: string, startIndex: number): number {
-  const scanEnd = Math.min(lineText.length, startIndex + TERMINAL_HTTP_URL_MAX_LENGTH + 1)
-  for (let index = startIndex; index < scanEnd; index += 1) {
-    if (isHttpUrlBodyTerminator(lineText.charCodeAt(index))) {
-      return index
-    }
-  }
-  return scanEnd
-}
-
-function trimHttpUrlTrailingPunctuation(
-  lineText: string,
-  startIndex: number,
-  rawEndIndex: number
-): number {
-  let endIndex = rawEndIndex
-  while (endIndex > startIndex && isHttpUrlTrailingPunctuation(lineText.charCodeAt(endIndex - 1))) {
-    endIndex -= 1
-  }
-  return endIndex
-}
-
-function isHttpUrlBodyTerminator(code: number): boolean {
-  return (
-    isAsciiWhitespace(code) ||
-    code === 0x22 ||
-    code === 0x27 ||
-    code === 0x21 ||
-    code === 0x2a ||
-    code === 0x28 ||
-    code === 0x29 ||
-    code === 0x7b ||
-    code === 0x7d ||
-    code === 0x7c ||
-    code === 0x5c ||
-    code === 0x5e ||
-    code === 0x3c ||
-    code === 0x3e ||
-    code === 0x60
-  )
-}
-
-function isHttpUrlTrailingPunctuation(code: number): boolean {
-  return (
-    isAsciiWhitespace(code) ||
-    code === 0x22 ||
-    code === 0x27 ||
-    code === 0x3a ||
-    code === 0x2c ||
-    code === 0x2e ||
-    code === 0x21 ||
-    code === 0x3f ||
-    code === 0x7b ||
-    code === 0x7d ||
-    code === 0x7c ||
-    code === 0x5c ||
-    code === 0x5e ||
-    code === 0x7e ||
-    code === 0x5b ||
-    code === 0x5d ||
-    code === 0x28 ||
-    code === 0x29 ||
-    code === 0x3c ||
-    code === 0x3e ||
-    code === 0x60
-  )
-}
-
-function isAsciiWhitespace(code: number): boolean {
-  return code === 9 || code === 10 || code === 11 || code === 12 || code === 13 || code === 32
-}
-
-function isAsciiWordCode(code: number): boolean {
-  return (
-    (code >= 48 && code <= 57) ||
-    (code >= 65 && code <= 90) ||
-    code === 95 ||
-    (code >= 97 && code <= 122)
-  )
 }
 
 function getTerminalScreenElement(terminal: Terminal): HTMLElement | null {
@@ -251,6 +102,7 @@ export function installHttpLinkClickFallback(
     const opened = openHttpLinkAtBufferPosition(terminal.buffer.active, position, terminal.cols, {
       worktreeId: deps.worktreeId,
       forceSystemBrowser: event.shiftKey,
+      sourceOwner: deps.getSourceOwner?.() ?? { kind: 'local' },
       requestOpenLinksInAppPreference: deps.requestOpenLinksInAppPreference
     })
     if (opened) {
@@ -318,14 +170,18 @@ function rangeContainsBufferPosition(
 }
 
 export function openTerminalHttpLink(url: string, deps: UrlLinkHitTestDeps): void {
+  // Why: Orca tabs are local-only, so classify by the pane's host, not global runtime.
+  const sourceOwner = deps.sourceOwner ?? { kind: 'local' }
   if (deps.forceSystemBrowser) {
-    openHttpLink(url, { worktreeId: deps.worktreeId, forceSystemBrowser: true })
+    openHttpLink(url, { worktreeId: deps.worktreeId, forceSystemBrowser: true, sourceOwner })
     return
   }
 
-  const preferenceDecision = deps.requestOpenLinksInAppPreference?.(url)
+  // Why: a remote-hosted link can only reach the system browser — don't persist an unhonorable in-app choice.
+  const preferenceDecision =
+    sourceOwner.kind === 'local' ? deps.requestOpenLinksInAppPreference?.(url) : null
   if (preferenceDecision === null || preferenceDecision === undefined) {
-    openHttpLink(url, { worktreeId: deps.worktreeId })
+    openHttpLink(url, { worktreeId: deps.worktreeId, sourceOwner })
     return
   }
 
@@ -336,10 +192,11 @@ export function openTerminalHttpLink(url: string, deps: UrlLinkHitTestDeps): voi
     .then((openInOrca) => {
       openHttpLink(url, {
         worktreeId: deps.worktreeId,
-        forceSystemBrowser: !openInOrca
+        forceSystemBrowser: !openInOrca,
+        sourceOwner
       })
     })
     .catch(() => {
-      openHttpLink(url, { worktreeId: deps.worktreeId, forceSystemBrowser: true })
+      openHttpLink(url, { worktreeId: deps.worktreeId, forceSystemBrowser: true, sourceOwner })
     })
 }

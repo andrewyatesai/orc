@@ -25,3 +25,19 @@ export async function inspectPtyProviderProcess(
   const hasChildProcesses = await provider.hasChildProcesses(ptyId)
   return { foregroundProcess, hasChildProcesses }
 }
+
+// Why: a renderer polling a stale PTY must settle as unavailable, not reject —
+// a gone terminal is idle evidence, not a transport failure worth surfacing.
+export async function inspectPtyProviderProcessForRenderer(
+  provider: IPtyProvider,
+  ptyId: string
+): Promise<PtyProcessInspection> {
+  try {
+    return await inspectPtyProviderProcess(provider, ptyId)
+  } catch (error) {
+    if (error instanceof Error && error.message === 'terminal_gone') {
+      return { foregroundProcess: null, hasChildProcesses: false, unavailable: true }
+    }
+    throw error
+  }
+}

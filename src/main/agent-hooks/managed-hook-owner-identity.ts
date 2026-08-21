@@ -4,7 +4,8 @@ import { link, lstat, mkdir, readFile, readlink, unlink, writeFile } from 'node:
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
-const execFileAsync = promisify(execFile)
+// Why: promisify(execFile) is inlined per call, not bound at module load, so a
+// test that partial-mocks node:child_process cannot break this module's import.
 const runtimeHostIdentity = `runtime:${randomUUID()}`
 const runtimeProcessIdentity = `runtime:${randomUUID()}`
 let hostIdentityPromise: Promise<string> | undefined
@@ -102,10 +103,14 @@ async function readHostIdentity(): Promise<string> {
   }
   if (process.platform === 'darwin') {
     try {
-      const { stdout } = await execFileAsync('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], {
-        encoding: 'utf8',
-        timeout: 1_000
-      })
+      const { stdout } = await promisify(execFile)(
+        'ioreg',
+        ['-rd1', '-c', 'IOPlatformExpertDevice'],
+        {
+          encoding: 'utf8',
+          timeout: 1_000
+        }
+      )
       const platformId = /"IOPlatformUUID"\s*=\s*"([^"]+)"/.exec(stdout)?.[1]
       return platformId ? `darwin:${platformId}` : runtimeHostIdentity
     } catch {
@@ -127,7 +132,7 @@ async function readBootIdentity(): Promise<string | undefined> {
 
   if (process.platform === 'darwin') {
     try {
-      const { stdout } = await execFileAsync('sysctl', ['-n', 'kern.bootsessionuuid'], {
+      const { stdout } = await promisify(execFile)('sysctl', ['-n', 'kern.bootsessionuuid'], {
         encoding: 'utf8',
         timeout: 1_000
       })
@@ -182,7 +187,7 @@ export async function readManagedHookProcessIdentity(
   bootIdentityPromise ??= readBootIdentity()
   const bootIdentity = await bootIdentityPromise
   try {
-    const { stdout } = await execFileAsync(
+    const { stdout } = await promisify(execFile)(
       'ps',
       ['-o', 'lstart=', '-o', 'command=', '-p', String(pid)],
       {

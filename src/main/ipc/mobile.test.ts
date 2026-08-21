@@ -22,6 +22,7 @@ vi.mock('os', () => ({
 }))
 
 import { registerMobileHandlers } from './mobile'
+import { NETWORK_EXPOSURE_FAILED_GUIDANCE } from '../runtime/network-exposure-guidance'
 
 describe('registerMobileHandlers', () => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
@@ -127,6 +128,118 @@ describe('registerMobileHandlers', () => {
     })
   })
 
+  it('lists a container bridge below a real LAN address but keeps it pickable', () => {
+    // Why: the bridge stays in the list (a VM guest may know it is routable) but never outranks a real
+    // interface, so it is never the auto-advertised default even though enumeration surfaced it first.
+    networkInterfacesMock.mockReturnValue({
+      docker0: [{ family: 'IPv4', internal: false, address: '172.17.0.1' }],
+      en0: [{ family: 'IPv4', internal: false, address: '192.168.1.24' }]
+    })
+
+    registerMobileHandlers({} as never)
+
+    expect(handlers.get('mobile:listNetworkInterfaces')?.()).toEqual({
+      interfaces: [
+        { name: 'en0', address: '192.168.1.24' },
+        { name: 'docker0', address: '172.17.0.1' }
+      ]
+    })
+  })
+
+  it('never auto-advertises a bridge: a bridge-only host pairs over Relay with no address', async () => {
+    // Why: a bridge address the phone provably cannot reach must not become the default, and Relay
+    // needs no local address — so the QR ships without a direct path instead of an unreachable one.
+    networkInterfacesMock.mockReturnValue({
+      docker0: [{ family: 'IPv4', internal: false, address: '172.17.0.1' }],
+      'vEthernet (WSL)': [{ family: 'IPv4', internal: false, address: '172.28.80.1' }]
+    })
+    const createMobilePairingOffer = vi.fn().mockResolvedValue({
+      available: true,
+      pairingUrl: 'orca://pair#relay',
+      endpoint: 'ws://127.0.0.1:6768',
+      deviceId: 'mobile-bridge-only',
+      connectionMode: 'automatic'
+    })
+
+    registerMobileHandlers({ createMobilePairingOffer } as never)
+
+    await expect(handlers.get('mobile:getPairingQR')?.(null, {})).resolves.toMatchObject({
+      available: true,
+      connectionMode: 'automatic',
+      // Why: the offer's loopback fallback points at the scanning phone, not this host — reporting it
+      // would print a direct endpoint under the QR that nothing can dial.
+      endpoint: null
+    })
+    expect(createMobilePairingOffer).toHaveBeenCalledWith(
+      expect.objectContaining({ address: null })
+    )
+    // The bridges stay pickable, just never automatically.
+    expect(handlers.get('mobile:listNetworkInterfaces')?.()).toEqual({
+      interfaces: [
+        { name: 'docker0', address: '172.17.0.1' },
+        { name: 'vEthernet (WSL)', address: '172.28.80.1' }
+      ]
+    })
+  })
+
+  it('refuses a LAN-only QR on a bridge-only host instead of advertising the bridge', async () => {
+    // Why: LAN has no Relay to fall back on, so a dead direct endpoint is worse than saying so — the
+    // bridge is still selectable in the picker on purpose, but it is never the automatic default.
+    networkInterfacesMock.mockReturnValue({
+      docker0: [{ family: 'IPv4', internal: false, address: '172.17.0.1' }]
+    })
+    const createMobilePairingOffer = vi.fn()
+
+    registerMobileHandlers({ createMobilePairingOffer } as never)
+
+    await expect(
+      handlers.get('mobile:getPairingQR')?.(null, { connectionMode: 'local-only' })
+    ).resolves.toEqual({ available: false })
+    expect(createMobilePairingOffer).not.toHaveBeenCalled()
+  })
+
+  it('honors an explicitly picked bridge address', async () => {
+    // Why: exclusion is about the automatic default only — a user who knows their bridge is routable
+    // (a VM guest pairing with the host) must still be able to advertise it.
+    networkInterfacesMock.mockReturnValue({
+      docker0: [{ family: 'IPv4', internal: false, address: '172.17.0.1' }],
+      en0: [{ family: 'IPv4', internal: false, address: '192.168.1.24' }]
+    })
+    const createMobilePairingOffer = vi.fn().mockResolvedValue({
+      available: true,
+      pairingUrl: 'orca://pair#bridge',
+      endpoint: 'ws://172.17.0.1:6768',
+      deviceId: 'mobile-bridge-pick',
+      connectionMode: 'local-only'
+    })
+
+    registerMobileHandlers({ createMobilePairingOffer } as never)
+    await handlers.get('mobile:getPairingQR')?.(null, {
+      address: '172.17.0.1',
+      connectionMode: 'local-only'
+    })
+
+    expect(createMobilePairingOffer).toHaveBeenCalledWith(
+      expect.objectContaining({ address: '172.17.0.1' })
+    )
+  })
+
+  it('reports runtime pairing unavailable rather than advertising a bridge', async () => {
+    // Why: runtime clients have no Relay fallback, so a bridge-only host has nothing reachable to
+    // advertise — the handler fails closed instead of minting a link that would be dead anyway.
+    networkInterfacesMock.mockReturnValue({
+      docker0: [{ family: 'IPv4', internal: false, address: '172.17.0.1' }]
+    })
+    const createPairingOffer = vi.fn()
+
+    registerMobileHandlers({ createPairingOffer } as never)
+
+    await expect(handlers.get('mobile:getRuntimePairingUrl')?.(null, {})).resolves.toEqual({
+      available: false
+    })
+    expect(createPairingOffer).not.toHaveBeenCalled()
+  })
+
   it('forwards an explicit local-only pairing choice', async () => {
     networkInterfacesMock.mockReturnValue({
       en0: [{ family: 'IPv4', internal: false, address: '192.168.1.24' }]
@@ -198,7 +311,8 @@ describe('registerMobileHandlers', () => {
       endpoint: 'ws://100.64.1.20:6768',
       deviceId: 'runtime-1'
     })
-    const rpcServer = { createPairingOffer }
+    const ensureNetworkExposure = vi.fn().mockResolvedValue(undefined)
+    const rpcServer = { createPairingOffer, ensureNetworkExposure }
 
     registerMobileHandlers(rpcServer as never)
 
@@ -219,8 +333,111 @@ describe('registerMobileHandlers', () => {
       address: '100.64.1.20',
       rotate: true,
       name: expect.stringMatching(/^Runtime /),
-      scope: 'runtime'
+      scope: 'runtime',
+      reach: 'network'
     })
+    // Why: STA-2370 — generating a runtime offer must widen the listener BEFORE advertising its endpoint,
+    // or a client could read the URL and connect before the LAN bind exists. Assert call ORDER, not just
+    // that the widen ran, so a regression that widens after minting the offer is caught.
+    expect(ensureNetworkExposure).toHaveBeenCalled()
+    expect(ensureNetworkExposure.mock.invocationCallOrder[0]).toBeLessThan(
+      createPairingOffer.mock.invocationCallOrder[0]
+    )
+  })
+
+  const stubRuntimePairingServer = (): {
+    createPairingOffer: ReturnType<typeof vi.fn>
+    ensureNetworkExposure: ReturnType<typeof vi.fn>
+  } => ({
+    createPairingOffer: vi.fn().mockReturnValue({
+      available: true,
+      pairingUrl: 'orca://pair#runtime',
+      webClientUrl: null,
+      endpoint: 'ws://127.0.0.1:6768',
+      deviceId: 'runtime-1'
+    }),
+    ensureNetworkExposure: vi.fn().mockResolvedValue(undefined)
+  })
+
+  // Why: #12405 — "This computer only" pairs against a loopback host precisely so nothing is reachable
+  // off-host; the widen is one-way and never narrows back, so this pick must NOT rebind to 0.0.0.0.
+  it.each(['127.0.0.1', 'localhost', '::1', '127.0.0.5', '127.0.0.1:6768'])(
+    'keeps the listener on loopback for a "this-computer" reach advertising %s',
+    async (address) => {
+      const rpcServer = stubRuntimePairingServer()
+      registerMobileHandlers(rpcServer as never)
+
+      await expect(
+        handlers.get('mobile:getRuntimePairingUrl')?.(null, {
+          address,
+          rotate: true,
+          reach: 'this-computer'
+        })
+      ).resolves.toMatchObject({ available: true })
+
+      expect(rpcServer.ensureNetworkExposure).not.toHaveBeenCalled()
+      expect(rpcServer.createPairingOffer).toHaveBeenCalledWith(
+        expect.objectContaining({ address, scope: 'runtime', reach: 'this-computer' })
+      )
+    }
+  )
+
+  // Why: #12405 — the reach is the user's declared intent, not the address shape. A this-computer reach
+  // carrying an off-host address is a mismatch: widen (and record network reach) rather than mint a link
+  // with no LAN listener behind it.
+  it('widens for a this-computer reach that advertises an off-host address', async () => {
+    const rpcServer = stubRuntimePairingServer()
+    registerMobileHandlers(rpcServer as never)
+
+    await handlers.get('mobile:getRuntimePairingUrl')?.(null, {
+      address: '100.64.1.20',
+      rotate: true,
+      reach: 'this-computer'
+    })
+
+    expect(rpcServer.ensureNetworkExposure).toHaveBeenCalled()
+    expect(rpcServer.createPairingOffer).toHaveBeenCalledWith(
+      expect.objectContaining({ address: '100.64.1.20', reach: 'network' })
+    )
+  })
+
+  // Why: #12405 point 2 — a loopback-looking address alone must never skip the widen. Only the explicit
+  // declared reach gates it, so an undeclared reach against 127.0.0.1 still widens (network default).
+  it('widens for a loopback address when no reach is declared', async () => {
+    const rpcServer = stubRuntimePairingServer()
+    registerMobileHandlers(rpcServer as never)
+
+    await handlers.get('mobile:getRuntimePairingUrl')?.(null, {
+      address: '127.0.0.1',
+      rotate: true
+    })
+
+    expect(rpcServer.ensureNetworkExposure).toHaveBeenCalled()
+    expect(rpcServer.createPairingOffer).toHaveBeenCalledWith(
+      expect.objectContaining({ address: '127.0.0.1', reach: 'network' })
+    )
+  })
+
+  it('reports the runtime pairing url unavailable and mints no offer when the widen fails', async () => {
+    const createPairingOffer = vi.fn()
+    // Why: STA-2370 — a failed widen leaves the listener on loopback, so the handler must NOT advertise a
+    // LAN endpoint. A regression that swallows the rejection and mints an offer against a loopback-only
+    // listener is caught here: createPairingOffer must never run.
+    const ensureNetworkExposure = vi.fn().mockRejectedValue(new Error('bind refused'))
+    const rpcServer = { createPairingOffer, ensureNetworkExposure }
+
+    registerMobileHandlers(rpcServer as never)
+
+    await expect(
+      handlers.get('mobile:getRuntimePairingUrl')?.(null, { address: '100.64.1.20' })
+    ).resolves.toEqual({
+      available: false,
+      reason: 'network_exposure_failed',
+      guidance: NETWORK_EXPOSURE_FAILED_GUIDANCE
+    })
+
+    expect(ensureNetworkExposure).toHaveBeenCalled()
+    expect(createPairingOffer).not.toHaveBeenCalled()
   })
 
   it('lists runtime access grants including unused generated links', () => {

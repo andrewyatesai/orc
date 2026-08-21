@@ -713,6 +713,62 @@ describe('FileExplorerRow collapse folder action', () => {
     expect(toastErrorMock).not.toHaveBeenCalled()
   })
 
+  it('reports the saved filename in the toast when the save dialog renamed the download (#12959)', async () => {
+    const downloadFile = vi
+      .fn()
+      .mockResolvedValue({
+        canceled: false,
+        destinationPath: 'C:\\Users\\a\\Downloads\\renamed.ts'
+      })
+    const openPath = vi.fn().mockResolvedValue(undefined)
+    ;(
+      globalThis as unknown as {
+        window: {
+          api: {
+            fs: { downloadFile: typeof downloadFile }
+            shell: { openPath: typeof openPath }
+          }
+        }
+      }
+    ).window = { api: { fs: { downloadFile }, shell: { openPath } } }
+
+    await downloadRemoteFile(fileNode, 'ssh-1')
+
+    // Why: the label must match what Open opens (the saved name), not the remote node's index.ts.
+    expect(toastSuccessMock).toHaveBeenCalledWith("Downloaded 'renamed.ts'", {
+      action: { label: 'Open', onClick: expect.any(Function) }
+    })
+    const action = toastSuccessMock.mock.calls[0]?.[1]?.action as
+      | { onClick: () => void }
+      | undefined
+    action?.onClick()
+    expect(openPath).toHaveBeenCalledWith('C:\\Users\\a\\Downloads\\renamed.ts')
+  })
+
+  it('reports the saved folder name in the toast when the download folder was renamed (#12959)', async () => {
+    const downloadFolder = vi
+      .fn()
+      .mockResolvedValue({ canceled: false, destinationPath: '/downloads/renamed-src/' })
+    const openPath = vi.fn().mockResolvedValue(undefined)
+    ;(
+      globalThis as unknown as {
+        window: {
+          api: {
+            fs: { downloadFolder: typeof downloadFolder }
+            shell: { openPath: typeof openPath }
+          }
+        }
+      }
+    ).window = { api: { fs: { downloadFolder }, shell: { openPath } } }
+
+    await downloadRemoteFile(directoryNode, 'ssh-1')
+
+    // Why: trailing separator must be stripped so the folder name is 'renamed-src', not ''.
+    expect(toastSuccessMock).toHaveBeenCalledWith("Downloaded folder 'renamed-src'", {
+      action: { label: 'Open', onClick: expect.any(Function) }
+    })
+  })
+
   it('calls the preload folder download API for SSH directory rows', async () => {
     const downloadFolder = vi.fn().mockResolvedValue({
       canceled: false,

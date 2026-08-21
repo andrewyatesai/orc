@@ -54,7 +54,7 @@ When adding or changing a Git command:
 - Check when every subcommand and option was introduced. For newer behavior, keep a baseline-compatible fallback or degrade safely.
 - Use `GitCapabilityCache` with a narrow unsupported-error predicate so recurring operations do not retry a known-invalid command. Do not rely only on `git --version`; wrappers such as `simple-git` do not remove host-version differences.
 - Scope capability state to the host that executes Git: native, WSL distro, SSH provider, or relay connection. Cover the first fallback, later cached calls, concurrent probes, and relevant host isolation in tests.
-- Keep the real-binary compatibility contract in PR CI current. When adopting a newer Git feature, add its version boundary so the preferred command and fallback both run against representative Git releases.
+- Keep the real-binary compatibility contract current: `src/shared/git-binary-compatibility.test.ts`, driven locally via `ORCA_GIT_COMPAT_BINARY`/`ORCA_GIT_COMPAT_IMAGE` (this repo runs no hosted CI — local gates are the gate). When adopting a newer Git feature, add its version boundary so the preferred command and fallback both run against representative Git releases.
 - Preserve commands that begin with global Git options such as `-c` before the subcommand, including auto-maintenance suppression used by worktree-create fetches.
 
 ## Git Provider Compatibility

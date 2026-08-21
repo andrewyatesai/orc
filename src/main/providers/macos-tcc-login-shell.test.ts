@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { spawnSync } from 'node:child_process'
+import type * as ChildProcess from 'node:child_process'
 import type * as LoginSessionPtyProbe from './macos-login-session-pty-probe'
 
 const { existsSyncMock, userInfoMock, execFileMock, stdinEndMock, ptyProbeMock } = vi.hoisted(
@@ -13,7 +15,10 @@ const { existsSyncMock, userInfoMock, execFileMock, stdinEndMock, ptyProbeMock }
 
 vi.mock('node:fs', () => ({ existsSync: existsSyncMock }))
 vi.mock('node:os', () => ({ userInfo: userInfoMock }))
-vi.mock('node:child_process', () => ({ execFile: execFileMock }))
+vi.mock('node:child_process', async (importOriginal) => ({
+  ...(await importOriginal<typeof ChildProcess>()),
+  execFile: execFileMock
+}))
 vi.mock('./macos-login-session-pty-probe', async (importOriginal) => ({
   ...(await importOriginal<typeof LoginSessionPtyProbe>()),
   runMacosLoginSessionPtyProbe: ptyProbeMock
@@ -33,6 +38,36 @@ type ExecFileCallback = (
 ) => void
 const ACCEPTED_OUTCOME = { ok: true, conclusive: true, reason: 'accepted' } as const
 const REJECTED_OUTCOME = { ok: false, conclusive: true, reason: 'rejected' } as const
+const itOnPosixHost = process.platform === 'win32' ? it.skip : it
+
+const LOGIN_TRAMPOLINE = 'export SHELL="$1"; shift; exec -l -- "$@"'
+const DIRECT_TRAMPOLINE = 'export SHELL="$1"; shift; exec -- "$@"'
+
+// The exact `login(1) -> bash trampoline -> shell` argv the wrapper now builds.
+function loginWrap(
+  shellEnvValue: string,
+  file: string,
+  shellArgs: string[],
+  trampoline: string = LOGIN_TRAMPOLINE
+): { file: string; args: string[] } {
+  return {
+    file: '/usr/bin/login',
+    args: [
+      '-flpq',
+      'ada',
+      '/bin/bash',
+      '--noprofile',
+      '--norc',
+      '-p',
+      '-c',
+      trampoline,
+      'orca-tcc-login',
+      shellEnvValue,
+      file,
+      ...shellArgs
+    ]
+  }
+}
 
 describe('wrapShellSpawnForMacosTccAttribution', () => {
   let origPlatform: PropertyDescriptor | undefined
@@ -74,10 +109,9 @@ describe('wrapShellSpawnForMacosTccAttribution', () => {
   it('wraps the shell in /usr/bin/login on macOS, preserving the shell args behind it', async () => {
     setPlatform('darwin')
     await prepareMacosTccLoginShell()
-    expect(wrapShellSpawnForMacosTccAttribution('/bin/zsh', ['-l'])).toEqual({
-      file: '/usr/bin/login',
-      args: ['-flpq', 'ada', '/usr/bin/env', 'SHELL=/bin/zsh', '/bin/zsh', '-l']
-    })
+    expect(wrapShellSpawnForMacosTccAttribution('/bin/zsh', ['-l'])).toEqual(
+      loginWrap('/bin/zsh', '/bin/zsh', ['-l'])
+    )
     expect(execFileMock).toHaveBeenCalledWith(
       '/usr/bin/login',
       ['-flpq', 'ada', '/usr/bin/printf', 'ORCA_LOGIN_PREFLIGHT_OK'],
@@ -442,23 +476,16 @@ describe('wrapShellSpawnForMacosTccAttribution', () => {
     expect(execFileMock).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps bash rcfile args intact after the shell path', async () => {
+  it('preserves the non-login Bash shell-ready rcfile launch', async () => {
     setPlatform('darwin')
     await prepareMacosTccLoginShell()
+    // Why: Bash + --rcfile takes the direct (non-`exec -l`) trampoline so its argv[0]
+    // never marks a login shell that would ignore Orca's rcfile.
     expect(
       wrapShellSpawnForMacosTccAttribution('/bin/bash', ['--rcfile', '/orca/bash/rcfile'])
-    ).toEqual({
-      file: '/usr/bin/login',
-      args: [
-        '-flpq',
-        'ada',
-        '/usr/bin/env',
-        'SHELL=/bin/bash',
-        '/bin/bash',
-        '--rcfile',
-        '/orca/bash/rcfile'
-      ]
-    })
+    ).toEqual(
+      loginWrap('/bin/bash', '/bin/bash', ['--rcfile', '/orca/bash/rcfile'], DIRECT_TRAMPOLINE)
+    )
   })
 
   it('login(1) wrap preserves nu -l -e argv (#8928 PR1)', async () => {
@@ -470,19 +497,13 @@ describe('wrapShellSpawnForMacosTccAttribution', () => {
         '-e',
         'source "/orca/nu/integration.nu"'
       ])
-    ).toEqual({
-      file: '/usr/bin/login',
-      args: [
-        '-flpq',
-        'ada',
-        '/usr/bin/env',
-        'SHELL=/usr/local/bin/nu',
-        '/usr/local/bin/nu',
+    ).toEqual(
+      loginWrap('/usr/local/bin/nu', '/usr/local/bin/nu', [
         '-l',
         '-e',
         'source "/orca/nu/integration.nu"'
-      ]
-    })
+      ])
+    )
   })
 
   it('re-asserts the spawn env SHELL that login(1) would overwrite', async () => {
@@ -490,40 +511,61 @@ describe('wrapShellSpawnForMacosTccAttribution', () => {
     await prepareMacosTccLoginShell()
     expect(
       wrapShellSpawnForMacosTccAttribution('/bin/zsh', ['-l'], { SHELL: '/opt/homebrew/bin/fish' })
-    ).toEqual({
-      file: '/usr/bin/login',
-      args: ['-flpq', 'ada', '/usr/bin/env', 'SHELL=/opt/homebrew/bin/fish', '/bin/zsh', '-l']
-    })
+    ).toEqual(loginWrap('/opt/homebrew/bin/fish', '/bin/zsh', ['-l']))
   })
 
   it('falls back to the spawned shell for SHELL when the env value is empty', async () => {
     setPlatform('darwin')
     await prepareMacosTccLoginShell()
-    expect(wrapShellSpawnForMacosTccAttribution('/bin/zsh', ['-l'], { SHELL: '' })).toEqual({
-      file: '/usr/bin/login',
-      args: ['-flpq', 'ada', '/usr/bin/env', 'SHELL=/bin/zsh', '/bin/zsh', '-l']
-    })
-  })
-
-  it('skips the env(1) interposition when the shell path would parse as an assignment', async () => {
-    setPlatform('darwin')
-    await prepareMacosTccLoginShell()
-    expect(wrapShellSpawnForMacosTccAttribution('/odd=dir/zsh', ['-l'])).toEqual({
-      file: '/usr/bin/login',
-      args: ['-flpq', 'ada', '/odd=dir/zsh', '-l']
-    })
-  })
-
-  it('still wraps with login when /usr/bin/env is missing, without interposition', async () => {
-    setPlatform('darwin')
-    existsSyncMock.mockImplementation(
-      (path: string) => path === '/usr/bin/login' || path === '/usr/bin/printf'
+    expect(wrapShellSpawnForMacosTccAttribution('/bin/zsh', ['-l'], { SHELL: '' })).toEqual(
+      loginWrap('/bin/zsh', '/bin/zsh', ['-l'])
     )
+  })
+
+  it('passes spaces and equals signs positionally without interpolation', async () => {
+    setPlatform('darwin')
     await prepareMacosTccLoginShell()
-    expect(wrapShellSpawnForMacosTccAttribution('/bin/zsh', ['-l'])).toEqual({
-      file: '/usr/bin/login',
-      args: ['-flpq', 'ada', '/bin/zsh', '-l']
-    })
+    // Why: the trampoline consumes shell path/args as positional `$@`, so an `=` in
+    // the path can no longer be misread as a bash assignment (the old env(1) hazard).
+    expect(
+      wrapShellSpawnForMacosTccAttribution(
+        '/Applications/Custom Shell/bin/fish=debug',
+        ['--init-command', 'set label=a b'],
+        { SHELL: '/Applications/Custom Shell/bin/fish=debug' }
+      )
+    ).toEqual(
+      loginWrap(
+        '/Applications/Custom Shell/bin/fish=debug',
+        '/Applications/Custom Shell/bin/fish=debug',
+        ['--init-command', 'set label=a b']
+      )
+    )
+  })
+
+  it('terminates exec option parsing before a dash-prefixed shell name', async () => {
+    setPlatform('darwin')
+    await prepareMacosTccLoginShell()
+    const wrapped = wrapShellSpawnForMacosTccAttribution('-custom-shell', ['-l'])
+
+    expect(wrapped.args).toContain(LOGIN_TRAMPOLINE)
+    // The `exec -l -- "$@"` guard keeps a dash-prefixed shell path from being read as options.
+    expect(wrapped.args.slice(-2)).toEqual(['-custom-shell', '-l'])
+  })
+
+  itOnPosixHost('ignores inherited BASH_ENV before evaluating the trampoline', () => {
+    const result = spawnSync(
+      '/bin/bash',
+      ['--noprofile', '--norc', '-p', '-c', 'printf "TRAMPOLINE_OK\\n"'],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, BASH_ENV: '/dev/stdin' },
+        input: 'printf "BASH_ENV_EXECUTED\\n"\n'
+      }
+    )
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toBe('TRAMPOLINE_OK\n')
+    expect(result.stderr).toBe('')
   })
 
   it('is a no-op on non-macOS platforms', () => {

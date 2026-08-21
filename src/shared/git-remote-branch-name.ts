@@ -1,16 +1,9 @@
-export function splitRemoteBranchName(refName: string): {
-  remoteName: string
-  branchName: string
-} | null {
-  const slashIndex = refName.indexOf('/')
-  if (slashIndex <= 0 || slashIndex === refName.length - 1) {
-    return null
-  }
-  return {
-    remoteName: refName.slice(0, slashIndex),
-    branchName: refName.slice(slashIndex + 1)
-  }
-}
+// `splitRemoteBranchName` moved to `git-remote-branch-split.ts` on the
+// orca-dispatch seam. The two predicates below still call it — both run at most
+// twice per operation, so routing their internal use costs nothing measurable.
+import { splitRemoteBranchName } from './git-remote-branch-split'
+
+export { splitRemoteBranchName }
 
 export function gitRefTargetsBranchName(
   refName: string | null | undefined,

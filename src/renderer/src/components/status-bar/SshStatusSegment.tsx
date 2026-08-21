@@ -17,15 +17,19 @@ import {
   toRuntimeExecutionHostId
 } from '../../../../shared/execution-host'
 import { isUserManagedRuntimeEnvironment } from '../../../../shared/runtime-environments'
-import { RuntimeHostStatusRow, type RuntimeHostConnectionState } from './RuntimeHostStatusRow'
+import { RuntimeHostStatusRow } from './RuntimeHostStatusRow'
 import { SshTargetStatusRow } from './SshTargetStatusRow'
 import type { RemoteRuntimeSharedConnectionDiagnostics } from '../../../../shared/remote-runtime-shared-control-types'
+import {
+  isConnectedRuntimeHostState,
+  runtimeHostConnectionState,
+  runtimeStatusForOverall,
+  type HostStatus
+} from '@/runtime/runtime-host-connection-state'
 
 function isConnecting(status: SshConnectionStatus): boolean {
   return ['connecting', 'deploying-relay', 'reconnecting'].includes(status)
 }
-
-type HostStatus = 'connected' | 'disconnected' | 'connecting'
 
 function overallStatus(
   statuses: HostStatus[]
@@ -72,35 +76,6 @@ function sshStatusForOverall(status: SshConnectionStatus): HostStatus {
   return isConnecting(status) ? 'connecting' : 'disconnected'
 }
 
-function runtimeHostConnectionState({
-  hasStatus,
-  online,
-  remoteControl
-}: {
-  hasStatus: boolean
-  online: boolean
-  remoteControl?: RemoteRuntimeSharedConnectionDiagnostics | null
-}): RuntimeHostConnectionState {
-  if (!hasStatus) {
-    return 'checking'
-  }
-  if (remoteControl?.state === 'reconnecting') {
-    return 'reconnecting'
-  }
-  if (!online) {
-    return 'disconnected'
-  }
-  if (remoteControl?.state === 'closed' && remoteControl.lastError) {
-    return 'disconnected'
-  }
-  // Why: "connected" means attached/reachable, NOT "is the active default host".
-  // Both surfaces (this status bar and Settings > Remote Orca Servers) must agree
-  // on that single definition, or a reachable-but-not-active host reads
-  // "Connected" in one place and "Available" in the other. Active/default is a
-  // separate concept (surfaced elsewhere), so it must not change this state.
-  return 'connected'
-}
-
 function runtimeHostConnectionDetail(
   remoteControl?: RemoteRuntimeSharedConnectionDiagnostics | null
 ): string | undefined {
@@ -129,22 +104,6 @@ function runtimeHostConnectionDetail(
   // status row and make the line truncate — only surface actionable detail
   // (errors, close reasons, reconnect attempts) above.
   return undefined
-}
-
-export function runtimeStatusForOverall(state: RuntimeHostConnectionState): HostStatus {
-  switch (state) {
-    case 'connected':
-      return 'connected'
-    case 'checking':
-    case 'reconnecting':
-      return 'connecting'
-    case 'disconnected':
-      return 'disconnected'
-  }
-}
-
-export function isConnectedRuntimeHostState(state: RuntimeHostConnectionState): boolean {
-  return state === 'connected'
 }
 
 export async function connectRuntimeHostForNavigation(args: {
@@ -207,8 +166,8 @@ export function SshStatusSegment({
       return {
         id: environment.id,
         label: override || environment.name || environment.id,
-        hasStatus: Boolean(statusEntry),
-        online: Boolean(statusEntry?.status),
+        hasStatusEntry: Boolean(statusEntry),
+        status: statusEntry?.status ?? null,
         active: settings?.activeRuntimeEnvironmentId === environment.id,
         remoteControl: statusEntry?.status?.remoteControl ?? null
       }
@@ -254,7 +213,11 @@ export function SshStatusSegment({
     async (environmentId: string): Promise<void> => {
       try {
         await window.api.runtimeEnvironments.disconnect({ selector: environmentId })
-        setRuntimeEnvironmentStatus(environmentId, { status: null, checkedAt: Date.now() })
+        setRuntimeEnvironmentStatus(
+          environmentId,
+          { status: null, checkedAt: Date.now() },
+          { suppressDisconnectToast: true }
+        )
         recordFeatureInteraction('ssh')
       } catch (err) {
         toast.error(

@@ -8,7 +8,11 @@ import {
   quotePowerShellNativeArgument
 } from '../../../../shared/powershell-native-argument'
 import { buildWslLoginShellCommand } from '../../../../shared/wsl-login-shell-command'
+import { resolveWindowsShellStartupFamily } from '../../../../shared/windows-terminal-shell'
 import { buildAgentFeatureSkillInstallCommand } from '../../../../shared/agent-feature-install-commands'
+import { getProjectAgentSkillTerminalShellOverride } from '@/lib/project-skill-runtime'
+import { wrapWindowsSkillCommandWithNpxPrerequisite } from '@/lib/windows-npx-skill-preflight'
+import { useAppStore } from '@/store'
 import { toast } from 'sonner'
 import type { CliInstallStatus } from '../../../../shared/cli-install-types'
 import {
@@ -86,7 +90,17 @@ export function buildSkillCommandForRuntime(
     currentPlatform
   )
   if (resolvedRuntime.runtime !== 'wsl') {
-    return normalizedCommand
+    return wrapWindowsSkillCommandWithNpxPrerequisite(
+      normalizedCommand,
+      currentPlatform,
+      // Why: skill setup terminals spawn on the focused runtime environment, so a
+      // Windows client must not hand a cmd.exe command to a remote host.
+      isRemoteRuntimeEnvironmentFocused(),
+      // Why: the copied command lands in the user's configured shell, and MSYS
+      // shells rewrite cmd.exe's leading /d /s /c switches into drive paths,
+      // starting an interactive cmd session instead of running the payload.
+      isPosixFamilyWindowsShellConfigured()
+    )
   }
 
   const distroArg = resolvedRuntime.wslDistro?.trim()
@@ -122,6 +136,21 @@ function normalizeWindowsSkillUpdateCommand(
   // Windows, while reinstalling from the same repo source is idempotent and
   // keeps the setup affordance working.
   return buildAgentFeatureSkillInstallCommand([updateMatch[1]])
+}
+
+function isPosixFamilyWindowsShellConfigured(): boolean {
+  return (
+    resolveWindowsShellStartupFamily(useAppStore.getState().settings?.terminalWindowsShell) ===
+    'posix'
+  )
+}
+
+function isRemoteRuntimeEnvironmentFocused(): boolean {
+  // Why: the terminal router also weighs how many environments are saved, but
+  // that slice has no subscriber here. Read only the focused id, which every
+  // caller re-renders on: it over-skips rather than ever handing a cmd.exe
+  // command to a remote shell.
+  return Boolean(useAppStore.getState().settings?.activeRuntimeEnvironmentId?.trim())
 }
 
 function getSkillCommandPlatform(): NodeJS.Platform {
@@ -161,13 +190,11 @@ export function getAgentSkillTerminalShellOverride(
   settings: GlobalSettings,
   runtime: LocalAgentRuntime
 ): string | undefined {
-  if (currentPlatform !== 'win32') {
-    return undefined
-  }
-  if (runtime.runtime === 'wsl') {
-    return 'powershell.exe'
-  }
-  return settings.terminalWindowsShell.toLowerCase() === 'wsl.exe' ? 'powershell.exe' : undefined
+  return getProjectAgentSkillTerminalShellOverride(
+    currentPlatform as NodeJS.Platform,
+    settings,
+    runtime
+  )
 }
 
 export async function ensureWslCliAvailableForAgentSkillTerminal(

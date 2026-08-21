@@ -10,6 +10,7 @@ import {
   bundledSkillOfflineInstallCliNotice
 } from '@/lib/bundled-skill-offline-install'
 import { cn } from '@/lib/utils'
+import { useActiveProjectSkillRuntime } from '@/hooks/useActiveProjectSkillRuntime'
 import { useMobileEmulatorAgentSetupState } from '../emulator-pane/use-mobile-emulator-agent-setup-state'
 import { AgentSkillSetupPanel } from './AgentSkillSetupPanel'
 import { buildSkillCommandForRuntime } from './CliSkillRuntimeSetup'
@@ -28,6 +29,9 @@ const EMULATOR_CLI_COMMANDS = [
 
 export function MobileEmulatorAgentControlRow(): React.JSX.Element {
   const setup = useMobileEmulatorAgentSetupState(true)
+  const activeSkillRuntime = useActiveProjectSkillRuntime()
+  // Why: skill detection here scans the local host only, so keep building host
+  // commands; routing them to a WSL runtime would install where we never look.
   const cliSkillInstallCommand = buildSkillCommandForRuntime(ORCA_CLI_SKILL_INSTALL_COMMAND)
   const cliSkillUpdateCommand = buildSkillCommandForRuntime(ORCA_CLI_SKILL_UPDATE_COMMAND)
 
@@ -159,6 +163,7 @@ export function MobileEmulatorAgentControlRow(): React.JSX.Element {
             terminalTitle="Orca CLI skill setup"
             terminalAriaLabel="Orca CLI skill install terminal"
             terminalWorktreeId="settings-mobile-emulator-orca-cli-skill-terminal"
+            terminalShellOverride={activeSkillRuntime.terminalShellOverride}
             installed={setup.cliSkillInstalled}
             loading={setup.cliSkillLoading}
             error={setup.cliSkillError}

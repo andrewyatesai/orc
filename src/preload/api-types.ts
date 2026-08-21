@@ -14,6 +14,7 @@ import type {
   HostedReviewProvider
 } from '../shared/hosted-review'
 import type { NativeFileDropPayload } from '../shared/native-file-drop'
+import type { BrowserFindSource } from '../shared/browser-find-source'
 import type { StartupSnapshot } from '../shared/startup-snapshot'
 import type { DashboardSnapshot, DashboardRevealAgentArgs } from '../shared/dashboard-snapshot'
 import type {
@@ -40,6 +41,7 @@ import type { MobileRelayStatus } from '../shared/mobile-relay-status'
 import type { PosixTerminalShellDetection } from '../shared/posix-terminal-shell'
 import type { ShellPathValidation } from '../shared/terminal-shell-path-validation'
 import type { MobilePairingConnectionMode } from '../shared/mobile-pairing-connection-mode'
+import type { RuntimePairingReach } from '../shared/runtime-pairing-reach'
 import type { SshMutationExpectation } from '../shared/ssh-types'
 import type {
   CreateLocalOrcaProfileArgs,
@@ -469,6 +471,10 @@ import type {
   AiVaultSubagentListResult
 } from '../shared/ai-vault-types'
 import type {
+  AiVaultDeleteSessionArgs,
+  AiVaultDeleteSessionResult
+} from '../shared/ai-vault-session-deletion'
+import type {
   AiVaultPrepareSessionResumeArgs,
   AiVaultPrepareSessionResumeResult
 } from '../shared/ai-vault-resume-preparation'
@@ -894,6 +900,8 @@ export type AiVaultApi = {
   ) => Promise<AiVaultPrepareSessionResumeResult>
   /** Lists the Task subagent transcripts of one session, on demand. */
   listSubagentSessions: (args: AiVaultSubagentListArgs) => Promise<AiVaultSubagentListResult>
+  /** Deletes a local single-file provider session; main re-validates the path. */
+  deleteSession: (args: AiVaultDeleteSessionArgs) => Promise<AiVaultDeleteSessionResult>
   /** Fires when any app window regains OS focus; returns an unsubscribe. */
   onWindowFocused: (callback: () => void) => () => void
 }
@@ -1278,6 +1286,10 @@ export type PreloadApi = {
       worktreeId: string
       hostId?: ExecutionHostId
       force?: boolean
+      // Why (#11960): distinct from `force`, which the plain Delete confirmation
+      // already sets to skip the dirty-file prompt. Only an explicit Force Delete
+      // may waive the proof that every PTY stopped.
+      allowUnverifiedPtyStop?: boolean
       skipArchive?: boolean
     }) => Promise<RemoveWorktreeResult>
     // Forget a workspace from Orca only (no remote Git/FS work) — for workspaces pinned to a removed/disconnected SSH host.
@@ -1438,7 +1450,7 @@ export type PreloadApi = {
     listSessions: () => Promise<PtyListedSession[]>
     getAuthoritativeBufferSnapshotCapabilities?: (
       ids: string[]
-    ) => { id: string; authoritative: boolean | null }[]
+    ) => Promise<{ id: string; authoritative: boolean | null }[]>
     hasPty: (id: string) => Promise<boolean | null>
     getMainBufferSnapshot: (
       id: string,
@@ -3043,7 +3055,7 @@ export type PreloadApi = {
     replyTabClose: (reply: { requestId: string; error?: string }) => void
     onNewTerminalTab: (callback: () => void) => () => void
     onFocusBrowserAddressBar: (callback: () => void) => () => void
-    onFindInBrowserPage: (callback: () => void) => () => void
+    onFindInBrowserPage: (source: BrowserFindSource, callback: () => void) => () => void
     onReloadBrowserPage: (callback: () => void) => () => void
     onBrowserHistoryNavigate: (callback: (direction: 'back' | 'forward') => void) => () => void
     onZoomBrowserPage: (callback: (direction: 'in' | 'out' | 'reset') => void) => () => void
@@ -3457,7 +3469,8 @@ export type PreloadApi = {
           available: true
           qrDataUrl: string
           pairingUrl: string
-          endpoint: string
+          /** Null when no direct address was advertised — the QR pairs over Relay alone. */
+          endpoint: string | null
           deviceId: string
           /** Mode the QR actually encodes; 'local-only' when Relay could not be attached. */
           connectionMode: MobilePairingConnectionMode
@@ -3479,8 +3492,12 @@ export type PreloadApi = {
       { ok: true } | { ok: false; reason: 'cancelled' | 'failed' | 'unsupported' }
     >
     openWindowsNetworkSettings: () => Promise<boolean>
-    getRuntimePairingUrl: (args?: { address?: string; rotate?: boolean }) => Promise<
-      | { available: false }
+    getRuntimePairingUrl: (args?: {
+      address?: string
+      rotate?: boolean
+      reach?: RuntimePairingReach
+    }) => Promise<
+      | { available: false; reason?: 'network_exposure_failed'; guidance?: string }
       | {
           available: true
           pairingUrl: string

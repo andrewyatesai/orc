@@ -8,9 +8,19 @@ describe('startup ordering', () => {
     const attachStart = source.indexOf('attachMainWindowServices(')
     const attachEnd = source.indexOf('rateLimits.attach(window)', attachStart)
     const attachBlock = source.slice(attachStart, attachEnd)
-    const desktopStart = source.indexOf('const [win] = await Promise.all([')
-    const desktopEnd = source.indexOf('// Why: the macOS notification permission dialog')
+    // Why: anchor on the destructure head only — the settled-result variable's name is not the
+    // contract, and pinning it turns a rename into a cryptic `expected -1` failure here.
+    const desktopStart = source.indexOf('const [win')
+    // Why: anchor on code, not a comment — a reworded comment anchor is silently -1 and slices to
+    // EOF, letting the assertions below pass against never-run code.
+    const desktopEnd = source.indexOf("win.once('show'", desktopStart)
     const desktopStartup = source.slice(desktopStart, desktopEnd)
+
+    // Why: bound every anchor, not just the desktop pair — an unresolved one slices to EOF.
+    expect(attachStart).toBeGreaterThanOrEqual(0)
+    expect(attachEnd).toBeGreaterThan(attachStart)
+    expect(desktopStart).toBeGreaterThanOrEqual(0)
+    expect(desktopEnd).toBeGreaterThan(desktopStart)
 
     expect(attachBlock).toContain('awaitLocalPtyStartup: () => localPtyStartupReady')
     expect(attachBlock).toContain(
@@ -25,6 +35,13 @@ describe('startup ordering', () => {
 
     expect(windowIndex).toBeGreaterThanOrEqual(0)
     expect(Math.max(rpcStartIndex, legacyRpcStartIndex)).toBeGreaterThanOrEqual(0)
+    expect(desktopStartup).toContain('recordRuntimeRpcStartFailure(')
+    // Why: `void`, not `await` — awaiting the dialog would park the rest of startup behind a modal.
+    expect(desktopStartup).toMatch(/void showRuntimeRpcStartupFailureDialog\(\s*win,/)
+    // Why (#11037): a bare console.error here is exactly what left the CLI dead but the app healthy.
+    expect(desktopStartup).not.toContain(
+      "console.error('[runtime] Failed to start local RPC transport:'"
+    )
   })
 
   it('bounds WSL reconciliation before serve RPC while leaving desktop startup independent', () => {

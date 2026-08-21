@@ -19,13 +19,16 @@ export function useSetupScriptPromptRevalidation(input: {
   const { activeRepo, isDismissed, sidebarOpen, promptState, requestRevalidation } = input
   const activeWorktreeId = useAppStore((s) => s.activeWorktreeId)
 
-  // Why: only revalidate while the prompt still shows no effective setup — there is
-  // nothing to clear (and no RPC worth spending, notably over SSH) once it is
-  // configured.
-  const showsMissingSetup =
-    promptState?.status === 'ok' &&
-    promptState.repoId === activeRepo?.id &&
-    !promptState.hasEffectiveSetup
+  // Why: revalidate while the prompt shows no effective setup or a failed inspection —
+  // both can be stale. An unreadable orca.yaml now reports `error` (not a status-less
+  // false negative), so re-inspecting recovers instead of pinning the failed verdict.
+  // `forbidden` is permanent and an effective setup has nothing to clear, so neither is
+  // worth an RPC (notably over SSH).
+  const promptBelongsToActiveRepo = promptState?.repoId === activeRepo?.id
+  const promptNeedsRevalidation =
+    promptBelongsToActiveRepo &&
+    (promptState?.status === 'error' ||
+      (promptState?.status === 'ok' && !promptState.hasEffectiveSetup))
 
   // Why: orca.yaml is edited on disk or the hook runs in a terminal outside React
   // state. Re-inspect on window focus so returning to Orca detects it (mirrors
@@ -36,7 +39,7 @@ export function useSetupScriptPromptRevalidation(input: {
       !activeRepo ||
       !isGitRepoKind(activeRepo) ||
       isDismissed ||
-      !showsMissingSetup
+      !promptNeedsRevalidation
     ) {
       return
     }
@@ -44,7 +47,7 @@ export function useSetupScriptPromptRevalidation(input: {
     return () => {
       window.removeEventListener('focus', requestRevalidation)
     }
-  }, [activeRepo, isDismissed, requestRevalidation, showsMissingSetup, sidebarOpen])
+  }, [activeRepo, isDismissed, requestRevalidation, promptNeedsRevalidation, sidebarOpen])
 
   // Why: the setup hook runs during worktree creation, so activating a worktree in
   // this repo can make the setup effective after a negative result was cached. Fire
@@ -54,8 +57,8 @@ export function useSetupScriptPromptRevalidation(input: {
   useEffect(() => {
     const changed = previousWorktreeIdRef.current !== activeWorktreeId
     previousWorktreeIdRef.current = activeWorktreeId
-    if (changed && showsMissingSetup) {
+    if (changed && promptNeedsRevalidation) {
       requestRevalidation()
     }
-  }, [activeWorktreeId, requestRevalidation, showsMissingSetup])
+  }, [activeWorktreeId, requestRevalidation, promptNeedsRevalidation])
 }

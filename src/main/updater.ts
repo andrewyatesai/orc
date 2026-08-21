@@ -29,6 +29,7 @@ import {
   writeUpdateInstallHandoffMarker
 } from './startup/update-install-launch-gate'
 import { registerAutoUpdaterHandlers } from './updater-events'
+import { withInstallFailureCause } from './install-failure-cause'
 import { recordUpdaterLifecycle } from './updater-lifecycle-diagnostics'
 import {
   compareVersions,
@@ -700,6 +701,8 @@ async function performQuitAndInstall(): Promise<void> {
           true
         )
         resetQuitForUpdateState()
+        // Why: a bare return would exit this span Success and hide the aborted install from tracing.
+        span.fail('Could not persist the supervised serve update handoff')
         return
       }
 
@@ -719,6 +722,12 @@ async function performQuitAndInstall(): Promise<void> {
 
       // Why: quitAndInstall can synchronously clear quitAndInstallInProgress via recovery (Win/Linux dispatchError); skip destructive prep if it already ran.
       if (!quitAndInstallInProgress) {
+        // Why: recovery already wrote the reason to currentStatus; a bare return would exit this span Success.
+        span.fail(
+          currentStatus.state === 'error'
+            ? currentStatus.message
+            : 'quitAndInstall returned without invoking the installer'
+        )
         return
       }
 
@@ -751,7 +760,10 @@ async function performQuitAndInstall(): Promise<void> {
       }
     )
     sendErrorStatus(
-      'Could not restart to install the update. Quit and reopen Orca, then try again.'
+      withInstallFailureCause(
+        'Could not restart to install the update. Quit and reopen Orca, then try again.',
+        error
+      )
     )
   }
 }
@@ -769,17 +781,27 @@ function resetQuitForUpdateState(): void {
 }
 
 // Why: quitAndInstall failures arrive via 'error'; recover only after native invoke and before commit, else clearing quittingForUpdate lets dock activate reopen the old process mid-installer.
-function handleQuitAndInstallFailure(): boolean {
+function handleQuitAndInstallFailure(error?: unknown): boolean {
   if (!quitAndInstallInProgress || !quitAndInstallNativeInvoked || updateInstallCommitted) {
     return false
   }
   failServeUpdateHandoff('The native updater rejected the install request.')
   resetQuitForUpdateState()
-  recordUpdaterLifecycle('quit_and_install_failed_via_event', undefined, {
-    level: 'warn',
-    message: 'Update install could not start; recovered app state'
-  })
-  sendErrorStatus('Could not restart to install the update. Quit and reopen Orca, then try again.')
+  // Durable data carries classification only — the cause text stays on the status the user can read.
+  recordUpdaterLifecycle(
+    'quit_and_install_failed_via_event',
+    { errorType: error instanceof Error ? error.name : typeof error },
+    {
+      level: 'warn',
+      message: 'Update install could not start; recovered app state'
+    }
+  )
+  sendErrorStatus(
+    withInstallFailureCause(
+      'Could not restart to install the update. Quit and reopen Orca, then try again.',
+      error
+    )
+  )
   return true
 }
 

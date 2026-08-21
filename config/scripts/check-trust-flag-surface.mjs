@@ -38,7 +38,7 @@ function trackedConfigs() {
   return execFileSync('git', ['ls-files', '*.cargo/config.toml'], {
     cwd: ROOT,
     encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'],
+    stdio: ['ignore', 'pipe', 'ignore']
   })
     .split('\n')
     .filter(Boolean)
@@ -55,7 +55,7 @@ function committed(path) {
       return execFileSync('git', ['show', rev], {
         cwd: ROOT,
         encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
+        stdio: ['ignore', 'pipe', 'ignore']
       })
     } catch {
       /* try the next reference */
@@ -90,7 +90,7 @@ function offeredFlags() {
       cwd: ROOT,
       encoding: 'utf8',
       maxBuffer: 32e6,
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio: ['ignore', 'pipe', 'ignore']
     })
   } catch {
     return null
@@ -111,11 +111,16 @@ const configured = new Map()
 for (const file of CONFIGS) {
   for (const [flag, key] of configuredFlags(committed(file))) {
     const prior = configured.get(flag)
-    configured.set(flag, { flag, where: prior ? `${prior.where}, ${file} (${key})` : `${file} (${key})` })
+    configured.set(flag, {
+      flag,
+      where: prior ? `${prior.where}, ${file} (${key})` : `${file} (${key})`
+    })
   }
 }
 if (configured.size === 0) {
-  console.error(`[trust-flags] parsed no -Z flags out of ${CONFIGS.join(', ')} — the parser or the files changed shape`)
+  console.error(
+    `[trust-flags] parsed no -Z flags out of ${CONFIGS.join(', ')} — the parser or the files changed shape`
+  )
   process.exit(1)
 }
 
@@ -132,7 +137,9 @@ if (offered.size === 0) {
 }
 
 const dead = [...configured.values()].filter((entry) => !offered.has(entry.flag))
-console.log(`[trust-flags] ${configured.size} distinct flag(s) across ${CONFIGS.length} config(s); stage2 offers ${offered.size}`)
+console.log(
+  `[trust-flags] ${configured.size} distinct flag(s) across ${CONFIGS.length} config(s); stage2 offers ${offered.size}`
+)
 
 if (dead.length > 0) {
   console.error(`\n[trust-flags] ${dead.length} configured flag(s) are NOT accepted:`)

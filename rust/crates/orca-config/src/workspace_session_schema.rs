@@ -451,6 +451,36 @@ fn p_terminal_layout_snapshot(value: Option<&Value>, path: &[String]) -> PResult
     Ok(Value::Object(out))
 }
 
+/// aiVaultTitle: z.object({ agent: z.enum(['claude','codex']), sessionId, title }).
+/// Rebuilt from the known keys; returns None for anything malformed so the caller
+/// can honor the `.catch(undefined)` (drop the field, keep the session).
+fn ai_vault_title_or_drop(value: &Value) -> Option<Value> {
+    let obj = value.as_object()?;
+    let agent = obj.get("agent")?.as_str()?;
+    if agent != "claude" && agent != "codex" {
+        return None;
+    }
+    let session_id = obj.get("sessionId")?.as_str()?;
+    let title = obj.get("title")?.as_str()?;
+    let mut out = Map::new();
+    out.insert("agent".to_string(), Value::String(agent.to_string()));
+    out.insert("sessionId".to_string(), Value::String(session_id.to_string()));
+    out.insert("title".to_string(), Value::String(title.to_string()));
+    Some(Value::Object(out))
+}
+
+/// aiVaultTitle: …nullable().optional().catch(undefined) — an explicit null survives,
+/// a malformed or future-agent title is dropped rather than failing the session.
+fn set_ai_vault_title(out: &mut Map<String, Value>, obj: &Map<String, Value>) {
+    if let Some(raw) = obj.get("aiVaultTitle") {
+        if raw.is_null() {
+            out.insert("aiVaultTitle".to_string(), Value::Null);
+        } else if let Some(parsed) = ai_vault_title_or_drop(raw) {
+            out.insert("aiVaultTitle".to_string(), parsed);
+        }
+    }
+}
+
 fn p_terminal_tab(value: Option<&Value>, path: &[String]) -> PResult {
     let obj = require_object(value, path)?;
     let mut out = Map::new();
@@ -460,6 +490,7 @@ fn p_terminal_tab(value: Option<&Value>, path: &[String]) -> PResult {
     set_req(&mut out, obj, "title", path, p_string)?;
     set_opt(&mut out, obj, "defaultTitle", path, p_string)?;
     set_opt(&mut out, obj, "generatedTitle", path, |v, p| p_nullable(v, p, p_string))?;
+    set_ai_vault_title(&mut out, obj);
     set_opt(&mut out, obj, "quickCommandLabel", path, |v, p| p_nullable(v, p, p_string))?;
     set_req(&mut out, obj, "customTitle", path, |v, p| p_nullable(v, p, p_string))?;
     set_req(&mut out, obj, "color", path, |v, p| p_nullable(v, p, p_string))?;
@@ -492,6 +523,7 @@ fn p_tab(value: Option<&Value>, path: &[String]) -> PResult {
     set_req(&mut out, obj, "contentType", path, |v, p| p_enum(v, p, &TAB_CONTENT_TYPES))?;
     set_req(&mut out, obj, "label", path, p_string)?;
     set_opt(&mut out, obj, "generatedLabel", path, |v, p| p_nullable(v, p, p_string))?;
+    set_ai_vault_title(&mut out, obj);
     set_opt(&mut out, obj, "quickCommandLabel", path, |v, p| p_nullable(v, p, p_string))?;
     set_req(&mut out, obj, "customLabel", path, |v, p| p_nullable(v, p, p_string))?;
     set_req(&mut out, obj, "color", path, |v, p| p_nullable(v, p, p_string))?;
@@ -585,6 +617,8 @@ fn p_browser_page(value: Option<&Value>, path: &[String]) -> PResult {
     set_req(&mut out, obj, "canGoForward", path, p_boolean)?;
     set_req(&mut out, obj, "loadError", path, |v, p| p_nullable(v, p, p_browser_load_error))?;
     set_req(&mut out, obj, "createdAt", path, p_number)?;
+    // CLI-created pages keep native window.close across a restart; z.boolean().optional().
+    set_opt(&mut out, obj, "allowWindowClose", path, p_boolean)?;
     set_opt(&mut out, obj, "browserRuntimeEnvironmentId", path, |v, p| {
         p_nullable(v, p, p_string)
     })?;
@@ -878,6 +912,17 @@ fn parse_sleeping_record(value: &Value) -> Option<Value> {
             return None;
         }
         out.insert("origin".to_string(), origin.clone());
+    }
+    // z.boolean().optional() — a finished pane an explicit sleep captured resumes only when its
+    // own tab is opened, so the flag must survive restart or the mobile-wake fan-out resurfaces.
+    if let Some(restore_on_tab_open_only) = obj.get("restoreOnTabOpenOnly") {
+        if !restore_on_tab_open_only.is_boolean() {
+            return None;
+        }
+        out.insert(
+            "restoreOnTabOpenOnly".to_string(),
+            restore_on_tab_open_only.clone(),
+        );
     }
     Some(Value::Object(out))
 }
@@ -1224,6 +1269,39 @@ mod tests {
     }
 
     #[test]
+    fn preserves_allow_window_close_on_browser_pages_and_omits_it_when_absent() {
+        // The window.close guard opt-out (CLI-created pages) must survive a restart.
+        let session = minimal_with(&[(
+            "browserPagesByWorkspace",
+            json!({
+                "ws-1": [
+                    {
+                        "id": "page-cli", "workspaceId": "ws-1", "worktreeId": "wt",
+                        "url": "https://example.com", "title": "Example", "loading": false,
+                        "faviconUrl": null, "canGoBack": false, "canGoForward": false,
+                        "loadError": null, "createdAt": 1, "allowWindowClose": true
+                    },
+                    {
+                        "id": "page-embed", "workspaceId": "ws-1", "worktreeId": "wt",
+                        "url": "https://example.org", "title": "Embed", "loading": false,
+                        "faviconUrl": null, "canGoBack": false, "canGoForward": false,
+                        "loadError": null, "createdAt": 2
+                    }
+                ]
+            }),
+        )]);
+        let result = parse(session);
+        let value = result.value().unwrap();
+        assert_eq!(
+            value["browserPagesByWorkspace"]["ws-1"][0]["allowWindowClose"],
+            json!(true)
+        );
+        assert!(value["browserPagesByWorkspace"]["ws-1"][1]
+            .get("allowWindowClose")
+            .is_none());
+    }
+
+    #[test]
     fn preserves_a_valid_launch_agent_and_drops_an_unknown_one() {
         let session = minimal_with(&[(
             "tabsByWorktree",
@@ -1246,6 +1324,42 @@ mod tests {
         let value = result.value().unwrap();
         assert_eq!(value["tabsByWorktree"]["wt"][0]["launchAgent"], json!("codex"));
         assert!(value["tabsByWorktree"]["wt"][1].get("launchAgent").is_none());
+    }
+
+    #[test]
+    fn keeps_a_valid_ai_vault_title_and_drops_a_malformed_one() {
+        let session = minimal_with(&[(
+            "tabsByWorktree",
+            json!({
+                "wt": [
+                    {
+                        "id": "tab1", "ptyId": null, "worktreeId": "wt", "title": "codex",
+                        "customTitle": null, "color": null, "sortOrder": 0, "createdAt": 1,
+                        "aiVaultTitle": {
+                            "agent": "codex", "sessionId": "session-1", "title": "Provider thread name"
+                        }
+                    },
+                    {
+                        "id": "tab2", "ptyId": null, "worktreeId": "wt", "title": "bash",
+                        "customTitle": null, "color": null, "sortOrder": 1, "createdAt": 1,
+                        "aiVaultTitle": { "agent": "future-agent", "sessionId": "session-2", "title": "Name" }
+                    },
+                    {
+                        "id": "tab3", "ptyId": null, "worktreeId": "wt", "title": "zsh",
+                        "customTitle": null, "color": null, "sortOrder": 2, "createdAt": 1,
+                        "aiVaultTitle": "malformed"
+                    }
+                ]
+            }),
+        )]);
+        let result = parse(session);
+        let value = result.value().unwrap();
+        assert_eq!(
+            value["tabsByWorktree"]["wt"][0]["aiVaultTitle"]["title"],
+            json!("Provider thread name")
+        );
+        assert!(value["tabsByWorktree"]["wt"][1].get("aiVaultTitle").is_none());
+        assert!(value["tabsByWorktree"]["wt"][2].get("aiVaultTitle").is_none());
     }
 
     #[test]
@@ -1679,6 +1793,43 @@ mod tests {
                 ["agentEnv"],
             json!({ "PATH": "/bin" })
         );
+    }
+
+    #[test]
+    fn preserves_restore_on_tab_open_only_and_drops_a_non_boolean_flag() {
+        let record = |flag: Value| {
+            json!({
+                "paneKey": "p",
+                "worktreeId": "wt",
+                "agent": "claude",
+                "providerSession": { "key": "session_id", "id": "sess-1" },
+                "prompt": "",
+                "state": "done",
+                "capturedAt": 1,
+                "updatedAt": 1,
+                "origin": "worktree-sleep",
+                "restoreOnTabOpenOnly": flag
+            })
+        };
+        let kept = minimal_with(&[(
+            "sleepingAgentSessionsByPaneKey",
+            json!({ "p": record(json!(true)) }),
+        )]);
+        assert_eq!(
+            parse(kept).value().unwrap()["sleepingAgentSessionsByPaneKey"]["p"]
+                ["restoreOnTabOpenOnly"],
+            json!(true)
+        );
+        // A non-boolean flag invalidates the whole record, so the pane is dropped.
+        let bad = minimal_with(&[(
+            "sleepingAgentSessionsByPaneKey",
+            json!({ "p": record(json!("yes")) }),
+        )]);
+        assert!(parse(bad)
+            .value()
+            .unwrap()
+            .get("sleepingAgentSessionsByPaneKey")
+            .is_none());
     }
 
     #[test]

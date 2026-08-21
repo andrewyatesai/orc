@@ -47,6 +47,9 @@ export type NativeChatLiveSession = NativeChatSession & {
   loadingEarlier: boolean
   /** Grow the read window to page in older history (scrolled-to-top trigger). */
   loadEarlier: () => void
+  /** Transcript read phase, independent of live working state — lets a retention
+   *  wrapper tell a rebind re-read apart from an idle/working settled read. */
+  readPhase: 'loading' | 'ready' | 'error'
 }
 
 // Stable empty-base reference so a non-ready read doesn't churn the base axis.
@@ -357,7 +360,7 @@ export function useNativeChatLiveSession(
       loading: read.phase === 'loading' && appended.length === 0,
       ...(read.phase === 'error' && appended.length === 0 ? { error: read.error } : {})
     })
-    return { ...session, hasMore, loadingEarlier, loadEarlier }
+    return { ...session, hasMore, loadingEarlier, loadEarlier, readPhase: read.phase }
   }, [
     surfacedMessages,
     read,

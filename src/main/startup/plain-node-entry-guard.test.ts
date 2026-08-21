@@ -12,6 +12,16 @@ const PLAIN_NODE_ENTRY_NAMES = [
   'codex/codex-app-server-grant-entry'
 ] as const
 
+// The main-process worker entries the guard must always find in a produced
+// build. Mirrors WORKER_THREAD_ENTRY_NAMES in build-plugins/plain-node-entry-guard.ts,
+// minus upstream's `main-thread-hang-watchdog-entry` — the fork has no such entry.
+const WORKER_THREAD_ENTRY_NAMES = [
+  'stt-worker',
+  'warp-theme-parser-worker',
+  'session-scanner-opencode-sqlite-worker-entry',
+  'port-scan-command-worker-entry'
+] as const
+
 function entryChunk(
   name: string,
   code: string,
@@ -52,7 +62,7 @@ function runWriteBundle(plugin: Plugin, bundle: Record<string, unknown>, watchMo
 
 function bundleWithAllEntries(overrides: Record<string, unknown> = {}) {
   const bundle: Record<string, unknown> = {}
-  for (const name of PLAIN_NODE_ENTRY_NAMES) {
+  for (const name of [...PLAIN_NODE_ENTRY_NAMES, ...WORKER_THREAD_ENTRY_NAMES]) {
     bundle[`${name}.js`] = entryChunk(name, 'const x = 1')
   }
   return { ...bundle, ...overrides }
@@ -126,5 +136,29 @@ describe('plain-node entry guard plugin', () => {
     delete bundle['computer-sidecar.js']
 
     expect(() => runWriteBundle(createPlainNodeEntryGuardPlugin(), bundle, true)).not.toThrow()
+  })
+
+  it('fails the build when the port-scan worker entry is renamed or removed', () => {
+    const bundle = bundleWithAllEntries()
+    delete bundle['port-scan-command-worker-entry.js']
+
+    expect(() => runWriteBundle(createPlainNodeEntryGuardPlugin(), bundle)).toThrow(
+      /no emitted entry chunk for "port-scan-command-worker-entry"/
+    )
+  })
+
+  it('catches an electron require reachable from a worker-thread entry', () => {
+    const bundle = bundleWithAllEntries({
+      'port-scan-command-worker-entry.js': entryChunk(
+        'port-scan-command-worker-entry',
+        'const x = 1',
+        { imports: ['probe-shared.js'] }
+      ),
+      'probe-shared.js': sharedChunk('probe-shared.js', 'const e = require("electron")')
+    })
+
+    expect(() => runWriteBundle(createPlainNodeEntryGuardPlugin(), bundle)).toThrow(
+      /"port-scan-command-worker-entry" reaches chunk "probe-shared\.js" that requires electron.*worker thread/s
+    )
   })
 })

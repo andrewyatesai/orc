@@ -131,10 +131,10 @@ describe('canParkTerminalWorktreeRenderers', () => {
     expect(canParkTerminalWorktreeRenderers(base)).toBe(true)
   })
 
-  it('keeps a previously mounted v19 terminal eligible for ordinary parking', () => {
+  it('keeps a previously mounted v19 terminal eligible for ordinary parking', async () => {
     const legacyPtyId = 'repo::/worktree@@session-1'
     clearTerminalProviderSnapshotCapabilities()
-    synchronizeTerminalProviderSnapshotCapabilities([legacyPtyId], (ids) =>
+    await synchronizeTerminalProviderSnapshotCapabilities([legacyPtyId], async (ids) =>
       ids.map((id) => ({ id, authoritative: false }))
     )
 
@@ -199,9 +199,9 @@ describe('canParkTerminalWorktreeRenderers', () => {
         { id: 'tab-3', ptyId: 'remote:env-1@@term-1' }
       ]
     }
-    expect(canParkTerminalWorktreeRenderers({ ...withRemoteTabs, remoteParkingEnabled: true })).toBe(
-      true
-    )
+    expect(
+      canParkTerminalWorktreeRenderers({ ...withRemoteTabs, remoteParkingEnabled: true })
+    ).toBe(true)
     // The scoped kill switch restores the exclusion for both remote classes.
     expect(
       canParkTerminalWorktreeRenderers({ ...withRemoteTabs, remoteParkingEnabled: false })

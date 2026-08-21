@@ -32,6 +32,29 @@ export const AUTOMATION_SCHEDULE_PRESET_OPTIONS = [
   ['custom', 'Custom cron']
 ] as const satisfies readonly [AutomationSchedulePreset, string][]
 
+// Cadence labels render in the picker, so resolve them through translate() rather
+// than the hardcoded English tuple values.
+export function getAutomationSchedulePresetLabel(preset: AutomationSchedulePreset): string {
+  switch (preset) {
+    case 'hourly':
+      return translate('auto.components.automations.AutomationSchedulePicker.55b2ef82a4', 'Hourly')
+    case 'daily':
+      return translate('auto.components.automations.AutomationSchedulePicker.f0202f3a89', 'Daily')
+    case 'weekdays':
+      return translate(
+        'auto.components.automations.AutomationSchedulePicker.57e83307d0',
+        'Weekdays'
+      )
+    case 'weekly':
+      return translate('auto.components.automations.AutomationSchedulePicker.837d902bba', 'Weekly')
+    case 'custom':
+      return translate(
+        'auto.components.automations.AutomationSchedulePicker.ddba78647e',
+        'Custom cron'
+      )
+  }
+}
+
 const DAY_OPTIONS = [
   ['0', 'Sunday'],
   ['1', 'Monday'],
@@ -191,9 +214,9 @@ export function AutomationSchedulePicker({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {AUTOMATION_SCHEDULE_PRESET_OPTIONS.map(([value, presetLabel]) => (
+                {AUTOMATION_SCHEDULE_PRESET_OPTIONS.map(([value]) => (
                   <SelectItem key={value} value={value}>
-                    {presetLabel}
+                    {getAutomationSchedulePresetLabel(value)}
                   </SelectItem>
                 ))}
               </SelectContent>

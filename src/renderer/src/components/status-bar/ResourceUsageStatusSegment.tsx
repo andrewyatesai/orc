@@ -827,9 +827,6 @@ export function ResourceUsageStatusSegment({
       clearSessionsError()
       void fetchSnapshot()
       void refreshSessions()
-    },
-    onKillAllSettled: () => {
-      void refreshSessions()
     }
   })
 
@@ -876,6 +873,13 @@ export function ResourceUsageStatusSegment({
       window.clearInterval(memTimer)
     }
   }, [open, fetchSnapshot, refreshSessions])
+
+  // Why: drop the stale sessions error on close so a recovered daemon's closed badge doesn't stay stuck on unreachable until the next open.
+  useEffect(() => {
+    if (!open) {
+      clearSessionsError()
+    }
+  }, [open, clearSessionsError])
 
   const repoDisplayNameById = useMemo(() => {
     const map = new Map<string, string>()
