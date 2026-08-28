@@ -11568,7 +11568,7 @@
             "v": 1,
             "directorUrl": "https://relay.onorca.dev",
             "cellUrl": "https://relay-c1.onorca.dev",
-            "assignmentEpoch": 1e+300,
+            "assignmentEpoch": 1e300,
             "relayHostId": "AbCdEf0123_-xyZ9",
             "inviteToken": "abcdefghijklmnopqrstuvwxyzABCDEFGH012345678",
             "inviteExpiresAt": 1783872300000,
@@ -11596,7 +11596,7 @@
             "relayHostId": "AbCdEf0123_-xyZ9",
             "inviteToken": "abcdefghijklmnopqrstuvwxyzABCDEFGH012345678",
             "inviteExpiresAt": 1783872300000,
-            "e2eeFraming": 1e+300
+            "e2eeFraming": 1e300
           }
         },
         "nowMs": 1783872000000
@@ -11613,7 +11613,7 @@
           "deviceToken": "device-token",
           "publicKeyB64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
           "relay": {
-            "v": 1e+300,
+            "v": 1e300,
             "directorUrl": "https://relay.onorca.dev",
             "cellUrl": "https://relay-c1.onorca.dev",
             "assignmentEpoch": 7,
@@ -11632,7 +11632,7 @@
       "note": "offer v 1e+300",
       "input": {
         "payload": {
-          "v": 1e+300,
+          "v": 1e300,
           "endpoint": "ws://192.168.1.10:6768",
           "deviceToken": "device-token",
           "publicKeyB64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
@@ -12319,7 +12319,7 @@
             "v": 1,
             "directorUrl": "https://relay.onorca.dev",
             "cellUrl": "https://relay-c1.onorca.dev",
-            "assignmentEpoch": 1e+21,
+            "assignmentEpoch": 1e21,
             "relayHostId": "AbCdEf0123_-xyZ9",
             "inviteToken": "abcdefghijklmnopqrstuvwxyzABCDEFGH012345678",
             "inviteExpiresAt": 1783872300000,
@@ -12347,7 +12347,7 @@
             "relayHostId": "AbCdEf0123_-xyZ9",
             "inviteToken": "abcdefghijklmnopqrstuvwxyzABCDEFGH012345678",
             "inviteExpiresAt": 1783872300000,
-            "e2eeFraming": 1e+21
+            "e2eeFraming": 1e21
           }
         },
         "nowMs": 1783872000000
@@ -12364,7 +12364,7 @@
           "deviceToken": "device-token",
           "publicKeyB64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
           "relay": {
-            "v": 1e+21,
+            "v": 1e21,
             "directorUrl": "https://relay.onorca.dev",
             "cellUrl": "https://relay-c1.onorca.dev",
             "assignmentEpoch": 7,
@@ -12383,7 +12383,7 @@
       "note": "offer v 1e+21",
       "input": {
         "payload": {
-          "v": 1e+21,
+          "v": 1e21,
           "endpoint": "ws://192.168.1.10:6768",
           "deviceToken": "device-token",
           "publicKeyB64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
@@ -12394,7 +12394,7 @@
     },
     {
       "function": "validatePairingOffer",
-      "note": "inviteToken \"AbCdEf0123_-xyZ9\"",
+      "note": "inviteToken \"abcdefghijklmnop\"",
       "input": {
         "payload": {
           "v": 2,
@@ -12407,7 +12407,7 @@
             "cellUrl": "https://relay-c1.onorca.dev",
             "assignmentEpoch": 7,
             "relayHostId": "AbCdEf0123_-xyZ9",
-            "inviteToken": "AbCdEf0123_-xyZ9",
+            "inviteToken": "abcdefghijklmnop",
             "inviteExpiresAt": 1783872300000,
             "e2eeFraming": 2
           }
@@ -12442,7 +12442,7 @@
     },
     {
       "function": "validatePairingOffer",
-      "note": "inviteToken \"AbCdEf0123_-xyZ9x\"",
+      "note": "inviteToken \"abcdefghijklmnopq\"",
       "input": {
         "payload": {
           "v": 2,
@@ -12455,7 +12455,7 @@
             "cellUrl": "https://relay-c1.onorca.dev",
             "assignmentEpoch": 7,
             "relayHostId": "AbCdEf0123_-xyZ9",
-            "inviteToken": "AbCdEf0123_-xyZ9x",
+            "inviteToken": "abcdefghijklmnopq",
             "inviteExpiresAt": 1783872300000,
             "e2eeFraming": 2
           }
@@ -12586,7 +12586,7 @@
     },
     {
       "function": "validatePairingOffer",
-      "note": "inviteToken \"AbCdEf0123_-xyZ=\"",
+      "note": "inviteToken \"abcdefghijklmnopqrstuvwxyzABCDEFGH01234567=\"",
       "input": {
         "payload": {
           "v": 2,
@@ -12599,7 +12599,7 @@
             "cellUrl": "https://relay-c1.onorca.dev",
             "assignmentEpoch": 7,
             "relayHostId": "AbCdEf0123_-xyZ9",
-            "inviteToken": "AbCdEf0123_-xyZ=",
+            "inviteToken": "abcdefghijklmnopqrstuvwxyzABCDEFGH01234567=",
             "inviteExpiresAt": 1783872300000,
             "e2eeFraming": 2
           }
@@ -12634,7 +12634,7 @@
     },
     {
       "function": "validatePairingOffer",
-      "note": "inviteToken \"AbCdEf0123_-xyZ \"",
+      "note": "inviteToken \"abcdefghijklmnopqrstuvwxyzABCDEFGH01234567 \"",
       "input": {
         "payload": {
           "v": 2,
@@ -12647,7 +12647,7 @@
             "cellUrl": "https://relay-c1.onorca.dev",
             "assignmentEpoch": 7,
             "relayHostId": "AbCdEf0123_-xyZ9",
-            "inviteToken": "AbCdEf0123_-xyZ ",
+            "inviteToken": "abcdefghijklmnopqrstuvwxyzABCDEFGH01234567 ",
             "inviteExpiresAt": 1783872300000,
             "e2eeFraming": 2
           }
@@ -12946,7 +12946,7 @@
     },
     {
       "function": "validatePairingOffer",
-      "note": "inviteToken \"bcdefghijklmnopqrstuvwxyzABCDEFGH012345678\"",
+      "note": "inviteToken \"abcdefghijklmnopqrstuvwxyzABCDEFGH01234567\"",
       "input": {
         "payload": {
           "v": 2,
@@ -12959,7 +12959,7 @@
             "cellUrl": "https://relay-c1.onorca.dev",
             "assignmentEpoch": 7,
             "relayHostId": "AbCdEf0123_-xyZ9",
-            "inviteToken": "bcdefghijklmnopqrstuvwxyzABCDEFGH012345678",
+            "inviteToken": "abcdefghijklmnopqrstuvwxyzABCDEFGH01234567",
             "inviteExpiresAt": 1783872300000,
             "e2eeFraming": 2
           }
@@ -13524,7 +13524,7 @@
             "assignmentEpoch": 7,
             "relayHostId": "AbCdEf0123_-xyZ9",
             "inviteToken": "abcdefghijklmnopqrstuvwxyzABCDEFGH012345678",
-            "inviteExpiresAt": 1e+300,
+            "inviteExpiresAt": 1e300,
             "e2eeFraming": 2
           }
         },
@@ -13740,7 +13740,7 @@
             "assignmentEpoch": 7,
             "relayHostId": "AbCdEf0123_-xyZ9",
             "inviteToken": "abcdefghijklmnopqrstuvwxyzABCDEFGH012345678",
-            "inviteExpiresAt": 1e+21,
+            "inviteExpiresAt": 1e21,
             "e2eeFraming": 2
           }
         },
@@ -13864,7 +13864,7 @@
             "e2eeFraming": 2
           }
         },
-        "nowMs": 1e+300
+        "nowMs": 1e300
       },
       "expected": null
     },
