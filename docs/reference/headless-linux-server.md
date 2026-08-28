@@ -438,8 +438,10 @@ remain active for the whole operation:
 ```bash
 set -euo pipefail
 
-# Replace this example with the release tag you intend to deploy
-ORCA_VERSION=v1.4.147
+# Replace this example with the release tag you intend to deploy.
+# ALab release tags are `vMAJOR.MINOR.0` (the retired `v1.4.x`/`-fork.N` shapes
+# resolve to nothing on this feed).
+ORCA_VERSION=v0.2.0
 
 # Select the release asset on the server where Orca runs
 case "$(uname -m)" in

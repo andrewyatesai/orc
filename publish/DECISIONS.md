@@ -33,6 +33,16 @@ guard failure fixed on 2026-08-01, not a hypothetical:
   `generic-api-key` hits only inside verified vendored crates and Cargo.lock
   dependency regions; every other finding still fails the publish.
 
+- **No transform runs, and no manifest selects.** mirror-head has no
+  `transforms.sh` stage at all — the engine states it by name: "Unlike the
+  guarded export path, mirror-head has no `transforms.sh` (orca-alab's
+  committed one is silently never run)" (publication
+  `crates/pub/src/mirror.rs`, `org_rewrite_tree` header). `publish/manifest.txt`
+  must still **exist** — the run dies without it — but it is an existence probe,
+  not an allowlist; it selects nothing. Consequently **the repository's own
+  `/README.md` IS the public README**, unmodified. `publish/transforms.sh`
+  carries a dead-code banner saying so.
+
 `FEATURE_WALKTHROUGH.md` now ships with the source it cites.
 
 ## Original classification (2026-07-21, superseded)
@@ -48,18 +58,24 @@ resolved above rather than avoided.
 
 ## Versioning
 
-The public constellation version of this snapshot is `0.2.0` (committed as
-VERSION_DEFAULT in `publish/config.sh`), following the constellation's
-`major.minor.dev` scheme so `promote` accepts it. The app itself versions
-independently as `X.Y.Z-fork.N` (see `docs/reference/fork-versioning.md`);
-release binaries (dmg/zip) are distributed through the public ALab release
-repository `alabsystems/orca-alab`, not from the development source repository
-or via this landing-snapshot pipeline.
+**mirror-head does not version its snapshots** — a mirror-head run reports a
+null version and there is no `promote` tag to satisfy. `VERSION_DEFAULT="0.2.0"`
+in `publish/config.sh` is therefore inert here; it is kept only so the file
+matches the constellation's shape and so it does not contradict `package.json`.
+
+The app versions on the ALab-owned `MAJOR.MINOR.0` line, **0.2.0** today (see
+`docs/reference/fork-versioning.md`). The former `X.Y.Z-fork.N` app scheme was
+retired in `7277b375e`; the ALab line restarted at v0.1.0 in `66d754673`. Release
+binaries (dmg/zip) are distributed through the public ALab release repository
+`alabsystems/orca-alab`, not from the development source repository.
 
 ## Verification policy
 
-The public-clone check validates the landing files exist and are non-empty; no
-build is attempted because the snapshot ships no source.
+**mirror-head has no `CHECK_CMD` stage** — the run records it as `skipped`
+unconditionally, so `CHECK_CMD_DEFAULT` in `publish/config.sh` is inert too. The
+guards that do run are the central ones: path-deny, the org rewrite plus its
+`scan_private_refs` residual check, the public-gitlink remap, and gitleaks. No
+build is attempted, even though the snapshot now ships the full source tree.
 
 ## Source-publication audit (2026-07-22)
 
@@ -81,7 +97,13 @@ baseline. It is structurally blocked today on three independent walls:
 Until the remaining three campaigns run, the landing snapshot remains the
 staged boundary.
 
-## v0.2.0 boundary revision (2026-07-22 release audit)
+## v0.2.0 boundary revision (2026-07-22 release audit, superseded)
+
+**Superseded the same day** by the move to `mode = "mirror-head"` recorded at
+the top of this file. Transform T1 below never ran again after that switch, and
+`FEATURE_WALKTHROUGH.md` is no longer excluded — it ships with the source it
+cites. Kept for provenance; where this section and the mirror-head scope
+disagree, the scope wins.
 
 The v0.1.0 snapshot shipped the dev repo's README/walkthrough verbatim, which
 made false claims on a 6-file snapshot (build instructions with no source and

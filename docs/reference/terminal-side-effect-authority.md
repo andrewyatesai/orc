@@ -63,7 +63,9 @@ Remote-runtime PTYs (`remote:`) never transit local main; the renderer
   (`sideEffectDrainTimer`, `pty-transport.ts`) protects xterm paint, which
   does not exist in main. Main applies synchronously and batches the IPC per
   flush.
-- The stats `AgentDetector` (`src/main/stats/agent-detector.ts`) keeps its own
+- The stats agent detector (no longer a standalone `src/main/stats/agent-detector.ts`;
+  the behaviour and its independence test now live in `src/main/stats/` alongside
+  `collector.ts` — see `stats-title-detection-independence.test.ts`) keeps its own
   last-title scan, untouched: synthetic titles must never reach it.
 
 ## Event Transport: `pty:sideEffect`

@@ -1,3 +1,34 @@
+# =====================================================================
+# DEAD CODE. NOTHING IN THIS FILE RUNS. DO NOT MAINTAIN IT.
+# =====================================================================
+#
+# This repo publishes under `mode = "mirror-head"` (registry entry
+# `[repos.orca-alab]`), and **mirror-head has no transforms.sh stage**. The
+# engine says so by name: "Unlike the guarded export path, mirror-head has no
+# `transforms.sh` (orca-alab's committed one is silently never run)"
+# (publication `crates/pub/src/mirror.rs`, the `org_rewrite_tree` header).
+#
+# WHAT ACTUALLY SHIPS: the full dev `origin/main` tree, minus the
+# constellation path-deny prefixes (`docs/`, `publish/`, `.github/` — which
+# is why this file never reaches the public repo either), with
+# `andrewyatesai/*` rewritten to `alabsystems/*` and the `rust/aterm` gitlink
+# repointed at its public release. Nothing is swapped, and nothing is
+# allowlisted.
+#
+# CONSEQUENCE: **the repository's own /README.md is the public README.** Edit
+# that file. The landing page below has never been the public page since this
+# repo moved to mirror-head on 2026-07-22, and editing it changes nothing.
+#
+# The T1 body is retained verbatim for provenance only. Its claims are now
+# known-false and must not be revived as written: it advertises "batteries
+# included / ALab package bundling ships compiler and solver support" (`atpkg`
+# appears in no file under `src/`, `config/`, `tools/`, or `package.json`), a
+# "nyan-rainbow cursor default" (the default trail is `water`), and
+# "`1.4.x-fork.N` app versions" (that scheme was retired in `7277b375e`; the
+# ALab line restarted at v0.1.0 and is 0.2.0 today).
+#
+# Original header follows.
+# ---------------------------------------------------------------------
 # Repo-specific transforms applied to the export tree (sourced by publish.sh
 # with $EXPORT and $OUT set, and fail/note available). Each transform must
 # verify it applied and fail loudly when stale.

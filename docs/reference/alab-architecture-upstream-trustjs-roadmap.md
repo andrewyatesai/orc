@@ -1,6 +1,7 @@
 # Orca ALab Architecture, Upstream Comparison, and TrustJS Roadmap
 
-> **Status:** current-state architecture report and decision roadmap
+> **Status:** architecture report and decision roadmap, **as of the date below** —
+> the snapshots and version numbers in this header are historical, not current
 > **Date:** 2026-07-21
 > **ALab snapshot:** `d3ba1bcb17324714a838b2970e04fcd96989e84f` (`1.4.147-fork.1`)
 > **Upstream snapshot:** locally fetched `upstream/main` at

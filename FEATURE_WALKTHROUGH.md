@@ -2,8 +2,11 @@
 
 This guide covers the source checkout of
 [`andrewyatesai/orca-alab`](https://github.com/andrewyatesai/orca-alab), version
-`1.4.147-fork.1`. Install its developer CLI as `orca-dev`; use that name so
-commands target this checkout rather than a separate production Orca installation.
+**0.2.0**. ALab Edition versions itself independently of upstream on a
+`MAJOR.MINOR.0` line; the tree is aligned to upstream Orca **v1.4.165-rc.0**. The
+older `<upstream>-fork.N` tags (last `v1.4.147-fork.1`) are retired. Install its
+developer CLI as `orca-dev`; use that name so commands target this checkout
+rather than a separate production Orca installation.
 
 This is **Orca: ALab Edition**, an experimental downstream edition of Stably's
 Orca. It retains Orca's product workflow while concentrating on the Rust/aterm
@@ -130,6 +133,25 @@ the measured **More below** affordance pages to the remaining result; compact
 windows also offer **Show full description** instead of permanently hiding the
 end of a boundary statement.
 
+### Application modes
+
+Settings pick one of three shells over the same engine. `AppModeId` is exactly
+`classic | alab | story-world` (`src/shared/app-mode/app-mode-id.ts`), and
+`classic` is the default (`DEFAULT_APP_MODE_ID`):
+
+- **Orca Classic** — today's product, unchanged. A test holds it to that.
+- **ALab** — a supervisory console over a fleet of agent terminals.
+- **Story World** — a narrative shell over the same surfaces.
+
+A mode may occupy three slots — `workspace-body`, `left-sidebar-body`, and
+`titlebar-strip` — and it only gates, places, and rewords existing surfaces. It
+never owns or mutates engine state. The app's own identity is frozen against the
+mode: `app.setName`, `appId`, `appUserModelId`, and the packaged `productName`
+may never vary by mode, because `app.setName` resolves the userData directory and
+the macOS "Safe Storage" Keychain item — varying it would read as a settings
+wipe. A mode manifest is plain JSON with no expressions, conditions on runtime
+state, template strings, or `$ref`, enforced by a type-level test.
+
 ### Why some capabilities are embedded instead of separate screens
 
 The coverage bar is a distinct product outcome, not a menu item. Workspace
@@ -159,69 +181,66 @@ host-compatibility, or cleanup boundaries that the walkthrough teaches.
 
 ## Terminal engine pin and artifact provenance
 
-The `rust/aterm` submodule is pinned to the public
-[aterm](https://github.com/alabsystems/aterm) revision below. The canonical
-record of this provenance is the schema-2 artifact manifest at
-`src/renderer/src/lib/pane-manager/aterm/aterm_wasm_artifact_pin.json`; the
-table restates it as re-verified against the checkout on July 22, 2026. The pin
-is a fixed, manifest-bound revision of the public engine, not a live
-latest-`main` claim:
+The `rust/aterm` submodule is pinned to a fixed revision of the public
+[aterm](https://github.com/alabsystems/aterm) engine — a manifest-bound commit,
+not a live latest-`main` claim. **The canonical record of this provenance is the
+schema-2 artifact manifest** at
+`src/renderer/src/lib/pane-manager/aterm/aterm_wasm_artifact_pin.json`. The table
+below restates that file; if the two ever disagree, the manifest is the value
+`pnpm check:aterm-pin` enforces, and this table is the thing that is wrong.
 
-| Provenance field                               | Exact value                                                        |
-| ---------------------------------------------- | ------------------------------------------------------------------ |
-| aterm commit                                   | `e268133cbc6b96add0cddd1fb79e250884035899`                         |
-| `git describe --tags --always`                 | `e268133c` (public release snapshot, tag `v0.1.0`)                 |
-| Cargo workspace version / embedded WASM marker | `0.1.0` / `aterm(0.1.0)`                                           |
-| Artifact manifest                              | schema `2`                                                         |
-| Downstream compatibility patch                 | `config/patches/aterm-gpu-wasm-clock.patch`                        |
-| Patch SHA-256                                  | `af2e17dda30efbbf3666eeed1ac852aa8dff67d4456f2796bc814209be1bd757` |
-| WASM Rust compiler                             | `rustc 1.97.1 (8bab26f4f 2026-07-14)`                              |
-| `wasm-bindgen` CLI                             | `0.2.108`                                                          |
-| Binaryen optimizer                             | `wasm-opt version 131`                                             |
+| Provenance field               | Exact value                                                        |
+| ------------------------------ | ------------------------------------------------------------------ |
+| aterm commit                   | `4fb22eda6502c1b86043c3d0999b7dd85fcbbeea`                         |
+| Artifact manifest              | schema `2`                                                         |
+| Downstream compatibility patch | `config/patches/aterm-wasm-source-fixes.patch`                     |
+| Patch SHA-256                  | `e2ebdfc83aa59e55256e4d08d8af8e6ccff6ca045a3788c3610534c2aa0d2675` |
+| `wasm-bindgen` CLI             | `0.2.108` (pinned in `config/scripts/build-aterm-wasm.mjs`)        |
 
-The pin is the public `aterm v0.1.0` release snapshot at
-[alabsystems/aterm](https://github.com/alabsystems/aterm), so a
-`--recurse-submodules` clone of this repository resolves the engine from a
-public revision. aterm versions as `MAJOR.MINOR.DEV`, where a released snapshot
-always carries the public `X.Y.0` form (its internal development version resets
-the `DEV` component to `0` at publication).
+Because the submodule resolves to `alabsystems/aterm`, a `--recurse-submodules`
+clone of this repository fetches the engine from a public revision.
 
-Schema 2 binds the aterm commit and exact compatibility-patch digest to
-all eight generated CPU/GPU files: JavaScript glue, TypeScript declarations,
-WASM binaries, and WASM declarations. It records byte length and SHA-256 for
-each. The current CPU binary is 3,767,662 bytes with SHA-256
-`c48b050ff901eb72f8d4c1a788d6b6959bb8e704519d2cddceaa136c2757dc35`;
-the GPU binary is 6,229,686 bytes with SHA-256
-`d15eaed0bfecedd8c8d6f17ff53f98a835ecb7da02a5009ecc30f27cb33db558`.
-These figures restate `aterm_wasm_artifact_pin.json`; if this document and the
-manifest ever disagree, the manifest is the value `pnpm check:aterm-pin`
-enforces.
+This document deliberately states **no aterm version number**. The engine's own
+version line has been restarted, and the values reachable from this tree
+(`rust/README.md`, the submodule's `Cargo.toml`, and the engine's commit history)
+do not agree with one another. `pnpm check:aterm-pin` does not need a number from
+this document: it reads `[workspace.package] version` out of
+`rust/aterm/Cargo.toml` and greps the `aterm(x.y.z)` marker out of each committed
+WASM blob, then requires the two to match. That is the check that matters, and it
+is self-contained.
 
-The manifest makes the shipped files auditable and fail-closed, but rebuilding
-them byte-for-byte also requires the recorded Rust and Binaryen versions. Orca
-pins `wasm-bindgen`; rustup `stable` and the system `wasm-opt` remain explicit
-maintainer prerequisites rather than hermetically downloaded tools.
+Schema 2 binds the aterm commit and exact compatibility-patch digest to all eight
+generated CPU/GPU files: JavaScript glue, TypeScript declarations, WASM binaries,
+and WASM declarations. It records byte length and SHA-256 for each. The current
+CPU binary is 4,525,933 bytes with SHA-256
+`0cd6d53688ea84411ed6517a830a3f1fbf27c9847bdb2f391d7433808499c4f7`;
+the GPU binary is 6,979,645 bytes with SHA-256
+`26b4f62000bc65a108517171288893ee7206f8a5759c45ffb928885f32fb4c78`.
 
-The small downstream patch changes two GPU present-time measurements from
-`std::time::Instant` to the WASM-compatible `web_time::Instant`. The build never
-edits the submodule: it creates a detached temporary worktree at the pinned
-commit, checks and applies the patch there, builds both renderers, then removes
-the worktree. `pnpm check:aterm-pin` fails if the submodule is dirty, the commit
-or patch changes, the patch no longer applies, either embedded version marker
-drifts, any generated artifact differs in size or hash, or a WASM binary embeds
-a local Cargo source path. Rust path-prefix remapping gives generated panic
-locations stable virtual roots instead of exposing the build machine's home
-directory.
+The manifest makes the shipped files auditable and fail-closed, but it does not
+pin a toolchain: rebuilding the blobs byte-for-byte also depends on the exact
+Rust and Binaryen versions used, and schema 2 does not record them. Orca pins
+`wasm-bindgen` and bootstraps that exact CLI version itself; rustup `stable` and
+the system `wasm-opt` remain explicit maintainer prerequisites rather than
+hermetically downloaded tools.
 
-The latest pin carries the `v0.58` engine fixes for Codex protected-footer
-scrollback, exact and bounded resumable search, renderer recovery and geometry,
-and stale keyboard modifier state. Post-tag work adds incomplete-search metadata,
-shipping-optimizer benchmark parity, tighter resize fences, fullscreen recovery,
-Codex text-release suppression, bounded host-approved OSC 8 schemes,
-last-command-output access for WASM hosts, and CPU render scratch reuse. The
-repository also contains standalone aterm chrome, settings, effects, and audio
-work; those application-only features are not automatically Orca UI features.
-Orca consumes the shared engine, renderer, addon, and daemon surfaces.
+The small downstream patch is a single-hunk WASM build shim in
+`crates/aterm-core/src/terminal/handler_csi.rs`: it emits the XTVERSION reply
+marker as one compile-time `concat!` literal so the version string stays
+contiguous in the blob's rodata, which is exactly what the pin gate greps for to
+prove the WASM and the submodule agree. Behavior is unchanged — in WASM builds
+the constant it replaces resolves to the same value. The build never edits the
+submodule: it creates a detached temporary worktree at the pinned commit, checks
+and applies the patch there, builds both renderers, then removes the worktree.
+`pnpm check:aterm-pin` fails if the submodule is dirty, the commit or patch
+changes, the patch no longer applies, either embedded version marker drifts, any
+generated artifact differs in size or hash, or a WASM binary embeds a local Cargo
+source path. Rust path-prefix remapping gives generated panic locations stable
+virtual roots instead of exposing the build machine's home directory.
+
+The pinned engine also carries standalone aterm chrome, settings, effects, and
+audio work; those application-only features are not automatically Orca UI
+features. Orca consumes the shared engine, renderer, addon, and daemon surfaces.
 
 ## Warning cleanup
 
@@ -260,9 +279,9 @@ blanket quiet mode:
 - The CLI converts its crypto WASM glue for Node/CommonJS, verifies a real
   `--help` execution during the build, and installs `orca-dev` in
   `~/.local/bin` without a privileged `/usr/local/bin` attempt.
-- `ORCA_LOCAL_BUILD=1` is the explicit contributor path for this `-fork`
-  version; it compiles telemetry out without presenting the missing-telemetry
-  staging warning and is rejected in CI/release contexts.
+- `ORCA_LOCAL_BUILD=1` is the explicit contributor build path; it compiles
+  telemetry out without presenting the missing-telemetry staging warning and is
+  rejected in CI/release contexts.
 
 The final full lint, typecheck, native-helper, desktop, web, relay, CLI, and
 local production build completed successfully; exact results are recorded under
@@ -472,14 +491,23 @@ orca-dev skills get orca-linear --full
 
 ## 6. Coordinate multiple agents
 
+> **Orchestration is experimental and off by default.** Every orchestration RPC
+> runs through `assertOrchestrationExperimentEnabled`
+> (`src/main/runtime/rpc/methods/fleet-experimental-gate.ts`) and refuses unless
+> `settings.experimentalOrchestration === true`, or
+> `ORCA_EXPERIMENTAL_ORCHESTRATION=1` for a headless runtime. These verbs let one
+> agent type into another agent's terminal, which is both the point of the
+> feature and the reason it is not reachable by accident. Treat this section as
+> documentation of an opt-in capability, not of default behavior.
+
 Use a simple worktree or terminal handoff when one agent can own the whole task.
 Use **Orchestration** when a coordinator must supervise several workers and
 collect their results. The orchestration model includes task DAGs and
 dependencies, dispatches, threaded inter-agent messages, blocking questions,
 decision gates, heartbeats, and coordinator runs.
 
-Set it up from **Settings → Orchestration**, then read the guide bundled with
-this exact CLI build:
+Enable the experiment, set it up from **Settings → Orchestration**, then read the
+guide bundled with this exact CLI build:
 
 ```bash
 orca-dev skills get orchestration --full
@@ -617,17 +645,25 @@ match the installed version instead of relying on stale global documentation.
 
 ## Validation status
 
+> **This whole section is a dated evidence record, not a current claim.** Every
+> figure below was measured at the checkout of **July 22, 2026** and has not been
+> re-run since. The tree has moved on — the upstream sync to v1.4.165-rc.0, the
+> version-line restart, and at least one aterm pin advance all landed
+> afterwards — so read these as historical lane results. The checks that are
+> always current are the gates themselves: `pnpm lint`, `pnpm typecheck`,
+> `pnpm test`, `pnpm test:rust`, and `pnpm check:aterm-pin`.
+
 The ALab Edition source build and its aterm pin have been exercised through
 independent unit, native, browser, packaging, and live-app paths. The tour,
-pin-identity, and artifact-provenance checks below were re-run at the current
-checkout on July 22, 2026; older lane counts are explicitly carried forward
-rather than relabelled as fresh runs:
+pin-identity, and artifact-provenance checks below were run at the July 22, 2026
+checkout; older lane counts were already carried forward at that point rather
+than relabelled as fresh runs:
 
-- Orca was fast-forwarded to `origin/main` before the final validation; the
-  `rust/aterm` submodule is pinned to the public `aterm v0.1.0` release at
-  `e268133cbc6b96add0cddd1fb79e250884035899`. The submodule checkout is clean,
-  detached at that revision, and matches both the worktree gitlink and the
-  manifest's `sourceCommit`.
+- Orca was fast-forwarded to `origin/main` before that validation, and the
+  `rust/aterm` submodule checkout was clean, detached at the then-pinned
+  revision, and matched both the worktree gitlink and the manifest's
+  `sourceCommit`. **That revision is not the current pin** — the current one is
+  in the provenance table above, and `pnpm check:aterm-pin` is what proves it.
 - Fresh walkthrough validation: all **329/329** focused unit/component tests and
   all **9/9** Electron E2E checks passed. The E2E lane covers all 14 screens,
   standard and compact layouts, reduced motion, keyboard/focus continuity,
@@ -653,10 +689,10 @@ rather than relabelled as fresh runs:
   aterm-effects tests and **53** Codex protected-footer, top-anchored conformance,
   grid scroll-region, and core history/scrollback regressions. Fifteen explicit
   performance benchmarks remained intentionally ignored.
-- Later `v0.57`, `v0.58`, and post-release pin advances each regenerated the
-  provenance-bound artifacts and passed `pnpm check:aterm-pin`; the fresh
-  current-pin evidence is reported above rather than relabelling an older
-  engine-suite count as a run against this revision.
+- Each subsequent aterm pin advance regenerated the provenance-bound artifacts
+  and passed `pnpm check:aterm-pin`; the engine-suite counts above belong to the
+  engine revision current at the time and are not relabelled as runs against a
+  later pin.
 - Scroll-intent integration unit set: **156/156** passed. The non-vacuous
   rendering golden passed **2/2**, including emoji-table alignment and the
   worktree-switch scroll restoration that exposed the resume race.
@@ -705,8 +741,8 @@ orca-dev open --json
 orca-dev status --json
 ```
 
-`ORCA_LOCAL_BUILD=1 pnpm build` is the contributor build path for this `-fork`
-version. It deliberately leaves telemetry constants unset, compiles telemetry
+`ORCA_LOCAL_BUILD=1 pnpm build` is the contributor build path. It deliberately
+leaves telemetry constants unset, compiles telemetry
 transport out, and suppresses only the missing-telemetry staging warning; it is
 rejected for CI and release builds and must not be used to produce a shippable
 staging artifact.

@@ -4,6 +4,10 @@
   <sub><a href="../../README.md">English</a> · <a href="README.zh-CN.md">中文</a> · <a href="README.ko.md">한국어</a> · <a href="README.es.md">Español</a> · <a href="README.fr.md">Français</a> · <a href="README.pt.md">Português</a></sub>
 </p>
 
+> **鮮度に関する注意:** この翻訳の最終更新は 2026 年 7 月で、それ以降
+> [英語版 README](../../README.md) から内容が乖離しています。正となるのは英語版
+> README です。最新の情報はそちらを参照してください。
+
 Orca: ALab Edition は、[Stably の Orca](https://github.com/stablyai/orca)
 を基にした実験的な下流フォークで、パフォーマンスと正確性を重視しています。
 [github.com/andrewyatesai/orca-alab](https://github.com/andrewyatesai/orca-alab)

@@ -12,12 +12,23 @@ out-runs the proof.**
 
 ## 1. What is true today
 
-**Orca is unsigned and does not auto-update on macOS or Windows.** Ad-hoc launch seal
-only, no Developer ID, no notarization, no Windows publisher
-(`config/electron-builder.config.cjs:19-20,286`); `getUpdateInstallMode()` returns
-`'manual'` for everything except Linux (`src/main/updater-install-policy.ts`), and the
-native updater logs *"this platform uses manual releases; native updater stays dormant"*
-(`src/main/updater.ts:1468`). This is the gate on everything else.
+**Orca is unsigned, and no platform uses the native updater.** Ad-hoc launch seal only,
+no Developer ID, no notarization, no Windows publisher
+(`config/electron-builder.config.cjs:19-20,286`). `getUpdateInstallMode()`
+(`src/main/updater-install-policy.ts`) returns `'bundle-swap'` for `darwin` and
+`'manual'` for **everything else — Windows and Linux both**. Every mode except
+`'automatic'` is self-managed, so electron-updater's provider is bypassed on every
+platform Orca ships to, and the updater logs
+``[updater] install mode '<mode>'; native updater stays dormant``
+(`src/main/updater.ts:1702`). This is the gate on everything else.
+
+Since `0988d0605`, macOS is **not** on the manual lane: Orca resolves the release from
+the ALab feed and applies it in place by swapping the `.app` bundle
+(`src/main/updater-bundle-swap.ts`), always enforcing SHA-512 over the artifact and
+additionally enforcing an Ed25519 signature over the feed whenever a public key was
+pinned at build time. Squirrel.Mac is what cannot serve an ad-hoc-signed build, not the
+update itself. Windows and Linux remain genuine manual reinstall — Linux because its
+four package topologies each need a different apply path, and none is built.
 
 **Six install lanes exist, with four different trust bases.**
 
@@ -27,7 +38,7 @@ native updater logs *"this platform uses manual releases; native updater stays d
 | aterm self-swap (`renamex_np` + re-exec) | 3 additive tiers: REPO / SIG / APPLE | epoch `build_number` + `min_build` floor |
 | atpkg signed index → delegated release key | Ed25519 root + delegation | `rev-list --count`; hand-set `index_build` |
 | `companions.toml` — compiled in, rides aterm's *own* release signature, works with **no atpkg root key** | aterm's release signature | pinned 40-hex commit |
-| `tools/install.sh` | **skips Ed25519; takes the expected Team ID from downloaded metadata** | numeric max of tags |
+| `rust/aterm/tools/install.sh` | **skips Ed25519; takes the expected Team ID from downloaded metadata** | numeric max of tags |
 | Homebrew cask | Homebrew's | Homebrew's |
 
 **Three verified defects.**
@@ -202,7 +213,7 @@ lane permanently.**
 A **manual, OS-authenticated recovery installer** is break-glass, and per §2.1 it is the
 only recovery from root compromise. It must exist before it is needed.
 
-`tools/install.sh` retires into this lane. Its current form skips signature verification
+`rust/aterm/tools/install.sh` retires into this lane. Its current form skips signature verification
 *and* can take the expected Team ID from metadata it just downloaded, so a repository-write
 attacker can substitute a different notarized team and payload.
 
@@ -460,9 +471,13 @@ signed and notarized; `getUpdateInstallMode()` can return `'automatic'`.
 client floor location; **namespace new floors by root generation** rather than comparing them
 numerically against legacy floors. Ship one bridge through every old lane — old atpkg clients
 via an old-root-signed legacy index, standalone aterm via a dual-reader bridge on the old
-appcast, Orca via the existing Electron feed at a transport SemVer above `1.4.147-fork.1`.
-**Current macOS and Windows Orca installs have no authenticated update path, so that cohort
-needs a manually installed, OS-signed bridge** — say so rather than pretending otherwise.
+appcast, Orca via the existing Electron feed at a transport SemVer above the current ALab
+line (`0.2.0`; the `-fork.N` line this paragraph originally named was retired in
+`7277b375e`).
+**Windows and Linux Orca installs have no authenticated update path, so that cohort needs a
+manually installed, OS-signed bridge** — say so rather than pretending otherwise. macOS is
+no longer in that cohort: bundle-swap authenticates the artifact by SHA-512, plus an
+Ed25519 feed signature when a key was pinned at build time.
 Dual-publish legacy and new metadata from one immutable release record; the bridge verifies
 the old lane, installs the new root generation, records a signed migration marker, and shadows
 both decision engines before the new one becomes authoritative. **Never use an environment

@@ -118,7 +118,7 @@ one-line calls land with the daemon-failure-surfacing changes:
 
 1. **Total daemon launch failure** — `src/main/index.ts`, the
    `onDaemonError` callback (currently `console.error`-only, ~line 632;
-   reached via `src/main/window/first-window-startup-services.ts`):
+   reached via `src/main/startup/first-window-startup-services.ts`):
 
    ```ts
    trackDaemonLaunchFailed(classifyDaemonLaunchError(error))

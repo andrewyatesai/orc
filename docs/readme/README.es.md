@@ -4,6 +4,11 @@
   <sub><a href="../../README.md">English</a> · <a href="README.zh-CN.md">中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ko.md">한국어</a> · <a href="README.fr.md">Français</a> · <a href="README.pt.md">Português</a></sub>
 </p>
 
+> **Aviso de desactualización:** esta traducción se actualizó por última vez
+> en julio de 2026 y desde entonces ha quedado desfasada respecto al
+> [README en inglés](../../README.md), que es la versión autorizada. Consúltalo
+> para obtener información actual.
+
 Orca: ALab Edition es un fork derivado y experimental del
 [Orca de Stably](https://github.com/stablyai/orca), centrado en el rendimiento y
 la corrección. Se mantiene en

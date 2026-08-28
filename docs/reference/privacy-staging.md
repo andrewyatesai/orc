@@ -1,8 +1,9 @@
 # Orca Fork — Staging Privacy Statement
 
-**Audience:** the staging cohort of this Orca fork (the builds versioned
-`x.y.z-fork.N`, developed at `andrewyatesai/orca-alab` and distributed from
-`alabsystems/orca-alab` Releases).
+**Audience:** the staging cohort of this Orca fork — the ALab Edition builds,
+versioned on the ALab-owned `MAJOR.MINOR.0` line (`0.2.0` today), developed at
+`andrewyatesai/orca-alab` and distributed from `alabsystems/orca-alab` Releases.
+This includes the retired `x.y.z-fork.N` builds that preceded that line.
 **Effective:** 2026-07-04. This document is the target of the in-app
 "privacy" links (Settings → Privacy, and the first-launch telemetry notice).
 
@@ -55,7 +56,7 @@ match the pinned fork key prefix.
 - Staging builds keep upstream's **opt-out** model: telemetry defaults to
   **on** for the staging cohort. This is a deliberate choice for an internal
   staging population whose entire purpose is producing reliability data;
-  installing a `-fork.N` staging build is treated as joining that cohort.
+  installing an ALab Edition staging build is treated as joining that cohort.
 - You can turn it off at any time: **Settings → Privacy**, or the
   first-launch notice's "Turn off" action.
 - Environment kill switches are honored before any stored preference:

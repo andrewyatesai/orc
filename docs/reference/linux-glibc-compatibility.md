@@ -9,9 +9,11 @@ exception — see below.)
 ## Why this needs attention
 
 A native module (`.node`) links against the glibc of the machine that compiled
-it. Our release CI compiles node-pty from source on GitHub's `ubuntu-latest`
-runner, whose glibc rises over time as the image is bumped. A binary compiled on
-a newer glibc can reference symbol versions that do not exist on an older target,
+it. Linux release artifacts compile node-pty from source on whatever host builds
+them — historically GitHub's `ubuntu-latest` runner, whose glibc rises over time
+as the image is bumped; today, a maintainer's own machine, since this repository
+tracks no hosted CI. Either way the hazard is the same: a binary compiled on a
+newer glibc can reference symbol versions that do not exist on an older target,
 and the dynamic loader then refuses to load it:
 
 ```

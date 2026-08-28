@@ -11,13 +11,12 @@ the update — and whether any console/terminal window flashes.
 > the shared modules in this directory (app driver, daemon discovery, PowerShell
 > runner, platform guard, table renderer).
 
-It is the Phase 0 "proof harness" deliverable from
-[`docs/windows-terminal-update-survival-plan.md`](../../docs/windows-terminal-update-survival-plan.md).
-It exists specifically because the July 2026 attempt shipped four broken RCs
-without ever installing the packaged artifact (see
-[`docs/windows-terminal-update-survival-postmortem.md`](../../docs/windows-terminal-update-survival-postmortem.md),
-"Why verification missed every one of these"). Its design refuses to repeat
-those verification failures:
+It is the Phase 0 "proof harness" deliverable from the Windows terminal
+update-survival plan. It exists specifically because the July 2026 attempt
+shipped four broken RCs without ever installing the packaged artifact — the
+postmortem's "Why verification missed every one of these". Neither document is
+tracked in this repository, so both are named here rather than linked. Its design
+refuses to repeat those verification failures:
 
 - **Window visibility is measured by window enumeration + owner/canary
   attribution — never by conhost command-line heuristics.** The post-mortem
@@ -39,7 +38,7 @@ those verification failures:
 ```
 pnpm win-update-e2e --from <setup.exe> --to <setup.exe> --expect <profile>
 # or download release assets via gh (one call each):
-pnpm win-update-e2e --from-release v1.4.124-rc.9 --to-release v1.4.125-rc.1 --expect cold-restore
+pnpm win-update-e2e --from-release v0.1.0 --to-release v0.2.0 --expect cold-restore
 ```
 
 Or directly: `node tools/win-update-e2e/run.mjs --from ... --to ... --expect ...`
@@ -139,7 +138,7 @@ successful teardown removes it.
 
 ```
 pnpm win-update-e2e \
-  --from-release v1.4.124-rc.9 --to-release v1.4.125-rc.1 \
+  --from-release v0.1.0 --to-release v0.2.0 \
   --expect cold-restore --install-dir C:\OrcaE2E
 ```
 

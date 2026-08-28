@@ -9,37 +9,49 @@ production Orca vendor repository (`stablyai/orca`).
 This document defines the scheme and the ship-vehicle guarantees around it
 (staging-launch audit F1, F13, F14, F2).
 
-## The `-fork.N` version scheme
+## The ALab `MAJOR.MINOR.0` version scheme
 
 ```
-<upstreamBase>-fork.<N>        e.g.  1.4.122-fork.1
+<major>.<minor>.0              e.g.  0.2.0
 ```
 
-- **`upstreamBase`** is the upstream Orca release the fork most recently
-  merged (`1.4.122` after the v1.4.122-rc.3 re-alignment). It changes only
-  when an upstream sync lands.
-- **`N`** starts at 1 and increments once per fork staging cut. It never
-  resets except when `upstreamBase` moves, e.g.
-  `1.4.122-fork.3 → 1.4.123-fork.1`.
+- ALab Edition versions itself **independently of upstream**. The line
+  restarted at `0.1.0` in `66d754673` and stands at **0.2.0** today
+  (`package.json`).
+- The patch slot is **pinned at 0**. `latestStableDesktopReleaseTag`
+  (`config/scripts/latest-stable-release.mjs`) keys the release line on that
+  zero patch slot, so imported upstream-style tags (patch != 0) can never
+  advance an ALab install.
+- **`MINOR`** increments once per ALab cut. Upstream alignment is tracked
+  separately, in prose and in the merge history — it is not encoded in the
+  version.
 
-Ordering (semver prerelease rules, as implemented by `compareVersions` in
-`src/main/updater-fallback.ts`):
+Release tags on `alabsystems/orca-alab` are `v<version>`, e.g. `v0.2.0`.
+Only `-rc.N` tags carry GitHub's prerelease flag
+(`isDesktopReleasePrerelease` in `config/scripts/desktop-release-tag.mjs`);
+every other cut publishes as a full GitHub release so GitHub's `latest`
+endpoint and the updater fallback advance with the ALab train.
 
-- `1.4.122-fork.1 < 1.4.122-fork.2 < 1.4.123-fork.1` — fork builds upgrade
-  monotonically.
-- `-fork.N` versions parse as prereleases, so `isPrereleaseVersion` is true
-  and default update checks include every fork tag from the atom feed (there
-  is no separate stable channel for staging).
-- Semver-wise `1.4.122-fork.N < 1.4.122` (a prerelease precedes its base).
-  That is **safe by construction**: the updater consults the ALab release
-  feed, not the production vendor feed, so an upstream production tag can
-  never win a version comparison against an ALab build.
+Ordering still runs through `compareVersions` in
+`src/main/updater-fallback.ts`, but with no prerelease suffix in play a plain
+numeric comparison decides it. This is **safe by construction**: the updater
+consults the ALab release feed, not the production vendor feed, so an upstream
+production tag can never win a version comparison against an ALab build.
 
-Release tags on `alabsystems/orca-alab` are `v<version>`, e.g.
-`v1.4.122-fork.1`. Although `-fork.N` is a SemVer prerelease suffix, ALab
-publishes those tags as full GitHub releases so GitHub's `latest` endpoint and
-the updater fallback advance with the fork train. Only `-rc.N` tags carry
-GitHub's prerelease flag.
+### The retired `-fork.N` scheme
+
+Builds used to be versioned `<upstreamBase>-fork.<N>` — last published as
+`v1.4.147-fork.1`. `7277b375e` retired it: SemVer reads `-fork.N` as a
+prerelease, which satisfies no plain version constraint, and it paired with a
+nonzero patch slot that this line pins at 0. Two gates had to be re-anchored in
+the same commit or the change would have failed silently — the updater's
+release-line filter (which keyed on `fork !== null`) and the telemetry staging
+preflight (which classified a build as staging from the suffix, and now fails
+closed: every build is staging unless `ORCA_STAGING=0`).
+
+`parseDesktopReleaseTag` still **parses** `-fork.N` so already-published tags
+keep resolving, and the tests in `config/scripts/latest-stable-release.test.mjs`
+hold that behaviour. Nothing cuts new `-fork.N` tags.
 
 ### Release gate and artifact profiles
 
@@ -82,24 +94,40 @@ fork-owned services before enabling.
 
 ### Platform install modes
 
-- **macOS:** Orca checks the public ALab release feed itself and shows newer
-  versions with a link to the exact GitHub release. Installation is manual.
-  The app never initializes `electron-updater`'s `MacUpdater`: Squirrel.Mac
-  requires a stable signing identity to authenticate updates across releases,
-  while ALab builds have only an ad-hoc launch seal and are not Developer
-  ID-signed or notarized. macOS may ask users to approve privacy permissions
-  again after installing a rebuilt or newer ALab bundle because its ad-hoc code
-  identity is not stable across builds.
-- **Windows:** installation is also manual until ALab has a code-signing
+`getUpdateInstallMode()` in `src/main/updater-install-policy.ts` returns one of
+`'automatic' | 'manual' | 'bundle-swap'`. Every mode except `'automatic'`
+resolves the target release itself instead of letting electron-updater's
+provider decide (`usesSelfManagedCheck`).
+
+- **macOS — `'bundle-swap'`** (since `0988d0605`). Orca checks the public ALab
+  release feed itself and applies the update **in place by swapping the `.app`
+  bundle** (`src/main/updater-bundle-swap.ts`), rather than through
+  Squirrel.Mac. Squirrel refuses an update whose code signature does not match
+  the running app, so it cannot serve an ad-hoc-signed build at all; swapping
+  the bundle ourselves makes signing a distribution concern, not an update one.
+  Trust is tiered: SHA-512 over the downloaded artifact is **always** enforced,
+  and an Ed25519 signature over the feed is additionally enforced whenever a
+  public key was pinned at build time. Startup sweeps any bundle left beside the
+  app by a swap interrupted by a crash or power loss. macOS may still ask users
+  to approve privacy permissions again after installing a rebuilt or newer ALab
+  bundle, because its ad-hoc code identity is not stable across builds.
+- **Windows — `'manual'`:** manual reinstall until ALab has a code-signing
   publisher, as detailed below.
-- **Linux:** the existing `electron-updater` flow remains enabled.
+- **Linux — `'manual'`:** also manual. Linux spans four package topologies
+  (writable AppImage, root-owned AppImage, deb, rpm) that each need a different
+  apply path; none is built yet, so the native `electron-updater` flow is **not**
+  enabled there either.
+
+The native updater stays dormant under every self-managed mode, logging
+`install mode '<mode>'; native updater stays dormant` (`src/main/updater.ts`).
 
 ## Windows updates: manual until signed (F13)
 
-The fork has no Windows code-signing identity. Orca therefore uses the same
-manual-release discovery flow as macOS and never initializes the native
-Windows updater. This avoids downloading an installer that cannot be
-authenticated against an ALab publisher.
+The fork has no Windows code-signing identity. Orca therefore uses the
+self-managed release-discovery flow and never initializes the native Windows
+updater. This avoids downloading an installer that cannot be authenticated
+against an ALab publisher. (macOS shares the discovery half of that flow but
+now applies the result itself — see the bundle-swap mode above.)
 
 Consequences for the staging cohort:
 

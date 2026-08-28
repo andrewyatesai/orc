@@ -4,6 +4,10 @@
   <sub><a href="../../README.md">English</a> · <a href="README.zh-CN.md">中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.es.md">Español</a> · <a href="README.fr.md">Français</a> · <a href="README.pt.md">Português</a></sub>
 </p>
 
+> **최신성 안내:** 이 번역은 2026년 7월에 마지막으로 갱신되었으며 그 이후
+> [영문 README](../../README.md)와 내용이 달라졌습니다. 영문 README가 기준
+> 문서이므로 최신 정보는 영문 README를 참고하세요.
+
 Orca: ALab Edition은 [Stably의 Orca](https://github.com/stablyai/orca)를
 기반으로 하는 실험적인 다운스트림 포크로, 성능과 정확성에 초점을 맞추고
 있습니다. [github.com/andrewyatesai/orca-alab](https://github.com/andrewyatesai/orca-alab)에서

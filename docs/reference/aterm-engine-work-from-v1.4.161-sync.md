@@ -1,5 +1,10 @@
 # aterm Engine Work Filed from the v1.4.161 Upstream Sync
 
+> **Filed at the v1.4.161 sync.** The tree has since advanced to upstream
+> **v1.4.165-rc.0** (`5fb3d4781`), so items below described as arriving "with the
+> v1.4.162 sync" have already landed upstream-side; their engine-side status is
+> not tracked by this document.
+
 Behavioral specs the v1.4.161 merge could not adopt as code because the fork's
 aterm engine replaced the xterm.js layer upstream patched. Each is engine work
 against `rust/aterm` (or the renderer glue in

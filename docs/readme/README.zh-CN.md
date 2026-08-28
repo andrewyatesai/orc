@@ -4,6 +4,10 @@
   <sub><a href="../../README.md">English</a> · <a href="README.ja.md">日本語</a> · <a href="README.ko.md">한국어</a> · <a href="README.es.md">Español</a> · <a href="README.fr.md">Français</a> · <a href="README.pt.md">Português</a></sub>
 </p>
 
+> **过时提示：** 本译文最后更新于 2026 年 7 月，此后已与
+> [英文 README](../../README.md) 出现偏差。英文 README 为准，请参阅英文 README
+> 获取最新信息。
+
 Orca: ALab Edition 是 [Stably 的 Orca](https://github.com/stablyai/orca)
 的一个实验性下游分支，专注于性能与正确性，维护于
 [github.com/andrewyatesai/orca-alab](https://github.com/andrewyatesai/orca-alab)，

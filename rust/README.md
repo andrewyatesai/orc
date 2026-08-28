@@ -11,17 +11,28 @@ dependency maps, migration plan, and ported-modules ledger live in the internal
 rust/
 ├── Cargo.toml            # workspace (release profile: opt-level=z, LTO, strip)
 ├── aterm/                # terminal engine submodule, consumed by orca-terminal
-└── crates/               # 18 crates, all building today
+└── crates/               # 27 crates, all building today
     └── orca-core/        # pure cross-cutting logic ported from src/shared (no IO)
 ```
 
-All 18 crates now exist and build: the pure/config tiers (`orca-core`, `orca-text`,
-`orca-config`, `orca-agents`), the IO tiers (`orca-git`, `orca-pty`, `orca-ssh`,
-`orca-net`, `orca-store`, `orca-crypto`, `orca-relay`, `orca-runtime`), the terminal
-stack (`orca-terminal`, `orca-session`, `orca-ffi`, `orca-aterm-demo`), and the native
-`orca-daemon` binary with its `orca-parity` harness. `cargo test` passes for the
-buildable set. The terminal engine lives in the `aterm` submodule (`rust/aterm`,
-pinned to `v0.18.2607040011`) and is consumed by `orca-terminal`.
+All 27 crates now exist and build: the pure/config tiers (`orca-core`, `orca-text`,
+`orca-config`, `orca-agents`, `orca-policy`), the IO tiers (`orca-git`, `orca-pty`,
+`orca-ssh`, `orca-net`, `orca-store`, `orca-crypto`, `orca-relay`, `orca-runtime`,
+`orca-winpipe`), the terminal stack (`orca-terminal`, `orca-session`, `orca-session-gc`,
+`orca-ffi`, `orca-aterm-demo`, `orca-flow-control`, `orca-stream-split`,
+`orca-renderer-heap`), the resilience tier (`orca-crash-recovery`, `orca-dispatch`,
+`orca-provider-backoff`), and the native `orca-daemon` binary with its `orca-parity`
+harness. `cargo test` passes for the buildable set (`pnpm test:rust` from the repo
+root). The terminal engine lives in the `aterm` submodule (`rust/aterm`) and is
+consumed by `orca-terminal`.
+
+**The engine pin is a commit, not a version string.** aterm's version line was
+restarted, and the version values reachable from this tree disagree with one another,
+so no number here would be trustworthy. The authoritative pin is `sourceCommit` in
+`src/renderer/src/lib/pane-manager/aterm/aterm_wasm_artifact_pin.json`, enforced
+offline by `pnpm check:aterm-pin`, which requires `[workspace.package] version` in
+`rust/aterm/Cargo.toml` to match the `aterm(x.y.z)` marker embedded in each committed
+WASM blob.
 
 ## Build & test
 

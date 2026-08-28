@@ -58,7 +58,8 @@ Avoid vague names like `test`, `misc`, or `changes`.
 
 ## Before Opening a PR
 
-Run the same checks that CI runs:
+Run the local gates (this repository tracks no hosted CI — see below, so these
+are the gate):
 
 ```bash
 pnpm lint
