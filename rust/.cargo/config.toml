@@ -91,7 +91,7 @@ offline = true
 [target.aarch64-apple-darwin]
 rustflags = [
   # Non-fatal reporting: what `-Ztrust-policy=advisory` used to do.
-  "-Ztrust-lame",
+  "-Ztrust-policy=advisory",
   # Without a budget, memchr does not terminate (measured 4m17s, still running).
   # Tune this rather than removing it; removing it hangs the build.
   "-Ztrust-verify-function-budget-ms=5000",
@@ -114,7 +114,7 @@ rustflags = [
 # trust flag in this table is rejected outright by the same frontend, loudly.
 # Net: doctests compile-and-run deauthorized — a stated policy, not a silent
 # fallback.
-rustdocflags = ["-Zno-trust-verify"]
+rustdocflags = ["-Ztrust-verify=off"]
 
 # Build scripts and proc-macros compile for the HOST and never need verification —
 # and the current stage2 ICEs (SignatureMismatch on std closures, rustc_traits/
@@ -128,4 +128,4 @@ target-applies-to-host = true
 host-config = true
 
 [host]
-rustflags = ["-Zno-trust-verify"]
+rustflags = ["-Ztrust-verify=off"]
