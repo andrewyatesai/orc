@@ -44,17 +44,26 @@ pub cycle   --all              # pull -> doctor -> stage, then print the promote
 | --- | --- | --- |
 | dev | `<dev-org>/<repo>` | humans **and agents**, push `main` freely |
 | staging | `<dev-org>/<repo>-staging` | agents, via `pub stage` |
-| release | `alabsystems/<repo>` | **humans only**, `pub promote` at a terminal |
+| release | `alabsystems/<repo>` | agents, via `pub promote` (release credential + explicit `PUBLISH_RELEASE_REMOTE`) |
 
 `<dev-org>` is the private development owner. It is named in the private
 `publication` registry only — never in a repo that gets published, because this
 block ships in public snapshots.
 
-`pub promote` refuses any non-interactive caller — *"Agents/automation may
-stage, never promote."* **Agents must not attempt to defeat that gate**, and the
-release tier needs a separate alabsystems credential that dev tooling does not
-have. If a public repo looks empty, the snapshot is almost certainly sitting in
-`<repo>-staging` waiting for a human to promote it.
+`pub promote` pushes the audited staging tree straight to public `main` — no
+PR, no review branch, no TTY, and it does **not** refuse a non-interactive
+caller. Agents run it. What authorizes the write is possession of the release
+credential plus an explicit `PUBLISH_RELEASE_REMOTE` that promote verifies
+against the registry's release slug before any push (KEYS.md owner decision
+2026-08-23). If a public repo looks empty, the snapshot is sitting in
+`<repo>-staging` and simply has not been promoted yet.
+
+This paragraph previously said promotion was humans-only and that agents must
+not attempt it. That was false — measured 2026-08-27, when ay 0.16.0 and aterm
+0.62.0 were both promoted non-interactively — and it was orphaned text: its own
+banner names `pub policy` as the generator, and that subcommand no longer
+exists. A false control is worse than no control, because it stops the
+automation it describes while providing none of the safety it claims.
 
 ### Two rules that keep breaking
 
