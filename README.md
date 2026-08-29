@@ -27,7 +27,7 @@ SHA-512 over the artifact plus an Ed25519 feed signature when a public key was
 pinned at build time. Windows and Linux update by manual reinstall from that page.
 
 ALab Edition versions itself independently on a `MAJOR.MINOR.0` line, currently
-**0.2.0**; the older `<upstream>-fork.N` tags (last `v1.4.147-fork.1`) are
+**0.3.0**; the older `<upstream>-fork.N` tags (last `v1.4.147-fork.1`) are
 retired, because that number was upstream's and SemVer read the suffix as a
 prerelease. The tree is aligned to upstream Orca **v1.4.165-rc.0**.
 

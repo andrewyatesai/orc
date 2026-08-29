@@ -2,7 +2,7 @@
 
 This guide covers the source checkout of
 [`andrewyatesai/orca-alab`](https://github.com/andrewyatesai/orca-alab), version
-**0.2.0**. ALab Edition versions itself independently of upstream on a
+**0.3.0**. ALab Edition versions itself independently of upstream on a
 `MAJOR.MINOR.0` line; the tree is aligned to upstream Orca **v1.4.165-rc.0**. The
 older `<upstream>-fork.N` tags (last `v1.4.147-fork.1`) are retired. Install its
 developer CLI as `orca-dev`; use that name so commands target this checkout
