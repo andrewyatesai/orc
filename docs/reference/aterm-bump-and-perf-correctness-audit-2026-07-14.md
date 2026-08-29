@@ -78,4 +78,3 @@ typecheck ✓ · lint ✓ · full vitest 29,581 passed / 0 failed ✓ · cargo t
 774 + doctests, clean stable pass) ✓ · ay proof gates ✓ · parity:daemon ✓. (The recurring
 cargo *doctest* `E0514` is a cross-build-cache artifact — 0 actual doctests — that appears when
 crates are rebuilt under mixed toolchains/profiles; the real unit+integration tests all pass.)
-</content>
