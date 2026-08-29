@@ -121,3 +121,20 @@ made false claims on a 6-file snapshot (build instructions with no source and
 - Relicensed: LICENSE is Apache-2.0, NOTICE carries fork copyright, upstream
   MIT notice preserved in THIRD-PARTY-NOTICES.md (which also re-quotes the
   aterm NOTICE at the current pin).
+
+## 2026-08-28 — Versioned, mapped, tagged releases (owner directive)
+
+Mirror-head describes HOW the content is cut, not a licence to skip the
+constellation release pattern. From this date every public snapshot is a
+versioned release: the engine's mirror-head promote reads the version from the
+source commit, refuses to re-release an already-tagged version, appends a
+mappings.json row (dev sha -> public sha, trees, version), and pushes the
+annotated `vX.Y.0` tag to alabsystems/orca-alab.
+
+The ONE authoritative version is package.json's top-level "version" — the
+"v0.x snapshot tags" line this file already anticipated. It was reset from the
+upstream 1.4.x app version when the fork was renamed orca-alab; upstream
+lineage remains recorded solely by the public `v1.4.147-fork.1` tag.
+VERSION_DEFAULT was removed from config.sh so nothing can drift from
+package.json. The 2026-08-27 snapshot (public 007371bbc2d3, cut from dev
+cb2c916c2366) is backfilled in the ledger as v0.2.0.

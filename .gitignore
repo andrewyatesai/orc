@@ -229,3 +229,6 @@ rust/trustc-ice-*.txt
 # Scratch for config/scripts/twin-test-derived-parity-cases.mjs: recorded twin
 # calls, the derived vector corpus and its Rust outputs. Regenerated per run.
 tools/parity/.twin-derived/
+
+# publication engine promote scratch
+/target-verify/
