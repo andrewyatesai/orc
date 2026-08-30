@@ -472,8 +472,8 @@ client floor location; **namespace new floors by root generation** rather than c
 numerically against legacy floors. Ship one bridge through every old lane — old atpkg clients
 via an old-root-signed legacy index, standalone aterm via a dual-reader bridge on the old
 appcast, Orca via the existing Electron feed at a transport SemVer above the current ALab
-line (`0.2.0`; the `-fork.N` line this paragraph originally named was retired in
-`7277b375e`).
+line (`0.3.0` as of 2026-08-30, `package.json` authoritative; the `-fork.N` line this
+paragraph originally named was retired in `7277b375e`).
 **Windows and Linux Orca installs have no authenticated update path, so that cohort needs a
 manually installed, OS-signed bridge** — say so rather than pretending otherwise. macOS is
 no longer in that cohort: bundle-swap authenticates the artifact by SHA-512, plus an

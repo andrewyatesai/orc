@@ -3,6 +3,14 @@
 **Measured at `b6250648b`, 2026-08-12.** Every number below came from the tree, not
 from a summary. Where a claim is an inference rather than a measurement, it says so.
 
+> **Dated record — do not read §5 as the current toolchain posture (noted
+> 2026-08-30).** "Trust the compiler runs on every build of every crate" was
+> already generous on 2026-08-12 and is not the posture today: every routine build
+> and test script selects rustup `stable`, and Trust runs only in the `pnpm
+> verify:rust` reporting lane. The current statement lives in `AGENTS.md`
+> ("Trust Toolchain Posture") and `docs/rust-migration/trust-verification.md`
+> ("Current state"). Everything else below stands as of its date.
+
 Written because the project's own documents describe a design, and it had become
 hard to tell which parts of that design are wired, which are behind a flag, and
 which are still prose.

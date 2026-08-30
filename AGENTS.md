@@ -24,6 +24,16 @@ A test that constructs its own inputs proves the logic, never that production re
 ## Type Declarations: Prefer `.ts` Over `.d.ts`
 
 # Considerations
+## Trust Toolchain Posture (measured 2026-08-30)
+
+State this accurately; do not describe the aspiration as the posture.
+
+- `rust-toolchain.toml` pins channel `trust`, so a bare `cargo` here resolves to the sealed Trust toolchain.
+- Two config tables carry identical flags and must stay in lockstep: `.cargo/config.toml` (read by invocations that start at the repo root) and `rust/.cargo/config.toml` (read from `rust/`). First-party **target** units verify at `-Ztrust-policy=advisory` with `-Ztrust-verify-function-budget-ms=5000`; `[host]` units (build scripts, proc-macros) and `rustdocflags` carry `-Ztrust-verify=off`, gated by `target-applies-to-host = false`. That host/target split is the sanctioned pattern — keep it.
+- **There is no blanket first-party off-switch, and adding one is not an option.** Two gaps are open and should be named as gaps: (1) vendored third-party units share the first-party policy, because cargo has no per-package rustflags — per-unit scoping is the fix; (2) every routine script (`build-rust-daemon`, `build-terminal-addon`, the three WASM builders, `run-parity`, `run-rust-tests`) selects rustup `stable` explicitly, so the **shipped artifacts are unverified builds** (`build-terminal-addon` is the one with an opt-in, `ORCA_RUST_TOOLCHAIN=trust`). Trust runs only in `pnpm verify:rust`, which reports and never gates.
+- Advisory is verified-and-reported, never verified-clean. A timed-out or unsupported obligation is an assumption, not a proof.
+- Flag spellings are a property of the installed toolchain, not of the calendar. `config/scripts/check-trust-flag-surface.mjs` (wired into `pnpm lint`) probes both tables against `rustc -Z help`. Never answer a flag rejection by clearing `RUSTFLAGS` or building from a directory where the table is not read — both compile vanilla Rust silently.
+
 ## Worktree Safety
 
 Always use the primary working directory (the worktree) for all file reads and edits. Never follow absolute paths from subagent results that point to the main repo.

@@ -217,35 +217,57 @@ evidence. Precondition propagation is the wrong layer; both experiment commits w
 This **empirically confirms** the floor above: the residual needs owner native CHC/PDR proof
 *emission* for non-contract obligations, not a precondition or surface lever.
 
-## Current state (be honest)
+## Current state (measured 2026-08-30)
 
-- Trust is **proof-aware, not proof-complete**. A stage2 `trustc` IS now built and run
-  here (`~/trust`, builds #67/#68); the orca-core survey converges and is re-measurable
-  on demand (`tools/trust-survey/survey-orca-verify.sh` + `classify-gap.py`). (This bullet
-  previously said verification "can't run here yet" — that's no longer true.)
-- Orca crates stay **Trust-ready**: `forbid(unsafe)`, panic-free, and (incrementally)
-  annotated with `#[cfg_attr(trust_verify, trust::requires/ensures(..))]` contracts that
-  are inert under stock cargo.
+Everything below this section is a dated log; read it as history. This section is
+the only present-tense claim in the file, and it is deliberately narrow.
 
-## Build + verify (on a capable machine)
+- Trust is **proof-aware, not proof-complete**, and it runs here routinely.
+  `rust-toolchain.toml` pins channel `trust`, which rustup resolves to a *sealed*
+  toolchain artifact rather than a live `~/trust/build/host/stage2` tree — so a
+  stage2 teardown in the compiler repo no longer breaks this workspace, and a
+  landed compiler fix is invisible here until a new seal is promoted.
+- **First-party target units verify at `advisory`**, with a per-function
+  wall-clock budget; `[host]` units (build scripts, proc-macros) and doctests
+  carry `-Ztrust-verify=off`, gated by `target-applies-to-host = false`. Both
+  `.cargo/config.toml` tables state this and must stay in lockstep. There is no
+  blanket first-party off-switch.
+- **The honest gap:** every routine build and test script in this repo selects
+  rustup `stable`, which has no verifier, so the packaged binaries are not
+  verified builds. Verification lives in one opt-in reporting lane. Vendored
+  third-party units also share the first-party policy, because cargo has no
+  per-package rustflags; per-unit scoping is the fix, not an off-switch.
+- Orca crates stay **Trust-ready**: `forbid(unsafe)`, panic-free, and
+  (incrementally) annotated with `#[cfg_attr(trust_verify, trust::requires/ensures(..))]`
+  contracts that are inert under stock cargo.
+
+## Build + verify
+
+The Trust toolchain is installed, not built here: `rustup toolchain list` must
+show `trust`, and the sealing/promotion procedure lives in the Trust repo
+(`scripts/promote-toolchain.sh`, `INSTALL.md`). Then:
 
 ```bash
-# 1. Build the Trust stage2 toolchain (from ~/trust; needs cmake+ninja+python3, network for stage0).
-cd ~/trust
-python3 scripts/recreate_bootstrap.py --stage 2   # if bootstrap/trust-stage0/dist holds only manifests
-./x.py build --stage 2
-bash tests/e2e_trust_toolchain.sh                  # inventory/e2e gate
-
-# 2. Verify Orca's pure crates (from rust/).
-cd /path/to/orca-alab/rust
-~/trust/build/host/stage2/bin/tcargo trust check -p orca-core   --format json
-~/trust/build/host/stage2/bin/tcargo trust check -p orca-agents --format json
-~/trust/build/host/stage2/bin/tcargo trust check -p orca-config --format json
-# ... per pure crate. --hardened / --trust-profile <p> raise the bar.
+pnpm verify:rust                 # the six core crates
+pnpm verify:rust -- --all        # all 27 first-party crates
+pnpm verify:rust -- orca-core --json
 ```
 
-The JSON proof rows (per function) are the artifact. Empty/"unsupported" rows are
-not failures — they are the **gap log** (below).
+`config/scripts/run-rust-verification.mjs` is the entry point; it runs
+`rustup run trust cargo build -p <crate>` from `rust/`, so the crate picks up
+`rust/.cargo/config.toml`'s advisory policy and budget. It **reports and never
+gates** — exit is non-zero only when a crate failed to compile or the toolchain is
+absent, because both mean the run measured nothing.
+
+Flag spellings are a property of the installed toolchain, not of the calendar.
+Run `node config/scripts/check-trust-flag-surface.mjs` (also wired into
+`pnpm lint`) before editing either config table, and never answer a flag
+rejection by clearing `RUSTFLAGS` or building from a directory where the table is
+not read — both compile vanilla Rust silently.
+
+The per-function verdict rows are the artifact. "unsupported" and timed-out rows
+are not failures — they are the **gap log** (below), and they are assumptions,
+not proofs.
 
 ## Contract convention (dual-build)
 
@@ -267,11 +289,21 @@ Each annotated crate declares the cfg so stock builds don't warn:
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(trust_verify)'] }
 ```
 
-`tcargo trust check` is invoked with `--cfg trust_verify` (or the equivalent
-profile) so the contracts activate. Start with invariants already reasoned by
-hand — e.g. `agent_status_types::truncate_preserving_surrogates` (no lone
-surrogate, length ≤ cap), `feature_interactions` record validation, the
-`orca-relay` binary framing bounds.
+The contracts activate only when something passes `--cfg trust_verify`. Start with
+invariants already reasoned by hand — e.g.
+`agent_status_types::truncate_preserving_surrogates` (no lone surrogate, length ≤
+cap), `feature_interactions` record validation, the `orca-relay` binary framing
+bounds.
+
+> **Measured 2026-08-30: nothing in this repo sets `--cfg trust_verify`.** 21
+> source files carry `#[cfg_attr(trust_verify, trust::…)]` contracts, and neither
+> `.cargo/config.toml` table nor `config/scripts/run-rust-verification.mjs` arms
+> the cfg — so `pnpm verify:rust` measures the *structural* obligations (overflow,
+> bounds, panic-freedom) and every authored contract is inert in every lane. The
+> crates also gate `feature(register_tool)` / `register_tool(trust)` on the same
+> cfg, which is the local workaround for the `trust` tool namespace not being
+> predefined upstream. Arming the cfg is open work; until it happens, do not
+> describe these contracts as checked.
 
 ## Anticipated gap log — where Orca will stress Trust
 

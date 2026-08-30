@@ -12,12 +12,15 @@ This document defines the scheme and the ship-vehicle guarantees around it
 ## The ALab `MAJOR.MINOR.0` version scheme
 
 ```
-<major>.<minor>.0              e.g.  0.2.0
+<major>.<minor>.0              e.g.  0.3.0
 ```
 
 - ALab Edition versions itself **independently of upstream**. The line
-  restarted at `0.1.0` in `66d754673` and stands at **0.2.0** today
-  (`package.json`).
+  restarted at `0.1.0` in `66d754673`, and `package.json`'s top-level
+  `"version"` is the one authoritative value — read it there rather than trusting
+  this sentence, which was last checked at **0.3.0** on 2026-08-30. `pub version`
+  and `pub bump` read and write that field, and the mirror-head promote reads it
+  from the source commit to name, tag, and ledger-map each release.
 - The patch slot is **pinned at 0**. `latestStableDesktopReleaseTag`
   (`config/scripts/latest-stable-release.mjs`) keys the release line on that
   zero patch slot, so imported upstream-style tags (patch != 0) can never
@@ -26,7 +29,7 @@ This document defines the scheme and the ship-vehicle guarantees around it
   separately, in prose and in the merge history — it is not encoded in the
   version.
 
-Release tags on `alabsystems/orca-alab` are `v<version>`, e.g. `v0.2.0`.
+Release tags on `alabsystems/orca-alab` are `v<version>`, e.g. `v0.3.0`.
 Only `-rc.N` tags carry GitHub's prerelease flag
 (`isDesktopReleasePrerelease` in `config/scripts/desktop-release-tag.mjs`);
 every other cut publishes as a full GitHub release so GitHub's `latest`

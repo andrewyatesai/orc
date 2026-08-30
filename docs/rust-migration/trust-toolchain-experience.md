@@ -274,6 +274,12 @@ compiles as vanilla Rust with the verifier off. The repo's own instruction —
 `config/scripts/check-trust-flag-surface.mjs`, wired into `pnpm lint`, and it
 enumerates every tracked `*.cargo/config.toml` rather than naming one.
 
+> **Superseded 2026-08-30 — the flag surface moved back; see §4c.** The
+> paragraph below was true of the stage2 installed on 2026-08-18 and is false of
+> the sealed toolchain in use now. It is kept because the *lesson* it teaches —
+> flag spellings are a property of the installed toolchain, not of the calendar —
+> is exactly what the reversal confirms.
+
 The surface now: verification is batteries-on with no on-switch,
 `-Zno-trust-verify` is the sole off-switch, `-Ztrust-lame` is what `advisory`
 was, and the step budget is gone in favour of a wall-clock `-ms` twin. That last
@@ -339,6 +345,58 @@ vendored crates built by stock rustc are unlikely to qualify; and it would pull
 `memchr` and `regex` into verification scope — the crate measured hanging above.
 Untested here deliberately: on `orca-core` the plausible outcome is a build that
 never finishes, not more proofs.
+
+## 4c. Postscript, 2026-08-30 — the flag surface moved BACK, and the toolchain is now sealed
+
+**The reversal.** Everything §4b called gone is present again, and both of its
+named replacements are gone. Probed directly against the installed toolchain
+(`rustc +trust -Z help`):
+
+| flag | §4b (2026-08-18) | measured 2026-08-30 |
+| --- | --- | --- |
+| `-Ztrust-verify` | deleted | present — `on` is the default, `off` is the sole deauthorization |
+| `-Ztrust-policy` | deleted | present — `strict` (default), `certify`, `advisory`, `memory-safe` |
+| `-Ztrust-verify-function-budget-steps` | deleted | present, and its help text now argues for itself: a "DEADLINE-INDEPENDENT … provable monotone-decreasing bound that guarantees termination even with the clock disabled" |
+| `-Ztrust-lame` | the new `advisory` | **absent** |
+| `-Zno-trust-verify` | the sole off-switch | **absent** |
+
+Both config tables were repaired for this surface at `4fcb89723`, whose message
+records the same reversal from the other side. `check-trust-flag-surface.mjs` —
+the probe §4b introduced — now passes: *"every configured trust flag is accepted,
+across: .cargo/config.toml, rust/.cargo/config.toml"*. This is the second flip in
+twelve days, which retires any temptation to write a flag list down as durable:
+the probe is the record, this table is a snapshot.
+
+**One consequence nobody has acted on yet.** §1.5 wanted the step budget and §4b
+conceded the `-ms` twin only because no step budget existed. One exists again, so
+the trade §4b was forced into is no longer forced — both tables still set
+`-Ztrust-verify-function-budget-ms=5000`, and moving back to a deterministic step
+budget is now an open, purely-mechanical choice rather than a wish.
+
+**The toolchain is a sealed artifact now, not a live build tree.** `rustup`'s
+`trust` channel resolves through `~/toolchains/trust-current` to an immutable
+promoted seal (`rustc 1.99.0-dev (1979a7b85 2026-08-28)`), so a stage2 teardown
+in the compiler repo can no longer empty this workspace's toolchain mid-build.
+The cost is a new staleness axis: **a landed compiler fix is invisible here until
+a new seal is promoted.** Measured against this seal:
+
+* the cross-crate loop-stamp ICE ("unwrapping cross-crate data") is fixed at
+  `189e37392a` (*fix(trust-mir-extract): reject foreign inlined loop scopes*),
+  and that commit **is** an ancestor of the sealed revision — so this workspace
+  has the fix;
+* the vcgen per-function budget overrun is fixed at `d9d9d675e3`
+  (*fix(verify): a preprocessing budget overrun costs completeness in advisory,
+  not the build*), and that commit is **not** an ancestor of the sealed
+  revision — so a budget overrun here still behaves the old way until the next
+  seal.
+
+**And §2.1's real answer is still outstanding in this repo.** The configs are
+right and the pin is right, but every routine build and test script still selects
+rustup `stable` explicitly, so the shipped artifacts are compiled without a
+verifier and `pnpm verify:rust` is the only lane that runs one. That is silent
+vanilla wearing a different hat: nothing lies about it any more — README and
+AGENTS.md both say it — but the lazy path still does not run the verifier, which
+was this document's one-sentence thesis.
 
 ## 5. Priority order, if the Trust repo takes one thing
 

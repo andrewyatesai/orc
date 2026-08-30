@@ -58,6 +58,12 @@ resolved above rather than avoided.
 
 ## Versioning
 
+**Superseded 2026-08-28** by "Versioned, mapped, tagged releases" at the end of
+this file: mirror-head snapshots ARE versioned and tagged now, `VERSION_DEFAULT`
+was removed from `publish/config.sh` entirely, and `package.json` is the sole
+authoritative version. Kept for provenance; where this section and that one
+disagree, that one wins. The paragraphs below are the pre-2026-08-28 record.
+
 **mirror-head does not version its snapshots** — a mirror-head run reports a
 null version and there is no `promote` tag to satisfy. `VERSION_DEFAULT="0.2.0"`
 in `publish/config.sh` is therefore inert here; it is kept only so the file
@@ -138,3 +144,26 @@ lineage remains recorded solely by the public `v1.4.147-fork.1` tag.
 VERSION_DEFAULT was removed from config.sh so nothing can drift from
 package.json. The 2026-08-27 snapshot (public 007371bbc2d3, cut from dev
 cb2c916c2366) is backfilled in the ledger as v0.2.0.
+
+## 2026-08-30 — measured state of the boundary (corrections, no new decisions)
+
+Read against `publish/config.sh`, `package.json`, and the ledger; nothing here
+changes policy, it only retires present-tense claims this file and
+`publish/README.md` had left standing.
+
+- **The current public release is v0.3.0.** The ledger's newest orca-alab row
+  maps dev `0261f5b6cab310808f219017281a56b0c7c3c49e` (`chore(release): 0.2.0 ->
+  0.3.0`) to public `aa676f4fd695269cc6d22dafcc9ca1cb2affc256`, `version 0.3.0`,
+  `release_mode mirror-head`, verified 2026-08-29. The 2026-08-28 pattern above
+  therefore has a second, non-backfilled run behind it.
+- **The "Versioning" section is superseded** and is now marked as such in place.
+  Its two stale facts: mirror-head snapshots are versioned and tagged, and
+  `VERSION_DEFAULT` no longer exists in `publish/config.sh` at all.
+- **Promotion is not human-only and is not PR-gated.** `publish/README.md` said
+  it twice and has been corrected; the CLAUDE.md versioning block already carried
+  the correction. `pub promote` does not refuse a non-interactive caller — the
+  release credential plus an explicit, registry-checked `PUBLISH_RELEASE_REMOTE`
+  is the whole gate.
+- Unchanged and re-confirmed: no transform runs, `manifest.txt` is an existence
+  probe, `CHECK_CMD_DEFAULT` is inert, and the repository's own `/README.md` is
+  the public README.

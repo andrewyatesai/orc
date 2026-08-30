@@ -1,7 +1,8 @@
 # Orca Fork — Staging Privacy Statement
 
 **Audience:** the staging cohort of this Orca fork — the ALab Edition builds,
-versioned on the ALab-owned `MAJOR.MINOR.0` line (`0.2.0` today), developed at
+versioned on the ALab-owned `MAJOR.MINOR.0` line (`0.3.0` as of 2026-08-30;
+`package.json` is authoritative), developed at
 `andrewyatesai/orca-alab` and distributed from `alabsystems/orca-alab` Releases.
 This includes the retired `x.y.z-fork.N` builds that preceded that line.
 **Effective:** 2026-07-04. This document is the target of the in-app

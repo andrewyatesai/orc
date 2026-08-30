@@ -94,11 +94,19 @@ Terminal and migration work is checked through several independent systems:
   discharged by the `certificates` gauntlet axis
 - explicit reliability, flake-history, renderer-size, and performance budgets
 
-The Rust workspace also compiles under **Trust**, a verifying Rust toolchain, with
-typed verification on; `pnpm verify:rust` reports per-crate verdicts rather than
-gating, since a lane that slow would only be skipped as a gate. Routine builds and
-tests pin rustup `stable`, which has no verifier. All of this proves specific
-contracts, not that the whole application is formally verified.
+The Rust workspace also compiles under **Trust**, a verifying Rust toolchain.
+`rust-toolchain.toml` pins the `trust` channel, and both `.cargo/config.toml`
+tables verify first-party target units at `-Ztrust-policy=advisory` under a
+per-function wall-clock budget; build scripts and proc-macros compile
+deauthorized (`-Ztrust-verify=off`), because host tooling is not the shipped
+artifact. `pnpm verify:rust` is the lane that reads the verdicts — it reports per
+crate rather than gating, since a lane that slow would only be skipped as a gate.
+Advisory means **verified-and-reported, not verified-clean**. And every routine
+build and test script (Rust daemon, native addon, WASM, parity, `pnpm test:rust`)
+explicitly selects rustup `stable`, which has no verifier — so the packaged
+binaries are not verified builds. Closing that is open work, not a settled
+design. All of this proves specific contracts, not that the whole application is
+formally verified.
 
 ### Incremental Rust migration
 
@@ -124,6 +132,10 @@ Prerequisites:
 - pnpm 10
 - rustup with stable Rust 1.96 or newer
 - Xcode Command Line Tools for macOS native components
+
+`rust-toolchain.toml` pins the `trust` channel for a bare `cargo` invocation, but
+every build and test script selects `stable` explicitly, so a stable rustup is all
+a source build needs; the Trust toolchain is required only by `pnpm verify:rust`.
 
 Clone with the aterm submodule and install dependencies:
 
