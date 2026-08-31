@@ -44,26 +44,38 @@ pub cycle   --all              # pull -> doctor -> stage, then print the promote
 | --- | --- | --- |
 | dev | `<dev-org>/<repo>` | humans **and agents**, push `main` freely |
 | staging | `<dev-org>/<repo>-staging` | agents, via `pub stage` |
-| release | `alabsystems/<repo>` | agents, via `pub promote` (release credential + explicit `PUBLISH_RELEASE_REMOTE`) |
+| release | `alabsystems/<repo>` | `pub promote` — whoever holds the release credential and names the destination explicitly |
 
 `<dev-org>` is the private development owner. It is named in the private
 `publication` registry only — never in a repo that gets published, because this
 block ships in public snapshots.
 
-`pub promote` pushes the audited staging tree straight to public `main` — no
-PR, no review branch, no TTY, and it does **not** refuse a non-interactive
-caller. Agents run it. What authorizes the write is possession of the release
-credential plus an explicit `PUBLISH_RELEASE_REMOTE` that promote verifies
-against the registry's release slug before any push (KEYS.md owner decision
-2026-08-23). If a public repo looks empty, the snapshot is sitting in
-`<repo>-staging` and simply has not been promoted yet.
+`pub promote` requires the destination to be named explicitly —
+`PUBLISH_RELEASE_REMOTE`, checked against the registry's release slug — and
+the release tier needs a **separate alabsystems credential**: the dev token is
+a fine-grained PAT scoped to a single owner and can never reach alabsystems,
+whatever permissions it is granted. Those two facts are the authorization
+(KEYS.md owner decision 2026-08-23); there is no interactive confirmation and
+no per-repo grant variable.
 
-This paragraph previously said promotion was humans-only and that agents must
-not attempt it. That was false — measured 2026-08-27, when ay 0.16.0 and aterm
-0.62.0 were both promoted non-interactively — and it was orphaned text: its own
-banner names `pub policy` as the generator, and that subcommand no longer
-exists. A false control is worse than no control, because it stops the
-automation it describes while providing none of the safety it claims.
+**Promote only when the owner has directed it.** The credential and the
+explicit destination enforce *what* can be published where; publishing at all
+remains the owner's call. If a public repo looks empty, the snapshot is almost
+certainly sitting in `<repo>-staging` waiting for exactly that.
+
+### Release modes
+
+`promote` requires `public_clone: pass`. An empty `CHECK_CMD_DEFAULT` records
+`skipped`, which is **not** a pass — so a repo with no build gate can never be
+promoted. Repos that genuinely cannot build standalone yet declare it:
+
+```sh
+RELEASE_MODE_DEFAULT="source-only"   # in publish/config.sh, with the reason
+```
+
+source-only covers a **skipped** gate only. A **failing** build still blocks the
+release — a real defect cannot be laundered by relabelling the repo. Content
+guards (forbidden-content, private-refs, gitleaks) must pass in every mode.
 
 ### Two rules that keep breaking
 
@@ -74,4 +86,16 @@ automation it describes while providing none of the safety it claims.
 2. **`publish/config.sh` must use flat `KEY_DEFAULT="value"` lines.** The engine
    reads the committed file with `^KEY_DEFAULT="(.*)"$` and does **not** source
    it, so `: "${KEY_DEFAULT:=…}"` parses in bash but is invisible to the engine.
+3. **Commit a `rust-toolchain.toml`.** The engine runs the public-clone gate in a
+   SCRUBBED environment, so a clone without one inherits whatever `rustup
+   default` is set on the machine cutting the release. On the maintainer box
+   that is the custom `trust` verifying compiler, which fails compiling ordinary
+   third-party build scripts (`libc`, `unicode-ident`) on proof obligations
+   unrelated to your repo. Pin the toolchain so the gate tests the candidate,
+   not the workstation.
+4. **Never bump a version without moving intra-workspace requirements.** On a
+   0.x workspace a caret requirement is minor-locked: `^0.3.0` means
+   `>=0.3.0 <0.4.0`, so bumping the package to `0.4.0` while
+   `[workspace.dependencies]` still says `"0.3.0"` makes the workspace
+   unresolvable — and it surfaces only at export time. `pub bump` handles this.
 <!-- END pub-managed: versioning -->

@@ -30,19 +30,24 @@ guard baseline, registry, pin ledger) lives in the sibling `publication` repo.
 - `content-allow.txt` — narrow exceptions for `forbidden-extra.txt` only;
   central-baseline findings cannot be suppressed by repository policy
 - `DECISIONS.md` — boundary log: what is excluded and why, scrub history
+- `post-promote` — optional executable hook `pub promote` runs from the repo
+  root once the public push has landed (site follow-through: engine rebuild,
+  download links, release notes). Env: `PUB_REPO_SLUG`, `PUB_PUBLIC_COMMIT`,
+  `PUB_STAGING_COMMIT`, `PUB_VERSION`, `PUB_TAG` (only if the tag exists),
+  `PUB_RELEASE_CLONE`, `PUB_DRY_RUN=1` under `--dry-run`; the rest of the
+  environment is clean (`PUB_HOOK_ENV=NAME,NAME` forwards more). Its failure
+  never un-promotes; `--skip-site` / `PUB_SKIP_SITE=1` skips it
 - `.out/` — gitignored work area
 
 Tiers: **dev** `andrewyatesai/<repo>` (private, full history) → **staging**
 `andrewyatesai/<repo>-staging` (private, one snapshot commit, agents may push)
-→ **release** `alabsystems/<repo>` (public, agents promote — no PR, no review
-branch, no TTY).
+→ **release** `alabsystems/<repo>` (public; `pub promote` pushes the audited
+staging tree straight to public `main` — no PR, no review branch, no TTY).
 
 Usage: `publish/publish.sh stage` (dev → staging; `--dry-run`, `--check`) and
-`publish/publish.sh promote` (staging → public). **Corrected 2026-08-30:** the
-two lines above previously said promotion was human-only and PR-gated. That was
-false — `pub promote` does not refuse a non-interactive caller, and non-interactive
-promotes were measured across the constellation on 2026-08-27. What authorizes the
-write is the release credential plus an explicit `PUBLISH_RELEASE_REMOTE` that
-promote verifies against the registry's release slug before any push (KEYS.md
-owner decision 2026-08-23). The same correction is recorded in the CLAUDE.md
-versioning block.
+`publish/publish.sh promote` (staging → public; `--dry-run`, `--skip-site`).
+Agents run both. What authorizes the public write is possession of the release
+credential (`~/.secrets/gh_access_token_alabsystems` — the dev token cannot
+reach alabsystems at all) plus an explicit `PUBLISH_RELEASE_REMOTE`, which
+promote checks against the registry's release slug before any push (KEYS.md
+owner decision 2026-08-23). Publishing at all remains the owner's call.
